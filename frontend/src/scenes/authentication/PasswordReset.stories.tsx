@@ -1,21 +1,22 @@
 // PasswordReset.stories.tsx
 import { Meta } from '@storybook/react'
-import { PasswordReset } from './PasswordReset'
 import { useEffect } from 'react'
-import { useStorybookMocks } from '~/mocks/browser'
-import preflightJson from '~/mocks/fixtures/_preflight.json'
 import { passwordResetLogic } from 'scenes/authentication/passwordResetLogic'
 
+import { useStorybookMocks } from '~/mocks/browser'
+import preflightJson from '~/mocks/fixtures/_preflight.json'
+
+import { PasswordReset } from './PasswordReset'
+
 // some metadata and optional parameters
-export default {
+const meta: Meta = {
     title: 'Scenes-Other/Password Reset',
     parameters: {
         layout: 'fullscreen',
-        options: { showPanel: false },
         viewMode: 'story',
     },
-} as Meta
-
+}
+export default meta
 // export more stories with different state
 export const NoSMTP = (): JSX.Element => {
     useStorybookMocks({

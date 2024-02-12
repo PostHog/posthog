@@ -1,13 +1,14 @@
 .cohorts-drawer .ant-drawer-content-wrapper {
-    max-width: 850px !important;
     width: 100% !important;
+    max-width: 850px !important;
 }
 
 .cohort-recalculating {
-    background-color: var(--mid);
     padding: 0.5rem 1rem;
     margin-top: 1rem;
+    background-color: var(--mid);
     border-radius: var(--radius);
+
     .ant-spin-spinning {
         margin-right: 0.375rem;
     }
@@ -15,27 +16,13 @@
 
 .cohort-csv-dragger {
     height: 155px !important;
-    background-color: transparent !important;
     margin-top: 1rem;
-    border: 2px dashed var(--primary) !important;
-    border-radius: 4px !important;
+    border-color: var(--primary);
+    border-style: dashed;
+    border-width: 2px;
+    border-radius: var(--radius);
 
     &:hover {
-        border-color: var(--primary-light) !important;
-    }
-
-    .ant-upload-drag-container {
-        display: flex !important;
-        justify-content: center;
-        flex-direction: column;
-        align-items: center;
-        height: 100%;
-        padding: 0 1rem;
-
-        .ant-upload-text {
-            font-weight: 600;
-            font-size: 1rem !important;
-            margin: 8px 0 0 0 !important;
-        }
+        border-color: var(--primary-3000-hover);
     }
 }

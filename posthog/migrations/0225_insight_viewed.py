@@ -6,7 +6,6 @@ from django.db import migrations, models
 
 
 class Migration(migrations.Migration):
-
     dependencies = [
         ("posthog", "0224_saml_multitenant"),
     ]
@@ -15,16 +14,42 @@ class Migration(migrations.Migration):
         migrations.CreateModel(
             name="InsightViewed",
             fields=[
-                ("id", models.AutoField(auto_created=True, primary_key=True, serialize=False, verbose_name="ID")),
+                (
+                    "id",
+                    models.AutoField(
+                        auto_created=True,
+                        primary_key=True,
+                        serialize=False,
+                        verbose_name="ID",
+                    ),
+                ),
                 ("last_viewed_at", models.DateTimeField()),
-                ("insight", models.ForeignKey(on_delete=django.db.models.deletion.CASCADE, to="posthog.insight")),
-                ("team", models.ForeignKey(on_delete=django.db.models.deletion.CASCADE, to="posthog.team")),
-                ("user", models.ForeignKey(on_delete=django.db.models.deletion.CASCADE, to=settings.AUTH_USER_MODEL)),
+                (
+                    "insight",
+                    models.ForeignKey(
+                        on_delete=django.db.models.deletion.CASCADE,
+                        to="posthog.insight",
+                    ),
+                ),
+                (
+                    "team",
+                    models.ForeignKey(on_delete=django.db.models.deletion.CASCADE, to="posthog.team"),
+                ),
+                (
+                    "user",
+                    models.ForeignKey(
+                        on_delete=django.db.models.deletion.CASCADE,
+                        to=settings.AUTH_USER_MODEL,
+                    ),
+                ),
             ],
         ),
         migrations.AddIndex(
             model_name="insightviewed",
-            index=models.Index(fields=["team_id", "user_id", "-last_viewed_at"], name="posthog_ins_team_id_339ee0_idx"),
+            index=models.Index(
+                fields=["team_id", "user_id", "-last_viewed_at"],
+                name="posthog_ins_team_id_339ee0_idx",
+            ),
         ),
         migrations.AddConstraint(
             model_name="insightviewed",

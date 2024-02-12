@@ -1,11 +1,11 @@
-import { useEffect } from 'react'
 import { Meta } from '@storybook/react'
 import { router } from 'kea-router'
-import { urls } from 'scenes/urls'
+import { useEffect } from 'react'
 import { App } from 'scenes/App'
-import { mswDecorator, useFeatureFlags } from '~/mocks/browser'
+import { urls } from 'scenes/urls'
+
+import { mswDecorator } from '~/mocks/browser'
 import { EarlyAccessFeatureType } from '~/types'
-import { FEATURE_FLAGS } from 'lib/constants'
 
 const EARLY_ACCESS_FEATURE_RESULT = [
     {
@@ -106,11 +106,10 @@ const EARLY_ACCESS_FEATURE_RESULT = [
     },
 ]
 
-export default {
+const meta: Meta = {
     title: 'Scenes-App/Features',
     parameters: {
         layout: 'fullscreen',
-        options: { showPanel: false },
         testOptions: {
             excludeNavigationFromSnapshot: true,
         },
@@ -126,15 +125,20 @@ export default {
                     next: null,
                     previous: null,
                 },
+                '/api/projects/:team_id/early-access-feature/not-found/': [
+                    404,
+                    {
+                        detail: 'Not found.',
+                    },
+                ],
                 '/api/projects/:team_id/early-access-feature/:flagId/':
                     EARLY_ACCESS_FEATURE_RESULT[0] as EarlyAccessFeatureType,
             },
         }),
     ],
-} as Meta
-
+}
+export default meta
 export function FeaturesList(): JSX.Element {
-    useFeatureFlags([FEATURE_FLAGS.EARLY_ACCESS_FEATURE])
     useEffect(() => {
         router.actions.push(urls.earlyAccessFeatures())
     }, [])
@@ -142,9 +146,15 @@ export function FeaturesList(): JSX.Element {
 }
 
 export function NewFeatureFlag(): JSX.Element {
-    useFeatureFlags([FEATURE_FLAGS.EARLY_ACCESS_FEATURE])
     useEffect(() => {
         router.actions.push(urls.earlyAccessFeature('new'))
+    }, [])
+    return <App />
+}
+
+export function NotFoundEarlyAccess(): JSX.Element {
+    useEffect(() => {
+        router.actions.push(urls.earlyAccessFeature('not-found'))
     }, [])
     return <App />
 }

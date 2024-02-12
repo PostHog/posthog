@@ -1,29 +1,30 @@
+import { Meta, StoryFn, StoryObj } from '@storybook/react'
+import { IconGlobeLock } from 'lib/lemon-ui/icons'
 import { useState } from 'react'
-import { ComponentMeta, ComponentStory } from '@storybook/react'
 
 import { LemonSwitch as RawLemonSwitch, LemonSwitchProps } from './LemonSwitch'
-import { IconGlobeLock } from 'lib/lemon-ui/icons'
-
-export default {
-    title: 'Lemon UI/Lemon Switch',
-    component: RawLemonSwitch,
-    argTypes: {
-        label: {
-            defaultValue: 'Switch this!',
-        },
-    },
-} as ComponentMeta<typeof LemonSwitch>
 
 const LemonSwitch = ({ checked, ...props }: Partial<LemonSwitchProps>): JSX.Element => {
     const [isChecked, setIsChecked] = useState(checked || false)
     return <RawLemonSwitch {...props} checked={isChecked} onChange={setIsChecked} />
 }
 
-const Template: ComponentStory<typeof RawLemonSwitch> = (props: LemonSwitchProps) => {
+type Story = StoryObj<typeof RawLemonSwitch>
+const meta: Meta<typeof LemonSwitch> = {
+    title: 'Lemon UI/Lemon Switch',
+    component: LemonSwitch,
+    args: {
+        label: 'Switch this!',
+    },
+    tags: ['autodocs'],
+}
+export default meta
+
+const Template: StoryFn<typeof RawLemonSwitch> = (props: LemonSwitchProps) => {
     return <LemonSwitch {...props} />
 }
 
-export const Basic = Template.bind({})
+export const Basic: Story = Template.bind({})
 Basic.args = {}
 
 export const Overview = (): JSX.Element => {
@@ -38,15 +39,19 @@ export const Overview = (): JSX.Element => {
             <LemonSwitch label="Bordered FullWidth" fullWidth bordered />
             <LemonSwitch label="Bordered FullWidth icon" fullWidth bordered icon={<IconGlobeLock />} />
             <LemonSwitch label="Bordered disabled" bordered disabled />
+
+            <div className="w-20">
+                <LemonSwitch label="Bordered with a really long label" bordered />
+            </div>
         </div>
     )
 }
 
-export const Standalone = Template.bind({})
+export const Standalone: Story = Template.bind({})
 Standalone.args = { label: undefined }
 
-export const Bordered = Template.bind({})
+export const Bordered: Story = Template.bind({})
 Bordered.args = { bordered: true }
 
-export const Disabled = Template.bind({})
+export const Disabled: Story = Template.bind({})
 Disabled.args = { disabled: true }

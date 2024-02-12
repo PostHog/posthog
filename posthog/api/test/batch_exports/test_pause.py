@@ -17,8 +17,9 @@ from posthog.api.test.batch_exports.operations import (
 from posthog.api.test.test_organization import create_organization
 from posthog.api.test.test_team import create_team
 from posthog.api.test.test_user import create_user
-from posthog.batch_exports.service import delete_schedule, describe_schedule
-from posthog.temporal.client import sync_connect
+from posthog.batch_exports.service import batch_export_delete_schedule
+from posthog.temporal.common.schedule import describe_schedule
+from posthog.temporal.common.client import sync_connect
 
 pytestmark = [
     pytest.mark.django_db,
@@ -35,7 +36,6 @@ def test_pause_and_unpause_batch_export(client: HttpClient):
             "bucket_name": "my-production-s3-bucket",
             "region": "us-east-1",
             "prefix": "posthog-events/",
-            "batch_window_size": 3600,
             "aws_access_key_id": "abc123",
             "aws_secret_access_key": "secret",
         },
@@ -90,7 +90,6 @@ def test_connot_pause_and_unpause_batch_exports_of_other_organizations(client: H
             "bucket_name": "my-production-s3-bucket",
             "region": "us-east-1",
             "prefix": "posthog-events/",
-            "batch_window_size": 3600,
             "aws_access_key_id": "abc123",
             "aws_secret_access_key": "secret",
         },
@@ -157,7 +156,6 @@ def test_pause_and_unpause_are_partitioned_by_team_id(client: HttpClient):
             "bucket_name": "my-production-s3-bucket",
             "region": "us-east-1",
             "prefix": "posthog-events/",
-            "batch_window_size": 3600,
             "aws_access_key_id": "abc123",
             "aws_secret_access_key": "secret",
         },
@@ -219,7 +217,6 @@ def test_pause_batch_export_that_is_already_paused(client: HttpClient):
             "bucket_name": "my-production-s3-bucket",
             "region": "us-east-1",
             "prefix": "posthog-events/",
-            "batch_window_size": 3600,
             "aws_access_key_id": "abc123",
             "aws_secret_access_key": "secret",
         },
@@ -275,7 +272,6 @@ def test_unpause_batch_export_that_is_already_unpaused(client: HttpClient):
             "bucket_name": "my-production-s3-bucket",
             "region": "us-east-1",
             "prefix": "posthog-events/",
-            "batch_window_size": 3600,
             "aws_access_key_id": "abc123",
             "aws_secret_access_key": "secret",
         },
@@ -322,7 +318,6 @@ def test_pause_non_existent_batch_export(client: HttpClient):
             "bucket_name": "my-production-s3-bucket",
             "region": "us-east-1",
             "prefix": "posthog-events/",
-            "batch_window_size": 3600,
             "aws_access_key_id": "abc123",
             "aws_secret_access_key": "secret",
         },
@@ -350,7 +345,7 @@ def test_pause_non_existent_batch_export(client: HttpClient):
         schedule_desc = describe_schedule(temporal, batch_export["id"])
         assert schedule_desc.schedule.state.paused is False
 
-        resp = delete_schedule(temporal, batch_export["id"])
+        resp = batch_export_delete_schedule(temporal, batch_export["id"])
 
         batch_export_id = batch_export["id"]
         resp = pause_batch_export(client, team.pk, batch_export_id)
@@ -367,7 +362,6 @@ def test_unpause_can_trigger_a_backfill(client: HttpClient):
             "bucket_name": "my-production-s3-bucket",
             "region": "us-east-1",
             "prefix": "posthog-events/",
-            "batch_window_size": 3600,
             "aws_access_key_id": "abc123",
             "aws_secret_access_key": "secret",
         },

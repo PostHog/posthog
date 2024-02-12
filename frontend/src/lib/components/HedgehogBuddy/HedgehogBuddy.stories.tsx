@@ -1,15 +1,15 @@
-import { ComponentMeta, ComponentStory } from '@storybook/react'
+import { Meta, StoryFn } from '@storybook/react'
+
 import { HedgehogBuddy } from './HedgehogBuddy'
 
-export default {
+const meta: Meta<typeof HedgehogBuddy> = {
     title: 'Components/Hedgehog Buddy',
     component: HedgehogBuddy,
-    parameters: {
-        testOptions: { skip: true }, // Hedgehogs aren't particularly snapshotable
-    },
-} as ComponentMeta<typeof HedgehogBuddy>
+    tags: ['test-skip'], // Hedgehogs aren't particularly snapshotable
+}
+export default meta
 
-export const TheHedgehog: ComponentStory<typeof HedgehogBuddy> = () => {
+export const TheHedgehog: StoryFn<typeof HedgehogBuddy> = () => {
     return (
         // eslint-disable-next-line react/forbid-dom-props
         <div style={{ height: 200 }}>
@@ -18,6 +18,7 @@ export const TheHedgehog: ComponentStory<typeof HedgehogBuddy> = () => {
                     // eslint-disable-next-line no-console
                     console.log('should close')
                 }}
+                isDarkModeOn={false}
             />
         </div>
     )

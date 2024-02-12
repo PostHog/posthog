@@ -1,7 +1,9 @@
-import { useMocks } from '~/mocks/jest'
-import { SDKVersion, versionCheckerLogic } from './versionCheckerLogic'
-import { initKeaTests } from '~/test/init'
 import { expectLogic } from 'kea-test-utils'
+
+import { useMocks } from '~/mocks/jest'
+import { initKeaTests } from '~/test/init'
+
+import { SDKVersion, versionCheckerLogic } from './versionCheckerLogic'
 
 const useMockedVersions = (githubVersions: SDKVersion[], usedVersions: SDKVersion[]): void => {
     useMocks({
@@ -99,6 +101,48 @@ describe('versionCheckerLogic', () => {
                 timestamp: '2023-01-01T12:00:00Z',
             },
         ])
+
+        logic.mount()
+
+        await expectLogic(logic).toFinishAllListeners()
+        expectLogic(logic).toMatchValues({ versionWarning: options.expectation })
+    })
+
+    it.each([
+        {
+            usedVersions: [
+                { version: '1.9.0', timestamp: '2023-01-01T12:00:00Z' },
+                { version: '1.83.1', timestamp: '2023-01-01T10:00:00Z' },
+            ],
+            expectation: {
+                currentVersion: '1.83.1',
+                latestVersion: '1.84.0',
+                diff: 1,
+                level: 'info',
+            },
+        },
+        {
+            usedVersions: [
+                { version: '1.80.0', timestamp: '2023-01-01T12:00:00Z' },
+                { version: '1.83.1', timestamp: '2023-01-01T10:00:00Z' },
+                { version: '1.20.1', timestamp: '2023-01-01T10:00:00Z' },
+                { version: '1.0.890', timestamp: '2023-01-01T10:00:00Z' },
+                { version: '0.89.5', timestamp: '2023-01-01T10:00:00Z' },
+                { version: '0.0.5', timestamp: '2023-01-01T10:00:00Z' },
+                { version: '1.84.0', timestamp: '2023-01-01T08:00:00Z' },
+            ],
+            expectation: null,
+        },
+        {
+            usedVersions: [
+                { version: '1.80.0', timestamp: '2023-01-01T12:00:00Z' },
+                { version: '1.83.1-beta', timestamp: '2023-01-01T10:00:00Z' },
+                { version: '1.84.0-delta', timestamp: '2023-01-01T08:00:00Z' },
+            ],
+            expectation: { currentVersion: '1.84.0-delta', diff: 1, latestVersion: '1.84.0', level: 'info' },
+        },
+    ])('when having multiple versions used, should match with the latest one', async (options) => {
+        useMockedVersions([{ version: '1.84.0' }], options.usedVersions)
 
         logic.mount()
 

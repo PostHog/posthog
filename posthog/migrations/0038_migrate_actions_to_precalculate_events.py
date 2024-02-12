@@ -12,7 +12,6 @@ def rollback(apps, schema_editor):
 
 
 class Migration(migrations.Migration):
-
     dependencies = [
         ("posthog", "0037_action_step_url_matching_can_be_null_20200402_1351"),
     ]

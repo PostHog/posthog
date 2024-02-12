@@ -1,13 +1,15 @@
 import { LemonButton, LemonCheckbox, LemonDivider, LemonInput } from '@posthog/lemon-ui'
+import { captureException } from '@sentry/react'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
+import { SharingModalContent } from 'lib/components/Sharing/SharingModal'
+import { Field } from 'lib/forms/Field'
 import { IconCopy } from 'lib/lemon-ui/icons'
 import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
-import { Field } from 'lib/forms/Field'
-import { copyToClipboard } from 'lib/utils'
+import { copyToClipboard } from 'lib/utils/copyToClipboard'
+
 import { playerShareLogic, PlayerShareLogicProps } from './playerShareLogic'
-import { SharingModalContent } from 'lib/components/Sharing/SharingModal'
 
 export function PlayerShareRecording(props: PlayerShareLogicProps): JSX.Element {
     const logic = playerShareLogic(props)
@@ -27,7 +29,7 @@ export function PlayerShareRecording(props: PlayerShareLogicProps): JSX.Element 
                 fullWidth
                 center
                 sideIcon={<IconCopy />}
-                onClick={async () => await copyToClipboard(url, 'recording link')}
+                onClick={() => void copyToClipboard(url, 'recording link').then(captureException)}
                 title={url}
             >
                 <span className="truncate">{url}</span>

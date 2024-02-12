@@ -1,8 +1,9 @@
-import { BreakdownFilter } from '~/queries/schema'
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
 import stringWithWBR from 'lib/utils/stringWithWBR'
-import { IndexedTrendResult } from 'scenes/trends/types'
 import { formatBreakdownType } from 'scenes/insights/utils'
+import { IndexedTrendResult } from 'scenes/trends/types'
+
+import { BreakdownFilter } from '~/queries/schema'
 
 type BreakdownColumnTitleProps = { breakdownFilter: BreakdownFilter }
 

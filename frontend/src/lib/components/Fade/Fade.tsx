@@ -1,4 +1,5 @@
 import './Fade.scss'
+
 import { useEffect, useState } from 'react'
 
 export function Fade({
@@ -30,7 +31,8 @@ export function Fade({
     return shouldRender ? (
         <div
             className={`fade-component-container${className ? ` ${className}` : ''}`}
-            style={{ animation: `${visible ? 'fadeComponentFadeIn' : 'fadeComponentFadeOut'} 0.3s`, ...style }}
+            // eslint-disable-next-line react/forbid-dom-props
+            style={{ animation: `${visible ? 'Fade__fade-in' : 'Fade__fade-out'} 0.3s`, ...style }}
             onAnimationEnd={onAnimationEnd}
             {...props}
         >

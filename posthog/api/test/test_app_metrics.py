@@ -62,7 +62,13 @@ class TestAppMetricsAPI(ClickhouseTestMixin, APIBaseTest):
                     "failures": [0, 0, 0, 0, 0, 0, 1, 0],
                     "totals": {"successes": 3, "successes_on_retry": 0, "failures": 1},
                 },
-                "errors": [{"error_type": "SomeError", "count": 1, "last_seen": "2021-12-04T00:00:00Z"}],
+                "errors": [
+                    {
+                        "error_type": "SomeError",
+                        "count": 1,
+                        "last_seen": "2021-12-04T00:00:00Z",
+                    }
+                ],
             },
         )
 
@@ -99,7 +105,11 @@ class TestAppMetricsAPI(ClickhouseTestMixin, APIBaseTest):
                 activity="job_triggered",
                 detail=Detail(
                     name="Some export plugin",
-                    trigger=Trigger(job_type="Export historical events V2", job_id="1234", payload=SAMPLE_PAYLOAD),
+                    trigger=Trigger(
+                        job_type="Export historical events V2",
+                        job_id="1234",
+                        payload=SAMPLE_PAYLOAD,
+                    ),
                 ),
             )
         with freeze_time("2021-08-25T05:00:00Z"):
@@ -107,7 +117,11 @@ class TestAppMetricsAPI(ClickhouseTestMixin, APIBaseTest):
                 activity="export_success",
                 detail=Detail(
                     name="Some export plugin",
-                    trigger=Trigger(job_type="Export historical events V2", job_id="1234", payload={}),
+                    trigger=Trigger(
+                        job_type="Export historical events V2",
+                        job_id="1234",
+                        payload={},
+                    ),
                 ),
             )
 
@@ -159,7 +173,11 @@ class TestAppMetricsAPI(ClickhouseTestMixin, APIBaseTest):
                     "successes": [0, 102, 0, 10, 0, 0, 0],
                     "successes_on_retry": [0, 0, 0, 0, 0, 0, 0],
                     "failures": [0, 0, 1, 0, 0, 0, 0],
-                    "totals": {"successes": 112, "successes_on_retry": 0, "failures": 1},
+                    "totals": {
+                        "successes": 112,
+                        "successes_on_retry": 0,
+                        "failures": 1,
+                    },
                 },
                 "summary": {
                     "duration": 4 * 60 * 60,
@@ -170,7 +188,13 @@ class TestAppMetricsAPI(ClickhouseTestMixin, APIBaseTest):
                     "created_at": "2021-08-25T01:00:00Z",
                     "created_by": mock.ANY,
                 },
-                "errors": [{"error_type": "SomeError", "count": 1, "last_seen": "2021-08-25T02:55:00Z"}],
+                "errors": [
+                    {
+                        "error_type": "SomeError",
+                        "count": 1,
+                        "last_seen": "2021-08-25T02:55:00Z",
+                    }
+                ],
             },
         )
 
@@ -209,11 +233,12 @@ class TestAppMetricsAPI(ClickhouseTestMixin, APIBaseTest):
 
     def _create_activity_log(self, **kwargs):
         log_activity(
-            **{
+            **{  # Using dict form so that kwargs can override these defaults
                 "organization_id": self.team.organization.id,
                 "team_id": self.team.pk,
                 "user": self.user,
                 "item_id": self.plugin_config.id,
+                "was_impersonated": False,
                 "scope": "PluginConfig",
                 **kwargs,
             }

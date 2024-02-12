@@ -1,11 +1,13 @@
-import { afterMount, connect, kea, path, selectors } from 'kea'
+import { afterMount, connect, kea, listeners, path, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
+import { router } from 'kea-router'
 import api, { PaginatedResponse } from 'lib/api'
-import { DataWarehouseSavedQuery, ProductKey } from '~/types'
+import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
-import { DataWarehouseSceneRow } from '../types'
+import { DataWarehouseSavedQuery, ProductKey } from '~/types'
 
+import { DataWarehouseSceneRow } from '../types'
 import type { dataWarehouseSavedQueriesLogicType } from './dataWarehouseSavedQueriesLogicType'
 
 export const dataWarehouseSavedQueriesLogic = kea<dataWarehouseSavedQueriesLogicType>([
@@ -28,8 +30,22 @@ export const dataWarehouseSavedQueriesLogic = kea<dataWarehouseSavedQueriesLogic
                             : [newView],
                     }
                 },
+                deleteDataWarehouseSavedQuery: async (view: DataWarehouseSavedQuery) => {
+                    await api.dataWarehouseSavedQueries.delete(view.id)
+                    return {
+                        ...values.dataWarehouseSavedQueries,
+                        results: values.dataWarehouseSavedQueries
+                            ? values.dataWarehouseSavedQueries.results.filter((v) => v.id !== view.id)
+                            : [],
+                    }
+                },
             },
         ],
+    })),
+    listeners(() => ({
+        createDataWarehouseSavedQuerySuccess: () => {
+            router.actions.push(urls.dataWarehouse())
+        },
     })),
     selectors({
         savedQueries: [

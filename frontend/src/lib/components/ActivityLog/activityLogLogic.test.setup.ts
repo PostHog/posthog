@@ -1,14 +1,10 @@
-import {
-    ActivityChange,
-    ActivityLogItem,
-    ActivityScope,
-    PersonMerge,
-    Trigger,
-} from 'lib/components/ActivityLog/humanizeActivity'
+import { expectLogic } from 'kea-test-utils'
+import { activityLogLogic } from 'lib/components/ActivityLog/activityLogLogic'
+import { ActivityChange, ActivityLogItem, PersonMerge, Trigger } from 'lib/components/ActivityLog/humanizeActivity'
+
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
-import { activityLogLogic } from 'lib/components/ActivityLog/activityLogLogic'
-import { expectLogic } from 'kea-test-utils'
+import { ActivityScope } from '~/types'
 
 interface APIMockSetup {
     name: string

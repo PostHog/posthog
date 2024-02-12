@@ -1,10 +1,24 @@
-import { handleLoginRedirect, loginLogic } from 'scenes/authentication/loginLogic'
-import { initKeaTests } from '~/test/init'
 import { router } from 'kea-router'
-import { initKea } from '~/initKea'
 import { testUtilsPlugin } from 'kea-test-utils'
+import { handleLoginRedirect, loginLogic } from 'scenes/authentication/loginLogic'
+
+import { initKea } from '~/initKea'
+import { initKeaTests } from '~/test/init'
 
 describe('loginLogic', () => {
+    describe('redirect vulnerability', () => {
+        beforeEach(() => {
+            // Note, initKeaTests() is not called here because that uses a memory history, which doesn't throw on origin redirect
+            initKea({ beforePlugins: [testUtilsPlugin] })
+        })
+        it('should throw an exception on redirecting to a different origin', () => {
+            router.actions.push(`${origin}/login?next=//google.com`)
+            expect(() => {
+                handleLoginRedirect()
+            }).toThrow()
+        })
+    })
+
     describe('parseLoginRedirectURL', () => {
         let logic: ReturnType<typeof loginLogic.build>
 
@@ -31,25 +45,20 @@ describe('loginLogic', () => {
 
         for (const [next, result] of matches) {
             it(`for next param "${next}" it returns "${result}"`, () => {
-                router.actions.push(next ? `${origin}/?next=${encodeURIComponent(next)}` : origin)
+                if (next) {
+                    const [nextPath, nextHash] = next.split('#')
+                    // The hash is the only part of the URL that isn't sent to the server
+                    router.actions.push(
+                        `${origin}/?next=${encodeURIComponent(nextPath)}${nextHash ? `#` + nextHash : ''}`
+                    )
+                } else {
+                    router.actions.push(origin)
+                }
                 handleLoginRedirect()
                 const newPath =
                     router.values.location.pathname + router.values.location.search + router.values.location.hash
                 expect(newPath).toEqual(result)
             })
         }
-    })
-
-    describe('redirect vulnerability', () => {
-        beforeEach(() => {
-            // Note, initKeaTests() is not called here because that uses a memory history, which doesn't throw on origin redirect
-            initKea({ beforePlugins: [testUtilsPlugin] })
-        })
-        it('should throw an exception on redirecting to a different origin', () => {
-            router.actions.push(`${origin}/login?next=//google.com`)
-            expect(() => {
-                handleLoginRedirect()
-            }).toThrow()
-        })
     })
 })

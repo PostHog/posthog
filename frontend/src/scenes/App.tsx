@@ -1,45 +1,43 @@
-import { kea, useMountedLogic, useValues, BindLogic } from 'kea'
-import { ToastContainer, Slide } from 'react-toastify'
-import { preflightLogic } from './PreflightCheck/preflightLogic'
-import { userLogic } from 'scenes/userLogic'
-import { sceneLogic } from 'scenes/sceneLogic'
-import { UpgradeModal } from './UpgradeModal'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import type { appLogicType } from './AppType'
-import { models } from '~/models'
-import { teamLogic } from './teamLogic'
-import { LoadedScene } from 'scenes/sceneTypes'
-import { appScenes } from 'scenes/appScenes'
-import { Navigation as NavigationClassic } from '~/layout/navigation/Navigation'
-import { ErrorBoundary } from '~/layout/ErrorBoundary'
-import { breadcrumbsLogic } from '~/layout/navigation/Breadcrumbs/breadcrumbsLogic'
-import { organizationLogic } from 'scenes/organizationLogic'
-import { ToastCloseButton } from 'lib/lemon-ui/lemonToast'
-import { frontendAppsLogic } from 'scenes/apps/frontendAppsLogic'
-import { inAppPromptLogic } from 'lib/logic/inAppPrompt/inAppPromptLogic'
+import { actions, BindLogic, connect, events, kea, path, reducers, selectors, useMountedLogic, useValues } from 'kea'
+import { MOCK_NODE_PROCESS } from 'lib/constants'
+import { use3000Body } from 'lib/hooks/use3000Body'
+import { ToastCloseButton } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { SpinnerOverlay } from 'lib/lemon-ui/Spinner/Spinner'
-import { LemonModal } from '@posthog/lemon-ui'
-import { Setup2FA } from './authentication/Setup2FA'
-import { membersLogic } from './organization/Settings/membersLogic'
-import { FEATURE_FLAGS } from 'lib/constants'
-import { Navigation as Navigation3000 } from '~/layout/navigation-3000/Navigation'
-import { Prompt } from 'lib/logic/newPrompt/Prompt'
-import { useEffect } from 'react'
-import { themeLogic } from '~/layout/navigation-3000/themeLogic'
-import { FeaturePreviewsModal } from '~/layout/FeaturePreviews'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { Slide, ToastContainer } from 'react-toastify'
+import { frontendAppsLogic } from 'scenes/apps/frontendAppsLogic'
+import { appScenes } from 'scenes/appScenes'
+import { organizationLogic } from 'scenes/organizationLogic'
+import { sceneLogic } from 'scenes/sceneLogic'
+import { LoadedScene } from 'scenes/sceneTypes'
+import { userLogic } from 'scenes/userLogic'
 
-export const appLogic = kea<appLogicType>({
-    path: ['scenes', 'App'],
-    connect: [teamLogic, organizationLogic, frontendAppsLogic, inAppPromptLogic],
-    actions: {
+import { ErrorBoundary } from '~/layout/ErrorBoundary'
+import { GlobalModals } from '~/layout/GlobalModals'
+import { breadcrumbsLogic } from '~/layout/navigation/Breadcrumbs/breadcrumbsLogic'
+import { Navigation } from '~/layout/navigation-3000/Navigation'
+import { themeLogic } from '~/layout/navigation-3000/themeLogic'
+import { actionsModel } from '~/models/actionsModel'
+import { cohortsModel } from '~/models/cohortsModel'
+
+import type { appLogicType } from './AppType'
+import { preflightLogic } from './PreflightCheck/preflightLogic'
+import { teamLogic } from './teamLogic'
+
+window.process = MOCK_NODE_PROCESS
+
+export const appLogic = kea<appLogicType>([
+    path(['scenes', 'App']),
+    connect([teamLogic, organizationLogic, frontendAppsLogic, actionsModel, cohortsModel]),
+    actions({
         enableDelayedSpinner: true,
         ignoreFeatureFlags: true,
-    },
-    reducers: {
+    }),
+    reducers({
         showingDelayedSpinner: [false, { enableDelayedSpinner: () => true }],
         featureFlagsTimedOut: [false, { ignoreFeatureFlags: () => true }],
-    },
-    selectors: {
+    }),
+    selectors({
         showApp: [
             (s) => [
                 userLogic.selectors.userLoading,
@@ -57,8 +55,8 @@ export const appLogic = kea<appLogicType>({
                 )
             },
         ],
-    },
-    events: ({ actions, cache }) => ({
+    }),
+    events(({ actions, cache }) => ({
         afterMount: () => {
             cache.spinnerTimeout = window.setTimeout(() => actions.enableDelayedSpinner(), 1000)
             cache.featureFlagTimeout = window.setTimeout(() => actions.ignoreFeatureFlags(), 3000)
@@ -67,35 +65,24 @@ export const appLogic = kea<appLogicType>({
             window.clearTimeout(cache.spinnerTimeout)
             window.clearTimeout(cache.featureFlagTimeout)
         },
-    }),
-})
+    })),
+])
 
 export function App(): JSX.Element | null {
     const { showApp, showingDelayedSpinner } = useValues(appLogic)
-    const { user } = useValues(userLogic)
-    const { currentTeamId } = useValues(teamLogic)
-    const { featureFlags } = useValues(featureFlagLogic)
     useMountedLogic(sceneLogic({ scenes: appScenes }))
-
-    useEffect(() => {
-        if (featureFlags[FEATURE_FLAGS.POSTHOG_3000]) {
-            document.body.classList.add('posthog-3000')
-        } else {
-            document.body.classList.remove('posthog-3000')
-        }
-    }, [featureFlags])
+    use3000Body()
 
     if (showApp) {
         return (
             <>
-                {user && currentTeamId ? <Models /> : null}
                 <LoadedSceneLogics />
                 <AppScene />
             </>
         )
     }
 
-    return showingDelayedSpinner ? <SpinnerOverlay sceneLevel /> : null
+    return <SpinnerOverlay sceneLevel visible={showingDelayedSpinner} />
 }
 
 function LoadedSceneLogic({ scene }: { scene: LoadedScene }): null {
@@ -119,23 +106,12 @@ function LoadedSceneLogics(): JSX.Element {
     )
 }
 
-/** Loads every logic in the "src/models" folder */
-function Models(): null {
-    useMountedLogic(models)
-    return null
-}
-
 function AppScene(): JSX.Element | null {
     useMountedLogic(breadcrumbsLogic)
     const { user } = useValues(userLogic)
     const { activeScene, activeLoadedScene, sceneParams, params, loadedScenes, sceneConfig } = useValues(sceneLogic)
     const { showingDelayedSpinner } = useValues(appLogic)
     const { isDarkModeOn } = useValues(themeLogic)
-    const { featureFlags } = useValues(featureFlagLogic)
-
-    const SceneComponent: (...args: any[]) => JSX.Element | null =
-        (activeScene ? loadedScenes[activeScene]?.component : null) ||
-        (() => (showingDelayedSpinner ? <SpinnerOverlay sceneLevel /> : null))
 
     const toastContainer = (
         <ToastContainer
@@ -149,14 +125,22 @@ function AppScene(): JSX.Element | null {
         />
     )
 
-    const protectedBoundActiveScene = (
+    let sceneElement: JSX.Element
+    if (activeScene && activeScene in loadedScenes) {
+        const { component: SceneComponent } = loadedScenes[activeScene]
+        sceneElement = <SceneComponent user={user} {...params} />
+    } else {
+        sceneElement = <SpinnerOverlay sceneLevel visible={showingDelayedSpinner} />
+    }
+
+    const wrappedSceneElement = (
         <ErrorBoundary key={activeScene}>
             {activeLoadedScene?.logic ? (
                 <BindLogic logic={activeLoadedScene.logic} props={activeLoadedScene.paramsToProps?.(sceneParams) || {}}>
-                    <SceneComponent user={user} {...params} />
+                    {sceneElement}
                 </BindLogic>
             ) : (
-                <SceneComponent user={user} {...params} />
+                sceneElement
             )}
         </ErrorBoundary>
     )
@@ -164,39 +148,17 @@ function AppScene(): JSX.Element | null {
     if (!user) {
         return sceneConfig?.onlyUnauthenticated || sceneConfig?.allowUnauthenticated ? (
             <>
-                {protectedBoundActiveScene}
+                {wrappedSceneElement}
                 {toastContainer}
             </>
         ) : null
     }
 
-    const Navigation = featureFlags[FEATURE_FLAGS.POSTHOG_3000] ? Navigation3000 : NavigationClassic
-
     return (
         <>
-            <Navigation>{protectedBoundActiveScene}</Navigation>
+            <Navigation sceneConfig={sceneConfig}>{wrappedSceneElement}</Navigation>
             {toastContainer}
-            <FeaturePreviewsModal />
-            <UpgradeModal />
-            {user.organization?.enforce_2fa && !user.is_2fa_enabled && (
-                <LemonModal title="Set up 2FA" closable={false}>
-                    <p>
-                        <b>Your organization requires you to set up 2FA.</b>
-                    </p>
-                    <p>
-                        <b>
-                            Use an authenticator app like Google Authenticator or 1Password to scan the QR code below.
-                        </b>
-                    </p>
-                    <Setup2FA
-                        onSuccess={() => {
-                            userLogic.actions.loadUser()
-                            membersLogic.actions.loadMembers()
-                        }}
-                    />
-                </LemonModal>
-            )}
-            {featureFlags[FEATURE_FLAGS.ENABLE_PROMPTS] && <Prompt />}
+            <GlobalModals />
         </>
     )
 }

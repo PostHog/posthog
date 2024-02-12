@@ -4,7 +4,6 @@ from django.db import migrations, models
 
 
 class Migration(migrations.Migration):
-
     dependencies = [
         ("posthog", "0301_organization_enforce_2fa"),
     ]
@@ -19,7 +18,10 @@ class Migration(migrations.Migration):
             model_name="user",
             name="pending_email",
             field=models.EmailField(
-                blank=True, max_length=254, null=True, verbose_name="pending email address awaiting verification"
+                blank=True,
+                max_length=254,
+                null=True,
+                verbose_name="pending email address awaiting verification",
             ),
         ),
     ]

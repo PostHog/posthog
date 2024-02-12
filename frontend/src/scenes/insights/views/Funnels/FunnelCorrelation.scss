@@ -4,33 +4,18 @@
     .skew-warning {
         margin-top: 1rem;
         line-height: 2em;
+        background-color: var(--bg-light);
         border: 1px solid var(--warning);
-
-        .ant-card-body {
-            padding: 0.5rem 1rem;
-        }
+        border-radius: var(--radius);
 
         h4 {
-            font-size: 1.1em;
+            position: relative;
             display: flex;
             align-items: center;
+            justify-content: space-between;
+            padding: 0.5rem;
+            font-size: 1.1em;
             border-bottom: 1px solid var(--border);
-            padding: 0.5rem 1rem;
-            margin-left: -1rem;
-            margin-right: -1rem;
-            position: relative;
-
-            .close-button {
-                position: absolute;
-                right: 16px;
-                color: var(--muted) !important;
-                cursor: pointer;
-            }
-        }
-
-        b {
-            padding-bottom: 0.5rem;
-            font-weight: var(--font-medium);
         }
     }
 }

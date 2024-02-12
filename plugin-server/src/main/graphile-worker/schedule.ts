@@ -2,9 +2,12 @@ import { JobHelpers } from 'graphile-worker'
 
 import { KAFKA_SCHEDULED_TASKS } from '../../config/kafka-topics'
 import { Hub, PluginConfigId } from '../../types'
+import { DependencyUnavailableError } from '../../utils/db/error'
 import { status } from '../../utils/status'
 import { delay } from '../../utils/utils'
 import Piscina from '../../worker/piscina'
+import { scheduledTaskCounter } from '../ingestion-queues/metrics'
+import { graphileScheduledTaskCounter } from './metrics'
 
 type TaskTypes = 'runEveryMinute' | 'runEveryHour' | 'runEveryDay'
 
@@ -45,7 +48,7 @@ export async function runScheduledTasks(
             taskType: taskType,
             runAt: helpers.job.run_at,
         })
-        server.statsd?.increment('skipped_scheduled_tasks', { taskType })
+        graphileScheduledTaskCounter.labels({ status: 'skipped', task: taskType }).inc()
         return
     }
 
@@ -56,13 +59,51 @@ export async function runScheduledTasks(
                 topic: KAFKA_SCHEDULED_TASKS,
                 messages: [{ key: pluginConfigId.toString(), value: JSON.stringify({ taskType, pluginConfigId }) }],
             })
-            server.statsd?.increment('queued_scheduled_task', { taskType })
+            graphileScheduledTaskCounter.labels({ status: 'queued', task: taskType }).inc()
         }
     } else {
         for (const pluginConfigId of server.pluginSchedule?.[taskType] || []) {
-            status.info('⏲️', `Running ${taskType} for plugin config with ID ${pluginConfigId}`)
-            await piscina.run({ task: taskType, args: { pluginConfigId } })
-            server.statsd?.increment('completed_scheduled_task', { taskType })
+            try {
+                status.info('⏲️', 'running_scheduled_task', {
+                    taskType,
+                    pluginConfigId,
+                })
+                const startTime = performance.now()
+
+                // The part that actually runs the task.
+                await piscina.run({ task: taskType, args: { pluginConfigId } })
+
+                status.info('⏲️', 'finished_scheduled_task', {
+                    taskType,
+                    pluginConfigId,
+                    durationSeconds: (performance.now() - startTime) / 1000,
+                })
+                scheduledTaskCounter.labels({ status: 'completed', task: taskType }).inc()
+            } catch (error) {
+                if (error instanceof DependencyUnavailableError) {
+                    // For errors relating to PostHog dependencies that are unavailable,
+                    // e.g. Postgres, Kafka, Redis, we don't want to log the error to Sentry
+                    // but rather bubble this up the stack for someone else to decide on
+                    // what to do with it.
+                    status.warn('⚠️', `dependency_unavailable`, {
+                        taskType,
+                        pluginConfigId,
+                        error: error,
+                        stack: error.stack,
+                    })
+                    scheduledTaskCounter.labels({ status: 'error', task: taskType }).inc()
+                    throw error
+                }
+
+                status.error('⚠️', 'scheduled_task_failed', {
+                    taskType: taskType,
+                    pluginConfigId,
+                    error: error,
+                    stack: error.stack,
+                })
+                scheduledTaskCounter.labels({ status: 'failed', task: taskType }).inc()
+            }
+            graphileScheduledTaskCounter.labels({ status: 'completed', task: taskType }).inc()
         }
     }
 }

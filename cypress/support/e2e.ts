@@ -6,7 +6,10 @@ import { decideResponse } from '../fixtures/api/decide'
 try {
     // eslint-disable-next-line @typescript-eslint/no-var-requires
     require('cypress-terminal-report/src/installLogsCollector')()
+    // eslint-disable-next-line no-empty
 } catch {}
+
+const E2E_TESTING = Cypress.env('E2E_TESTING')
 
 // Add console errors into cypress logs. This helps with failures in Github Actions which otherwise swallows them.
 // From: https://github.com/cypress-io/cypress/issues/300#issuecomment-688915086
@@ -20,13 +23,13 @@ beforeEach(() => {
     Cypress.env('POSTHOG_PROPERTY_CURRENT_TEST_FULL_TITLE', Cypress.currentTest.titlePath.join(' > '))
     Cypress.env('POSTHOG_PROPERTY_GITHUB_ACTION_RUN_URL', process.env.GITHUB_ACTION_RUN_URL)
 
-    cy.intercept('api/prompts/my_prompts/', { sequences: [], state: {} })
-
     cy.intercept('https://app.posthog.com/decide/*', (req) =>
         req.reply(
             decideResponse({
                 // set feature flags here e.g.
                 // 'toolbar-launch-side-action': true,
+                'surveys-new-creation-flow': true,
+                'surveys-results-visualizations': true,
                 'auto-redirect': true,
                 notebooks: true,
             })
@@ -61,18 +64,13 @@ beforeEach(() => {
     }
 })
 
-afterEach(() => {
-    if (process.env.E2E_TESTING) {
-        cy.window().then((win) => {
-            ;(win as any).posthog?.capture('e2e_testing_test_passed')
-        })
-    }
-})
+afterEach(function () {
+    const { state, duration } = this.currentTest
+    const event = state === 'passed' ? 'e2e_testing_test_passed' : 'e2e_testing_test_failed'
 
-Cypress.on('fail', (error: Cypress.CypressError) => {
-    if (process.env.E2E_TESTING) {
+    if (E2E_TESTING) {
         cy.window().then((win) => {
-            ;(win as any).posthog?.capture('e2e_testing_test_failed', { e2e_testing_error_message: error.message })
+            ;(win as any).posthog?.capture(event, { state, duration })
         })
     }
 })

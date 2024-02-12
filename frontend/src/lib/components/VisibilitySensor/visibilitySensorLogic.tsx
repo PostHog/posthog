@@ -1,46 +1,32 @@
-import { kea } from 'kea'
+import { actions, kea, key, listeners, path, props, reducers, selectors } from 'kea'
+import { windowValues } from 'kea-window-values'
 
 import type { visibilitySensorLogicType } from './visibilitySensorLogicType'
-export const visibilitySensorLogic = kea<visibilitySensorLogicType>({
-    path: (key) => ['lib', 'components', 'VisibilitySensor', 'visibilitySensorLogic', key],
-    props: {} as {
-        id: string
-        offset?: number
-    },
-
-    key: (props) => props.id || 'undefined',
-
-    actions: () => ({
+export const visibilitySensorLogic = kea<visibilitySensorLogicType>([
+    props(
+        {} as {
+            id: string
+            offset?: number
+        }
+    ),
+    key((props) => props.id || 'undefined'),
+    path((key) => ['lib', 'components', 'VisibilitySensor', 'visibilitySensorLogic', key]),
+    actions(() => ({
         setVisible: (visible: boolean) => ({ visible }),
         scrolling: (element: HTMLElement) => ({ element }),
+    })),
+    windowValues({
+        innerHeight: (window: Window) => window.innerHeight,
     }),
-
-    reducers: () => ({
+    reducers(() => ({
         visible: [
             false,
             {
                 setVisible: (_, { visible }) => visible,
             },
         ],
-    }),
-
-    windowValues: {
-        innerHeight: (window) => window.innerHeight,
-    },
-
-    listeners: ({ actions, values }) => ({
-        scrolling: async ({ element }, breakpoint) => {
-            await breakpoint(500)
-
-            if (values.checkIsVisible(element) && !values.visible) {
-                actions.setVisible(true)
-            } else if (!values.checkIsVisible(element) && values.visible) {
-                actions.setVisible(false)
-            }
-        },
-    }),
-
-    selectors: () => ({
+    })),
+    selectors(() => ({
         checkIsVisible: [
             (selectors) => [selectors.innerHeight, (_, props) => props.offset || 0],
             (windowHeight, offset) => (element: HTMLElement) => {
@@ -55,5 +41,16 @@ export const visibilitySensorLogic = kea<visibilitySensorLogicType>({
                 return top + offset >= 0 && top + offset <= windowHeight
             },
         ],
-    }),
-})
+    })),
+    listeners(({ actions, values }) => ({
+        scrolling: async ({ element }, breakpoint) => {
+            await breakpoint(500)
+
+            if (values.checkIsVisible(element) && !values.visible) {
+                actions.setVisible(true)
+            } else if (!values.checkIsVisible(element) && values.visible) {
+                actions.setVisible(false)
+            }
+        },
+    })),
+])

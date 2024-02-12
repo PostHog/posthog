@@ -13,7 +13,6 @@ def reverse(apps, schema_editor):
 
 
 class Migration(migrations.Migration):
-
     dependencies = [
         ("posthog", "0117_merge_20210126_0917"),
     ]

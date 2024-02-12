@@ -1,26 +1,31 @@
-import { useActions, useValues } from 'kea'
-import { PlusCircleOutlined, WarningOutlined } from '@ant-design/icons'
-import { IconErrorOutline, IconOpenInNew, IconPlus } from 'lib/lemon-ui/icons'
-import { entityFilterLogic } from 'scenes/insights/filters/ActionFilter/entityFilterLogic'
-import { Button, Empty } from 'antd'
-import { savedInsightsLogic } from 'scenes/saved-insights/savedInsightsLogic'
-import { FilterType, InsightLogicProps, SavedInsightsTabs } from '~/types'
-import { insightLogic } from 'scenes/insights/insightLogic'
 import './EmptyStates.scss'
-import { urls } from 'scenes/urls'
-import { Link } from 'lib/lemon-ui/Link'
-import { Animation } from 'lib/components/Animation/Animation'
-import { AnimationType } from 'lib/animations/animations'
+
+// eslint-disable-next-line no-restricted-imports
+import { PlusCircleOutlined, ThunderboltFilled } from '@ant-design/icons'
+import { IconWarning } from '@posthog/icons'
 import { LemonButton } from '@posthog/lemon-ui'
-import { samplingFilterLogic } from '../EditorFilters/samplingFilterLogic'
-import { posthog } from 'posthog-js'
-import { seriesToActionsAndEvents } from '~/queries/nodes/InsightQuery/utils/queryNodeToFilter'
-import { actionsAndEventsToSeries } from '~/queries/nodes/InsightQuery/utils/filtersToQueryNode'
-import { funnelDataLogic } from 'scenes/funnels/funnelDataLogic'
-import { FunnelsQuery } from '~/queries/schema'
-import { supportLogic } from 'lib/components/Support/supportLogic'
-import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
+import { Empty } from 'antd'
+import { useActions, useValues } from 'kea'
 import { BuilderHog3 } from 'lib/components/hedgehogs'
+import { supportLogic } from 'lib/components/Support/supportLogic'
+import { IconErrorOutline, IconInfo, IconOpenInNew, IconPlus } from 'lib/lemon-ui/icons'
+import { Link } from 'lib/lemon-ui/Link'
+import { Tooltip } from 'lib/lemon-ui/Tooltip'
+import { posthog } from 'posthog-js'
+import { funnelDataLogic } from 'scenes/funnels/funnelDataLogic'
+import { entityFilterLogic } from 'scenes/insights/filters/ActionFilter/entityFilterLogic'
+import { insightLogic } from 'scenes/insights/insightLogic'
+import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
+import { savedInsightsLogic } from 'scenes/saved-insights/savedInsightsLogic'
+import { urls } from 'scenes/urls'
+
+import { actionsAndEventsToSeries } from '~/queries/nodes/InsightQuery/utils/filtersToQueryNode'
+import { seriesToActionsAndEvents } from '~/queries/nodes/InsightQuery/utils/queryNodeToFilter'
+import { FunnelsQuery } from '~/queries/schema'
+import { FilterType, InsightLogicProps, SavedInsightsTabs } from '~/types'
+
+import { samplingFilterLogic } from '../EditorFilters/samplingFilterLogic'
+import { MathAvailability } from '../filters/ActionFilter/ActionFilterRow/ActionFilterRow'
 
 export function InsightEmptyState({
     heading = 'There are no matching events for this query',
@@ -35,10 +40,32 @@ export function InsightEmptyState({
                 <div className="illustration-main">
                     <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="" />
                 </div>
-                <h2>{heading}</h2>
-                <p className="text-center">{detail}</p>
+                <h2 className="text-xl">{heading}</h2>
+                <p className="text-sm text-center text-balance">{detail}</p>
             </div>
         </div>
+    )
+}
+
+function SamplingLink({ insightProps }: { insightProps: InsightLogicProps }): JSX.Element {
+    const { setSamplingPercentage } = useActions(samplingFilterLogic(insightProps))
+    const { suggestedSamplingPercentage } = useValues(samplingFilterLogic(insightProps))
+    return (
+        <Tooltip
+            title={`Calculate results from ${suggestedSamplingPercentage}% of the total dataset for this insight, speeding up the calculation of results.`}
+            placement="bottom"
+        >
+            <Link
+                onClick={() => {
+                    setSamplingPercentage(suggestedSamplingPercentage)
+                    posthog.capture('sampling_enabled_on_slow_query', {
+                        samplingPercentage: suggestedSamplingPercentage,
+                    })
+                }}
+            >
+                <ThunderboltFilled className="mt-1" /> {suggestedSamplingPercentage}% sampling
+            </Link>
+        </Tooltip>
     )
 }
 
@@ -51,48 +78,59 @@ export function InsightTimeoutState({
     queryId?: string | null
     insightProps: InsightLogicProps
 }): JSX.Element {
-    const { setSamplingPercentage } = useActions(samplingFilterLogic(insightProps))
-    const { suggestedSamplingPercentage } = useValues(samplingFilterLogic(insightProps))
+    const { suggestedSamplingPercentage, samplingPercentage } = useValues(samplingFilterLogic(insightProps))
+    const { openSupportForm } = useActions(supportLogic)
 
     return (
         <div className="insight-empty-state warning">
             <div className="empty-state-inner">
-                <div className="illustration-main">
-                    {isLoading ? <Animation type={AnimationType.SportsHog} /> : <IconErrorOutline />}
-                </div>
-                {isLoading ? (
-                    <div className="m-auto text-center">
-                        Your query is taking a long time to complete. <b>We're still working on it.</b>
-                        <br />
-                        {suggestedSamplingPercentage ? 'See below some options to speed things up.' : ''}
-                        <br />
-                    </div>
+                {!isLoading ? (
+                    <>
+                        <div className="illustration-main">
+                            <IconErrorOutline />
+                        </div>
+                        <h2 className="text-xl mb-6">Your query took too long to complete</h2>
+                    </>
                 ) : (
-                    <h2>Your query took too long to complete</h2>
+                    <p className="mx-auto text-center mb-6">Crunching through hogloads of data...</p>
                 )}
-                {isLoading && suggestedSamplingPercentage ? (
-                    <div>
-                        <LemonButton
-                            className="mx-auto mt-4"
-                            type="primary"
-                            onClick={() => {
-                                setSamplingPercentage(suggestedSamplingPercentage)
-                                posthog.capture('sampling_enabled_on_slow_query', {
-                                    samplingPercentage: suggestedSamplingPercentage,
-                                })
-                            }}
-                        >
-                            Click here to speed up calculation with {suggestedSamplingPercentage}% sampling
-                        </LemonButton>
-                        <br />
+                <div className="p-4 rounded bg-mid flex gap-x-2 max-w-120">
+                    <div className="flex">
+                        <IconInfo className="w-4 h-4" />
                     </div>
+                    <p className="text-xs m-0 leading-5">
+                        {isLoading && suggestedSamplingPercentage && !samplingPercentage ? (
+                            <>
+                                Need to speed things up? Try reducing the date range, removing breakdowns, or turning on{' '}
+                                <SamplingLink insightProps={insightProps} />.
+                            </>
+                        ) : isLoading && suggestedSamplingPercentage && samplingPercentage ? (
+                            <>
+                                Still waiting around? You must have lots of data! Kick it up a notch with{' '}
+                                <SamplingLink insightProps={insightProps} />. Or try reducing the date range and
+                                removing breakdowns.
+                            </>
+                        ) : isLoading ? (
+                            <>Need to speed things up? Try reducing the date range or removing breakdowns.</>
+                        ) : (
+                            <>
+                                Sometimes this happens. Try refreshing the page, reducing the date range, or removing
+                                breakdowns. If you're still having issues,{' '}
+                                <Link
+                                    onClick={() => {
+                                        openSupportForm({ kind: 'bug', target_area: 'analytics' })
+                                    }}
+                                >
+                                    let us know
+                                </Link>
+                                .
+                            </>
+                        )}
+                    </p>
+                </div>
+                {queryId ? (
+                    <div className="text-muted text-xs mx-auto text-center mt-6">Query ID: {queryId}</div>
                 ) : null}
-                <p className="m-auto text-center">
-                    In order to improve the performance of the query, you can{' '}
-                    {suggestedSamplingPercentage ? 'also' : ''} try to reduce the date range of your query, or remove
-                    breakdowns.
-                </p>
-                {!!queryId ? <div className="text-muted text-xs m-auto text-center">Query ID: {queryId}</div> : null}
             </div>
         </div>
     )
@@ -118,20 +156,22 @@ export function InsightErrorState({ excludeDetail, title, queryId }: InsightErro
                 <div className="illustration-main">
                     <IconErrorOutline />
                 </div>
-                <h2>{title || 'There was an error completing this query'}</h2>
+                <h2 className="text-xl">{title || 'There was a problem completing this query'}</h2>
+                {/* Note that this default phrasing above signals the issue is intermittent, */}
+                {/* and that perhaps the query will complete on retry */}
                 {!excludeDetail && (
                     <div className="mt-4">
                         We apologize for this unexpected situation. There are a couple of things you can do:
                         <ol>
                             <li>
-                                First and foremost you can <b>try again</b>. We recommended you wait a few moments
-                                before doing so.
+                                First and foremost you can <b>try again</b>. We recommend you wait a moment before doing
+                                so.
                             </li>
                             <li>
                                 <Link
                                     data-attr="insight-error-bug-report"
                                     onClick={() => {
-                                        openSupportForm('bug', 'analytics')
+                                        openSupportForm({ kind: 'bug', target_area: 'analytics' })
                                     }}
                                 >
                                     If this persists, submit a bug report.
@@ -140,7 +180,7 @@ export function InsightErrorState({ excludeDetail, title, queryId }: InsightErro
                         </ol>
                     </div>
                 )}
-                {!!queryId ? <div className="text-muted text-xs text-center">Query ID: {queryId}</div> : null}
+                {queryId ? <div className="text-muted text-xs text-center">Query ID: {queryId}</div> : null}
             </div>
         </div>
     )
@@ -155,7 +195,9 @@ export function FunnelSingleStepState({ actionable = true }: FunnelSingleStepSta
 
     const filters = series ? seriesToActionsAndEvents(series) : {}
     const setFilters = (payload: Partial<FilterType>): void => {
-        updateQuerySource({ series: actionsAndEventsToSeries(payload as any) } as Partial<FunnelsQuery>)
+        updateQuerySource({
+            series: actionsAndEventsToSeries(payload as any, true, MathAvailability.None),
+        } as Partial<FunnelsQuery>)
     }
 
     const { addFilter } = useActions(entityFilterLogic({ setFilters, filters, typeKey: 'EditFunnel-action' }))
@@ -166,8 +208,8 @@ export function FunnelSingleStepState({ actionable = true }: FunnelSingleStepSta
                 <div className="illustration-main">
                     <PlusCircleOutlined />
                 </div>
-                <h2 className="funnels-empty-state__title">Add another step!</h2>
-                <p className="funnels-empty-state__description">
+                <h2 className="text-xl funnels-empty-state__title">Add another step!</h2>
+                <p className="text-sm text-center text-balance">
                     You’re almost there! Funnels require at least two steps before calculating.
                     {actionable &&
                         ' Once you have two steps defined, additional changes will recalculate automatically.'}
@@ -186,45 +228,46 @@ export function FunnelSingleStepState({ actionable = true }: FunnelSingleStepSta
                     </div>
                 )}
                 <div className="mt-4">
-                    <a
+                    <Link
                         data-attr="funnels-single-step-help"
-                        href="https://posthog.com/docs/user-guides/funnels?utm_medium=in-product&utm_campaign=funnel-empty-state"
+                        to="https://posthog.com/docs/user-guides/funnels?utm_medium=in-product&utm_campaign=funnel-empty-state"
                         target="_blank"
-                        rel="noopener"
                         className="flex items-center justify-center"
+                        targetBlankIcon
                     >
                         Learn more about funnels in PostHog docs
-                        <IconOpenInNew style={{ marginLeft: 4, fontSize: '0.85em' }} />
-                    </a>
+                    </Link>
                 </div>
             </div>
         </div>
     )
 }
 
-export function FunnelInvalidExclusionState(): JSX.Element {
+export function InsightValidationError({ detail }: { detail: string }): JSX.Element {
     return (
         <div className="insight-empty-state warning">
             <div className="empty-state-inner">
                 <div className="illustration-main">
-                    <WarningOutlined />
+                    <IconWarning />
                 </div>
-                <h2>Invalid exclusion filters</h2>
-                <p>
-                    You're excluding events or actions that are part of the funnel steps. Try changing your funnel step
-                    filters, or removing the overlapping exclusion event.
-                </p>
-                <div className="mt-4">
-                    <a
-                        data-attr="insight-funnels-emptystate-help"
-                        href="https://posthog.com/docs/user-guides/funnels?utm_medium=in-product&utm_campaign=funnel-exclusion-filter-state"
-                        target="_blank"
-                        rel="noopener"
-                    >
-                        Learn more about funnels in PostHog docs
-                        <IconOpenInNew style={{ marginLeft: 4, fontSize: '0.85em' }} />
-                    </a>
-                </div>
+                <h2 className="text-xl">
+                    There is a problem with this query
+                    {/* Note that this phrasing above signals the issue is not intermittent, */}
+                    {/* but rather that it's something with the definition of the query itself */}
+                </h2>
+                <p className="text-sm text-center text-balance">{detail}</p>
+                {detail.includes('Exclusion') && (
+                    <div className="mt-4">
+                        <Link
+                            data-attr="insight-funnels-emptystate-help"
+                            to="https://posthog.com/docs/user-guides/funnels?utm_medium=in-product&utm_campaign=funnel-exclusion-filter-state"
+                            target="_blank"
+                        >
+                            Learn more about funnels in PostHog docs
+                            <IconOpenInNew style={{ marginLeft: 4, fontSize: '0.85em' }} />
+                        </Link>
+                    </div>
+                )}
             </div>
         </div>
     )
@@ -278,17 +321,18 @@ export function SavedInsightsEmptyState(): JSX.Element {
                     <p className="empty-state__description">{description}</p>
                 )}
                 {tab !== SavedInsightsTabs.Favorites && (
-                    <Link to={urls.insightNew()}>
-                        <Button
-                            size="large"
-                            type="primary"
-                            data-attr="add-insight-button-empty-state"
-                            icon={<PlusCircleOutlined />}
-                            className="add-insight-button"
-                        >
-                            New Insight
-                        </Button>
-                    </Link>
+                    <div className="flex justify-center">
+                        <Link to={urls.insightNew()}>
+                            <LemonButton
+                                type="primary"
+                                data-attr="add-insight-button-empty-state"
+                                icon={<PlusCircleOutlined />}
+                                className="add-insight-button"
+                            >
+                                New insight
+                            </LemonButton>
+                        </Link>
+                    </div>
                 )}
             </div>
         </div>

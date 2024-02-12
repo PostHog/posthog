@@ -15,8 +15,18 @@ class TestTolerantZlibCompressor(TestCase):
 
     @parameterized.expand(
         [
-            ("test_when_disabled_compress_is_the_identity", False, uncompressed_bytes, uncompressed_bytes),
-            ("test_when_enabled_can_compress", True, uncompressed_bytes, compressed_bytes),
+            (
+                "test_when_disabled_compress_is_the_identity",
+                False,
+                uncompressed_bytes,
+                uncompressed_bytes,
+            ),
+            (
+                "test_when_enabled_can_compress",
+                True,
+                uncompressed_bytes,
+                compressed_bytes,
+            ),
             (
                 "test_when_enabled_does_not_compress_small_values",
                 True,
@@ -32,9 +42,24 @@ class TestTolerantZlibCompressor(TestCase):
 
     @parameterized.expand(
         [
-            ("test_when_disabled_decompress_is_the_identity", False, uncompressed_bytes, uncompressed_bytes),
-            ("test_when_enabled_can_decompress", True, compressed_bytes, uncompressed_bytes),
-            ("test_when_disabled_can_still_decompress", False, compressed_bytes, uncompressed_bytes),
+            (
+                "test_when_disabled_decompress_is_the_identity",
+                False,
+                uncompressed_bytes,
+                uncompressed_bytes,
+            ),
+            (
+                "test_when_enabled_can_decompress",
+                True,
+                compressed_bytes,
+                uncompressed_bytes,
+            ),
+            (
+                "test_when_disabled_can_still_decompress",
+                False,
+                compressed_bytes,
+                uncompressed_bytes,
+            ),
         ]
     )
     def test_the_zlib_compressor_decompression(self, _, setting: bool, input: bytes, output: bytes) -> None:

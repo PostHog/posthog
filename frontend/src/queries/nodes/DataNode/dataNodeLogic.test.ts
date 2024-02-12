@@ -1,8 +1,9 @@
-import { initKeaTests } from '~/test/init'
 import { expectLogic, partial } from 'kea-test-utils'
+
 import { dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
-import { NodeKind } from '~/queries/schema'
 import { query } from '~/queries/query'
+import { NodeKind } from '~/queries/schema'
+import { initKeaTests } from '~/test/init'
 
 jest.mock('~/queries/query', () => {
     return {
@@ -239,6 +240,7 @@ describe('dataNodeLogic', () => {
                 kind: NodeKind.EventsQuery,
                 select: ['*', 'event', 'timestamp'],
                 before: '2022-12-24T17:00:41.165000Z',
+                limit: 100,
             },
             response: partial({ results }),
         })
@@ -267,6 +269,7 @@ describe('dataNodeLogic', () => {
                     kind: NodeKind.EventsQuery,
                     select: ['*', 'event', 'timestamp'],
                     before: '2022-12-24T17:00:41.165000Z',
+                    limit: 100,
                 },
                 response: partial({ results }),
             })
@@ -279,6 +282,7 @@ describe('dataNodeLogic', () => {
                 kind: NodeKind.EventsQuery,
                 select: ['*', 'event', 'timestamp'],
                 before: '2022-12-23T17:00:41.165000Z',
+                limit: 100,
             },
             response: partial({ results: [...results, ...results2] }),
         })

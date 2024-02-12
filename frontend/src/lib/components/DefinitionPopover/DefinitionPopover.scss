@@ -1,6 +1,7 @@
 .definition-popover {
-    width: 20rem;
-    padding: 0.5rem 0.75rem 0.75rem 0.75rem;
+    min-width: 17rem;
+    max-width: 20rem;
+    padding: 0.5rem 0.75rem 0.75rem;
 
     .definition-popover-header {
         display: flex;
@@ -16,9 +17,9 @@
             .definition-popover-header-row-title {
                 font-size: 0.6875rem;
                 font-weight: 600;
-                letter-spacing: 0.05em;
-                text-transform: uppercase;
                 color: var(--muted);
+                text-transform: uppercase;
+                letter-spacing: 0.05em;
             }
 
             .definition-popover-header-row-buttons {
@@ -27,8 +28,8 @@
                 font-size: 0.8125rem;
 
                 a {
-                    user-select: none;
                     margin-left: 1rem;
+                    user-select: none;
                 }
 
                 .definition-popover-disabled-button {
@@ -41,17 +42,17 @@
         .definition-popover-title {
             display: flex;
             align-items: center;
-            font-weight: 600;
-            font-size: 1.25rem;
             min-height: 1.5rem;
             margin-bottom: 0.25rem;
-            white-space: normal;
+            font-size: 1.25rem;
+            font-weight: 600;
             line-height: 1.2;
+            white-space: normal;
 
             svg.taxonomy-icon {
-                font-size: 1.5rem;
-                margin-right: 0.75rem;
                 flex-shrink: 0;
+                margin-right: 0.75rem;
+                font-size: 1.5rem;
 
                 &.taxonomy-icon-muted {
                     color: var(--muted-alt);
@@ -62,7 +63,7 @@
                 }
 
                 &.taxonomy-icon-built-in {
-                    color: var(--primary);
+                    color: var(--primary-3000);
                 }
             }
         }
@@ -73,8 +74,8 @@
     }
 
     .definition-popover-description {
-        font-weight: 400;
         margin: 0.5rem 0;
+        font-weight: 400;
         overflow-wrap: break-word;
 
         &.empty {
@@ -94,18 +95,22 @@
         .definition-popover-timemeta-user {
             display: inline-flex;
         }
+
         .definition-popover-timemeta-spacer {
             margin-right: 0.5rem;
         }
     }
 
-    .definition-popover-divider {
-        width: 100%;
-        margin-top: 1rem;
-        margin-bottom: 1rem;
-        align-items: flex-start;
-        text-transform: uppercase;
-        font-size: 0.6875rem;
+    .DefinitionPopover {
+        background-color: var(--side);
+
+        .DefinitionPopover__label {
+            align-items: flex-start;
+            margin-top: 1rem;
+            margin-bottom: 1rem;
+            font-size: 0.6875rem;
+            text-transform: uppercase;
+        }
     }
 
     .definition-popover-grid {
@@ -119,9 +124,9 @@
             .definition-popover-grid-card-title {
                 font-size: 0.6875rem;
                 font-weight: 600;
-                letter-spacing: 0.05em;
-                text-transform: uppercase;
                 color: var(--muted);
+                text-transform: uppercase;
+                letter-spacing: 0.05em;
             }
 
             .definition-popover-grid-card-content {
@@ -135,8 +140,8 @@
         flex-direction: column;
 
         .label-text {
-            font-weight: 600;
             margin-right: 0.25rem;
+            font-weight: 600;
         }
 
         .definition-popover-edit-form-label {
@@ -145,15 +150,6 @@
 
         .definition-popover-edit-form-value {
             margin-bottom: 1rem;
-
-            &.definition-popover-owner-select {
-                .ant-select-selector {
-                    .ant-select-selection-placeholder {
-                        color: black;
-                        font-weight: normal;
-                    }
-                }
-            }
         }
     }
 }

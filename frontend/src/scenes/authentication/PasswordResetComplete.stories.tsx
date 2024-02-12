@@ -1,21 +1,22 @@
 // PasswordResetComplete.stories.tsx
 import { Meta } from '@storybook/react'
-import { PasswordResetComplete } from './PasswordResetComplete'
-import { useEffect } from 'react'
 import { router } from 'kea-router'
+import { useEffect } from 'react'
 import { urls } from 'scenes/urls'
+
 import { useStorybookMocks } from '~/mocks/browser'
 
+import { PasswordResetComplete } from './PasswordResetComplete'
+
 // some metadata and optional parameters
-export default {
+const meta: Meta = {
     title: 'Scenes-Other/Password Reset Complete',
     parameters: {
         layout: 'fullscreen',
-        options: { showPanel: false },
         viewMode: 'story',
     },
-} as Meta
-
+}
+export default meta
 // export more stories with different state
 export const Default = (): JSX.Element => {
     useStorybookMocks({

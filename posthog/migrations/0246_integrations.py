@@ -6,7 +6,6 @@ from django.db import migrations, models
 
 
 class Migration(migrations.Migration):
-
     dependencies = [
         ("posthog", "0245_silence_deprecated_tags_warnings"),
     ]
@@ -16,13 +15,26 @@ class Migration(migrations.Migration):
             model_name="subscription",
             name="target_type",
             field=models.CharField(
-                choices=[("email", "Email"), ("slack", "Slack"), ("webhook", "Webhook")], max_length=10
+                choices=[
+                    ("email", "Email"),
+                    ("slack", "Slack"),
+                    ("webhook", "Webhook"),
+                ],
+                max_length=10,
             ),
         ),
         migrations.CreateModel(
             name="Integration",
             fields=[
-                ("id", models.AutoField(auto_created=True, primary_key=True, serialize=False, verbose_name="ID")),
+                (
+                    "id",
+                    models.AutoField(
+                        auto_created=True,
+                        primary_key=True,
+                        serialize=False,
+                        verbose_name="ID",
+                    ),
+                ),
                 ("kind", models.CharField(choices=[("slack", "Slack")], max_length=10)),
                 ("config", models.JSONField(default=dict)),
                 ("sensitive_config", models.JSONField(default=dict)),
@@ -31,10 +43,16 @@ class Migration(migrations.Migration):
                 (
                     "created_by",
                     models.ForeignKey(
-                        blank=True, null=True, on_delete=django.db.models.deletion.SET_NULL, to=settings.AUTH_USER_MODEL
+                        blank=True,
+                        null=True,
+                        on_delete=django.db.models.deletion.SET_NULL,
+                        to=settings.AUTH_USER_MODEL,
                     ),
                 ),
-                ("team", models.ForeignKey(on_delete=django.db.models.deletion.CASCADE, to="posthog.team")),
+                (
+                    "team",
+                    models.ForeignKey(on_delete=django.db.models.deletion.CASCADE, to="posthog.team"),
+                ),
             ],
         ),
     ]

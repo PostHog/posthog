@@ -1,25 +1,25 @@
-import { useEffect } from 'react'
+import { IconCalendar } from '@posthog/icons'
+import { LemonButton } from '@posthog/lemon-ui'
 import { BindLogic, useActions, useValues } from 'kea'
-import { dashboardLogic, DashboardLogicProps } from 'scenes/dashboard/dashboardLogic'
-import { DashboardItems } from 'scenes/dashboard/DashboardItems'
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
-import { CalendarOutlined } from '@ant-design/icons'
-import './Dashboard.scss'
-import { useKeyboardHotkeys } from 'lib/hooks/useKeyboardHotkeys'
-import { DashboardMode, DashboardPlacement, DashboardType } from '~/types'
-import { DashboardEventSource } from 'lib/utils/eventUsageLogic'
-import { EmptyDashboardComponent } from './EmptyDashboardComponent'
 import { NotFound } from 'lib/components/NotFound'
-import { DashboardReloadAction, LastRefreshText } from 'scenes/dashboard/DashboardReloadAction'
-import { SceneExport } from 'scenes/sceneTypes'
-import { InsightErrorState } from 'scenes/insights/EmptyStates'
-import { DashboardHeader } from './DashboardHeader'
 import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
-import { LemonDivider } from '@posthog/lemon-ui'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
+import { useKeyboardHotkeys } from 'lib/hooks/useKeyboardHotkeys'
+import { DashboardEventSource } from 'lib/utils/eventUsageLogic'
+import { useEffect } from 'react'
+import { DashboardItems } from 'scenes/dashboard/DashboardItems'
+import { dashboardLogic, DashboardLogicProps } from 'scenes/dashboard/dashboardLogic'
+import { DashboardReloadAction, LastRefreshText } from 'scenes/dashboard/DashboardReloadAction'
+import { InsightErrorState } from 'scenes/insights/EmptyStates'
+import { SceneExport } from 'scenes/sceneTypes'
+import { urls } from 'scenes/urls'
+
+import { DashboardMode, DashboardPlacement, DashboardType } from '~/types'
+
 import { groupsModel } from '../../models/groupsModel'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { FEATURE_FLAGS } from 'lib/constants'
+import { DashboardHeader } from './DashboardHeader'
+import { EmptyDashboardComponent } from './EmptyDashboardComponent'
 
 interface DashboardProps {
     id?: string
@@ -57,7 +57,6 @@ function DashboardScene(): JSX.Element {
     } = useValues(dashboardLogic)
     const { setDashboardMode, setDates, reportDashboardViewed, setProperties, abortAnyRunningQuery } =
         useActions(dashboardLogic)
-    const { featureFlags } = useValues(featureFlagLogic)
     const { groupsTaxonomicTypes } = useValues(groupsModel)
 
     useEffect(() => {
@@ -111,28 +110,26 @@ function DashboardScene(): JSX.Element {
                 <EmptyDashboardComponent loading={itemsLoading} canEdit={canEditDashboard} />
             ) : (
                 <div>
-                    <div className="flex space-x-4 justify-between">
+                    <div className="flex gap-2 items-center justify-between flex-wrap">
                         {![
                             DashboardPlacement.Public,
                             DashboardPlacement.Export,
                             DashboardPlacement.FeatureFlag,
                         ].includes(placement) && (
-                            <div className="flex space-x-4">
-                                <div className="flex items-center h-8">
-                                    <DateFilter
-                                        showCustom
-                                        dateFrom={dashboardFilters?.date_from ?? undefined}
-                                        dateTo={dashboardFilters?.date_to ?? undefined}
-                                        onChange={setDates}
-                                        disabled={!canEditDashboard}
-                                        makeLabel={(key) => (
-                                            <>
-                                                <CalendarOutlined />
-                                                <span className="hide-when-small"> {key}</span>
-                                            </>
-                                        )}
-                                    />
-                                </div>
+                            <div className="flex space-x-4 items-center">
+                                <DateFilter
+                                    showCustom
+                                    dateFrom={dashboardFilters?.date_from ?? undefined}
+                                    dateTo={dashboardFilters?.date_to ?? undefined}
+                                    onChange={setDates}
+                                    disabled={!canEditDashboard}
+                                    makeLabel={(key) => (
+                                        <>
+                                            <IconCalendar />
+                                            <span className="hide-when-small"> {key}</span>
+                                        </>
+                                    )}
+                                />
                                 <PropertyFilters
                                     onChange={setProperties}
                                     pageKey={'dashboard_' + dashboard?.id}
@@ -149,8 +146,13 @@ function DashboardScene(): JSX.Element {
                                 />
                             </div>
                         )}
+                        {placement === DashboardPlacement.FeatureFlag && dashboard?.id && (
+                            <LemonButton type="secondary" size="small" to={urls.dashboard(dashboard.id)}>
+                                Edit dashboard
+                            </LemonButton>
+                        )}
                         {placement !== DashboardPlacement.Export && (
-                            <div className="flex space-x-4 dashoard-items-actions">
+                            <div className="flex shrink-0 space-x-4 dashoard-items-actions">
                                 <div
                                     className={`left-item ${
                                         placement === DashboardPlacement.Public ? 'text-right' : ''
@@ -165,9 +167,6 @@ function DashboardScene(): JSX.Element {
                             </div>
                         )}
                     </div>
-                    {placement !== DashboardPlacement.Export && !featureFlags[FEATURE_FLAGS.POSTHOG_3000] && (
-                        <LemonDivider className="my-4" />
-                    )}
                     <DashboardItems />
                 </div>
             )}

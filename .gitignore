@@ -13,14 +13,18 @@ debug.log
 node_modules/
 *.code-workspace
 node_modules
-frontend/.cache/
 .mypy_cache
+frontend/.cache/
 frontend/dist/
+# Paid font
+frontend/public/Matter*.woff*
 frontend/types/
 frontend/__snapshots__/__diff_output__/
+frontend/__snapshots__/__failures__/
 *Type.ts
 frontend/pnpm-error.log
 frontend/tmp
+**/*.tsbuildinfo
 .idea
 celerybeat-schedule
 celerybeat.pid
@@ -54,4 +58,5 @@ gen/
 .antlr
 upgrade/
 hogvm/typescript/dist
-
+.wokeignore
+plugin-transpiler/dist

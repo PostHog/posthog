@@ -1,58 +1,48 @@
-import { BuiltLogic, kea } from 'kea'
-import { router } from 'kea-router'
-import posthog from 'posthog-js'
-import type { sceneLogicType } from './sceneLogicType'
+import { actions, BuiltLogic, connect, kea, listeners, path, props, reducers, selectors } from 'kea'
+import { router, urlToAction } from 'kea-router'
+import { commandBarLogic } from 'lib/components/CommandBar/commandBarLogic'
+import { BarStatus } from 'lib/components/CommandBar/types'
+import { FEATURE_FLAGS } from 'lib/constants'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
-import { preflightLogic } from './PreflightCheck/preflightLogic'
-import { AvailableFeature } from '~/types'
-import { userLogic } from './userLogic'
-import { handleLoginRedirect } from './authentication/loginLogic'
-import { teamLogic } from './teamLogic'
-import { urls } from 'scenes/urls'
-import { LoadedScene, Params, Scene, SceneConfig, SceneExport, SceneParams } from 'scenes/sceneTypes'
+import { addProjectIdIfMissing, removeProjectIdIfPresent } from 'lib/utils/router-utils'
+import posthog from 'posthog-js'
 import { emptySceneParams, preloadedScenes, redirects, routes, sceneConfigurations } from 'scenes/scenes'
-import { organizationLogic } from './organizationLogic'
-import { appContextLogic } from './appContextLogic'
+import { LoadedScene, Params, Scene, SceneConfig, SceneExport, SceneParams } from 'scenes/sceneTypes'
+import { urls } from 'scenes/urls'
 
-/** Mapping of some scenes that aren't directly accessible from the sidebar to ones that are - for the sidebar. */
-const sceneNavAlias: Partial<Record<Scene, Scene>> = {
-    [Scene.Action]: Scene.DataManagement,
-    [Scene.Actions]: Scene.DataManagement,
-    [Scene.EventDefinitions]: Scene.DataManagement,
-    [Scene.PropertyDefinitions]: Scene.DataManagement,
-    [Scene.EventDefinition]: Scene.DataManagement,
-    [Scene.PropertyDefinition]: Scene.DataManagement,
-    [Scene.IngestionWarnings]: Scene.DataManagement,
-    [Scene.Person]: Scene.Persons,
-    [Scene.Cohort]: Scene.Cohorts,
-    [Scene.Groups]: Scene.Persons,
-    [Scene.Experiment]: Scene.Experiments,
-    [Scene.Group]: Scene.Persons,
-    [Scene.Dashboard]: Scene.Dashboards,
-    [Scene.FeatureFlag]: Scene.FeatureFlags,
-    [Scene.EarlyAccessFeature]: Scene.EarlyAccessFeatures,
-    [Scene.Survey]: Scene.Surveys,
-    [Scene.DataWarehouseTable]: Scene.DataWarehouse,
-    [Scene.DataWarehousePosthog]: Scene.DataWarehouse,
-    [Scene.DataWarehouseExternal]: Scene.DataWarehouse,
-    [Scene.DataWarehouseSavedQueries]: Scene.DataWarehouse,
-    [Scene.AppMetrics]: Scene.Plugins,
-    [Scene.ReplaySingle]: Scene.Replay,
-    [Scene.ReplayPlaylist]: Scene.ReplayPlaylist,
+import { AvailableFeature, ProductKey } from '~/types'
+
+import { appContextLogic } from './appContextLogic'
+import { handleLoginRedirect } from './authentication/loginLogic'
+import { organizationLogic } from './organizationLogic'
+import { preflightLogic } from './PreflightCheck/preflightLogic'
+import type { sceneLogicType } from './sceneLogicType'
+import { teamLogic } from './teamLogic'
+import { userLogic } from './userLogic'
+
+export const productUrlMapping: Partial<Record<ProductKey, string[]>> = {
+    [ProductKey.SESSION_REPLAY]: [urls.replay()],
+    [ProductKey.FEATURE_FLAGS]: [urls.featureFlags(), urls.earlyAccessFeatures(), urls.experiments()],
+    [ProductKey.SURVEYS]: [urls.surveys()],
+    [ProductKey.PRODUCT_ANALYTICS]: [urls.insights()],
 }
 
-export const sceneLogic = kea<sceneLogicType>({
-    props: {} as {
-        scenes?: Record<Scene, () => any>
-    },
-    connect: () => ({
+export const sceneLogic = kea<sceneLogicType>([
+    props(
+        {} as {
+            scenes?: Record<Scene, () => any>
+        }
+    ),
+    path(['scenes', 'sceneLogic']),
+    connect(() => ({
         logic: [router, userLogic, preflightLogic, appContextLogic],
-        actions: [router, ['locationChanged']],
-    }),
-    path: ['scenes', 'sceneLogic'],
-    actions: {
+        actions: [router, ['locationChanged'], commandBarLogic, ['setCommandBar']],
+        values: [featureFlagLogic, ['featureFlags']],
+    })),
+    actions({
         /* 1. Prepares to open the scene, as the listener may override and do something
-            else (e.g. redirecting if unauthenticated), then calls (2) `loadScene`*/
+        else (e.g. redirecting if unauthenticated), then calls (2) `loadScene`*/
         openScene: (scene: Scene, params: SceneParams, method: string) => ({ scene, params, method }),
         // 2. Start loading the scene's Javascript and mount any logic, then calls (3) `setScene`
         loadScene: (scene: Scene, params: SceneParams, method: string) => ({ scene, params, method }),
@@ -80,8 +70,8 @@ export const sceneLogic = kea<sceneLogicType>({
         ) => ({ featureKey, featureName, featureCaption, featureAvailableCallback, guardOn, currentUsage }),
         hideUpgradeModal: true,
         reloadBrowserDueToImportError: true,
-    },
-    reducers: {
+    }),
+    reducers({
         scene: [
             null as Scene | null,
             {
@@ -100,7 +90,7 @@ export const sceneLogic = kea<sceneLogicType>({
                         : state,
                 setLoadedScene: (state, { loadedScene }) => ({
                     ...state,
-                    [loadedScene.name]: { ...loadedScene, lastTouch: new Date().valueOf() },
+                    [loadedScene.id]: { ...loadedScene, lastTouch: new Date().valueOf() },
                 }),
             },
         ],
@@ -125,8 +115,8 @@ export const sceneLogic = kea<sceneLogicType>({
                 reloadBrowserDueToImportError: () => new Date().valueOf(),
             },
         ],
-    },
-    selectors: {
+    }),
+    selectors({
         sceneConfig: [
             (s) => [s.scene],
             (scene: Scene): SceneConfig | null => {
@@ -140,10 +130,6 @@ export const sceneLogic = kea<sceneLogicType>({
                     ? Scene.ErrorProjectUnavailable
                     : scene
             },
-        ],
-        aliasedActiveScene: [
-            (s) => [s.activeScene],
-            (activeScene) => (activeScene ? sceneNavAlias[activeScene] || activeScene : null),
         ],
         activeLoadedScene: [
             (s) => [s.activeScene, s.loadedScenes],
@@ -164,38 +150,8 @@ export const sceneLogic = kea<sceneLogicType>({
         params: [(s) => [s.sceneParams], (sceneParams): Record<string, string> => sceneParams.params || {}],
         searchParams: [(s) => [s.sceneParams], (sceneParams): Record<string, any> => sceneParams.searchParams || {}],
         hashParams: [(s) => [s.sceneParams], (sceneParams): Record<string, any> => sceneParams.hashParams || {}],
-    },
-    urlToAction: ({ actions }) => {
-        const mapping: Record<
-            string,
-            (
-                params: Params,
-                searchParams: Params,
-                hashParams: Params,
-                payload: {
-                    method: string
-                }
-            ) => any
-        > = {}
-
-        for (const path of Object.keys(redirects)) {
-            mapping[path] = (params, searchParams, hashParams) => {
-                const redirect = redirects[path]
-                router.actions.replace(
-                    typeof redirect === 'function' ? redirect(params, searchParams, hashParams) : redirect
-                )
-            }
-        }
-        for (const [path, scene] of Object.entries(routes)) {
-            mapping[path] = (params, searchParams, hashParams, { method }) =>
-                actions.openScene(scene, { params, searchParams, hashParams }, method)
-        }
-
-        mapping['/*'] = (_, __, { method }) => actions.loadScene(Scene.Error404, emptySceneParams, method)
-
-        return mapping
-    },
-    listeners: ({ values, actions, props, selectors }) => ({
+    }),
+    listeners(({ values, actions, props, selectors }) => ({
         showUpgradeModal: ({ featureName }) => {
             eventUsageLogic.actions.reportUpgradeModalShown(featureName)
         },
@@ -243,10 +199,21 @@ export const sceneLogic = kea<sceneLogicType>({
                 router.actions.replace(urls.login())
                 return
             }
-
             if (scene === Scene.Login && preflight?.demo) {
                 // In the demo environment, there's only passwordless "login" via the signup scene
                 router.actions.replace(urls.signup())
+                return
+            }
+            if (scene === Scene.MoveToPostHogCloud && preflight?.cloud) {
+                router.actions.replace(urls.projectHomepage())
+                return
+            }
+
+            // Redirect to the scene's canonical pathname if needed
+            const currentPathname = router.values.location.pathname
+            const canonicalPathname = addProjectIdIfMissing(router.values.location.pathname)
+            if (currentPathname !== canonicalPathname) {
+                router.actions.replace(canonicalPathname, router.values.searchParams, router.values.hashParams)
                 return
             }
 
@@ -278,13 +245,48 @@ export const sceneLogic = kea<sceneLogicType>({
                     } else if (
                         teamLogic.values.currentTeam &&
                         !teamLogic.values.currentTeam.is_demo &&
-                        !teamLogic.values.currentTeam.completed_snippet_onboarding &&
-                        !location.pathname.startsWith('/ingestion') &&
-                        !location.pathname.startsWith('/project/settings')
+                        !removeProjectIdIfPresent(location.pathname).startsWith(urls.onboarding('')) &&
+                        !removeProjectIdIfPresent(location.pathname).startsWith(urls.products()) &&
+                        !removeProjectIdIfPresent(location.pathname).startsWith(urls.settings())
                     ) {
-                        console.warn('Ingestion tutorial not completed, redirecting to it')
-                        router.actions.replace(urls.ingestion())
-                        return
+                        if (
+                            !teamLogic.values.currentTeam.completed_snippet_onboarding &&
+                            !Object.keys(teamLogic.values.currentTeam.has_completed_onboarding_for || {}).length
+                        ) {
+                            console.warn('No onboarding completed, redirecting to /products')
+                            router.actions.replace(urls.products())
+                            return
+                        }
+
+                        const productKeyFromUrl = Object.keys(productUrlMapping).find((key: string) =>
+                            // eslint-disable-next-line @typescript-eslint/no-unnecessary-type-assertion
+                            (Object.values(productUrlMapping[key]) as string[]).some(
+                                (path: string) =>
+                                    removeProjectIdIfPresent(location.pathname).startsWith(path) &&
+                                    !path.startsWith('/projects')
+                            )
+                        )
+
+                        if (
+                            productKeyFromUrl &&
+                            teamLogic.values.currentTeam &&
+                            !teamLogic.values.currentTeam?.has_completed_onboarding_for?.[productKeyFromUrl]
+                            // TODO: when removing ff PRODUCT_INTRO_PAGES - should this only happen when in
+                            // cloud mode? What is the experience for self-hosted?
+                        ) {
+                            // TODO: remove after PRODUCT_INTRO_PAGES experiment is complete
+                            posthog.capture('should view onboarding product intro', {
+                                did_view_intro: values.featureFlags[FEATURE_FLAGS.PRODUCT_INTRO_PAGES] === 'test',
+                                product_key: productKeyFromUrl,
+                            })
+                            if (values.featureFlags[FEATURE_FLAGS.PRODUCT_INTRO_PAGES] === 'test') {
+                                console.warn(
+                                    `Onboarding not completed for ${productKeyFromUrl}, redirecting to onboarding intro`
+                                )
+                                router.actions.replace(urls.onboardingProductIntroduction(productKeyFromUrl))
+                                return
+                            }
+                        }
                     }
                 }
             }
@@ -340,11 +342,11 @@ export const sceneLogic = kea<sceneLogicType>({
                 const { default: defaultExport, logic, scene: _scene, ...others } = importedScene
 
                 if (_scene) {
-                    loadedScene = { name: scene, ...(_scene as SceneExport), sceneParams: params }
+                    loadedScene = { id: scene, ...(_scene as SceneExport), sceneParams: params }
                 } else if (defaultExport) {
                     console.warn(`Scene ${scene} not yet converted to use SceneExport!`)
                     loadedScene = {
-                        name: scene,
+                        id: scene,
                         component: defaultExport,
                         logic: logic,
                         sceneParams: params,
@@ -352,7 +354,7 @@ export const sceneLogic = kea<sceneLogicType>({
                 } else {
                     console.warn(`Scene ${scene} not yet converted to use SceneExport!`)
                     loadedScene = {
-                        name: scene,
+                        id: scene,
                         component:
                             Object.keys(others).length === 1
                                 ? others[Object.keys(others)[0]]
@@ -384,13 +386,59 @@ export const sceneLogic = kea<sceneLogicType>({
             window.location.reload()
         },
         locationChanged: () => {
-            // Remove trailing slash
             const {
                 location: { pathname, search, hash },
             } = router.values
+
+            // Open search or command bar
+            const params = new URLSearchParams(search)
+            const searchBar = params.get('searchBar')
+            const commandBar = params.get('commandBar')
+
+            if (searchBar !== null) {
+                actions.setCommandBar(BarStatus.SHOW_SEARCH, searchBar)
+                params.delete('searchBar')
+                router.actions.replace(pathname, params, hash)
+            } else if (commandBar !== null) {
+                actions.setCommandBar(BarStatus.SHOW_ACTIONS, commandBar)
+                params.delete('commandBar')
+                router.actions.replace(pathname, params, hash)
+            }
+
+            // Remove trailing slash
             if (pathname !== '/' && pathname.endsWith('/')) {
                 router.actions.replace(pathname.replace(/(\/+)$/, ''), search, hash)
             }
         },
+    })),
+    urlToAction(({ actions }) => {
+        const mapping: Record<
+            string,
+            (
+                params: Params,
+                searchParams: Params,
+                hashParams: Params,
+                payload: {
+                    method: string
+                }
+            ) => any
+        > = {}
+
+        for (const path of Object.keys(redirects)) {
+            mapping[path] = (params, searchParams, hashParams) => {
+                const redirect = redirects[path]
+                router.actions.replace(
+                    typeof redirect === 'function' ? redirect(params, searchParams, hashParams) : redirect
+                )
+            }
+        }
+        for (const [path, scene] of Object.entries(routes)) {
+            mapping[path] = (params, searchParams, hashParams, { method }) =>
+                actions.openScene(scene, { params, searchParams, hashParams }, method)
+        }
+
+        mapping['/*'] = (_, __, { method }) => actions.loadScene(Scene.Error404, emptySceneParams, method)
+
+        return mapping
     }),
-})
+])

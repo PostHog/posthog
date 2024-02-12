@@ -1,13 +1,12 @@
 import { expectLogic } from 'kea-test-utils'
-import { initKeaTests } from '~/test/init'
+import { teamLogic } from 'scenes/teamLogic'
 import timekeeper from 'timekeeper'
 
-import { teamLogic } from 'scenes/teamLogic'
 import { dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
-import { funnelDataLogic } from './funnelDataLogic'
-
+import { DataNode, FunnelsQuery, NodeKind } from '~/queries/schema'
+import { initKeaTests } from '~/test/init'
 import { FunnelConversionWindowTimeUnit, FunnelVizType, InsightLogicProps, InsightModel, InsightType } from '~/types'
-import { ActionsNode, DataNode, EventsNode, FunnelsQuery, InsightQueryNode, NodeKind } from '~/queries/schema'
+
 import {
     funnelResult,
     funnelResultTimeToConvert,
@@ -15,8 +14,8 @@ import {
     funnelResultTrends,
     funnelResultWithBreakdown,
     funnelResultWithMultiBreakdown,
-    funnelInvalidExclusionError,
 } from './__mocks__/funnelDataLogicMocks'
+import { funnelDataLogic } from './funnelDataLogic'
 
 let logic: ReturnType<typeof funnelDataLogic.build>
 let builtDataNodeLogic: ReturnType<typeof dataNodeLogic.build>
@@ -75,7 +74,7 @@ describe('funnelDataLogic', () => {
                 kind: NodeKind.FunnelsQuery,
                 series: [],
                 funnelsFilter: {
-                    funnel_viz_type: FunnelVizType.Steps,
+                    funnelVizType: FunnelVizType.Steps,
                 },
             }
 
@@ -94,7 +93,7 @@ describe('funnelDataLogic', () => {
                 kind: NodeKind.FunnelsQuery,
                 series: [],
                 funnelsFilter: {
-                    funnel_viz_type: FunnelVizType.TimeToConvert,
+                    funnelVizType: FunnelVizType.TimeToConvert,
                 },
             }
 
@@ -113,7 +112,7 @@ describe('funnelDataLogic', () => {
                 kind: NodeKind.FunnelsQuery,
                 series: [],
                 funnelsFilter: {
-                    funnel_viz_type: FunnelVizType.Trends,
+                    funnelVizType: FunnelVizType.Trends,
                 },
             }
 
@@ -243,7 +242,7 @@ describe('funnelDataLogic', () => {
                     kind: NodeKind.FunnelsQuery,
                     series: [],
                     funnelsFilter: {
-                        funnel_viz_type: FunnelVizType.TimeToConvert,
+                        funnelVizType: FunnelVizType.TimeToConvert,
                     },
                 }
                 const insight: Partial<InsightModel> = {
@@ -751,54 +750,6 @@ describe('funnelDataLogic', () => {
                 })
             })
         })
-
-        describe('areExclusionFiltersValid', () => {
-            it('for standard funnel', async () => {
-                const insight: Partial<InsightModel> = {
-                    filters: {
-                        insight: InsightType.FUNNELS,
-                    },
-                    result: funnelResult.result,
-                }
-
-                await expectLogic(logic, () => {
-                    builtDataNodeLogic.actions.loadDataSuccess(insight)
-                }).toMatchValues({
-                    areExclusionFiltersValid: true,
-                })
-            })
-
-            it('for invalid exclusion', async () => {
-                await expectLogic(logic, () => {
-                    builtDataNodeLogic.actions.loadDataFailure('', { status: 400, ...funnelInvalidExclusionError })
-                }).toMatchValues({
-                    areExclusionFiltersValid: false,
-                })
-            })
-        })
-    })
-
-    describe('isFunnelWithEnoughSteps', () => {
-        const queryWithSeries = (series: (ActionsNode | EventsNode)[]): FunnelsQuery => ({
-            kind: NodeKind.FunnelsQuery,
-            series,
-        })
-
-        it('with enough/not enough steps', () => {
-            expectLogic(logic, () => {
-                logic.actions.updateQuerySource({ kind: NodeKind.RetentionQuery } as InsightQueryNode)
-            }).toMatchValues({ isFunnelWithEnoughSteps: false })
-
-            expectLogic(logic, () => {
-                logic.actions.updateQuerySource(queryWithSeries([]))
-            }).toMatchValues({ isFunnelWithEnoughSteps: false })
-
-            expectLogic(logic, () => {
-                logic.actions.updateQuerySource(
-                    queryWithSeries([{ kind: NodeKind.EventsNode }, { kind: NodeKind.EventsNode }])
-                )
-            }).toMatchValues({ isFunnelWithEnoughSteps: true })
-        })
     })
 
     describe('time to convert funnel', () => {
@@ -808,7 +759,7 @@ describe('funnelDataLogic', () => {
                     kind: NodeKind.FunnelsQuery,
                     series: [],
                     funnelsFilter: {
-                        funnel_viz_type: FunnelVizType.TimeToConvert,
+                        funnelVizType: FunnelVizType.TimeToConvert,
                     },
                 }
                 const insight: Partial<InsightModel> = {
@@ -848,7 +799,7 @@ describe('funnelDataLogic', () => {
                     kind: NodeKind.FunnelsQuery,
                     series: [],
                     funnelsFilter: {
-                        funnel_viz_type: FunnelVizType.TimeToConvert,
+                        funnelVizType: FunnelVizType.TimeToConvert,
                     },
                 }
                 const insight: Partial<InsightModel> = {
@@ -874,7 +825,7 @@ describe('funnelDataLogic', () => {
                     kind: NodeKind.FunnelsQuery,
                     series: [],
                     funnelsFilter: {
-                        funnel_viz_type: FunnelVizType.TimeToConvert,
+                        funnelVizType: FunnelVizType.TimeToConvert,
                     },
                 }
                 const insight: Partial<InsightModel> = {
@@ -897,7 +848,7 @@ describe('funnelDataLogic', () => {
                     kind: NodeKind.FunnelsQuery,
                     series: [],
                     funnelsFilter: {
-                        funnel_viz_type: FunnelVizType.TimeToConvert,
+                        funnelVizType: FunnelVizType.TimeToConvert,
                     },
                 }
                 const insight: Partial<InsightModel> = {
@@ -931,7 +882,7 @@ describe('funnelDataLogic', () => {
                 kind: NodeKind.FunnelsQuery,
                 series: [],
                 funnelsFilter: {
-                    funnel_viz_type: FunnelVizType.Steps,
+                    funnelVizType: FunnelVizType.Steps,
                 },
             }
 
@@ -955,7 +906,7 @@ describe('funnelDataLogic', () => {
                 kind: NodeKind.FunnelsQuery,
                 series: [],
                 funnelsFilter: {
-                    funnel_viz_type: FunnelVizType.TimeToConvert,
+                    funnelVizType: FunnelVizType.TimeToConvert,
                 },
             }
 
@@ -979,7 +930,7 @@ describe('funnelDataLogic', () => {
                 kind: NodeKind.FunnelsQuery,
                 series: [],
                 funnelsFilter: {
-                    funnel_viz_type: FunnelVizType.Trends,
+                    funnelVizType: FunnelVizType.Trends,
                 },
             }
 
@@ -1005,7 +956,7 @@ describe('funnelDataLogic', () => {
                 kind: NodeKind.FunnelsQuery,
                 series: [],
                 funnelsFilter: {
-                    funnel_viz_type: FunnelVizType.Steps,
+                    funnelVizType: FunnelVizType.Steps,
                 },
             }
 
@@ -1033,7 +984,7 @@ describe('funnelDataLogic', () => {
                 kind: NodeKind.FunnelsQuery,
                 series: [],
                 funnelsFilter: {
-                    funnel_viz_type: FunnelVizType.TimeToConvert,
+                    funnelVizType: FunnelVizType.TimeToConvert,
                 },
             }
             const insight: Partial<InsightModel> = {
@@ -1060,7 +1011,7 @@ describe('funnelDataLogic', () => {
                 kind: NodeKind.FunnelsQuery,
                 series: [],
                 funnelsFilter: {
-                    funnel_viz_type: FunnelVizType.Trends,
+                    funnelVizType: FunnelVizType.Trends,
                 },
             }
 
@@ -1088,8 +1039,8 @@ describe('funnelDataLogic', () => {
         it('with defaults', async () => {
             await expectLogic(logic).toMatchValues({
                 conversionWindow: {
-                    funnel_window_interval: 14,
-                    funnel_window_interval_unit: 'day',
+                    funnelWindowInterval: 14,
+                    funnelWindowIntervalUnit: 'day',
                 },
             })
         })
@@ -1099,8 +1050,8 @@ describe('funnelDataLogic', () => {
                 kind: NodeKind.FunnelsQuery,
                 series: [],
                 funnelsFilter: {
-                    funnel_window_interval: 3,
-                    funnel_window_interval_unit: FunnelConversionWindowTimeUnit.Week,
+                    funnelWindowInterval: 3,
+                    funnelWindowIntervalUnit: FunnelConversionWindowTimeUnit.Week,
                 },
             }
 
@@ -1108,8 +1059,8 @@ describe('funnelDataLogic', () => {
                 logic.actions.updateQuerySource(query)
             }).toMatchValues({
                 conversionWindow: {
-                    funnel_window_interval: 3,
-                    funnel_window_interval_unit: 'week',
+                    funnelWindowInterval: 3,
+                    funnelWindowIntervalUnit: 'week',
                 },
             })
         })
@@ -1145,8 +1096,8 @@ describe('funnelDataLogic', () => {
                 kind: NodeKind.FunnelsQuery,
                 series: [],
                 funnelsFilter: {
-                    funnel_window_interval: 2,
-                    funnel_window_interval_unit: FunnelConversionWindowTimeUnit.Day,
+                    funnelWindowInterval: 2,
+                    funnelWindowIntervalUnit: FunnelConversionWindowTimeUnit.Day,
                 },
             }
 

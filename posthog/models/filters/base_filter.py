@@ -1,20 +1,24 @@
 import inspect
 import json
-from typing import Any, Dict, Optional
+from typing import TYPE_CHECKING, Any, Dict, Optional
 
 from rest_framework import request
 
 from posthog.hogql.context import HogQLContext
-from posthog.models.filters.mixins.common import BaseParamMixin
+from .mixins.common import BaseParamMixin
 from posthog.models.utils import sane_repr
 from posthog.utils import encode_get_request_params
 from rest_framework.exceptions import ValidationError
 
 from posthog.constants import PROPERTIES
 
+if TYPE_CHECKING:
+    from posthog.models.team.team import Team
+
 
 class BaseFilter(BaseParamMixin):
     _data: Dict
+    team: Optional["Team"]
     kwargs: Dict
     hogql_context: HogQLContext
 
@@ -22,6 +26,8 @@ class BaseFilter(BaseParamMixin):
         self,
         data: Optional[Dict[str, Any]] = None,
         request: Optional[request.Request] = None,
+        *,
+        team: Optional["Team"] = None,
         **kwargs,
     ) -> None:
         if request:
@@ -34,23 +40,33 @@ class BaseFilter(BaseParamMixin):
             elif request.data and request.data.get(PROPERTIES):
                 properties = request.data[PROPERTIES]
 
-            data = {**request.GET.dict(), **request.data, **(data if data else {}), **({PROPERTIES: properties})}
+            data = {
+                **request.GET.dict(),
+                **request.data,
+                **(data if data else {}),
+                **({PROPERTIES: properties}),
+            }
         elif data is None:
             raise ValueError("You need to define either a data dict or a request")
 
         self._data = data
         self.kwargs = kwargs
-        self.team = kwargs.get("team", None)
+        self.team = team
 
         # Set the HogQL context for the request
         self.hogql_context = self.kwargs.get(
-            "hogql_context", HogQLContext(within_non_hogql_query=True, team_id=self.team.pk if self.team else None)
+            "hogql_context",
+            HogQLContext(
+                within_non_hogql_query=True,
+                team_id=self.team.pk if self.team else None,
+                team=self.team if self.team else None,
+            ),
         )
         if self.team:
             self.hogql_context.person_on_events_mode = self.team.person_on_events_mode
 
         if self.team and hasattr(self, "simplify") and not getattr(self, "is_simplified", False):
-            simplified_filter = self.simplify(self.team)  # type: ignore
+            simplified_filter = self.simplify(self.team)
             self._data = simplified_filter._data
 
     def to_dict(self) -> Dict[str, Any]:
@@ -70,7 +86,10 @@ class BaseFilter(BaseParamMixin):
 
     def shallow_clone(self, overrides: Dict[str, Any]):
         "Clone the filter's data while sharing the HogQL context"
-        return type(self)(data={**self._data, **overrides}, **{**self.kwargs, "hogql_context": self.hogql_context})
+        return type(self)(
+            data={**self._data, **overrides},
+            **{**self.kwargs, "team": self.team, "hogql_context": self.hogql_context},
+        )
 
     def query_tags(self) -> Dict[str, Any]:
         ret = {}

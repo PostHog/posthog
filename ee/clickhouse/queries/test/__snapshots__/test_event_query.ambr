@@ -1,25 +1,26 @@
+# serializer version: 1
 # name: TestEventQuery.test_account_filters
-  '
+  '''
   
   SELECT count(DISTINCT person_id)
   FROM cohortpeople
   WHERE team_id = 2
     AND cohort_id = 2
     AND version = NULL
-  '
----
+  '''
+# ---
 # name: TestEventQuery.test_account_filters.1
-  '
+  '''
   
   SELECT count(DISTINCT person_id)
   FROM cohortpeople
   WHERE team_id = 2
     AND cohort_id = 2
     AND version = 0
-  '
----
+  '''
+# ---
 # name: TestEventQuery.test_account_filters.2
-  '
+  '''
   SELECT e.timestamp as timestamp,
          pdi.person_id as person_id
   FROM events e
@@ -28,6 +29,13 @@
             argMax(person_id, version) as person_id
      FROM person_distinct_id2
      WHERE team_id = 2
+       AND distinct_id IN
+         (SELECT distinct_id
+          FROM events
+          WHERE team_id = 2
+            AND event = 'event_name'
+            AND toTimeZone(timestamp, 'UTC') >= toDateTime(toStartOfDay(toDateTime('2021-01-14 00:00:00', 'UTC')), 'UTC')
+            AND toTimeZone(timestamp, 'UTC') <= toDateTime('2021-01-21 23:59:59', 'UTC'))
      GROUP BY distinct_id
      HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
   INNER JOIN
@@ -41,25 +49,25 @@
             AND (has(['Jane'], replaceRegexpAll(JSONExtractRaw(properties, 'name'), '^"|"$', ''))) )
      GROUP BY id
      HAVING max(is_deleted) = 0
-     AND (has(['Jane'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, version), 'name'), '^"|"$', '')))) person ON person.id = pdi.person_id
+     AND (has(['Jane'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, version), 'name'), '^"|"$', ''))) SETTINGS optimize_aggregation_in_order = 1) person ON person.id = pdi.person_id
   WHERE team_id = 2
     AND event = 'event_name'
     AND toTimeZone(timestamp, 'UTC') >= toDateTime(toStartOfDay(toDateTime('2021-01-14 00:00:00', 'UTC')), 'UTC')
     AND toTimeZone(timestamp, 'UTC') <= toDateTime('2021-01-21 23:59:59', 'UTC')
-  '
----
+  '''
+# ---
 # name: TestEventQuery.test_basic_event_filter
-  '
+  '''
   SELECT e.timestamp as timestamp
   FROM events e
   WHERE team_id = 2
     AND event = 'viewed'
     AND toTimeZone(timestamp, 'UTC') >= toDateTime(toStartOfDay(toDateTime('2021-05-01 00:00:00', 'UTC')), 'UTC')
     AND toTimeZone(timestamp, 'UTC') <= toDateTime('2021-05-07 23:59:59', 'UTC')
-  '
----
+  '''
+# ---
 # name: TestEventQuery.test_cohort_filter
-  '
+  '''
   SELECT e.timestamp as timestamp,
          pdi.person_id as person_id
   FROM events e
@@ -68,6 +76,13 @@
             argMax(person_id, version) as person_id
      FROM person_distinct_id2
      WHERE team_id = 2
+       AND distinct_id IN
+         (SELECT distinct_id
+          FROM events
+          WHERE team_id = 2
+            AND event = 'viewed'
+            AND toTimeZone(timestamp, 'UTC') >= toDateTime(toStartOfDay(toDateTime('2021-05-01 00:00:00', 'UTC')), 'UTC')
+            AND toTimeZone(timestamp, 'UTC') <= toDateTime('2021-05-07 23:59:59', 'UTC'))
      GROUP BY distinct_id
      HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
   INNER JOIN
@@ -75,7 +90,7 @@
      FROM person
      WHERE team_id = 2
      GROUP BY id
-     HAVING max(is_deleted) = 0) person ON person.id = pdi.person_id
+     HAVING max(is_deleted) = 0 SETTINGS optimize_aggregation_in_order = 1) person ON person.id = pdi.person_id
   WHERE team_id = 2
     AND event = 'viewed'
     AND toTimeZone(timestamp, 'UTC') >= toDateTime(toStartOfDay(toDateTime('2021-05-01 00:00:00', 'UTC')), 'UTC')
@@ -91,11 +106,11 @@
                    AND ((has(['test'], replaceRegexpAll(JSONExtractRaw(properties, 'name'), '^"|"$', '')))) )
             GROUP BY id
             HAVING max(is_deleted) = 0
-            AND ((has(['test'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, version), 'name'), '^"|"$', ''))))))
-  '
----
+            AND ((has(['test'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, version), 'name'), '^"|"$', '')))) SETTINGS optimize_aggregation_in_order = 1))
+  '''
+# ---
 # name: TestEventQuery.test_denormalised_props
-  '
+  '''
   SELECT e.timestamp as timestamp,
          e."mat_test_prop" as "mat_test_prop"
   FROM events e
@@ -105,10 +120,10 @@
     AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-14 23:59:59', 'UTC')
     AND ((has(['hi'], "mat_test_prop"))
          AND (has(['hi'], "mat_test_prop")))
-  '
----
+  '''
+# ---
 # name: TestEventQuery.test_element
-  '
+  '''
   SELECT e.timestamp as timestamp
   FROM events e
   WHERE team_id = 2
@@ -116,10 +131,10 @@
     AND toTimeZone(timestamp, 'UTC') >= toDateTime(toStartOfDay(toDateTime('2021-01-14 00:00:00', 'UTC')), 'UTC')
     AND toTimeZone(timestamp, 'UTC') <= toDateTime('2021-01-21 23:59:59', 'UTC')
     AND ((match(elements_chain, '(^|;)label(\\.|$|;|:)')))
-  '
----
+  '''
+# ---
 # name: TestEventQuery.test_element.1
-  '
+  '''
   SELECT e.timestamp as timestamp
   FROM events e
   WHERE team_id = 2
@@ -127,10 +142,10 @@
     AND toTimeZone(timestamp, 'UTC') >= toDateTime(toStartOfDay(toDateTime('2021-01-14 00:00:00', 'UTC')), 'UTC')
     AND toTimeZone(timestamp, 'UTC') <= toDateTime('2021-01-21 23:59:59', 'UTC')
     AND (0 = 191)
-  '
----
+  '''
+# ---
 # name: TestEventQuery.test_entity_filtered_by_cohort
-  '
+  '''
   SELECT e.timestamp as timestamp,
          pdi.person_id as person_id
   FROM events e
@@ -139,6 +154,13 @@
             argMax(person_id, version) as person_id
      FROM person_distinct_id2
      WHERE team_id = 2
+       AND distinct_id IN
+         (SELECT distinct_id
+          FROM events
+          WHERE team_id = 2
+            AND event = '$pageview'
+            AND toTimeZone(timestamp, 'UTC') >= toDateTime(toStartOfDay(toDateTime('2021-05-01 00:00:00', 'UTC')), 'UTC')
+            AND toTimeZone(timestamp, 'UTC') <= toDateTime('2021-05-07 23:59:59', 'UTC'))
      GROUP BY distinct_id
      HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
   INNER JOIN
@@ -146,7 +168,7 @@
      FROM person
      WHERE team_id = 2
      GROUP BY id
-     HAVING max(is_deleted) = 0) person ON person.id = pdi.person_id
+     HAVING max(is_deleted) = 0 SETTINGS optimize_aggregation_in_order = 1) person ON person.id = pdi.person_id
   WHERE team_id = 2
     AND event = '$pageview'
     AND toTimeZone(timestamp, 'UTC') >= toDateTime(toStartOfDay(toDateTime('2021-05-01 00:00:00', 'UTC')), 'UTC')
@@ -162,11 +184,11 @@
                    AND ((has(['test'], replaceRegexpAll(JSONExtractRaw(properties, 'name'), '^"|"$', '')))) )
             GROUP BY id
             HAVING max(is_deleted) = 0
-            AND ((has(['test'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, version), 'name'), '^"|"$', ''))))))
-  '
----
+            AND ((has(['test'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, version), 'name'), '^"|"$', '')))) SETTINGS optimize_aggregation_in_order = 1))
+  '''
+# ---
 # name: TestEventQuery.test_entity_filtered_by_multiple_session_duration_filters
-  '
+  '''
   SELECT e.timestamp as timestamp,
          sessions.session_duration as session_duration,
          sessions.$session_id as $session_id
@@ -179,17 +201,17 @@
        AND team_id = 2
        AND toTimeZone(timestamp, 'UTC') >= toDateTime('2021-05-02 00:00:00', 'UTC') - INTERVAL 24 HOUR
        AND toTimeZone(timestamp, 'UTC') <= toDateTime('2021-05-03 23:59:59', 'UTC') + INTERVAL 24 HOUR
-     GROUP BY "$session_id") as sessions ON sessions.$session_id = e.$session_id
+     GROUP BY "$session_id") as sessions ON sessions."$session_id" = e."$session_id"
   WHERE team_id = 2
     AND event = '$pageview'
     AND toTimeZone(timestamp, 'UTC') >= toDateTime('2021-05-02 00:00:00', 'UTC')
     AND toTimeZone(timestamp, 'UTC') <= toDateTime('2021-05-03 23:59:59', 'UTC')
     AND (sessions.session_duration > 90.0
          AND sessions.session_duration < 150.0)
-  '
----
+  '''
+# ---
 # name: TestEventQuery.test_entity_filtered_by_session_duration
-  '
+  '''
   SELECT e.timestamp as timestamp,
          sessions.session_duration as session_duration,
          sessions.$session_id as $session_id
@@ -202,16 +224,16 @@
        AND team_id = 2
        AND toTimeZone(timestamp, 'UTC') >= toDateTime('2021-05-02 00:00:00', 'UTC') - INTERVAL 24 HOUR
        AND toTimeZone(timestamp, 'UTC') <= toDateTime('2021-05-03 23:59:59', 'UTC') + INTERVAL 24 HOUR
-     GROUP BY "$session_id") as sessions ON sessions.$session_id = e.$session_id
+     GROUP BY "$session_id") as sessions ON sessions."$session_id" = e."$session_id"
   WHERE team_id = 2
     AND event = '$pageview'
     AND toTimeZone(timestamp, 'UTC') >= toDateTime('2021-05-02 00:00:00', 'UTC')
     AND toTimeZone(timestamp, 'UTC') <= toDateTime('2021-05-03 23:59:59', 'UTC')
     AND (sessions.session_duration > 90.0)
-  '
----
+  '''
+# ---
 # name: TestEventQuery.test_event_properties_filter
-  '
+  '''
   SELECT e.timestamp as timestamp,
          e."properties" as "properties"
   FROM events e
@@ -220,10 +242,10 @@
     AND toTimeZone(timestamp, 'UTC') >= toDateTime(toStartOfDay(toDateTime('2021-05-01 00:00:00', 'UTC')), 'UTC')
     AND toTimeZone(timestamp, 'UTC') <= toDateTime('2021-05-07 23:59:59', 'UTC')
     AND (has(['test_val'], replaceRegexpAll(JSONExtractRaw(e.properties, 'some_key'), '^"|"$', '')))
-  '
----
+  '''
+# ---
 # name: TestEventQuery.test_event_properties_filter.1
-  '
+  '''
   SELECT e.timestamp as timestamp
   FROM events e
   WHERE team_id = 2
@@ -231,10 +253,10 @@
     AND toTimeZone(timestamp, 'UTC') >= toDateTime(toStartOfDay(toDateTime('2021-05-01 00:00:00', 'UTC')), 'UTC')
     AND toTimeZone(timestamp, 'UTC') <= toDateTime('2021-05-07 23:59:59', 'UTC')
     AND (has(['test_val'], replaceRegexpAll(JSONExtractRaw(e.properties, 'some_key'), '^"|"$', '')))
-  '
----
+  '''
+# ---
 # name: TestEventQuery.test_groups_filters
-  '
+  '''
   SELECT e.timestamp as timestamp
   FROM events e
   LEFT JOIN
@@ -257,10 +279,10 @@
     AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-12 23:59:59', 'UTC')
     AND ((has(['finance'], replaceRegexpAll(JSONExtractRaw(group_properties_0, 'industry'), '^"|"$', '')))
          AND (has(['value'], replaceRegexpAll(JSONExtractRaw(group_properties_1, 'another'), '^"|"$', ''))))
-  '
----
+  '''
+# ---
 # name: TestEventQuery.test_groups_filters_mixed
-  '
+  '''
   SELECT e.timestamp as timestamp,
          pdi.person_id as person_id
   FROM events e
@@ -269,6 +291,13 @@
             argMax(person_id, version) as person_id
      FROM person_distinct_id2
      WHERE team_id = 2
+       AND distinct_id IN
+         (SELECT distinct_id
+          FROM events
+          WHERE team_id = 2
+            AND event = '$pageview'
+            AND toTimeZone(timestamp, 'UTC') >= toDateTime(toStartOfDay(toDateTime('2020-01-01 00:00:00', 'UTC')), 'UTC')
+            AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-12 23:59:59', 'UTC'))
      GROUP BY distinct_id
      HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
   INNER JOIN
@@ -282,7 +311,7 @@
             AND ((has(['test'], replaceRegexpAll(JSONExtractRaw(properties, '$browser'), '^"|"$', '')))) )
      GROUP BY id
      HAVING max(is_deleted) = 0
-     AND ((has(['test'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, version), '$browser'), '^"|"$', ''))))) person ON person.id = pdi.person_id
+     AND ((has(['test'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, version), '$browser'), '^"|"$', '')))) SETTINGS optimize_aggregation_in_order = 1) person ON person.id = pdi.person_id
   LEFT JOIN
     (SELECT group_key,
             argMax(group_properties, _timestamp) AS group_properties_0
@@ -295,10 +324,10 @@
     AND toTimeZone(timestamp, 'UTC') >= toDateTime(toStartOfDay(toDateTime('2020-01-01 00:00:00', 'UTC')), 'UTC')
     AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-12 23:59:59', 'UTC')
     AND ((has(['finance'], replaceRegexpAll(JSONExtractRaw(group_properties_0, 'industry'), '^"|"$', ''))))
-  '
----
+  '''
+# ---
 # name: TestEventQuery.test_static_cohort_filter
-  '
+  '''
   SELECT e.timestamp as timestamp,
          pdi.person_id as person_id
   FROM events e
@@ -307,6 +336,13 @@
             argMax(person_id, version) as person_id
      FROM person_distinct_id2
      WHERE team_id = 2
+       AND distinct_id IN
+         (SELECT distinct_id
+          FROM events
+          WHERE team_id = 2
+            AND event = 'viewed'
+            AND toTimeZone(timestamp, 'UTC') >= toDateTime(toStartOfDay(toDateTime('2021-05-01 00:00:00', 'UTC')), 'UTC')
+            AND toTimeZone(timestamp, 'UTC') <= toDateTime('2021-05-07 23:59:59', 'UTC'))
      GROUP BY distinct_id
      HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
   INNER JOIN
@@ -314,7 +350,7 @@
      FROM person
      WHERE team_id = 2
      GROUP BY id
-     HAVING max(is_deleted) = 0) person ON person.id = pdi.person_id
+     HAVING max(is_deleted) = 0 SETTINGS optimize_aggregation_in_order = 1) person ON person.id = pdi.person_id
   WHERE team_id = 2
     AND event = 'viewed'
     AND toTimeZone(timestamp, 'UTC') >= toDateTime(toStartOfDay(toDateTime('2021-05-01 00:00:00', 'UTC')), 'UTC')
@@ -324,10 +360,10 @@
             FROM person_static_cohort
             WHERE cohort_id = 2
               AND team_id = 2))
-  '
----
+  '''
+# ---
 # name: TestEventQuery.test_unique_session_math_filtered_by_session_duration
-  '
+  '''
   SELECT e.timestamp as timestamp,
          e."$session_id" as "$session_id",
          sessions.session_duration as session_duration
@@ -340,11 +376,11 @@
        AND team_id = 2
        AND toTimeZone(timestamp, 'UTC') >= toDateTime('2021-05-02 00:00:00', 'UTC') - INTERVAL 24 HOUR
        AND toTimeZone(timestamp, 'UTC') <= toDateTime('2021-05-03 23:59:59', 'UTC') + INTERVAL 24 HOUR
-     GROUP BY "$session_id") as sessions ON sessions.$session_id = e.$session_id
+     GROUP BY "$session_id") as sessions ON sessions."$session_id" = e."$session_id"
   WHERE team_id = 2
     AND event = '$pageview'
     AND toTimeZone(timestamp, 'UTC') >= toDateTime('2021-05-02 00:00:00', 'UTC')
     AND toTimeZone(timestamp, 'UTC') <= toDateTime('2021-05-03 23:59:59', 'UTC')
     AND (sessions.session_duration > 30.0)
-  '
----
+  '''
+# ---

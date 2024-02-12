@@ -1,7 +1,11 @@
 from django.conf import settings
 
 from posthog.clickhouse.kafka_engine import KAFKA_COLUMNS_WITH_PARTITION, kafka_engine
-from posthog.clickhouse.table_engines import AggregatingMergeTree, Distributed, ReplicationScheme
+from posthog.clickhouse.table_engines import (
+    AggregatingMergeTree,
+    Distributed,
+    ReplicationScheme,
+)
 from posthog.kafka_client.topics import KAFKA_APP_METRICS
 
 SHARDED_APP_METRICS_TABLE_ENGINE = lambda: AggregatingMergeTree(
@@ -22,6 +26,11 @@ BASE_APP_METRICS_COLUMNS = """
     error_details String CODEC(ZSTD(3))
 """.strip()
 
+# NOTE: We have producers that take advantage of the timestamp being truncated to the hour,
+# i.e. they batch up metrics and send them pre-truncated. If we ever change this truncation
+# we need to revisit producers (e.g. the webhook service currently known as rusty-hook or pgqueue).
+APP_METRICS_TIMESTAMP_TRUNCATION = "toStartOfHour(timestamp)"
+
 APP_METRICS_DATA_TABLE_SQL = (
     lambda: f"""
 CREATE TABLE IF NOT EXISTS sharded_app_metrics ON CLUSTER '{settings.CLICKHOUSE_CLUSTER}'
@@ -31,7 +40,7 @@ CREATE TABLE IF NOT EXISTS sharded_app_metrics ON CLUSTER '{settings.CLICKHOUSE_
 )
 ENGINE = {SHARDED_APP_METRICS_TABLE_ENGINE()}
 PARTITION BY toYYYYMM(timestamp)
-ORDER BY (team_id, plugin_config_id, job_id, category, toStartOfHour(timestamp), error_type, error_uuid)
+ORDER BY (team_id, plugin_config_id, job_id, category, {APP_METRICS_TIMESTAMP_TRUNCATION}, error_type, error_uuid)
 """
 )
 
@@ -151,7 +160,7 @@ FROM (
         FROM app_metrics
         WHERE team_id = %(team_id)s
           AND plugin_config_id = %(plugin_config_id)s
-          AND category = %(category)s
+          {category_clause}
           {job_id_clause}
           AND timestamp >= %(date_from)s
           AND timestamp < %(date_to)s
@@ -171,7 +180,7 @@ SELECT error_type, count() AS count, max(timestamp) AS last_seen
 FROM app_metrics
 WHERE team_id = %(team_id)s
   AND plugin_config_id = %(plugin_config_id)s
-  AND category = %(category)s
+  {category_clause}
   {job_id_clause}
   AND timestamp >= %(date_from)s
   AND timestamp < %(date_to)s
@@ -185,8 +194,8 @@ SELECT timestamp, error_uuid, error_type, error_details
 FROM app_metrics
 WHERE team_id = %(team_id)s
   AND plugin_config_id = %(plugin_config_id)s
-  AND category = %(category)s
   AND error_type = %(error_type)s
+  {category_clause}
   {job_id_clause}
 ORDER BY timestamp DESC
 LIMIT 20

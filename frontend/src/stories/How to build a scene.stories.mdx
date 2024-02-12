@@ -6,29 +6,28 @@ import { Meta } from '@storybook/addon-docs';
 
 If you want to add a new scene in the PostHog App frontend, here are 7 easy steps for fun and profit.
 
-## 1. Create the component, logic and styles.
-
 But first, you must answer one question: Does your scene depend on an `id` in the URL, like `/dashboard/:id`?
 
-## 1.1. I'm buliding a global scene that does not depend on an `id` in the URL.
+## Option A: I'm buliding a global scene that does not depend on an `id` in the URL.
+
+### 1. Create the component, logic and styles.
 
 Create a component like: `frontend/src/scenes/dashboard/Dashboards.tsx`
 
 ```ts
-import './Dashboards.scss'
 import { dashboardsLogic } from './dashboardsLogic'
 import { SceneExport } from 'scenes/sceneTypes'
 import { useValues } from 'kea'
 
 export function Dashboards (): JSX.Element {
     const {
-        dashboard: dashboard
-    } = useValues(dashboardLogic)
+        counter
+    } = useValues(dashboardsLogic)
 
     return (
         // TODO: consolidate on a recommended naming convention
         <div className='dashboard-scene'>
-            Dashboard Scene!
+            Dashboard Scene {counter}!
         </div>
     )
 }
@@ -42,11 +41,14 @@ export const scene: SceneExport = {
 Create the logic: `frontend/src/scenes/dashboard/dashboardsLogic.tsx`
 
 ```ts
-import { dashboardsLogicType } from './dashboardsLogicType'
+import { kea, reducers, path } from 'kea'
 
-export const dashboardsLogic = kea<dashboardsLogicType>({
-    path: ['scenes', 'dashboard', 'dashboardsLogic'],
-})
+export const dashboardsLogic = kea([
+    path(['scenes', 'dashboard', 'dashboardsLogic']),
+    reducers({
+        counter: [1, {}],
+    }),
+])
 ```
 
 Create the styles `frontend/src/scenes/dashboard/Dashboards.scss`.
@@ -57,15 +59,69 @@ Create the styles `frontend/src/scenes/dashboard/Dashboards.scss`.
 }
 ```
 
-## 1.2. My scene depends on an `id` in the URL (`/dashboard/:id`).
+Run kea type generation and check, which will created `dashboardsLogicType.ts` and update imports in `dashboardsLogic.tsx`
+
+```bash
+pnpm typegen:write && pnpm typescript:check
+```
+
+### 2. Add a URL function
+
+in `frontend/src/scenes/urls.ts`
+
+```ts
+export const urls = {
+    dashboards: () => `/dashboard`,
+}
+```
+
+### 3. Add a scene to the enum
+
+in `frontend/src/scenes/sceneTypes.ts`
+
+```ts
+export enum Scene {
+    Dashboards = 'Dashboards',
+}
+```
+
+### 4. Add a scene configuration and a route to scene mapping
+
+in `frontend/src/scenes/scenes.ts`
+
+```ts
+export const sceneConfigurations: Partial<Record<Scene, SceneConfig>> = {
+    [Scene.Dashboards]: {
+        projectBased: true,
+        name: 'Dashboards',
+    },
+}
+
+export const routes: Record<string, Scene> = {
+    [urls.dashboards()]: Scene.Dashboards,
+}
+```
+
+### 5. Add a scene import
+
+in `frontend/src/scenes/appScenes.ts`
+
+```ts
+export const appScenes: Record<Scene, () => any> = {
+    [Scene.Dashboards]: () => import('./dashboard/Dashboards'),
+}
+```
+
+## Option B: My scene depends on an `id` in the URL (`/dashboard/:id`).
+
+### 1. Create the component, logic and styles.
 
 Create a component like: `frontend/src/scenes/dashboard/Dashboard.tsx`
 
 ```ts
-import './Dashboard.scss'
 import { dashboardLogic } from './dashboardLogic'
 import { SceneExport } from 'scenes/sceneTypes'
-import { useActions, useValues } from 'kea'
+import { useValues } from 'kea'
 
 export const scene: SceneExport = {
     component: Dashboard,
@@ -73,17 +129,19 @@ export const scene: SceneExport = {
     // paramsToProps - Convert url _string_ params to logic props.
     // This mounts the right logic with turbo mode before the component renders.
     // This wraps the scene's logic in <BindLogic />
-    paramsToProps: ({ id }) => ({ id: id ? parseInt(id) : 'new' }),
+    paramsToProps: ({ params: {id} }:{ params: { id?: string }}) => ({ id: id ? parseInt(id) : 'new' }),
 }
 
 export function Dashboard ({ id }: { id?: string } = {}): JSX.Element {
     // dashboardLogic is automatically bound to the props above with BindLogic
-    const { dashboard } = useValues(dashboardLogic)
-    const { reloadDashboard } = useActions(dashboardLogic)
+    const {
+        counter
+    } = useValues(dashboardLogic)
+
     return (
         // TODO: consolidate on a recommended naming convention
         <div className='dashboard-scene'>
-            Dashboard Scene!
+            Dashboard Scene {id} {counter}!
         </div>
     )
 }
@@ -92,18 +150,20 @@ export function Dashboard ({ id }: { id?: string } = {}): JSX.Element {
 Create the logic: `frontend/src/scenes/dashboard/dashboardLogic.tsx`
 
 ```ts
-import { dashboardLogicType } from './dashboardLogicType'
+import { kea, reducers, path, props, key } from 'kea'
 
 export interface DashboardLogicProps {
     id: number | 'new'
 }
 
-export const dashboardLogic = kea<dashboardLogicType<DashboardLogicProps>>({
-    path: ['scenes', 'dashboard', 'dashboardLogic'],
-    props: {} as DashboardLogicProps,
-    key: (props) => props.id,
-
-})
+export const dashboardLogic = kea([
+    props({} as DashboardLogicProps),
+    key(({ id }) => id),
+    path((id) => ['scenes', 'dashboard', 'dashboardLogic', id]),
+    reducers({
+        counter: [1, {}],
+    }),
+])
 ```
 
 Create the styles `frontend/src/scenes/dashboard/Dashboard.scss`.
@@ -114,18 +174,23 @@ Create the styles `frontend/src/scenes/dashboard/Dashboard.scss`.
 }
 ```
 
-## 2. Add a URL function
+Run kea type generation and check, which will created `dashboardLogicType.ts` and update imports in `dashboardLogic.tsx`
+
+```bash
+pnpm typegen:write && pnpm typescript:check
+```
+
+### 2. Add a URL function
 
 in `frontend/src/scenes/urls.ts`
 
 ```ts
 export const urls = {
     dashboard: (id: string | number) => `/dashboard{id ? `/${id}` : ''}`,
-    dashboards: () => `/dashboard`,
 }
 ```
 
-## 3. Add a scene to the enum
+### 3. Add a scene to the enum
 
 in `frontend/src/scenes/sceneTypes.ts`
 
@@ -135,7 +200,7 @@ export enum Scene {
 }
 ```
 
-## 4. Add a scene configuration and a route to scene mapping
+### 4. Add a scene configuration and a route to scene mapping
 
 in `frontend/src/scenes/scenes.ts`
 
@@ -150,11 +215,10 @@ export const sceneConfigurations: Partial<Record<Scene, SceneConfig>> = {
 export const routes: Record<string, Scene> = {
     // this `:id` gets used in "params" in "paramsToProps" and passed to the <Dashboard /> component
     [urls.dashboard(':id')]: Scene.Dashboard,
-    [urls.dashboards()]: Scene.Dashboard,
 }
 ```
 
-## 5. Add a scene import
+### 5. Add a scene import
 
 in `frontend/src/scenes/appScenes.ts`
 
@@ -171,7 +235,7 @@ If you need a lot of `.json` files for mocked data, create a `__mocks__` subdire
 
 ```tsx
 import { useEffect } from 'react'
-import { Meta } from '@storybook/react'
+import { Meta, StoryObj } from '@storybook/react'
 import { mswDecorator, useStorybookMocks } from '~/mocks/browser'
 import { App } from 'scenes/App'
 import { router } from 'kea-router'
@@ -213,3 +277,4 @@ export function NewDashboard (): JSX.Element {
 Read next:
 - [How to use components](/docs/how-to-use-components--page)
 - [How to build a form](/docs/how-to-build-a-form--page)
+- [How to add tabs to a scene](/docs/how-to-add-tabs-to-a-scene--page)

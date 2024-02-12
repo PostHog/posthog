@@ -1,14 +1,16 @@
-import { Tag } from 'antd'
-import { BindLogic, useActions, useValues } from 'kea'
-import { taxonomicFilterLogic } from './taxonomicFilterLogic'
-import { infiniteListLogic } from 'lib/components/TaxonomicFilter/infiniteListLogic'
-import { InfiniteList } from 'lib/components/TaxonomicFilter/InfiniteList'
-import { TaxonomicFilterGroupType, TaxonomicFilterLogicProps } from 'lib/components/TaxonomicFilter/types'
+import { LemonTag } from '@posthog/lemon-ui'
 import clsx from 'clsx'
+import { BindLogic, useActions, useValues } from 'kea'
+import { InfiniteList } from 'lib/components/TaxonomicFilter/InfiniteList'
+import { infiniteListLogic } from 'lib/components/TaxonomicFilter/infiniteListLogic'
+import { TaxonomicFilterGroupType, TaxonomicFilterLogicProps } from 'lib/components/TaxonomicFilter/types'
+
+import { taxonomicFilterLogic } from './taxonomicFilterLogic'
 
 export interface InfiniteSelectResultsProps {
     focusInput: () => void
     taxonomicFilterLogicProps: TaxonomicFilterLogicProps
+    popupAnchorElement: HTMLDivElement | null
 }
 
 function CategoryPill({
@@ -32,10 +34,11 @@ function CategoryPill({
     const canInteract = totalListCount > 0
 
     return (
-        <Tag
+        <LemonTag
+            type={isActive ? 'primary' : canInteract ? 'option' : 'muted'}
             data-attr={`taxonomic-tab-${groupType}`}
-            className={clsx({ 'taxonomic-pill-active': isActive, 'taxonomic-count-zero': !canInteract })}
             onClick={canInteract ? onClick : undefined}
+            weight="normal"
         >
             {group?.render ? (
                 group?.name
@@ -46,13 +49,14 @@ function CategoryPill({
                     {totalResultCount ?? '...'}
                 </>
             )}
-        </Tag>
+        </LemonTag>
     )
 }
 
 export function InfiniteSelectResults({
     focusInput,
     taxonomicFilterLogicProps,
+    popupAnchorElement,
 }: InfiniteSelectResultsProps): JSX.Element {
     const { activeTab, taxonomicGroups, taxonomicGroupTypes, activeTaxonomicGroup, value } =
         useValues(taxonomicFilterLogic)
@@ -60,9 +64,13 @@ export function InfiniteSelectResults({
     const RenderComponent = activeTaxonomicGroup?.render
 
     const listComponent = RenderComponent ? (
-        <RenderComponent value={value} onChange={(newValue) => selectItem(activeTaxonomicGroup, newValue, newValue)} />
+        <RenderComponent
+            {...(activeTaxonomicGroup?.componentProps ?? {})}
+            value={value}
+            onChange={(newValue) => selectItem(activeTaxonomicGroup, newValue, newValue)}
+        />
     ) : (
-        <InfiniteList />
+        <InfiniteList popupAnchorElement={popupAnchorElement} />
     )
 
     if (taxonomicGroupTypes.length === 1) {
@@ -80,7 +88,7 @@ export function InfiniteSelectResults({
     return (
         <>
             <div className="taxonomic-group-title">Categories</div>
-            <div className="taxonomic-pills">
+            <div className="taxonomic-pills flex gap-0.5 flex-wrap">
                 {taxonomicGroupTypes.map((groupType) => {
                     return (
                         <CategoryPill
@@ -96,12 +104,12 @@ export function InfiniteSelectResults({
                     )
                 })}
             </div>
-            <div className={'taxonomic-group-title with-border'}>
+            <div className="taxonomic-group-title with-border">
                 {taxonomicGroups.find((g) => g.type === openTab)?.name || openTab}
             </div>
             {taxonomicGroupTypes.map((groupType) => {
                 return (
-                    <div key={groupType} style={{ display: groupType === openTab ? 'block' : 'none', marginTop: 8 }}>
+                    <div key={groupType} className={clsx('mt-2', groupType === openTab ? 'block' : 'hidden')}>
                         <BindLogic
                             logic={infiniteListLogic}
                             props={{ ...taxonomicFilterLogicProps, listGroupType: groupType }}

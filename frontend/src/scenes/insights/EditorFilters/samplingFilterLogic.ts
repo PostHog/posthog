@@ -1,21 +1,21 @@
-import { kea, path, connect, actions, reducers, props, selectors, listeners } from 'kea'
+import { actions, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { subscriptions } from 'kea-subscriptions'
-
-import { globalInsightLogic } from 'scenes/insights/globalInsightLogic'
-import { insightVizDataLogic } from '../insightVizDataLogic'
+import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
 
 import { InsightLogicProps } from '~/types'
 
+import { insightVizDataLogic } from '../insightVizDataLogic'
 import type { samplingFilterLogicType } from './samplingFilterLogicType'
 
 export const AVAILABLE_SAMPLING_PERCENTAGES = [0.1, 1, 10, 25]
 
 export const samplingFilterLogic = kea<samplingFilterLogicType>([
-    path(['scenes', 'insights', 'EditorFilters', 'samplingFilterLogic']),
     props({} as InsightLogicProps),
+    key(keyForInsightLogicProps('new')),
+    path((key) => ['scenes', 'insights', 'EditorFilters', 'samplingFilterLogic', key]),
     connect((props: InsightLogicProps) => ({
         values: [insightVizDataLogic(props), ['querySource']],
-        actions: [insightVizDataLogic(props), ['updateQuerySource'], globalInsightLogic, ['setGlobalInsightFilters']],
+        actions: [insightVizDataLogic(props), ['updateQuerySource']],
     })),
     actions(() => ({
         setSamplingPercentage: (samplingPercentage: number | null) => ({ samplingPercentage }),
@@ -27,9 +27,6 @@ export const samplingFilterLogic = kea<samplingFilterLogicType>([
                 // clicking on the active button untoggles it and disables sampling
                 setSamplingPercentage: (oldSamplingPercentage, { samplingPercentage }) =>
                     samplingPercentage === oldSamplingPercentage ? null : samplingPercentage,
-                setGlobalInsightFilters: (_, { globalInsightFilters }) => {
-                    return globalInsightFilters.sampling_factor ? globalInsightFilters.sampling_factor * 100 : null
-                },
             },
         ],
     }),

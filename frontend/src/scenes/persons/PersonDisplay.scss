@@ -1,9 +1,11 @@
 .PersonDisplay {
     display: inline;
+
     .ProfilePicture {
-        transition: opacity 200ms ease;
         margin-right: 0.5rem;
+        transition: opacity 200ms ease;
     }
+
     a:hover {
         .ProfilePicture {
             opacity: 0.75;

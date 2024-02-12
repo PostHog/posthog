@@ -1,7 +1,8 @@
-import { useMocks } from '~/mocks/jest'
-import { initKeaTests } from '~/test/init'
 import { expectLogic } from 'kea-test-utils'
 import { sessionRecordingsListPropertiesLogic } from 'scenes/session-recordings/playlist/sessionRecordingsListPropertiesLogic'
+
+import { useMocks } from '~/mocks/jest'
+import { initKeaTests } from '~/test/init'
 import { SessionRecordingType } from '~/types'
 
 const mockSessons: SessionRecordingType[] = [
@@ -52,7 +53,7 @@ describe('sessionRecordingsListPropertiesLogic', () => {
     })
 
     it('loads properties', async () => {
-        await expectLogic(logic, async () => {
+        await expectLogic(logic, () => {
             logic.actions.loadPropertiesForSessions(mockSessons)
         }).toDispatchActions(['loadPropertiesForSessionsSuccess'])
 
@@ -69,7 +70,7 @@ describe('sessionRecordingsListPropertiesLogic', () => {
     })
 
     it('does not loads cached properties', async () => {
-        await expectLogic(logic, async () => {
+        await expectLogic(logic, () => {
             logic.actions.loadPropertiesForSessions(mockSessons)
         }).toDispatchActions(['loadPropertiesForSessionsSuccess'])
 
@@ -80,7 +81,7 @@ describe('sessionRecordingsListPropertiesLogic', () => {
             },
         })
 
-        await expectLogic(logic, async () => {
+        await expectLogic(logic, () => {
             logic.actions.maybeLoadPropertiesForSessions(mockSessons)
         }).toNotHaveDispatchedActions(['loadPropertiesForSessionsSuccess'])
 

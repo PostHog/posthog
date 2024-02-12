@@ -1,6 +1,7 @@
-import { UserBasicType, UserType } from '~/types'
 import { LemonSelectMultipleOptionItem } from 'lib/lemon-ui/LemonSelectMultiple'
 import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
+
+import { UserBasicType, UserType } from '~/types'
 
 export interface UserSelectItemProps {
     user: UserBasicType | UserType
@@ -9,7 +10,7 @@ export interface UserSelectItemProps {
 export function UserSelectItem({ user }: UserSelectItemProps): JSX.Element {
     return (
         <span className="flex gap-2 items-center">
-            <ProfilePicture name={user.first_name} email={user.email} size="sm" />
+            <ProfilePicture user={user} size="sm" />
             <span>
                 {user.first_name} <b>{`<${user.email}>`}</b>
             </span>

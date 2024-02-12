@@ -1,7 +1,9 @@
 // This file contains example queries, used in storybook and in the /query interface.
+import { defaultDataTableColumns } from '~/queries/nodes/DataTable/utils'
 import {
     ActionsNode,
     DataTableNode,
+    DataVisualizationNode,
     EventsNode,
     EventsQuery,
     FunnelsQuery,
@@ -26,8 +28,6 @@ import {
     PropertyOperator,
     StepOrderValue,
 } from '~/types'
-import { defaultDataTableColumns } from '~/queries/nodes/DataTable/utils'
-import { ShownAsValue } from '~/lib/constants'
 
 const Events: EventsQuery = {
     kind: NodeKind.EventsQuery,
@@ -188,7 +188,7 @@ const InsightTrendsQuery: TrendsQuery = {
     trendsFilter: {
         display: ChartDisplayType.ActionsAreaGraph,
     },
-    breakdown: {
+    breakdownFilter: {
         breakdown: '$geoip_country_code',
         breakdown_type: 'event',
     },
@@ -204,9 +204,9 @@ const InsightFunnelsQuery: FunnelsQuery = {
     },
     series,
     funnelsFilter: {
-        funnel_order_type: StepOrderValue.ORDERED,
+        funnelOrderType: StepOrderValue.ORDERED,
     },
-    breakdown: {
+    breakdownFilter: {
         breakdown: '$geoip_country_code',
         breakdown_type: 'event',
     },
@@ -218,8 +218,8 @@ const InsightRetentionQuery: RetentionQuery = {
     filterTestAccounts,
     retentionFilter: {
         // TODO: this should be typed as (EventsNode | ActionsNode)[] without math and properties
-        target_entity: { type: 'events', id: '$pageview', name: '$pageview' },
-        returning_entity: { type: 'events', id: '$pageview', name: '$pageview' },
+        targetEntity: { type: 'events', id: '$pageview', name: '$pageview' },
+        returningEntity: { type: 'events', id: '$pageview', name: '$pageview' },
     },
 }
 
@@ -250,9 +250,6 @@ const InsightLifecycleQuery: LifecycleQuery = {
         date_from: '-7d',
     },
     series, // TODO: Visualization only supports one event or action
-    lifecycleFilter: {
-        shown_as: ShownAsValue.LIFECYCLE,
-    },
 }
 
 const TimeToSeeDataSessionsTable: DataTableNode = {
@@ -305,19 +302,46 @@ const HogQLRaw: HogQLQuery = {
           properties.$browser,
           count()
      from events
-    where timestamp > now () - interval 1 day
+    where {filters} -- replaced with global date and property filters
       and person.properties.email is not null
  group by event,
           properties.$browser,
           person.properties.email
  order by count() desc
     limit 100`,
+    explain: true,
+    filters: {
+        dateRange: {
+            date_from: '-24h',
+        },
+    },
+}
+
+const HogQLForDataVisualization: HogQLQuery = {
+    kind: NodeKind.HogQLQuery,
+    query: `select toDate(timestamp) as timestamp, count()
+from events
+where {filters} and timestamp <= now()
+group by timestamp
+order by timestamp asc
+limit 100`,
+    explain: true,
+    filters: {
+        dateRange: {
+            date_from: '-7d',
+        },
+    },
 }
 
 const HogQLTable: DataTableNode = {
     kind: NodeKind.DataTableNode,
     full: true,
     source: HogQLRaw,
+}
+
+const DataVisualization: DataVisualizationNode = {
+    kind: NodeKind.DataVisualizationNode,
+    source: HogQLForDataVisualization,
 }
 
 /* a subset of examples including only those we can show all users and that don't use HogQL */
@@ -351,6 +375,7 @@ export const examples: Record<string, Node> = {
     TimeToSeeDataJSON,
     HogQLRaw,
     HogQLTable,
+    DataVisualization,
 }
 
 export const stringifiedExamples: Record<string, string> = Object.fromEntries(

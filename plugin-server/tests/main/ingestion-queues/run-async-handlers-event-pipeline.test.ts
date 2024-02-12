@@ -16,19 +16,20 @@
 //     KafkaJS consumer runner, which we assume will handle retries.
 
 import Redis from 'ioredis'
-import LibrdKafkaError from 'node-rdkafka-acosom/lib/error'
+import LibrdKafkaError from 'node-rdkafka/lib/error'
 
 import { defaultConfig } from '../../../src/config/config'
 import { KAFKA_EVENTS_JSON } from '../../../src/config/kafka-topics'
 import { buildOnEventIngestionConsumer } from '../../../src/main/ingestion-queues/on-event-handler-consumer'
-import { Hub } from '../../../src/types'
+import { Hub, ISOTimestamp } from '../../../src/types'
 import { DependencyUnavailableError } from '../../../src/utils/db/error'
 import { createHub } from '../../../src/utils/db/hub'
+import { PostgresUse } from '../../../src/utils/db/postgres'
 import { UUIDT } from '../../../src/utils/utils'
+import { processOnEventStep } from '../../../src/worker/ingestion/event-pipeline/runAsyncHandlersStep'
 import Piscina, { makePiscina } from '../../../src/worker/piscina'
 import { setupPlugins } from '../../../src/worker/plugins/setup'
 import { teardownPlugins } from '../../../src/worker/plugins/teardown'
-import { createTaskRunner } from '../../../src/worker/worker'
 import {
     createOrganization,
     createPlugin,
@@ -39,7 +40,7 @@ import {
 
 jest.setTimeout(10000)
 
-describe('workerTasks.runAppsOnEventPipeline()', () => {
+describe('runAppsOnEventPipeline()', () => {
     // Tests the failure cases for the workerTasks.runAppsOnEventPipeline
     // task. Note that this equally applies to e.g. runEventPipeline task as
     // well and likely could do with adding additional tests for that.
@@ -51,31 +52,22 @@ describe('workerTasks.runAppsOnEventPipeline()', () => {
     let hub: Hub
     let redis: Redis.Redis
     let closeHub: () => Promise<void>
-    let piscinaTaskRunner: ({ task, args }) => Promise<any>
 
-    beforeEach(() => {
+    beforeEach(async () => {
         // Use fake timers to ensure that we don't need to wait on e.g. retry logic.
-        jest.useFakeTimers({ advanceTimers: true })
-    })
-
-    beforeAll(async () => {
         jest.useFakeTimers({ advanceTimers: true })
         ;[hub, closeHub] = await createHub()
         redis = await hub.redisPool.acquire()
-        piscinaTaskRunner = createTaskRunner(hub)
-        await hub.postgres.query(POSTGRES_DELETE_TABLES_QUERY) // Need to clear the DB to avoid unique constraint violations on ids
+        await hub.postgres.query(PostgresUse.COMMON_WRITE, POSTGRES_DELETE_TABLES_QUERY, null, 'deleteTables') // Need to clear the DB to avoid unique constraint violations on ids
     })
 
-    afterEach(() => {
-        jest.clearAllTimers()
-        jest.useRealTimers()
-        jest.clearAllMocks()
-    })
-
-    afterAll(async () => {
+    afterEach(async () => {
         await hub.redisPool.release(redis)
         await teardownPlugins(hub)
         await closeHub()
+        jest.clearAllTimers()
+        jest.useRealTimers()
+        jest.restoreAllMocks()
     })
 
     test('throws on produce errors', async () => {
@@ -119,18 +111,16 @@ describe('workerTasks.runAppsOnEventPipeline()', () => {
         )
 
         await expect(
-            piscinaTaskRunner({
-                task: 'runAppsOnEventPipeline',
-                args: {
-                    event: {
-                        distinctId: 'asdf',
-                        ip: '',
-                        teamId: teamId,
-                        event: 'some event',
-                        properties: {},
-                        eventUuid: new UUIDT().toString(),
-                    },
-                },
+            processOnEventStep(hub, {
+                distinctId: 'asdf',
+                teamId: teamId,
+                event: 'some event',
+                properties: {},
+                eventUuid: new UUIDT().toString(),
+                person_created_at: null,
+                person_properties: {},
+                timestamp: new Date().toISOString() as ISOTimestamp,
+                elementsList: [],
             })
         ).rejects.toEqual(new DependencyUnavailableError('Failed to produce', 'Kafka', error))
     })
@@ -158,22 +148,17 @@ describe('workerTasks.runAppsOnEventPipeline()', () => {
 
         const event = {
             distinctId: 'asdf',
-            ip: '',
             teamId: teamId,
             event: 'some event',
             properties: {},
             eventUuid: new UUIDT().toString(),
+            person_created_at: null,
+            person_properties: {},
+            timestamp: new Date().toISOString() as ISOTimestamp,
+            elementsList: [],
         }
 
-        await expect(
-            piscinaTaskRunner({
-                task: 'runAppsOnEventPipeline',
-                args: { event },
-            })
-        ).resolves.toEqual({
-            args: [expect.objectContaining(event)],
-            lastStep: 'processOnEventStep',
-        })
+        await expect(processOnEventStep(hub, event)).resolves.toEqual(null)
     })
 })
 
@@ -197,7 +182,7 @@ describe('eachBatchAsyncHandlers', () => {
         jest.useRealTimers()
     })
 
-    test('rejections from piscina are bubbled up to the consumer', async () => {
+    test('rejections from kafka are bubbled up to the consumer', async () => {
         piscina = await makePiscina(defaultConfig, hub)
         const ingestionConsumer = buildOnEventIngestionConsumer({ hub, piscina })
 

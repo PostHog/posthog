@@ -8,15 +8,19 @@ from rest_framework.response import Response
 
 from ee.tasks.slack import handle_slack_event
 from posthog.api.integration import IntegrationSerializer
-from posthog.models.integration import Integration, SlackIntegration, SlackIntegrationError
+from posthog.models.integration import (
+    Integration,
+    SlackIntegration,
+    SlackIntegrationError,
+)
 
 
 class PublicIntegrationViewSet(viewsets.GenericViewSet):
     queryset = Integration.objects.all()
     serializer_class = IntegrationSerializer
 
-    authentication_classes = []  # type: ignore
-    permission_classes = []  # type: ignore
+    authentication_classes = []
+    permission_classes = []
 
     @action(methods=["POST"], detail=False, url_path="slack/events")
     def slack_events(self, request: Request, *args: Any, **kwargs: Any) -> Response:

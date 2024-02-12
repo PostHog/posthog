@@ -4,7 +4,7 @@ import re
 from math import ceil
 from typing import Any, Dict, List, Literal, Optional, Union, cast
 
-import pytz
+from zoneinfo import ZoneInfo
 from dateutil.relativedelta import relativedelta
 from django.utils import timezone
 from rest_framework.exceptions import ValidationError
@@ -47,15 +47,21 @@ from posthog.constants import (
     TREND_FILTER_TYPE_EVENTS,
     TRENDS_WORLD_MAP,
     BreakdownAttributionType,
+    BREAKDOWN_HIDE_OTHER_AGGREGATION,
 )
 from posthog.models.entity import Entity, ExclusionEntity, MathType
 from posthog.models.filters.mixins.base import BaseParamMixin, BreakdownType
-from posthog.models.filters.mixins.utils import cached_property, include_dict, include_query_tags, process_bool
+from posthog.models.filters.mixins.utils import (
+    cached_property,
+    include_dict,
+    include_query_tags,
+    process_bool,
+)
 from posthog.models.filters.utils import GroupTypeIndex, validate_group_type_index
 from posthog.utils import DEFAULT_DATE_FROM_DAYS, relative_date_parse_with_delta_mapping
 
 # When updating this regex, remember to update the regex with the same name in TrendsFormula.tsx
-ALLOWED_FORMULA_CHARACTERS = r"([a-zA-Z \-\*\^0-9\+\/\(\)\.]+)"
+ALLOWED_FORMULA_CHARACTERS = r"([a-zA-Z \-*^0-9+/().]+)"
 
 
 class SmoothingIntervalsMixin(BaseParamMixin):
@@ -208,6 +214,15 @@ class BreakdownMixin(BaseParamMixin):
                 pass
         return None
 
+    @cached_property
+    def breakdown_hide_other_aggregation(self) -> Optional[bool]:
+        if BREAKDOWN_HIDE_OTHER_AGGREGATION in self._data:
+            try:
+                return self._data[BREAKDOWN_HIDE_OTHER_AGGREGATION] in ("True", "true", True)
+            except ValueError:
+                pass
+        return None
+
     @include_dict
     def breakdown_to_dict(self):
         result: Dict = {}
@@ -223,6 +238,8 @@ class BreakdownMixin(BaseParamMixin):
             result[BREAKDOWN_ATTRIBUTION_VALUE] = self.breakdown_attribution_value
         if self.breakdown_histogram_bin_count is not None:
             result[BREAKDOWN_HISTOGRAM_BIN_COUNT] = self.breakdown_histogram_bin_count
+        if self.breakdown_hide_other_aggregation is not None:
+            result[BREAKDOWN_HIDE_OTHER_AGGREGATION] = self.breakdown_hide_other_aggregation
         if self.breakdown_normalize_url is not None:
             result[BREAKDOWN_NORMALIZE_URL] = self.breakdown_normalize_url
         return result
@@ -239,7 +256,10 @@ class BreakdownMixin(BaseParamMixin):
     @include_dict
     def breakdown_type_and_group_to_dict(self):
         if self.breakdown_type == "group":
-            return {BREAKDOWN_TYPE: self.breakdown_type, BREAKDOWN_GROUP_TYPE_INDEX: self.breakdown_group_type_index}
+            return {
+                BREAKDOWN_TYPE: self.breakdown_type,
+                BREAKDOWN_GROUP_TYPE_INDEX: self.breakdown_group_type_index,
+            }
         elif self.breakdown_type:
             return {BREAKDOWN_TYPE: self.breakdown_type}
         else:
@@ -343,7 +363,11 @@ class DateMixin(BaseParamMixin):
             if self._date_from == "all":
                 return None
             elif isinstance(self._date_from, str):
-                date, delta_mapping = relative_date_parse_with_delta_mapping(self._date_from)
+                date, delta_mapping, _position = relative_date_parse_with_delta_mapping(
+                    self._date_from,
+                    self.team.timezone_info,  # type: ignore
+                    always_truncate=True,
+                )
                 self.date_from_delta_mapping = delta_mapping
                 return date
             else:
@@ -361,13 +385,27 @@ class DateMixin(BaseParamMixin):
             if isinstance(self._date_to, str):
                 try:
                     return datetime.datetime.strptime(self._date_to, "%Y-%m-%d").replace(
-                        hour=23, minute=59, second=59, microsecond=999999, tzinfo=pytz.UTC
+                        hour=23,
+                        minute=59,
+                        second=59,
+                        microsecond=999999,
+                        tzinfo=ZoneInfo("UTC"),
                     )
                 except ValueError:
                     try:
-                        return datetime.datetime.strptime(self._date_to, "%Y-%m-%d %H:%M:%S").replace(tzinfo=pytz.UTC)
+                        return datetime.datetime.strptime(self._date_to, "%Y-%m-%d %H:%M:%S").replace(
+                            tzinfo=ZoneInfo("UTC")
+                        )
                     except ValueError:
-                        date, delta_mapping = relative_date_parse_with_delta_mapping(self._date_to)
+                        (
+                            date,
+                            delta_mapping,
+                            _position,
+                        ) = relative_date_parse_with_delta_mapping(
+                            self._date_to,
+                            self.team.timezone_info,  # type: ignore
+                            always_truncate=True,
+                        )
                         self.date_to_delta_mapping = delta_mapping
                         return date
             else:

@@ -1,9 +1,10 @@
-import { useEffect, useRef } from 'react'
+import './PlayerFrame.scss'
+
+import useSize from '@react-hook/size'
 import { Handler, viewportResizeDimension } from '@rrweb/types'
 import { useActions, useValues } from 'kea'
+import { useEffect, useRef } from 'react'
 import { sessionRecordingPlayerLogic } from 'scenes/session-recordings/player/sessionRecordingPlayerLogic'
-import useSize from '@react-hook/size'
-import './PlayerFrame.scss'
 
 export const PlayerFrame = (): JSX.Element => {
     const replayDimensionRef = useRef<viewportResizeDimension>()
@@ -30,7 +31,9 @@ export const PlayerFrame = (): JSX.Element => {
         player.replayer.on('resize', updatePlayerDimensions as Handler)
         window.addEventListener('resize', windowResize)
 
-        return () => window.removeEventListener('resize', windowResize)
+        return () => {
+            window.removeEventListener('resize', windowResize)
+        }
     }, [player?.replayer])
 
     // Recalculate the player size when the player changes dimensions

@@ -3,6 +3,8 @@ from urllib.parse import quote
 
 from django.test.client import Client
 from rest_framework import status
+from posthog.api.test.test_organization import create_organization
+from posthog.api.test.test_team import create_team
 
 from posthog.models import Action, Cohort, Dashboard, FeatureFlag, Insight
 from posthog.models.organization import Organization
@@ -68,21 +70,42 @@ class TestAccessMiddleware(APIBaseTest):
             self.assertIn(b"IP is not allowed", response.content)
 
     def test_trusted_proxies(self):
-        with self.settings(ALLOWED_IP_BLOCKS=["192.168.0.0/31", "127.0.0.0/25,128.0.0.1"], USE_X_FORWARDED_HOST=True):
+        with self.settings(
+            ALLOWED_IP_BLOCKS=["192.168.0.0/31", "127.0.0.0/25,128.0.0.1"],
+            USE_X_FORWARDED_HOST=True,
+        ):
             with self.settings(TRUSTED_PROXIES="10.0.0.1"):
-                response = self.client.get("/", REMOTE_ADDR="10.0.0.1", HTTP_X_FORWARDED_FOR="192.168.0.1,10.0.0.1")
+                response = self.client.get(
+                    "/",
+                    REMOTE_ADDR="10.0.0.1",
+                    HTTP_X_FORWARDED_FOR="192.168.0.1,10.0.0.1",
+                )
                 self.assertNotIn(b"IP is not allowed", response.content)
 
     def test_attempt_spoofing(self):
-        with self.settings(ALLOWED_IP_BLOCKS=["192.168.0.0/31", "127.0.0.0/25,128.0.0.1"], USE_X_FORWARDED_HOST=True):
+        with self.settings(
+            ALLOWED_IP_BLOCKS=["192.168.0.0/31", "127.0.0.0/25,128.0.0.1"],
+            USE_X_FORWARDED_HOST=True,
+        ):
             with self.settings(TRUSTED_PROXIES="10.0.0.1"):
-                response = self.client.get("/", REMOTE_ADDR="10.0.0.1", HTTP_X_FORWARDED_FOR="192.168.0.1,10.0.0.2")
+                response = self.client.get(
+                    "/",
+                    REMOTE_ADDR="10.0.0.1",
+                    HTTP_X_FORWARDED_FOR="192.168.0.1,10.0.0.2",
+                )
                 self.assertIn(b"IP is not allowed", response.content)
 
     def test_trust_all_proxies(self):
-        with self.settings(ALLOWED_IP_BLOCKS=["192.168.0.0/31", "127.0.0.0/25,128.0.0.1"], USE_X_FORWARDED_HOST=True):
+        with self.settings(
+            ALLOWED_IP_BLOCKS=["192.168.0.0/31", "127.0.0.0/25,128.0.0.1"],
+            USE_X_FORWARDED_HOST=True,
+        ):
             with self.settings(TRUST_ALL_PROXIES=True):
-                response = self.client.get("/", REMOTE_ADDR="10.0.0.1", HTTP_X_FORWARDED_FOR="192.168.0.1,10.0.0.1")
+                response = self.client.get(
+                    "/",
+                    REMOTE_ADDR="10.0.0.1",
+                    HTTP_X_FORWARDED_FOR="192.168.0.1,10.0.0.1",
+                )
                 self.assertNotIn(b"IP is not allowed", response.content)
 
 
@@ -90,6 +113,7 @@ class TestAutoProjectMiddleware(APIBaseTest):
     # How many queries are made in the base app
     # On Cloud there's an additional multi_tenancy_organizationbilling query
     second_team: Team
+    no_access_team: Team
     base_app_num_queries: int
 
     @classmethod
@@ -97,7 +121,9 @@ class TestAutoProjectMiddleware(APIBaseTest):
         super().setUpTestData()
         cls.base_app_num_queries = 41
         # Create another team that the user does have access to
-        cls.second_team = Team.objects.create(organization=cls.organization, name="Second Life")
+        cls.second_team = create_team(organization=cls.organization, name="Second Life")
+        other_org = create_organization(name="test org")
+        cls.no_access_team = create_team(organization=other_org)
 
     def setUp(self):
         super().setUp()
@@ -108,6 +134,7 @@ class TestAutoProjectMiddleware(APIBaseTest):
     @override_settings(PERSON_ON_EVENTS_V2_OVERRIDE=False)
     def test_project_switched_when_accessing_dashboard_of_another_accessible_team(self):
         dashboard = Dashboard.objects.create(team=self.second_team)
+
         with self.assertNumQueries(self.base_app_num_queries + 4):  # AutoProjectMiddleware adds 4 queries
             response_app = self.client.get(f"/dashboard/{dashboard.id}")
         response_users_api = self.client.get(f"/api/users/@me/")
@@ -136,7 +163,10 @@ class TestAutoProjectMiddleware(APIBaseTest):
 
     def test_project_unchanged_when_accessing_dashboard_of_another_off_limits_team(self):
         _, _, third_team = Organization.objects.bootstrap(
-            None, name="Third Party", slug="third-party", team_fields={"name": "Third Team"}
+            None,
+            name="Third Party",
+            slug="third-party",
+            team_fields={"name": "Third Team"},
         )
         dashboard = Dashboard.objects.create(team=third_team)
 
@@ -246,6 +276,39 @@ class TestAutoProjectMiddleware(APIBaseTest):
         self.assertEqual(response_app.status_code, 200)
         self.assertEqual(response_users_api.status_code, 200)
         self.assertEqual(response_users_api_data.get("team", {}).get("id"), self.team.id)
+
+    def test_project_switched_when_accessing_another_project_by_id(self):
+        project_1_request = self.client.get(f"/project/{self.team.pk}/home")
+        response_users_api = self.client.get(f"/api/users/@me/")
+        assert project_1_request.status_code == 200
+        assert response_users_api.json().get("team", {}).get("id") == self.team.id
+
+        project_2_request = self.client.get(f"/project/{self.second_team.pk}/home")
+        response_users_api = self.client.get(f"/api/users/@me/")
+        assert project_2_request.status_code == 200
+        assert response_users_api.json().get("team", {}).get("id") == self.second_team.id
+
+    def test_project_unchanged_when_accessing_inaccessible_project_by_id(self):
+        project_1_request = self.client.get(f"/project/{self.team.pk}/home")
+        response_users_api = self.client.get(f"/api/users/@me/")
+        assert project_1_request.status_code == 200
+        assert response_users_api.json().get("team", {}).get("id") == self.team.id
+
+        project_2_request = self.client.get(f"/project/{self.no_access_team.pk}/home")
+        response_users_api = self.client.get(f"/api/users/@me/")
+        assert project_2_request.status_code == 200
+        assert response_users_api.json().get("team", {}).get("id") == self.team.id
+
+    def test_project_unchanged_when_accessing_missing_project_by_id(self):
+        project_1_request = self.client.get(f"/project/{self.team.pk}/home")
+        response_users_api = self.client.get(f"/api/users/@me/")
+        assert project_1_request.status_code == 200
+        assert response_users_api.json().get("team", {}).get("id") == self.team.id
+
+        project_2_request = self.client.get(f"/project/999999/home")
+        response_users_api = self.client.get(f"/api/users/@me/")
+        assert project_2_request.status_code == 200
+        assert response_users_api.json().get("team", {}).get("id") == self.team.id
 
 
 class TestPostHogTokenCookieMiddleware(APIBaseTest):

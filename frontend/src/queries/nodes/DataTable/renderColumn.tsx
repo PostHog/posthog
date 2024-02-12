@@ -1,22 +1,32 @@
-import { AnyPropertyFilter, EventType, PersonType, PropertyFilterType, PropertyOperator } from '~/types'
-import { autoCaptureEventToDescription } from 'lib/utils'
-import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
-import { Link } from 'lib/lemon-ui/Link'
-import { TZLabel } from 'lib/components/TZLabel'
-import { Property } from 'lib/components/Property'
-import { urls } from 'scenes/urls'
-import { PersonDisplay } from 'scenes/persons/PersonDisplay'
-import { DataTableNode, EventsQueryPersonColumn, HasPropertiesNode, QueryContext } from '~/queries/schema'
-import { isEventsQuery, isHogQLQuery, isPersonsNode, isTimeToSeeDataSessionsQuery, trimQuotes } from '~/queries/utils'
 import { combineUrl, router } from 'kea-router'
 import { CopyToClipboardInline } from 'lib/components/CopyToClipboard'
-import { DeletePersonButton } from '~/queries/nodes/PersonsNode/DeletePersonButton'
-import ReactJson from 'react-json-view'
-import { errorColumn, loadingColumn } from '~/queries/nodes/DataTable/dataTableLogic'
-import { Spinner } from 'lib/lemon-ui/Spinner/Spinner'
+import { JSONViewer } from 'lib/components/JSONViewer'
+import { Property } from 'lib/components/Property'
+import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
+import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
+import { TZLabel } from 'lib/components/TZLabel'
 import { LemonTag } from 'lib/lemon-ui/LemonTag/LemonTag'
-import { TableCellSparkline } from 'lib/lemon-ui/LemonTable/TableCellSparkline'
+import { Link } from 'lib/lemon-ui/Link'
+import { Sparkline } from 'lib/lemon-ui/Sparkline'
+import { Spinner } from 'lib/lemon-ui/Spinner/Spinner'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
+import { autoCaptureEventToDescription } from 'lib/utils'
+import { PersonDisplay, PersonDisplayProps } from 'scenes/persons/PersonDisplay'
+import { urls } from 'scenes/urls'
+
+import { errorColumn, loadingColumn } from '~/queries/nodes/DataTable/dataTableLogic'
+import { DeletePersonButton } from '~/queries/nodes/PersonsNode/DeletePersonButton'
+import { DataTableNode, EventsQueryPersonColumn, HasPropertiesNode } from '~/queries/schema'
+import { QueryContext } from '~/queries/types'
+import {
+    isActorsQuery,
+    isEventsQuery,
+    isHogQLQuery,
+    isPersonsNode,
+    isTimeToSeeDataSessionsQuery,
+    trimQuotes,
+} from '~/queries/utils'
+import { AnyPropertyFilter, EventType, PersonType, PropertyFilterType, PropertyOperator } from '~/types'
 
 export function renderColumn(
     key: string,
@@ -43,7 +53,7 @@ export function renderColumn(
             try {
                 if (value.startsWith('{') && value.endsWith('}')) {
                     return (
-                        <ReactJson
+                        <JSONViewer
                             src={JSON.parse(value)}
                             name={key}
                             collapsed={Object.keys(JSON.stringify(value)).length > 10 ? 0 : 1}
@@ -52,14 +62,16 @@ export function renderColumn(
                 }
                 if (value.startsWith('[') && value.endsWith(']')) {
                     return (
-                        <ReactJson
+                        <JSONViewer
                             src={JSON.parse(value)}
                             name={key}
                             collapsed={JSON.stringify(value).length > 10 ? 0 : 1}
                         />
                     )
                 }
-            } catch (e) {}
+            } catch (e) {
+                // do nothing
+            }
             if (value.match(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}.\d{3}/)) {
                 return <TZLabel time={value} showSeconds />
             }
@@ -72,13 +84,23 @@ export function renderColumn(
                         object[value[i]] = value[i + 1]
                     }
                     if ('results' in object && Array.isArray(object.results)) {
-                        return <TableCellSparkline data={object.results} />
+                        // TODO: If results aren't an array of numbers, show a helpful message on using sparkline()
+                        return (
+                            <Sparkline
+                                data={[
+                                    {
+                                        name: key.includes('__hogql_chart_type') ? 'Data' : key,
+                                        values: object.results.map((v: any) => Number(v)),
+                                    },
+                                ]}
+                            />
+                        )
                     }
                 }
 
-                return <ReactJson src={value} name={key} collapsed={value.length > 10 ? 0 : 1} />
+                return <JSONViewer src={value} name={key} collapsed={value.length > 10 ? 0 : 1} />
             }
-            return <ReactJson src={value} name={key} collapsed={Object.keys(value).length > 10 ? 0 : 1} />
+            return <JSONViewer src={value} name={key} collapsed={Object.keys(value).length > 10 ? 0 : 1} />
         }
         return <Property value={value} />
     } else if (key === 'event' && isEventsQuery(query.source)) {
@@ -88,7 +110,7 @@ export function renderColumn(
         if (value === '$autocapture' && eventRecord) {
             return autoCaptureEventToDescription(eventRecord)
         } else {
-            const content = <PropertyKeyInfo value={value} type="event" />
+            const content = <PropertyKeyInfo value={value} type={TaxonomicFilterGroupType.Events} />
             const $sentry_url = eventRecord?.properties?.$sentry_url
             return $sentry_url ? (
                 <Link to={$sentry_url} target="_blank">
@@ -193,32 +215,44 @@ export function renderColumn(
             )
         }
         return <Property value={eventRecord.person?.properties?.[propertyKey]} />
-    } else if (key === 'person' && isEventsQuery(query.source)) {
-        const personRecord = value as EventsQueryPersonColumn
-        return !!personRecord.distinct_id ? (
-            <PersonDisplay withIcon person={personRecord} />
-        ) : (
-            <PersonDisplay noLink withIcon person={value} />
-        )
-    } else if (key === 'person' && isPersonsNode(query.source)) {
+    } else if (key === 'person') {
         const personRecord = record as PersonType
-        return (
-            <Link to={urls.person(personRecord.distinct_ids[0])}>
-                <PersonDisplay noLink withIcon person={personRecord} noPopover />
-            </Link>
-        )
-    } else if (key === 'person.$delete' && isPersonsNode(query.source)) {
+        const displayProps: PersonDisplayProps = {
+            withIcon: true,
+            person: record as PersonType,
+            noPopover: true,
+        }
+
+        if (isEventsQuery(query.source)) {
+            displayProps.person = value.distinct_id ? (value as EventsQueryPersonColumn) : value
+            displayProps.noPopover = false // If we are in an events list, the popover experience is better
+        }
+
+        if (isPersonsNode(query.source) && personRecord.distinct_ids) {
+            displayProps.href = urls.personByDistinctId(personRecord.distinct_ids[0])
+        }
+
+        if (isActorsQuery(query.source) && value) {
+            displayProps.person = value
+            displayProps.href = value.distinct_ids?.[0]
+                ? urls.personByDistinctId(value.distinct_ids[0])
+                : urls.personByUUID(value.id)
+        }
+
+        return <PersonDisplay {...displayProps} />
+    } else if (key === 'person.$delete' && (isPersonsNode(query.source) || isActorsQuery(query.source))) {
         const personRecord = record as PersonType
         return <DeletePersonButton person={personRecord} />
     } else if (key.startsWith('context.columns.')) {
-        const Component = context?.columns?.[trimQuotes(key.substring(16))]?.render
-        return Component ? <Component record={record} /> : ''
-    } else if (key === 'id' && isPersonsNode(query.source)) {
+        const columnName = trimQuotes(key.substring(16)) // 16 = "context.columns.".length
+        const Component = context?.columns?.[columnName]?.render
+        return Component ? <Component record={record} columnName={columnName} value={value} query={query} /> : ''
+    } else if (key === 'id' && (isPersonsNode(query.source) || isActorsQuery(query.source))) {
         return (
             <CopyToClipboardInline
                 explicitValue={String(value)}
                 iconStyle={{ color: 'var(--primary)' }}
-                description="person distinct ID"
+                description="person id"
             >
                 {String(value)}
             </CopyToClipboardInline>
@@ -227,8 +261,8 @@ export function renderColumn(
         const [parent, child] = key.split('.')
         return typeof record === 'object' ? record[parent][child] : 'unknown'
     } else {
-        if (typeof value === 'object' && value !== null) {
-            return <ReactJson src={value} name={key} collapsed={Object.keys(value).length > 10 ? 0 : 1} />
+        if (typeof value === 'object') {
+            return <JSONViewer src={value} name={null} collapsed={Object.keys(value).length > 10 ? 0 : 1} />
         }
         return String(value)
     }

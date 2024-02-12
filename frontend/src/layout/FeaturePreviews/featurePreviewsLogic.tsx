@@ -1,14 +1,16 @@
-import { actions, kea, reducers, path, selectors, connect, listeners } from 'kea'
-import { EarlyAccessFeature, posthog } from 'posthog-js'
+import { actions, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { actionToUrl, router, urlToAction } from 'kea-router'
 import { supportLogic } from 'lib/components/Support/supportLogic'
+import { FeatureFlagKey } from 'lib/constants'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { EarlyAccessFeature, posthog } from 'posthog-js'
 import { userLogic } from 'scenes/userLogic'
-import { FEATURE_FLAGS, FeatureFlagKey } from 'lib/constants'
+
 import type { featurePreviewsLogicType } from './featurePreviewsLogicType'
 
 /** Features that can only be toggled if you fall under the `${flagKey}-preview` flag */
-export const CONSTRAINED_PREVIEWS: Set<FeatureFlagKey> = new Set([FEATURE_FLAGS.POSTHOG_3000])
+export const CONSTRAINED_PREVIEWS: Set<FeatureFlagKey> = new Set([])
 
 export interface EnrichedEarlyAccessFeature extends Omit<EarlyAccessFeature, 'flagKey'> {
     flagKey: string
@@ -16,10 +18,10 @@ export interface EnrichedEarlyAccessFeature extends Omit<EarlyAccessFeature, 'fl
 }
 
 export const featurePreviewsLogic = kea<featurePreviewsLogicType>([
-    path(['layout', 'navigation', 'TopBar', 'FeaturePreviewsModal']),
+    path(['layout', 'FeaturePreviews', 'featurePreviewsLogic']),
     connect({
         values: [featureFlagLogic, ['featureFlags'], userLogic, ['user']],
-        asyncActions: [supportLogic, ['submitZendeskTicket']],
+        actions: [supportLogic, ['submitZendeskTicket']],
     }),
     actions({
         showFeaturePreviewsModal: true,
@@ -50,13 +52,15 @@ export const featurePreviewsLogic = kea<featurePreviewsLogicType>([
                     if (!values.activeFeedbackFlagKey) {
                         throw new Error('Cannot submit early access feature feedback without an active flag key')
                     }
-                    await supportLogic.asyncActions.submitZendeskTicket(
-                        values.user.first_name,
-                        values.user.email,
-                        'feedback',
-                        values.activeFeedbackFlagKey,
-                        message
-                    )
+                    await supportLogic.asyncActions.submitZendeskTicket({
+                        name: values.user.first_name,
+                        email: values.user.email,
+                        kind: 'feedback',
+                        // NOTE: We don't know which area the flag should be - for now we just override it to be the key...
+                        target_area: values.activeFeedbackFlagKey as any,
+                        severity_level: 'low',
+                        message,
+                    })
                     return null
                 },
             },
@@ -106,5 +110,26 @@ export const featurePreviewsLogic = kea<featurePreviewsLogicType>([
                         }
                     }),
         ],
+    }),
+    urlToAction(({ actions }) => ({
+        '*': (_, _search, hashParams) => {
+            if (hashParams['panel'] === 'feature-previews') {
+                actions.showFeaturePreviewsModal()
+            }
+        },
+    })),
+    actionToUrl(() => {
+        return {
+            showFeaturePreviewsModal: () => {
+                const hashParams = router.values.hashParams
+                hashParams['panel'] = 'feature-previews'
+                return [router.values.location.pathname, router.values.searchParams, hashParams]
+            },
+            hideFeaturePreviewsModal: () => {
+                const hashParams = router.values.hashParams
+                delete hashParams['panel']
+                return [router.values.location.pathname, router.values.searchParams, hashParams]
+            },
+        }
     }),
 ])

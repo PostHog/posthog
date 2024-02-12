@@ -1,17 +1,19 @@
-import { useEffect } from 'react'
 import { Meta } from '@storybook/react'
-import { mswDecorator } from '~/mocks/browser'
-import { App } from 'scenes/App'
 import { router } from 'kea-router'
-import { urls } from 'scenes/urls'
+import { DashboardEventSource } from 'lib/utils/eventUsageLogic'
+import { useEffect } from 'react'
+import { App } from 'scenes/App'
+import { dashboardLogic } from 'scenes/dashboard/dashboardLogic'
 import { newDashboardLogic } from 'scenes/dashboard/newDashboardLogic'
+import { urls } from 'scenes/urls'
+
+import { mswDecorator } from '~/mocks/browser'
 import { useAvailableFeatures } from '~/mocks/features'
 import { DashboardMode } from '~/types'
-import { dashboardLogic } from 'scenes/dashboard/dashboardLogic'
-import { DashboardEventSource } from 'lib/utils/eventUsageLogic'
+
 import { dashboardTemplatesLogic } from './dashboards/templates/dashboardTemplatesLogic'
 
-export default {
+const meta: Meta = {
     title: 'Scenes-App/Dashboards',
     decorators: [
         mswDecorator({
@@ -31,15 +33,14 @@ export default {
     ],
     parameters: {
         layout: 'fullscreen',
-        options: { showPanel: false },
         testOptions: {
             excludeNavigationFromSnapshot: true,
         },
         viewMode: 'story',
         mockDate: '2023-02-01',
     },
-} as Meta
-
+}
+export default meta
 export const List = (): JSX.Element => {
     useEffect(() => {
         router.actions.push(urls.dashboards())

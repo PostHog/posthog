@@ -43,7 +43,6 @@ def check_negation_clause(prop: PropertyGroup) -> Tuple[bool, bool]:
 
 class EnterpriseCohortQuery(FOSSCohortQuery):
     def get_query(self) -> Tuple[str, Dict[str, Any]]:
-
         if not self._outer_property_groups:
             # everything is pushed down, no behavioral stuff to do
             # thus, use personQuery directly
@@ -56,11 +55,19 @@ class EnterpriseCohortQuery(FOSSCohortQuery):
         subq = []
 
         if self.sequence_filters_to_query:
-            sequence_query, sequence_params, sequence_query_alias = self._get_sequence_query()
+            (
+                sequence_query,
+                sequence_params,
+                sequence_query_alias,
+            ) = self._get_sequence_query()
             subq.append((sequence_query, sequence_query_alias))
             self.params.update(sequence_params)
         else:
-            behavior_subquery, behavior_subquery_params, behavior_query_alias = self._get_behavior_subquery()
+            (
+                behavior_subquery,
+                behavior_subquery_params,
+                behavior_query_alias,
+            ) = self._get_behavior_subquery()
             subq.append((behavior_subquery, behavior_query_alias))
             self.params.update(behavior_subquery_params)
 
@@ -81,7 +88,6 @@ class EnterpriseCohortQuery(FOSSCohortQuery):
         return final_query, self.params
 
     def _get_condition_for_property(self, prop: Property, prepend: str, idx: int) -> Tuple[str, Dict[str, Any]]:
-
         res: str = ""
         params: Dict[str, Any] = {}
 
@@ -139,7 +145,11 @@ class EnterpriseCohortQuery(FOSSCohortQuery):
 
         return (
             f"{'NOT' if prop.negation else ''} {column_name}",
-            {f"{date_param}": date_value, f"{seq_date_param}": seq_date_value, **entity_params},
+            {
+                f"{date_param}": date_value,
+                f"{seq_date_param}": seq_date_value,
+                **entity_params,
+            },
         )
 
     def get_restarted_performing_event(self, prop: Property, prepend: str, idx: int) -> Tuple[str, Dict[str, Any]]:
@@ -174,7 +184,11 @@ class EnterpriseCohortQuery(FOSSCohortQuery):
 
         return (
             f"{'NOT' if prop.negation else ''} {column_name}",
-            {f"{date_param}": date_value, f"{seq_date_param}": seq_date_value, **entity_params},
+            {
+                f"{date_param}": date_value,
+                f"{seq_date_param}": seq_date_value,
+                **entity_params,
+            },
         )
 
     def get_performed_event_first_time(self, prop: Property, prepend: str, idx: int) -> Tuple[str, Dict[str, Any]]:
@@ -193,7 +207,10 @@ class EnterpriseCohortQuery(FOSSCohortQuery):
 
         self._fields.append(field)
 
-        return (f"{'NOT' if prop.negation else ''} {column_name}", {f"{date_param}": date_value, **entity_params})
+        return (
+            f"{'NOT' if prop.negation else ''} {column_name}",
+            {f"{date_param}": date_value, **entity_params},
+        )
 
     def get_performed_event_regularly(self, prop: Property, prepend: str, idx: int) -> Tuple[str, Dict[str, Any]]:
         event = (prop.event_type, prop.key)
@@ -243,7 +260,10 @@ class EnterpriseCohortQuery(FOSSCohortQuery):
 
         self._fields.append(field)
 
-        return (f"{'NOT' if prop.negation else ''} {column_name}", {**entity_params, **params})
+        return (
+            f"{'NOT' if prop.negation else ''} {column_name}",
+            {**entity_params, **params},
+        )
 
     @cached_property
     def sequence_filters_to_query(self) -> List[Property]:
@@ -264,7 +284,13 @@ class EnterpriseCohortQuery(FOSSCohortQuery):
         params = {}
 
         materialized_columns = list(self._column_optimizer.event_columns_to_query)
-        names = ["event", "properties", "distinct_id", "timestamp", *materialized_columns]
+        names = [
+            "event",
+            "properties",
+            "distinct_id",
+            "timestamp",
+            *materialized_columns,
+        ]
 
         person_prop_query = ""
         person_prop_params: dict = {}
@@ -277,7 +303,12 @@ class EnterpriseCohortQuery(FOSSCohortQuery):
         _intermediate_fields.extend(names)
 
         for idx, prop in enumerate(self.sequence_filters_to_query):
-            step_cols, intermediate_cols, aggregate_cols, seq_params = self._get_sequence_filter(prop, idx)
+            (
+                step_cols,
+                intermediate_cols,
+                aggregate_cols,
+                seq_params,
+            ) = self._get_sequence_filter(prop, idx)
             _inner_fields.extend(step_cols)
             _intermediate_fields.extend(intermediate_cols)
             _outer_fields.extend(aggregate_cols)
@@ -316,7 +347,12 @@ class EnterpriseCohortQuery(FOSSCohortQuery):
         """
         return (
             outer_query,
-            {"team_id": self._team_id, event_param_name: self._events, **params, **person_prop_params},
+            {
+                "team_id": self._team_id,
+                event_param_name: self._events,
+                **params,
+                **person_prop_params,
+            },
             self.FUNNEL_QUERY_ALIAS,
         )
 
@@ -359,10 +395,21 @@ class EnterpriseCohortQuery(FOSSCohortQuery):
         )
         step_cols.append(f"if({event_prepend}_step_1 = 1, timestamp, null) AS {event_prepend}_latest_1")
 
-        return step_cols, condition_cols, aggregate_cols, {**entity_params, **seq_entity_params}
+        return (
+            step_cols,
+            condition_cols,
+            aggregate_cols,
+            {
+                **entity_params,
+                **seq_entity_params,
+            },
+        )
 
     def get_performed_event_sequence(self, prop: Property, prepend: str, idx: int) -> Tuple[str, Dict[str, Any]]:
-        return f"{self.SEQUENCE_FIELD_ALIAS}_{self.sequence_filters_lookup[str(prop.to_dict())]}", {}
+        return (
+            f"{self.SEQUENCE_FIELD_ALIAS}_{self.sequence_filters_lookup[str(prop.to_dict())]}",
+            {},
+        )
 
     # Check if negations are always paired with a positive filter
     # raise a value error warning that this is an invalid cohort

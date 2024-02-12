@@ -1,12 +1,12 @@
+import { connect, kea, key, path, props, selectors } from 'kea'
 import { dayjs } from 'lib/dayjs'
-import { kea } from 'kea'
 import { range } from 'lib/utils'
-import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
-import { InsightLogicProps } from '~/types'
-
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
-import { retentionLogic } from './retentionLogic'
+import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
 
+import { InsightLogicProps, InsightType } from '~/types'
+
+import { retentionLogic } from './retentionLogic'
 import type { retentionTableLogicType } from './retentionTableLogicType'
 
 const DEFAULT_RETENTION_LOGIC_KEY = 'default_retention_key'
@@ -29,23 +29,29 @@ const periodIsLatest = (date_to: string | null, period: string | null): boolean 
     }
 }
 
-export const retentionTableLogic = kea<retentionTableLogicType>({
-    props: {} as InsightLogicProps,
-    key: keyForInsightLogicProps(DEFAULT_RETENTION_LOGIC_KEY),
-    path: (key) => ['scenes', 'retention', 'retentionTableLogic', key],
-    connect: (props: InsightLogicProps) => ({
+export const retentionTableLogic = kea<retentionTableLogicType>([
+    props({} as InsightLogicProps),
+    key(keyForInsightLogicProps(DEFAULT_RETENTION_LOGIC_KEY)),
+    path((key) => ['scenes', 'retention', 'retentionTableLogic', key]),
+    connect((props: InsightLogicProps) => ({
         values: [
             insightVizDataLogic(props),
-            ['dateRange', 'retentionFilter', 'breakdown'],
+            ['dateRange', 'retentionFilter', 'breakdownFilter', 'vizSpecificOptions'],
             retentionLogic(props),
             ['results'],
         ],
-    }),
-    selectors: {
+    })),
+    selectors({
         isLatestPeriod: [
             (s) => [s.dateRange, s.retentionFilter],
             (dateRange, retentionFilter) => periodIsLatest(dateRange?.date_to || null, retentionFilter?.period || null),
         ],
+
+        retentionVizOptions: [
+            (s) => [s.vizSpecificOptions],
+            (vizSpecificOptions) => vizSpecificOptions?.[InsightType.RETENTION],
+        ],
+        hideSizeColumn: [(s) => [s.retentionVizOptions], (retentionVizOptions) => retentionVizOptions?.hideSizeColumn],
 
         maxIntervalsCount: [
             (s) => [s.results],
@@ -55,41 +61,58 @@ export const retentionTableLogic = kea<retentionTableLogicType>({
         ],
 
         tableHeaders: [
-            (s) => [s.results],
-            (results) => {
-                return ['Cohort', 'Size', ...results.map((x) => x.label)]
+            (s) => [s.results, s.hideSizeColumn],
+            (results, hideSizeColumn) => {
+                return ['Cohort', ...(hideSizeColumn ? [] : ['Size']), ...results.map((x) => x.label)]
             },
         ],
 
         tableRows: [
-            (s) => [s.results, s.maxIntervalsCount, s.retentionFilter, s.breakdown],
-            (results, maxIntervalsCount, retentionFilter, breakdown) => {
+            (s) => [s.results, s.maxIntervalsCount, s.retentionFilter, s.breakdownFilter, s.hideSizeColumn],
+            (results, maxIntervalsCount, retentionFilter, breakdownFilter, hideSizeColumn) => {
                 const { period } = retentionFilter || {}
-                const { breakdowns } = breakdown || {}
+                const { breakdowns } = breakdownFilter || {}
 
-                return range(maxIntervalsCount).map((rowIndex: number) => [
-                    // First column is the cohort label
-                    breakdowns?.length
-                        ? results[rowIndex].label
-                        : period === 'Hour'
-                        ? dayjs(results[rowIndex].date).format('MMM D, h A')
-                        : dayjs.utc(results[rowIndex].date).format('MMM D'),
-                    // Second column is the first value (which is essentially the total)
-                    results[rowIndex].values[0].count,
-                    // All other columns are rendered as percentage
-                    ...results[rowIndex].values.map((row) => {
-                        const percentage =
-                            results[rowIndex].values[0]['count'] > 0
-                                ? (row['count'] / results[rowIndex].values[0]['count']) * 100
-                                : 0
+                return range(maxIntervalsCount).map((index: number) => {
+                    const currentResult = results[index]
+                    let firstColumn // Prepare for some date gymnastics
+
+                    if (breakdowns?.length) {
+                        firstColumn = currentResult.label
+                    } else {
+                        switch (period) {
+                            case 'Hour':
+                                firstColumn = dayjs(currentResult.date).format('MMM D, h A')
+                                break
+                            case 'Month':
+                                firstColumn = dayjs(currentResult.date).format('MMM YYYY')
+                                break
+                            case 'Week': {
+                                const startDate = dayjs(currentResult.date)
+                                const endDate = startDate.add(6, 'day') // To show last day of the week we add 6 days, not 7
+                                firstColumn = `${startDate.format('MMM D')} to ${endDate.format('MMM D')}`
+                                break
+                            }
+                            default:
+                                firstColumn = dayjs(currentResult.date).format('MMM D')
+                        }
+                    }
+
+                    const secondColumn = hideSizeColumn ? [] : [currentResult.values[0].count]
+
+                    const otherColumns = currentResult.values.map((value) => {
+                        const totalCount = currentResult.values[0]['count']
+                        const percentage = totalCount > 0 ? (value['count'] / totalCount) * 100 : 0
 
                         return {
-                            count: row['count'],
+                            count: value['count'],
                             percentage,
                         }
-                    }),
-                ])
+                    })
+
+                    return [firstColumn, ...secondColumn, ...otherColumns]
+                })
             },
         ],
-    },
-})
+    }),
+])

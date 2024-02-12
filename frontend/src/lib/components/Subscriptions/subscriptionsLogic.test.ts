@@ -1,7 +1,7 @@
 import { expectLogic } from 'kea-test-utils'
-import { initKeaTests } from '~/test/init'
+
 import { useMocks } from '~/mocks/jest'
-import { subscriptionsLogic } from './subscriptionsLogic'
+import { initKeaTests } from '~/test/init'
 import {
     FilterType,
     InsightModel,
@@ -11,6 +11,8 @@ import {
     PropertyOperator,
     SubscriptionType,
 } from '~/types'
+
+import { subscriptionsLogic } from './subscriptionsLogic'
 
 const Insight1 = '1' as InsightShortId
 const Insight2 = '2' as InsightShortId

@@ -1,69 +1,12 @@
 @use 'sass:list';
+@use 'sass:map';
+@use 'sass:color';
 
 $sm: 576px;
 $md: 768px;
 $lg: 992px;
 $xl: 1200px;
 $xxl: 1600px;
-
-$screens: (
-    'sm': $sm,
-    'md': $md,
-    'lg': $lg,
-    'xl': $xl,
-    'xxl': $xxl,
-);
-
-$tiny_spaces: 0, 0.5, 1, 1.5, 2, 2.5, 3, 3.5, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20;
-$humongous_spaces: 24, 30, 32, 40, 50, 60, 80, 100, 120, 140, 160, 180, 200;
-$all_spaces: list.join($tiny_spaces, $humongous_spaces);
-$flex_sizes: 1, 2, 3, 4, 5, 6, 7, 8, 9, 10;
-$leadings: 3, 4, 5, 6, 7, 8, 9, 10;
-$sides: 'top', 'right', 'bottom', 'left';
-// CSS cursors from https://tailwindcss.com/docs/cursor
-$cursors: (
-    'auto',
-    'default',
-    'pointer',
-    'wait',
-    'text',
-    'move',
-    'help',
-    'not-allowed',
-    'none',
-    'context-menu',
-    'progress',
-    'cell',
-    'crosshair',
-    'vertical-text',
-    'alias',
-    'copy',
-    'no-drop',
-    'grab',
-    'grabbing',
-    'all-scroll',
-    'col-resize',
-    'row-resize',
-    'n-resize',
-    'e-resize',
-    's-resize',
-    'w-resize',
-    'ne-resize',
-    'nw-resize',
-    'se-resize',
-    'sw-resize',
-    'ew-resize',
-    'ns-resize',
-    'nesw-resize',
-    'nwse-resize',
-    'zoom-in',
-    'zoom-out'
-);
-// CSS list style types from https://tailwindcss.com/docs/list-style-type
-$list_style_types: 'none', 'disc', 'decimal';
-
-// See https://www.figma.com/file/Y9G24U4r04nEjIDGIEGuKI/PostHog-Design-System-One?node-id=2028%3A841
-// NOTE: Currently this has to be manually synced wit `tailwind.config.js` to allow IDE auto-completion
 $colors: (
     'primary-highlight': rgba(#1d4aff, 0.1),
     'primary-light': #345cff,
@@ -77,7 +20,9 @@ $colors: (
     'warning-highlight': rgba(#f7a501, 0.1),
     'warning-light': #f8b633,
     'warning': #f7a501,
-    'warning-dark': #a06b01,
+    'warning-dark': #e09423,
+    'highlight': #e49f2c,
+    'highlight-dark': #ffbd4f,
     'success-highlight': rgba(#388600, 0.1),
     'success-light': #5f9d32,
     'success': #388600,
@@ -96,12 +41,12 @@ $colors: (
     'bg-light': #fff,
     'side': #fafaf9,
     'mid': #f2f2f2,
-    'border': rgba(0, 0, 0, 0.15),
-    'border-light': rgba(0, 0, 0, 0.08),
-    'border-bold': rgba(0, 0, 0, 0.24),
-    'border-active': rgba(0, 0, 0, 0.36),
+    'border': rgb(0 0 0 / 15%),
+    'border-light': rgb(0 0 0 / 8%),
+    'border-bold': rgb(0 0 0 / 24%),
+    'border-active': rgb(0 0 0 / 36%),
     'transparent': transparent,
-
+    'link': var(--primary-3000),
     // Colors of the PostHog logo
     'brand-blue': #1d4aff,
     'brand-red': #f54e00,
@@ -111,10 +56,14 @@ $colors: (
     // This becomes white in dark mode
     // PostHog 3000
     'text-3000-light': #111,
-    'muted-3000-light': rgba(#111, 0.5),
+    'text-secondary-3000-light': rgba(#111, 0.7),
+    'muted-3000-light': rgba(#111, 0.6),
     'trace-3000-light': rgba(#111, 0.25),
-    'primary-3000-light': rgba(#000, 0.75),
-    'primary-3000-hover-light': #000,
+    'primary-3000-light': #f54e01,
+    'primary-3000-highlight-light': rgba(#f54e01, 0.1),
+    'primary-3000-hover-light': #f54e01,
+    'primary-3000-active-light': #f54e01,
+
     'secondary-3000-light': rgba(#cfd1c2, 0.6),
     'secondary-3000-hover-light': #cfd1c2,
     'accent-3000-light': #eeefe9,
@@ -124,21 +73,61 @@ $colors: (
     'glass-bg-3000-light': #e4e5deb3,
     'glass-border-3000-light': #e4e5de,
 
+    'link-3000-light': #f54e00,
+    'primary-3000-frame-bg-light': #eb9d2a,
+    'primary-3000-button-bg-light': #fff,
+    'primary-3000-button-border-light': #b17816,
+    'primary-3000-button-border-hover-light': #8e5b03,
+
+    'secondary-3000-frame-bg-light': #e1dddd,
+    'secondary-3000-button-bg-light': #f3f4ef,
+    'secondary-3000-button-border-light': #ccc,
+    'secondary-3000-button-border-hover-light': #aaa,
+
+    'danger-3000-frame-bg-light': #f54e0080,
+    'danger-3000-button-border-light': #e96b30,
+    'danger-3000-button-border-hover-light': #f54e00,
+
+    'shadow-elevation-3000-light': 0 3px 0 var(--border-3000-light),
+    'shadow-elevation-3000-dark': 0 3px 0 var(--border-3000-dark),
     'text-3000-dark': #fff,
+    'text-secondary-3000-dark': rgba(#fff, 0.7),
     'muted-3000-dark': rgba(#fff, 0.5),
     'trace-3000-dark': rgba(#fff, 0.25),
-    'primary-3000-dark': var(--primary),
-    'primary-3000-hover-dark': var(--primary-light),
-    'secondary-3000-dark': #3b4159,
+    'primary-3000-dark': #f7a503,
+    'primary-3000-highlight-dark': rgba(#f7a503, 0.1),
+    'primary-3000-hover-dark': #f7a503,
+    'primary-3000-active-dark': #f7a503,
+    'primary-alt-highlight-3000-light': #e5e7e0,
+
+    'secondary-3000-dark': #1d1f27,
     'secondary-3000-hover-dark': #575d77,
-    'accent-3000-dark': #1d1f27,
-    'bg-3000-dark': #151619,
-    'border-3000-dark': #2b2c32,
+    'accent-3000-dark': #21242b,
+    'bg-3000-dark': #1d1f27,
+    'border-3000-dark': #35373e,
     'border-bold-3000-dark': #3f4046,
-    'glass-bg-3000-dark': #1d1f27b3,
+    'glass-bg-3000-dark': #24262a99,
     'glass-border-3000-dark': var(--border-3000-dark),
+    'link-3000-dark': #f1a82c,
+
+    'primary-3000-frame-bg-dark': #926826,
+    'primary-3000-button-bg-dark': #e0a045,
+    'primary-3000-button-border-dark': #b17816,
+    'primary-3000-button-border-hover-dark': #8e5b03,
+    'primary-alt-highlight-3000-dark': #232429,
+
+    'secondary-3000-frame-bg-dark': #323232,
+    'secondary-3000-button-bg-dark': #1d1f27,
+    'secondary-3000-button-border-dark': #4a4c52,
+    'secondary-3000-button-border-hover-dark': #5e6064,
+
+    'danger-3000-frame-bg-dark': #f54e0080,
+    'danger-3000-button-border-dark': #c44003,
+    'danger-3000-button-border-hover-dark': #f54e00,
+
     // The derived colors
     'text-3000': var(--text-3000),
+    'text-secondary-3000': var(--text-secondary-3000),
     'muted-3000': var(--muted-3000),
     'trace-3000': var(--trace-3000),
     'primary-3000': var(--primary-3000),
@@ -147,17 +136,26 @@ $colors: (
     'secondary-3000-hover': var(--secondary-3000-hover),
     'accent-3000': var(--accent-3000),
     'bg-3000': var(--bg-3000),
+    'bg-hover-3000': var(--bg-hover-3000),
     'border-3000': var(--border-3000),
     'border-bold-3000': var(--border-bold-3000),
     'glass-bg-3000': var(--glass-bg-3000),
-    'glass-border-3000': var(--glass-border-3000),
-    // 'bg-light': var(--accent-3000),
+    'glass-border-3000': var(--border-3000),
+    'link-3000': var(--link-3000),
+    'primary-3000-frame-bg': var(--primary-3000-frame-bg),
+    'primary-3000-button-bg': var(--primary-3000-button-bg),
+    'primary-3000-button-border': var(--primary-3000-button-border),
+    'primary-3000-button-border-hover': var(--primary-3000-button-border-hover),
+    'secondary-3000-frame-bg': var(--secondary-3000-frame-bg),
+    'secondary-3000-button-bg': var(--secondary-3000-button-bg),
+    'secondary-3000-button-border': var(--secondary-3000-button-border),
+    'secondary-3000-button-border-hover': var(--secondary-3000-button-border-hover),
 );
 
 // These vars are modified via SCSS for legacy reasons (e.g. darken/lighten), so keeping as SCSS vars for now.
-$_primary: map-get($colors, 'primary');
-$_success: map-get($colors, 'success');
-$_danger: map-get($colors, 'danger');
+$_primary: map.get($colors, 'primary');
+$_success: map.get($colors, 'success');
+$_danger: map.get($colors, 'danger');
 $_primary_bg_hover: rgba($_primary, 0.1);
 $_primary_bg_active: rgba($_primary, 0.2);
 $_lifecycle_new: $_primary;
@@ -168,26 +166,23 @@ $_lifecycle_dormant: $_danger;
 // root variables are defined as a mixin here because
 // the toolbar needs them attached to :host not :root
 @mixin root-variables {
-    // Design System colors
-    @each $name, $hex in $colors {
-        --#{$name}: #{$hex};
-    }
-
-    //TODO: Remove the primary-bg...
+    // TODO: Remove the primary-bg...
     --primary-bg-hover: var(--primary-highlight);
     --primary-bg-active: #{$_primary_bg_active};
-
     --bg-charcoal: #2d2d2d;
     --bg-bridge: #ebece8;
 
     // Non-color vars
-    --radius: 4px;
-    --shadow-elevation: 0px 16px 16px -16px rgba(0, 0, 0, 0.35);
+    --radius: 0.375rem;
+    --radius-sm: 0.25rem;
+    --shadow-elevation: 0px 16px 16px -16px rgb(0 0 0 / 35%);
     --opacity-disabled: 0.6;
     --font-medium: 500;
     --font-semibold: 600;
-    --font-sans: -apple-system, BlinkMacSystemFont, 'Inter', 'Segoe UI', 'Roboto', 'Helvetica Neue', Helvetica, Arial,
+    --font-sans: -apple-system, BlinkMacSystemFont, 'Inter', 'Segoe UI', 'Roboto', 'Helvetica Neue', helvetica, arial,
         sans-serif, 'Apple Color Emoji', 'Segoe UI Emoji', 'Segoe UI Symbol';
+    --font-title: 'MatterSQ', -apple-system, BlinkMacSystemFont, 'Inter', 'Segoe UI', 'Roboto', 'Helvetica Neue',
+        helvetica, arial, sans-serif, 'Apple Color Emoji', 'Segoe UI Emoji', 'Segoe UI Symbol';
     --font-mono: ui-monospace, 'SFMono-Regular', 'SF Mono', 'Menlo', 'Consolas', 'Liberation Mono', monospace;
 
     // Dashboard item colors
@@ -199,38 +194,37 @@ $_lifecycle_dormant: $_danger;
     // Tag colors
     --purple-light: #dcb1e3;
 
-    // Data colors (e.g. insight series). Note: colors.ts relies on these values being hexadecimal
-    --data-brand-blue: var(--primary);
-    --data-purple: #621da6;
-    --data-viridian: #42827e;
-    --data-magenta: #ce0e74;
-    --data-vermilion: #f14f58;
-    --data-brown: #7c440e;
-    --data-green: #529a0a;
-    --data-blue: #0476fb;
-    --data-pink: #fe729e;
-    --data-navy: var(--primary-alt);
-    --data-turquoise: #41cbc4;
-    --data-brick: #b64b02;
-    --data-yellow: #e4a604;
-    --data-lilac: #a56eff;
+    //// Data colors (e.g. insight series). Note: colors.ts relies on these values being hexadecimal
+    --data-color-1: #1d4aff;
+    --data-color-2: #621da6;
+    --data-color-3: #42827e;
+    --data-color-4: #ce0e74;
+    --data-color-5: #f14f58;
+    --data-color-6: #7c440e;
+    --data-color-7: #529a0a;
+    --data-color-8: #0476fb;
+    --data-color-9: #fe729e;
+    --data-color-10: #35416b;
+    --data-color-11: #41cbc4;
+    --data-color-12: #b64b02;
+    --data-color-13: #e4a604;
+    --data-color-14: #a56eff;
+    --data-color-15: #30d5c8;
 
     // Lifecycle series
     --lifecycle-new: #{$_lifecycle_new};
     --lifecycle-returning: #{$_lifecycle_returning};
     --lifecycle-resurrecting: #{$_lifecycle_resurrecting};
     --lifecycle-dormant: #{$_lifecycle_dormant};
-    --lifecycle-new-hover: #{darken($_lifecycle_new, 20%)};
-    --lifecycle-returning-hover: #{darken($_lifecycle_returning, 20%)};
-    --lifecycle-resurrecting-hover: #{darken($_lifecycle_resurrecting, 20%)};
-    --lifecycle-dormant-hover: #{darken($_lifecycle_dormant, 20%)};
+    --lifecycle-new-hover: #{color.adjust($_lifecycle_new, $lightness: -20%)};
+    --lifecycle-returning-hover: #{color.adjust($_lifecycle_returning, $lightness: -20%)};
+    --lifecycle-resurrecting-hover: #{color.adjust($_lifecycle_resurrecting, $lightness: -20%)};
+    --lifecycle-dormant-hover: #{color.adjust($_lifecycle_dormant, $lightness: -20%)};
 
     // Funnels
-    --funnel-default: var(--primary);
-    --funnel-background: var(--border-light);
-    --funnel-axis-zero: var(--default);
-    --funnel-axis: var(--border-bold);
-    --funnel-axis-label: var(--muted);
+    // TODO: unify with lib/colors.ts, getGraphColors()
+    --funnel-axis: var(--border);
+    --funnel-grid: #ddd;
     --antd-table-background-dark: #fafafa;
 
     // Session Recording
@@ -240,7 +234,7 @@ $_lifecycle_dormant: $_danger;
     --recording-seekbar-red: var(--brand-red);
     --recording-hover-event: var(--primary-bg-hover);
     --recording-hover-event-mid: var(--primary-bg-active);
-    --recording-hover-event-dark: var(--primary);
+    --recording-hover-event-dark: var(--primary-3000);
     --recording-current-event: #eef2ff;
     --recording-current-event-dark: var(--primary-alt);
     --recording-failure-event: #fee9e2;
@@ -248,21 +242,20 @@ $_lifecycle_dormant: $_danger;
     --recording-highlight-event: var(--mark);
     --recording-highlight-event-dark: #946508;
 
-    // Z-indexes, synced with vars.ts
+    // Z-indexes
     --z-bottom-notice: 5100;
     --z-command-palette: 1875;
     --z-force-modal-above-popovers: 1850;
     --z-ant-message: 1070;
     --z-ant-select-dropdown: 1065;
-    --z-definition-popover: 1063;
-    --z-popover: 1061;
+    --z-definition-popover: 1064;
+    --z-popover: 1063;
+    --z-graph-tooltip: 1062;
     --z-modal: 1060;
-    --z-hedgehog-buddy: 1059;
     --z-ant-modal-wrap: 1060;
+    --z-hedgehog-buddy: 1059;
     --z-ant-modal-mask: 1050;
-    --z-plugins-popconfirm: 1001;
-    --z-graph-tooltip: 952;
-    --z-annotation-popover: 951;
+    --z-annotation-popover: 1049;
     --z-drawer: 950;
     --z-notifications-popover: 949; // below the TZ aware popover but over the main-nav
     --z-main-nav: 948;
@@ -279,22 +272,22 @@ $_lifecycle_dormant: $_danger;
     // which means they aren't available in the toolbar
     --toastify-color-dark: var(--accent-3000-dark);
     --toastify-color-light: var(--bg-light);
-    --toastify-color-info: var(--primary);
+    --toastify-color-info: var(--primary-3000);
     --toastify-color-success: var(--success);
     --toastify-color-warning: var(--warning);
     --toastify-color-error: var(--danger);
+    --toastify-color-progress-info: var(--toastify-color-info);
+    --toastify-color-progress-success: var(--toastify-color-success);
+    --toastify-color-progress-warning: var(--toastify-color-warning);
+    --toastify-color-progress-error: var(--toastify-color-error);
     --toastify-toast-background: var(--bg-light);
     --toastify-toast-width: 26rem;
     --toastify-toast-min-height: 3.5rem;
     --toastify-toast-max-height: 16rem;
     --toastify-text-color-light: #757575;
-    --toastify-color-progress-success: var(--toastify-color-success);
-    --toastify-color-progress-warning: var(--toastify-color-warning);
-    --toastify-color-progress-error: var(--toastify-color-error);
 
-    //In App Prompts
+    // In-app prompts
     --in-app-prompts-width: 26rem;
-
     --lettermark-1-bg: #dcb1e3;
     --lettermark-1-text: #572e5e;
     --lettermark-2-bg: #ffc4b2;
@@ -311,11 +304,123 @@ $_lifecycle_dormant: $_danger;
     --lettermark-7-text: #35416b;
     --lettermark-8-bg: #ff906e;
     --lettermark-8-text: #2a3d65;
-    --lettermark-8-bg: #e8edff;
-    --lettermark-8-text: #35416b;
 
     // Modals
     --modal-backdrop-blur: 5px; // Half the value in Figma as blur is calculated differently there it seems
-    --modal-backdrop-color: rgba(0, 0, 0, 0.2);
+    --modal-backdrop-color: rgb(0 0 0 / 20%);
     --modal-transition-time: 200ms;
+
+    // Tooltips
+    --tooltip-bg-light: var(--bg-charcoal);
+    --tooltip-bg-dark: #656d81;
+
+    // Notebooks
+    --notebook-popover-transition-properties: 150ms cubic-bezier(0, 0.5, 0.5, 1);
+    --notebook-column-left-width: 27rem;
+    --notebook-column-right-width: 20rem;
+
+    // Design System colors
+    @each $name, $hex in $colors {
+        --#{$name}: #{$hex};
+    }
+}
+
+// defined here so that they can be shared with the toolbar
+@mixin light-mode-3000-variables {
+    --text-3000: var(--text-3000-light);
+    --text-secondary-3000: var(--text-secondary-3000-light);
+    --muted-3000: var(--muted-3000-light);
+    --trace-3000: var(--trace-3000-light);
+    --primary-3000: var(--primary-3000-light);
+    --primary-3000-highlight: var(--primary-3000-highlight-light);
+    --primary-3000-hover: var(--primary-3000-hover-light);
+    --primary-3000-active: var(--primary-3000-active-light);
+    --secondary-3000: var(--secondary-3000-light);
+    --secondary-3000-hover: var(--secondary-3000-hover-light);
+    --accent-3000: var(--accent-3000-light);
+    --bg-3000: var(--bg-3000-light);
+    --border-3000: var(--border-3000-light);
+    --border-light-opaque: #eee;
+    --border-bold-3000: var(--border-bold-3000-light);
+    --glass-bg-3000: var(--glass-bg-3000-light);
+    --glass-border-3000: var(--glass-border-3000-light);
+    --bg-light: #fff;
+    --bg-table: #f9faf7;
+    --link: var(--link-3000-light);
+    --shadow-elevation-3000: var(--shadow-elevation-3000-light);
+    --primary-3000-frame-bg: var(--primary-3000-frame-bg-light);
+    --primary-3000-button-bg: var(--primary-3000-button-bg-light);
+    --primary-3000-button-border: var(--primary-3000-button-border-light);
+    --primary-3000-button-border-hover: var(--primary-3000-button-border-hover-light);
+    --primary-alt-highlight-3000: var(--primary-alt-highlight-3000-light);
+    --secondary-3000-frame-bg: var(--secondary-3000-frame-bg-light);
+    --secondary-3000-button-bg: var(--secondary-3000-button-bg-light);
+    --secondary-3000-button-border: var(--secondary-3000-button-border-light);
+    --secondary-3000-button-border-hover: var(--secondary-3000-button-border-hover-light);
+    --danger-3000-frame-bg: var(--danger-3000-frame-bg-light);
+    --danger-3000-button-border: var(--danger-3000-button-border-light);
+    --danger-3000-button-border-hover: var(--danger-3000-button-border-hover-light);
+    --tooltip-bg: var(--tooltip-bg-light);
+}
+
+// defined here so that they can be shared with the toolbar
+@mixin dark-mode-3000-variables {
+    --text-3000: var(--text-3000-dark);
+    --text-secondary-3000: var(--text-secondary-3000-dark);
+    --muted-3000: var(--muted-3000-dark);
+    --trace-3000: var(--trace-3000-dark);
+    --primary-3000: var(--primary-3000-dark);
+    --primary-3000-highlight: var(--primary-3000-highlight-dark);
+    --primary-3000-hover: var(--primary-3000-hover-dark);
+    --primary-3000-active: var(--primary-3000-active-dark);
+    --secondary-3000: var(--secondary-3000-dark);
+    --secondary-3000-hover: var(--secondary-3000-hover-dark);
+    --accent-3000: var(--accent-3000-dark);
+    --bg-3000: var(--bg-3000-dark);
+    --border-3000: var(--border-3000-dark);
+    --border-light-opaque: #1e2028;
+    --border-bold-3000: var(--border-bold-3000-dark);
+    --glass-bg-3000: var(--glass-bg-3000-dark);
+    --glass-border-3000: var(--glass-border-3000-dark);
+    --bg-light: var(--accent-3000);
+    --bg-table: #232429;
+    --brand-key: #fff; // In dark mode the black in PostHog's logo is replaced with white for proper contrast
+    --link: var(--link-3000-dark);
+    --shadow-elevation-3000: var(--shadow-elevation-3000-dark);
+    --primary-3000-frame-bg: var(--primary-3000-frame-bg-dark);
+    --primary-3000-button-bg: var(--primary-3000-button-bg-dark);
+    --primary-3000-button-border: var(--primary-3000-button-border-dark);
+    --primary-3000-button-border-hover: var(--primary-3000-button-border-hover-dark);
+    --primary-alt-highlight-3000: var(--primary-alt-highlight-3000-dark);
+    --secondary-3000-frame-bg: var(--secondary-3000-frame-bg-dark);
+    --secondary-3000-button-bg: var(--secondary-3000-button-bg-dark);
+    --secondary-3000-button-border: var(--secondary-3000-button-border-dark);
+    --secondary-3000-button-border-hover: var(--secondary-3000-button-border-hover-dark);
+    --danger-3000-frame-bg: var(--danger-3000-frame-bg-dark);
+    --danger-3000-button-border: var(--danger-3000-button-border-dark);
+    --danger-3000-button-border-hover: var(--danger-3000-button-border-hover-dark);
+    --tooltip-bg: var(--tooltip-bg-dark);
+    --data-color-2: #7f26d9;
+    --data-color-3: #3e7a76;
+    --data-color-4: #bf0d6c;
+    --data-color-5: #f0474f;
+    --data-color-6: #b36114;
+    --data-color-10: #6576b3;
+}
+
+// defined here so that they can be shared with the toolbar
+@mixin posthog-3000-variables {
+    --default: var(--text-3000);
+    --text-secondary: var(--text-secondary-3000);
+    --muted: var(--muted-3000);
+    --muted-alt: var(--muted-3000);
+    --primary-alt: var(--text-3000);
+    --border: var(--border-3000);
+    --border-bold: var(--border-bold-3000);
+    --mid: var(--bg-3000);
+    --side: var(--bg-3000);
+    --primary-alt-highlight: var(--primary-alt-highlight-3000);
+    --data-color-1: #1d4aff;
+    --data-color-1-hover: #1a3cf6;
+    --data-color-10: #35416b;
 }

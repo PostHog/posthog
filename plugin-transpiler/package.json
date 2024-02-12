@@ -1,0 +1,21 @@
+{
+    "name": "plugin-transpiler",
+    "version": "1.0.0",
+    "description": "Transpiles site apps TSX to browser JS via stdin/stdout",
+    "main": "transpile.mjs",
+    "scripts": {
+        "test": "echo \"Error: no test specified\" && exit 1",
+        "build": "tsc -b && node build.mjs",
+        "start:dist": "node dist/index.js",
+        "start": "npm run build && npm run start:dist"
+    },
+    "author": "PostHog Inc.",
+    "license": "MIT",
+    "devDependencies": {
+        "@babel/standalone": "^7.23.2",
+        "@types/babel__standalone": "^7.1.6",
+        "@types/node": "^20.8.9",
+        "esbuild": "^0.19.5",
+        "typescript": "^5.2.2"
+    }
+}

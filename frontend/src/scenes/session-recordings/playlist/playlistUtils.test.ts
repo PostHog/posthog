@@ -1,5 +1,6 @@
-import { CohortType, FilterLogicalOperator, PropertyFilterType, PropertyOperator } from '~/types'
 import { summarizePlaylistFilters } from 'scenes/session-recordings/playlist/playlistUtils'
+
+import { CohortType, FilterLogicalOperator, PropertyFilterType, PropertyOperator } from '~/types'
 
 describe('summarizePlaylistFilters()', () => {
     const cohortIdsMapped: Partial<Record<CohortType['id'], CohortType>> = {

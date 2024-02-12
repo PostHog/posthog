@@ -9,6 +9,7 @@ from drf_spectacular.utils import OpenApiParameter
 from rest_framework import mixins, request, response, serializers, viewsets
 from rest_framework.decorators import action
 from rest_framework.exceptions import NotFound
+from rest_framework.pagination import LimitOffsetPagination
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.settings import api_settings
 from rest_framework_csv import renderers as csvrenderers
@@ -25,9 +26,14 @@ from posthog.models.event.util import ClickhouseEventSerializer
 from posthog.models.person.util import get_persons_by_distinct_ids
 from posthog.models.team import Team
 from posthog.models.utils import UUIDT
-from posthog.permissions import ProjectMembershipNecessaryPermissions, TeamMemberAccessPermission
+from posthog.permissions import (
+    TeamMemberAccessPermission,
+)
 from posthog.queries.property_values import get_property_values_for_key
-from posthog.rate_limit import ClickHouseBurstRateThrottle, ClickHouseSustainedRateThrottle
+from posthog.rate_limit import (
+    ClickHouseBurstRateThrottle,
+    ClickHouseSustainedRateThrottle,
+)
 from posthog.utils import convert_property_value, flatten
 
 QUERY_DEFAULT_EXPORT_LIMIT = 3_500
@@ -52,13 +58,48 @@ class ElementSerializer(serializers.ModelSerializer):
         ]
 
 
-class EventViewSet(StructuredViewSetMixin, mixins.RetrieveModelMixin, mixins.ListModelMixin, viewsets.GenericViewSet):
+class UncountedLimitOffsetPagination(LimitOffsetPagination):
+    """
+    the events api works with the default LimitOffsetPagination, but the
+    results don't have a count, so we need to override the pagination class
+    to remove the count from the response schema
+    """
+
+    def get_paginated_response_schema(self, schema):
+        return {
+            "type": "object",
+            "properties": {
+                "next": {
+                    "type": "string",
+                    "nullable": True,
+                    "format": "uri",
+                    "example": "http://api.example.org/accounts/?{offset_param}=400&{limit_param}=100".format(
+                        offset_param=self.offset_query_param, limit_param=self.limit_query_param
+                    ),
+                },
+                "results": schema,
+            },
+        }
+
+
+class EventViewSet(
+    StructuredViewSetMixin,
+    mixins.RetrieveModelMixin,
+    mixins.ListModelMixin,
+    viewsets.GenericViewSet,
+):
     renderer_classes = tuple(api_settings.DEFAULT_RENDERER_CLASSES) + (csvrenderers.PaginatedCSVRenderer,)
     serializer_class = ClickhouseEventSerializer
-    permission_classes = [IsAuthenticated, ProjectMembershipNecessaryPermissions, TeamMemberAccessPermission]
+    permission_classes = [IsAuthenticated, TeamMemberAccessPermission]
     throttle_classes = [ClickHouseBurstRateThrottle, ClickHouseSustainedRateThrottle]
+    pagination_class = UncountedLimitOffsetPagination
 
-    def _build_next_url(self, request: request.Request, last_event_timestamp: datetime, order_by: List[str]) -> str:
+    def _build_next_url(
+        self,
+        request: request.Request,
+        last_event_timestamp: datetime,
+        order_by: List[str],
+    ) -> str:
         params = request.GET.dict()
         reverse = "-timestamp" in order_by
         timestamp = last_event_timestamp.astimezone().isoformat()
@@ -69,6 +110,13 @@ class EventViewSet(StructuredViewSetMixin, mixins.RetrieveModelMixin, mixins.Lis
         return request.build_absolute_uri(f"{request.path}?{urllib.parse.urlencode(params)}")
 
     @extend_schema(
+        description="""
+        This endpoint allows you to list and filter events.
+        It is effectively deprecated and is kept only for backwards compatibility.
+        If you ever ask about it you will be advised to not use it...
+        If you want to ad-hoc list or aggregate events, use the Query endpoint instead.
+        If you want to export all events or many pages of events you should use our CDP/Batch Exports products instead.
+        """,
         parameters=[
             OpenApiParameter(
                 "event",
@@ -88,16 +136,28 @@ class EventViewSet(StructuredViewSetMixin, mixins.RetrieveModelMixin, mixins.Lis
                 many=True,
             ),
             OpenApiParameter("person_id", OpenApiTypes.INT, description="Filter list by person id."),
-            OpenApiParameter("distinct_id", OpenApiTypes.INT, description="Filter list by distinct id."),
             OpenApiParameter(
-                "before", OpenApiTypes.DATETIME, description="Only return events with a timestamp before this time."
+                "distinct_id",
+                OpenApiTypes.INT,
+                description="Filter list by distinct id.",
             ),
             OpenApiParameter(
-                "after", OpenApiTypes.DATETIME, description="Only return events with a timestamp after this time."
+                "before",
+                OpenApiTypes.DATETIME,
+                description="Only return events with a timestamp before this time.",
             ),
-            OpenApiParameter("limit", OpenApiTypes.INT, description="The maximum number of results to return"),
+            OpenApiParameter(
+                "after",
+                OpenApiTypes.DATETIME,
+                description="Only return events with a timestamp after this time.",
+            ),
+            OpenApiParameter(
+                "limit",
+                OpenApiTypes.INT,
+                description="The maximum number of results to return",
+            ),
             PropertiesSerializer(required=False),
-        ]
+        ],
     )
     def list(self, request: request.Request, *args: Any, **kwargs: Any) -> response.Response:
         try:
@@ -134,7 +194,7 @@ class EventViewSet(StructuredViewSetMixin, mixins.RetrieveModelMixin, mixins.Lis
             )
 
             # Retry the query without the 1 day optimization
-            if len(query_result) < limit and not request.GET.get("after"):
+            if len(query_result) < limit:
                 query_result = query_events_list(
                     unbounded_date_from=True,  # only this changed from the query above
                     filter=filter,
@@ -147,7 +207,9 @@ class EventViewSet(StructuredViewSetMixin, mixins.RetrieveModelMixin, mixins.Lis
                 )
 
             result = ClickhouseEventSerializer(
-                query_result[0:limit], many=True, context={"people": self._get_people(query_result, team)}
+                query_result[0:limit],
+                many=True,
+                context={"people": self._get_people(query_result, team)},
             ).data
 
             next_url: Optional[str] = None
@@ -170,12 +232,20 @@ class EventViewSet(StructuredViewSetMixin, mixins.RetrieveModelMixin, mixins.Lis
         return distinct_to_person
 
     def retrieve(
-        self, request: request.Request, pk: Optional[Union[int, str]] = None, *args: Any, **kwargs: Any
+        self,
+        request: request.Request,
+        pk: Optional[Union[int, str]] = None,
+        *args: Any,
+        **kwargs: Any,
     ) -> response.Response:
-
         if not isinstance(pk, str) or not UUIDT.is_valid_uuid(pk):
             return response.Response(
-                {"detail": "Invalid UUID", "code": "invalid", "type": "validation_error"}, status=400
+                {
+                    "detail": "Invalid UUID",
+                    "code": "invalid",
+                    "type": "validation_error",
+                },
+                status=400,
             )
         query_result = query_with_columns(
             SELECT_ONE_EVENT_SQL,

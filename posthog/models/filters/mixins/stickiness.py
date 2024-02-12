@@ -1,5 +1,5 @@
 from datetime import datetime
-from typing import Callable, Optional, Union
+from typing import TYPE_CHECKING, Callable, Optional, Union
 
 from rest_framework.exceptions import ValidationError
 
@@ -7,8 +7,10 @@ from posthog.constants import DATE_FROM, DATE_TO, STICKINESS_DAYS
 from posthog.models.filters.mixins.common import BaseParamMixin, DateMixin
 from posthog.models.filters.mixins.interval import IntervalMixin
 from posthog.models.filters.mixins.utils import cached_property, include_dict
-from posthog.models.team import Team
 from posthog.utils import relative_date_parse
+
+if TYPE_CHECKING:
+    from posthog.models.team import Team
 
 
 class SelectedIntervalMixin(BaseParamMixin):
@@ -23,7 +25,7 @@ class SelectedIntervalMixin(BaseParamMixin):
 
 class StickinessDateMixin(DateMixin):
     get_earliest_timestamp: Optional[Callable]
-    team: Team
+    team: "Team"
 
     @cached_property
     def _date_from(self) -> Optional[Union[str, datetime]]:
@@ -40,7 +42,7 @@ class StickinessDateMixin(DateMixin):
         elif _date_from:
             return _date_from
         else:
-            return relative_date_parse("-7d")
+            return relative_date_parse("-7d", self.team.timezone_info)
 
     @cached_property
     def _date_to(self) -> Optional[Union[str, datetime]]:

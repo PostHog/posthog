@@ -1,16 +1,22 @@
 import dataclasses
-from typing import Dict, List, Optional, cast
+from typing import Dict, List, Optional, cast, Literal
 
 from posthog.hogql import ast
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.models import LazyJoin, LazyTable
 from posthog.hogql.errors import HogQLException
 from posthog.hogql.resolver import resolve_types
-from posthog.hogql.visitor import TraversingVisitor
+from posthog.hogql.resolver_utils import get_long_table_name
+from posthog.hogql.visitor import TraversingVisitor, clone_expr
 
 
-def resolve_lazy_tables(node: ast.Expr, stack: Optional[List[ast.SelectQuery]] = None, context: HogQLContext = None):
-    LazyTableResolver(stack=stack, context=context).visit(node)
+def resolve_lazy_tables(
+    node: ast.Expr,
+    dialect: Literal["hogql", "clickhouse"],
+    stack: Optional[List[ast.SelectQuery]] = None,
+    context: HogQLContext = None,
+):
+    LazyTableResolver(stack=stack, context=context, dialect=dialect).visit(node)
 
 
 @dataclasses.dataclass
@@ -28,26 +34,16 @@ class TableToAdd:
 
 
 class LazyTableResolver(TraversingVisitor):
-    def __init__(self, stack: Optional[List[ast.SelectQuery]] = None, context: HogQLContext = None):
+    def __init__(
+        self,
+        dialect: Literal["hogql", "clickhouse"],
+        stack: Optional[List[ast.SelectQuery]] = None,
+        context: HogQLContext = None,
+    ):
         super().__init__()
         self.stack_of_fields: List[List[ast.FieldType | ast.PropertyType]] = [[]] if stack else []
         self.context = context
-
-    def _get_long_table_name(self, select: ast.SelectQueryType, type: ast.BaseTableType) -> str:
-        if isinstance(type, ast.TableType):
-            return select.get_alias_for_table_type(type)
-        elif isinstance(type, ast.LazyTableType):
-            return type.table.to_printed_hogql()
-        elif isinstance(type, ast.TableAliasType):
-            return type.alias
-        elif isinstance(type, ast.SelectQueryAliasType):
-            return type.alias
-        elif isinstance(type, ast.LazyJoinType):
-            return f"{self._get_long_table_name(select, type.table_type)}__{type.field}"
-        elif isinstance(type, ast.VirtualTableType):
-            return f"{self._get_long_table_name(select, type.table_type)}__{type.field}"
-        else:
-            raise HogQLException(f"Unknown table type in LazyTableResolver: {type.__class__.__name__}")
+        self.dialect = dialect
 
     def visit_property_type(self, node: ast.PropertyType):
         if node.joined_subquery is not None:
@@ -110,7 +106,7 @@ class LazyTableResolver(TraversingVisitor):
                         if field_or_property.field_type.table_type == join.table.type:
                             fields.append(field_or_property)
                 if len(fields) == 0:
-                    table_name = join.alias or self._get_long_table_name(select_type, join.table.type)
+                    table_name = join.alias or get_long_table_name(select_type, join.table.type)
                     tables_to_add[table_name] = TableToAdd(fields_accessed={}, lazy_table=join.table.type.table)
             join = join.next_join
 
@@ -139,8 +135,8 @@ class LazyTableResolver(TraversingVisitor):
             # Loop over the collected lazy tables in reverse order to create the joins
             for table_type in reversed(table_types):
                 if isinstance(table_type, ast.LazyJoinType):
-                    from_table = self._get_long_table_name(select_type, table_type.table_type)
-                    to_table = self._get_long_table_name(select_type, table_type)
+                    from_table = get_long_table_name(select_type, table_type.table_type)
+                    to_table = get_long_table_name(select_type, table_type)
                     if to_table not in joins_to_add:
                         joins_to_add[to_table] = JoinToAdd(
                             fields_accessed={},  # collect here all fields accessed on this table
@@ -159,7 +155,7 @@ class LazyTableResolver(TraversingVisitor):
                         else:
                             new_join.fields_accessed[field.name] = chain
                 elif isinstance(table_type, ast.LazyTableType):
-                    table_name = self._get_long_table_name(select_type, table_type)
+                    table_name = get_long_table_name(select_type, table_type)
                     if table_name not in tables_to_add:
                         tables_to_add[table_name] = TableToAdd(
                             fields_accessed={},  # collect here all fields accessed on this table
@@ -186,8 +182,9 @@ class LazyTableResolver(TraversingVisitor):
 
         # For all the collected tables, create the subqueries, and add them to the table.
         for table_name, table_to_add in tables_to_add.items():
-            subquery = table_to_add.lazy_table.lazy_select(table_to_add.fields_accessed)
-            subquery = cast(ast.SelectQuery, resolve_types(subquery, self.context, [node.type]))
+            subquery = table_to_add.lazy_table.lazy_select(table_to_add.fields_accessed, self.context.modifiers)
+            subquery = cast(ast.SelectQuery, clone_expr(subquery, clear_locations=True))
+            subquery = cast(ast.SelectQuery, resolve_types(subquery, self.context, self.dialect, [node.type]))
             old_table_type = select_type.tables[table_name]
             select_type.tables[table_name] = ast.SelectQueryAliasType(alias=table_name, select_query_type=subquery.type)
 
@@ -203,9 +200,15 @@ class LazyTableResolver(TraversingVisitor):
         # For all the collected joins, create the join subqueries, and add them to the table.
         for to_table, join_scope in joins_to_add.items():
             join_to_add: ast.JoinExpr = join_scope.lazy_join.join_function(
-                join_scope.from_table, join_scope.to_table, join_scope.fields_accessed
+                join_scope.from_table,
+                join_scope.to_table,
+                join_scope.fields_accessed,
+                self.context,
+                node,
             )
-            join_to_add = cast(ast.JoinExpr, resolve_types(join_to_add, self.context, [node.type]))
+            join_to_add = cast(ast.JoinExpr, clone_expr(join_to_add, clear_locations=True))
+            join_to_add = cast(ast.JoinExpr, resolve_types(join_to_add, self.context, self.dialect, [node.type]))
+
             select_type.tables[to_table] = join_to_add.type
 
             join_ptr = node.select_from
@@ -239,7 +242,7 @@ class LazyTableResolver(TraversingVisitor):
             else:
                 raise HogQLException("Should not be reachable")
 
-            table_name = self._get_long_table_name(select_type, table_type)
+            table_name = get_long_table_name(select_type, table_type)
             table_type = select_type.tables[table_name]
 
             if isinstance(field_or_property, ast.FieldType):

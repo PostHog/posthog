@@ -1,6 +1,6 @@
 import uuid
 from datetime import datetime, timedelta
-from typing import Any, Dict, List, Optional, Tuple, Union
+from typing import Any, Dict, List, Optional, Set, Tuple, Union, cast
 
 import structlog
 from dateutil import parser
@@ -10,11 +10,13 @@ from rest_framework.exceptions import ValidationError
 
 from posthog.client import sync_execute
 from posthog.constants import PropertyOperatorType
+from posthog.hogql.constants import LimitContext
 from posthog.hogql.hogql import HogQLContext
+from posthog.hogql.printer import print_ast
 from posthog.models import Action, Filter, Team
 from posthog.models.action.util import format_action_filter
 from posthog.models.async_deletion import AsyncDeletion, DeletionType
-from posthog.models.cohort.cohort import Cohort
+from posthog.models.cohort.cohort import Cohort, CohortOrEmpty
 from posthog.models.cohort.sql import (
     CALCULATE_COHORT_PEOPLE_SQL,
     GET_COHORT_SIZE_SQL,
@@ -52,7 +54,11 @@ def format_person_query(cohort: Cohort, index: int, hogql_context: HogQLContext)
     from posthog.queries.cohort_query import CohortQuery
 
     query_builder = CohortQuery(
-        Filter(data={"properties": cohort.properties}, team=cohort.team, hogql_context=hogql_context),
+        Filter(
+            data={"properties": cohort.properties},
+            team=cohort.team,
+            hogql_context=hogql_context,
+        ),
         cohort.team,
         cohort_pk=cohort.pk,
     )
@@ -60,6 +66,18 @@ def format_person_query(cohort: Cohort, index: int, hogql_context: HogQLContext)
     query, params = query_builder.get_query()
 
     return query, params
+
+
+def print_cohort_hogql_query(cohort: Cohort, hogql_context: HogQLContext) -> str:
+    from posthog.hogql_queries.query_runner import get_query_runner
+
+    persons_query = cast(Dict, cohort.query)
+    persons_query["select"] = ["id as actor_id"]
+    query = get_query_runner(
+        persons_query, team=cast(Team, cohort.team), limit_context=LimitContext.COHORT_CALCULATION
+    ).to_query()
+    hogql_context.enable_select_queries = True
+    return print_ast(query, context=hogql_context, dialect="clickhouse")
 
 
 def format_static_cohort_query(cohort: Cohort, index: int, prepend: str) -> Tuple[str, Dict[str, Any]]:
@@ -72,7 +90,13 @@ def format_static_cohort_query(cohort: Cohort, index: int, prepend: str) -> Tupl
 
 def format_precalculated_cohort_query(cohort: Cohort, index: int, prepend: str = "") -> Tuple[str, Dict[str, Any]]:
     filter_query = GET_PERSON_ID_BY_PRECALCULATED_COHORT_ID.format(index=index, prepend=prepend)
-    return (filter_query, {f"{prepend}_cohort_id_{index}": cohort.pk, f"{prepend}_version_{index}": cohort.version})
+    return (
+        filter_query,
+        {
+            f"{prepend}_cohort_id_{index}": cohort.pk,
+            f"{prepend}_version_{index}": cohort.version,
+        },
+    )
 
 
 def get_count_operator(count_operator: Optional[str]) -> str:
@@ -102,7 +126,10 @@ def get_entity_query(
     elif action_id:
         action = Action.objects.get(pk=action_id, team_id=team_id)
         action_filter_query, action_params = format_action_filter(
-            team_id=team_id, action=action, prepend="_{}_action".format(group_idx), hogql_context=hogql_context
+            team_id=team_id,
+            action=action,
+            prepend="_{}_action".format(group_idx),
+            hogql_context=hogql_context,
         )
         return action_filter_query, action_params
     else:
@@ -128,7 +155,10 @@ def parse_entity_timestamps_in_days(days: int) -> Tuple[str, Dict[str, str]]:
 
     return (
         "AND timestamp >= %(date_from)s AND timestamp <= %(date_to)s",
-        {"date_from": start_time.strftime("%Y-%m-%d %H:%M:%S"), "date_to": curr_time.strftime("%Y-%m-%d %H:%M:%S")},
+        {
+            "date_from": start_time.strftime("%Y-%m-%d %H:%M:%S"),
+            "date_to": curr_time.strftime("%Y-%m-%d %H:%M:%S"),
+        },
     )
 
 
@@ -142,7 +172,10 @@ def parse_cohort_timestamps(start_time: Optional[str], end_time: Optional[str]) 
         params = {"date_from": datetime.strptime(start_time, "%Y-%m-%dT%H:%M:%S").strftime("%Y-%m-%d %H:%M:%S")}
     if end_time:
         clause += "timestamp <= %(date_to)s"
-        params = {**params, "date_to": datetime.strptime(end_time, "%Y-%m-%dT%H:%M:%S").strftime("%Y-%m-%d %H:%M:%S")}
+        params = {
+            **params,
+            "date_to": datetime.strptime(end_time, "%Y-%m-%dT%H:%M:%S").strftime("%Y-%m-%d %H:%M:%S"),
+        }
 
     return clause, params
 
@@ -177,7 +210,10 @@ def format_filter_query(
 
 
 def format_cohort_subquery(
-    cohort: Cohort, index: int, hogql_context: HogQLContext, custom_match_field="person_id"
+    cohort: Cohort,
+    index: int,
+    hogql_context: HogQLContext,
+    custom_match_field="person_id",
 ) -> Tuple[str, Dict[str, Any]]:
     is_precalculated = is_precalculated_query(cohort)
     if is_precalculated:
@@ -189,7 +225,12 @@ def format_cohort_subquery(
     return person_query, params
 
 
-def get_person_ids_by_cohort_id(team: Team, cohort_id: int, limit: Optional[int] = None, offset: Optional[int] = None):
+def get_person_ids_by_cohort_id(
+    team: Team,
+    cohort_id: int,
+    limit: Optional[int] = None,
+    offset: Optional[int] = None,
+):
     from posthog.models.property.util import parse_prop_grouped_clauses
 
     filter = Filter(data={"properties": [{"key": "id", "value": cohort_id, "type": "cohort"}]})
@@ -254,7 +295,10 @@ def recalculate_cohortpeople(cohort: Cohort, pending_version: int) -> Optional[i
 
     if before_count:
         logger.warn(
-            "Recalculating cohortpeople starting", team_id=cohort.team_id, cohort_id=cohort.pk, size_before=before_count
+            "Recalculating cohortpeople starting",
+            team_id=cohort.team_id,
+            cohort_id=cohort.pk,
+            size_before=before_count,
         )
 
     recalcluate_cohortpeople_sql = RECALCULATE_COHORT_BY_ID.format(cohort_filter=cohort_query)
@@ -289,7 +333,11 @@ def clear_stale_cohortpeople(cohort: Cohort, before_version: int) -> None:
     if cohort.version and cohort.version > 0:
         stale_count_result = sync_execute(
             STALE_COHORTPEOPLE,
-            {"cohort_id": cohort.pk, "team_id": cohort.team_id, "version": before_version},
+            {
+                "cohort_id": cohort.pk,
+                "team_id": cohort.team_id,
+                "version": before_version,
+            },
         )
 
         if stale_count_result and len(stale_count_result) and len(stale_count_result[0]):
@@ -333,7 +381,14 @@ def simplified_cohort_filter_properties(cohort: Cohort, team: Team, is_negated=F
     if is_precalculated_query(cohort):
         return PropertyGroup(
             type=PropertyOperatorType.AND,
-            values=[Property(type="precalculated-cohort", key="id", value=cohort.pk, negation=is_negated)],
+            values=[
+                Property(
+                    type="precalculated-cohort",
+                    key="id",
+                    value=cohort.pk,
+                    negation=is_negated,
+                )
+            ],
         )
 
     # Cohort can have multiple match groups.
@@ -356,7 +411,14 @@ def simplified_cohort_filter_properties(cohort: Cohort, team: Team, is_negated=F
             if is_negated:
                 return PropertyGroup(
                     type=PropertyOperatorType.AND,
-                    values=[Property(type="cohort", key="id", value=cohort.pk, negation=is_negated)],
+                    values=[
+                        Property(
+                            type="cohort",
+                            key="id",
+                            value=cohort.pk,
+                            negation=is_negated,
+                        )
+                    ],
                 )
             # :TRICKY: We need to ensure we don't have infinite loops in here
             # guaranteed during cohort creation
@@ -390,7 +452,9 @@ def get_all_cohort_ids_by_person_uuid(uuid: str, team_id: int) -> List[int]:
 
 
 def get_dependent_cohorts(
-    cohort: Cohort, using_database: str = "default", seen_cohorts_cache: Optional[Dict[str, Cohort]] = None
+    cohort: Cohort,
+    using_database: str = "default",
+    seen_cohorts_cache: Optional[Dict[int, CohortOrEmpty]] = None,
 ) -> List[Cohort]:
     if seen_cohorts_cache is None:
         seen_cohorts_cache = {}
@@ -399,22 +463,94 @@ def get_dependent_cohorts(
     seen_cohort_ids = set()
     seen_cohort_ids.add(cohort.id)
 
-    queue = [prop.value for prop in cohort.properties.flat if prop.type == "cohort"]
+    queue = []
+    for prop in cohort.properties.flat:
+        if prop.type == "cohort" and not isinstance(prop.value, list):
+            try:
+                queue.append(int(prop.value))
+            except (ValueError, TypeError):
+                continue
 
     while queue:
         cohort_id = queue.pop()
         try:
-            parsed_cohort_id = str(cohort_id)
-            if parsed_cohort_id in seen_cohorts_cache:
-                cohort = seen_cohorts_cache[parsed_cohort_id]
+            if cohort_id in seen_cohorts_cache:
+                current_cohort = seen_cohorts_cache[cohort_id]
+                if not current_cohort:
+                    continue
             else:
-                cohort = Cohort.objects.using(using_database).get(pk=cohort_id)
-                seen_cohorts_cache[parsed_cohort_id] = cohort
-            if cohort.id not in seen_cohort_ids:
-                cohorts.append(cohort)
-                seen_cohort_ids.add(cohort.id)
-                queue += [prop.value for prop in cohort.properties.flat if prop.type == "cohort"]
+                current_cohort = Cohort.objects.using(using_database).get(
+                    pk=cohort_id, team_id=cohort.team_id, deleted=False
+                )
+                seen_cohorts_cache[cohort_id] = current_cohort
+            if current_cohort.id not in seen_cohort_ids:
+                cohorts.append(current_cohort)
+                seen_cohort_ids.add(current_cohort.id)
+
+                for prop in current_cohort.properties.flat:
+                    if prop.type == "cohort" and not isinstance(prop.value, list):
+                        try:
+                            queue.append(int(prop.value))
+                        except (ValueError, TypeError):
+                            continue
+
         except Cohort.DoesNotExist:
+            seen_cohorts_cache[cohort_id] = ""
             continue
 
     return cohorts
+
+
+def sort_cohorts_topologically(cohort_ids: Set[int], seen_cohorts_cache: Dict[int, CohortOrEmpty]) -> List[int]:
+    """
+    Sorts the given cohorts in an order where cohorts with no dependencies are placed first,
+    followed by cohorts that depend on the preceding ones. It ensures that each cohort in the sorted list
+    only depends on cohorts that appear earlier in the list.
+    """
+
+    if not cohort_ids:
+        return []
+
+    dependency_graph: Dict[int, List[int]] = {}
+    seen = set()
+
+    # build graph (adjacency list)
+    def traverse(cohort):
+        # add parent
+        dependency_graph[cohort.id] = []
+        for prop in cohort.properties.flat:
+            if prop.type == "cohort" and not isinstance(prop.value, list):
+                # add child
+                dependency_graph[cohort.id].append(int(prop.value))
+
+                neighbor_cohort = seen_cohorts_cache[int(prop.value)]
+                if not neighbor_cohort:
+                    continue
+
+                if cohort.id not in seen:
+                    seen.add(cohort.id)
+                    traverse(neighbor_cohort)
+
+    for cohort_id in cohort_ids:
+        cohort = seen_cohorts_cache[int(cohort_id)]
+        if not cohort:
+            continue
+        traverse(cohort)
+
+    # post-order DFS (children first, then the parent)
+    def dfs(node, seen, sorted_arr):
+        neighbors = dependency_graph.get(node, [])
+        for neighbor in neighbors:
+            if neighbor not in seen:
+                dfs(neighbor, seen, sorted_arr)
+        sorted_arr.append(int(node))
+        seen.add(node)
+
+    sorted_cohort_ids: List[int] = []
+    seen = set()
+    for cohort_id in cohort_ids:
+        if cohort_id not in seen:
+            seen.add(cohort_id)
+            dfs(cohort_id, seen, sorted_cohort_ids)
+
+    return sorted_cohort_ids

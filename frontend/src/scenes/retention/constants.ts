@@ -1,5 +1,6 @@
-import { OpUnitType } from 'lib/dayjs'
 import { RETENTION_FIRST_TIME, RETENTION_RECURRING } from 'lib/constants'
+import { OpUnitType } from 'lib/dayjs'
+
 import { RetentionPeriod } from '~/types'
 
 export const dateOptions: RetentionPeriod[] = [

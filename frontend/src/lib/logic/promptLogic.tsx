@@ -1,17 +1,15 @@
-import ReactDOM from 'react-dom'
-import { kea, props, path, key, actions, events, listeners } from 'kea'
-import { Modal, ModalProps, Input, InputProps, Form, FormItemProps } from 'antd'
+import { Form, FormItemProps, Input, InputProps, Modal, ModalProps } from 'antd'
+import { actions, events, kea, key, listeners, path, props } from 'kea'
+import { createRoot } from 'react-dom/client'
 
 import type { promptLogicType } from './promptLogicType'
 
-// This logic creates a modal to ask for an input. It's unique in that when the logic is unmounted,
-// for example when changing the URL, the modal is also closed. That would normally happen with the antd prompt.
-//
-// props:
-// - key - unique key for this logic
-//
-// actions:
-// - prompt({ title, placeholder, value, error, success, failure })
+/**
+ * This logic creates a modal to ask for an input. It's unique in that when the logic is unmounted,
+ * for example when changing the URL, the modal is also closed. That would normally happen with the antd prompt.
+ *
+ * @deprecated Use LemonDialog or, more broadly, LemonModal instead.
+ */
 export const promptLogic = kea<promptLogicType>([
     path((key) => ['lib', 'logic', 'prompt', key]),
     props({} as { key: string }),
@@ -101,14 +99,14 @@ function Prompt({
         >
             <Form form={form} name="field" initialValues={{ field: value }} onFinish={onFinish}>
                 <Form.Item name="field" rules={rules}>
-                    <Input placeholder={placeholder} autoFocus data-attr={'modal-prompt'} />
+                    <Input placeholder={placeholder} autoFocus data-attr="modal-prompt" />
                 </Form.Item>
             </Form>
         </Modal>
     )
 }
 
-export function cancellablePrompt(config: Pick<PromptProps, 'title' | 'placeholder' | 'value' | 'rules'>): {
+function cancellablePrompt(config: Pick<PromptProps, 'title' | 'placeholder' | 'value' | 'rules'>): {
     cancel: () => void
     promise: Promise<unknown>
 } {
@@ -118,12 +116,13 @@ export function cancellablePrompt(config: Pick<PromptProps, 'title' | 'placehold
     }
     const promise = new Promise((resolve, reject) => {
         const div = document.createElement('div')
+        const root = createRoot(div)
         document.body.appendChild(div)
         let currentConfig: PromptProps = { ...config, close, visible: true } as any
 
         function destroy(value: unknown): void {
-            const unmountResult = ReactDOM.unmountComponentAtNode(div)
-            if (unmountResult && div.parentNode) {
+            root.unmount()
+            if (div.parentNode) {
                 div.parentNode.removeChild(div)
             }
             if (typeof value === 'string') {
@@ -134,7 +133,7 @@ export function cancellablePrompt(config: Pick<PromptProps, 'title' | 'placehold
         }
 
         function render(props: PromptProps): void {
-            ReactDOM.render(<Prompt {...props} />, div)
+            root.render(<Prompt {...props} />)
         }
 
         function close(this: PromptProps, value: string): void {

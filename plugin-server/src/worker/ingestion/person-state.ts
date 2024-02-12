@@ -1,25 +1,45 @@
 import { PluginEvent, Properties } from '@posthog/plugin-scaffold'
 import * as Sentry from '@sentry/node'
-import equal from 'fast-deep-equal'
-import { StatsD } from 'hot-shots'
 import { ProducerRecord } from 'kafkajs'
 import { DateTime } from 'luxon'
-import { PoolClient } from 'pg'
 import { Counter } from 'prom-client'
+import { KafkaProducerWrapper } from 'utils/db/kafka-producer-wrapper'
 
 import { KAFKA_PERSON_OVERRIDE } from '../../config/kafka-topics'
 import { Person, PropertyUpdateOperation, TimestampFormat } from '../../types'
 import { DB } from '../../utils/db/db'
+import { PostgresRouter, PostgresUse, TransactionClient } from '../../utils/db/postgres'
 import { timeoutGuard } from '../../utils/db/utils'
+import { PeriodicTask } from '../../utils/periodic-task'
 import { promiseRetry } from '../../utils/retries'
 import { status } from '../../utils/status'
 import { castTimestampOrNow, UUIDT } from '../../utils/utils'
 import { captureIngestionWarning } from './utils'
 
 const MAX_FAILED_PERSON_MERGE_ATTEMPTS = 3
+
+export const mergeFinalFailuresCounter = new Counter({
+    name: 'person_merge_final_failure_total',
+    help: 'Number of person merge final failures.',
+})
+
+export const mergeTxnAttemptCounter = new Counter({
+    name: 'person_merge_txn_attempt_total',
+    help: 'Number of person merge attempts.',
+    labelNames: ['call', 'oldPersonIdentified', 'newPersonIdentified', 'poEEmbraceJoin'],
+})
+
+export const mergeTxnSuccessCounter = new Counter({
+    name: 'person_merge_txn_success_total',
+    help: 'Number of person merges that succeeded.',
+    labelNames: ['call', 'oldPersonIdentified', 'newPersonIdentified', 'poEEmbraceJoin'],
+})
+
 // used to prevent identify from being used with generic IDs
 // that we can safely assume stem from a bug or mistake
-const CASE_INSENSITIVE_ILLEGAL_IDS = new Set([
+// used to prevent identify from being used with generic IDs
+// that we can safely assume stem from a bug or mistake
+const BARE_CASE_INSENSITIVE_ILLEGAL_IDS = [
     'anonymous',
     'guest',
     'distinctid',
@@ -30,17 +50,34 @@ const CASE_INSENSITIVE_ILLEGAL_IDS = new Set([
     'undefined',
     'true',
     'false',
-])
+]
 
-export const mergeFinalFailuresCounter = new Counter({
-    name: 'person_merge_final_failure_total',
-    help: 'Number of person merge final failures.',
-})
+const BARE_CASE_SENSITIVE_ILLEGAL_IDS = ['[object Object]', 'NaN', 'None', 'none', 'null', '0', 'undefined']
 
-const CASE_SENSITIVE_ILLEGAL_IDS = new Set(['[object Object]', 'NaN', 'None', 'none', 'null', '0', 'undefined'])
+// we have seen illegal ids received but wrapped in double quotes
+// to protect ourselves from this we'll add the single- and double-quoted versions of the illegal ids
+const singleQuoteIds = (ids: string[]) => ids.map((id) => `'${id}'`)
+const doubleQuoteIds = (ids: string[]) => ids.map((id) => `"${id}"`)
+
+// some ids are illegal regardless of casing
+// while others are illegal only when cased
+// so, for example, we want to forbid `NaN` but not `nan`
+// but, we will forbid `uNdEfInEd` and `undefined`
+const CASE_INSENSITIVE_ILLEGAL_IDS = new Set(
+    BARE_CASE_INSENSITIVE_ILLEGAL_IDS.concat(singleQuoteIds(BARE_CASE_INSENSITIVE_ILLEGAL_IDS)).concat(
+        doubleQuoteIds(BARE_CASE_INSENSITIVE_ILLEGAL_IDS)
+    )
+)
+
+const CASE_SENSITIVE_ILLEGAL_IDS = new Set(
+    BARE_CASE_SENSITIVE_ILLEGAL_IDS.concat(singleQuoteIds(BARE_CASE_SENSITIVE_ILLEGAL_IDS)).concat(
+        doubleQuoteIds(BARE_CASE_SENSITIVE_ILLEGAL_IDS)
+    )
+)
 
 const isDistinctIdIllegal = (id: string): boolean => {
-    return id.trim() === '' || CASE_INSENSITIVE_ILLEGAL_IDS.has(id.toLowerCase()) || CASE_SENSITIVE_ILLEGAL_IDS.has(id)
+    const trimmed = id.trim()
+    return trimmed === '' || CASE_INSENSITIVE_ILLEGAL_IDS.has(id.toLowerCase()) || CASE_SENSITIVE_ILLEGAL_IDS.has(id)
 }
 
 // This class is responsible for creating/updating a single person through the process-event pipeline
@@ -54,9 +91,7 @@ export class PersonState {
     maxMergeAttempts: number
 
     private db: DB
-    private statsd: StatsD | undefined
     public updateIsIdentified: boolean // TODO: remove this from the class and being hidden
-    private poEEmbraceJoin: boolean
 
     constructor(
         event: PluginEvent,
@@ -64,8 +99,7 @@ export class PersonState {
         distinctId: string,
         timestamp: DateTime,
         db: DB,
-        statsd: StatsD | undefined = undefined,
-        poEEmbraceJoin = false,
+        private personOverrideWriter?: DeferredPersonOverrideWriter,
         uuid: UUIDT | undefined = undefined,
         maxMergeAttempts: number = MAX_FAILED_PERSON_MERGE_ATTEMPTS
     ) {
@@ -78,14 +112,10 @@ export class PersonState {
         this.maxMergeAttempts = maxMergeAttempts
 
         this.db = db
-        this.statsd = statsd
 
         // If set to true, we'll update `is_identified` at the end of `updateProperties`
         // :KLUDGE: This is an indirect communication channel between `handleIdentifyOrAlias` and `updateProperties`
         this.updateIsIdentified = false
-
-        // For persons on events embrace the join gradual roll-out, remove after fully rolled out
-        this.poEEmbraceJoin = poEEmbraceJoin
     }
 
     async update(): Promise<Person> {
@@ -118,8 +148,10 @@ export class PersonState {
         return await this.updatePersonProperties(person)
     }
 
+    /**
+     * @returns [Person, boolean that indicates if properties were already handled or not]
+     */
     private async createOrGetPerson(): Promise<[Person, boolean]> {
-        // returns: person, properties were already handled or not
         let person = await this.db.fetchPerson(this.teamId, this.distinctId)
         if (person) {
             return [person, false]
@@ -179,11 +211,11 @@ export class PersonState {
     }
 
     private async updatePersonProperties(person: Person): Promise<Person> {
-        const update: Partial<Person> = {}
-        const updatedProperties = this.applyEventPropertyUpdates(person.properties || {})
+        person.properties ||= {}
 
-        if (!equal(person.properties, updatedProperties)) {
-            update.properties = updatedProperties
+        const update: Partial<Person> = {}
+        if (this.applyEventPropertyUpdates(person.properties)) {
+            update.properties = person.properties
         }
         if (this.updateIsIdentified && !person.is_identified) {
             update.is_identified = true
@@ -196,30 +228,39 @@ export class PersonState {
         return person
     }
 
-    private applyEventPropertyUpdates(personProperties: Properties): Properties {
-        const updatedProperties = { ...personProperties }
-
+    /**
+     * @param personProperties Properties of the person to be updated, these are updated in place.
+     * @returns true if the properties were changed, false if they were not
+     */
+    private applyEventPropertyUpdates(personProperties: Properties): boolean {
         const properties: Properties = this.eventProperties['$set'] || {}
         const propertiesOnce: Properties = this.eventProperties['$set_once'] || {}
-        const unsetProperties: Array<string> = this.eventProperties['$unset'] || []
+        const unsetProps = this.eventProperties['$unset']
+        const unsetProperties: Array<string> = Array.isArray(unsetProps)
+            ? unsetProps
+            : Object.keys(unsetProps || {}) || []
 
-        // Figure out which properties we are actually setting
+        let updated = false
         Object.entries(propertiesOnce).map(([key, value]) => {
             if (typeof personProperties[key] === 'undefined') {
-                updatedProperties[key] = value
+                updated = true
+                personProperties[key] = value
             }
         })
         Object.entries(properties).map(([key, value]) => {
             if (personProperties[key] !== value) {
-                updatedProperties[key] = value
+                updated = true
+                personProperties[key] = value
+            }
+        })
+        unsetProperties.forEach((propertyKey) => {
+            if (propertyKey in personProperties) {
+                updated = true
+                delete personProperties[propertyKey]
             }
         })
 
-        unsetProperties.forEach((propertyKey) => {
-            delete updatedProperties[propertyKey]
-        })
-
-        return updatedProperties
+        return updated
     }
 
     // Alias & merge
@@ -245,7 +286,7 @@ export class PersonState {
                     this.teamId,
                     this.timestamp
                 )
-            } else if (this.event.event === '$identify' && this.eventProperties['$anon_distinct_id']) {
+            } else if (this.event.event === '$identify' && '$anon_distinct_id' in this.eventProperties) {
                 return await this.merge(
                     String(this.eventProperties['$anon_distinct_id']),
                     this.distinctId,
@@ -282,8 +323,7 @@ export class PersonState {
             return undefined
         }
         if (isDistinctIdIllegal(mergeIntoDistinctId)) {
-            this.statsd?.increment('illegal_distinct_ids.total', { distinctId: mergeIntoDistinctId })
-            captureIngestionWarning(this.db, teamId, 'cannot_merge_with_illegal_distinct_id', {
+            await captureIngestionWarning(this.db, teamId, 'cannot_merge_with_illegal_distinct_id', {
                 illegalDistinctId: mergeIntoDistinctId,
                 otherDistinctId: otherPersonDistinctId,
                 eventUuid: this.event.uuid,
@@ -291,8 +331,7 @@ export class PersonState {
             return undefined
         }
         if (isDistinctIdIllegal(otherPersonDistinctId)) {
-            this.statsd?.increment('illegal_distinct_ids.total', { distinctId: otherPersonDistinctId })
-            captureIngestionWarning(this.db, teamId, 'cannot_merge_with_illegal_distinct_id', {
+            await captureIngestionWarning(this.db, teamId, 'cannot_merge_with_illegal_distinct_id', {
                 illegalDistinctId: otherPersonDistinctId,
                 otherDistinctId: mergeIntoDistinctId,
                 eventUuid: this.event.uuid,
@@ -360,25 +399,12 @@ export class PersonState {
         otherPersonDistinctId: string
     }): Promise<Person> {
         const olderCreatedAt = DateTime.min(mergeInto.created_at, otherPerson.created_at)
-        const newerCreatedAt = DateTime.max(mergeInto.created_at, otherPerson.created_at)
-
         const mergeAllowed = this.isMergeAllowed(otherPerson)
-
-        this.statsd?.increment('merge_users', {
-            call: this.event.event, // $identify, $create_alias or $merge_dangerously
-            teamId: this.teamId.toString(),
-            oldPersonIdentified: String(otherPerson.is_identified),
-            newPersonIdentified: String(mergeInto.is_identified),
-            // For analyzing impact of merges we need to know how old data would need to get updated
-            // If we are smart we merge the newer person into the older one,
-            // so we need to know the newer person's age
-            newerPersonAgeInMonths: String(ageInMonthsLowCardinality(newerCreatedAt)),
-        })
 
         // If merge isn't allowed, we will ignore it, log an ingestion warning and exit
         if (!mergeAllowed) {
             // TODO: add event UUID to the ingestion warning
-            captureIngestionWarning(this.db, this.teamId, 'cannot_merge_already_identified', {
+            await captureIngestionWarning(this.db, this.teamId, 'cannot_merge_already_identified', {
                 sourcePersonDistinctId: otherPersonDistinctId,
                 targetPersonDistinctId: mergeIntoDistinctId,
                 eventUuid: this.event.uuid,
@@ -401,10 +427,10 @@ export class PersonState {
         //   that guarantees consistency of how properties are processed regardless of persons created_at timestamps and rollout state
         //   we're calling aliasDeprecated as we need to refresh the persons info completely first
 
-        let properties: Properties = { ...otherPerson.properties, ...mergeInto.properties }
-        properties = this.applyEventPropertyUpdates(properties)
+        const properties: Properties = { ...otherPerson.properties, ...mergeInto.properties }
+        this.applyEventPropertyUpdates(properties)
 
-        if (this.poEEmbraceJoin) {
+        if (this.personOverrideWriter) {
             // Optimize merging persons to keep using the person id that has longer history,
             // which means we'll have less events to update during the squash later
             if (otherPerson.created_at < mergeInto.created_at) {
@@ -434,210 +460,329 @@ export class PersonState {
         createdAt: DateTime,
         properties: Properties
     ): Promise<[ProducerRecord[], Person]> {
-        return await this.db.postgresTransaction('mergePeople', async (client) => {
-            const [person, updatePersonMessages] = await this.db.updatePersonDeprecated(
-                mergeInto,
-                {
-                    created_at: createdAt,
-                    properties: properties,
-                    is_identified: true,
-                },
-                client
-            )
+        mergeTxnAttemptCounter
+            .labels({
+                call: this.event.event, // $identify, $create_alias or $merge_dangerously
+                oldPersonIdentified: String(otherPerson.is_identified),
+                newPersonIdentified: String(mergeInto.is_identified),
+                poEEmbraceJoin: String(!!this.personOverrideWriter),
+            })
+            .inc()
 
-            // Merge the distinct IDs
-            // TODO: Doesn't this table need to add updates to CH too?
-            await this.handleTablesDependingOnPersonID(otherPerson, mergeInto, client)
+        const result: [ProducerRecord[], Person] = await this.db.postgres.transaction(
+            PostgresUse.COMMON_WRITE,
+            'mergePeople',
+            async (tx) => {
+                const [person, updatePersonMessages] = await this.db.updatePersonDeprecated(
+                    mergeInto,
+                    {
+                        created_at: createdAt,
+                        properties: properties,
+                        is_identified: true,
+                    },
+                    tx
+                )
 
-            const distinctIdMessages = await this.db.moveDistinctIds(otherPerson, mergeInto, client)
+                // Merge the distinct IDs
+                // TODO: Doesn't this table need to add updates to CH too?
+                await this.db.updateCohortsAndFeatureFlagsForMerge(
+                    otherPerson.team_id,
+                    otherPerson.id,
+                    mergeInto.id,
+                    tx
+                )
 
-            const deletePersonMessages = await this.db.deletePerson(otherPerson, client)
+                const distinctIdMessages = await this.db.moveDistinctIds(otherPerson, mergeInto, tx)
 
-            let personOverrideMessages: ProducerRecord[] = []
-            if (this.poEEmbraceJoin) {
-                personOverrideMessages = [await this.addPersonOverride(otherPerson, mergeInto, client)]
+                const deletePersonMessages = await this.db.deletePerson(otherPerson, tx)
+
+                if (this.personOverrideWriter) {
+                    await this.personOverrideWriter.addPersonOverride(
+                        tx,
+                        getPersonOverrideDetails(this.teamId, otherPerson, mergeInto)
+                    )
+                }
+
+                return [[...updatePersonMessages, ...distinctIdMessages, ...deletePersonMessages], person]
             }
+        )
 
-            return [
-                [...personOverrideMessages, ...updatePersonMessages, ...distinctIdMessages, ...deletePersonMessages],
-                person,
-            ]
-        })
+        mergeTxnSuccessCounter
+            .labels({
+                call: this.event.event, // $identify, $create_alias or $merge_dangerously
+                oldPersonIdentified: String(otherPerson.is_identified),
+                newPersonIdentified: String(mergeInto.is_identified),
+                poEEmbraceJoin: String(!!this.personOverrideWriter),
+            })
+            .inc()
+        return result
     }
+}
 
-    private async addPersonOverride(
-        oldPerson: Person,
-        overridePerson: Person,
-        client?: PoolClient
-    ): Promise<ProducerRecord> {
+/**
+ * A record of a merge operation occurring.
+ *
+ * These property names need to be kept in sync with the ``PersonOverride``
+ * Django model (and ``posthog_personoverride`` table schema) as defined in
+ * ``posthog/models/person/person.py``.
+ */
+type PersonOverrideDetails = {
+    team_id: number
+    old_person_id: string
+    override_person_id: string
+    oldest_event: DateTime
+}
+
+function getPersonOverrideDetails(teamId: number, oldPerson: Person, overridePerson: Person): PersonOverrideDetails {
+    if (teamId != oldPerson.team_id || teamId != overridePerson.team_id) {
+        throw new Error('cannot merge persons across different teams')
+    }
+    return {
+        team_id: teamId,
+        old_person_id: oldPerson.uuid,
+        override_person_id: overridePerson.uuid,
+        oldest_event: overridePerson.created_at,
+    }
+}
+
+export class FlatPersonOverrideWriter {
+    constructor(private postgres: PostgresRouter) {}
+
+    public async addPersonOverride(
+        tx: TransactionClient,
+        overrideDetails: PersonOverrideDetails
+    ): Promise<ProducerRecord[]> {
         const mergedAt = DateTime.now()
-        const oldestEvent = overridePerson.created_at
-        /**
-            We'll need to do 4 updates:
 
-         1. Add the persons involved to the helper table (2 of them)
-         2. Add an override from oldPerson to override person
-         3. Update any entries that have oldPerson as the override person to now also point to the new override person. Note that we don't update `oldest_event`, because it's a heuristic (used to optimise squashing) tied to the old_person and nothing changed about the old_person who's events need to get squashed.
-         */
-        const oldPersonId = await this.addPersonOverrideMapping(oldPerson, client)
-        const overridePersonId = await this.addPersonOverrideMapping(overridePerson, client)
-
-        await this.db.postgresQuery(
+        await this.postgres.query(
+            tx,
             SQL`
-                INSERT INTO posthog_personoverride (
+                INSERT INTO posthog_flatpersonoverride (
                     team_id,
                     old_person_id,
                     override_person_id,
                     oldest_event,
                     version
                 ) VALUES (
-                    ${this.teamId},
-                    ${oldPersonId},
-                    ${overridePersonId},
-                    ${oldestEvent},
+                    ${overrideDetails.team_id},
+                    ${overrideDetails.old_person_id},
+                    ${overrideDetails.override_person_id},
+                    ${overrideDetails.oldest_event},
                     0
                 )
             `,
             undefined,
-            'personOverride',
-            client
+            'personOverride'
         )
 
-        // The follow-up JOIN is required as ClickHouse requires UUIDs, so we need to fetch the UUIDs
-        // of the IDs we updated from the mapping table.
-        const { rows: transitiveUpdates } = await this.db.postgresQuery(
+        const { rows: transitiveUpdates } = await this.postgres.query(
+            tx,
             SQL`
-                WITH updated_ids AS (
-                    UPDATE
-                        posthog_personoverride
-                    SET
-                        override_person_id = ${overridePersonId}, version = COALESCE(version, 0)::numeric + 1
-                    WHERE
-                        team_id = ${this.teamId} AND override_person_id = ${oldPersonId}
-                    RETURNING
-                        old_person_id,
-                        version,
-                        oldest_event
-                )
-                SELECT
-                    helper.uuid as old_person_id,
-                    updated_ids.version,
-                    updated_ids.oldest_event
-                FROM
-                    updated_ids
-                JOIN
-                    posthog_personoverridemapping helper
-                ON
-                    helper.id = updated_ids.old_person_id;
+                UPDATE
+                    posthog_flatpersonoverride
+                SET
+                    override_person_id = ${overrideDetails.override_person_id},
+                    version = COALESCE(version, 0)::numeric + 1
+                WHERE
+                    team_id = ${overrideDetails.team_id} AND override_person_id = ${overrideDetails.old_person_id}
+                RETURNING
+                    old_person_id,
+                    version,
+                    oldest_event
             `,
             undefined,
-            'transitivePersonOverrides',
-            client
+            'transitivePersonOverrides'
         )
 
         status.debug('🔁', 'person_overrides_updated', { transitiveUpdates })
 
-        const personOverrideMessages: ProducerRecord = {
-            topic: KAFKA_PERSON_OVERRIDE,
-            messages: [
-                {
-                    value: JSON.stringify({
-                        team_id: oldPerson.team_id,
-                        merged_at: castTimestampOrNow(mergedAt, TimestampFormat.ClickHouse),
-                        override_person_id: overridePerson.uuid,
-                        old_person_id: oldPerson.uuid,
-                        oldest_event: castTimestampOrNow(oldestEvent, TimestampFormat.ClickHouse),
-                        version: 0,
-                    }),
-                },
-                ...transitiveUpdates.map(({ old_person_id, version, oldest_event }) => ({
-                    value: JSON.stringify({
-                        team_id: oldPerson.team_id,
-                        merged_at: castTimestampOrNow(mergedAt, TimestampFormat.ClickHouse),
-                        override_person_id: overridePerson.uuid,
-                        old_person_id: old_person_id,
-                        oldest_event: castTimestampOrNow(oldest_event, TimestampFormat.ClickHouse),
-                        version: version,
-                    }),
-                })),
-            ],
-        }
+        const personOverrideMessages: ProducerRecord[] = [
+            {
+                topic: KAFKA_PERSON_OVERRIDE,
+                messages: [
+                    {
+                        value: JSON.stringify({
+                            team_id: overrideDetails.team_id,
+                            old_person_id: overrideDetails.old_person_id,
+                            override_person_id: overrideDetails.override_person_id,
+                            oldest_event: castTimestampOrNow(overrideDetails.oldest_event, TimestampFormat.ClickHouse),
+                            merged_at: castTimestampOrNow(mergedAt, TimestampFormat.ClickHouse),
+                            version: 0,
+                        }),
+                    },
+                    ...transitiveUpdates.map(({ old_person_id, version, oldest_event }) => ({
+                        value: JSON.stringify({
+                            team_id: overrideDetails.team_id,
+                            old_person_id: old_person_id,
+                            override_person_id: overrideDetails.override_person_id,
+                            oldest_event: castTimestampOrNow(oldest_event, TimestampFormat.ClickHouse),
+                            merged_at: castTimestampOrNow(mergedAt, TimestampFormat.ClickHouse),
+                            version: version,
+                        }),
+                    })),
+                ],
+            },
+        ]
 
         return personOverrideMessages
     }
 
-    private async addPersonOverrideMapping(person: Person, client?: PoolClient): Promise<number> {
-        /**
-            Update the helper table that serves as a mapping between a serial ID and a Person UUID.
-
-            This mapping is used to enable an exclusion constraint in the personoverrides table, which
-            requires int[], while avoiding any constraints on "hotter" tables, like person.
-         **/
-
-        // ON CONFLICT nothing is returned, so we get the id in the second SELECT statement below.
-        // Fear not, the constraints on personoverride will handle any inconsistencies.
-        // This mapping table is really nothing more than a mapping to support exclusion constraints
-        // as we map int ids to UUIDs (the latter not supported in exclusion contraints).
-        const {
-            rows: [{ id }],
-        } = await this.db.postgresQuery(
-            `WITH insert_id AS (
-                    INSERT INTO posthog_personoverridemapping(
-                        team_id,
-                        uuid
-                    )
-                    VALUES (
-                        ${this.teamId},
-                        '${person.uuid}'
-                    )
-                    ON CONFLICT("team_id", "uuid") DO NOTHING
-                    RETURNING id
-                )
-                SELECT * FROM insert_id
-                UNION ALL
-                SELECT id
-                FROM posthog_personoverridemapping
-                WHERE uuid = '${person.uuid}'
+    public async getPersonOverrides(teamId: number): Promise<PersonOverrideDetails[]> {
+        const { rows } = await this.postgres.query(
+            PostgresUse.COMMON_WRITE,
+            SQL`
+                SELECT
+                    team_id,
+                    old_person_id,
+                    override_person_id,
+                    oldest_event
+                FROM posthog_flatpersonoverride
+                WHERE team_id = ${teamId}
             `,
             undefined,
-            'personOverrideMapping',
-            client
+            'getPersonOverrides'
         )
-
-        return id
-    }
-
-    private async handleTablesDependingOnPersonID(
-        sourcePerson: Person,
-        targetPerson: Person,
-        client: PoolClient
-    ): Promise<void> {
-        // When personIDs change, update places depending on a person_id foreign key
-
-        // for inc-2023-07-31-us-person-id-override skip this and store the info in person_overrides table instead
-        // For Cohorts
-        await this.db.postgresQuery(
-            'UPDATE posthog_cohortpeople SET person_id = $1 WHERE person_id = $2',
-            [targetPerson.id, sourcePerson.id],
-            'updateCohortPeople',
-            client
-        )
-
-        // For FeatureFlagHashKeyOverrides
-        await this.db.addFeatureFlagHashKeysForMergedPerson(
-            sourcePerson.team_id,
-            sourcePerson.id,
-            targetPerson.id,
-            client
-        )
+        return rows.map((row) => ({
+            ...row,
+            team_id: parseInt(row.team_id), // XXX: pg returns bigint as str (reasonably so)
+            oldest_event: DateTime.fromISO(row.oldest_event),
+        }))
     }
 }
 
-export function ageInMonthsLowCardinality(timestamp: DateTime): number {
-    const ageInMonths = Math.max(-Math.floor(timestamp.diffNow('months').months), 0)
-    // for getting low cardinality for statsd metrics tags, which can cause issues in e.g. InfluxDB: https://docs.influxdata.com/influxdb/cloud/write-data/best-practices/resolve-high-cardinality/
-    const ageLowCardinality = Math.min(ageInMonths, 50)
-    return ageLowCardinality
+const deferredPersonOverridesWrittenCounter = new Counter({
+    name: 'deferred_person_overrides_written',
+    help: 'Number of person overrides that have been written as pending',
+})
+export class DeferredPersonOverrideWriter {
+    constructor(private postgres: PostgresRouter) {}
+
+    /**
+     * Enqueue an override for deferred processing.
+     */
+    public async addPersonOverride(tx: TransactionClient, overrideDetails: PersonOverrideDetails): Promise<void> {
+        await this.postgres.query(
+            tx,
+            SQL`
+            INSERT INTO posthog_pendingpersonoverride (
+                team_id,
+                old_person_id,
+                override_person_id,
+                oldest_event
+            ) VALUES (
+                ${overrideDetails.team_id},
+                ${overrideDetails.old_person_id},
+                ${overrideDetails.override_person_id},
+                ${overrideDetails.oldest_event}
+            )`,
+            undefined,
+            'pendingPersonOverride'
+        )
+        deferredPersonOverridesWrittenCounter.inc()
+    }
+}
+
+const deferredPersonOverridesProcessedCounter = new Counter({
+    name: 'deferred_person_overrides_processed',
+    help: 'Number of pending person overrides that have been successfully processed',
+})
+
+export class DeferredPersonOverrideWorker {
+    // This lock ID is used as an advisory lock identifier/key for a lock that
+    // ensures only one worker is able to update the overrides table at a time.
+    // (We do this to make it simpler to ensure that we maintain the consistency
+    // of transitive updates.) There isn't any special significance to this
+    // particular value (other than Postgres requires it to be a numeric one),
+    // it just needs to be consistent across all processes.
+    public readonly lockId = 567
+
+    constructor(
+        private postgres: PostgresRouter,
+        private kafkaProducer: KafkaProducerWrapper,
+        private writer: FlatPersonOverrideWriter
+    ) {}
+
+    /**
+     * Process all (or up to the given limit) pending overrides.
+     *
+     * An advisory lock is acquired prior to processing to ensure that this
+     * function has exclusive access to the pending overrides during the update
+     * process.
+     *
+     * @returns the number of overrides processed
+     */
+    public async processPendingOverrides(limit?: number): Promise<number> {
+        const overridesCount = await this.postgres.transaction(
+            PostgresUse.COMMON_WRITE,
+            'processPendingOverrides',
+            async (tx) => {
+                const {
+                    rows: [{ acquired }],
+                } = await this.postgres.query(
+                    tx,
+                    SQL`SELECT pg_try_advisory_xact_lock(${this.lockId}) as acquired`,
+                    undefined,
+                    'processPendingOverrides'
+                )
+                if (!acquired) {
+                    throw new Error('could not acquire lock')
+                }
+
+                // n.b.: Ordering by id ensures we are processing in (roughly) FIFO order
+                const { rows } = await this.postgres.query(
+                    tx,
+                    `SELECT * FROM posthog_pendingpersonoverride ORDER BY id` +
+                        (limit !== undefined ? ` LIMIT ${limit}` : ''),
+                    undefined,
+                    'processPendingOverrides'
+                )
+
+                const messages: ProducerRecord[] = []
+                for (const { id, ...mergeOperation } of rows) {
+                    messages.push(...(await this.writer.addPersonOverride(tx, mergeOperation)))
+                    await this.postgres.query(
+                        tx,
+                        SQL`DELETE FROM posthog_pendingpersonoverride WHERE id = ${id}`,
+                        undefined,
+                        'processPendingOverrides'
+                    )
+                }
+
+                // n.b.: We publish the messages here (and wait for acks) to ensure
+                // that all of our override updates are sent to Kafka prior to
+                // committing the transaction. If we're unable to publish, we should
+                // discard updates and try again later when it's available -- not
+                // doing so would cause the copy of this data in ClickHouse to
+                // slowly drift out of sync with the copy in Postgres. This write is
+                // safe to retry if we write to Kafka but then fail to commit to
+                // Postgres for some reason -- the same row state should be
+                // generated each call, and the receiving ReplacingMergeTree will
+                // ensure we keep only the latest version after all writes settle.)
+                await this.kafkaProducer.queueMessages(messages, true)
+
+                return rows.length
+            }
+        )
+
+        deferredPersonOverridesProcessedCounter.inc(overridesCount)
+
+        return overridesCount
+    }
+
+    public runTask(intervalMs: number): PeriodicTask {
+        return new PeriodicTask(
+            'processPendingOverrides',
+            async () => {
+                status.debug('👥', 'Processing pending overrides...')
+                const overridesCount = await this.processPendingOverrides()
+                ;(overridesCount > 0 ? status.info : status.debug)(
+                    '👥',
+                    `Processed ${overridesCount} pending overrides.`
+                )
+            },
+            intervalMs
+        )
+    }
 }
 
 function SQL(sqlParts: TemplateStringsArray, ...args: any[]): { text: string; values: any[] } {

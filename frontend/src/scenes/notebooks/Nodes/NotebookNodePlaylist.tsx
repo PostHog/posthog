@@ -1,70 +1,154 @@
-import { NodeViewProps } from '@tiptap/core'
 import { createPostHogWidgetNode } from 'scenes/notebooks/Nodes/NodeWrapper'
-import { NotebookNodeType, RecordingFilters } from '~/types'
+import { FilterType, NotebookNodeType, RecordingFilters } from '~/types'
 import {
-    RecordingsLists,
-    SessionRecordingsPlaylistProps,
-} from 'scenes/session-recordings/playlist/SessionRecordingsPlaylist'
-import { useJsonNodeState } from './utils'
-import { sessionRecordingsListLogic } from 'scenes/session-recordings/playlist/sessionRecordingsListLogic'
-import { useActions, useValues } from 'kea'
-import { SessionRecordingPlayer } from 'scenes/session-recordings/player/SessionRecordingPlayer'
-import { useRef } from 'react'
-import { fromParamsGivenUrl, uuid } from 'lib/utils'
-import { LemonButton } from '@posthog/lemon-ui'
-import { IconChevronLeft } from 'lib/lemon-ui/icons'
+    SessionRecordingPlaylistLogicProps,
+    addedAdvancedFilters,
+    getDefaultFilters,
+    sessionRecordingsPlaylistLogic,
+} from 'scenes/session-recordings/playlist/sessionRecordingsPlaylistLogic'
+import { BuiltLogic, useActions, useValues } from 'kea'
+import { useEffect, useMemo, useState } from 'react'
 import { urls } from 'scenes/urls'
 import { notebookNodeLogic } from './notebookNodeLogic'
+import { JSONContent, NotebookNodeProps, NotebookNodeAttributeProperties } from '../Notebook/utils'
+import { SessionRecordingsFilters } from 'scenes/session-recordings/filters/SessionRecordingsFilters'
+import { ErrorBoundary } from '@sentry/react'
+import { SessionRecordingsPlaylist } from 'scenes/session-recordings/playlist/SessionRecordingsPlaylist'
+import { sessionRecordingPlayerLogic } from 'scenes/session-recordings/player/sessionRecordingPlayerLogic'
+import { IconComment } from 'lib/lemon-ui/icons'
+import { sessionRecordingPlayerLogicType } from 'scenes/session-recordings/player/sessionRecordingPlayerLogicType'
 
-const Component = (props: NodeViewProps): JSX.Element => {
-    const [filters, setFilters] = useJsonNodeState<RecordingFilters>(props, 'filters')
+const Component = ({
+    attributes,
+    updateAttributes,
+}: NotebookNodeProps<NotebookNodePlaylistAttributes>): JSX.Element => {
+    const { filters, pinned, nodeId } = attributes
+    const playerKey = `notebook-${nodeId}`
 
-    const playerKey = useRef(`notebook-${uuid()}`).current
-
-    const recordingPlaylistLogicProps: SessionRecordingsPlaylistProps = {
-        filters,
-        updateSearchParams: false,
-        autoPlay: false,
-        mode: 'notebook',
-        onFiltersChange: setFilters,
-    }
-
-    const { expanded } = useValues(notebookNodeLogic)
-
-    const logic = sessionRecordingsListLogic(recordingPlaylistLogicProps)
-    const { activeSessionRecording, nextSessionRecording } = useValues(logic)
-    const { setSelectedRecordingId } = useActions(logic)
-
-    if (!expanded) {
-        return <div className="p-4">20+ recordings </div>
-    }
-    const content = !activeSessionRecording?.id ? (
-        <RecordingsLists {...recordingPlaylistLogicProps} />
-    ) : (
-        <>
-            <LemonButton
-                size="small"
-                type="secondary"
-                icon={<IconChevronLeft />}
-                onClick={() => setSelectedRecordingId(null)}
-                className="self-start"
-            />
-            <SessionRecordingPlayer
-                playerKey={playerKey}
-                sessionRecordingId={activeSessionRecording.id}
-                matching={activeSessionRecording?.matching_events}
-                recordingStartTime={activeSessionRecording ? activeSessionRecording.start_time : undefined}
-                nextSessionRecording={nextSessionRecording}
-            />
-        </>
+    const recordingPlaylistLogicProps: SessionRecordingPlaylistLogicProps = useMemo(
+        () => ({
+            logicKey: playerKey,
+            filters,
+            updateSearchParams: false,
+            autoPlay: false,
+            onFiltersChange: (newFilters: RecordingFilters) => {
+                updateAttributes({
+                    filters: newFilters,
+                })
+            },
+            pinnedRecordings: pinned,
+            onPinnedChange(recording, isPinned) {
+                updateAttributes({
+                    pinned: isPinned
+                        ? [...(pinned || []), String(recording.id)]
+                        : pinned?.filter((id) => id !== recording.id),
+                })
+            },
+        }),
+        [playerKey, filters, pinned]
     )
 
-    return <div className="flex flex-row overflow-hidden gap-2 h-full">{content}</div>
+    const { setActions, insertAfter, insertReplayCommentByTimestamp, setMessageListeners, scrollIntoView } =
+        useActions(notebookNodeLogic)
+
+    const logic = sessionRecordingsPlaylistLogic(recordingPlaylistLogicProps)
+    const { activeSessionRecording } = useValues(logic)
+    const { setSelectedRecordingId } = useActions(logic)
+
+    const getReplayLogic = (
+        sessionRecordingId?: string
+    ): BuiltLogic<sessionRecordingPlayerLogicType> | null | undefined =>
+        sessionRecordingId ? sessionRecordingPlayerLogic.findMounted({ playerKey, sessionRecordingId }) : null
+
+    useEffect(() => {
+        setActions(
+            activeSessionRecording
+                ? [
+                      {
+                          text: 'View replay',
+                          onClick: () => {
+                              getReplayLogic(activeSessionRecording.id)?.actions.setPause()
+
+                              insertAfter({
+                                  type: NotebookNodeType.Recording,
+                                  attrs: {
+                                      id: String(activeSessionRecording.id),
+                                      __init: {
+                                          expanded: true,
+                                      },
+                                  },
+                              })
+                          },
+                      },
+                      {
+                          text: 'Comment',
+                          icon: <IconComment />,
+                          onClick: () => {
+                              if (activeSessionRecording.id) {
+                                  const time = getReplayLogic(activeSessionRecording.id)?.values.currentPlayerTime
+                                  insertReplayCommentByTimestamp(time ?? 0, activeSessionRecording.id)
+                              }
+                          },
+                      },
+                  ]
+                : []
+        )
+    }, [activeSessionRecording])
+
+    useEffect(() => {
+        setMessageListeners({
+            'play-replay': ({ sessionRecordingId, time }) => {
+                // IDEA: We could add the desired start time here as a param, which is picked up by the player...
+                setSelectedRecordingId(sessionRecordingId)
+                scrollIntoView()
+
+                setTimeout(() => {
+                    // NOTE: This is a hack but we need a delay to give time for the player to mount
+                    getReplayLogic(sessionRecordingId)?.actions.seekToTime(time)
+                }, 100)
+            },
+        })
+    }, [])
+
+    return <SessionRecordingsPlaylist {...recordingPlaylistLogicProps} />
 }
 
-export const NotebookNodePlaylist = createPostHogWidgetNode({
+export const Settings = ({
+    attributes,
+    updateAttributes,
+}: NotebookNodeAttributeProperties<NotebookNodePlaylistAttributes>): JSX.Element => {
+    const { filters } = attributes
+    const [showAdvancedFilters, setShowAdvancedFilters] = useState(false)
+    const defaultFilters = getDefaultFilters()
+
+    const hasAdvancedFilters = useMemo(() => {
+        const defaultFilters = getDefaultFilters()
+        return addedAdvancedFilters(filters, defaultFilters)
+    }, [filters])
+
+    return (
+        <ErrorBoundary>
+            <SessionRecordingsFilters
+                filters={{ ...defaultFilters, ...filters }}
+                setFilters={(filters) => updateAttributes({ filters })}
+                showPropertyFilters
+                onReset={() => updateAttributes({ filters: undefined })}
+                hasAdvancedFilters={hasAdvancedFilters}
+                showAdvancedFilters={showAdvancedFilters}
+                setShowAdvancedFilters={setShowAdvancedFilters}
+            />
+        </ErrorBoundary>
+    )
+}
+
+type NotebookNodePlaylistAttributes = {
+    filters: RecordingFilters
+    pinned?: string[]
+}
+
+export const NotebookNodePlaylist = createPostHogWidgetNode<NotebookNodePlaylistAttributes>({
     nodeType: NotebookNodeType.RecordingPlaylist,
-    title: 'Session Replays',
+    titlePlaceholder: 'Session replays',
     Component,
     heightEstimate: 'calc(100vh - 20rem)',
     href: (attrs) => {
@@ -72,17 +156,21 @@ export const NotebookNodePlaylist = createPostHogWidgetNode({
         return urls.replay(undefined, attrs.filters)
     },
     resizeable: true,
-    startExpanded: true,
+    expandable: false,
     attributes: {
         filters: {
             default: undefined,
         },
-    },
-    pasteOptions: {
-        find: urls.replay() + '(.+)',
-        getAttributes: (match) => {
-            const searchParams = fromParamsGivenUrl(match[1].split('?')[1] || '')
-            return { filters: searchParams.filters }
+        pinned: {
+            default: undefined,
         },
     },
+    Settings,
 })
+
+export function buildPlaylistContent(filters: Partial<FilterType>): JSONContent {
+    return {
+        type: NotebookNodeType.RecordingPlaylist,
+        attrs: { filters },
+    }
+}

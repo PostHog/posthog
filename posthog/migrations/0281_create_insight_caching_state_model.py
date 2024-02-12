@@ -7,7 +7,6 @@ import posthog.models.utils
 
 
 class Migration(migrations.Migration):
-
     dependencies = [
         ("posthog", "0280_fix_async_deletion_team"),
     ]
@@ -19,7 +18,10 @@ class Migration(migrations.Migration):
                 (
                     "id",
                     models.UUIDField(
-                        default=posthog.models.utils.UUIDT, editable=False, primary_key=True, serialize=False
+                        default=posthog.models.utils.UUIDT,
+                        editable=False,
+                        primary_key=True,
+                        serialize=False,
                     ),
                 ),
                 ("cache_key", models.CharField(max_length=400)),
@@ -41,10 +43,15 @@ class Migration(migrations.Migration):
                 (
                     "insight",
                     models.ForeignKey(
-                        on_delete=django.db.models.deletion.CASCADE, related_name="caching_state", to="posthog.insight"
+                        on_delete=django.db.models.deletion.CASCADE,
+                        related_name="caching_state",
+                        to="posthog.insight",
                     ),
                 ),
-                ("team", models.ForeignKey(on_delete=django.db.models.deletion.CASCADE, to="posthog.team")),
+                (
+                    "team",
+                    models.ForeignKey(on_delete=django.db.models.deletion.CASCADE, to="posthog.team"),
+                ),
             ],
         ),
         migrations.AddIndex(

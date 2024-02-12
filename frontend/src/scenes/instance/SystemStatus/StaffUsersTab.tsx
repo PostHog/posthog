@@ -1,26 +1,30 @@
-import { Divider, Modal } from 'antd'
+import { LemonDivider, LemonModal, Link } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
-import { IconDelete, IconOpenInNew } from 'lib/lemon-ui/icons'
-import { LemonTableColumns, LemonTable } from 'lib/lemon-ui/LemonTable'
-import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
-import { UserType } from '~/types'
-import { staffUsersLogic } from './staffUsersLogic'
-import { LemonButton } from 'lib/lemon-ui/LemonButton'
-import { userLogic } from 'scenes/userLogic'
-import { LemonTag } from 'lib/lemon-ui/LemonTag/LemonTag'
-import { LemonSelectMultiple } from 'lib/lemon-ui/LemonSelectMultiple/LemonSelectMultiple'
 import { usersLemonSelectOptions } from 'lib/components/UserSelectItem'
+import { IconDelete } from 'lib/lemon-ui/icons'
+import { LemonButton } from 'lib/lemon-ui/LemonButton'
+import { LemonSelectMultiple } from 'lib/lemon-ui/LemonSelectMultiple/LemonSelectMultiple'
+import { LemonTable, LemonTableColumns } from 'lib/lemon-ui/LemonTable'
+import { LemonTag } from 'lib/lemon-ui/LemonTag/LemonTag'
+import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
+import { userLogic } from 'scenes/userLogic'
+
+import { UserType } from '~/types'
+
+import { staffUsersLogic } from './staffUsersLogic'
 
 export function StaffUsersTab(): JSX.Element {
     const { user: myself } = useValues(userLogic)
-    const { staffUsers, allUsersLoading, nonStaffUsers, staffUsersToBeAdded } = useValues(staffUsersLogic)
-    const { setStaffUsersToBeAdded, addStaffUsers, deleteStaffUser } = useActions(staffUsersLogic)
+    const { staffUsers, allUsersLoading, nonStaffUsers, staffUsersToBeAdded, staffUserToBeDeleted } =
+        useValues(staffUsersLogic)
+    const { setStaffUsersToBeAdded, addStaffUsers, deleteStaffUser, setStaffUserToBeDeleted } =
+        useActions(staffUsersLogic)
 
     const columns: LemonTableColumns<UserType> = [
         {
             key: 'profile_picture',
             render: function ProfilePictureRender(_, user) {
-                return <ProfilePicture name={user.first_name} email={user.email} />
+                return <ProfilePicture user={user} />
             },
             width: 32,
         },
@@ -51,46 +55,13 @@ export function StaffUsersTab(): JSX.Element {
                         data-attr="invite-delete"
                         icon={<IconDelete />}
                         status="danger"
-                        disabled={staffUsers.length < 2}
+                        disabledReason={staffUsers.length < 2 && 'At least one staff user must remain'}
                         title={
                             staffUsers.length < 2
                                 ? 'You should always have at least one staff user.'
                                 : 'Cancel the invite'
                         }
-                        onClick={() => {
-                            Modal.confirm({
-                                title: `Remove ${
-                                    myself?.uuid === user.uuid ? 'yourself' : user.first_name
-                                } as a Staff User?`,
-                                icon: null,
-                                okText: 'Remove user',
-                                okType: 'primary',
-                                okButtonProps: { className: 'btn-danger' },
-                                content: (
-                                    <div style={{ border: '' }}>
-                                        {myself?.uuid === user.uuid ? (
-                                            <>
-                                                Please confirm you want to <b>remove yourself</b> as a staff user.
-                                                <div
-                                                    style={{
-                                                        fontWeight: 'normal',
-                                                        color: 'var(--muted-alt)',
-                                                    }}
-                                                >
-                                                    Only another staff user will be able to add you again.
-                                                </div>
-                                            </>
-                                        ) : (
-                                            `Are you sure you want to remove ${user.first_name} as a Staff User?`
-                                        )}
-                                    </div>
-                                ),
-                                onOk() {
-                                    deleteStaffUser(user.uuid)
-                                },
-                                cancelText: 'Cancel',
-                            })
-                        }}
+                        onClick={() => setStaffUserToBeDeleted(user)}
                     />
                 )
             },
@@ -99,21 +70,23 @@ export function StaffUsersTab(): JSX.Element {
 
     return (
         <div>
-            <h3 className="l3" style={{ marginTop: 16 }}>
-                Staff Users
-            </h3>
+            <h3 className="l3 mt-4">Staff Users</h3>
             <div className="mb-4">
                 Users who have permissions to manage instance-wide settings. Staff user permissions are set at the{' '}
                 <b>instance-level and are independent of any organization or project permissions.</b>{' '}
-                <a href="https://posthog.com/docs/self-host/configure/instance-settings#staff-users" target="_blank">
-                    Learn more <IconOpenInNew style={{ verticalAlign: 'middle' }} />
-                </a>
+                <Link
+                    to="https://posthog.com/docs/self-host/configure/instance-settings#staff-users"
+                    target="_blank"
+                    targetBlankIcon
+                >
+                    Learn more
+                </Link>
                 .
             </div>
-            <Divider style={{ margin: 0, marginBottom: 16 }} />
+            <LemonDivider className="mb-4" />
             <section>
                 <div className="flex gap-2 mb-4">
-                    <div style={{ flex: 1 }}>
+                    <div className="flex-1">
                         <LemonSelectMultiple
                             placeholder="Add staff users here…"
                             loading={allUsersLoading}
@@ -136,6 +109,67 @@ export function StaffUsersTab(): JSX.Element {
                 </div>
             </section>
             <LemonTable dataSource={staffUsers} columns={columns} loading={allUsersLoading} rowKey="uuid" />
+            <StaffUsersRemovalModal
+                myself={myself}
+                user={staffUserToBeDeleted}
+                onClose={() => setStaffUserToBeDeleted(null)}
+                onRemove={() => {
+                    if (staffUserToBeDeleted) {
+                        deleteStaffUser(staffUserToBeDeleted.uuid)
+                        setStaffUserToBeDeleted(null)
+                    }
+                }}
+            />
         </div>
+    )
+}
+
+const StaffUsersRemovalModal = ({
+    myself,
+    user,
+    onClose,
+    onRemove,
+}: {
+    myself: UserType | null
+    user: UserType | null
+    onClose: () => void
+    onRemove: () => void
+}): JSX.Element => {
+    return (
+        <LemonModal
+            closable={false}
+            isOpen={!!user}
+            title={`Remove ${myself?.uuid === user?.uuid ? 'yourself' : user?.first_name} as a Staff User?`}
+            onClose={onClose}
+            footer={
+                <>
+                    <LemonButton type="secondary" onClick={onClose}>
+                        Cancel
+                    </LemonButton>
+                    <LemonButton
+                        form="text-tile-form"
+                        htmlType="submit"
+                        type="primary"
+                        status="danger"
+                        onClick={onRemove}
+                    >
+                        Remove user
+                    </LemonButton>
+                </>
+            }
+        >
+            <div className="border-none">
+                {myself?.uuid === user?.uuid ? (
+                    <>
+                        Please confirm you want to <b>remove yourself</b> as a staff user.
+                        <div className="font-normal text-muted-alt">
+                            Only another staff user will be able to add you again.
+                        </div>
+                    </>
+                ) : (
+                    `Are you sure you want to remove ${user?.first_name} as a Staff User?`
+                )}
+            </div>
+        </LemonModal>
     )
 }

@@ -1,15 +1,21 @@
 import re
+from decimal import Decimal
 from functools import lru_cache
 from typing import Any, Dict, List, Optional
 
 import posthoganalytics
+import pydantic
 import pytz
 from django.conf import settings
 from django.contrib.postgres.fields import ArrayField
-from django.core.validators import MinLengthValidator
+from django.core.validators import (
+    MinLengthValidator,
+    MaxValueValidator,
+    MinValueValidator,
+)
 from django.db import models
 from django.db.models.signals import post_delete, post_save
-
+from zoneinfo import ZoneInfo
 from posthog.clickhouse.query_tagging import tag_queries
 from posthog.cloud_utils import is_cloud
 from posthog.helpers.dashboard_templates import create_dashboard_from_template
@@ -19,13 +25,18 @@ from posthog.models.filters.mixins.utils import cached_property
 from posthog.models.filters.utils import GroupTypeIndex
 from posthog.models.instance_setting import get_instance_setting
 from posthog.models.signals import mutable_receiver
-from posthog.models.utils import UUIDClassicModel, generate_random_token_project, sane_repr
+from posthog.models.utils import (
+    UUIDClassicModel,
+    generate_random_token_project,
+    sane_repr,
+)
 from posthog.settings.utils import get_list
 from posthog.utils import GenericEmails, PersonOnEventsMode
 
 from .team_caching import get_team_in_cache, set_team_in_cache
+from ...schema import PathCleaningFilter
 
-TIMEZONES = [(tz, tz) for tz in pytz.common_timezones]
+TIMEZONES = [(tz, tz) for tz in pytz.all_timezones]
 
 # TODO: DEPRECATED; delete when these attributes can be fully removed from `Team` model
 DEPRECATED_ATTRS = (
@@ -37,6 +48,7 @@ DEPRECATED_ATTRS = (
     "event_properties_with_usage",
     "event_properties_numerical",
 )
+
 
 # keep in sync with posthog/frontend/src/scenes/project/Settings/ExtraTeamSettings.tsx
 class AvailableExtraSettings:
@@ -64,7 +76,12 @@ class TeamManager(models.Manager):
                 example_email = re.search(r"@[\w.]+", example_emails[0])
                 if example_email:
                     return [
-                        {"key": "email", "operator": "not_icontains", "value": example_email.group(), "type": "person"}
+                        {
+                            "key": "email",
+                            "operator": "not_icontains",
+                            "value": example_email.group(),
+                            "type": "person",
+                        }
                     ] + filters
         return filters
 
@@ -113,9 +130,21 @@ def get_default_data_attributes() -> List[str]:
     return ["data-attr"]
 
 
+class WeekStartDay(models.IntegerChoices):
+    SUNDAY = 0, "Sunday"
+    MONDAY = 1, "Monday"
+
+    @property
+    def clickhouse_mode(self) -> str:
+        return "3" if self == WeekStartDay.MONDAY else "0"
+
+
 class Team(UUIDClassicModel):
     organization: models.ForeignKey = models.ForeignKey(
-        "posthog.Organization", on_delete=models.CASCADE, related_name="teams", related_query_name="team"
+        "posthog.Organization",
+        on_delete=models.CASCADE,
+        related_name="teams",
+        related_query_name="team",
     )
     api_token: models.CharField = models.CharField(
         max_length=200,
@@ -125,24 +154,47 @@ class Team(UUIDClassicModel):
     )
     app_urls: ArrayField = ArrayField(models.CharField(max_length=200, null=True), default=list, blank=True)
     name: models.CharField = models.CharField(
-        max_length=200, default="Default Project", validators=[MinLengthValidator(1, "Project must have a name!")]
+        max_length=200,
+        default="Default Project",
+        validators=[MinLengthValidator(1, "Project must have a name!")],
     )
     slack_incoming_webhook: models.CharField = models.CharField(max_length=500, null=True, blank=True)
     created_at: models.DateTimeField = models.DateTimeField(auto_now_add=True)
     updated_at: models.DateTimeField = models.DateTimeField(auto_now=True)
     anonymize_ips: models.BooleanField = models.BooleanField(default=False)
     completed_snippet_onboarding: models.BooleanField = models.BooleanField(default=False)
+    has_completed_onboarding_for: models.JSONField = models.JSONField(null=True, blank=True)
     ingested_event: models.BooleanField = models.BooleanField(default=False)
     autocapture_opt_out: models.BooleanField = models.BooleanField(null=True, blank=True)
     autocapture_exceptions_opt_in: models.BooleanField = models.BooleanField(null=True, blank=True)
     autocapture_exceptions_errors_to_ignore: models.JSONField = models.JSONField(null=True, blank=True)
     session_recording_opt_in: models.BooleanField = models.BooleanField(default=False)
+    session_recording_sample_rate: models.DecimalField = models.DecimalField(
+        # will store a decimal between 0 and 1 allowing up to 2 decimal places
+        null=True,
+        blank=True,
+        max_digits=3,
+        decimal_places=2,
+        validators=[MinValueValidator(Decimal(0)), MaxValueValidator(Decimal(1))],
+    )
+    session_recording_minimum_duration_milliseconds: models.IntegerField = models.IntegerField(
+        null=True,
+        blank=True,
+        validators=[MinValueValidator(0), MaxValueValidator(15000)],
+    )
+    session_recording_linked_flag: models.JSONField = models.JSONField(null=True, blank=True)
+    session_recording_network_payload_capture_config: models.JSONField = models.JSONField(null=True, blank=True)
+    session_replay_config: models.JSONField = models.JSONField(null=True, blank=True)
     capture_console_log_opt_in: models.BooleanField = models.BooleanField(null=True, blank=True)
     capture_performance_opt_in: models.BooleanField = models.BooleanField(null=True, blank=True)
+    surveys_opt_in: models.BooleanField = models.BooleanField(null=True, blank=True)
     session_recording_version: models.CharField = models.CharField(null=True, blank=True, max_length=24)
     signup_token: models.CharField = models.CharField(max_length=200, null=True, blank=True)
     is_demo: models.BooleanField = models.BooleanField(default=False)
     access_control: models.BooleanField = models.BooleanField(default=False)
+    week_start_day: models.SmallIntegerField = models.SmallIntegerField(
+        null=True, blank=True, choices=WeekStartDay.choices
+    )
     # This is not a manual setting. It's updated automatically to reflect if the team uses site apps or not.
     inject_web_apps: models.BooleanField = models.BooleanField(null=True)
 
@@ -157,7 +209,11 @@ class Team(UUIDClassicModel):
     recording_domains: ArrayField = ArrayField(models.CharField(max_length=200, null=True), blank=True, null=True)
 
     primary_dashboard: models.ForeignKey = models.ForeignKey(
-        "posthog.Dashboard", on_delete=models.SET_NULL, null=True, related_name="primary_dashboard_teams", blank=True
+        "posthog.Dashboard",
+        on_delete=models.SET_NULL,
+        null=True,
+        related_name="primary_dashboard_teams",
+        blank=True,
     )  # Dashboard shown on project homepage
 
     # Generic field for storing any team-specific context that is more temporary in nature and thus
@@ -193,6 +249,8 @@ class Team(UUIDClassicModel):
     event_properties: models.JSONField = models.JSONField(default=list, blank=True)
     event_properties_with_usage: models.JSONField = models.JSONField(default=list, blank=True)
     event_properties_numerical: models.JSONField = models.JSONField(default=list, blank=True)
+    external_data_workspace_id: models.CharField = models.CharField(max_length=400, null=True, blank=True)
+    external_data_workspace_last_synced_at: models.DateTimeField = models.DateTimeField(null=True, blank=True)
 
     objects: TeamManager = TeamManager()
 
@@ -205,7 +263,10 @@ class Team(UUIDClassicModel):
 
         if self._person_on_events_querying_enabled:
             # also tag person_on_events_enabled for legacy compatibility
-            tag_queries(person_on_events_enabled=True, person_on_events_mode=PersonOnEventsMode.V1_ENABLED)
+            tag_queries(
+                person_on_events_enabled=True,
+                person_on_events_mode=PersonOnEventsMode.V1_ENABLED,
+            )
             return PersonOnEventsMode.V1_ENABLED
 
         return PersonOnEventsMode.DISABLED
@@ -218,7 +279,6 @@ class Team(UUIDClassicModel):
 
     @property
     def _person_on_events_querying_enabled(self) -> bool:
-
         if settings.PERSON_ON_EVENTS_OVERRIDE is not None:
             return settings.PERSON_ON_EVENTS_OVERRIDE
 
@@ -232,7 +292,10 @@ class Team(UUIDClassicModel):
                 str(self.uuid),
                 groups={"organization": str(self.organization_id)},
                 group_properties={
-                    "organization": {"id": str(self.organization_id), "created_at": self.organization.created_at}
+                    "organization": {
+                        "id": str(self.organization_id),
+                        "created_at": self.organization.created_at,
+                    }
                 },
                 only_evaluate_locally=True,
                 send_feature_flag_events=False,
@@ -253,7 +316,10 @@ class Team(UUIDClassicModel):
                 str(self.uuid),
                 groups={"organization": str(self.organization_id)},
                 group_properties={
-                    "organization": {"id": str(self.organization_id), "created_at": self.organization.created_at}
+                    "organization": {
+                        "id": str(self.organization_id),
+                        "created_at": self.organization.created_at,
+                    }
                 },
                 only_evaluate_locally=True,
                 send_feature_flag_events=False,
@@ -296,6 +362,19 @@ class Team(UUIDClassicModel):
         """,
             {"team_id": self.pk, "group_type_index": group_type_index},
         )[0][0]
+
+    @property
+    def timezone_info(self) -> ZoneInfo:
+        return ZoneInfo(self.timezone)
+
+    def path_cleaning_filter_models(self) -> list[PathCleaningFilter]:
+        filters = []
+        for f in self.path_cleaning_filters:
+            try:
+                filters.append(PathCleaningFilter.model_validate(f))
+            except pydantic.ValidationError:
+                continue
+        return filters
 
     def __str__(self):
         if self.name:

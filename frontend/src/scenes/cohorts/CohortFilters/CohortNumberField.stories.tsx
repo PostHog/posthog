@@ -1,17 +1,20 @@
+import { Meta, StoryFn, StoryObj } from '@storybook/react'
+import { useMountedLogic } from 'kea'
 import { useState } from 'react'
-import { ComponentMeta, ComponentStory } from '@storybook/react'
-import { CohortNumberField } from './CohortField'
+import { cohortEditLogic } from 'scenes/cohorts/cohortEditLogic'
 import { renderField } from 'scenes/cohorts/CohortFilters/constants'
 import { CohortNumberFieldProps, FilterType } from 'scenes/cohorts/CohortFilters/types'
-import { useMountedLogic } from 'kea'
-import { cohortEditLogic } from 'scenes/cohorts/cohortEditLogic'
 
-export default {
+import { CohortNumberField } from './CohortField'
+
+type Story = StoryObj<typeof CohortNumberField>
+const meta: Meta<typeof CohortNumberField> = {
     title: 'Filters/Cohort Filters/Fields/Number',
     component: CohortNumberField,
-} as ComponentMeta<typeof CohortNumberField>
+}
+export default meta
 
-const Template: ComponentStory<typeof CohortNumberField> = (props: CohortNumberFieldProps) => {
+const Template: StoryFn<typeof CohortNumberField> = (props: CohortNumberFieldProps) => {
     useMountedLogic(cohortEditLogic({ id: 1 }))
     const [value, setValue] = useState<number>(30)
     return renderField[FilterType.Number]({
@@ -24,5 +27,5 @@ const Template: ComponentStory<typeof CohortNumberField> = (props: CohortNumberF
     })
 }
 
-export const Basic = Template.bind({})
+export const Basic: Story = Template.bind({})
 Basic.args = {}

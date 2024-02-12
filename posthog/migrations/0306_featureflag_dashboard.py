@@ -5,7 +5,6 @@ from django.db import migrations, models
 
 
 class Migration(migrations.Migration):
-
     dependencies = [
         ("posthog", "0305_rework_person_overrides"),
     ]
@@ -15,7 +14,10 @@ class Migration(migrations.Migration):
             model_name="featureflag",
             name="usage_dashboard",
             field=models.ForeignKey(
-                blank=True, null=True, on_delete=django.db.models.deletion.CASCADE, to="posthog.dashboard"
+                blank=True,
+                null=True,
+                on_delete=django.db.models.deletion.CASCADE,
+                to="posthog.dashboard",
             ),
         ),
     ]

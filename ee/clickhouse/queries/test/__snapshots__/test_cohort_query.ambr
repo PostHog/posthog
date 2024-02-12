@@ -1,5 +1,6 @@
+# serializer version: 1
 # name: TestCohortQuery.test_basic_query
-  '
+  '''
   
   SELECT person.person_id AS id
   FROM
@@ -39,15 +40,15 @@
                AND (((has(['test@posthog.com'], replaceRegexpAll(JSONExtractRaw(properties, 'email'), '^"|"$', ''))))) )
         GROUP BY id
         HAVING max(is_deleted) = 0
-        AND (((has(['test@posthog.com'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, version), 'email'), '^"|"$', ''))))))) person ON person.person_id = behavior_query.person_id
+        AND (((has(['test@posthog.com'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, version), 'email'), '^"|"$', ''))))) SETTINGS optimize_aggregation_in_order = 1)) person ON person.person_id = behavior_query.person_id
   WHERE 1 = 1
     AND ((((performed_event_condition_None_level_level_0_level_0_level_0_0)
            OR (performed_event_condition_None_level_level_0_level_0_level_1_0))
           AND ((first_time_condition_None_level_level_0_level_1_level_0_0))))
-  '
----
+  '''
+# ---
 # name: TestCohortQuery.test_cohort_filter_with_another_cohort_with_event_sequence
-  '
+  '''
   
   SELECT person.person_id AS id
   FROM
@@ -111,14 +112,14 @@
                AND (((has(['test'], replaceRegexpAll(JSONExtractRaw(properties, 'name'), '^"|"$', ''))))) )
         GROUP BY id
         HAVING max(is_deleted) = 0
-        AND (((has(['test'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, version), 'name'), '^"|"$', ''))))))) person ON person.person_id = funnel_query.person_id
+        AND (((has(['test'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, version), 'name'), '^"|"$', ''))))) SETTINGS optimize_aggregation_in_order = 1)) person ON person.person_id = funnel_query.person_id
   WHERE 1 = 1
     AND ((((steps_0))
           AND (steps_1)))
-  '
----
+  '''
+# ---
 # name: TestCohortQuery.test_cohort_filter_with_extra
-  '
+  '''
   
   SELECT person.person_id AS id
   FROM
@@ -153,13 +154,13 @@
                AND ((((has(['test'], replaceRegexpAll(JSONExtractRaw(properties, 'name'), '^"|"$', '')))))) )
         GROUP BY id
         HAVING max(is_deleted) = 0
-        AND ((((has(['test'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, version), 'name'), '^"|"$', '')))))))) person ON person.person_id = behavior_query.person_id
+        AND ((((has(['test'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, version), 'name'), '^"|"$', '')))))) SETTINGS optimize_aggregation_in_order = 1)) person ON person.person_id = behavior_query.person_id
   WHERE 1 = 1
     AND (((performed_event_condition_None_level_level_0_level_0_0)))
-  '
----
+  '''
+# ---
 # name: TestCohortQuery.test_cohort_filter_with_extra.1
-  '
+  '''
   
   SELECT if(behavior_query.person_id = '00000000-0000-0000-0000-000000000000', person.person_id, behavior_query.person_id) AS id
   FROM
@@ -189,14 +190,14 @@
         FROM person
         WHERE team_id = 2
         GROUP BY id
-        HAVING max(is_deleted) = 0)) person ON person.person_id = behavior_query.person_id
+        HAVING max(is_deleted) = 0 SETTINGS optimize_aggregation_in_order = 1)) person ON person.person_id = behavior_query.person_id
   WHERE 1 = 1
     AND ((((has(['test'], replaceRegexpAll(JSONExtractRaw(person_props, 'name'), '^"|"$', ''))))
           OR ((performed_event_condition_None_level_level_0_level_1_level_0_0))))
-  '
----
+  '''
+# ---
 # name: TestCohortQuery.test_performed_event_sequence
-  '
+  '''
   
   SELECT funnel_query.person_id AS id
   FROM
@@ -236,10 +237,10 @@
      GROUP BY person_id) funnel_query
   WHERE 1 = 1
     AND (((steps_0)))
-  '
----
+  '''
+# ---
 # name: TestCohortQuery.test_performed_event_sequence_and_clause_with_additional_event
-  '
+  '''
   
   SELECT funnel_query.person_id AS id
   FROM
@@ -283,10 +284,10 @@
   WHERE 1 = 1
     AND (((steps_0)
           OR (performed_event_multiple_condition_None_level_level_0_level_1_0)))
-  '
----
+  '''
+# ---
 # name: TestCohortQuery.test_performed_event_sequence_with_person_properties
-  '
+  '''
   
   SELECT person.person_id AS id
   FROM
@@ -341,14 +342,14 @@
                AND ((has(['test@posthog.com'], replaceRegexpAll(JSONExtractRaw(properties, 'email'), '^"|"$', '')))) )
         GROUP BY id
         HAVING max(is_deleted) = 0
-        AND ((has(['test@posthog.com'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, version), 'email'), '^"|"$', '')))))) person ON person.person_id = funnel_query.person_id
+        AND ((has(['test@posthog.com'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, version), 'email'), '^"|"$', '')))) SETTINGS optimize_aggregation_in_order = 1)) person ON person.person_id = funnel_query.person_id
   WHERE 1 = 1
     AND (((steps_0)
           AND (performed_event_multiple_condition_None_level_level_0_level_1_0)))
-  '
----
+  '''
+# ---
 # name: TestCohortQuery.test_person
-  '
+  '''
   
   SELECT if(behavior_query.person_id = '00000000-0000-0000-0000-000000000000', person.person_id, behavior_query.person_id) AS id
   FROM
@@ -378,14 +379,14 @@
         FROM person
         WHERE team_id = 2
         GROUP BY id
-        HAVING max(is_deleted) = 0)) person ON person.person_id = behavior_query.person_id
+        HAVING max(is_deleted) = 0 SETTINGS optimize_aggregation_in_order = 1)) person ON person.person_id = behavior_query.person_id
   WHERE 1 = 1
     AND (((performed_event_condition_None_level_level_0_level_0_0)
           OR (has(['test@posthog.com'], replaceRegexpAll(JSONExtractRaw(person_props, '$sample_field'), '^"|"$', '')))))
-  '
----
+  '''
+# ---
 # name: TestCohortQuery.test_person_materialized
-  '
+  '''
   
   SELECT if(behavior_query.person_id = '00000000-0000-0000-0000-000000000000', person.person_id, behavior_query.person_id) AS id
   FROM
@@ -415,14 +416,14 @@
         FROM person
         WHERE team_id = 2
         GROUP BY id
-        HAVING max(is_deleted) = 0)) person ON person.person_id = behavior_query.person_id
+        HAVING max(is_deleted) = 0 SETTINGS optimize_aggregation_in_order = 1)) person ON person.person_id = behavior_query.person_id
   WHERE 1 = 1
     AND (((performed_event_condition_None_level_level_0_level_0_0)
           OR (has(['test@posthog.com'], "pmat_$sample_field"))))
-  '
----
+  '''
+# ---
 # name: TestCohortQuery.test_person_properties_with_pushdowns
-  '
+  '''
   
   SELECT if(behavior_query.person_id = '00000000-0000-0000-0000-000000000000', person.person_id, behavior_query.person_id) AS id
   FROM
@@ -463,16 +464,16 @@
                AND (((has(['test@posthog.com'], replaceRegexpAll(JSONExtractRaw(properties, 'email'), '^"|"$', ''))))) )
         GROUP BY id
         HAVING max(is_deleted) = 0
-        AND (((has(['test@posthog.com'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, version), 'email'), '^"|"$', ''))))))) person ON person.person_id = behavior_query.person_id
+        AND (((has(['test@posthog.com'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, version), 'email'), '^"|"$', ''))))) SETTINGS optimize_aggregation_in_order = 1)) person ON person.person_id = behavior_query.person_id
   WHERE 1 = 1
     AND ((((performed_event_condition_None_level_level_0_level_0_level_0_0)
            OR (performed_event_condition_None_level_level_0_level_0_level_1_0)
            OR (has(['special'], replaceRegexpAll(JSONExtractRaw(person_props, 'name'), '^"|"$', ''))))
           AND ((first_time_condition_None_level_level_0_level_1_level_0_0))))
-  '
----
+  '''
+# ---
 # name: TestCohortQuery.test_person_props_only
-  '
+  '''
   
   SELECT id
   FROM person
@@ -490,31 +491,31 @@
   AND (((has(['test1@posthog.com'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, version), 'email'), '^"|"$', '')))
         OR (has(['test2@posthog.com'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, version), 'email'), '^"|"$', ''))))
        OR ((has(['test3'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, version), 'name'), '^"|"$', '')))
-           AND (has(['test3@posthog.com'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, version), 'email'), '^"|"$', '')))))
-  '
----
+           AND (has(['test3@posthog.com'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, version), 'email'), '^"|"$', ''))))) SETTINGS optimize_aggregation_in_order = 1
+  '''
+# ---
 # name: TestCohortQuery.test_precalculated_cohort_filter_with_extra_filters
-  '
+  '''
   
   SELECT count(DISTINCT person_id)
   FROM cohortpeople
   WHERE team_id = 2
     AND cohort_id = 2
     AND version = NULL
-  '
----
+  '''
+# ---
 # name: TestCohortQuery.test_precalculated_cohort_filter_with_extra_filters.1
-  '
+  '''
   
   SELECT count(DISTINCT person_id)
   FROM cohortpeople
   WHERE team_id = 2
     AND cohort_id = 2
     AND version = 0
-  '
----
+  '''
+# ---
 # name: TestCohortQuery.test_precalculated_cohort_filter_with_extra_filters.2
-  '
+  '''
   
   SELECT id
   FROM person
@@ -528,20 +529,20 @@
   GROUP BY id
   HAVING max(is_deleted) = 0
   AND ((((has(['test'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, version), 'name'), '^"|"$', '')))))
-       OR (has(['test2'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, version), 'name'), '^"|"$', ''))))
-  '
----
+       OR (has(['test2'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, version), 'name'), '^"|"$', '')))) SETTINGS optimize_aggregation_in_order = 1
+  '''
+# ---
 # name: TestCohortQuery.test_static_cohort_filter
-  '
+  '''
   
   SELECT count(DISTINCT person_id)
   FROM person_static_cohort
   WHERE team_id = 2
     AND cohort_id = 2
-  '
----
+  '''
+# ---
 # name: TestCohortQuery.test_static_cohort_filter.1
-  '
+  '''
   
   SELECT person.person_id AS id
   FROM
@@ -552,26 +553,26 @@
         FROM person
         WHERE team_id = 2
         GROUP BY id
-        HAVING max(is_deleted) = 0)) person
+        HAVING max(is_deleted) = 0 SETTINGS optimize_aggregation_in_order = 1)) person
   WHERE 1 = 1
     AND (((id IN
              (SELECT person_id as id
               FROM person_static_cohort
               WHERE cohort_id = 2
                 AND team_id = 2))))
-  '
----
+  '''
+# ---
 # name: TestCohortQuery.test_static_cohort_filter_with_extra
-  '
+  '''
   
   SELECT count(DISTINCT person_id)
   FROM person_static_cohort
   WHERE team_id = 2
     AND cohort_id = 2
-  '
----
+  '''
+# ---
 # name: TestCohortQuery.test_static_cohort_filter_with_extra.1
-  '
+  '''
   
   SELECT if(behavior_query.person_id = '00000000-0000-0000-0000-000000000000', person.person_id, behavior_query.person_id) AS id
   FROM
@@ -600,7 +601,7 @@
         FROM person
         WHERE team_id = 2
         GROUP BY id
-        HAVING max(is_deleted) = 0)) person ON person.person_id = behavior_query.person_id
+        HAVING max(is_deleted) = 0 SETTINGS optimize_aggregation_in_order = 1)) person ON person.person_id = behavior_query.person_id
   WHERE 1 = 1
     AND (((id IN
              (SELECT person_id as id
@@ -608,10 +609,10 @@
               WHERE cohort_id = 2
                 AND team_id = 2))
           AND (performed_event_condition_None_level_level_0_level_1_0)))
-  '
----
+  '''
+# ---
 # name: TestCohortQuery.test_static_cohort_filter_with_extra.2
-  '
+  '''
   
   SELECT if(behavior_query.person_id = '00000000-0000-0000-0000-000000000000', person.person_id, behavior_query.person_id) AS id
   FROM
@@ -640,7 +641,7 @@
         FROM person
         WHERE team_id = 2
         GROUP BY id
-        HAVING max(is_deleted) = 0)) person ON person.person_id = behavior_query.person_id
+        HAVING max(is_deleted) = 0 SETTINGS optimize_aggregation_in_order = 1)) person ON person.person_id = behavior_query.person_id
   WHERE 1 = 1
     AND ((((id IN
               (SELECT person_id as id
@@ -648,19 +649,19 @@
                WHERE cohort_id = 2
                  AND team_id = 2)))
           OR ((performed_event_condition_None_level_level_0_level_1_level_0_0))))
-  '
----
+  '''
+# ---
 # name: TestCohortQuery.test_unwrapping_static_cohort_filter_hidden_in_layers_of_cohorts
-  '
+  '''
   
   SELECT count(DISTINCT person_id)
   FROM person_static_cohort
   WHERE team_id = 2
     AND cohort_id = 2
-  '
----
+  '''
+# ---
 # name: TestCohortQuery.test_unwrapping_static_cohort_filter_hidden_in_layers_of_cohorts.1
-  '
+  '''
   
   SELECT if(behavior_query.person_id = '00000000-0000-0000-0000-000000000000', person.person_id, behavior_query.person_id) AS id
   FROM
@@ -692,7 +693,7 @@
         FROM person
         WHERE team_id = 2
         GROUP BY id
-        HAVING max(is_deleted) = 0)) person ON person.person_id = behavior_query.person_id
+        HAVING max(is_deleted) = 0 SETTINGS optimize_aggregation_in_order = 1)) person ON person.person_id = behavior_query.person_id
   WHERE 1 = 1
     AND ((((performed_event_condition_None_level_level_0_level_0_level_0_0)
            AND (id NOT IN
@@ -701,5 +702,5 @@
                    WHERE cohort_id = 2
                      AND team_id = 2)))
           OR (performed_event_condition_None_level_level_0_level_1_0)))
-  '
----
+  '''
+# ---

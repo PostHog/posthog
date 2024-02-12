@@ -1,5 +1,6 @@
+# serializer version: 1
 # name: TestFunnelTrends.test_timezones_trends
-  '
+  '''
   
   SELECT entrance_period_start,
          reached_from_step_count,
@@ -51,7 +52,7 @@
                     FROM
                       (SELECT e.timestamp as timestamp,
                               pdi.person_id as aggregation_target,
-                              pdi.person_id as person_id ,
+                              pdi.person_id as person_id,
                               if(event = 'step one', 1, 0) as step_0,
                               if(step_0 = 1, timestamp, null) as latest_0,
                               if(event = 'step two', 1, 0) as step_1,
@@ -64,6 +65,13 @@
                                  argMax(person_id, version) as person_id
                           FROM person_distinct_id2
                           WHERE team_id = 2
+                            AND distinct_id IN
+                              (SELECT distinct_id
+                               FROM events
+                               WHERE team_id = 2
+                                 AND event IN ['step one', 'step three', 'step two']
+                                 AND toTimeZone(timestamp, 'UTC') >= toDateTime('2021-04-30 00:00:00', 'UTC')
+                                 AND toTimeZone(timestamp, 'UTC') <= toDateTime('2021-05-07 23:59:59', 'UTC') )
                           GROUP BY distinct_id
                           HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
                        WHERE team_id = 2
@@ -78,13 +86,13 @@
                  entrance_period_start)
      GROUP BY entrance_period_start) data
   RIGHT OUTER JOIN
-    (SELECT toStartOfDay(toDateTime('2021-04-30 00:00:00', 'UTC') + toIntervalDay(number)) AS entrance_period_start
+    (SELECT toStartOfDay(toDateTime('2021-04-30 00:00:00', 'UTC')) + toIntervalDay(number) AS entrance_period_start
      FROM numbers(dateDiff('day', toStartOfDay(toDateTime('2021-04-30 00:00:00', 'UTC')), toStartOfDay(toDateTime('2021-05-07 00:00:00', 'UTC'))) + 1) AS period_offsets) fill USING (entrance_period_start)
   ORDER BY entrance_period_start ASC
-  '
----
+  '''
+# ---
 # name: TestFunnelTrends.test_timezones_trends.1
-  '
+  '''
   
   SELECT entrance_period_start,
          reached_from_step_count,
@@ -136,7 +144,7 @@
                     FROM
                       (SELECT e.timestamp as timestamp,
                               pdi.person_id as aggregation_target,
-                              pdi.person_id as person_id ,
+                              pdi.person_id as person_id,
                               if(event = 'step one', 1, 0) as step_0,
                               if(step_0 = 1, timestamp, null) as latest_0,
                               if(event = 'step two', 1, 0) as step_1,
@@ -149,6 +157,13 @@
                                  argMax(person_id, version) as person_id
                           FROM person_distinct_id2
                           WHERE team_id = 2
+                            AND distinct_id IN
+                              (SELECT distinct_id
+                               FROM events
+                               WHERE team_id = 2
+                                 AND event IN ['step one', 'step three', 'step two']
+                                 AND toTimeZone(timestamp, 'US/Pacific') >= toDateTime('2021-04-30 00:00:00', 'US/Pacific')
+                                 AND toTimeZone(timestamp, 'US/Pacific') <= toDateTime('2021-05-07 23:59:59', 'US/Pacific') )
                           GROUP BY distinct_id
                           HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
                        WHERE team_id = 2
@@ -163,13 +178,13 @@
                  entrance_period_start)
      GROUP BY entrance_period_start) data
   RIGHT OUTER JOIN
-    (SELECT toStartOfDay(toDateTime('2021-04-30 00:00:00', 'US/Pacific') + toIntervalDay(number)) AS entrance_period_start
+    (SELECT toStartOfDay(toDateTime('2021-04-30 00:00:00', 'US/Pacific')) + toIntervalDay(number) AS entrance_period_start
      FROM numbers(dateDiff('day', toStartOfDay(toDateTime('2021-04-30 00:00:00', 'US/Pacific')), toStartOfDay(toDateTime('2021-05-07 00:00:00', 'US/Pacific'))) + 1) AS period_offsets) fill USING (entrance_period_start)
   ORDER BY entrance_period_start ASC
-  '
----
+  '''
+# ---
 # name: TestFunnelTrends.test_week_interval
-  '
+  '''
   
   SELECT entrance_period_start,
          reached_from_step_count,
@@ -181,7 +196,7 @@
             countIf(steps_completed >= 3) AS reached_to_step_count
      FROM
        (SELECT aggregation_target,
-               toStartOfWeek(toTimeZone(toDateTime(timestamp, 'UTC'), 'UTC')) AS entrance_period_start,
+               toStartOfWeek(toTimeZone(toDateTime(timestamp, 'UTC'), 'UTC'), 0) AS entrance_period_start,
                max(steps) AS steps_completed
         FROM
           (SELECT *,
@@ -221,7 +236,7 @@
                     FROM
                       (SELECT e.timestamp as timestamp,
                               pdi.person_id as aggregation_target,
-                              pdi.person_id as person_id ,
+                              pdi.person_id as person_id,
                               if(event = 'step one', 1, 0) as step_0,
                               if(step_0 = 1, timestamp, null) as latest_0,
                               if(event = 'step two', 1, 0) as step_1,
@@ -234,6 +249,13 @@
                                  argMax(person_id, version) as person_id
                           FROM person_distinct_id2
                           WHERE team_id = 2
+                            AND distinct_id IN
+                              (SELECT distinct_id
+                               FROM events
+                               WHERE team_id = 2
+                                 AND event IN ['step one', 'step three', 'step two']
+                                 AND toTimeZone(timestamp, 'UTC') >= toDateTime('2021-05-01 00:00:00', 'UTC')
+                                 AND toTimeZone(timestamp, 'UTC') <= toDateTime('2021-05-07 23:59:59', 'UTC') )
                           GROUP BY distinct_id
                           HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
                        WHERE team_id = 2
@@ -248,18 +270,18 @@
                  entrance_period_start)
      GROUP BY entrance_period_start) data
   RIGHT OUTER JOIN
-    (SELECT toStartOfWeek(toDateTime('2021-05-01 00:00:00', 'UTC') + toIntervalWeek(number)) AS entrance_period_start
-     FROM numbers(dateDiff('week', toStartOfWeek(toDateTime('2021-05-01 00:00:00', 'UTC')), toStartOfWeek(toDateTime('2021-05-07 00:00:00', 'UTC'))) + 1) AS period_offsets) fill USING (entrance_period_start)
+    (SELECT toStartOfWeek(toDateTime('2021-05-01 00:00:00', 'UTC'), 0) + toIntervalWeek(number) AS entrance_period_start
+     FROM numbers(dateDiff('week', toStartOfWeek(toDateTime('2021-05-01 00:00:00', 'UTC'), 0), toStartOfWeek(toDateTime('2021-05-07 00:00:00', 'UTC'), 0)) + 1) AS period_offsets) fill USING (entrance_period_start)
   ORDER BY entrance_period_start ASC
-  '
----
+  '''
+# ---
 # name: TestFunnelTrends.test_week_interval.1
-  '
+  '''
   
   SELECT aggregation_target AS actor_id
   FROM
     (SELECT aggregation_target,
-            toStartOfWeek(toTimeZone(toDateTime(timestamp, 'UTC'), 'UTC')) AS entrance_period_start,
+            toStartOfWeek(toTimeZone(toDateTime(timestamp, 'UTC'), 'UTC'), 0) AS entrance_period_start,
             max(steps) AS steps_completed
      FROM
        (SELECT *,
@@ -299,7 +321,7 @@
                  FROM
                    (SELECT e.timestamp as timestamp,
                            pdi.person_id as aggregation_target,
-                           pdi.person_id as person_id ,
+                           pdi.person_id as person_id,
                            if(event = 'step one', 1, 0) as step_0,
                            if(step_0 = 1, timestamp, null) as latest_0,
                            if(event = 'step two', 1, 0) as step_1,
@@ -312,6 +334,13 @@
                               argMax(person_id, version) as person_id
                        FROM person_distinct_id2
                        WHERE team_id = 2
+                         AND distinct_id IN
+                           (SELECT distinct_id
+                            FROM events
+                            WHERE team_id = 2
+                              AND event IN ['step one', 'step three', 'step two']
+                              AND toTimeZone(timestamp, 'UTC') >= toDateTime('2021-05-01 00:00:00', 'UTC')
+                              AND toTimeZone(timestamp, 'UTC') <= toDateTime('2021-05-07 23:59:59', 'UTC') )
                        GROUP BY distinct_id
                        HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
                     WHERE team_id = 2
@@ -328,6 +357,7 @@
   WHERE steps_completed >= 3
   ORDER BY aggregation_target
   LIMIT 100
-  OFFSET 0
-  '
----
+  OFFSET 0 SETTINGS max_ast_elements=1000000,
+                    max_expanded_ast_elements=1000000
+  '''
+# ---

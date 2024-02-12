@@ -1,5 +1,8 @@
-import { useEffect, useRef, useState } from 'react'
-import ReactDOM from 'react-dom'
+import 'chartjs-adapter-dayjs-3'
+
+import ChartDataLabels from 'chartjs-plugin-datalabels'
+import ChartjsPluginStacked100, { ExtendedChartData } from 'chartjs-plugin-stacked100'
+import clsx from 'clsx'
 import { useValues } from 'kea'
 import {
     ActiveElement,
@@ -10,42 +13,58 @@ import {
     ChartOptions,
     ChartType,
     Color,
+    GridLineOptions,
     InteractionItem,
+    ScriptableLineSegmentContext,
     TickOptions,
     TooltipModel,
     TooltipOptions,
-    ScriptableLineSegmentContext,
 } from 'lib/Chart'
-import ChartDataLabels from 'chartjs-plugin-datalabels'
-import 'chartjs-adapter-dayjs-3'
-import { areObjectValuesEmpty, lightenDarkenColor, hexToRGBA } from '~/lib/utils'
 import { getBarColorFromStatus, getGraphColors, getSeriesColor } from 'lib/colors'
 import { AnnotationsOverlay } from 'lib/components/AnnotationsOverlay'
-import { GraphDataset, GraphPoint, GraphPointPayload, GraphType } from '~/types'
-import { InsightTooltip } from 'scenes/insights/InsightTooltip/InsightTooltip'
-import { lineGraphLogic } from 'scenes/insights/views/LineGraph/lineGraphLogic'
-import { TooltipConfig } from 'scenes/insights/InsightTooltip/insightTooltipUtils'
-import { groupsModel } from '~/models/groupsModel'
-import { ErrorBoundary } from '~/layout/ErrorBoundary'
-import { formatPercentStackAxisValue } from 'scenes/insights/aggregationAxisFormat'
-import { insightLogic } from 'scenes/insights/insightLogic'
-import { useResizeObserver } from 'lib/hooks/useResizeObserver'
-import { PieChart } from 'scenes/insights/views/LineGraph/PieChart'
-import { themeLogic } from '~/layout/navigation-3000/themeLogic'
 import { SeriesLetter } from 'lib/components/SeriesGlyph'
-import { TrendsFilter } from '~/queries/schema'
+import { useResizeObserver } from 'lib/hooks/useResizeObserver'
+import { useEffect, useRef, useState } from 'react'
+import { createRoot, Root } from 'react-dom/client'
+import { formatAggregationAxisValue, formatPercentStackAxisValue } from 'scenes/insights/aggregationAxisFormat'
+import { insightLogic } from 'scenes/insights/insightLogic'
+import { InsightTooltip } from 'scenes/insights/InsightTooltip/InsightTooltip'
+import { TooltipConfig } from 'scenes/insights/InsightTooltip/insightTooltipUtils'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
-import ChartjsPluginStacked100, { ExtendedChartData } from 'chartjs-plugin-stacked100'
+import { PieChart } from 'scenes/insights/views/LineGraph/PieChart'
+import { createTooltipData } from 'scenes/insights/views/LineGraph/tooltip-data'
 
-export function ensureTooltipElement(): HTMLElement {
+import { ErrorBoundary } from '~/layout/ErrorBoundary'
+import { themeLogic } from '~/layout/navigation-3000/themeLogic'
+import { areObjectValuesEmpty, hexToRGBA, lightenDarkenColor } from '~/lib/utils'
+import { groupsModel } from '~/models/groupsModel'
+import { TrendsFilter } from '~/queries/schema'
+import { GraphDataset, GraphPoint, GraphPointPayload, GraphType } from '~/types'
+
+let tooltipRoot: Root
+
+export function ensureTooltip(): [Root, HTMLElement] {
     let tooltipEl = document.getElementById('InsightTooltipWrapper')
-    if (!tooltipEl) {
-        tooltipEl = document.createElement('div')
-        tooltipEl.id = 'InsightTooltipWrapper'
-        tooltipEl.classList.add('InsightTooltipWrapper')
-        document.body.appendChild(tooltipEl)
+
+    if (!tooltipEl || !tooltipRoot) {
+        if (!tooltipEl) {
+            tooltipEl = document.createElement('div')
+            tooltipEl.id = 'InsightTooltipWrapper'
+            tooltipEl.classList.add('InsightTooltipWrapper')
+            document.body.appendChild(tooltipEl)
+        }
+
+        tooltipRoot = createRoot(tooltipEl)
     }
-    return tooltipEl
+    return [tooltipRoot, tooltipEl]
+}
+
+function truncateString(str: string, num: number): string {
+    if (str.length > num) {
+        return str.slice(0, num) + ' ...'
+    } else {
+        return str
+    }
 }
 
 export function onChartClick(
@@ -164,7 +183,7 @@ export const filterNestedDataset = (
     })
 }
 
-function createPinstripePattern(color: string): CanvasPattern {
+function createPinstripePattern(color: string, isDarkMode: boolean): CanvasPattern {
     const stripeWidth = 8 // 0.5rem
     const stripeAngle = -22.5
 
@@ -172,19 +191,19 @@ function createPinstripePattern(color: string): CanvasPattern {
     const canvas = document.createElement('canvas')
     canvas.width = 1
     canvas.height = stripeWidth * 2
-    // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
+
     const ctx = canvas.getContext('2d')!
 
     // fill the canvas with given color
     ctx.fillStyle = color
     ctx.fillRect(0, 0, canvas.width, canvas.height)
 
-    // overlay half-transparent white stripe
-    ctx.fillStyle = 'rgba(255, 255, 255, 0.5)'
+    // overlay half-transparent black / white stripes
+    ctx.fillStyle = isDarkMode ? 'rgba(35, 36, 41, 0.5)' : 'rgba(255, 255, 255, 0.5)'
     ctx.fillRect(0, stripeWidth, 1, 2 * stripeWidth)
 
     // create a canvas pattern and rotate it
-    // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
+
     const pattern = ctx.createPattern(canvas, 'repeat')!
     const xAx = Math.cos(stripeAngle)
     const xAy = Math.sin(stripeAngle)
@@ -204,7 +223,7 @@ export interface LineGraphProps {
     inSharedMode?: boolean
     showPersonsModal?: boolean
     tooltip?: TooltipConfig
-    inCardView?: boolean
+    inSurveyView?: boolean
     isArea?: boolean
     incompletenessOffsetFromEnd?: number // Number of data points at end of dataset to replace with a dotted line. Only used in line graphs.
     labelGroupType: number | 'people' | 'none'
@@ -214,6 +233,9 @@ export interface LineGraphProps {
     showValueOnSeries?: boolean | null
     showPercentStackView?: boolean | null
     supportsPercentStackView?: boolean
+    hideAnnotations?: boolean
+    hideXAxis?: boolean
+    hideYAxis?: boolean
 }
 
 export const LineGraph = (props: LineGraphProps): JSX.Element => {
@@ -234,7 +256,7 @@ export function LineGraph_({
     ['data-attr']: dataAttr,
     showPersonsModal = true,
     compare = false,
-    inCardView,
+    inSurveyView,
     isArea = false,
     incompletenessOffsetFromEnd = -1,
     tooltip: tooltipConfig,
@@ -244,6 +266,9 @@ export function LineGraph_({
     showValueOnSeries,
     showPercentStackView,
     supportsPercentStackView,
+    hideAnnotations,
+    hideXAxis,
+    hideYAxis,
 }: LineGraphProps): JSX.Element {
     let datasets = _datasets
 
@@ -252,8 +277,6 @@ export function LineGraph_({
 
     const { insightProps, insight } = useValues(insightLogic)
     const { timezone, isTrends } = useValues(insightVizDataLogic(insightProps))
-
-    const { createTooltipData } = useValues(lineGraphLogic)
 
     const canvasRef = useRef<HTMLCanvasElement | null>(null)
     const [myLineChart, setMyLineChart] = useState<Chart<ChartType, any, string>>()
@@ -271,8 +294,7 @@ export function LineGraph_({
     const isBar = [GraphType.Bar, GraphType.HorizontalBar, GraphType.Histogram].includes(type)
     const isBackgroundBasedGraphType = [GraphType.Bar, GraphType.HorizontalBar].includes(type)
     const isPercentStackView = !!supportsPercentStackView && !!showPercentStackView
-    const showAnnotations = isTrends && !isHorizontal
-    const shouldAutoResize = isHorizontal && !inCardView
+    const showAnnotations = isTrends && !isHorizontal && !hideAnnotations
 
     // Remove tooltip element on unmount
     useEffect(() => {
@@ -288,7 +310,7 @@ export function LineGraph_({
             : getSeriesColor(dataset.id, compare && !isArea)
         const hoverColor = dataset?.status ? getBarColorFromStatus(dataset.status, true) : mainColor
         const areaBackgroundColor = hexToRGBA(mainColor, 0.5)
-        const areaIncompletePattern = createPinstripePattern(areaBackgroundColor)
+        const areaIncompletePattern = createPinstripePattern(areaBackgroundColor, isDarkModeOn)
         let backgroundColor: string | undefined = undefined
         if (isBackgroundBasedGraphType) {
             backgroundColor = mainColor
@@ -356,6 +378,17 @@ export function LineGraph_({
         const precision = seriesMax < 5 ? 1 : seriesMax < 2 ? 2 : 0
         const tickOptions: Partial<TickOptions> = {
             color: colors.axisLabel as Color,
+            font: {
+                family: '-apple-system, BlinkMacSystemFont, "Inter", "Segoe UI", "Roboto", Helvetica, Arial, sans-serif, "Apple Color Emoji", "Segoe UI Emoji", "Segoe UI Symbol"',
+                size: 12,
+                weight: '500',
+            },
+        }
+        const gridOptions: Partial<GridLineOptions> = {
+            color: colors.axisLine as Color,
+            borderColor: colors.axisLine as Color,
+            tickColor: colors.axisLine as Color,
+            borderDash: [4, 2],
         }
 
         const tooltipOptions: Partial<TooltipOptions> = {
@@ -389,6 +422,9 @@ export function LineGraph_({
                     },
                     display: (context) => {
                         const datum = context.dataset.data[context.dataIndex]
+                        if (showValueOnSeries && inSurveyView) {
+                            return true
+                        }
                         return showValueOnSeries === true && typeof datum === 'number' && datum !== 0 ? 'auto' : false
                     },
                     formatter: (value: number, context) => {
@@ -411,7 +447,7 @@ export function LineGraph_({
                             return
                         }
 
-                        const tooltipEl = ensureTooltipElement()
+                        const [tooltipRoot, tooltipEl] = ensureTooltip()
                         if (tooltip.opacity === 0) {
                             tooltipEl.style.opacity = '0'
                             return
@@ -437,7 +473,7 @@ export function LineGraph_({
                                 )
                             })
 
-                            ReactDOM.render(
+                            tooltipRoot.render(
                                 <InsightTooltip
                                     date={dataset?.days?.[tooltip.dataPoints?.[0]?.dataIndex]}
                                     timezone={timezone}
@@ -461,8 +497,27 @@ export function LineGraph_({
                                     }}
                                     renderCount={
                                         tooltipConfig?.renderCount ||
-                                        ((value: number): string =>
-                                            formatPercentStackAxisValue(trendsFilter, value, isPercentStackView))
+                                        ((value: number): string => {
+                                            if (!isPercentStackView) {
+                                                return formatAggregationAxisValue(trendsFilter, value)
+                                            }
+
+                                            const total = seriesData.reduce((a, b) => a + b.count, 0)
+                                            const percentageLabel: number = parseFloat(
+                                                ((value / total) * 100).toFixed(1)
+                                            )
+
+                                            const isNaN = Number.isNaN(percentageLabel)
+
+                                            if (isNaN) {
+                                                return formatAggregationAxisValue(trendsFilter, value)
+                                            }
+
+                                            return `${formatAggregationAxisValue(
+                                                trendsFilter,
+                                                value
+                                            )} (${percentageLabel}%)`
+                                        })
                                     }
                                     entitiesAsColumnsOverride={formula ? false : undefined}
                                     hideInspectActorsSection={!onClick || !showPersonsModal}
@@ -474,8 +529,7 @@ export function LineGraph_({
                                             : aggregationLabel(labelGroupType).plural
                                     }
                                     {...tooltipConfig}
-                                />,
-                                tooltipEl
+                                />
                             )
                         }
 
@@ -531,77 +585,106 @@ export function LineGraph_({
         }
 
         if (type === GraphType.Bar) {
+            if (hideXAxis || hideYAxis) {
+                options.layout = { padding: 20 }
+            }
             options.scales = {
                 x: {
+                    display: !hideXAxis,
                     beginAtZero: true,
                     stacked: true,
                     ticks: {
+                        ...tickOptions,
                         precision,
-                        color: colors.axisLabel as string,
+                        ...(inSurveyView
+                            ? {
+                                  padding: 10,
+                                  font: {
+                                      size: 14,
+                                      weight: '600',
+                                  },
+                              }
+                            : {}),
                     },
+                    grid: inSurveyView ? { display: false } : gridOptions,
                 },
                 y: {
+                    display: !hideYAxis,
                     beginAtZero: true,
                     stacked: true,
                     ticks: {
+                        display: !hideYAxis,
+                        ...tickOptions,
                         precision,
-                        color: colors.axisLabel as string,
                         callback: (value) => {
                             return formatPercentStackAxisValue(trendsFilter, value, isPercentStackView)
                         },
                     },
+                    grid: gridOptions,
                 },
             }
         } else if (type === GraphType.Line) {
+            if (hideXAxis || hideYAxis) {
+                options.layout = { padding: 20 }
+            }
             options.scales = {
                 x: {
+                    display: !hideXAxis,
                     beginAtZero: true,
-                    display: true,
                     ticks: tickOptions,
                     grid: {
-                        display: true,
+                        ...gridOptions,
                         drawOnChartArea: false,
-                        borderColor: colors.axisLine as string,
                         tickLength: 12,
                     },
                 },
                 y: {
+                    display: !hideYAxis,
                     beginAtZero: true,
-                    display: true,
                     stacked: showPercentStackView || isArea,
                     ticks: {
-                        precision,
+                        display: !hideYAxis,
                         ...tickOptions,
+                        precision,
                         callback: (value) => {
                             return formatPercentStackAxisValue(trendsFilter, value, isPercentStackView)
                         },
                     },
-                    grid: {
-                        borderColor: colors.axisLine as string,
-                    },
+                    grid: gridOptions,
                 },
             }
         } else if (isHorizontal) {
+            if (hideXAxis || hideYAxis) {
+                options.layout = { padding: 20 }
+            }
             options.scales = {
                 x: {
+                    display: !hideXAxis,
                     beginAtZero: true,
-                    display: true,
                     ticks: {
+                        display: !hideXAxis,
                         ...tickOptions,
                         precision,
                         callback: (value) => {
                             return formatPercentStackAxisValue(trendsFilter, value, isPercentStackView)
                         },
                     },
+                    grid: gridOptions,
                 },
                 y: {
+                    display: true,
                     beforeFit: (scale) => {
-                        if (shouldAutoResize) {
-                            // automatically resize the chart container to fit the number of rows
-                            const MIN_HEIGHT = 575
-                            const ROW_HEIGHT = 16
+                        if (inSurveyView) {
+                            scale.ticks = scale.ticks.map((tick) => {
+                                if (typeof tick.label === 'string') {
+                                    return { ...tick, label: truncateString(tick.label, 50) }
+                                }
+                                return tick
+                            })
+
+                            const ROW_HEIGHT = 60
                             const dynamicHeight = scale.ticks.length * ROW_HEIGHT
-                            const height = Math.max(dynamicHeight, MIN_HEIGHT)
+                            const height = dynamicHeight
                             const parentNode: any = scale.chart?.canvas?.parentNode
                             parentNode.style.height = `${height}px`
                         } else {
@@ -611,17 +694,33 @@ export function LineGraph_({
                     },
                     beginAtZero: true,
                     ticks: {
+                        ...tickOptions,
                         precision,
-                        color: colors.axisLabel as string,
-                        autoSkip: !shouldAutoResize,
+                        autoSkip: true,
                         callback: function _renderYLabel(_, i) {
-                            const labelDescriptors = [
-                                datasets?.[0]?.actions?.[i]?.custom_name ?? datasets?.[0]?.actions?.[i]?.name, // action name
-                                datasets?.[0]?.breakdownValues?.[i], // breakdown value
-                                datasets?.[0]?.compareLabels?.[i], // compare value
-                            ].filter((l) => !!l)
-                            return labelDescriptors.join(' - ')
+                            const d = datasets?.[0]
+                            if (!d) {
+                                return ''
+                            }
+                            // prefer custom name, then label, then action name
+                            let labelDescriptors: (string | number | undefined | null)[]
+                            if (d.actions?.[i]?.custom_name) {
+                                labelDescriptors = [
+                                    d.actions?.[i]?.custom_name,
+                                    d.breakdownValues?.[i],
+                                    d.compareLabels?.[i],
+                                ]
+                            } else if (d.labels?.[i]) {
+                                labelDescriptors = [d.labels[i], d.compareLabels?.[i]]
+                            } else {
+                                labelDescriptors = [d.actions?.[i]?.name, d.breakdownValues?.[i], d.compareLabels?.[i]]
+                            }
+                            return labelDescriptors.filter((l) => !!l).join(' - ')
                         },
+                    },
+                    grid: {
+                        ...gridOptions,
+                        display: !inSurveyView,
                     },
                 },
             }
@@ -636,11 +735,11 @@ export function LineGraph_({
         })
         setMyLineChart(newChart)
         return () => newChart.destroy()
-    }, [datasets, hiddenLegendKeys, isDarkModeOn])
+    }, [datasets, hiddenLegendKeys, isDarkModeOn, trendsFilter, formula, showValueOnSeries, showPercentStackView])
 
     return (
         <div
-            className={`w-full h-full overflow-hidden ${shouldAutoResize ? 'mx-6 mb-6' : 'LineGraph absolute'}`}
+            className={clsx('LineGraph w-full h-full overflow-hidden', { absolute: !inSurveyView })}
             data-attr={dataAttr}
         >
             <canvas ref={canvasRef} />

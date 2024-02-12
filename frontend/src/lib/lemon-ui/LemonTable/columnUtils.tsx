@@ -1,15 +1,16 @@
 import { TZLabel } from 'lib/components/TZLabel'
-import { Row } from 'antd'
-import { ProfilePicture } from '../ProfilePicture'
-import { LemonTableColumn } from './types'
-import { UserBasicType } from '~/types'
 import { Dayjs, dayjs } from 'lib/dayjs'
 
-export function createdAtColumn<T extends { created_at?: string | Dayjs | null }>(): LemonTableColumn<T, 'created_at'> {
+import { UserBasicType } from '~/types'
+
+import { ProfilePicture } from '../ProfilePicture'
+import { LemonTableColumn } from './types'
+
+export function atColumn<T extends Record<string, any>>(key: keyof T, title: string): LemonTableColumn<T, typeof key> {
     return {
-        title: 'Created',
-        dataIndex: 'created_at',
-        render: function RenderCreatedAt(created_at) {
+        title: title,
+        dataIndex: key,
+        render: function RenderAt(created_at) {
             return created_at ? (
                 <div className="whitespace-nowrap text-right">
                     <TZLabel time={created_at} />
@@ -19,8 +20,15 @@ export function createdAtColumn<T extends { created_at?: string | Dayjs | null }
             )
         },
         align: 'right',
-        sorter: (a, b) => dayjs(a.created_at || 0).diff(b.created_at || 0),
+        sorter: (a, b) => dayjs(a[key] || 0).diff(b[key] || 0),
     }
+}
+export function createdAtColumn<T extends { created_at?: string | Dayjs | null }>(): LemonTableColumn<T, 'created_at'> {
+    return atColumn('created_at', 'Created') as LemonTableColumn<T, 'created_at'>
+}
+
+export function updatedAtColumn<T extends { updated_at?: string | Dayjs | null }>(): LemonTableColumn<T, 'updated_at'> {
+    return atColumn('updated_at', 'Updated') as LemonTableColumn<T, 'updated_at'>
 }
 
 export function createdByColumn<T extends { created_by?: UserBasicType | null }>(): LemonTableColumn<T, 'created_by'> {
@@ -30,11 +38,9 @@ export function createdByColumn<T extends { created_by?: UserBasicType | null }>
         render: function Render(_: any, item) {
             const { created_by } = item
             return (
-                <Row align="middle" wrap={false}>
-                    {created_by && (
-                        <ProfilePicture name={created_by.first_name} email={created_by.email} size="md" showName />
-                    )}
-                </Row>
+                <div className="flex flex-row items-center flex-nowrap">
+                    {created_by && <ProfilePicture user={created_by} size="md" showName />}
+                </div>
             )
         },
         sorter: (a, b) =>

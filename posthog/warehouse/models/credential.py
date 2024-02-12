@@ -1,7 +1,9 @@
-from posthog.models.utils import UUIDModel, CreatedMetaFields, sane_repr
 from django.db import models
-from posthog.models.team import Team
 from encrypted_fields.fields import EncryptedTextField
+
+from posthog.models.team import Team
+from posthog.models.utils import CreatedMetaFields, UUIDModel, sane_repr
+from posthog.warehouse.util import database_sync_to_async
 
 
 class DataWarehouseCredential(CreatedMetaFields, UUIDModel):
@@ -10,3 +12,12 @@ class DataWarehouseCredential(CreatedMetaFields, UUIDModel):
     team: models.ForeignKey = models.ForeignKey(Team, on_delete=models.CASCADE)
 
     __repr__ = sane_repr("access_key")
+
+
+@database_sync_to_async
+def get_or_create_datawarehouse_credential(team_id, access_key, access_secret) -> DataWarehouseCredential:
+    credential, _ = DataWarehouseCredential.objects.get_or_create(
+        team_id=team_id, access_key=access_key, access_secret=access_secret
+    )
+
+    return credential

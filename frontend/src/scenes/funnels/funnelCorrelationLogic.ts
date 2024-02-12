@@ -1,4 +1,12 @@
-import { kea, props, key, path, selectors, listeners, connect, reducers, actions, defaults } from 'kea'
+import { lemonToast } from '@posthog/lemon-ui'
+import { actions, connect, defaults, kea, key, listeners, path, props, reducers, selectors } from 'kea'
+import { loaders } from 'kea-loaders'
+import api from 'lib/api'
+import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
+import { cleanFilters } from 'scenes/insights/utils/cleanFilters'
+import { teamLogic } from 'scenes/teamLogic'
+
+import { queryNodeToFilter } from '~/queries/nodes/InsightQuery/utils/queryNodeToFilter'
 import {
     FunnelCorrelation,
     FunnelCorrelationResultsType,
@@ -6,16 +14,9 @@ import {
     FunnelsFilterType,
     InsightLogicProps,
 } from '~/types'
-import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
-import api from 'lib/api'
 
 import type { funnelCorrelationLogicType } from './funnelCorrelationLogicType'
-import { loaders } from 'kea-loaders'
-import { lemonToast } from '@posthog/lemon-ui'
-import { teamLogic } from 'scenes/teamLogic'
 import { funnelDataLogic } from './funnelDataLogic'
-import { cleanFilters } from 'scenes/insights/utils/cleanFilters'
-import { queryNodeToFilter } from '~/queries/nodes/InsightQuery/utils/queryNodeToFilter'
 import { appendToCorrelationConfig } from './funnelUtils'
 
 export const funnelCorrelationLogic = kea<funnelCorrelationLogicType>([

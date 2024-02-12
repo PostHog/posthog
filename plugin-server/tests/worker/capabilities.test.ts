@@ -28,7 +28,7 @@ describe('capabilities', () => {
     describe('getVMPluginCapabilities()', () => {
         function getCapabilities(indexJs: string): PluginCapabilities {
             const vm = createPluginConfigVM(hub, pluginConfig39, indexJs)
-            return getVMPluginCapabilities(vm)
+            return getVMPluginCapabilities(vm.methods, vm.tasks)
         }
 
         it('handles processEvent', () => {
@@ -100,7 +100,51 @@ describe('capabilities', () => {
                 const shouldSetupPlugin = shouldSetupPluginInServer(
                     { ingestion: true },
                     {
-                        methods: ['onEvent', 'exportEvents'],
+                        methods: ['onEvent'],
+                        scheduled_tasks: ['runEveryMinute'],
+                        jobs: ['someJob'],
+                    }
+                )
+                expect(shouldSetupPlugin).toEqual(false)
+            })
+        })
+
+        describe('ingestionOverflow', () => {
+            it('returns true if plugin has processEvent method and server has ingestionOverflow capability', () => {
+                const shouldSetupPlugin = shouldSetupPluginInServer(
+                    { ingestionOverflow: true },
+                    { methods: ['processEvent'] }
+                )
+                expect(shouldSetupPlugin).toEqual(true)
+            })
+
+            it('returns false if plugin does not have processEvent method and server only has ingestionOverflow capability', () => {
+                const shouldSetupPlugin = shouldSetupPluginInServer(
+                    { ingestionOverflow: true },
+                    {
+                        methods: ['onEvent'],
+                        scheduled_tasks: ['runEveryMinute'],
+                        jobs: ['someJob'],
+                    }
+                )
+                expect(shouldSetupPlugin).toEqual(false)
+            })
+        })
+
+        describe('ingestionHistorical', () => {
+            it('returns true if plugin has processEvent method and server has ingestionHistorical capability', () => {
+                const shouldSetupPlugin = shouldSetupPluginInServer(
+                    { ingestionHistorical: true },
+                    { methods: ['processEvent'] }
+                )
+                expect(shouldSetupPlugin).toEqual(true)
+            })
+
+            it('returns false if plugin does not have processEvent method and server only has ingestionHistorical capability', () => {
+                const shouldSetupPlugin = shouldSetupPluginInServer(
+                    { ingestionHistorical: true },
+                    {
+                        methods: ['onEvent'],
                         scheduled_tasks: ['runEveryMinute'],
                         jobs: ['someJob'],
                     }
@@ -140,7 +184,7 @@ describe('capabilities', () => {
         })
 
         describe('processAsyncOnEventHandlers', () => {
-            it.each(['onEvent', 'exportEvents'])(
+            it.each(['onEvent'])(
                 'returns true if plugin has %s and the server has processAsyncOnEventHandlers capability',
                 (method) => {
                     const shouldSetupPlugin = shouldSetupPluginInServer(
@@ -151,7 +195,7 @@ describe('capabilities', () => {
                 }
             )
 
-            it('returns false if plugin has none of onEvent or exportEvents and the server has only processAsyncOnEventHandlers capability', () => {
+            it('returns false if plugin has none of onEvent and the server has only processAsyncOnEventHandlers capability', () => {
                 const shouldSetupPlugin = shouldSetupPluginInServer(
                     { processAsyncOnEventHandlers: true },
                     { methods: [] }
@@ -159,8 +203,8 @@ describe('capabilities', () => {
                 expect(shouldSetupPlugin).toEqual(false)
             })
 
-            it.each(['onEvent', 'exportEvents'])(
-                'returns true if plugin has %s and the server has processAsyncOnEventHandlers capability',
+            it.each(['onEvent'])(
+                'onEvent returns true if plugin has %s and the server has processAsyncOnEventHandlers capability',
                 (method) => {
                     const shouldSetupPlugin = shouldSetupPluginInServer(
                         { processAsyncOnEventHandlers: true },
@@ -170,7 +214,7 @@ describe('capabilities', () => {
                 }
             )
 
-            it('returns false if plugin has none of onEvent or exportEvents and the server has only processAsyncOnEventHandlers capability', () => {
+            it('returns false if plugin has none of onEvent and the server has only processAsyncOnEventHandlers capability', () => {
                 const shouldSetupPlugin = shouldSetupPluginInServer(
                     { processAsyncOnEventHandlers: true },
                     { methods: [] }

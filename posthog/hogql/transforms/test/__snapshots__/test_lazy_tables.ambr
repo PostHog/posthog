@@ -1,0 +1,195 @@
+# serializer version: 1
+# name: TestLazyJoins.test_resolve_lazy_table_as_select_table
+  '''
+  
+  SELECT persons.id AS id, persons.properties___email AS email, persons.`properties___$browser` AS `$browser` 
+  FROM (
+  SELECT argMax(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, %(hogql_val_0)s), ''), 'null'), '^"|"$', ''), person.version) AS properties___email, argMax(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, %(hogql_val_1)s), ''), 'null'), '^"|"$', ''), person.version) AS `properties___$browser`, person.id AS id 
+  FROM person 
+  WHERE equals(person.team_id, 420) 
+  GROUP BY person.id 
+  HAVING ifNull(equals(argMax(person.is_deleted, person.version), 0), 0) 
+  SETTINGS optimize_aggregation_in_order=1) AS persons 
+  LIMIT 10000
+  '''
+# ---
+# name: TestLazyJoins.test_resolve_lazy_table_as_table_in_join
+  '''
+  
+  SELECT events.event AS event, events.distinct_id AS distinct_id, events__pdi.person_id AS person_id, persons.properties___email AS email 
+  FROM events INNER JOIN (
+  SELECT argMax(person_distinct_id2.person_id, person_distinct_id2.version) AS person_id, person_distinct_id2.distinct_id AS distinct_id 
+  FROM person_distinct_id2 
+  WHERE equals(person_distinct_id2.team_id, 420) 
+  GROUP BY person_distinct_id2.distinct_id 
+  HAVING ifNull(equals(argMax(person_distinct_id2.is_deleted, person_distinct_id2.version), 0), 0)) AS events__pdi ON equals(events.distinct_id, events__pdi.distinct_id) LEFT JOIN (
+  SELECT argMax(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, %(hogql_val_0)s), ''), 'null'), '^"|"$', ''), person.version) AS properties___email, person.id AS id 
+  FROM person 
+  WHERE equals(person.team_id, 420) 
+  GROUP BY person.id 
+  HAVING ifNull(equals(argMax(person.is_deleted, person.version), 0), 0) 
+  SETTINGS optimize_aggregation_in_order=1) AS persons ON equals(persons.id, events__pdi.person_id) 
+  WHERE equals(events.team_id, 420) 
+  LIMIT 10
+  '''
+# ---
+# name: TestLazyJoins.test_resolve_lazy_tables
+  '''
+  
+  SELECT events.event AS event, events__pdi.person_id AS person_id 
+  FROM events INNER JOIN (
+  SELECT argMax(person_distinct_id2.person_id, person_distinct_id2.version) AS person_id, person_distinct_id2.distinct_id AS distinct_id 
+  FROM person_distinct_id2 
+  WHERE equals(person_distinct_id2.team_id, 420) 
+  GROUP BY person_distinct_id2.distinct_id 
+  HAVING ifNull(equals(argMax(person_distinct_id2.is_deleted, person_distinct_id2.version), 0), 0)) AS events__pdi ON equals(events.distinct_id, events__pdi.distinct_id) 
+  WHERE equals(events.team_id, 420) 
+  LIMIT 10000
+  '''
+# ---
+# name: TestLazyJoins.test_resolve_lazy_tables_one_level_properties
+  '''
+  
+  SELECT person_distinct_ids__person.`properties___$browser` AS `$browser` 
+  FROM (
+  SELECT argMax(person_distinct_id2.person_id, person_distinct_id2.version) AS person_id, person_distinct_id2.distinct_id AS distinct_id 
+  FROM person_distinct_id2 
+  WHERE equals(person_distinct_id2.team_id, 420) 
+  GROUP BY person_distinct_id2.distinct_id 
+  HAVING ifNull(equals(argMax(person_distinct_id2.is_deleted, person_distinct_id2.version), 0), 0)) AS person_distinct_ids INNER JOIN (
+  SELECT argMax(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, %(hogql_val_0)s), ''), 'null'), '^"|"$', ''), person.version) AS `properties___$browser`, person.id AS id 
+  FROM person 
+  WHERE equals(person.team_id, 420) 
+  GROUP BY person.id 
+  HAVING ifNull(equals(argMax(person.is_deleted, person.version), 0), 0) 
+  SETTINGS optimize_aggregation_in_order=1) AS person_distinct_ids__person ON equals(person_distinct_ids.person_id, person_distinct_ids__person.id) 
+  LIMIT 10000
+  '''
+# ---
+# name: TestLazyJoins.test_resolve_lazy_tables_one_level_properties_deep
+  '''
+  
+  SELECT person_distinct_ids__person.`properties___$browser___in___json` AS `$browser__in__json` 
+  FROM (
+  SELECT argMax(person_distinct_id2.person_id, person_distinct_id2.version) AS person_id, person_distinct_id2.distinct_id AS distinct_id 
+  FROM person_distinct_id2 
+  WHERE equals(person_distinct_id2.team_id, 420) 
+  GROUP BY person_distinct_id2.distinct_id 
+  HAVING ifNull(equals(argMax(person_distinct_id2.is_deleted, person_distinct_id2.version), 0), 0)) AS person_distinct_ids INNER JOIN (
+  SELECT argMax(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, %(hogql_val_0)s, %(hogql_val_1)s, %(hogql_val_2)s), ''), 'null'), '^"|"$', ''), person.version) AS `properties___$browser___in___json`, person.id AS id 
+  FROM person 
+  WHERE equals(person.team_id, 420) 
+  GROUP BY person.id 
+  HAVING ifNull(equals(argMax(person.is_deleted, person.version), 0), 0) 
+  SETTINGS optimize_aggregation_in_order=1) AS person_distinct_ids__person ON equals(person_distinct_ids.person_id, person_distinct_ids__person.id) 
+  LIMIT 10000
+  '''
+# ---
+# name: TestLazyJoins.test_resolve_lazy_tables_traversed_fields
+  '''
+  
+  SELECT events.event AS event, events__pdi.person_id AS person_id 
+  FROM events INNER JOIN (
+  SELECT argMax(person_distinct_id2.person_id, person_distinct_id2.version) AS person_id, person_distinct_id2.distinct_id AS distinct_id 
+  FROM person_distinct_id2 
+  WHERE equals(person_distinct_id2.team_id, 420) 
+  GROUP BY person_distinct_id2.distinct_id 
+  HAVING ifNull(equals(argMax(person_distinct_id2.is_deleted, person_distinct_id2.version), 0), 0)) AS events__pdi ON equals(events.distinct_id, events__pdi.distinct_id) 
+  WHERE equals(events.team_id, 420) 
+  LIMIT 10000
+  '''
+# ---
+# name: TestLazyJoins.test_resolve_lazy_tables_two_levels
+  '''
+  
+  SELECT events.event AS event, events__pdi__person.id AS id 
+  FROM events INNER JOIN (
+  SELECT argMax(person_distinct_id2.person_id, person_distinct_id2.version) AS person_id, person_distinct_id2.distinct_id AS distinct_id 
+  FROM person_distinct_id2 
+  WHERE equals(person_distinct_id2.team_id, 420) 
+  GROUP BY person_distinct_id2.distinct_id 
+  HAVING ifNull(equals(argMax(person_distinct_id2.is_deleted, person_distinct_id2.version), 0), 0)) AS events__pdi ON equals(events.distinct_id, events__pdi.distinct_id) INNER JOIN (
+  SELECT person.id AS id 
+  FROM person 
+  WHERE equals(person.team_id, 420) 
+  GROUP BY person.id 
+  HAVING ifNull(equals(argMax(person.is_deleted, person.version), 0), 0) 
+  SETTINGS optimize_aggregation_in_order=1) AS events__pdi__person ON equals(events__pdi.person_id, events__pdi__person.id) 
+  WHERE equals(events.team_id, 420) 
+  LIMIT 10000
+  '''
+# ---
+# name: TestLazyJoins.test_resolve_lazy_tables_two_levels_properties
+  '''
+  
+  SELECT events.event AS event, events__pdi__person.`properties___$browser` AS `$browser` 
+  FROM events INNER JOIN (
+  SELECT argMax(person_distinct_id2.person_id, person_distinct_id2.version) AS person_id, person_distinct_id2.distinct_id AS distinct_id 
+  FROM person_distinct_id2 
+  WHERE equals(person_distinct_id2.team_id, 420) 
+  GROUP BY person_distinct_id2.distinct_id 
+  HAVING ifNull(equals(argMax(person_distinct_id2.is_deleted, person_distinct_id2.version), 0), 0)) AS events__pdi ON equals(events.distinct_id, events__pdi.distinct_id) INNER JOIN (
+  SELECT argMax(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, %(hogql_val_0)s), ''), 'null'), '^"|"$', ''), person.version) AS `properties___$browser`, person.id AS id 
+  FROM person 
+  WHERE equals(person.team_id, 420) 
+  GROUP BY person.id 
+  HAVING ifNull(equals(argMax(person.is_deleted, person.version), 0), 0) 
+  SETTINGS optimize_aggregation_in_order=1) AS events__pdi__person ON equals(events__pdi.person_id, events__pdi__person.id) 
+  WHERE equals(events.team_id, 420) 
+  LIMIT 10000
+  '''
+# ---
+# name: TestLazyJoins.test_resolve_lazy_tables_two_levels_properties_duplicate
+  '''
+  
+  SELECT events.event AS event, events__pdi__person.properties AS properties, events__pdi__person.properties___name AS name 
+  FROM events INNER JOIN (
+  SELECT argMax(person_distinct_id2.person_id, person_distinct_id2.version) AS person_id, person_distinct_id2.distinct_id AS distinct_id 
+  FROM person_distinct_id2 
+  WHERE equals(person_distinct_id2.team_id, 420) 
+  GROUP BY person_distinct_id2.distinct_id 
+  HAVING ifNull(equals(argMax(person_distinct_id2.is_deleted, person_distinct_id2.version), 0), 0)) AS events__pdi ON equals(events.distinct_id, events__pdi.distinct_id) INNER JOIN (
+  SELECT argMax(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, %(hogql_val_0)s), ''), 'null'), '^"|"$', ''), person.version) AS properties___name, argMax(person.properties, person.version) AS properties, person.id AS id 
+  FROM person 
+  WHERE equals(person.team_id, 420) 
+  GROUP BY person.id 
+  HAVING ifNull(equals(argMax(person.is_deleted, person.version), 0), 0) 
+  SETTINGS optimize_aggregation_in_order=1) AS events__pdi__person ON equals(events__pdi.person_id, events__pdi__person.id) 
+  WHERE equals(events.team_id, 420) 
+  LIMIT 10000
+  '''
+# ---
+# name: TestLazyJoins.test_resolve_lazy_tables_two_levels_traversed
+  '''
+  
+  SELECT events.event AS event, events__pdi__person.id AS id 
+  FROM events INNER JOIN (
+  SELECT argMax(person_distinct_id2.person_id, person_distinct_id2.version) AS person_id, person_distinct_id2.distinct_id AS distinct_id 
+  FROM person_distinct_id2 
+  WHERE equals(person_distinct_id2.team_id, 420) 
+  GROUP BY person_distinct_id2.distinct_id 
+  HAVING ifNull(equals(argMax(person_distinct_id2.is_deleted, person_distinct_id2.version), 0), 0)) AS events__pdi ON equals(events.distinct_id, events__pdi.distinct_id) INNER JOIN (
+  SELECT person.id AS id 
+  FROM person 
+  WHERE equals(person.team_id, 420) 
+  GROUP BY person.id 
+  HAVING ifNull(equals(argMax(person.is_deleted, person.version), 0), 0) 
+  SETTINGS optimize_aggregation_in_order=1) AS events__pdi__person ON equals(events__pdi.person_id, events__pdi__person.id) 
+  WHERE equals(events.team_id, 420) 
+  LIMIT 10000
+  '''
+# ---
+# name: TestLazyJoins.test_select_count_from_lazy_table
+  '''
+  
+  SELECT count() 
+  FROM (
+  SELECT person.id AS id 
+  FROM person 
+  WHERE equals(person.team_id, 420) 
+  GROUP BY person.id 
+  HAVING ifNull(equals(argMax(person.is_deleted, person.version), 0), 0) 
+  SETTINGS optimize_aggregation_in_order=1) AS persons 
+  LIMIT 10000
+  '''
+# ---

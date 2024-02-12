@@ -1,30 +1,57 @@
-import {
-    SessionRecordingPlayerMode,
-    sessionRecordingPlayerLogic,
-} from 'scenes/session-recordings/player/sessionRecordingPlayerLogic'
+import { IconNotebook } from '@posthog/icons'
 import { useActions, useValues } from 'kea'
+import { IconComment, IconDelete, IconLink, IconPinFilled, IconPinOutline } from 'lib/lemon-ui/icons'
 import { LemonButton, LemonButtonProps } from 'lib/lemon-ui/LemonButton'
-import { IconComment, IconDelete, IconLink } from 'lib/lemon-ui/icons'
-import { openPlayerShareDialog } from 'scenes/session-recordings/player/share/PlayerShare'
-import { PlaylistPopoverButton } from './playlist-popover/PlaylistPopover'
 import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
-import { buildTimestampCommentContent } from 'scenes/notebooks/Nodes/NotebookNodeReplayTimestamp'
-import { useNotebookNode } from 'scenes/notebooks/Nodes/notebookNodeLogic'
-import { NotebookNodeType, NotebookTarget } from '~/types'
-import { notebooksListLogic } from 'scenes/notebooks/Notebook/notebooksListLogic'
-import { FEATURE_FLAGS } from 'lib/constants'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { dayjs } from 'lib/dayjs'
+import { useNotebookNode } from 'scenes/notebooks/Nodes/NotebookNodeContext'
+import { NotebookSelectButton } from 'scenes/notebooks/NotebookSelectButton/NotebookSelectButton'
+import {
+    sessionRecordingPlayerLogic,
+    SessionRecordingPlayerMode,
+} from 'scenes/session-recordings/player/sessionRecordingPlayerLogic'
+import { openPlayerShareDialog } from 'scenes/session-recordings/player/share/PlayerShare'
+import { personsModalLogic } from 'scenes/trends/persons-modal/personsModalLogic'
+
+import { NotebookNodeType } from '~/types'
+
+import { sessionPlayerModalLogic } from './modal/sessionPlayerModalLogic'
+import { PlaylistPopoverButton } from './playlist-popover/PlaylistPopover'
+
+function PinToPlaylistButton(): JSX.Element {
+    const { logicProps } = useValues(sessionRecordingPlayerLogic)
+    const { maybePersistRecording } = useActions(sessionRecordingPlayerLogic)
+    const nodeLogic = useNotebookNode()
+
+    return logicProps.setPinned ? (
+        <LemonButton
+            onClick={() => {
+                if (nodeLogic && !logicProps.pinned) {
+                    // If we are in a node, then pinning should persist the recording
+                    maybePersistRecording()
+                }
+
+                logicProps.setPinned?.(!logicProps.pinned)
+            }}
+            size="small"
+            tooltip={logicProps.pinned ? 'Unpin from this list' : 'Pin to this list'}
+            data-attr={logicProps.pinned ? 'unpin-from-this-list' : 'pin-to-this-list'}
+            icon={logicProps.pinned ? <IconPinFilled /> : <IconPinOutline />}
+        />
+    ) : (
+        <PlaylistPopoverButton size="small">
+            <span>Pin</span>
+        </PlaylistPopoverButton>
+    )
+}
 
 export function PlayerMetaLinks(): JSX.Element {
     const { sessionRecordingId, logicProps } = useValues(sessionRecordingPlayerLogic)
     const { setPause, deleteRecording } = useActions(sessionRecordingPlayerLogic)
-    const { createNotebook } = useActions(notebooksListLogic)
-    const { featureFlags } = useValues(featureFlagLogic)
     const nodeLogic = useNotebookNode()
+    const { closeSessionPlayer } = useActions(sessionPlayerModalLogic())
 
     const getCurrentPlayerTime = (): number => {
-        // NOTE: We pull this value at call time as otherwise it would trigger rerenders if pulled from the hook
+        // NOTE: We pull this value at call time as otherwise it would trigger re-renders if pulled from the hook
         const playerTime = sessionRecordingPlayerLogic.findMounted(logicProps)?.values.currentPlayerTime || 0
         return Math.floor(playerTime / 1000)
     }
@@ -52,25 +79,6 @@ export function PlayerMetaLinks(): JSX.Element {
         })
     }
 
-    const onComment = (): void => {
-        const currentPlayerTime = getCurrentPlayerTime() * 1000
-        if (nodeLogic) {
-            nodeLogic.actions.insertAfterLastNodeOfType(NotebookNodeType.ReplayTimestamp, [
-                buildTimestampCommentContent(currentPlayerTime, sessionRecordingId),
-            ])
-        } else {
-            const title = `Session Replay Notes ${dayjs().format('DD/MM')}`
-
-            createNotebook(title, NotebookTarget.Popover, [
-                {
-                    type: NotebookNodeType.Recording,
-                    attrs: { id: sessionRecordingId },
-                },
-                buildTimestampCommentContent(currentPlayerTime, sessionRecordingId),
-            ])
-        }
-    }
-
     const commonProps: Partial<LemonButtonProps> = {
         size: 'small',
     }
@@ -81,19 +89,53 @@ export function PlayerMetaLinks(): JSX.Element {
         <div className="flex flex-row gap-1 items-center justify-end">
             {![SessionRecordingPlayerMode.Sharing].includes(mode) ? (
                 <>
-                    {featureFlags[FEATURE_FLAGS.NOTEBOOKS] && (
-                        <LemonButton icon={<IconComment />} onClick={onComment} {...commonProps}>
-                            <span>Comment</span>
-                        </LemonButton>
-                    )}
+                    <NotebookSelectButton
+                        size="small"
+                        icon={<IconComment />}
+                        resource={{
+                            type: NotebookNodeType.Recording,
+                            attrs: { id: sessionRecordingId, __init: { expanded: true } },
+                        }}
+                        onClick={() => setPause()}
+                        onNotebookOpened={(theNotebookLogic, theNodeLogic) => {
+                            const time = getCurrentPlayerTime() * 1000
+
+                            if (theNodeLogic) {
+                                // Node already exists, we just add a comment
+                                theNodeLogic.actions.insertReplayCommentByTimestamp(time, sessionRecordingId)
+                                return
+                            } else {
+                                theNotebookLogic.actions.insertReplayCommentByTimestamp({
+                                    timestamp: time,
+                                    sessionRecordingId,
+                                })
+                            }
+
+                            closeSessionPlayer()
+                            personsModalLogic.findMounted()?.actions.closeModal()
+                        }}
+                    >
+                        Comment
+                    </NotebookSelectButton>
 
                     <LemonButton icon={<IconLink />} onClick={onShare} {...commonProps}>
                         <span>Share</span>
                     </LemonButton>
 
-                    <PlaylistPopoverButton {...commonProps}>
-                        <span>Pin</span>
-                    </PlaylistPopoverButton>
+                    {nodeLogic?.props.nodeType === NotebookNodeType.RecordingPlaylist ? (
+                        <LemonButton
+                            icon={<IconNotebook />}
+                            size="small"
+                            onClick={() => {
+                                nodeLogic.actions.insertAfter({
+                                    type: NotebookNodeType.Recording,
+                                    attrs: { id: sessionRecordingId },
+                                })
+                            }}
+                        />
+                    ) : null}
+
+                    <PinToPlaylistButton />
 
                     {logicProps.playerKey !== 'modal' && (
                         <LemonButton

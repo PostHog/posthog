@@ -1,5 +1,6 @@
+# serializer version: 1
 # name: ClickhouseTestFunnelGroups.test_funnel_aggregation_with_groups
-  '
+  '''
   /* user_id:0 request:_snapshot_ */
   SELECT countIf(steps = 1) step_1,
          countIf(steps = 2) step_2,
@@ -29,7 +30,7 @@
                                                                         ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) latest_1
               FROM
                 (SELECT e.timestamp as timestamp,
-                        e."$group_0" as aggregation_target ,
+                        e."$group_0" as aggregation_target,
                         if(event = 'user signed up', 1, 0) as step_0,
                         if(step_0 = 1, timestamp, null) as latest_0,
                         if(event = 'paid', 1, 0) as step_1,
@@ -46,10 +47,10 @@
      GROUP BY aggregation_target,
               steps
      HAVING steps = max_steps)
-  '
----
+  '''
+# ---
 # name: ClickhouseTestFunnelGroups.test_funnel_aggregation_with_groups.1
-  '
+  '''
   /* user_id:0 request:_snapshot_ */
   SELECT aggregation_target AS actor_id
   FROM
@@ -76,7 +77,7 @@
                                                                         ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) latest_1
               FROM
                 (SELECT e.timestamp as timestamp,
-                        e."$group_0" as aggregation_target ,
+                        e."$group_0" as aggregation_target,
                         if(event = 'user signed up', 1, 0) as step_0,
                         if(step_0 = 1, timestamp, null) as latest_0,
                         if(event = 'paid', 1, 0) as step_1,
@@ -97,11 +98,12 @@
   WHERE steps IN [1, 2]
   ORDER BY aggregation_target
   LIMIT 100
-  OFFSET 0
-  '
----
+  OFFSET 0 SETTINGS max_ast_elements=1000000,
+                    max_expanded_ast_elements=1000000
+  '''
+# ---
 # name: ClickhouseTestFunnelGroups.test_funnel_group_aggregation_with_groups_entity_filtering
-  '
+  '''
   /* user_id:0 request:_snapshot_ */
   SELECT countIf(steps = 1) step_1,
          countIf(steps = 2) step_2,
@@ -131,7 +133,7 @@
                                                                         ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) latest_1
               FROM
                 (SELECT e.timestamp as timestamp,
-                        e."$group_0" as aggregation_target ,
+                        e."$group_0" as aggregation_target,
                         if(event = 'user signed up'
                            AND (has(['org:5'], "$group_0")), 1, 0) as step_0,
                         if(step_0 = 1, timestamp, null) as latest_0,
@@ -149,10 +151,10 @@
      GROUP BY aggregation_target,
               steps
      HAVING steps = max_steps)
-  '
----
+  '''
+# ---
 # name: ClickhouseTestFunnelGroups.test_funnel_group_aggregation_with_groups_entity_filtering.1
-  '
+  '''
   /* user_id:0 request:_snapshot_ */
   SELECT aggregation_target AS actor_id
   FROM
@@ -179,7 +181,7 @@
                                                                         ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) latest_1
               FROM
                 (SELECT e.timestamp as timestamp,
-                        e."$group_0" as aggregation_target ,
+                        e."$group_0" as aggregation_target,
                         if(event = 'user signed up'
                            AND (has(['org:5'], "$group_0")), 1, 0) as step_0,
                         if(step_0 = 1, timestamp, null) as latest_0,
@@ -201,11 +203,12 @@
   WHERE steps IN [1, 2]
   ORDER BY aggregation_target
   LIMIT 100
-  OFFSET 0
-  '
----
+  OFFSET 0 SETTINGS max_ast_elements=1000000,
+                    max_expanded_ast_elements=1000000
+  '''
+# ---
 # name: ClickhouseTestFunnelGroups.test_funnel_with_groups_entity_filtering
-  '
+  '''
   /* user_id:0 request:_snapshot_ */
   SELECT countIf(steps = 1) step_1,
          countIf(steps = 2) step_2,
@@ -236,7 +239,7 @@
               FROM
                 (SELECT e.timestamp as timestamp,
                         pdi.person_id as aggregation_target,
-                        pdi.person_id as person_id ,
+                        pdi.person_id as person_id,
                         if(event = 'user signed up'
                            AND (has(['org:5'], "$group_0")), 1, 0) as step_0,
                         if(step_0 = 1, timestamp, null) as latest_0,
@@ -248,6 +251,13 @@
                            argMax(person_id, version) as person_id
                     FROM person_distinct_id2
                     WHERE team_id = 2
+                      AND distinct_id IN
+                        (SELECT distinct_id
+                         FROM events
+                         WHERE team_id = 2
+                           AND event IN ['paid', 'user signed up']
+                           AND toTimeZone(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
+                           AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-14 23:59:59', 'UTC') )
                     GROUP BY distinct_id
                     HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
                  WHERE team_id = 2
@@ -260,10 +270,10 @@
      GROUP BY aggregation_target,
               steps
      HAVING steps = max_steps)
-  '
----
+  '''
+# ---
 # name: ClickhouseTestFunnelGroups.test_funnel_with_groups_entity_filtering.1
-  '
+  '''
   /* user_id:0 request:_snapshot_ */
   SELECT aggregation_target AS actor_id
   FROM
@@ -291,7 +301,7 @@
               FROM
                 (SELECT e.timestamp as timestamp,
                         pdi.person_id as aggregation_target,
-                        pdi.person_id as person_id ,
+                        pdi.person_id as person_id,
                         if(event = 'user signed up'
                            AND (has(['org:5'], "$group_0")), 1, 0) as step_0,
                         if(step_0 = 1, timestamp, null) as latest_0,
@@ -303,6 +313,13 @@
                            argMax(person_id, version) as person_id
                     FROM person_distinct_id2
                     WHERE team_id = 2
+                      AND distinct_id IN
+                        (SELECT distinct_id
+                         FROM events
+                         WHERE team_id = 2
+                           AND event IN ['paid', 'user signed up']
+                           AND toTimeZone(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
+                           AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-14 23:59:59', 'UTC') )
                     GROUP BY distinct_id
                     HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
                  WHERE team_id = 2
@@ -318,11 +335,12 @@
   WHERE steps IN [1, 2]
   ORDER BY aggregation_target
   LIMIT 100
-  OFFSET 0
-  '
----
+  OFFSET 0 SETTINGS max_ast_elements=1000000,
+                    max_expanded_ast_elements=1000000
+  '''
+# ---
 # name: ClickhouseTestFunnelGroups.test_funnel_with_groups_global_filtering
-  '
+  '''
   /* user_id:0 request:_snapshot_ */
   SELECT countIf(steps = 1) step_1,
          countIf(steps = 2) step_2,
@@ -353,7 +371,7 @@
               FROM
                 (SELECT e.timestamp as timestamp,
                         pdi.person_id as aggregation_target,
-                        pdi.person_id as person_id ,
+                        pdi.person_id as person_id,
                         if(event = 'user signed up', 1, 0) as step_0,
                         if(step_0 = 1, timestamp, null) as latest_0,
                         if(event = 'paid', 1, 0) as step_1,
@@ -364,6 +382,13 @@
                            argMax(person_id, version) as person_id
                     FROM person_distinct_id2
                     WHERE team_id = 2
+                      AND distinct_id IN
+                        (SELECT distinct_id
+                         FROM events
+                         WHERE team_id = 2
+                           AND event IN ['paid', 'user signed up']
+                           AND toTimeZone(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
+                           AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-14 23:59:59', 'UTC') )
                     GROUP BY distinct_id
                     HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
                  LEFT JOIN
@@ -384,10 +409,10 @@
      GROUP BY aggregation_target,
               steps
      HAVING steps = max_steps)
-  '
----
+  '''
+# ---
 # name: ClickhouseTestFunnelGroups.test_funnel_with_groups_global_filtering.1
-  '
+  '''
   /* user_id:0 request:_snapshot_ */
   SELECT aggregation_target AS actor_id
   FROM
@@ -415,7 +440,7 @@
               FROM
                 (SELECT e.timestamp as timestamp,
                         pdi.person_id as aggregation_target,
-                        pdi.person_id as person_id ,
+                        pdi.person_id as person_id,
                         if(event = 'user signed up', 1, 0) as step_0,
                         if(step_0 = 1, timestamp, null) as latest_0,
                         if(event = 'paid', 1, 0) as step_1,
@@ -426,6 +451,13 @@
                            argMax(person_id, version) as person_id
                     FROM person_distinct_id2
                     WHERE team_id = 2
+                      AND distinct_id IN
+                        (SELECT distinct_id
+                         FROM events
+                         WHERE team_id = 2
+                           AND event IN ['paid', 'user signed up']
+                           AND toTimeZone(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
+                           AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-14 23:59:59', 'UTC') )
                     GROUP BY distinct_id
                     HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
                  LEFT JOIN
@@ -449,6 +481,7 @@
   WHERE steps IN [1, 2]
   ORDER BY aggregation_target
   LIMIT 100
-  OFFSET 0
-  '
----
+  OFFSET 0 SETTINGS max_ast_elements=1000000,
+                    max_expanded_ast_elements=1000000
+  '''
+# ---

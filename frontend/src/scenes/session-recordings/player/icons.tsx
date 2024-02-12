@@ -10,7 +10,8 @@ export function IconWindowOld({ value, className = '', size = 'medium' }: IconWi
     const shortValue = typeof value === 'number' ? value : String(value).charAt(0)
     return (
         <div className={clsx('flex justify-center items-center relative shrink-0', className)}>
-            <span className="absolute font-semibold" style={{ fontSize: size === 'medium' ? 8 : 6, marginTop: 2 }}>
+            {/* eslint-disable-next-line react/forbid-dom-props */}
+            <span className="absolute font-semibold mt-0.5" style={{ fontSize: size === 'medium' ? 8 : 6 }}>
                 {shortValue}
             </span>
             <svg

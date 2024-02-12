@@ -58,11 +58,7 @@ function toConcatArg(arg: any): string {
     return arg === null ? '' : String(arg)
 }
 
-export async function executeHogQLBytecode(
-    bytecode: any[],
-    fields: Record<string, any>,
-    asyncOperation?: (...args: any[]) => any | Promise<any>
-): Promise<any> {
+export function executeHogQLBytecode(bytecode: any[], fields: Record<string, any>): any {
     let temp: any
     const stack: any[] = []
 
@@ -175,13 +171,6 @@ export async function executeHogQLBytecode(
             case Operation.NOT_IN:
                 temp = popStack()
                 stack.push(!popStack().includes(temp))
-                break
-            case Operation.IN_COHORT:
-            case Operation.NOT_IN_COHORT:
-                if (!asyncOperation) {
-                    throw new Error('HogVM async operation IN_COHORT not provided')
-                }
-                stack.push(await asyncOperation(bytecode[i], popStack(), popStack()))
                 break
             case Operation.REGEX:
                 temp = popStack()

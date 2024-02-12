@@ -12,17 +12,33 @@ from posthog.models.property.property import OperatorType
 from posthog.queries.util import PersonPropertiesMode
 
 
+def format_action_filter_event_only(
+    action: Action,
+    prepend: str = "action",
+) -> Tuple[str, Dict]:
+    """Return SQL for prefiltering events by action, i.e. down to only the events and without any other filters."""
+    events = action.get_step_events()
+    if not events:
+        # If no steps, it shouldn't match this part of the query
+        return "1=2", {}
+    if None in events:
+        # If selecting for "All events", disable entity pre-filtering
+        return "1 = 1", {}
+    entity_name = f"{prepend}_{action.pk}"
+    return f"event IN %({entity_name})s", {entity_name: sorted(list(events))}
+
+
 def format_action_filter(
     team_id: int,
     action: Action,
     hogql_context: HogQLContext,
     prepend: str = "action",
-    use_loop: bool = False,
     filter_by_team=True,
     table_name: str = "",
     person_properties_mode: PersonPropertiesMode = PersonPropertiesMode.USING_SUBQUERY,
     person_id_joined_alias: str = "person_id",
 ) -> Tuple[str, Dict]:
+    """Return SQL for filtering events by action."""
     # get action steps
     params = {"team_id": action.team.pk} if filter_by_team else {}
     steps = action.steps.all()
@@ -35,7 +51,9 @@ def format_action_filter(
         conditions: List[str] = []
         # filter element
         if step.event == AUTOCAPTURE_EVENT:
-            from posthog.models.property.util import filter_element  # prevent circular import
+            from posthog.models.property.util import (
+                filter_element,
+            )  # prevent circular import
 
             if step.selector:
                 element_condition, element_params = filter_element(
@@ -94,12 +112,7 @@ def format_action_filter(
 
         if len(conditions) > 0:
             or_queries.append(" AND ".join(conditions))
-    if use_loop:
-        formatted_query = "SELECT uuid FROM events WHERE {} AND team_id = %(team_id)s".format(
-            ") OR uuid IN (SELECT uuid FROM events WHERE team_id = %(team_id)s AND ".join(or_queries)
-        )
-    else:
-        formatted_query = "(({}))".format(") OR (".join(or_queries))
+    formatted_query = "(({}))".format(") OR (".join(or_queries))
     return formatted_query, params
 
 

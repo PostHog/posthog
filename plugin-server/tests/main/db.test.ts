@@ -1,8 +1,13 @@
 import { DateTime } from 'luxon'
+import { Pool } from 'pg'
 
+import { defaultConfig } from '../../src/config/config'
 import { ClickHouseTimestamp, Hub, Person, PropertyOperator, PropertyUpdateOperation, Team } from '../../src/types'
 import { DB, GroupId } from '../../src/utils/db/db'
+import { DependencyUnavailableError } from '../../src/utils/db/error'
 import { createHub } from '../../src/utils/db/hub'
+import * as dbMetrics from '../../src/utils/db/metrics'
+import { PostgresRouter, PostgresUse } from '../../src/utils/db/postgres'
 import { generateKafkaPersonUpdateMessage } from '../../src/utils/db/utils'
 import { RaceConditionError, UUIDT } from '../../src/utils/utils'
 import { delayUntilEventIngested, resetTestDatabaseClickhouse } from '../helpers/clickhouse'
@@ -35,7 +40,11 @@ describe('DB', () => {
     const CLICKHOUSE_TIMESTAMP = '2000-10-14 11:42:06.502' as ClickHouseTimestamp
 
     function fetchGroupCache(teamId: number, groupTypeIndex: number, groupKey: string) {
-        return db.redisGet(db.getGroupDataCacheKey(teamId, groupTypeIndex, groupKey), null)
+        return db.redisGet(db.getGroupDataCacheKey(teamId, groupTypeIndex, groupKey), null, 'fetchGroupCache')
+    }
+
+    function runPGQuery(queryString: string, values: any[] = null) {
+        return db.postgres.query(PostgresUse.COMMON_WRITE, queryString, values, 'testQuery')
     }
 
     describe('fetchAllActionsGroupedByTeam() and fetchAction()', () => {
@@ -150,14 +159,14 @@ describe('DB', () => {
         })
 
         it('returns actions with correct `ee_hook`', async () => {
-            await hub.db.postgres.query('UPDATE posthog_action SET post_to_slack = false')
+            await runPGQuery('UPDATE posthog_action SET post_to_slack = false')
             await insertRow(hub.db.postgres, 'ee_hook', {
                 id: 'abc',
                 team_id: 2,
                 user_id: 1001,
                 resource_id: 69,
                 event: 'action_performed',
-                target: 'https://rest-hooks.example.com/',
+                target: 'https://example.com/',
                 created: new Date().toISOString(),
                 updated: new Date().toISOString(),
             })
@@ -180,9 +189,11 @@ describe('DB', () => {
                                 team_id: 2,
                                 resource_id: 69,
                                 event: 'action_performed',
-                                target: 'https://rest-hooks.example.com/',
+                                target: 'https://example.com/',
                             },
                         ],
+                        bytecode: null,
+                        bytecode_error: null,
                     },
                 },
             })
@@ -191,7 +202,7 @@ describe('DB', () => {
         })
 
         it('does not return actions that dont match conditions', async () => {
-            await hub.db.postgres.query('UPDATE posthog_action SET post_to_slack = false')
+            await runPGQuery('UPDATE posthog_action SET post_to_slack = false')
 
             const result = await db.fetchAllActionsGroupedByTeam()
             expect(result).toEqual({})
@@ -200,7 +211,7 @@ describe('DB', () => {
         })
 
         it('does not return actions which are deleted', async () => {
-            await hub.db.postgres.query('UPDATE posthog_action SET deleted = true')
+            await runPGQuery('UPDATE posthog_action SET deleted = true')
 
             const result = await db.fetchAllActionsGroupedByTeam()
             expect(result).toEqual({})
@@ -209,14 +220,14 @@ describe('DB', () => {
         })
 
         it('does not return actions with incorrect ee_hook', async () => {
-            await hub.db.postgres.query('UPDATE posthog_action SET post_to_slack = false')
+            await runPGQuery('UPDATE posthog_action SET post_to_slack = false')
             await insertRow(hub.db.postgres, 'ee_hook', {
                 id: 'abc',
                 team_id: 2,
                 user_id: 1001,
                 resource_id: 69,
                 event: 'event_performed',
-                target: 'https://rest-hooks.example.com/',
+                target: 'https://example.com/',
                 created: new Date().toISOString(),
                 updated: new Date().toISOString(),
             })
@@ -226,7 +237,7 @@ describe('DB', () => {
                 user_id: 1001,
                 resource_id: 70,
                 event: 'event_performed',
-                target: 'https://rest-hooks.example.com/',
+                target: 'https://example.com/',
                 created: new Date().toISOString(),
                 updated: new Date().toISOString(),
             })
@@ -239,15 +250,15 @@ describe('DB', () => {
 
         describe('FOSS', () => {
             beforeEach(async () => {
-                await hub.db.postgres.query('ALTER TABLE ee_hook RENAME TO ee_hook_backup')
+                await runPGQuery('ALTER TABLE ee_hook RENAME TO ee_hook_backup')
             })
 
             afterEach(async () => {
-                await hub.db.postgres.query('ALTER TABLE ee_hook_backup RENAME TO ee_hook')
+                await runPGQuery('ALTER TABLE ee_hook_backup RENAME TO ee_hook')
             })
 
             it('does not blow up', async () => {
-                await hub.db.postgres.query('UPDATE posthog_action SET post_to_slack = false')
+                await runPGQuery('UPDATE posthog_action SET post_to_slack = false')
 
                 const result = await db.fetchAllActionsGroupedByTeam()
                 expect(result).toEqual({})
@@ -257,7 +268,8 @@ describe('DB', () => {
     })
 
     async function fetchPersonByPersonId(teamId: number, personId: number): Promise<Person | undefined> {
-        const selectResult = await db.postgresQuery(
+        const selectResult = await db.postgres.query(
+            PostgresUse.COMMON_WRITE,
             `SELECT * FROM posthog_person WHERE team_id = $1 AND id = $2`,
             [teamId, personId],
             'fetchPersonByPersonId'
@@ -620,46 +632,6 @@ describe('DB', () => {
                 version: 2,
             })
         })
-
-        describe('with caching', () => {
-            it('insertGroup() and updateGroup() update cache', async () => {
-                expect(await fetchGroupCache(2, 0, 'group_key')).toEqual(null)
-
-                await db.insertGroup(
-                    2,
-                    0,
-                    'group_key',
-                    { prop: 'val' },
-                    TIMESTAMP,
-                    { prop: TIMESTAMP.toISO() },
-                    { prop: PropertyUpdateOperation.Set },
-                    1,
-                    undefined,
-                    { cache: true }
-                )
-
-                expect(await fetchGroupCache(2, 0, 'group_key')).toEqual({
-                    created_at: CLICKHOUSE_TIMESTAMP,
-                    properties: { prop: 'val' },
-                })
-
-                await db.updateGroup(
-                    2,
-                    0,
-                    'group_key',
-                    { prop: 'newVal', prop2: 2 },
-                    TIMESTAMP,
-                    { prop: TIMESTAMP.toISO(), prop2: TIMESTAMP.toISO() },
-                    { prop: PropertyUpdateOperation.Set, prop2: PropertyUpdateOperation.Set },
-                    2
-                )
-
-                expect(await fetchGroupCache(2, 0, 'group_key')).toEqual({
-                    created_at: CLICKHOUSE_TIMESTAMP,
-                    properties: { prop: 'newVal', prop2: 2 },
-                })
-            })
-        })
     })
 
     describe('updateGroupCache()', () => {
@@ -680,7 +652,6 @@ describe('DB', () => {
         beforeEach(() => {
             jest.spyOn(db, 'fetchGroup')
             jest.spyOn(db, 'redisGet')
-            db.statsd = { increment: jest.fn(), timing: jest.fn() } as any
         })
 
         describe('one group', () => {
@@ -729,10 +700,11 @@ describe('DB', () => {
                 expect(db.fetchGroup).toHaveBeenCalled()
             })
 
-            it('triggers a statsd metric if the data doesnt exist in Postgres or Redis', async () => {
+            it('triggers a metric if the data doesnt exist in Postgres or Redis', async () => {
+                const groupDataMissingCounterSpy = jest.spyOn(dbMetrics.groupDataMissingCounter, 'inc')
                 await db.getGroupsColumns(2, [[0, 'unknown_key']])
 
-                expect(db.statsd?.increment).toHaveBeenLastCalledWith('groups_data_missing_entirely')
+                expect(groupDataMissingCounterSpy).toHaveBeenCalledTimes(1)
             })
         })
 
@@ -813,7 +785,12 @@ describe('DB', () => {
             const jobPayload = { foo: 'string' }
             await db.addOrUpdatePublicJob(88, jobName, jobPayload)
             const publicJobs = (
-                await db.postgresQuery('SELECT public_jobs FROM posthog_plugin WHERE id = $1', [88], 'testPublicJob1')
+                await db.postgres.query(
+                    PostgresUse.COMMON_WRITE,
+                    'SELECT public_jobs FROM posthog_plugin WHERE id = $1',
+                    [88],
+                    'testPublicJob1'
+                )
             ).rows[0].public_jobs
 
             expect(publicJobs[jobName]).toEqual(jobPayload)
@@ -826,7 +803,12 @@ describe('DB', () => {
             const jobPayload = { foo: 'string' }
             await db.addOrUpdatePublicJob(88, jobName, jobPayload)
             const publicJobs = (
-                await db.postgresQuery('SELECT public_jobs FROM posthog_plugin WHERE id = $1', [88], 'testPublicJob1')
+                await db.postgres.query(
+                    PostgresUse.COMMON_WRITE,
+                    'SELECT public_jobs FROM posthog_plugin WHERE id = $1',
+                    [88],
+                    'testPublicJob1'
+                )
             ).rows[0].public_jobs
 
             expect(publicJobs[jobName]).toEqual(jobPayload)
@@ -839,7 +821,8 @@ describe('DB', () => {
 
         beforeEach(async () => {
             team = await getFirstTeam(hub)
-            const plug = await db.postgresQuery(
+            const plug = await db.postgres.query(
+                PostgresUse.COMMON_WRITE,
                 'INSERT INTO posthog_plugin (name, organization_id, config_schema, from_json, from_web, is_global, is_preinstalled, is_stateless, created_at, capabilities) values($1, $2, $3, false, false, false, false, false, $4, $5) RETURNING id',
                 ['My Plug', team.organization_id, [], new Date(), {}],
                 ''
@@ -851,7 +834,8 @@ describe('DB', () => {
             let source = await db.getPluginSource(plugin, 'index.ts')
             expect(source).toBe(null)
 
-            await db.postgresQuery(
+            await db.postgres.query(
+                PostgresUse.COMMON_WRITE,
                 'INSERT INTO posthog_pluginsourcefile (id, plugin_id, filename, source) values($1, $2, $3, $4)',
                 [new UUIDT().toString(), plugin, 'index.ts', 'USE THE SOURCE'],
                 ''
@@ -862,13 +846,14 @@ describe('DB', () => {
         })
     })
 
-    describe('addFeatureFlagHashKeysForMergedPerson()', () => {
+    describe('updateCohortsAndFeatureFlagsForMerge()', () => {
         let team: Team
         let sourcePersonID: Person['id']
         let targetPersonID: Person['id']
 
         async function getAllHashKeyOverrides(): Promise<any> {
-            const result = await db.postgresQuery(
+            const result = await db.postgres.query(
+                PostgresUse.COMMON_WRITE,
                 'SELECT feature_flag_key, hash_key, person_id FROM posthog_featureflaghashkeyoverride',
                 [],
                 ''
@@ -905,7 +890,7 @@ describe('DB', () => {
         })
 
         it("doesn't fail on empty data", async () => {
-            await db.addFeatureFlagHashKeysForMergedPerson(team.id, sourcePersonID, targetPersonID)
+            await db.updateCohortsAndFeatureFlagsForMerge(team.id, sourcePersonID, targetPersonID)
         })
 
         it('updates all valid keys when target person had no overrides', async () => {
@@ -922,7 +907,7 @@ describe('DB', () => {
                 hash_key: 'override_value_for_beta_feature',
             })
 
-            await db.addFeatureFlagHashKeysForMergedPerson(team.id, sourcePersonID, targetPersonID)
+            await db.updateCohortsAndFeatureFlagsForMerge(team.id, sourcePersonID, targetPersonID)
 
             const result = await getAllHashKeyOverrides()
 
@@ -963,7 +948,7 @@ describe('DB', () => {
                 hash_key: 'existing_override_value_for_beta_feature',
             })
 
-            await db.addFeatureFlagHashKeysForMergedPerson(team.id, sourcePersonID, targetPersonID)
+            await db.updateCohortsAndFeatureFlagsForMerge(team.id, sourcePersonID, targetPersonID)
 
             const result = await getAllHashKeyOverrides()
 
@@ -998,7 +983,7 @@ describe('DB', () => {
                 hash_key: 'override_value_for_beta_feature',
             })
 
-            await db.addFeatureFlagHashKeysForMergedPerson(team.id, sourcePersonID, targetPersonID)
+            await db.updateCohortsAndFeatureFlagsForMerge(team.id, sourcePersonID, targetPersonID)
 
             const result = await getAllHashKeyOverrides()
 
@@ -1069,5 +1054,21 @@ describe('DB', () => {
             const fetchedTeam = await hub.db.fetchTeamByToken('token2')
             expect(fetchedTeam).toEqual(null)
         })
+    })
+})
+
+describe('PostgresRouter()', () => {
+    test('throws DependencyUnavailableError on postgres errors', async () => {
+        const errorMessage =
+            'connection to server at "posthog-pgbouncer" (171.20.65.128), port 6543 failed: server closed the connection unexpectedly'
+        const pgQueryMock = jest.spyOn(Pool.prototype, 'query').mockImplementation(() => {
+            return Promise.reject(new Error(errorMessage))
+        })
+
+        const router = new PostgresRouter(defaultConfig, null)
+        await expect(router.query(PostgresUse.COMMON_WRITE, 'SELECT 1;', null, 'testing')).rejects.toEqual(
+            new DependencyUnavailableError(errorMessage, 'Postgres', new Error(errorMessage))
+        )
+        pgQueryMock.mockRestore()
     })
 })

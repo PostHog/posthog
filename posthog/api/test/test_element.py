@@ -2,7 +2,6 @@ import json
 from datetime import timedelta
 from typing import Dict, List
 
-from corsheaders.defaults import default_headers
 from django.test import override_settings
 from freezegun import freeze_time
 from rest_framework import status
@@ -132,7 +131,12 @@ class TestElement(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
             elements=[Element(tag_name="a", href="https://posthog.com/about", text="click here")],
         )
         team2 = Organization.objects.bootstrap(None)[2]
-        _create_event(team=team2, distinct_id="test", event="$autocapture", elements=[Element(tag_name="bla")])
+        _create_event(
+            team=team2,
+            distinct_id="test",
+            event="$autocapture",
+            elements=[Element(tag_name="bla")],
+        )
 
         response = self.client.get("/api/element/values/?key=tag_name").json()
         self.assertEqual(response[0]["name"], "a")
@@ -164,7 +168,10 @@ class TestElement(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         self._setup_events()
         properties_filter = json.dumps(
             [
-                {"type": "hogql", "key": "like(properties.$current_url, '%another_page%')"},
+                {
+                    "type": "hogql",
+                    "key": "like(properties.$current_url, '%another_page%')",
+                },
             ]
         )
         response = self.client.get(f"/api/element/stats/?paginate_response=true&properties={properties_filter}").json()
@@ -184,8 +191,18 @@ class TestElement(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
 
         with freeze_time(event_start) as frozen_time:
             elements = [
-                Element(tag_name="a", href="https://posthog.com/about", text="click here", order=0),
-                Element(tag_name="div", href="https://posthog.com/about", text="click here", order=1),
+                Element(
+                    tag_name="a",
+                    href="https://posthog.com/about",
+                    text="click here",
+                    order=0,
+                ),
+                Element(
+                    tag_name="div",
+                    href="https://posthog.com/about",
+                    text="click here",
+                    order=1,
+                ),
             ]
 
             _create_event(  # 3 am but included because date_from is set to start of day
@@ -274,28 +291,6 @@ class TestElement(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         limit_to_one_results = response_json["results"]
         assert limit_to_one_results == [expected_all_data_response_results[1]]
 
-    def test_element_stats_cors_headers(self) -> None:
-        # Azure App Insights sends the same tracing headers as Sentry
-        # _and_ a request-context header
-        # this is added by the cors headers package so should apply to any endpoint
-
-        response = self.client.generic(
-            "OPTIONS",
-            "/api/element/stats/",
-            HTTP_ORIGIN="https://localhost",
-            HTTP_ACCESS_CONTROL_REQUEST_HEADERS="traceparent,request-id,someotherrandomheader,request-context",
-            HTTP_ACCESS_CONTROL_REQUEST_METHOD="POST",
-        )
-
-        assert response.headers["Access-Control-Allow-Headers"] == ", ".join(
-            default_headers
-            + (
-                "traceparent",
-                "request-id",
-                "request-context",
-            )
-        )
-
     def test_element_stats_does_not_allow_non_numeric_limit(self) -> None:
         response = self.client.get(f"/api/element/stats/?limit=not-a-number")
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
@@ -311,12 +306,26 @@ class TestElement(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
     def _setup_events(self):
         _create_person(distinct_ids=["one"], team=self.team, properties={"email": "one@mail.com"})
         _create_person(distinct_ids=["two"], team=self.team, properties={"email": "two@mail.com"})
-        _create_person(distinct_ids=["three"], team=self.team, properties={"email": "three@mail.com"})
+        _create_person(
+            distinct_ids=["three"],
+            team=self.team,
+            properties={"email": "three@mail.com"},
+        )
         _create_event(
             team=self.team,
             elements=[
-                Element(tag_name="a", href="https://posthog.com/event-1", text="event 1", order=0),
-                Element(tag_name="div", href="https://posthog.com/event-1", text="event 1", order=1),
+                Element(
+                    tag_name="a",
+                    href="https://posthog.com/event-1",
+                    text="event 1",
+                    order=0,
+                ),
+                Element(
+                    tag_name="div",
+                    href="https://posthog.com/event-1",
+                    text="event 1",
+                    order=1,
+                ),
             ],
             event="$autocapture",
             distinct_id="one",
@@ -325,8 +334,18 @@ class TestElement(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         _create_event(
             team=self.team,
             elements=[
-                Element(tag_name="a", href="https://posthog.com/event-1", text="event 1", order=0),
-                Element(tag_name="div", href="https://posthog.com/event-1", text="event 1", order=1),
+                Element(
+                    tag_name="a",
+                    href="https://posthog.com/event-1",
+                    text="event 1",
+                    order=0,
+                ),
+                Element(
+                    tag_name="div",
+                    href="https://posthog.com/event-1",
+                    text="event 1",
+                    order=1,
+                ),
             ],
             event="$autocapture",
             distinct_id="one",
@@ -335,8 +354,18 @@ class TestElement(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         _create_event(
             team=self.team,
             elements=[
-                Element(tag_name="a", href="https://posthog.com/event-2", text="event 2", order=0),
-                Element(tag_name="div", href="https://posthog.com/event-2", text="event 2", order=1),
+                Element(
+                    tag_name="a",
+                    href="https://posthog.com/event-2",
+                    text="event 2",
+                    order=0,
+                ),
+                Element(
+                    tag_name="div",
+                    href="https://posthog.com/event-2",
+                    text="event 2",
+                    order=1,
+                ),
             ],
             event="$autocapture",
             distinct_id="two",
@@ -345,8 +374,18 @@ class TestElement(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         _create_event(
             team=self.team,
             elements=[
-                Element(tag_name="a", href="https://posthog.com/event-2", text="event 2", order=0),
-                Element(tag_name="div", href="https://posthog.com/event-2", text="event 2", order=1),
+                Element(
+                    tag_name="a",
+                    href="https://posthog.com/event-2",
+                    text="event 2",
+                    order=0,
+                ),
+                Element(
+                    tag_name="div",
+                    href="https://posthog.com/event-2",
+                    text="event 2",
+                    order=1,
+                ),
             ],
             event="$autocapture",
             distinct_id="three",
@@ -355,8 +394,18 @@ class TestElement(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         _create_event(
             team=self.team,
             elements=[
-                Element(tag_name="a", href="https://posthog.com/event-1", text="event 1", order=0),
-                Element(tag_name="div", href="https://posthog.com/event-1", text="event 1", order=1),
+                Element(
+                    tag_name="a",
+                    href="https://posthog.com/event-1",
+                    text="event 1",
+                    order=0,
+                ),
+                Element(
+                    tag_name="div",
+                    href="https://posthog.com/event-1",
+                    text="event 1",
+                    order=1,
+                ),
             ],
             event="$rageclick",
             distinct_id="one",

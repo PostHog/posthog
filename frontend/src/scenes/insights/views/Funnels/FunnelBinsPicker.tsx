@@ -1,12 +1,14 @@
+import { LemonInput } from '@posthog/lemon-ui'
+import { Select } from 'antd'
+import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { BIN_COUNT_AUTO } from 'lib/constants'
-import { InputNumber, Select } from 'antd'
-import { BinCountValue } from '~/types'
-import { BarChartOutlined } from '@ant-design/icons'
-import clsx from 'clsx'
+import { IconBarChart } from 'lib/lemon-ui/icons'
 import { ANTD_TOOLTIP_PLACEMENTS } from 'lib/utils'
-import { insightLogic } from 'scenes/insights/insightLogic'
 import { funnelDataLogic } from 'scenes/funnels/funnelDataLogic'
+import { insightLogic } from 'scenes/insights/insightLogic'
+
+import { BinCountValue } from '~/types'
 
 // Constraints as defined in funnel_time_to_convert.py:34
 const MIN = 1
@@ -46,7 +48,7 @@ export function FunnelBinsPicker({ disabled }: FunnelBinsPickerProps): JSX.Eleme
     const { updateInsightFilter } = useActions(funnelDataLogic(insightProps))
 
     const setBinCount = (binCount: BinCountValue): void => {
-        updateInsightFilter({ bin_count: binCount && binCount !== BIN_COUNT_AUTO ? binCount : undefined })
+        updateInsightFilter({ binCount: binCount && binCount !== BIN_COUNT_AUTO ? binCount : undefined })
     }
 
     return (
@@ -55,16 +57,16 @@ export function FunnelBinsPicker({ disabled }: FunnelBinsPickerProps): JSX.Eleme
             dropdownClassName="funnel-bin-filter-dropdown"
             data-attr="funnel-bin-filter"
             defaultValue={BIN_COUNT_AUTO}
-            value={funnelsFilter?.bin_count || BIN_COUNT_AUTO}
+            value={funnelsFilter?.binCount || BIN_COUNT_AUTO}
             onSelect={(count) => setBinCount(count)}
             dropdownRender={(menu) => {
                 return (
                     <>
                         {menu}
                         <div>
-                            <InputNumber
+                            <LemonInput
+                                type="number"
                                 className="funnel-bins-custom-picker"
-                                size="middle"
                                 min={MIN}
                                 max={MAX}
                                 value={numericBinCount}
@@ -99,7 +101,7 @@ export function FunnelBinsPicker({ disabled }: FunnelBinsPickerProps): JSX.Eleme
                             value={option.value}
                             label={
                                 <>
-                                    <BarChartOutlined /> {option.label}
+                                    <IconBarChart /> {option.label}
                                 </>
                             }
                         >

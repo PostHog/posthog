@@ -4,7 +4,6 @@ from django.db import migrations, models
 
 
 class Migration(migrations.Migration):
-
     dependencies = [
         ("posthog", "0281_create_insight_caching_state_model"),
     ]
@@ -35,14 +34,19 @@ class Migration(migrations.Migration):
             model_name="insightcachingstate",
             name="dashboard_tile",
             field=models.ForeignKey(
-                null=True, on_delete=models.deletion.CASCADE, related_name="caching_states", to="posthog.dashboardtile"
+                null=True,
+                on_delete=models.deletion.CASCADE,
+                related_name="caching_states",
+                to="posthog.dashboardtile",
             ),
         ),
         migrations.AlterField(
             model_name="insightcachingstate",
             name="insight",
             field=models.ForeignKey(
-                on_delete=models.deletion.CASCADE, related_name="caching_states", to="posthog.insight"
+                on_delete=models.deletion.CASCADE,
+                related_name="caching_states",
+                to="posthog.insight",
             ),
         ),
     ]

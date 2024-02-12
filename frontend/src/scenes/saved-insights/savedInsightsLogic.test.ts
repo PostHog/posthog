@@ -1,16 +1,18 @@
-import { expectLogic, partial } from 'kea-test-utils'
-import { initKeaTests } from '~/test/init'
-import { InsightsResult, savedInsightsLogic } from './savedInsightsLogic'
-import { InsightModel, InsightType } from '~/types'
 import { combineUrl, router } from 'kea-router'
-import { urls } from 'scenes/urls'
-import { cleanFilters } from 'scenes/insights/utils/cleanFilters'
-import { useMocks } from '~/mocks/jest'
+import { expectLogic, partial } from 'kea-test-utils'
 import api from 'lib/api'
 import { MOCK_TEAM_ID } from 'lib/api.mock'
-import { DuplicateDashboardForm, duplicateDashboardLogic } from 'scenes/dashboard/duplicateDashboardLogic'
 import { DeleteDashboardForm, deleteDashboardLogic } from 'scenes/dashboard/deleteDashboardLogic'
+import { DuplicateDashboardForm, duplicateDashboardLogic } from 'scenes/dashboard/duplicateDashboardLogic'
+import { cleanFilters } from 'scenes/insights/utils/cleanFilters'
+import { urls } from 'scenes/urls'
+
+import { useMocks } from '~/mocks/jest'
 import { dashboardsModel } from '~/models/dashboardsModel'
+import { initKeaTests } from '~/test/init'
+import { InsightModel, InsightType } from '~/types'
+
+import { InsightsResult, savedInsightsLogic } from './savedInsightsLogic'
 
 jest.spyOn(api, 'create')
 
@@ -193,7 +195,7 @@ describe('savedInsightsLogic', () => {
         const sourceInsight = createInsight(123, 'hello')
         sourceInsight.name = ''
         sourceInsight.derived_name = 'should be copied'
-        await logic.actions.duplicateInsight(sourceInsight)
+        await logic.asyncActions.duplicateInsight(sourceInsight)
         expect(api.create).toHaveBeenCalledWith(
             `api/projects/${MOCK_TEAM_ID}/insights`,
             expect.objectContaining({ name: '' })
@@ -204,7 +206,7 @@ describe('savedInsightsLogic', () => {
         const sourceInsight = createInsight(123, 'hello')
         sourceInsight.name = 'should be copied'
         sourceInsight.derived_name = ''
-        await logic.actions.duplicateInsight(sourceInsight)
+        await logic.asyncActions.duplicateInsight(sourceInsight)
         expect(api.create).toHaveBeenCalledWith(
             `api/projects/${MOCK_TEAM_ID}/insights`,
             expect.objectContaining({ name: 'should be copied (copy)' })

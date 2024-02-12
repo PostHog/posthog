@@ -13,6 +13,7 @@ module.exports = {
         'no-only-tests/no-only-tests': 'error',
         'simple-import-sort/imports': 'error',
         'simple-import-sort/exports': 'error',
+        'no-constant-binary-expression': 'error',
         'no-unused-vars': 'off',
         '@typescript-eslint/no-unused-vars': [
             'error',

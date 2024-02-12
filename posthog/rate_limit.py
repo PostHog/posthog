@@ -82,7 +82,6 @@ class TeamRateThrottle(SimpleRateThrottle):
             return None
 
     def allow_request(self, request, view):
-
         if not is_rate_limit_enabled(round(time.time() / 60)):
             return True
 
@@ -114,7 +113,12 @@ class TeamRateThrottle(SimpleRateThrottle):
 
                     statsd.incr(
                         "rate_limit_exceeded",
-                        tags={"team_id": team_id, "scope": scope, "rate": rate, "path": path},
+                        tags={
+                            "team_id": team_id,
+                            "scope": scope,
+                            "rate": rate,
+                            "path": path,
+                        },
                     )
                     RATE_LIMIT_EXCEEDED_COUNTER.labels(team_id=team_id, scope=scope, path=path).inc()
 
@@ -188,7 +192,6 @@ class DecideRateThrottle(BaseThrottle):
             return None
 
     def allow_request(self, request, view):
-
         if not is_decide_rate_limit_enabled():
             return True
 

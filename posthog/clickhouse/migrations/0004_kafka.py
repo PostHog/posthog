@@ -1,5 +1,8 @@
 from posthog.clickhouse.client.migration_tools import run_sql_with_exceptions
-from posthog.models.event.sql import DISTRIBUTED_EVENTS_TABLE_SQL, WRITABLE_EVENTS_TABLE_SQL
+from posthog.models.event.sql import (
+    DISTRIBUTED_EVENTS_TABLE_SQL,
+    WRITABLE_EVENTS_TABLE_SQL,
+)
 from posthog.models.person.sql import (
     KAFKA_PERSONS_DISTINCT_ID_TABLE_SQL,
     KAFKA_PERSONS_TABLE_SQL,

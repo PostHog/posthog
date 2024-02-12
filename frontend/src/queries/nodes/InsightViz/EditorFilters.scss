@@ -1,92 +1,26 @@
 @import '../../../styles/mixins';
-@import '../../../styles/mixins';
 
 .EditorFiltersWrapper {
-    flex-shrink: 0;
+    --editor-panel-group-min-width: 20rem;
 
-    border: 1px solid var(--border);
-    border-radius: var(--radius);
-    padding: 1rem;
-    margin-bottom: 1rem;
+    flex-shrink: 0;
     background: var(--bg-light);
 
-    .EditorFilters {
-        > * + * {
-            margin-top: 1rem;
-        }
-        @include screen($md) {
-            display: flex;
-            gap: 2rem;
-            .EditorFilterGroup {
-                flex: 1;
-                width: 50%;
-            }
-
-            > * + * {
-                margin-top: 0;
-            }
-        }
+    &:not(.EditorFiltersWrapper--embedded) {
+        padding: 1rem;
+        border: 1px solid var(--border);
+        border-radius: var(--radius);
     }
 
-    &.EditorFiltersWrapper--singlecolumn {
-        border: none;
-        background: none;
-        padding: 0px;
-        margin-right: 1rem;
+    .EditorFilters {
+        display: flex;
+        flex-flow: row wrap;
+        gap: 1rem;
 
-        @include screen($xl) {
-            --editor-panel-width: max(25vw, 28rem);
-
-            .EditorFilters {
-                width: var(--editor-panel-width);
-                display: block;
-                padding-right: 1rem;
-            }
-            &.anim--enter {
-                width: 0px;
-
-                .EditorFilters {
-                    transform: translateX(calc(-1 * var(--editor-panel-width)));
-                }
-            }
-
-            &.anim--enter-active {
-                width: var(--editor-panel-width);
-                transition: width 250ms;
-                .EditorFilters {
-                    transform: translateX(0px);
-                    transition: transform 250ms;
-                }
-            }
-
-            &.anim--exit {
-                width: var(--editor-panel-width);
-                .EditorFilters {
-                    transform: translateX(0px);
-                }
-            }
-
-            &.anim--exit-active {
-                width: 0px;
-                transition: width 250ms;
-                .EditorFilters {
-                    transform: translateX(calc(-1 * var(--editor-panel-width)));
-                    transition: transform 250ms;
-                }
-            }
-        }
-
-        .EditorFilters {
-            flex-direction: column;
-            gap: 0rem;
-
-            .EditorFilterGroup {
-                width: auto;
-            }
-
-            > * + * {
-                margin-top: 1rem;
-            }
+        .EditorFilterGroup {
+            flex: 1;
+            min-width: var(--editor-panel-group-min-width);
+            max-width: 100%;
         }
     }
 }

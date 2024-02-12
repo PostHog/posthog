@@ -6,8 +6,8 @@ from typing import List
 from corsheaders.defaults import default_headers
 
 from posthog.settings.base_variables import BASE_DIR, DEBUG, TEST
-from posthog.settings.statsd import STATSD_HOST
 from posthog.settings.utils import get_from_env, get_list, str_to_bool
+from posthog.utils_cors import CORS_ALLOWED_TRACING_HEADERS
 
 # django-axes settings to lockout after too many attempts
 
@@ -106,10 +106,9 @@ MIDDLEWARE = [
     "posthog.middleware.PostHogTokenCookieMiddleware",
 ]
 
-
-if STATSD_HOST is not None:
-    MIDDLEWARE.insert(0, "django_statsd.middleware.StatsdMiddleware")
-    MIDDLEWARE.append("django_statsd.middleware.StatsdMiddlewareTimer")
+if DEBUG:
+    # Used on local devenv to reverse-proxy all of /i/* to capture-rs on port 3000
+    INSTALLED_APPS.append("revproxy")
 
 # Append Enterprise Edition as an app if available
 try:
@@ -143,6 +142,7 @@ TEMPLATES = [
                 "django.template.context_processors.request",
                 "django.contrib.auth.context_processors.auth",
                 "django.contrib.messages.context_processors.messages",
+                "loginas.context_processors.impersonated_session_status",
             ]
         },
     }
@@ -178,7 +178,12 @@ SOCIAL_AUTH_PIPELINE = (
 
 SOCIAL_AUTH_STRATEGY = "social_django.strategy.DjangoStrategy"
 SOCIAL_AUTH_STORAGE = "social_django.models.DjangoStorage"
-SOCIAL_AUTH_FIELDS_STORED_IN_SESSION = ["invite_id", "user_name", "email_opt_in", "organization_name"]
+SOCIAL_AUTH_FIELDS_STORED_IN_SESSION = [
+    "invite_id",
+    "user_name",
+    "email_opt_in",
+    "organization_name",
+]
 SOCIAL_AUTH_GITHUB_SCOPE = ["user:email"]
 SOCIAL_AUTH_GITHUB_KEY = os.getenv("SOCIAL_AUTH_GITHUB_KEY")
 SOCIAL_AUTH_GITHUB_SECRET = os.getenv("SOCIAL_AUTH_GITHUB_SECRET")
@@ -217,8 +222,11 @@ USE_TZ = True
 
 STATIC_ROOT = os.path.join(BASE_DIR, "staticfiles")
 STATIC_URL = "/static/"
-STATICFILES_DIRS = [os.path.join(BASE_DIR, "frontend/dist"), os.path.join(BASE_DIR, "posthog/year_in_posthog/images")]
-STATICFILES_STORAGE = "whitenoise.storage.CompressedManifestStaticFilesStorage"
+STATICFILES_DIRS = [
+    os.path.join(BASE_DIR, "frontend/dist"),
+    os.path.join(BASE_DIR, "posthog/year_in_posthog/images"),
+]
+STATICFILES_STORAGE = "whitenoise.storage.ManifestStaticFilesStorage"
 
 AUTH_USER_MODEL = "posthog.User"
 
@@ -227,7 +235,7 @@ LOGOUT_URL = "/logout"
 LOGIN_REDIRECT_URL = "/"
 APPEND_SLASH = False
 CORS_URLS_REGEX = r"^/api/(?!early_access_features|surveys).*$"
-CORS_ALLOW_HEADERS = default_headers + ("traceparent", "request-id", "request-context")
+CORS_ALLOW_HEADERS = default_headers + CORS_ALLOWED_TRACING_HEADERS
 X_FRAME_OPTIONS = "SAMEORIGIN"
 
 REST_FRAMEWORK = {
@@ -319,6 +327,7 @@ GZIP_RESPONSE_ALLOW_LIST = get_list(
                 "^/api/organizations/@current/plugins/?$",
                 "^api/projects/@current/feature_flags/my_flags/?$",
                 "^/?api/projects/\\d+/query/?$",
+                "^/?api/instance_status/?$",
             ]
         ),
     )

@@ -125,7 +125,9 @@ class StructuredViewSetMixin(_GenericViewSet):
             # drf-extensions nested parameters are prefixed
             if kwarg_name.startswith(extensions_api_settings.DEFAULT_PARENT_LOOKUP_KWARG_NAME_PREFIX):
                 query_lookup = kwarg_name.replace(
-                    extensions_api_settings.DEFAULT_PARENT_LOOKUP_KWARG_NAME_PREFIX, "", 1
+                    extensions_api_settings.DEFAULT_PARENT_LOOKUP_KWARG_NAME_PREFIX,
+                    "",
+                    1,
                 )
                 query_value = kwarg_value
                 if query_value == "@current":

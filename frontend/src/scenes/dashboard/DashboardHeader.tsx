@@ -1,34 +1,36 @@
 import { useActions, useValues } from 'kea'
+import { router } from 'kea-router'
+import { TextCardModal } from 'lib/components/Cards/TextCard/TextCardModal'
 import { EditableField } from 'lib/components/EditableField/EditableField'
+import { ExportButton, ExportButtonItem } from 'lib/components/ExportButton/ExportButton'
 import { FullScreen } from 'lib/components/FullScreen'
-import { LemonButton, LemonButtonWithSideAction } from 'lib/lemon-ui/LemonButton'
-import { More } from 'lib/lemon-ui/LemonButton/More'
-import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
 import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
 import { PageHeader } from 'lib/components/PageHeader'
+import { SharingModal } from 'lib/components/Sharing/SharingModal'
+import { SubscribeButton, SubscriptionsModal } from 'lib/components/Subscriptions/SubscriptionsModal'
+import { privilegeLevelToName } from 'lib/constants'
+import { LemonButton } from 'lib/lemon-ui/LemonButton'
+import { More } from 'lib/lemon-ui/LemonButton/More'
+import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
+import { isLemonSelectSection } from 'lib/lemon-ui/LemonSelect'
+import { ProfileBubbles } from 'lib/lemon-ui/ProfilePicture/ProfileBubbles'
 import { humanFriendlyDetailedTime, slugify } from 'lib/utils'
 import { DashboardEventSource } from 'lib/utils/eventUsageLogic'
-import { dashboardsModel } from '~/models/dashboardsModel'
-import { AvailableFeature, DashboardMode, DashboardType, ExporterFormat } from '~/types'
-import { dashboardLogic } from './dashboardLogic'
-import { DASHBOARD_RESTRICTION_OPTIONS } from './DashboardCollaborators'
-import { userLogic } from 'scenes/userLogic'
-import { privilegeLevelToName } from 'lib/constants'
-import { ProfileBubbles } from 'lib/lemon-ui/ProfilePicture/ProfileBubbles'
-import { dashboardCollaboratorsLogic } from './dashboardCollaboratorsLogic'
-import { IconLock } from 'lib/lemon-ui/icons'
-import { urls } from 'scenes/urls'
-import { ExportButton, ExportButtonItem } from 'lib/components/ExportButton/ExportButton'
-import { SubscribeButton, SubscriptionsModal } from 'lib/components/Subscriptions/SubscriptionsModal'
-import { router } from 'kea-router'
-import { SharingModal } from 'lib/components/Sharing/SharingModal'
-import { isLemonSelectSection } from 'lib/lemon-ui/LemonSelect'
-import { TextCardModal } from 'lib/components/Cards/TextCard/TextCardModal'
-import { DeleteDashboardModal } from 'scenes/dashboard/DeleteDashboardModal'
 import { deleteDashboardLogic } from 'scenes/dashboard/deleteDashboardLogic'
-import { DuplicateDashboardModal } from 'scenes/dashboard/DuplicateDashboardModal'
+import { DeleteDashboardModal } from 'scenes/dashboard/DeleteDashboardModal'
 import { duplicateDashboardLogic } from 'scenes/dashboard/duplicateDashboardLogic'
+import { DuplicateDashboardModal } from 'scenes/dashboard/DuplicateDashboardModal'
+import { urls } from 'scenes/urls'
+import { userLogic } from 'scenes/userLogic'
+
+import { dashboardsModel } from '~/models/dashboardsModel'
+import { notebooksModel } from '~/models/notebooksModel'
 import { tagsModel } from '~/models/tagsModel'
+import { AvailableFeature, DashboardMode, DashboardType, ExporterFormat } from '~/types'
+
+import { DASHBOARD_RESTRICTION_OPTIONS } from './DashboardCollaborators'
+import { dashboardCollaboratorsLogic } from './dashboardCollaboratorsLogic'
+import { dashboardLogic } from './dashboardLogic'
 import { DashboardTemplateEditor } from './DashboardTemplateEditor'
 import { dashboardTemplateEditorLogic } from './dashboardTemplateEditorLogic'
 
@@ -50,6 +52,7 @@ export function DashboardHeader(): JSX.Element | null {
     const { setDashboardMode, triggerDashboardUpdate } = useActions(dashboardLogic)
     const { asDashboardTemplate } = useValues(dashboardLogic)
     const { updateDashboard, pinDashboard, unpinDashboard } = useActions(dashboardsModel)
+    const { createNotebookFromDashboard } = useActions(notebooksModel)
 
     const { setDashboardTemplate, openDashboardTemplateEditor } = useActions(dashboardTemplateEditorLogic)
 
@@ -115,33 +118,6 @@ export function DashboardHeader(): JSX.Element | null {
             )}
 
             <PageHeader
-                title={
-                    <div className="flex items-center">
-                        <EditableField
-                            name="name"
-                            value={dashboard?.name || (dashboardLoading ? 'Loading…' : '')}
-                            placeholder="Name this dashboard"
-                            onSave={
-                                dashboard
-                                    ? (value) => updateDashboard({ id: dashboard.id, name: value, allowUndo: true })
-                                    : undefined
-                            }
-                            saveOnBlur={true}
-                            minLength={1}
-                            maxLength={400} // Sync with Dashboard model
-                            mode={!canEditDashboard ? 'view' : undefined}
-                            notice={
-                                dashboard && !canEditDashboard
-                                    ? {
-                                          icon: <IconLock />,
-                                          tooltip: DASHBOARD_CANNOT_EDIT_MESSAGE,
-                                      }
-                                    : undefined
-                            }
-                            data-attr="dashboard-name"
-                        />
-                    </div>
-                }
                 buttons={
                     dashboardMode === DashboardMode.Edit ? (
                         <LemonButton
@@ -189,7 +165,6 @@ export function DashboardHeader(): JSX.Element | null {
                                                             DashboardEventSource.MoreDropdown
                                                         )
                                                     }
-                                                    status="stealth"
                                                     fullWidth
                                                 >
                                                     Edit layout (E)
@@ -202,7 +177,6 @@ export function DashboardHeader(): JSX.Element | null {
                                                         DashboardEventSource.MoreDropdown
                                                     )
                                                 }
-                                                status="stealth"
                                                 fullWidth
                                             >
                                                 Go full screen (F)
@@ -216,7 +190,6 @@ export function DashboardHeader(): JSX.Element | null {
                                                                 DashboardEventSource.MoreDropdown
                                                             )
                                                         }
-                                                        status="stealth"
                                                         fullWidth
                                                     >
                                                         Unpin dashboard
@@ -229,14 +202,13 @@ export function DashboardHeader(): JSX.Element | null {
                                                                 DashboardEventSource.MoreDropdown
                                                             )
                                                         }
-                                                        status="stealth"
                                                         fullWidth
                                                     >
                                                         Pin dashboard
                                                     </LemonButton>
                                                 ))}
                                             <SubscribeButton dashboardId={dashboard.id} />
-                                            <ExportButton fullWidth status="stealth" items={exportOptions} />
+                                            <ExportButton fullWidth items={exportOptions} />
                                             {user?.is_staff && (
                                                 <LemonButton
                                                     onClick={() => {
@@ -246,7 +218,6 @@ export function DashboardHeader(): JSX.Element | null {
                                                         }
                                                     }}
                                                     fullWidth
-                                                    status="stealth"
                                                 >
                                                     Save as template
                                                 </LemonButton>
@@ -256,10 +227,15 @@ export function DashboardHeader(): JSX.Element | null {
                                                 onClick={() => {
                                                     showDuplicateDashboardModal(dashboard.id, dashboard.name)
                                                 }}
-                                                status="stealth"
                                                 fullWidth
                                             >
                                                 Duplicate dashboard
+                                            </LemonButton>
+                                            <LemonButton
+                                                onClick={() => createNotebookFromDashboard(dashboard)}
+                                                fullWidth
+                                            >
+                                                Create notebook from dashboard
                                             </LemonButton>
                                             {canEditDashboard && (
                                                 <LemonButton
@@ -293,7 +269,7 @@ export function DashboardHeader(): JSX.Element | null {
                                 </>
                             )}
                             {dashboard ? (
-                                <LemonButtonWithSideAction
+                                <LemonButton
                                     to={urls.insightNew(undefined, dashboard.id)}
                                     type="primary"
                                     data-attr="dashboard-add-graph-header"
@@ -304,7 +280,6 @@ export function DashboardHeader(): JSX.Element | null {
                                             overlay: (
                                                 <>
                                                     <LemonButton
-                                                        status="stealth"
                                                         fullWidth
                                                         onClick={() => {
                                                             push(urls.dashboardTextTile(dashboard.id, 'new'))
@@ -321,7 +296,7 @@ export function DashboardHeader(): JSX.Element | null {
                                     }}
                                 >
                                     Add insight
-                                </LemonButtonWithSideAction>
+                                </LemonButton>
                             ) : null}
                         </>
                     )
@@ -332,6 +307,7 @@ export function DashboardHeader(): JSX.Element | null {
                             <EditableField
                                 multiline
                                 name="description"
+                                markdown
                                 value={dashboard.description || ''}
                                 placeholder="Description (optional)"
                                 onSave={(value) =>
@@ -351,14 +327,14 @@ export function DashboardHeader(): JSX.Element | null {
                                         onChange={(_, tags) => triggerDashboardUpdate({ tags })}
                                         saving={dashboardLoading}
                                         tagsAvailable={tags.filter((tag) => !dashboard.tags?.includes(tag))}
-                                        className="insight-metadata-tags"
+                                        className="mt-2"
                                     />
                                 ) : dashboard.tags.length ? (
                                     <ObjectTags
                                         tags={dashboard.tags}
                                         saving={dashboardLoading}
                                         staticOnly
-                                        className="insight-metadata-tags"
+                                        className="mt-2"
                                     />
                                 ) : null}
                             </>

@@ -1,24 +1,22 @@
 import { Meta, Story } from '@storybook/react'
-
-import { App } from 'scenes/App'
-import insightsJson from './__mocks__/insights.json'
-
-import { useEffect } from 'react'
 import { router } from 'kea-router'
-import { mswDecorator, useStorybookMocks } from '~/mocks/browser'
+import { useEffect } from 'react'
+import { App } from 'scenes/App'
 
-import trendsBarBreakdown from '../insights/__mocks__/trendsBarBreakdown.json'
-import trendsPieBreakdown from '../insights/__mocks__/trendsPieBreakdown.json'
-import funnelTopToBottom from '../insights/__mocks__/funnelTopToBottom.json'
+import { mswDecorator, useStorybookMocks } from '~/mocks/browser'
 import { EMPTY_PAGINATED_RESPONSE, toPaginatedResponse } from '~/mocks/handlers'
+
+import funnelTopToBottom from '../../mocks/fixtures/api/projects/team_id/insights/funnelTopToBottom.json'
+import trendsBarBreakdown from '../../mocks/fixtures/api/projects/team_id/insights/trendsBarBreakdown.json'
+import trendsPieBreakdown from '../../mocks/fixtures/api/projects/team_id/insights/trendsPieBreakdown.json'
+import insightsJson from './__mocks__/insights.json'
 
 const insights = [trendsBarBreakdown, trendsPieBreakdown, funnelTopToBottom]
 
-export default {
+const meta: Meta = {
     title: 'Scenes-App/Saved Insights',
     parameters: {
         layout: 'fullscreen',
-        options: { showPanel: false },
         testOptions: {
             excludeNavigationFromSnapshot: true,
         },
@@ -39,8 +37,8 @@ export default {
             },
         }),
     ],
-} as Meta
-
+}
+export default meta
 export const ListView: Story = () => {
     useEffect(() => {
         router.actions.push('/insights')
@@ -55,7 +53,7 @@ export const CardView: Story = () => {
     return <App />
 }
 CardView.parameters = {
-    testOptions: { waitForLoadersToDisappear: '[data-attr=trend-line-graph] > canvas' },
+    testOptions: { waitForSelector: '[data-attr=trend-line-graph] > canvas' },
 }
 
 export const EmptyState: Story = () => {

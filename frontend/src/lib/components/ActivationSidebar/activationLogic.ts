@@ -1,18 +1,21 @@
-import { kea, path, actions, selectors, connect, reducers, listeners, events } from 'kea'
+import { actions, connect, events, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import { router, urlToAction } from 'kea-router'
 import api from 'lib/api'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
-import { inviteLogic } from 'scenes/organization/Settings/inviteLogic'
-import { membersLogic } from 'scenes/organization/Settings/membersLogic'
+import { permanentlyMount } from 'lib/utils/kea-logic-builders'
+import { membersLogic } from 'scenes/organization/membersLogic'
 import { pluginsLogic } from 'scenes/plugins/pluginsLogic'
-import { teamLogic } from 'scenes/teamLogic'
-import { navigationLogic } from '~/layout/navigation/navigationLogic'
-import { EventDefinitionType, TeamBasicType } from '~/types'
-import type { activationLogicType } from './activationLogicType'
-import { urls } from 'scenes/urls'
 import { savedInsightsLogic } from 'scenes/saved-insights/savedInsightsLogic'
+import { inviteLogic } from 'scenes/settings/organization/inviteLogic'
+import { teamLogic } from 'scenes/teamLogic'
+import { urls } from 'scenes/urls'
+
+import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
 import { dashboardsModel } from '~/models/dashboardsModel'
+import { EventDefinitionType, ProductKey, SidePanelTab, TeamBasicType } from '~/types'
+
+import type { activationLogicType } from './activationLogicType'
 
 export enum ActivationTasks {
     IngestFirstEvent = 'ingest_first_event',
@@ -62,8 +65,8 @@ export const activationLogic = kea<activationLogicType>([
             ['showInviteModal', 'loadInvitesSuccess', 'loadInvitesFailure'],
             pluginsLogic,
             ['loadPluginsSuccess', 'loadPluginsFailure'],
-            navigationLogic,
-            ['toggleActivationSideBar', 'showActivationSideBar', 'hideActivationSideBar'],
+            sidePanelStateLogic,
+            ['openSidePanel'],
             eventUsageLogic,
             ['reportActivationSideBarShown'],
             savedInsightsLogic,
@@ -77,7 +80,6 @@ export const activationLogic = kea<activationLogicType>([
         runTask: (id: string) => ({ id }),
         skipTask: (id: string) => ({ id }),
         addSkippedTask: (teamId: TeamBasicType['id'], taskId: string) => ({ teamId, taskId }),
-        setShowSessionRecordingConfig: (value: boolean) => ({ value }),
     }),
     reducers(() => ({
         skippedTasks: [
@@ -87,12 +89,6 @@ export const activationLogic = kea<activationLogicType>([
                 addSkippedTask: (state, { teamId, taskId }) => {
                     return { ...state, [teamId]: [...(state[teamId] ?? []), taskId] }
                 },
-            },
-        ],
-        showSessionRecordingConfig: [
-            false,
-            {
-                setShowSessionRecordingConfig: (_, { value }) => value,
             },
         ],
         areMembersLoaded: [
@@ -142,8 +138,8 @@ export const activationLogic = kea<activationLogicType>([
         customEventsCount: [
             0,
             {
-                loadCustomEvents: async ({}, breakpoint) => {
-                    breakpoint(200)
+                loadCustomEvents: async (_, breakpoint) => {
+                    await breakpoint(200)
                     const url = api.eventDefinitions.determineListEndpoint({
                         event_type: EventDefinitionType.EventCustom,
                     })
@@ -333,7 +329,7 @@ export const activationLogic = kea<activationLogicType>([
         runTask: async ({ id }) => {
             switch (id) {
                 case ActivationTasks.IngestFirstEvent:
-                    router.actions.push(urls.ingestion())
+                    router.actions.push(urls.onboarding(ProductKey.PRODUCT_ANALYTICS))
                     break
                 case ActivationTasks.InviteTeamMember:
                     actions.showInviteModal()
@@ -345,7 +341,7 @@ export const activationLogic = kea<activationLogicType>([
                     router.actions.push(urls.dashboards())
                     break
                 case ActivationTasks.SetupSessionRecordings:
-                    actions.setShowSessionRecordingConfig(true)
+                    router.actions.push(urls.replay())
                     break
                 case ActivationTasks.InstallFirstApp:
                     router.actions.push(urls.projectApps())
@@ -359,16 +355,6 @@ export const activationLogic = kea<activationLogicType>([
                 actions.addSkippedTask(values.currentTeam.id, id)
             }
         },
-        toggleActivationSideBar: async () => {
-            actions.setShowSessionRecordingConfig(false)
-        },
-        showActivationSideBar: async () => {
-            actions.reportActivationSideBarShown(
-                values.activeTasks.length,
-                values.completedTasks.length,
-                values.completionPercent
-            )
-        },
     })),
     events(({ actions }) => ({
         afterMount: () => {
@@ -379,10 +365,9 @@ export const activationLogic = kea<activationLogicType>([
     urlToAction(({ actions, values }) => ({
         '*': (_, params) => {
             if (params?.onboarding_completed && !values.hasCompletedAllTasks) {
-                actions.toggleActivationSideBar()
-            } else {
-                actions.hideActivationSideBar()
+                actions.openSidePanel(SidePanelTab.Activation)
             }
         },
     })),
+    permanentlyMount(),
 ])

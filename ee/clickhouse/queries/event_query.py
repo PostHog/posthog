@@ -21,7 +21,12 @@ class EnterpriseEventQuery(EventQuery):
     def __init__(
         self,
         filter: Union[
-            Filter, PathFilter, RetentionFilter, StickinessFilter, SessionRecordingsFilter, PropertiesTimelineFilter
+            Filter,
+            PathFilter,
+            RetentionFilter,
+            StickinessFilter,
+            SessionRecordingsFilter,
+            PropertiesTimelineFilter,
         ],
         team: Team,
         round_interval=False,
@@ -55,5 +60,8 @@ class EnterpriseEventQuery(EventQuery):
         if isinstance(self._filter, PropertiesTimelineFilter):
             raise Exception("Properties Timeline never needs groups query")
         return GroupsJoinQuery(
-            self._filter, self._team_id, self._column_optimizer, person_on_events_mode=self._person_on_events_mode
+            self._filter,
+            self._team_id,
+            self._column_optimizer,
+            person_on_events_mode=self._person_on_events_mode,
         ).get_join_query()

@@ -1,15 +1,20 @@
-import { actions, afterMount, kea, key, props, path, selectors, reducers, connect } from 'kea'
-import { AvailableFeature, Breadcrumb, Definition, PropertyDefinition } from '~/types'
+import { actions, afterMount, connect, kea, key, path, props, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
-import api from 'lib/api'
-import { updatePropertyDefinitions } from '~/models/propertyDefinitionsModel'
 import { router } from 'kea-router'
+import api from 'lib/api'
+import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
+import { getFilterLabel } from 'lib/taxonomy'
+import { Scene } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
-import type { definitionLogicType } from './definitionLogicType'
-import { getPropertyLabel } from 'lib/taxonomy'
 import { userLogic } from 'scenes/userLogic'
+
+import { updatePropertyDefinitions } from '~/models/propertyDefinitionsModel'
+import { AvailableFeature, Breadcrumb, Definition, PropertyDefinition } from '~/types'
+
+import { DataManagementTab } from '../DataManagementScene'
 import { eventDefinitionsTableLogic } from '../events/eventDefinitionsTableLogic'
 import { propertyDefinitionsTableLogic } from '../properties/propertyDefinitionsTableLogic'
+import type { definitionLogicType } from './definitionLogicType'
 
 export enum DefinitionPageMode {
     View = 'view',
@@ -111,7 +116,7 @@ export const definitionLogic = kea<definitionLogicType>([
                 hasAvailableFeature(AvailableFeature.INGESTION_TAXONOMY) ||
                 hasAvailableFeature(AvailableFeature.TAGGING),
         ],
-        isEvent: [() => [router.selectors.location], ({ pathname }) => pathname.startsWith(urls.eventDefinitions())],
+        isEvent: [() => [router.selectors.location], ({ pathname }) => pathname.includes(urls.eventDefinitions())],
         isProperty: [(s) => [s.isEvent], (isEvent) => !isEvent],
         singular: [(s) => [s.isEvent], (isEvent): string => (isEvent ? 'event' : 'property')],
         breadcrumbs: [
@@ -119,15 +124,26 @@ export const definitionLogic = kea<definitionLogicType>([
             (definition, isEvent): Breadcrumb[] => {
                 return [
                     {
+                        key: Scene.DataManagement,
                         name: `Data Management`,
                         path: isEvent ? urls.eventDefinitions() : urls.propertyDefinitions(),
                     },
                     {
+                        key: isEvent ? DataManagementTab.EventDefinitions : DataManagementTab.PropertyDefinitions,
                         name: isEvent ? 'Events' : 'Properties',
                         path: isEvent ? urls.eventDefinitions() : urls.propertyDefinitions(),
                     },
                     {
-                        name: definition?.id !== 'new' ? getPropertyLabel(definition?.name) || 'Untitled' : 'Untitled',
+                        key: [isEvent ? Scene.EventDefinition : Scene.PropertyDefinition, definition?.id || 'new'],
+                        name:
+                            definition?.id !== 'new'
+                                ? getFilterLabel(
+                                      definition?.name,
+                                      isEvent
+                                          ? TaxonomicFilterGroupType.Events
+                                          : TaxonomicFilterGroupType.EventProperties
+                                  ) || 'Untitled'
+                                : 'Untitled',
                     },
                 ]
             },

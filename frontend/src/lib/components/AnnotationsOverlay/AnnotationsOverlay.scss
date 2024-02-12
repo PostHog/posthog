@@ -9,19 +9,20 @@
     display: flex;
     align-items: center;
     justify-content: center;
+    width: var(--annotations-overlay-tick-interval);
+    height: 3rem;
     margin-left: calc(
         var(--annotations-overlay-tick-interval) * var(--annotations-badge-index) -
             var(--annotations-overlay-chart-area-left) + var(--annotations-overlay-first-tick-left)
     );
-    height: 3rem;
-    width: var(--annotations-overlay-tick-interval);
-    border: none;
-    background: none;
-    transform: translate(-50%, -50%);
+    appearance: none !important;
     cursor: pointer;
-    -webkit-appearance: none !important;
+    background: none;
+    border: none;
+    transform: translate(-50%, -50%);
 
     > .LemonBadge {
+        border-color: var(--bg-light); // Matching the chart background
         transition: transform 200ms ease; // Same as LemonBadge's transition
         // Override .LemonBadge--position-self-centered
         transform: scale(var(--annotations-badge-scale));
@@ -31,23 +32,17 @@
 
 .AnnotationsPopover {
     --annotations-popover-width: 30rem;
-    transition: left 200ms ease, opacity 100ms ease, transform 100ms ease;
+
     z-index: var(--z-annotation-popover) !important;
+    transition: left 200ms ease, opacity 100ms ease, transform 100ms ease;
 
     .LemonModal {
-        margin: 0;
         min-width: var(--annotations-popover-width);
         max-width: var(--annotations-popover-width);
-        box-shadow: none;
+        min-height: 100%;
+        margin: 0;
         border: none;
-    }
-
-    .Popover__box {
-        padding: 0;
-    }
-
-    ul {
-        max-height: calc(4 * 6.75rem + 3 * 0.5rem); // Fit in 4 one-line annotations without scrolling
+        box-shadow: none;
     }
 }
 
@@ -55,6 +50,7 @@
     .profile-package {
         vertical-align: bottom;
     }
+
     h5 {
         margin: 0;
     }

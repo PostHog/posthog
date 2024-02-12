@@ -1,4 +1,4 @@
-import { LogLevel, PluginsServerConfig, stringToPluginServerMode } from '../types'
+import { LogLevel, PluginLogLevel, PluginsServerConfig, stringToPluginServerMode, ValueMatcher } from '../types'
 import { isDevEnv, isTestEnv, stringToBoolean } from '../utils/env-utils'
 import { KAFKAJS_LOG_LEVEL_MAPPING } from './constants'
 import {
@@ -6,6 +6,8 @@ import {
     KAFKA_EVENTS_PLUGIN_INGESTION,
     KAFKA_EVENTS_PLUGIN_INGESTION_OVERFLOW,
 } from './kafka-topics'
+
+export const DEFAULT_HTTP_SERVER_PORT = 6738
 
 export const defaultConfig = overrideWithEnv(getDefaultConfig())
 
@@ -16,6 +18,9 @@ export function getDefaultConfig(): PluginsServerConfig {
             : isDevEnv()
             ? 'postgres://posthog:posthog@localhost:5432/posthog'
             : '',
+        DATABASE_READONLY_URL: '',
+        PLUGIN_STORAGE_DATABASE_URL: '',
+        POSTGRES_CONNECTION_POOL_SIZE: 10,
         POSTHOG_DB_NAME: null,
         POSTHOG_DB_USER: 'postgres',
         POSTHOG_DB_PASSWORD: '',
@@ -31,6 +36,7 @@ export function getDefaultConfig(): PluginsServerConfig {
         CLICKHOUSE_DISABLE_EXTERNAL_SCHEMAS: true,
         EVENT_OVERFLOW_BUCKET_CAPACITY: 1000,
         EVENT_OVERFLOW_BUCKET_REPLENISH_RATE: 1.0,
+        SKIP_UPDATE_EVENT_AND_PROPERTIES_STEP: false,
         KAFKA_HOSTS: 'kafka:9092', // KEEP IN SYNC WITH posthog/settings/data_stores.py
         KAFKA_CLIENT_CERT_B64: undefined,
         KAFKA_CLIENT_CERT_KEY_B64: undefined,
@@ -40,21 +46,23 @@ export function getDefaultConfig(): PluginsServerConfig {
         KAFKA_SASL_USER: undefined,
         KAFKA_SASL_PASSWORD: undefined,
         KAFKA_CLIENT_RACK: undefined,
-        KAFKA_CONSUMPTION_USE_RDKAFKA: false, // Transitional setting, ignored for consumers that only support one library
         KAFKA_CONSUMPTION_MAX_BYTES: 10_485_760, // Default value for kafkajs
         KAFKA_CONSUMPTION_MAX_BYTES_PER_PARTITION: 1_048_576, // Default value for kafkajs, must be bigger than message size
-        KAFKA_CONSUMPTION_MAX_WAIT_MS: 1_000, // Down from the 5s default for kafkajs
-        KAFKA_CONSUMPTION_ERROR_BACKOFF_MS: 500, // Timeout when a partition read fails (possibly because empty)
+        KAFKA_CONSUMPTION_MAX_WAIT_MS: 50, // Maximum time the broker may wait to fill the Fetch response with fetch.min.bytes of messages.
+        KAFKA_CONSUMPTION_ERROR_BACKOFF_MS: 100, // Timeout when a partition read fails (possibly because empty).
         KAFKA_CONSUMPTION_BATCHING_TIMEOUT_MS: 500, // Timeout on reads from the prefetch buffer before running consumer loops
         KAFKA_CONSUMPTION_TOPIC: KAFKA_EVENTS_PLUGIN_INGESTION,
         KAFKA_CONSUMPTION_OVERFLOW_TOPIC: KAFKA_EVENTS_PLUGIN_INGESTION_OVERFLOW,
         KAFKA_CONSUMPTION_REBALANCE_TIMEOUT_MS: null,
         KAFKA_CONSUMPTION_SESSION_TIMEOUT_MS: 30_000,
-        KAFKA_PRODUCER_MAX_QUEUE_SIZE: isTestEnv() ? 0 : 1000,
-        KAFKA_PRODUCER_WAIT_FOR_ACK: true, // Turning it off can lead to dropped data
-        KAFKA_MAX_MESSAGE_BATCH_SIZE: isDevEnv() ? 0 : 900_000,
+        KAFKA_CONSUMPTION_MAX_POLL_INTERVAL_MS: 300_000,
+        KAFKA_TOPIC_CREATION_TIMEOUT_MS: isDevEnv() ? 30_000 : 5_000, // rdkafka default is 5s, increased in devenv to resist to slow kafka
         KAFKA_FLUSH_FREQUENCY_MS: isTestEnv() ? 5 : 500,
         APP_METRICS_FLUSH_FREQUENCY_MS: isTestEnv() ? 5 : 20_000,
+        APP_METRICS_FLUSH_MAX_QUEUE_SIZE: isTestEnv() ? 5 : 1000,
+        KAFKA_PRODUCER_LINGER_MS: 20, // rdkafka default is 5ms
+        KAFKA_PRODUCER_BATCH_SIZE: 8 * 1024 * 1024, // rdkafka default is 1MiB
+        KAFKA_PRODUCER_QUEUE_BUFFERING_MAX_MESSAGES: 100_000, // rdkafka default is 100_000
         REDIS_URL: 'redis://127.0.0.1',
         POSTHOG_REDIS_PASSWORD: '',
         POSTHOG_REDIS_HOST: '',
@@ -66,13 +74,12 @@ export function getDefaultConfig(): PluginsServerConfig {
         TASKS_PER_WORKER: 10,
         INGESTION_CONCURRENCY: 10,
         INGESTION_BATCH_SIZE: 500,
+        PLUGINS_DEFAULT_LOG_LEVEL: isTestEnv() ? PluginLogLevel.Full : PluginLogLevel.Log,
         LOG_LEVEL: isTestEnv() ? LogLevel.Warn : LogLevel.Info,
         SENTRY_DSN: null,
         SENTRY_PLUGIN_SERVER_TRACING_SAMPLE_RATE: 0,
         SENTRY_PLUGIN_SERVER_PROFILING_SAMPLE_RATE: 0,
-        STATSD_HOST: null,
-        STATSD_PORT: 8125,
-        STATSD_PREFIX: 'plugin-server.',
+        HTTP_SERVER_PORT: DEFAULT_HTTP_SERVER_PORT,
         SCHEDULE_LOCK_TTL: 60,
         REDIS_POOL_MIN_SIZE: 1,
         REDIS_POOL_MAX_SIZE: 3,
@@ -94,7 +101,6 @@ export function getDefaultConfig(): PluginsServerConfig {
         PISCINA_USE_ATOMICS: true,
         PISCINA_ATOMICS_TIMEOUT: 5000,
         SITE_URL: null,
-        MAX_PENDING_PROMISES_PER_WORKER: 100,
         KAFKA_PARTITIONS_CONSUMED_CONCURRENTLY: 1,
         RECORDING_PARTITIONS_CONSUMED_CONCURRENTLY: 5,
         CLICKHOUSE_DISABLE_EXTERNAL_SCHEMAS_TEAMS: '',
@@ -112,15 +118,28 @@ export function getDefaultConfig(): PluginsServerConfig {
         OBJECT_STORAGE_SECRET_ACCESS_KEY: 'object_storage_root_password',
         OBJECT_STORAGE_BUCKET: 'posthog',
         PLUGIN_SERVER_MODE: null,
+        PLUGIN_LOAD_SEQUENTIALLY: false,
         KAFKAJS_LOG_LEVEL: 'WARN',
-        HISTORICAL_EXPORTS_ENABLED: true,
-        HISTORICAL_EXPORTS_MAX_RETRY_COUNT: 15,
-        HISTORICAL_EXPORTS_INITIAL_FETCH_TIME_WINDOW: 10 * 60 * 1000,
-        HISTORICAL_EXPORTS_FETCH_WINDOW_MULTIPLIER: 1.5,
         APP_METRICS_GATHERED_FOR_ALL: isDevEnv() ? true : false,
         MAX_TEAM_ID_TO_BUFFER_ANONYMOUS_EVENTS_FOR: 0,
         USE_KAFKA_FOR_SCHEDULED_TASKS: true,
-        CLOUD_DEPLOYMENT: 'default', // Used as a Sentry tag
+        CLOUD_DEPLOYMENT: null,
+        EXTERNAL_REQUEST_TIMEOUT_MS: 10 * 1000, // 10 seconds
+        DROP_EVENTS_BY_TOKEN_DISTINCT_ID: '',
+        DROP_EVENTS_BY_TOKEN: '',
+        POE_EMBRACE_JOIN_FOR_TEAMS: '',
+        POE_WRITES_ENABLED_MAX_TEAM_ID: 0,
+        POE_WRITES_EXCLUDE_TEAMS: '',
+        RELOAD_PLUGIN_JITTER_MAX_MS: 60000,
+        RUSTY_HOOK_FOR_TEAMS: '',
+        RUSTY_HOOK_ROLLOUT_PERCENTAGE: 0,
+        RUSTY_HOOK_URL: '',
+
+        STARTUP_PROFILE_DURATION_SECONDS: 300, // 5 minutes
+        STARTUP_PROFILE_CPU: false,
+        STARTUP_PROFILE_HEAP: false,
+        STARTUP_PROFILE_HEAP_INTERVAL: 512 * 1024, // default v8 value
+        STARTUP_PROFILE_HEAP_DEPTH: 16, // default v8 value
 
         SESSION_RECORDING_KAFKA_HOSTS: undefined,
         SESSION_RECORDING_KAFKA_SECURITY_PROTOCOL: undefined,
@@ -134,9 +153,13 @@ export function getDefaultConfig(): PluginsServerConfig {
         SESSION_RECORDING_BUFFER_AGE_IN_MEMORY_MULTIPLIER: 1.2,
         SESSION_RECORDING_MAX_BUFFER_SIZE_KB: 1024 * 50, // 50MB
         SESSION_RECORDING_REMOTE_FOLDER: 'session_recordings',
-        SESSION_RECORDING_REDIS_OFFSET_STORAGE_KEY: '@posthog/replay/partition-high-water-marks',
+        SESSION_RECORDING_REDIS_PREFIX: '@posthog/replay/',
+        SESSION_RECORDING_PARTITION_REVOKE_OPTIMIZATION: false,
+        SESSION_RECORDING_PARALLEL_CONSUMPTION: false,
         POSTHOG_SESSION_RECORDING_REDIS_HOST: undefined,
         POSTHOG_SESSION_RECORDING_REDIS_PORT: undefined,
+        SESSION_RECORDING_CONSOLE_LOGS_INGESTION_ENABLED: true,
+        SESSION_RECORDING_DEBUG_PARTITION: undefined,
     }
 }
 
@@ -202,4 +225,39 @@ export function overrideWithEnv(
         )
     }
     return newConfig
+}
+
+export function buildIntegerMatcher(config: string | undefined, allowStar: boolean): ValueMatcher<number> {
+    // Builds a ValueMatcher on a comma-separated list of values.
+    // Optionally, supports a '*' value to match everything
+    if (!config || config.trim().length == 0) {
+        return () => false
+    } else if (allowStar && config === '*') {
+        return () => true
+    } else {
+        const values = new Set(
+            config
+                .split(',')
+                .map((n) => parseInt(n))
+                .filter((num) => !isNaN(num))
+        )
+        return (v: number) => {
+            return values.has(v)
+        }
+    }
+}
+
+export function buildStringMatcher(config: string | undefined, allowStar: boolean): ValueMatcher<string> {
+    // Builds a ValueMatcher on a comma-separated list of values.
+    // Optionally, supports a '*' value to match everything
+    if (!config || config.trim().length == 0) {
+        return () => false
+    } else if (allowStar && config === '*') {
+        return () => true
+    } else {
+        const values = new Set(config.split(','))
+        return (v: string) => {
+            return values.has(v)
+        }
+    }
 }

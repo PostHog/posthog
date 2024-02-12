@@ -1,9 +1,27 @@
 import csv
+import json
+
+from django.db import DatabaseError
+from sentry_sdk import start_span
+import structlog
+
+from posthog.models.feature_flag.flag_matching import (
+    FeatureFlagMatcher,
+    FlagsMatcherCache,
+    get_feature_flag_hash_key_overrides,
+)
+from posthog.models.person.person import PersonDistinctId
+from posthog.models.property.property import Property, PropertyGroup
+from posthog.queries.base import property_group_to_Q
+from posthog.queries.insight import insight_sync_execute
+import posthoganalytics
+from posthog.metrics import LABEL_TEAM_ID
+from posthog.renderers import SafeJSONRenderer
 from datetime import datetime
-from typing import Any, Dict, cast
+from typing import Any, Dict, cast, Optional
 
 from django.conf import settings
-from django.db.models import QuerySet
+from django.db.models import QuerySet, Prefetch, prefetch_related_objects, OuterRef, Subquery
 from django.db.models.expressions import F
 from django.utils import timezone
 from rest_framework import serializers, viewsets
@@ -31,31 +49,53 @@ from posthog.constants import (
     INSIGHT_TRENDS,
     LIMIT,
     OFFSET,
+    PropertyOperatorType,
 )
 from posthog.event_usage import report_user_action
 from posthog.hogql.context import HogQLContext
-from posthog.models import Cohort, FeatureFlag, User
+from posthog.models import Cohort, FeatureFlag, User, Person
 from posthog.models.async_deletion import AsyncDeletion, DeletionType
-from posthog.models.cohort.util import get_dependent_cohorts
+from posthog.models.cohort.util import get_dependent_cohorts, print_cohort_hogql_query
+from posthog.models.cohort import CohortOrEmpty
 from posthog.models.filters.filter import Filter
 from posthog.models.filters.path_filter import PathFilter
 from posthog.models.filters.stickiness_filter import StickinessFilter
 from posthog.models.filters.lifecycle_filter import LifecycleFilter
-from posthog.models.person.sql import INSERT_COHORT_ALL_PEOPLE_THROUGH_PERSON_ID, PERSON_STATIC_COHORT_TABLE
-from posthog.permissions import ProjectMembershipNecessaryPermissions, TeamMemberAccessPermission
-from posthog.queries.actor_base_query import ActorBaseQuery, get_people
+from posthog.models.person.sql import (
+    INSERT_COHORT_ALL_PEOPLE_THROUGH_PERSON_ID,
+    PERSON_STATIC_COHORT_TABLE,
+)
+from posthog.permissions import TeamMemberAccessPermission
+from posthog.queries.actor_base_query import (
+    ActorBaseQuery,
+    get_people,
+    serialize_people,
+)
 from posthog.queries.paths import PathsActors
 from posthog.queries.person_query import PersonQuery
 from posthog.queries.stickiness import StickinessActors
 from posthog.queries.trends.trends_actors import TrendsActors
 from posthog.queries.trends.lifecycle_actors import LifecycleActors
 from posthog.queries.util import get_earliest_timestamp
+from posthog.schema import ActorsQuery
 from posthog.tasks.calculate_cohort import (
     calculate_cohort_from_list,
+    insert_cohort_from_feature_flag,
     insert_cohort_from_insight_filter,
     update_cohort,
+    insert_cohort_from_query,
 )
 from posthog.utils import format_query_params_absolute_url
+from prometheus_client import Counter
+
+
+API_COHORT_PERSON_BYTES_READ_FROM_POSTGRES_COUNTER = Counter(
+    "api_cohort_person_bytes_read_from_postgres",
+    "An estimate of how many bytes we've read from postgres to service person cohort endpoint.",
+    labelnames=[LABEL_TEAM_ID],
+)
+
+logger = structlog.get_logger(__name__)
 
 
 class CohortSerializer(serializers.ModelSerializer):
@@ -71,6 +111,7 @@ class CohortSerializer(serializers.ModelSerializer):
             "groups",
             "deleted",
             "filters",
+            "query",
             "is_calculating",
             "created_by",
             "created_at",
@@ -89,10 +130,14 @@ class CohortSerializer(serializers.ModelSerializer):
             "count",
         ]
 
-    def _handle_static(self, cohort: Cohort, context: Dict) -> None:
+    def _handle_static(self, cohort: Cohort, context: Dict, validated_data: Dict) -> None:
         request = self.context["request"]
         if request.FILES.get("csv"):
             self._calculate_static_by_csv(request.FILES["csv"], cohort)
+        elif context.get("from_feature_flag_key"):
+            insert_cohort_from_feature_flag.delay(cohort.pk, context["from_feature_flag_key"], self.context["team_id"])
+        elif validated_data.get("query"):
+            insert_cohort_from_query.delay(cohort.pk)
         else:
             filter_data = request.GET.dict()
             existing_cohort_id = context.get("from_cohort_id")
@@ -107,10 +152,15 @@ class CohortSerializer(serializers.ModelSerializer):
 
         if not validated_data.get("is_static"):
             validated_data["is_calculating"] = True
+        if validated_data.get("query") and validated_data.get("filters"):
+            raise ValidationError("Cannot set both query and filters at the same time.")
+
         cohort = Cohort.objects.create(team_id=self.context["team_id"], **validated_data)
 
         if cohort.is_static:
-            self._handle_static(cohort, self.context)
+            self._handle_static(cohort, self.context, validated_data)
+        elif cohort.query is not None:
+            raise ValidationError("Cannot create a dynamic cohort with a query. Set is_static to true.")
         else:
             update_cohort(cohort)
 
@@ -122,6 +172,16 @@ class CohortSerializer(serializers.ModelSerializer):
         reader = csv.reader(decoded_file)
         distinct_ids_and_emails = [row[0] for row in reader if len(row) > 0 and row]
         calculate_cohort_from_list.delay(cohort.pk, distinct_ids_and_emails)
+
+    def validate_query(self, query: Optional[Dict]) -> Optional[Dict]:
+        if not query:
+            return None
+        if not isinstance(query, dict):
+            raise ValidationError("Query must be a dictionary.")
+        if query.get("kind") != "ActorsQuery":
+            raise ValidationError(f"Query must be a ActorsQuery. Got: {query.get('kind')}")
+        ActorsQuery.model_validate(query)
+        return query
 
     def validate_filters(self, request_filters: Dict):
         if isinstance(request_filters, dict) and "properties" in request_filters:
@@ -143,7 +203,7 @@ class CohortSerializer(serializers.ModelSerializer):
                             )
 
                     if prop.type == "cohort":
-                        nested_cohort = Cohort.objects.get(pk=prop.value)
+                        nested_cohort = Cohort.objects.get(pk=prop.value, team_id=self.context["team_id"])
                         dependent_cohorts = get_dependent_cohorts(nested_cohort)
                         for dependent_cohort in [nested_cohort, *dependent_cohorts]:
                             if (
@@ -208,7 +268,10 @@ class CohortSerializer(serializers.ModelSerializer):
         report_user_action(
             request.user,
             "cohort updated",
-            {**cohort.get_analytics_metadata(), "updated_by_creator": request.user == cohort.created_by},
+            {
+                **cohort.get_analytics_metadata(),
+                "updated_by_creator": request.user == cohort.created_by,
+            },
         )
 
         return cohort
@@ -224,7 +287,7 @@ class CohortSerializer(serializers.ModelSerializer):
 class CohortViewSet(StructuredViewSetMixin, ForbidDestroyModel, viewsets.ModelViewSet):
     queryset = Cohort.objects.all()
     serializer_class = CohortSerializer
-    permission_classes = [IsAuthenticated, ProjectMembershipNecessaryPermissions, TeamMemberAccessPermission]
+    permission_classes = [IsAuthenticated, TeamMemberAccessPermission]
 
     def get_queryset(self) -> QuerySet:
         queryset = super().get_queryset()
@@ -249,7 +312,11 @@ class CohortViewSet(StructuredViewSetMixin, ForbidDestroyModel, viewsets.ModelVi
                 "name": f"{cohort.name} (static copy)",
                 "is_static": True,
             },
-            context={"request": request, "from_cohort_id": cohort.pk, "team_id": team.pk},
+            context={
+                "request": request,
+                "from_cohort_id": cohort.pk,
+                "team_id": team.pk,
+            },
         )
 
         cohort_serializer.is_valid(raise_exception=True)
@@ -260,12 +327,16 @@ class CohortViewSet(StructuredViewSetMixin, ForbidDestroyModel, viewsets.ModelVi
     @action(
         methods=["GET"],
         detail=True,
-        renderer_classes=[*api_settings.DEFAULT_RENDERER_CLASSES, csvrenderers.PaginatedCSVRenderer],
+        renderer_classes=[
+            *api_settings.DEFAULT_RENDERER_CLASSES,
+            csvrenderers.PaginatedCSVRenderer,
+        ],
     )
     def persons(self, request: Request, **kwargs) -> Response:
         cohort: Cohort = self.get_object()
         team = self.team
         filter = Filter(request=request, team=self.team)
+        assert request.user.is_authenticated
 
         is_csv_request = self.request.accepted_renderer.format == "csv" or request.GET.get("is_csv_export")
         if is_csv_request and not filter.limit:
@@ -273,13 +344,51 @@ class CohortViewSet(StructuredViewSetMixin, ForbidDestroyModel, viewsets.ModelVi
         elif not filter.limit:
             filter = filter.shallow_clone({LIMIT: 100})
 
-        query, params = PersonQuery(filter, team.pk, cohort=cohort).get_query(paginate=True)
+        if posthoganalytics.feature_enabled(
+            "load-person-fields-from-clickhouse",
+            request.user.distinct_id,
+            person_properties={"email": request.user.email},
+        ):
+            person_query = PersonQuery(
+                filter,
+                team.pk,
+                cohort=cohort,
+                extra_fields=[
+                    "created_at",
+                    "properties",
+                    "is_identified",
+                ],
+                include_distinct_ids=True,
+            )
+            paginated_query, paginated_params = person_query.get_query(paginate=True, filter_future_persons=True)
+            serialized_actors = insight_sync_execute(
+                paginated_query,
+                {**paginated_params, **filter.hogql_context.values},
+                filter=filter,
+                query_type="cohort_persons",
+                team_id=team.pk,
+            )
+            persons = []
+            for p in serialized_actors:
+                person = Person(
+                    uuid=p[0],
+                    created_at=p[1],
+                    is_identified=p[2],
+                    properties=json.loads(p[3]),
+                )
+                person._distinct_ids = p[4]
+                persons.append(person)
 
-        raw_result = sync_execute(query, {**params, **filter.hogql_context.values})
-        actor_ids = [row[0] for row in raw_result]
-        actors, serialized_actors = get_people(team, actor_ids, distinct_id_limit=10)
+            serialized_actors = serialize_people(team, data=persons)
+            _should_paginate = len(serialized_actors) >= filter.limit
+        else:
+            query, params = PersonQuery(filter, team.pk, cohort=cohort).get_query(paginate=True)
+            raw_result = sync_execute(query, {**params, **filter.hogql_context.values})
+            actor_ids = [row[0] for row in raw_result]
+            actors, serialized_actors = get_people(team, actor_ids, distinct_id_limit=10)
 
-        _should_paginate = len(actor_ids) >= filter.limit
+            _should_paginate = len(actor_ids) >= filter.limit
+
         next_url = format_query_params_absolute_url(request, filter.offset + filter.limit) if _should_paginate else None
         previous_url = (
             format_query_params_absolute_url(request, filter.offset - filter.limit)
@@ -287,16 +396,41 @@ class CohortViewSet(StructuredViewSetMixin, ForbidDestroyModel, viewsets.ModelVi
             else None
         )
         if is_csv_request:
-            KEYS_ORDER = ["id", "email", "name", "created_at", "properties", "distinct_ids"]
-            DELETE_KEYS = ["value_at_data_point", "uuid", "type", "is_identified", "matched_recordings"]
+            KEYS_ORDER = [
+                "id",
+                "email",
+                "name",
+                "created_at",
+                "properties",
+                "distinct_ids",
+            ]
+            DELETE_KEYS = [
+                "value_at_data_point",
+                "uuid",
+                "type",
+                "is_identified",
+                "matched_recordings",
+            ]
             for actor in serialized_actors:
                 if actor["properties"].get("email"):
-                    actor["email"] = actor["properties"]["email"]  # type: ignore
+                    actor["email"] = actor["properties"]["email"]
                     del actor["properties"]["email"]
             serialized_actors = [
-                {k: v for k, v in sorted(actor.items(), key=lambda item: KEYS_ORDER.index(item[0]) if item[0] in KEYS_ORDER else 999999) if k not in DELETE_KEYS}  # type: ignore
+                {
+                    k: v
+                    for k, v in sorted(
+                        actor.items(),
+                        key=lambda item: KEYS_ORDER.index(item[0]) if item[0] in KEYS_ORDER else 999999,
+                    )
+                    if k not in DELETE_KEYS
+                }
                 for actor in serialized_actors
             ]
+
+        # TEMPORARY: Work out usage patterns of this endpoint
+        renderer = SafeJSONRenderer()
+        size = len(renderer.render(serialized_actors))
+        API_COHORT_PERSON_BYTES_READ_FROM_POSTGRES_COUNTER.labels(team_id=team.pk).inc(size)
 
         return Response({"results": serialized_actors, "next": next_url, "previous": previous_url})
 
@@ -351,6 +485,12 @@ def insert_cohort_people_into_pg(cohort: Cohort):
     cohort.insert_users_list_by_uuid(items=[str(id[0]) for id in ids])
 
 
+def insert_cohort_query_actors_into_ch(cohort: Cohort):
+    context = HogQLContext(enable_select_queries=True, team_id=cohort.team.pk)
+    query = print_cohort_hogql_query(cohort, context)
+    insert_actors_into_cohort_by_query(cohort, query, {}, context)
+
+
 def insert_cohort_actors_into_ch(cohort: Cohort, filter_data: Dict):
     from_existing_cohort_id = filter_data.get("from_cohort_id")
     context: HogQLContext
@@ -363,7 +503,11 @@ def insert_cohort_actors_into_ch(cohort: Cohort, filter_data: Dict):
             WHERE team_id = %(team_id)s AND cohort_id = %(from_cohort_id)s AND version = %(version)s
             ORDER BY person_id
         """
-        params = {"team_id": cohort.team.pk, "from_cohort_id": existing_cohort.pk, "version": existing_cohort.version}
+        params = {
+            "team_id": cohort.team.pk,
+            "from_cohort_id": existing_cohort.pk,
+            "version": existing_cohort.version,
+        }
         context = Filter(data=filter_data, team=cohort.team).hogql_context
     else:
         insight_type = filter_data.get("insight")
@@ -434,3 +578,152 @@ def insert_actors_into_cohort_by_query(cohort: Cohort, query: str, params: Dict[
         cohort.errors_calculating = F("errors_calculating") + 1
         cohort.save(update_fields=["errors_calculating", "is_calculating"])
         capture_exception(err)
+
+
+def get_cohort_actors_for_feature_flag(cohort_id: int, flag: str, team_id: int, batchsize: int = 1_000):
+    # :TODO: Find a way to incorporate this into the same code path as feature flag evaluation
+    try:
+        feature_flag = FeatureFlag.objects.get(team_id=team_id, key=flag)
+    except FeatureFlag.DoesNotExist:
+        return []
+
+    if not feature_flag.active or feature_flag.deleted or feature_flag.aggregation_group_type_index is not None:
+        return []
+
+    cohort = Cohort.objects.get(pk=cohort_id, team_id=team_id)
+    matcher_cache = FlagsMatcherCache(team_id)
+    uuids_to_add_to_cohort = []
+    cohorts_cache: Dict[int, CohortOrEmpty] = {}
+
+    if feature_flag.uses_cohorts:
+        # TODO: Consider disabling flags with cohorts for creating static cohorts
+        # because this is currently a lot more inefficient for flag matching,
+        # as we're required to go to the database for each person.
+        cohorts_cache = {cohort.pk: cohort for cohort in Cohort.objects.filter(team_id=team_id, deleted=False)}
+
+    default_person_properties = {}
+    for condition in feature_flag.conditions:
+        property_list = Filter(data=condition).property_groups.flat
+        for property in property_list:
+            default_person_properties.update(get_default_person_property(property, cohorts_cache))
+
+    flag_property_conditions = [Filter(data=condition).property_groups for condition in feature_flag.conditions]
+    flag_property_group = PropertyGroup(type=PropertyOperatorType.OR, values=flag_property_conditions)
+
+    try:
+        # QuerySet.Iterator() doesn't work with pgbouncer, it will load everything into memory and then stream
+        # which doesn't work for us, so need a manual chunking here.
+        # Because of this pgbouncer transaction pooling mode, we can't use server-side cursors.
+        # We pre-filter all persons to be ones that will match the feature flag, so that we don't have to
+        # iterate through all persons
+        queryset = (
+            Person.objects.filter(team_id=team_id)
+            .filter(property_group_to_Q(team_id, flag_property_group, cohorts_cache=cohorts_cache))
+            .order_by("id")
+        )
+        # get batchsize number of people at a time
+        start = 0
+        batch_of_persons = queryset[start : start + batchsize]
+        while batch_of_persons:
+            # TODO: Check if this subquery bulk fetch limiting is better than just doing a join for all distinct ids
+            # OR, if row by row getting single distinct id is better
+            # distinct_id = PersonDistinctId.objects.filter(person=person, team_id=team_id).values_list(
+            #     "distinct_id", flat=True
+            # )[0]
+            distinct_id_subquery = Subquery(
+                PersonDistinctId.objects.filter(person_id=OuterRef("person_id")).values_list("id", flat=True)[:3]
+            )
+            prefetch_related_objects(
+                batch_of_persons,
+                Prefetch(
+                    "persondistinctid_set",
+                    to_attr="distinct_ids_cache",
+                    queryset=PersonDistinctId.objects.filter(id__in=distinct_id_subquery),
+                ),
+            )
+
+            all_persons = list(batch_of_persons)
+            if len(all_persons) == 0:
+                break
+
+            with start_span(op="batch_flag_matching_with_overrides"):
+                for person in all_persons:
+                    # ignore almost-deleted persons / persons with no distinct ids
+                    if len(person.distinct_ids) == 0:
+                        continue
+
+                    distinct_id = person.distinct_ids[0]
+                    person_overrides = {}
+                    if feature_flag.ensure_experience_continuity:
+                        # :TRICKY: This is inefficient because it tries to get the hashkey overrides one by one.
+                        # But reusing functions is better for maintainability. Revisit optimising if this becomes a bottleneck.
+                        person_overrides = get_feature_flag_hash_key_overrides(
+                            team_id, [distinct_id], person_id_to_distinct_id_mapping={person.id: distinct_id}
+                        )
+
+                    try:
+                        match = FeatureFlagMatcher(
+                            [feature_flag],
+                            distinct_id,
+                            groups={},
+                            cache=matcher_cache,
+                            hash_key_overrides=person_overrides,
+                            property_value_overrides={**default_person_properties, **person.properties},
+                            group_property_value_overrides={},
+                            cohorts_cache=cohorts_cache,
+                        ).get_match(feature_flag)
+                        if match.match:
+                            uuids_to_add_to_cohort.append(str(person.uuid))
+                    except (DatabaseError, ValueError, ValidationError):
+                        logger.exception(
+                            "Error evaluating feature flag for person", person_uuid=str(person.uuid), team_id=team_id
+                        )
+                    except Exception as err:
+                        # matching errors are not fatal, so we just log them and move on.
+                        # Capturing in sentry for now just in case there are some unexpected errors
+                        # we did not account for.
+                        capture_exception(err)
+
+                    if len(uuids_to_add_to_cohort) >= batchsize:
+                        cohort.insert_users_list_by_uuid(
+                            uuids_to_add_to_cohort, insert_in_clickhouse=True, batchsize=batchsize
+                        )
+                        uuids_to_add_to_cohort = []
+
+            start += batchsize
+            batch_of_persons = queryset[start : start + batchsize]
+
+        if len(uuids_to_add_to_cohort) > 0:
+            cohort.insert_users_list_by_uuid(uuids_to_add_to_cohort, insert_in_clickhouse=True, batchsize=batchsize)
+
+    except Exception as err:
+        if settings.DEBUG or settings.TEST:
+            raise err
+        capture_exception(err)
+
+
+def get_default_person_property(prop: Property, cohorts_cache: Dict[int, CohortOrEmpty]):
+    default_person_properties = {}
+
+    if prop.operator not in ("is_set", "is_not_set") and prop.type == "person":
+        default_person_properties[prop.key] = ""
+    elif prop.type == "cohort" and not isinstance(prop.value, list):
+        try:
+            parsed_cohort_id = int(prop.value)
+        except (ValueError, TypeError):
+            return None
+        cohort = cohorts_cache.get(parsed_cohort_id)
+        if cohort:
+            return get_default_person_properties_for_cohort(cohort, cohorts_cache)
+    return default_person_properties
+
+
+def get_default_person_properties_for_cohort(cohort: Cohort, cohorts_cache: Dict[int, CohortOrEmpty]) -> Dict[str, str]:
+    """
+    Returns a dictionary of default person properties to use when evaluating a feature flag
+    """
+    default_person_properties = {}
+    for property in cohort.properties.flat:
+        default_person_properties.update(get_default_person_property(property, cohorts_cache))
+
+    return default_person_properties

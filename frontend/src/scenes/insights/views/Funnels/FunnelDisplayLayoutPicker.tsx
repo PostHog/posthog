@@ -1,9 +1,9 @@
+import { LemonSelect } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { FunnelLayout } from 'lib/constants'
-import { insightLogic } from 'scenes/insights/insightLogic'
-import { LemonSelect } from '@posthog/lemon-ui'
 import { IconFunnelHorizontal, IconFunnelVertical } from 'lib/lemon-ui/icons'
 import { funnelDataLogic } from 'scenes/funnels/funnelDataLogic'
+import { insightLogic } from 'scenes/insights/insightLogic'
 
 export function FunnelDisplayLayoutPicker(): JSX.Element {
     const { insightProps } = useValues(insightLogic)

@@ -1,34 +1,34 @@
-.compact-list {
-    border-radius: var(--radius);
-    border: 1px solid var(--border);
-    height: calc(19.5rem + 1px);
-    background: var(--bg-light);
+.CompactList {
     box-sizing: content-box;
     display: flex;
-    flex-direction: column;
     flex: 1;
+    flex-direction: column;
+    overflow: hidden;
+    background: var(--bg-light);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
 
-    .compact-list-header {
-        padding: 0.5rem 1rem 0;
+    .CompactList__header {
         display: flex;
         align-items: center;
         justify-content: space-between;
+        padding: 0.5rem;
+
         h3 {
             margin-bottom: 0;
+            font-size: 0.9rem;
             font-weight: 600;
-            font-size: 1rem;
             line-height: 1.4;
         }
     }
 
-    .spacer-container {
-        padding: 0 1rem;
+    .CompactList__content {
+        height: 16rem;
+        padding: 0.5rem;
+        overflow-y: auto;
     }
 
-    .scrollable-list {
-        flex: 1;
-        overflow-y: auto;
-        overflow-x: auto;
-        padding: 0 0.5rem 0.5rem;
+    .LemonButton {
+        font-family: var(--font-sans) !important;
     }
 }

@@ -1,11 +1,13 @@
-import { actions, kea, props, reducers, path } from 'kea'
-import api from 'lib/api'
-import { PersonType } from '~/types'
-import { toParams } from 'lib/utils'
-import { lemonToast } from 'lib/lemon-ui/lemonToast'
-import type { personDeleteModalLogicType } from './personDeleteModalLogicType'
+import { actions, kea, path, props, reducers } from 'kea'
 import { loaders } from 'kea-loaders'
+import api from 'lib/api'
+import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
+import { toParams } from 'lib/utils'
+
+import { PersonType } from '~/types'
+
 import { asDisplay } from './person-utils'
+import type { personDeleteModalLogicType } from './personDeleteModalLogicType'
 
 export interface PersonDeleteModalLogicProps {
     person: PersonType

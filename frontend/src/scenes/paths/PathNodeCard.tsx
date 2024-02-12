@@ -1,13 +1,14 @@
+import { Tooltip } from '@posthog/lemon-ui'
+import { Dropdown } from 'antd'
 import { useActions, useValues } from 'kea'
-import { Dropdown, Tooltip } from 'antd'
 
 import { InsightLogicProps } from '~/types'
 
-import { pageUrl, isSelectedPathStartOrEnd, PathNodeData } from './pathUtils'
-import { PathNodeCardMenu } from './PathNodeCardMenu'
-import { PathNodeCardButton } from './PathNodeCardButton'
 import { PATH_NODE_CARD_LEFT_OFFSET, PATH_NODE_CARD_TOP_OFFSET, PATH_NODE_CARD_WIDTH } from './constants'
+import { PathNodeCardButton } from './PathNodeCardButton'
+import { PathNodeCardMenu } from './PathNodeCardMenu'
 import { pathsDataLogic } from './pathsDataLogic'
+import { isSelectedPathStartOrEnd, pageUrl, PathNodeData } from './pathUtils'
 
 export type PathNodeCardProps = {
     insightProps: InsightLogicProps
@@ -24,11 +25,15 @@ export function PathNodeCard({ insightProps, node }: PathNodeCardProps): JSX.Ele
         return null
     }
 
+    // Attention: targetLinks are the incoming links, sourceLinks are the outgoing links
     const isPathStart = node.targetLinks.length === 0
     const isPathEnd = node.sourceLinks.length === 0
     const continuingCount = node.sourceLinks.reduce((prev, curr) => prev + curr.value, 0)
     const dropOffCount = node.value - continuingCount
-    const averageConversionTime = !isPathStart ? node.targetLinks[0].average_conversion_time / 1000 : null
+    const averageConversionTime = !isPathStart
+        ? node.targetLinks.reduce((prev, curr) => prev + curr.average_conversion_time / 1000, 0) /
+          node.targetLinks.length
+        : null
 
     return (
         <Tooltip title={pageUrl(node)} placement="right">

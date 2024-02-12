@@ -1,14 +1,15 @@
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
-import { LemonTag } from 'lib/lemon-ui/LemonTag/LemonTag'
-import { LemonButton } from 'lib/lemon-ui/LemonButton'
-import { AuthorizedUrlListType as AuthorizedUrlListType, authorizedUrlListLogic } from './authorizedUrlListLogic'
-import { IconDelete, IconEdit, IconOpenInApp, IconPlus } from 'lib/lemon-ui/icons'
-import { Spinner } from 'lib/lemon-ui/Spinner/Spinner'
 import { Form } from 'kea-forms'
-import { LemonInput } from 'lib/lemon-ui/LemonInput/LemonInput'
 import { Field } from 'lib/forms/Field'
+import { IconDelete, IconEdit, IconOpenInApp, IconPlus } from 'lib/lemon-ui/icons'
+import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
+import { LemonInput } from 'lib/lemon-ui/LemonInput/LemonInput'
+import { LemonTag } from 'lib/lemon-ui/LemonTag/LemonTag'
+import { Spinner } from 'lib/lemon-ui/Spinner/Spinner'
+
+import { authorizedUrlListLogic, AuthorizedUrlListType } from './authorizedUrlListLogic'
 
 function EmptyState({
     numberOfResults,
@@ -110,13 +111,13 @@ export function AuthorizedUrlList({
                 </LemonButton>
             </div>
             {suggestionsLoading ? (
-                <div className="border rounded p-4" key={-1}>
+                <div className="border rounded p-4 bg-bg-light" key={-1}>
                     <Spinner className="text-xl" />
                 </div>
             ) : (
                 <div className="space-y-2">
                     {isAddUrlFormVisible && (
-                        <div className="border rounded p-2">
+                        <div className="border rounded p-2 bg-bg-light">
                             <AuthorizedUrlForm type={type} actionId={actionId} />
                         </div>
                     )}
@@ -128,11 +129,11 @@ export function AuthorizedUrlList({
                     />
                     {urlsKeyed.map((keyedURL, index) => {
                         return editUrlIndex === index ? (
-                            <div className="border rounded p-2">
+                            <div className="border rounded p-2 bg-bg-light">
                                 <AuthorizedUrlForm type={type} actionId={actionId} />
                             </div>
                         ) : (
-                            <div key={index} className={clsx('border rounded flex items-center p-2 pl-4')}>
+                            <div key={index} className={clsx('border rounded flex items-center p-2 pl-4 bg-bg-light')}>
                                 {keyedURL.type === 'suggestion' && (
                                     <LemonTag type="highlight" className="mr-4 uppercase">
                                         Suggestion
@@ -170,7 +171,7 @@ export function AuthorizedUrlList({
                                             <LemonButton
                                                 icon={<IconEdit />}
                                                 onClick={() => setEditUrlIndex(keyedURL.originalIndex)}
-                                                tooltip={'Edit'}
+                                                tooltip="Edit"
                                                 center
                                             />
 

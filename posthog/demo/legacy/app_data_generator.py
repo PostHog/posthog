@@ -50,7 +50,12 @@ class AppDataGenerator(DataGenerator):
                         "order": 0,
                         "type": TREND_FILTER_TYPE_ACTIONS,
                     },
-                    {"id": rated_app_action.id, "name": "Rated App", "order": 1, "type": TREND_FILTER_TYPE_ACTIONS},
+                    {
+                        "id": rated_app_action.id,
+                        "name": "Rated App",
+                        "order": 1,
+                        "type": TREND_FILTER_TYPE_ACTIONS,
+                    },
                     {
                         "id": rated_app_action.id,
                         "name": "Rated App",
@@ -68,8 +73,16 @@ class AppDataGenerator(DataGenerator):
 
     def populate_person_events(self, person: Person, distinct_id: str, _index: int):
         start_day = random.randint(1, self.n_days)
-        self.add_event(event="$pageview", distinct_id=distinct_id, timestamp=now() - relativedelta(days=start_day))
-        self.add_event(event="installed_app", distinct_id=distinct_id, timestamp=now() - relativedelta(days=start_day))
+        self.add_event(
+            event="$pageview",
+            distinct_id=distinct_id,
+            timestamp=now() - relativedelta(days=start_day),
+        )
+        self.add_event(
+            event="installed_app",
+            distinct_id=distinct_id,
+            timestamp=now() - relativedelta(days=start_day),
+        )
 
         if random.randint(0, 10) <= 9:
             self.add_event(

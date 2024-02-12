@@ -51,10 +51,10 @@ def get_distinct_ids_tied_to_deleted_persons(team_id: int) -> List[str]:
         """
             SELECT distinct_id FROM (
                 SELECT distinct_id, argMax(person_id, version) AS person_id FROM person_distinct_id2 WHERE team_id = %(team)s GROUP BY distinct_id
-            ) AS pdi2 INNER JOIN (
-                SELECT id FROM person WHERE team_id = %(team)s GROUP BY id HAVING max(is_deleted) = 1
-            ) AS p
-            ON pdi2.person_id = p.id
+            ) AS pdi2
+            WHERE pdi2.person_id NOT IN (SELECT id FROM person WHERE team_id = %(team)s)
+            OR
+            pdi2.person_id IN (SELECT id FROM person WHERE team_id = %(team)s AND is_deleted = 1)
         """,
         {
             "team": team_id,

@@ -1,8 +1,14 @@
-import { kea, path, connect, actions, reducers } from 'kea'
-import { urlToAction } from 'kea-router'
+import { lemonToast } from '@posthog/lemon-ui'
+import { isString } from '@tiptap/core'
+import { actions, connect, kea, path, reducers } from 'kea'
 import { forms } from 'kea-forms'
+import { urlToAction } from 'kea-router'
 import api from 'lib/api'
+import { CLOUD_HOSTNAMES, FEATURE_FLAGS } from 'lib/constants'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
+import { urls } from 'scenes/urls'
+
 import type { signupLogicType } from './signupLogicType'
 
 export interface AccountResponse {
@@ -23,12 +29,13 @@ export interface SignupForm {
 }
 
 export const emailRegex: RegExp =
+    // eslint-disable-next-line no-control-regex
     /(?:[a-z0-9!#$%&'*+/=?^_`{|}~-]+(?:\.[a-z0-9!#$%&'*+/=?^_`{|}~-]+)*|"(?:[\x01-\x08\x0b\x0c\x0e-\x1f\x21\x23-\x5b\x5d-\x7f]|\\[\x01-\x09\x0b\x0c\x0e-\x7f])*")@(?:(?:[a-z0-9](?:[a-z0-9-]*[a-z0-9])?\.)+[a-z0-9](?:[a-z0-9-]*[a-z0-9])?|\[(?:(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\.){3}(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?|[a-z0-9-]*[a-z0-9]:(?:[\x01-\x08\x0b\x0c\x0e-\x1f\x21-\x5a\x53-\x7f]|\\[\x01-\x09\x0b\x0c\x0e-\x7f])+)\])/
 
 export const signupLogic = kea<signupLogicType>([
     path(['scenes', 'authentication', 'signupLogic']),
     connect({
-        values: [preflightLogic, ['preflight']],
+        values: [preflightLogic, ['preflight'], featureFlagLogic, ['featureFlags']],
     }),
     actions({
         setPanel: (panel: number) => ({ panel }),
@@ -81,7 +88,7 @@ export const signupLogic = kea<signupLogicType>([
                 organization_name: !organization_name ? 'Please enter your organization name' : undefined,
             }),
             submit: async (payload, breakpoint) => {
-                await breakpoint()
+                breakpoint()
                 try {
                     const res = await api.create('api/signup/', { ...values.signupPanel1, ...payload })
                     location.href = res.redirect_url || '/'
@@ -98,7 +105,34 @@ export const signupLogic = kea<signupLogicType>([
         },
     })),
     urlToAction(({ actions, values }) => ({
-        '/signup': ({}, { email }) => {
+        '/signup': (_, { email, maintenanceRedirect }) => {
+            if (values.preflight?.cloud) {
+                // Redirect to a different region if we are doing maintenance on one of them
+                const regionOverrideFlag = values.featureFlags[FEATURE_FLAGS.REDIRECT_SIGNUPS_TO_INSTANCE]
+                const regionsAllowList = ['eu', 'us']
+                const isRegionOverrideValid =
+                    isString(regionOverrideFlag) && regionsAllowList.includes(regionOverrideFlag)
+                // KLUDGE: the backend can technically return null
+                // but definitely does in Cypress tests
+                // and, we don't want to redirect to the app unless the preflight region is valid
+                const isPreflightRegionValid =
+                    values.preflight?.region && regionsAllowList.includes(values.preflight?.region)
+
+                if (
+                    isRegionOverrideValid &&
+                    isPreflightRegionValid &&
+                    regionOverrideFlag !== values.preflight?.region?.toLowerCase()
+                ) {
+                    window.location.href = `https://${
+                        CLOUD_HOSTNAMES[regionOverrideFlag.toUpperCase()]
+                    }${urls.signup()}?maintenanceRedirect=true`
+                }
+                if (maintenanceRedirect && isRegionOverrideValid) {
+                    lemonToast.info(
+                        `You've been redirected to signup on our ${regionOverrideFlag.toUpperCase()} instance while we perform maintenance on our other instance.`
+                    )
+                }
+            }
             if (email) {
                 if (values.preflight?.demo) {
                     // In demo mode no password is needed, so we can log in right away

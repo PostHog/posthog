@@ -8,7 +8,6 @@ from posthog.queries.query_date_range import QueryDateRange
 
 
 def requires_flag_warning(filter: Filter, team: Team) -> bool:
-
     date_params = {}
     query_date_range = QueryDateRange(filter=filter, team=team, should_round=False)
     parsed_date_from, date_from_params = query_date_range.date_from

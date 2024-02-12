@@ -1,45 +1,50 @@
-import { ReactElement } from 'react'
-import api from 'lib/api'
-import { dayjs } from 'lib/dayjs'
-import { cleanFilters, getDefaultEvent } from 'scenes/insights/utils/cleanFilters'
-import { teamLogic } from 'scenes/teamLogic'
-import { urls } from 'scenes/urls'
-import {
-    Breadcrumb,
-    Experiment,
-    ExperimentResults,
-    FilterType,
-    FunnelVizType,
-    InsightType,
-    MultivariateFlagVariant,
-    TrendResult,
-    FunnelStep,
-    SecondaryExperimentMetric,
-    SignificanceCode,
-    CountPerActorMathType,
-    ActionFilter as ActionFilterType,
-    TrendExperimentVariant,
-} from '~/types'
-import type { experimentLogicType } from './experimentLogicType'
-import { router, urlToAction } from 'kea-router'
-import { experimentsLogic } from './experimentsLogic'
-import { FunnelLayout } from 'lib/constants'
-import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
-import { Tooltip } from 'lib/lemon-ui/Tooltip'
-import { lemonToast } from 'lib/lemon-ui/lemonToast'
-import { toParams } from 'lib/utils'
 import { actions, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { forms } from 'kea-forms'
 import { loaders } from 'kea-loaders'
+import { router, urlToAction } from 'kea-router'
+import api from 'lib/api'
+import { FunnelLayout } from 'lib/constants'
+import { dayjs } from 'lib/dayjs'
 import { IconInfo } from 'lib/lemon-ui/icons'
+import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
+import { Tooltip } from 'lib/lemon-ui/Tooltip'
+import { toParams } from 'lib/utils'
+import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
+import { ReactElement } from 'react'
 import { validateFeatureFlagKey } from 'scenes/feature-flags/featureFlagLogic'
-import { EXPERIMENT_EXPOSURE_INSIGHT_ID, EXPERIMENT_INSIGHT_ID } from './constants'
-import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
-import { filtersToQueryNode } from '~/queries/nodes/InsightQuery/utils/filtersToQueryNode'
 import { insightDataLogic } from 'scenes/insights/insightDataLogic'
+import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
+import { cleanFilters, getDefaultEvent } from 'scenes/insights/utils/cleanFilters'
+import { sceneLogic } from 'scenes/sceneLogic'
+import { Scene } from 'scenes/sceneTypes'
+import { teamLogic } from 'scenes/teamLogic'
+import { urls } from 'scenes/urls'
+
+import { groupsModel } from '~/models/groupsModel'
+import { filtersToQueryNode } from '~/queries/nodes/InsightQuery/utils/filtersToQueryNode'
 import { queryNodeToFilter } from '~/queries/nodes/InsightQuery/utils/queryNodeToFilter'
 import { InsightVizNode } from '~/queries/schema'
-import { groupsModel } from '~/models/groupsModel'
+import {
+    ActionFilter as ActionFilterType,
+    Breadcrumb,
+    CountPerActorMathType,
+    Experiment,
+    ExperimentResults,
+    FilterType,
+    FunnelStep,
+    FunnelVizType,
+    InsightType,
+    MultivariateFlagVariant,
+    PropertyMathType,
+    SecondaryExperimentMetric,
+    SignificanceCode,
+    TrendExperimentVariant,
+    TrendResult,
+} from '~/types'
+
+import { EXPERIMENT_EXPOSURE_INSIGHT_ID, EXPERIMENT_INSIGHT_ID } from './constants'
+import type { experimentLogicType } from './experimentLogicType'
+import { experimentsLogic } from './experimentsLogic'
 
 export const DEFAULT_DURATION = 14 // days
 
@@ -79,7 +84,14 @@ export const experimentLogic = kea<experimentLogicType>([
     key((props) => props.experimentId || 'new'),
     path((key) => ['scenes', 'experiment', 'experimentLogic', key]),
     connect(() => ({
-        values: [teamLogic, ['currentTeamId'], groupsModel, ['aggregationLabel', 'groupTypes']],
+        values: [
+            teamLogic,
+            ['currentTeamId'],
+            groupsModel,
+            ['aggregationLabel', 'groupTypes', 'showGroupsOptions'],
+            sceneLogic,
+            ['activeScene'],
+        ],
         actions: [
             experimentsLogic,
             ['updateExperiments', 'addToExperiments'],
@@ -103,6 +115,7 @@ export const experimentLogic = kea<experimentLogicType>([
         ],
     })),
     actions({
+        setExperimentMissing: true,
         setExperiment: (experiment: Partial<Experiment>) => ({ experiment }),
         createExperiment: (draft?: boolean, runningTime?: number, sampleSize?: number) => ({
             draft,
@@ -197,6 +210,12 @@ export const experimentLogic = kea<experimentLogicType>([
                 },
             },
         ],
+        experimentMissing: [
+            false,
+            {
+                setExperimentMissing: () => true,
+            },
+        ],
         editingExistingExperiment: [
             false,
             {
@@ -289,7 +308,7 @@ export const experimentLogic = kea<experimentLogicType>([
                     if (response?.id) {
                         actions.updateExperiments(response)
                         actions.setEditExperiment(false)
-                        actions.setExperiment(response)
+                        actions.loadExperimentSuccess(response)
                         return
                     }
                 } else {
@@ -370,7 +389,7 @@ export const experimentLogic = kea<experimentLogicType>([
 
             actions.updateExposureQuerySource(filtersToQueryNode(newInsightFilters))
         },
-        // // sync form value `filters` with query
+        // sync form value `filters` with query
         setExposureQuery: ({ query }) => {
             actions.setExperiment({
                 parameters: {
@@ -541,10 +560,9 @@ export const experimentLogic = kea<experimentLogicType>([
                         return response as Experiment
                     } catch (error: any) {
                         if (error.status === 404) {
-                            throw error
+                            actions.setExperimentMissing()
                         } else {
-                            lemonToast.error(`Failed to load experiment ${props.experimentId}`)
-                            throw new Error(`Failed to load experiment ${props.experimentId}`)
+                            throw error
                         }
                     }
                 }
@@ -617,14 +635,22 @@ export const experimentLogic = kea<experimentLogicType>([
                 return !!experiment?.start_date
             },
         ],
+        secondaryColumnSpan: [
+            (s) => [s.variants],
+            (variants): number => {
+                return Math.floor(24 / (variants.length + 2)) // +2 for the names column
+            },
+        ],
         breadcrumbs: [
             (s) => [s.experiment, s.experimentId],
             (experiment, experimentId): Breadcrumb[] => [
                 {
+                    key: Scene.Experiments,
                     name: 'Experiments',
                     path: urls.experiments(),
                 },
                 {
+                    key: [Scene.Experiment, experimentId],
                     name: experiment?.name || 'New',
                     path: urls.experiment(experimentId || 'new'),
                 },
@@ -636,11 +662,11 @@ export const experimentLogic = kea<experimentLogicType>([
                 return experiment?.parameters?.feature_flag_variants || []
             },
         ],
-        experimentCountPerUserMath: [
+        experimentMathAggregationForTrends: [
             (s) => [s.experiment],
-            (experiment): string | undefined => {
+            (experiment): PropertyMathType | CountPerActorMathType | undefined => {
                 // Find out if we're using count per actor math aggregates averages per user
-                const mathValue = (
+                const userMathValue = (
                     [
                         ...(experiment?.filters?.events || []),
                         ...(experiment?.filters?.actions || []),
@@ -649,7 +675,21 @@ export const experimentLogic = kea<experimentLogicType>([
                     Object.values(CountPerActorMathType).includes(entity?.math as CountPerActorMathType)
                 )[0]?.math
 
-                return mathValue
+                // alternatively, if we're using property math
+                // remove 'sum' property math from the list of math types
+                // since we can handle that as a regular case
+                const targetValues = Object.values(PropertyMathType).filter((value) => value !== PropertyMathType.Sum)
+                // sync with the backend at https://github.com/PostHog/posthog/blob/master/ee/clickhouse/queries/experiments/trend_experiment_result.py#L44
+                // the function uses_math_aggregation_by_user_or_property_value
+
+                const propertyMathValue = (
+                    [
+                        ...(experiment?.filters?.events || []),
+                        ...(experiment?.filters?.actions || []),
+                    ] as ActionFilterType[]
+                ).filter((entity) => targetValues.includes(entity?.math as PropertyMathType))[0]?.math
+
+                return (userMathValue ?? propertyMathValue) as PropertyMathType | CountPerActorMathType | undefined
             },
         ],
         minimumDetectableChange: [
@@ -778,7 +818,7 @@ export const experimentLogic = kea<experimentLogicType>([
                         let index = -1
                         if (insightType === InsightType.FUNNELS) {
                             // Funnel Insight is displayed in order of decreasing count
-                            index = ([...experimentResults?.insight] as FunnelStep[][])
+                            index = ([...experimentResults.insight] as FunnelStep[][])
                                 .sort((a, b) => b[0]?.count - a[0]?.count)
                                 .findIndex(
                                     (variantFunnel: FunnelStep[]) => variantFunnel[0]?.breakdown_value?.[0] === variant
@@ -797,8 +837,8 @@ export const experimentLogic = kea<experimentLogicType>([
                 },
         ],
         countDataForVariant: [
-            (s) => [s.experimentResults, s.experimentCountPerUserMath],
-            (experimentResults, experimentCountPerUserMath) =>
+            (s) => [s.experimentResults, s.experimentMathAggregationForTrends],
+            (experimentResults, experimentMathAggregationForTrends) =>
                 (variant: string): string => {
                     const errorResult = '--'
                     if (!experimentResults) {
@@ -813,8 +853,30 @@ export const experimentLogic = kea<experimentLogicType>([
 
                     let result = variantResults.count
 
-                    if (experimentCountPerUserMath) {
-                        result = variantResults.count / variantResults.data.length
+                    if (experimentMathAggregationForTrends) {
+                        // TODO: Aggregate end result appropriately for nth percentile
+                        if (
+                            [
+                                CountPerActorMathType.Average,
+                                CountPerActorMathType.Median,
+                                PropertyMathType.Average,
+                                PropertyMathType.Median,
+                            ].includes(experimentMathAggregationForTrends)
+                        ) {
+                            result = variantResults.count / variantResults.data.length
+                        } else if (
+                            [CountPerActorMathType.Maximum, PropertyMathType.Maximum].includes(
+                                experimentMathAggregationForTrends
+                            )
+                        ) {
+                            result = Math.max(...variantResults.data)
+                        } else if (
+                            [CountPerActorMathType.Minimum, PropertyMathType.Minimum].includes(
+                                experimentMathAggregationForTrends
+                            )
+                        ) {
+                            result = Math.min(...variantResults.data)
+                        }
                     }
 
                     if (result % 1 !== 0) {

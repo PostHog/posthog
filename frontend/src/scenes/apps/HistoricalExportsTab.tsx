@@ -1,19 +1,23 @@
 import { useActions, useValues } from 'kea'
-import { appMetricsSceneLogic, HistoricalExportInfo } from './appMetricsSceneLogic'
+import { LemonButton } from 'lib/lemon-ui/LemonButton'
+import { LemonProgress } from 'lib/lemon-ui/LemonProgress'
 import { LemonTable, LemonTableColumn } from 'lib/lemon-ui/LemonTable'
-import { HistoricalExport } from './HistoricalExport'
 import { createdAtColumn, createdByColumn } from 'lib/lemon-ui/LemonTable/columnUtils'
 import { LemonTag } from 'lib/lemon-ui/LemonTag/LemonTag'
-import { Progress } from 'antd'
-import { PluginJobModal } from 'scenes/plugins/edit/interface-jobs/PluginJobConfiguration'
 import { useEffect } from 'react'
+import { PluginJobModal } from 'scenes/plugins/edit/interface-jobs/PluginJobConfiguration'
+import { userLogic } from 'scenes/userLogic'
+
+import { appMetricsSceneLogic, HistoricalExportInfo } from './appMetricsSceneLogic'
+import { HistoricalExport } from './HistoricalExport'
 
 const RELOAD_HISTORICAL_EXPORTS_FREQUENCY_MS = 20000
 
 export function HistoricalExportsTab(): JSX.Element {
     const { historicalExports, historicalExportsLoading, pluginConfig, interfaceJobsProps, hasRunningExports } =
         useValues(appMetricsSceneLogic)
-    const { loadHistoricalExports } = useActions(appMetricsSceneLogic)
+    const { openHistoricalExportModal, loadHistoricalExports } = useActions(appMetricsSceneLogic)
+    const { user } = useValues(userLogic)
 
     useEffect(() => {
         let timer: NodeJS.Timeout | undefined
@@ -33,6 +37,13 @@ export function HistoricalExportsTab(): JSX.Element {
 
     return (
         <div className="space-y-2">
+            {user?.is_impersonated && (
+                <div className="flex items-center justify-end">
+                    <LemonButton type="primary" onClick={openHistoricalExportModal} disabled={!interfaceJobsProps}>
+                        Start new export
+                    </LemonButton>
+                </div>
+            )}
             <LemonTable
                 dataSource={historicalExports}
                 loading={historicalExportsLoading}
@@ -65,7 +76,9 @@ export function HistoricalExportsTab(): JSX.Element {
                                         </LemonTag>
                                     )
                                 case 'not_finished':
-                                    return <Progress percent={Math.floor((historicalExport.progress || 0) * 100)} />
+                                    return (
+                                        <LemonProgress percent={Math.floor((historicalExport.progress || 0) * 100)} />
+                                    )
                             }
                         },
                         align: 'right',

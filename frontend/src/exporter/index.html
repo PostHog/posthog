@@ -1,38 +1,39 @@
-<!doctype html>
+<!DOCTYPE html>
 <html>
-  <head>
-    <meta name="robots" content="noindex">
-    <script>
-      window.POSTHOG_EXPORTED_DATA = {{exported_data|safe}}
-      if (window.POSTHOG_EXPORTED_DATA.type) {
-        var root = document.documentElement
-        root.className += ' export-type-' + window.POSTHOG_EXPORTED_DATA.type
-      }
-    </script>
-    {% include "head.html" %}
-      {% if add_og_tags %}
-          <meta property="og:title" content="{{ asset_title }}">
-          <meta property="og:type" content="website">
-          <meta property="og:description" content="{{ asset_description }}">
-          <meta property="og:url" content="{{ request.build_absolute_uri }}">
-          <meta property="og:image" content="{{ asset_opengraph_image_url }}">
-          <meta property="og:image:alt" content="A screenshot of the PostHog asset">
-          <meta name="twitter:card" content="summary_large_image">
-      {% endif %}
-  </head>
-  <body>
-    <script>
-        if (typeof Object.entries === 'undefined') {
-            var div = document.createElement("div");
-            div.style.color='#fef6f6'; div.style.background='#920c0c'; div.style.padding='5px 10px';
-            div.innerHTML = "You are using a really old browser. Please upgrade to fully enjoy PostHog!"
-            document.body.prepend(div);
-        }
-        if (!window.process) {
-            // see https://github.com/remarkjs/react-markdown/issues/339
-            window.process = { cwd: () => '' };
-        }
-    </script>
-    <div id="root"></div>
-  </body>
+    <head>
+        <meta name="robots" content="noindex" />
+        <script>
+            window.POSTHOG_EXPORTED_DATA = {{exported_data|safe}}
+            if (window.POSTHOG_EXPORTED_DATA.type) {
+              var root = document.documentElement
+              root.className += ' export-type-' + window.POSTHOG_EXPORTED_DATA.type
+            }
+        </script>
+        {% include "head.html" %} {% if add_og_tags %}
+        <meta property="og:title" content="{{ asset_title }}" />
+        <meta property="og:type" content="website" />
+        <meta property="og:description" content="{{ asset_description }}" />
+        <meta property="og:url" content="{{ request.build_absolute_uri }}" />
+        <meta property="og:image" content="{{ asset_opengraph_image_url }}" />
+        <meta property="og:image:alt" content="A screenshot of the PostHog asset" />
+        <meta name="twitter:card" content="summary_large_image" />
+        {% endif %}
+    </head>
+    <body class="ExporterBody">
+        <script>
+            if (typeof Object.entries === 'undefined') {
+                var div = document.createElement('div')
+                div.style.color = '#fef6f6'
+                div.style.background = '#920c0c'
+                div.style.padding = '5px 10px'
+                div.innerHTML = 'You are using a really old browser. Please upgrade to fully enjoy PostHog!'
+                document.body.prepend(div)
+            }
+            if (!window.process) {
+                // see https://github.com/remarkjs/react-markdown/issues/339
+                window.process = { cwd: () => '' }
+            }
+        </script>
+        <div id="root"></div>
+    </body>
 </html>

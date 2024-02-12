@@ -1,5 +1,6 @@
+# serializer version: 1
 # name: TestClickhouseLifecycle.test_interval_dates_days
-  '
+  '''
   WITH 'day' AS selected_period,
        periods AS
     (SELECT dateSub(day, number, dateTrunc(selected_period, toDateTime('2021-05-05 23:59:59', 'UTC'))) AS start_of_period
@@ -55,7 +56,7 @@
               FROM person
               WHERE team_id = 2
               GROUP BY id
-              HAVING max(is_deleted) = 0) person ON person.id = pdi.person_id
+              HAVING max(is_deleted) = 0 SETTINGS optimize_aggregation_in_order = 1) person ON person.id = pdi.person_id
            WHERE team_id = 2
              AND event = '$pageview'
              AND timestamp >= toDateTime(dateTrunc('day', toDateTime('2021-04-28 00:00:00', 'UTC'))) - INTERVAL 1 day
@@ -69,10 +70,10 @@
               status
      ORDER BY start_of_period ASC)
   GROUP BY status
-  '
----
+  '''
+# ---
 # name: TestClickhouseLifecycle.test_interval_dates_months
-  '
+  '''
   WITH 'month' AS selected_period,
        periods AS
     (SELECT dateSub(month, number, dateTrunc(selected_period, toDateTime('2021-05-05 23:59:59', 'UTC'))) AS start_of_period
@@ -128,7 +129,7 @@
               FROM person
               WHERE team_id = 2
               GROUP BY id
-              HAVING max(is_deleted) = 0) person ON person.id = pdi.person_id
+              HAVING max(is_deleted) = 0 SETTINGS optimize_aggregation_in_order = 1) person ON person.id = pdi.person_id
            WHERE team_id = 2
              AND event = '$pageview'
              AND timestamp >= toDateTime(dateTrunc('month', toDateTime('2021-02-04 00:00:00', 'UTC'))) - INTERVAL 1 month
@@ -142,10 +143,10 @@
               status
      ORDER BY start_of_period ASC)
   GROUP BY status
-  '
----
+  '''
+# ---
 # name: TestClickhouseLifecycle.test_interval_dates_weeks
-  '
+  '''
   WITH 'week' AS selected_period,
        periods AS
     (SELECT dateSub(week, number, dateTrunc(selected_period, toDateTime('2021-05-06 23:59:59', 'UTC'))) AS start_of_period
@@ -201,7 +202,7 @@
               FROM person
               WHERE team_id = 2
               GROUP BY id
-              HAVING max(is_deleted) = 0) person ON person.id = pdi.person_id
+              HAVING max(is_deleted) = 0 SETTINGS optimize_aggregation_in_order = 1) person ON person.id = pdi.person_id
            WHERE team_id = 2
              AND event = '$pageview'
              AND timestamp >= toDateTime(dateTrunc('week', toDateTime('2021-04-06 00:00:00', 'UTC'))) - INTERVAL 1 week
@@ -215,10 +216,10 @@
               status
      ORDER BY start_of_period ASC)
   GROUP BY status
-  '
----
+  '''
+# ---
 # name: TestClickhouseLifecycle.test_lifecycle_edge_cases
-  '
+  '''
   WITH 'day' AS selected_period,
        periods AS
     (SELECT dateSub(day, number, dateTrunc(selected_period, toDateTime('2020-01-18 23:59:59', 'UTC'))) AS start_of_period
@@ -274,7 +275,7 @@
               FROM person
               WHERE team_id = 2
               GROUP BY id
-              HAVING max(is_deleted) = 0) person ON person.id = pdi.person_id
+              HAVING max(is_deleted) = 0 SETTINGS optimize_aggregation_in_order = 1) person ON person.id = pdi.person_id
            WHERE team_id = 2
              AND event = '$pageview'
              AND timestamp >= toDateTime(dateTrunc('day', toDateTime('2020-01-11 00:00:00', 'UTC'))) - INTERVAL 1 day
@@ -288,10 +289,10 @@
               status
      ORDER BY start_of_period ASC)
   GROUP BY status
-  '
----
+  '''
+# ---
 # name: TestClickhouseLifecycle.test_lifecycle_hogql_event_properties
-  '
+  '''
   WITH 'day' AS selected_period,
        periods AS
     (SELECT dateSub(day, number, dateTrunc(selected_period, toDateTime('2021-05-05 23:59:59', 'UTC'))) AS start_of_period
@@ -347,12 +348,12 @@
               FROM person
               WHERE team_id = 2
               GROUP BY id
-              HAVING max(is_deleted) = 0) person ON person.id = pdi.person_id
+              HAVING max(is_deleted) = 0 SETTINGS optimize_aggregation_in_order = 1) person ON person.id = pdi.person_id
            WHERE team_id = 2
              AND event = '$pageview'
              AND timestamp >= toDateTime(dateTrunc('day', toDateTime('2021-04-28 00:00:00', 'UTC'))) - INTERVAL 1 day
              AND timestamp < toDateTime(dateTrunc('day', toDateTime('2021-05-05 23:59:59', 'UTC'))) + INTERVAL 1 day
-             AND (and(like(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(properties, '$current_url'), ''), 'null'), '^"|"$', ''), '%example%'), 1))
+             AND (and(ifNull(like(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(properties, '$current_url'), ''), 'null'), '^"|"$', ''), '%example%'), 0), 1))
            GROUP BY pdi.person_id)
         GROUP BY start_of_period,
                  status)
@@ -362,10 +363,10 @@
               status
      ORDER BY start_of_period ASC)
   GROUP BY status
-  '
----
+  '''
+# ---
 # name: TestClickhouseLifecycle.test_lifecycle_hogql_event_properties_materialized
-  '
+  '''
   WITH 'day' AS selected_period,
        periods AS
     (SELECT dateSub(day, number, dateTrunc(selected_period, toDateTime('2021-05-05 23:59:59', 'UTC'))) AS start_of_period
@@ -421,12 +422,12 @@
               FROM person
               WHERE team_id = 2
               GROUP BY id
-              HAVING max(is_deleted) = 0) person ON person.id = pdi.person_id
+              HAVING max(is_deleted) = 0 SETTINGS optimize_aggregation_in_order = 1) person ON person.id = pdi.person_id
            WHERE team_id = 2
              AND event = '$pageview'
              AND timestamp >= toDateTime(dateTrunc('day', toDateTime('2021-04-28 00:00:00', 'UTC'))) - INTERVAL 1 day
              AND timestamp < toDateTime(dateTrunc('day', toDateTime('2021-05-05 23:59:59', 'UTC'))) + INTERVAL 1 day
-             AND (and(like(nullIf(nullIf(events.`mat_$current_url`, ''), 'null'), '%example%'), 1))
+             AND (and(ifNull(like(nullIf(nullIf(events.`mat_$current_url`, ''), 'null'), '%example%'), 0), 1))
            GROUP BY pdi.person_id)
         GROUP BY start_of_period,
                  status)
@@ -436,10 +437,10 @@
               status
      ORDER BY start_of_period ASC)
   GROUP BY status
-  '
----
+  '''
+# ---
 # name: TestClickhouseLifecycle.test_lifecycle_hogql_person_properties
-  '
+  '''
   WITH 'day' AS selected_period,
        periods AS
     (SELECT dateSub(day, number, dateTrunc(selected_period, toDateTime('2021-05-05 23:59:59', 'UTC'))) AS start_of_period
@@ -496,12 +497,12 @@
               FROM person
               WHERE team_id = 2
               GROUP BY id
-              HAVING max(is_deleted) = 0) person ON person.id = pdi.person_id
+              HAVING max(is_deleted) = 0 SETTINGS optimize_aggregation_in_order = 1) person ON person.id = pdi.person_id
            WHERE team_id = 2
              AND event = '$pageview'
              AND timestamp >= toDateTime(dateTrunc('day', toDateTime('2021-04-28 00:00:00', 'UTC'))) - INTERVAL 1 day
              AND timestamp < toDateTime(dateTrunc('day', toDateTime('2021-05-05 23:59:59', 'UTC'))) + INTERVAL 1 day
-             AND (like(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person_props, 'email'), ''), 'null'), '^"|"$', ''), '%test.com'))
+             AND (ifNull(like(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person_properties, 'email'), ''), 'null'), '^"|"$', ''), '%test.com'), 0))
            GROUP BY pdi.person_id)
         GROUP BY start_of_period,
                  status)
@@ -511,10 +512,10 @@
               status
      ORDER BY start_of_period ASC)
   GROUP BY status
-  '
----
+  '''
+# ---
 # name: TestClickhouseLifecycle.test_lifecycle_hogql_person_properties_materialized
-  '
+  '''
   WITH 'day' AS selected_period,
        periods AS
     (SELECT dateSub(day, number, dateTrunc(selected_period, toDateTime('2021-05-05 23:59:59', 'UTC'))) AS start_of_period
@@ -571,12 +572,12 @@
               FROM person
               WHERE team_id = 2
               GROUP BY id
-              HAVING max(is_deleted) = 0) person ON person.id = pdi.person_id
+              HAVING max(is_deleted) = 0 SETTINGS optimize_aggregation_in_order = 1) person ON person.id = pdi.person_id
            WHERE team_id = 2
              AND event = '$pageview'
              AND timestamp >= toDateTime(dateTrunc('day', toDateTime('2021-04-28 00:00:00', 'UTC'))) - INTERVAL 1 day
              AND timestamp < toDateTime(dateTrunc('day', toDateTime('2021-05-05 23:59:59', 'UTC'))) + INTERVAL 1 day
-             AND (like(nullIf(nullIf(pmat_email, ''), 'null'), '%test.com'))
+             AND (ifNull(like(nullIf(nullIf(mat_pp_email, ''), 'null'), '%test.com'), 0))
            GROUP BY pdi.person_id)
         GROUP BY start_of_period,
                  status)
@@ -586,10 +587,10 @@
               status
      ORDER BY start_of_period ASC)
   GROUP BY status
-  '
----
+  '''
+# ---
 # name: TestClickhouseLifecycle.test_test_account_filters_with_groups
-  '
+  '''
   WITH 'day' AS selected_period,
        periods AS
     (SELECT dateSub(day, number, dateTrunc(selected_period, toDateTime('2020-01-19 23:59:59', 'UTC'))) AS start_of_period
@@ -645,7 +646,7 @@
               FROM person
               WHERE team_id = 2
               GROUP BY id
-              HAVING max(is_deleted) = 0) person ON person.id = pdi.person_id
+              HAVING max(is_deleted) = 0 SETTINGS optimize_aggregation_in_order = 1) person ON person.id = pdi.person_id
            LEFT JOIN
              (SELECT group_key,
                      argMax(group_properties, _timestamp) AS group_properties_0
@@ -667,5 +668,5 @@
               status
      ORDER BY start_of_period ASC)
   GROUP BY status
-  '
----
+  '''
+# ---

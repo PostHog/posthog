@@ -2,9 +2,9 @@
     padding: 0 0.5rem;
 
     .CohortCriteriaRow__Criteria {
-        border-radius: var(--radius);
-        border: 1px solid transparent;
         padding: 0.25rem 0.5rem;
+        border: 1px solid transparent;
+        border-radius: var(--radius);
 
         &.CohortCriteriaRow__Criteria--error {
             border: 1px solid var(--danger);
@@ -30,9 +30,9 @@
     }
 
     .logical-row-divider {
-        color: var(--primary-alt);
-        font-weight: 600;
         font-size: 12px;
+        font-weight: 600;
+        color: var(--primary-alt);
         text-transform: uppercase;
 
         &::before,
@@ -43,24 +43,28 @@
         &::before {
             width: 1.5%;
         }
+
+        &::after {
+            width: 95%;
+        }
     }
 
     .CohortCriteriaRow__inline-divider {
-        margin: 0 0.5rem;
-        height: 1px;
-        background-color: var(--border);
         flex: 1;
+        height: 1px;
+        margin: 0 0.5rem;
+        background-color: var(--border);
     }
 
     .CohortCriteriaRow__Criteria__arrow {
-        color: var(--muted);
-        font-size: 18px;
-        font-weight: bold;
-        padding-left: 6px;
-        padding-right: 8px;
         position: relative;
         top: 6px;
-        user-select: none;
         flex-shrink: 0;
+        padding-right: 8px;
+        padding-left: 6px;
+        font-size: 18px;
+        font-weight: bold;
+        color: var(--muted);
+        user-select: none;
     }
 }

@@ -1,24 +1,32 @@
 import { actions, BuiltLogic, connect, kea, listeners, path, reducers, selectors, sharedListeners } from 'kea'
-import { Breadcrumb, FilterType, InsightShortId, InsightType, ItemMode } from '~/types'
-import { eventUsageLogic, InsightEventSource } from 'lib/utils/eventUsageLogic'
 import { actionToUrl, beforeUnload, router, urlToAction } from 'kea-router'
-import type { insightSceneLogicType } from './insightSceneLogicType'
-import { urls } from 'scenes/urls'
-import { insightLogicType } from 'scenes/insights/insightLogicType'
+import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
+import { eventUsageLogic, InsightEventSource } from 'lib/utils/eventUsageLogic'
 import { createEmptyInsight, insightLogic } from 'scenes/insights/insightLogic'
-import { lemonToast } from 'lib/lemon-ui/lemonToast'
+import { insightLogicType } from 'scenes/insights/insightLogicType'
+import { cleanFilters } from 'scenes/insights/utils/cleanFilters'
+import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { sceneLogic } from 'scenes/sceneLogic'
 import { Scene } from 'scenes/sceneTypes'
-import { cleanFilters } from 'scenes/insights/utils/cleanFilters'
 import { teamLogic } from 'scenes/teamLogic'
+import { mathsLogic } from 'scenes/trends/mathsLogic'
+import { urls } from 'scenes/urls'
+
+import { ActivityFilters } from '~/layout/navigation-3000/sidepanel/panels/activity/activityForSceneLogic'
+import { cohortsModel } from '~/models/cohortsModel'
+import { groupsModel } from '~/models/groupsModel'
+import { ActivityScope, Breadcrumb, FilterType, InsightShortId, InsightType, ItemMode } from '~/types'
+
 import { insightDataLogic } from './insightDataLogic'
 import { insightDataLogicType } from './insightDataLogicType'
+import type { insightSceneLogicType } from './insightSceneLogicType'
+import { summarizeInsight } from './summarizeInsight'
 
 export const insightSceneLogic = kea<insightSceneLogicType>([
     path(['scenes', 'insights', 'insightSceneLogic']),
     connect({
         logic: [eventUsageLogic],
-        values: [teamLogic, ['currentTeam']],
+        values: [teamLogic, ['currentTeam'], sceneLogic, ['activeScene'], preflightLogic, ['isDev']],
     }),
     actions({
         setInsightId: (insightId: InsightShortId) => ({ insightId }),
@@ -82,18 +90,49 @@ export const insightSceneLogic = kea<insightSceneLogicType>([
     }),
     selectors(() => ({
         insightSelector: [(s) => [s.insightLogicRef], (insightLogicRef) => insightLogicRef?.logic.selectors.insight],
+        filtersSelector: [(s) => [s.insightLogicRef], (insightLogicRef) => insightLogicRef?.logic.selectors.filters],
         insight: [(s) => [(state, props) => s.insightSelector?.(state, props)?.(state, props)], (insight) => insight],
+        filters: [(s) => [(state, props) => s.filtersSelector?.(state, props)?.(state, props)], (filters) => filters],
         breadcrumbs: [
-            (s) => [s.insight],
-            (insight): Breadcrumb[] => [
+            (s) => [
+                s.insightLogicRef,
+                s.insight,
+                s.filters,
+                groupsModel.selectors.aggregationLabel,
+                cohortsModel.selectors.cohortsById,
+                mathsLogic.selectors.mathDefinitions,
+            ],
+            (insightLogicRef, insight, filters, aggregationLabel, cohortsById, mathDefinitions): Breadcrumb[] => [
                 {
-                    name: 'Insights',
+                    key: Scene.SavedInsights,
+                    name: 'Product analytics',
                     path: urls.savedInsights(),
                 },
                 {
-                    name: insight?.name || insight?.derived_name || 'Unnamed',
+                    key: [Scene.Insight, insight?.short_id || 'new'],
+                    name:
+                        insight?.name ||
+                        summarizeInsight(insight?.query, filters, {
+                            aggregationLabel,
+                            cohortsById,
+                            mathDefinitions,
+                        }),
+                    onRename: async (name: string) => {
+                        await insightLogicRef?.logic.asyncActions.setInsightMetadata({ name })
+                    },
                 },
             ],
+        ],
+        activityFilters: [
+            (s) => [s.insight],
+            (insight): ActivityFilters | null => {
+                return insight
+                    ? {
+                          scope: ActivityScope.INSIGHT,
+                          item_id: `${insight.id}`,
+                      }
+                    : null
+            },
         ],
     })),
     sharedListeners(({ actions, values }) => ({
@@ -231,10 +270,13 @@ export const insightSceneLogic = kea<insightSceneLogicType>([
     }),
     beforeUnload(({ values }) => ({
         enabled: () => {
-            const currentScene = sceneLogic.findMounted()?.values
-
             // safeguard against running this check on other scenes
-            if (currentScene?.activeScene !== Scene.Insight) {
+            if (values.activeScene !== Scene.Insight) {
+                return false
+            }
+
+            if (values.isDev) {
+                // TRICKY: We disable beforeUnload handling in dev, but ONLY for insights
                 return false
             }
 

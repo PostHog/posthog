@@ -1,6 +1,7 @@
 .Preflight {
     max-width: 400px;
     padding: 1rem;
+
     .Preflight__header {
         p {
             margin-bottom: 0.5rem;
@@ -20,8 +21,8 @@
     }
 
     .Preflight__checks-container {
-        border-radius: var(--radius);
         border: 1px solid var(--border);
+        border-radius: var(--radius);
 
         svg {
             font-size: 20px;
@@ -29,17 +30,17 @@
 
         .Preflight__check-summary {
             display: flex;
+            align-items: center;
             padding: 12px;
             border-bottom: 1px solid var(--border);
-            align-items: center;
 
             .Preflight__summary-icon-container {
-                width: 40px;
-                height: 40px;
-                border-radius: 20px;
                 display: flex;
                 align-items: center;
                 justify-content: center;
+                width: 40px;
+                height: 40px;
+                border-radius: 20px;
             }
 
             .Preflight__summary-text-container {
@@ -51,8 +52,8 @@
                 }
 
                 .Preflight__summary-header {
-                    font-weight: 600;
                     font-size: 14px;
+                    font-weight: 600;
                 }
 
                 .Preflight__summary-description {
@@ -63,15 +64,15 @@
     }
 
     .Preflight__cannot-continue {
-        background-color: var(--side);
-        border: 2px solid var(--mid);
         display: flex;
         align-items: center;
         justify-content: center;
+        background-color: var(--side);
+        border: 2px solid var(--mid);
 
         p {
-            font-size: 14px;
             margin-bottom: 0;
+            font-size: 14px;
         }
     }
 
@@ -80,7 +81,7 @@
 
         svg,
         .Preflight__status-text {
-            color: var(--primary);
+            color: var(--primary-3000);
         }
     }
 
@@ -123,9 +124,9 @@
 
 .PreflightItem {
     display: flex;
-    padding: 12px;
     align-items: center;
     justify-content: center;
+    padding: 12px;
     border-bottom: 1px solid var(--border);
 
     p {

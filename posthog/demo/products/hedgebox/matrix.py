@@ -2,7 +2,15 @@ import datetime as dt
 from dataclasses import dataclass
 from typing import Optional
 
-from posthog.constants import INSIGHT_TRENDS, PAGEVIEW_EVENT, RETENTION_FIRST_TIME, TRENDS_LINEAR, TRENDS_WORLD_MAP
+from django.db import IntegrityError
+
+from posthog.constants import (
+    INSIGHT_TRENDS,
+    PAGEVIEW_EVENT,
+    RETENTION_FIRST_TIME,
+    TRENDS_LINEAR,
+    TRENDS_WORLD_MAP,
+)
 from posthog.demo.matrix.matrix import Cluster, Matrix
 from posthog.demo.matrix.randomization import Industry
 from posthog.models import (
@@ -22,7 +30,7 @@ from .taxonomy import *
 
 
 @dataclass
-class HedgdboxCompany:
+class HedgeboxCompany:
     name: str
     industry: Industry
 
@@ -34,7 +42,7 @@ class HedgeboxCluster(Cluster):
     MAX_RADIUS: int = 6
 
     # Properties
-    company: Optional[HedgdboxCompany]  # None means the cluster is a social circle instead of a company
+    company: Optional[HedgeboxCompany]  # None means the cluster is a social circle instead of a company
 
     # Internal state - plain
     _business_account: Optional[HedgeboxAccount]  # In social circle clusters the person-level account is used
@@ -43,8 +51,9 @@ class HedgeboxCluster(Cluster):
         super().__init__(*args, **kwargs)
         is_company = self.random.random() < COMPANY_CLUSTERS_PROPORTION
         if is_company:
-            self.company = HedgdboxCompany(
-                name=self.finance_provider.company(), industry=self.properties_provider.industry()
+            self.company = HedgeboxCompany(
+                name=self.finance_provider.company(),
+                industry=self.properties_provider.industry(),
             )
         else:
             self.company = None
@@ -56,7 +65,7 @@ class HedgeboxCluster(Cluster):
     def radius_distribution(self) -> float:
         return self.random.betavariate(1.5, 5)
 
-    def initation_distribution(self) -> float:
+    def initiation_distribution(self) -> float:
         return self.random.betavariate(1.8, 1)
 
 
@@ -79,7 +88,10 @@ class HedgeboxMatrix(Matrix):
 
         # Actions
         interacted_with_file_action = Action.objects.create(
-            name="Interacted with file", team=team, description="Logged-in interaction with a file.", created_by=user
+            name="Interacted with file",
+            team=team,
+            description="Logged-in interaction with a file.",
+            created_by=user,
         )
         ActionStep.objects.bulk_create(
             (
@@ -95,7 +107,18 @@ class HedgeboxMatrix(Matrix):
             team=team,
             name="Signed-up users",
             created_by=user,
-            groups=[{"properties": [{"key": "email", "type": "person", "value": "is_set", "operator": "is_set"}]}],
+            groups=[
+                {
+                    "properties": [
+                        {
+                            "key": "email",
+                            "type": "person",
+                            "value": "is_set",
+                            "operator": "is_set",
+                        }
+                    ]
+                }
+            ],
         )
         real_users_cohort = Cohort.objects.create(
             team=team,
@@ -103,14 +126,26 @@ class HedgeboxMatrix(Matrix):
             description="People who don't belong to the Hedgebox team.",
             created_by=user,
             groups=[
-                {"properties": [{"key": "email", "type": "person", "value": "@hedgebox.net$", "operator": "not_regex"}]}
+                {
+                    "properties": [
+                        {
+                            "key": "email",
+                            "type": "person",
+                            "value": "@hedgebox.net$",
+                            "operator": "not_regex",
+                        }
+                    ]
+                }
             ],
         )
         team.test_account_filters = [{"key": "id", "type": "cohort", "value": real_users_cohort.pk}]
 
         # Dashboard: Key metrics (project home)
         key_metrics_dashboard = Dashboard.objects.create(
-            team=team, name="🔑 Key metrics", description="Company overview.", pinned=True
+            team=team,
+            name="🔑 Key metrics",
+            description="Company overview.",
+            pinned=True,
         )
         team.primary_dashboard = key_metrics_dashboard
         weekly_signups_insight = Insight.objects.create(
@@ -135,7 +170,16 @@ class HedgeboxMatrix(Matrix):
             color="blue",
             layouts={
                 "sm": {"h": 5, "w": 6, "x": 0, "y": 0, "minH": 5, "minW": 3},
-                "xs": {"h": 5, "w": 1, "x": 0, "y": 0, "minH": 5, "minW": 3, "moved": False, "static": False},
+                "xs": {
+                    "h": 5,
+                    "w": 1,
+                    "x": 0,
+                    "y": 0,
+                    "minH": 5,
+                    "minW": 3,
+                    "moved": False,
+                    "static": False,
+                },
             },
         )
         signups_by_country_insight = Insight.objects.create(
@@ -160,7 +204,16 @@ class HedgeboxMatrix(Matrix):
             insight=signups_by_country_insight,
             layouts={
                 "sm": {"h": 5, "w": 6, "x": 6, "y": 0, "minH": 5, "minW": 3},
-                "xs": {"h": 5, "w": 1, "x": 0, "y": 5, "minH": 5, "minW": 3, "moved": False, "static": False},
+                "xs": {
+                    "h": 5,
+                    "w": 1,
+                    "x": 0,
+                    "y": 5,
+                    "minH": 5,
+                    "minW": 3,
+                    "moved": False,
+                    "static": False,
+                },
             },
         )
         activation_funnel = Insight.objects.create(
@@ -208,7 +261,16 @@ class HedgeboxMatrix(Matrix):
             insight=activation_funnel,
             layouts={
                 "sm": {"h": 5, "w": 6, "x": 0, "y": 5, "minH": 5, "minW": 3},
-                "xs": {"h": 5, "w": 1, "x": 0, "y": 10, "minH": 5, "minW": 3, "moved": False, "static": False},
+                "xs": {
+                    "h": 5,
+                    "w": 1,
+                    "x": 0,
+                    "y": 10,
+                    "minH": 5,
+                    "minW": 3,
+                    "moved": False,
+                    "static": False,
+                },
             },
         )
         new_user_retention = Insight.objects.create(
@@ -225,11 +287,23 @@ class HedgeboxMatrix(Matrix):
                     "values": [
                         {
                             "type": "AND",
-                            "values": [{"key": "email", "type": "person", "value": "is_set", "operator": "is_set"}],
+                            "values": [
+                                {
+                                    "key": "email",
+                                    "type": "person",
+                                    "value": "is_set",
+                                    "operator": "is_set",
+                                }
+                            ],
                         }
                     ],
                 },
-                "target_entity": {"id": EVENT_SIGNED_UP, "name": EVENT_SIGNED_UP, "type": "events", "order": 0},
+                "target_entity": {
+                    "id": EVENT_SIGNED_UP,
+                    "name": EVENT_SIGNED_UP,
+                    "type": "events",
+                    "order": 0,
+                },
                 "retention_type": RETENTION_FIRST_TIME,
                 "total_intervals": 9,
                 "returning_entity": {
@@ -247,7 +321,16 @@ class HedgeboxMatrix(Matrix):
             insight=new_user_retention,
             layouts={
                 "sm": {"h": 5, "w": 6, "x": 6, "y": 5, "minH": 5, "minW": 3},
-                "xs": {"h": 5, "w": 1, "x": 0, "y": 15, "minH": 5, "minW": 3, "moved": False, "static": False},
+                "xs": {
+                    "h": 5,
+                    "w": 1,
+                    "x": 0,
+                    "y": 15,
+                    "minH": 5,
+                    "minW": 3,
+                    "moved": False,
+                    "static": False,
+                },
             },
         )
         active_user_lifecycle = Insight.objects.create(
@@ -285,7 +368,16 @@ class HedgeboxMatrix(Matrix):
             insight=active_user_lifecycle,
             layouts={
                 "sm": {"h": 5, "w": 6, "x": 0, "y": 10, "minH": 5, "minW": 3},
-                "xs": {"h": 5, "w": 1, "x": 0, "y": 20, "minH": 5, "minW": 3, "moved": False, "static": False},
+                "xs": {
+                    "h": 5,
+                    "w": 1,
+                    "x": 0,
+                    "y": 20,
+                    "minH": 5,
+                    "minW": 3,
+                    "moved": False,
+                    "static": False,
+                },
             },
         )
         weekly_file_volume = Insight.objects.create(
@@ -331,7 +423,16 @@ class HedgeboxMatrix(Matrix):
             insight=weekly_file_volume,
             layouts={
                 "sm": {"h": 5, "w": 6, "x": 6, "y": 10, "minH": 5, "minW": 3},
-                "xs": {"h": 5, "w": 1, "x": 0, "y": 25, "minH": 5, "minW": 3, "moved": False, "static": False},
+                "xs": {
+                    "h": 5,
+                    "w": 1,
+                    "x": 0,
+                    "y": 25,
+                    "minH": 5,
+                    "minW": 3,
+                    "moved": False,
+                    "static": False,
+                },
             },
         )
 
@@ -344,7 +445,13 @@ class HedgeboxMatrix(Matrix):
             name="Monthly app revenue",
             filters={
                 "events": [
-                    {"id": EVENT_PAID_BILL, "type": "events", "order": 0, "math": "sum", "math_property": "amount_usd"}
+                    {
+                        "id": EVENT_PAID_BILL,
+                        "type": "events",
+                        "order": 0,
+                        "math": "sum",
+                        "math_property": "amount_usd",
+                    }
                 ],
                 "actions": [],
                 "display": TRENDS_LINEAR,
@@ -360,7 +467,16 @@ class HedgeboxMatrix(Matrix):
             insight=monthly_app_revenue_trends,
             layouts={
                 "sm": {"h": 5, "w": 6, "x": 0, "y": 0, "minH": 5, "minW": 3},
-                "xs": {"h": 5, "w": 1, "x": 0, "y": 0, "minH": 5, "minW": 3, "moved": False, "static": False},
+                "xs": {
+                    "h": 5,
+                    "w": 1,
+                    "x": 0,
+                    "y": 0,
+                    "minH": 5,
+                    "minW": 3,
+                    "moved": False,
+                    "static": False,
+                },
             },
         )
         bills_paid_trends = Insight.objects.create(
@@ -397,7 +513,16 @@ class HedgeboxMatrix(Matrix):
             insight=bills_paid_trends,
             layouts={
                 "sm": {"h": 5, "w": 6, "x": 6, "y": 0, "minH": 5, "minW": 3},
-                "xs": {"h": 5, "w": 1, "x": 0, "y": 5, "minH": 5, "minW": 3, "moved": False, "static": False},
+                "xs": {
+                    "h": 5,
+                    "w": 1,
+                    "x": 0,
+                    "y": 5,
+                    "minH": 5,
+                    "minW": 3,
+                    "moved": False,
+                    "static": False,
+                },
             },
         )
 
@@ -424,7 +549,16 @@ class HedgeboxMatrix(Matrix):
             insight=daily_unique_visitors_trends,
             layouts={
                 "sm": {"h": 5, "w": 6, "x": 0, "y": 0, "minH": 5, "minW": 3},
-                "xs": {"h": 5, "w": 1, "x": 0, "y": 0, "minH": 5, "minW": 3, "moved": False, "static": False},
+                "xs": {
+                    "h": 5,
+                    "w": 1,
+                    "x": 0,
+                    "y": 0,
+                    "minH": 5,
+                    "minW": 3,
+                    "moved": False,
+                    "static": False,
+                },
             },
         )
         most_popular_pages_trends = Insight.objects.create(
@@ -433,7 +567,14 @@ class HedgeboxMatrix(Matrix):
             saved=True,
             name="Most popular pages",
             filters={
-                "events": [{"id": PAGEVIEW_EVENT, "math": "total", "type": "events", "order": 0}],
+                "events": [
+                    {
+                        "id": PAGEVIEW_EVENT,
+                        "math": "total",
+                        "type": "events",
+                        "order": 0,
+                    }
+                ],
                 "actions": [],
                 "display": "ActionsTable",
                 "insight": "TRENDS",
@@ -467,7 +608,16 @@ class HedgeboxMatrix(Matrix):
             insight=most_popular_pages_trends,
             layouts={
                 "sm": {"h": 5, "w": 6, "x": 6, "y": 0, "minH": 5, "minW": 3},
-                "xs": {"h": 5, "w": 1, "x": 0, "y": 5, "minH": 5, "minW": 3, "moved": False, "static": False},
+                "xs": {
+                    "h": 5,
+                    "w": 1,
+                    "x": 0,
+                    "y": 5,
+                    "minH": 5,
+                    "minW": 3,
+                    "moved": False,
+                    "static": False,
+                },
             },
         )
 
@@ -485,7 +635,12 @@ class HedgeboxMatrix(Matrix):
                         "type": "events",
                         "order": 0,
                         "properties": [
-                            {"key": "$current_url", "type": "event", "value": URL_HOME, "operator": "exact"}
+                            {
+                                "key": "$current_url",
+                                "type": "event",
+                                "value": URL_HOME,
+                                "operator": "exact",
+                            }
                         ],
                     },
                     {
@@ -495,10 +650,21 @@ class HedgeboxMatrix(Matrix):
                         "type": "events",
                         "order": 1,
                         "properties": [
-                            {"key": "$current_url", "type": "event", "value": URL_SIGNUP, "operator": "regex"}
+                            {
+                                "key": "$current_url",
+                                "type": "event",
+                                "value": URL_SIGNUP,
+                                "operator": "regex",
+                            }
                         ],
                     },
-                    {"custom_name": "Signed up", "id": "signed_up", "name": "signed_up", "type": "events", "order": 2},
+                    {
+                        "custom_name": "Signed up",
+                        "id": "signed_up",
+                        "name": "signed_up",
+                        "type": "events",
+                        "order": 2,
+                    },
                 ],
                 "actions": [],
                 "display": "FunnelViz",
@@ -553,101 +719,133 @@ class HedgeboxMatrix(Matrix):
         )
 
         # InsightViewed
-        InsightViewed.objects.bulk_create(
-            (
-                InsightViewed(
-                    team=team,
-                    user=user,
-                    insight=insight,
-                    last_viewed_at=(
-                        self.now - dt.timedelta(days=self.random.randint(0, 3), minutes=self.random.randint(5, 60))
-                    ),
-                )
-                for insight in Insight.objects.filter(team=team)
+        try:
+            InsightViewed.objects.bulk_create(
+                (
+                    InsightViewed(
+                        team=team,
+                        user=user,
+                        insight=insight,
+                        last_viewed_at=(
+                            self.now
+                            - dt.timedelta(
+                                days=self.random.randint(0, 3),
+                                minutes=self.random.randint(5, 60),
+                            )
+                        ),
+                    )
+                    for insight in Insight.objects.filter(team=team)
+                ),
             )
-        )
+        except IntegrityError:
+            pass  # This can happen if demo data generation is re-run for the same project
 
         # Feature flags
-        new_signup_page_flag = FeatureFlag.objects.create(
-            team=team,
-            key=FILE_PREVIEWS_FLAG_KEY,
-            name="File previews (ticket #2137). Work-in-progress, so only visible internally at the moment",
-            filters={
-                "groups": [
-                    {
-                        "properties": [
-                            {
-                                "key": "email",
-                                "type": "person",
-                                "value": [
-                                    "mark.s@hedgebox.net",
-                                    "helly.r@hedgebox.net",
-                                    "irving.b@hedgebox.net",
-                                    "dylan.g@hedgebox.net",
-                                ],
-                                "operator": "exact",
-                            }
-                        ]
-                    }
-                ]
-            },
-            created_by=user,
-            created_at=self.now - dt.timedelta(days=15),
-        )
-
-        # Experiments
-        new_signup_page_flag = FeatureFlag.objects.create(
-            team=team,
-            key=NEW_SIGNUP_PAGE_FLAG_KEY,
-            name="New sign-up flow",
-            filters={
-                "groups": [{"properties": [], "rollout_percentage": None}],
-                "multivariate": {
-                    "variants": [
-                        {"key": "control", "rollout_percentage": 100 - NEW_SIGNUP_PAGE_FLAG_ROLLOUT_PERCENT},
-                        {"key": "test", "rollout_percentage": NEW_SIGNUP_PAGE_FLAG_ROLLOUT_PERCENT},
+        try:
+            new_signup_page_flag = FeatureFlag.objects.create(
+                team=team,
+                key=FILE_PREVIEWS_FLAG_KEY,
+                name="File previews (ticket #2137). Work-in-progress, so only visible internally at the moment",
+                filters={
+                    "groups": [
+                        {
+                            "properties": [
+                                {
+                                    "key": "email",
+                                    "type": "person",
+                                    "value": [
+                                        "mark.s@hedgebox.net",
+                                        "helly.r@hedgebox.net",
+                                        "irving.b@hedgebox.net",
+                                        "dylan.g@hedgebox.net",
+                                    ],
+                                    "operator": "exact",
+                                }
+                            ]
+                        }
                     ]
                 },
-            },
-            created_by=user,
-            created_at=self.new_signup_page_experiment_start - dt.timedelta(hours=1),
-        )
-        Experiment.objects.create(
-            team=team,
-            name="New sign-up flow",
-            description="We've rebuilt our sign-up page to offer a more personalized experience. Let's see if this version performs better with potential users.",
-            feature_flag=new_signup_page_flag,
-            created_by=user,
-            filters={
-                "events": [
-                    {
-                        "id": "$pageview",
-                        "name": "$pageview",
-                        "type": "events",
-                        "order": 0,
-                        "properties": [
-                            {"key": "$current_url", "type": "event", "value": URL_SIGNUP, "operator": "exact"}
-                        ],
+                created_by=user,
+                created_at=self.now - dt.timedelta(days=15),
+            )
+
+            # Experiments
+            new_signup_page_flag = FeatureFlag.objects.create(
+                team=team,
+                key=NEW_SIGNUP_PAGE_FLAG_KEY,
+                name="New sign-up flow",
+                filters={
+                    "groups": [{"properties": [], "rollout_percentage": None}],
+                    "multivariate": {
+                        "variants": [
+                            {
+                                "key": "control",
+                                "rollout_percentage": 100 - NEW_SIGNUP_PAGE_FLAG_ROLLOUT_PERCENT,
+                            },
+                            {
+                                "key": "test",
+                                "rollout_percentage": NEW_SIGNUP_PAGE_FLAG_ROLLOUT_PERCENT,
+                            },
+                        ]
                     },
-                    {"id": "signed_up", "name": "signed_up", "type": "events", "order": 1},
-                ],
-                "actions": [],
-                "display": "FunnelViz",
-                "insight": "FUNNELS",
-                "interval": "day",
-                "funnel_viz_type": "steps",
-                "filter_test_accounts": True,
-            },
-            parameters={
-                "feature_flag_variants": [
-                    {"key": "control", "rollout_percentage": 100 - NEW_SIGNUP_PAGE_FLAG_ROLLOUT_PERCENT},
-                    {"key": "test", "rollout_percentage": NEW_SIGNUP_PAGE_FLAG_ROLLOUT_PERCENT},
-                ],
-                "recommended_sample_size": int(len(self.clusters) * 0.274),
-                "recommended_running_time": None,
-                "minimum_detectable_effect": 1,
-            },
-            start_date=self.new_signup_page_experiment_start,
-            end_date=self.new_signup_page_experiment_end,
-            created_at=new_signup_page_flag.created_at,
-        )
+                },
+                created_by=user,
+                created_at=self.new_signup_page_experiment_start - dt.timedelta(hours=1),
+            )
+            Experiment.objects.create(
+                team=team,
+                name="New sign-up flow",
+                description="We've rebuilt our sign-up page to offer a more personalized experience. Let's see if this version performs better with potential users.",
+                feature_flag=new_signup_page_flag,
+                created_by=user,
+                filters={
+                    "events": [
+                        {
+                            "id": "$pageview",
+                            "name": "$pageview",
+                            "type": "events",
+                            "order": 0,
+                            "properties": [
+                                {
+                                    "key": "$current_url",
+                                    "type": "event",
+                                    "value": URL_SIGNUP,
+                                    "operator": "exact",
+                                }
+                            ],
+                        },
+                        {
+                            "id": "signed_up",
+                            "name": "signed_up",
+                            "type": "events",
+                            "order": 1,
+                        },
+                    ],
+                    "actions": [],
+                    "display": "FunnelViz",
+                    "insight": "FUNNELS",
+                    "interval": "day",
+                    "funnel_viz_type": "steps",
+                    "filter_test_accounts": True,
+                },
+                parameters={
+                    "feature_flag_variants": [
+                        {
+                            "key": "control",
+                            "rollout_percentage": 100 - NEW_SIGNUP_PAGE_FLAG_ROLLOUT_PERCENT,
+                        },
+                        {
+                            "key": "test",
+                            "rollout_percentage": NEW_SIGNUP_PAGE_FLAG_ROLLOUT_PERCENT,
+                        },
+                    ],
+                    "recommended_sample_size": int(len(self.clusters) * 0.274),
+                    "recommended_running_time": None,
+                    "minimum_detectable_effect": 1,
+                },
+                start_date=self.new_signup_page_experiment_start,
+                end_date=self.new_signup_page_experiment_end,
+                created_at=new_signup_page_flag.created_at,
+            )
+        except IntegrityError:
+            pass  # This can happen if demo data generation is re-run for the same project

@@ -1,22 +1,24 @@
 @import '../../../styles/mixins';
 
 .BridgePage {
-    background-color: var(--bg-bridge);
     position: relative;
     display: flex;
-    flex-direction: column;
     flex: 1;
+    flex-direction: column;
+    height: 100vh;
     overflow: scroll;
+    background-color: var(--bg-bridge);
+    -ms-overflow-style: none;
+
     &::-webkit-scrollbar {
         width: 0 !important;
     }
-    -ms-overflow-style: none;
 
     .BridgePage__main {
         display: flex;
-        justify-content: center;
-        align-items: center;
         flex: 1;
+        align-items: center;
+        justify-content: center;
         padding: 1rem;
     }
 
@@ -25,8 +27,8 @@
     }
 
     .BridgePage__left-wrapper {
-        margin-right: 60px;
         display: none;
+        margin-right: 60px;
 
         @include screen($md) {
             display: block;
@@ -36,11 +38,11 @@
 
     .BridgePage__content {
         position: relative;
-        box-shadow: var(--shadow-elevation);
         width: 100%;
         padding: 2rem;
         background-color: white;
         border-radius: var(--radius);
+        box-shadow: var(--shadow-elevation);
 
         h2 {
             font-weight: bold;
@@ -50,18 +52,18 @@
 
     .BridgePage__footer {
         display: flex;
-        justify-content: center;
         gap: 10%;
-        margin: 1rem 0;
-        color: var(--muted);
-        font-weight: 500;
+        justify-content: center;
         width: 100%;
+        margin: 1rem 0;
+        font-weight: 500;
+        color: var(--muted);
     }
 
     .BridgePage__left {
         position: relative;
-        visibility: none;
         display: none;
+        visibility: none;
 
         img {
             height: 300px;
@@ -73,17 +75,19 @@
 
         .BridgePage__left__message {
             position: absolute;
-            left: 265px;
             bottom: 220px;
+            left: 265px;
             max-width: 150px;
-            background-color: var(--default);
-            border-radius: 0.75rem;
             padding: 0.5rem 0.75rem;
-            color: #fff;
             font-size: 0.8em;
             font-weight: 600;
+            color: #fff;
+            background-color: var(--default);
+            border-radius: 0.75rem;
+            opacity: 0;
+            transition-timing-function: cubic-bezier(0.455, 0.03, 0.31, 1.585);
 
-            &:after {
+            &::after {
                 position: absolute;
                 top: 100%;
                 left: 20px;
@@ -93,9 +97,6 @@
                 border-left-color: var(--default);
             }
 
-            opacity: 0;
-            transition-timing-function: cubic-bezier(0.455, 0.03, 0.31, 1.585);
-
             &.BridgePage__left__message--enter {
                 opacity: 0;
                 transform: translateY(50px) rotate(0deg) scale(0.5);
@@ -104,8 +105,8 @@
             &.BridgePage__left__message--enter-active,
             &.BridgePage__left__message--enter-done {
                 opacity: 1;
-                transform: translateY(0px) rotate(5deg) scale(1);
                 transition: 200ms opacity, 200ms transform;
+                transform: translateY(0) rotate(5deg) scale(1);
             }
 
             @media (prefers-reduced-motion) {
@@ -126,13 +127,16 @@
     .BridgePage__header-logo {
         &.mobile {
             display: block;
+
             @include screen($md) {
                 display: none;
             }
         }
+
         .header-logo {
             padding-bottom: 3rem;
             text-align: center;
+
             img {
                 height: 24px;
             }
@@ -142,8 +146,8 @@
     &.BridgePage--fixed-width {
         @include screen($md) {
             .BridgePage__content {
-                max-width: 400px;
                 width: 400px;
+                max-width: 400px;
             }
         }
     }

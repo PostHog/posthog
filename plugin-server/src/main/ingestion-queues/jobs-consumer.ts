@@ -1,10 +1,9 @@
-import { StatsD } from 'hot-shots'
 import { EachBatchHandler, Kafka } from 'kafkajs'
 import { Counter } from 'prom-client'
 import { KafkaProducerWrapper } from 'utils/db/kafka-producer-wrapper'
 
 import { KAFKA_JOBS, KAFKA_JOBS_DLQ } from '../../config/kafka-topics'
-import { EnqueuedPluginJob, JobName } from '../../types'
+import { EnqueuedPluginJob, JobName, PluginsServerConfig } from '../../types'
 import { status } from '../../utils/status'
 import { GraphileWorker } from '../graphile-worker/graphile-worker'
 import { instrumentEachBatchKafkaJS, setupEventHandlers } from './kafka-queue'
@@ -24,12 +23,12 @@ export const startJobsConsumer = async ({
     kafka,
     producer,
     graphileWorker,
-    statsd,
+    serverConfig,
 }: {
     kafka: Kafka
     producer: KafkaProducerWrapper
     graphileWorker: GraphileWorker
-    statsd?: StatsD
+    serverConfig: PluginsServerConfig
 }) => {
     /*
         Consumes from the jobs buffer topic, and enqueues the jobs for execution
@@ -37,7 +36,11 @@ export const startJobsConsumer = async ({
     */
 
     const groupId = 'jobs-inserter'
-    const consumer = kafka.consumer({ groupId })
+    const consumer = kafka.consumer({
+        groupId,
+        sessionTimeout: serverConfig.KAFKA_CONSUMPTION_SESSION_TIMEOUT_MS,
+        rebalanceTimeout: serverConfig.KAFKA_CONSUMPTION_REBALANCE_TIMEOUT_MS ?? undefined,
+    })
     setupEventHandlers(consumer)
 
     status.info('🔁', 'Starting jobs consumer')
@@ -84,11 +87,9 @@ export const startJobsConsumer = async ({
             try {
                 await graphileWorker.enqueue(JobName.PLUGIN_JOB, job)
                 jobsConsumerSuccessCounter.inc()
-                statsd?.increment('jobs_consumer.enqueued')
             } catch (error) {
                 status.error('⚠️', 'Failed to enqueue anonymous event for processing', { error })
                 jobsConsumerFailuresCounter.inc()
-                statsd?.increment('jobs_consumer.enqueue_error')
 
                 throw error
             }
@@ -114,7 +115,7 @@ export const startJobsConsumer = async ({
     await consumer.subscribe({ topic: KAFKA_JOBS })
     await consumer.run({
         eachBatch: async (payload) => {
-            return await instrumentEachBatchKafkaJS(KAFKA_JOBS, eachBatch, payload, statsd)
+            return await instrumentEachBatchKafkaJS(KAFKA_JOBS, eachBatch, payload)
         },
     })
 

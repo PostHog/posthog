@@ -1,13 +1,16 @@
-import { ComponentStory, ComponentMeta } from '@storybook/react'
+import { Meta, StoryFn, StoryObj } from '@storybook/react'
 
 import { PropertyKeyInfo } from './PropertyKeyInfo'
+import { TaxonomicFilterGroupType } from './TaxonomicFilter/types'
 
-export default {
+type Story = StoryObj<typeof PropertyKeyInfo>
+const meta: Meta<typeof PropertyKeyInfo> = {
     title: 'Components/Property Key Info',
     component: PropertyKeyInfo,
-} as ComponentMeta<typeof PropertyKeyInfo>
+}
+export default meta
 
-const Template: ComponentStory<typeof PropertyKeyInfo> = (args) => {
+const Template: StoryFn<typeof PropertyKeyInfo> = (args) => {
     return args.value ? (
         <PropertyKeyInfo {...args} />
     ) : (
@@ -28,10 +31,10 @@ const Template: ComponentStory<typeof PropertyKeyInfo> = (args) => {
     )
 }
 
-export const PropertyKeyInfo_ = Template.bind({})
+export const PropertyKeyInfo_: Story = Template.bind({})
 PropertyKeyInfo_.args = {
     value: undefined,
-    type: 'event',
+    type: TaxonomicFilterGroupType.EventProperties,
     tooltipPlacement: undefined,
     disablePopover: false,
     disableIcon: false,

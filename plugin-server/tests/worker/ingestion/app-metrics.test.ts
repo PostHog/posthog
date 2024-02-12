@@ -1,5 +1,6 @@
 import { Hub } from '../../../src/types'
 import { createHub } from '../../../src/utils/db/hub'
+import { KafkaProducerWrapper } from '../../../src/utils/db/kafka-producer-wrapper'
 import { UUIDT } from '../../../src/utils/utils'
 import { AppMetricIdentifier, AppMetrics } from '../../../src/worker/ingestion/app-metrics'
 import { delayUntilEventIngested, resetTestDatabaseClickhouse } from '../../helpers/clickhouse'
@@ -19,23 +20,23 @@ const uuid2 = new UUIDT().toString()
 
 describe('AppMetrics()', () => {
     let appMetrics: AppMetrics
-    let hub: Hub
-    let closeHub: () => Promise<void>
+    let kafkaProducer: KafkaProducerWrapper
 
-    beforeEach(async () => {
-        ;[hub, closeHub] = await createHub({ APP_METRICS_FLUSH_FREQUENCY_MS: 100 })
-        appMetrics = new AppMetrics(hub)
+    beforeEach(() => {
+        kafkaProducer = {
+            producer: jest.fn(),
+            waitForAck: jest.fn(),
+            produce: jest.fn(),
+            queueMessage: jest.fn(),
+            flush: jest.fn(),
+            disconnect: jest.fn(),
+        } as unknown as KafkaProducerWrapper
 
-        jest.spyOn(hub.organizationManager, 'hasAvailableFeature').mockResolvedValue(true)
-        jest.spyOn(hub.kafkaProducer, 'queueMessage').mockReturnValue(Promise.resolve())
+        appMetrics = new AppMetrics(kafkaProducer, 100, 5)
     })
 
-    afterEach(async () => {
+    afterEach(() => {
         jest.useRealTimers()
-        if (appMetrics.timer) {
-            clearTimeout(appMetrics.timer)
-        }
-        await closeHub()
     })
 
     describe('queueMetric()', () => {
@@ -164,44 +165,34 @@ describe('AppMetrics()', () => {
             ])
         })
 
-        it('creates timer to flush if no timer before', async () => {
+        it('flushes when time is up', async () => {
+            Date.now = jest.fn(() => 1600000000)
+            await appMetrics.flush()
+
             jest.spyOn(appMetrics, 'flush')
-            jest.useFakeTimers()
+            Date.now = jest.fn(() => 1600000120)
 
             await appMetrics.queueMetric({ ...metric, successes: 1 }, timestamp)
 
-            const timer = appMetrics.timer
-            expect(timer).not.toBeNull()
-
-            jest.advanceTimersByTime(120)
-
-            expect(appMetrics.timer).toBeNull()
-            expect(appMetrics.flush).toHaveBeenCalled()
+            expect(appMetrics.flush).toHaveBeenCalledTimes(1)
+            // doesn't flush again on the next call, i.e. flust metrics were reset
+            Date.now = jest.fn(() => 1600000130)
+            await appMetrics.queueMetric({ ...metric, successes: 1 }, timestamp)
+            expect(appMetrics.flush).toHaveBeenCalledTimes(1)
         })
 
-        it('does not create a timer on subsequent requests', async () => {
-            await appMetrics.queueMetric({ ...metric, successes: 1 }, timestamp)
-            const originalTimer = appMetrics.timer
-            await appMetrics.queueMetric({ ...metric, successes: 1 }, timestamp)
-
-            expect(originalTimer).not.toBeNull()
-            expect(appMetrics.timer).toEqual(originalTimer)
-        })
-
-        it('does nothing if feature is not available', async () => {
-            jest.mocked(hub.organizationManager.hasAvailableFeature).mockResolvedValue(false)
-
-            await appMetrics.queueMetric({ ...metric, successes: 1 }, timestamp)
-            expect(appMetrics.queuedData).toEqual({})
-        })
-
-        it('does not query `hasAvailableFeature` if not needed', async () => {
-            hub.APP_METRICS_GATHERED_FOR_ALL = true
-
-            await appMetrics.queueMetric({ ...metric, successes: 1 }, timestamp)
-
-            expect(appMetrics.queuedData).not.toEqual({})
-            expect(hub.organizationManager.hasAvailableFeature).not.toHaveBeenCalled()
+        it('flushes when max queue size is hit', async () => {
+            jest.spyOn(appMetrics, 'flush')
+            // parallel could trigger multiple flushes and make the test flaky
+            for (let i = 0; i < 7; i++) {
+                await appMetrics.queueMetric({ ...metric, successes: 1, teamId: i }, timestamp)
+            }
+            expect(appMetrics.flush).toHaveBeenCalledTimes(1)
+            // we only count different keys, so this should not trigger a flush
+            for (let i = 0; i < 7; i++) {
+                await appMetrics.queueMetric({ ...metric, successes: 1 }, timestamp)
+            }
+            expect(appMetrics.flush).toHaveBeenCalledTimes(1)
         })
     })
 
@@ -267,7 +258,7 @@ describe('AppMetrics()', () => {
 
     describe('flush()', () => {
         it('flushes queued messages', async () => {
-            const spy = jest.spyOn(hub.kafkaProducer, 'queueMessage')
+            const spy = jest.spyOn(kafkaProducer, 'queueMessage')
 
             await appMetrics.queueMetric({ ...metric, jobId: '000-000', successes: 1 }, timestamp)
             await appMetrics.flush()
@@ -278,11 +269,25 @@ describe('AppMetrics()', () => {
         it('does nothing if nothing queued', async () => {
             await appMetrics.flush()
 
-            expect(hub.kafkaProducer.queueMessage).not.toHaveBeenCalled()
+            expect(kafkaProducer.queueMessage).not.toHaveBeenCalled()
         })
     })
 
     describe('reading writes from clickhouse', () => {
+        let hub: Hub
+        let closeHub: () => Promise<void>
+
+        beforeEach(async () => {
+            ;[hub, closeHub] = await createHub({
+                APP_METRICS_FLUSH_FREQUENCY_MS: 100,
+                APP_METRICS_FLUSH_MAX_QUEUE_SIZE: 5,
+            })
+            // doesn't flush again on the next call, i.e. flust metrics were reset
+            jest.spyOn(hub.kafkaProducer, 'queueMessage').mockReturnValue(Promise.resolve())
+        })
+        afterEach(async () => {
+            await closeHub()
+        })
         async function fetchRowsFromClickhouse() {
             return (await hub.db.clickhouseQuery(`SELECT * FROM app_metrics FINAL`)).data
         }
@@ -294,12 +299,12 @@ describe('AppMetrics()', () => {
 
         it('can read its own writes', async () => {
             await Promise.all([
-                appMetrics.queueMetric({ ...metric, successes: 1 }, timestamp),
-                appMetrics.queueMetric({ ...metric, successes: 2, successesOnRetry: 4 }, timestamp),
-                appMetrics.queueMetric({ ...metric, failures: 1 }, timestamp),
+                hub.appMetrics.queueMetric({ ...metric, successes: 1 }, timestamp),
+                hub.appMetrics.queueMetric({ ...metric, successes: 2, successesOnRetry: 4 }, timestamp),
+                hub.appMetrics.queueMetric({ ...metric, failures: 1 }, timestamp),
             ])
 
-            await appMetrics.flush()
+            await hub.appMetrics.flush()
             await hub.kafkaProducer.flush()
 
             const rows = await delayUntilEventIngested(fetchRowsFromClickhouse)
@@ -324,12 +329,12 @@ describe('AppMetrics()', () => {
         it('can read errors', async () => {
             jest.spyOn
 
-            await appMetrics.queueError(
+            await hub.appMetrics.queueError(
                 { ...metric, failures: 1 },
                 { error: new Error('foobar'), eventCount: 1 },
                 timestamp
             ),
-                await appMetrics.flush()
+                await hub.appMetrics.flush()
             await hub.kafkaProducer.flush()
 
             const rows = await delayUntilEventIngested(fetchRowsFromClickhouse)

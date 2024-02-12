@@ -2,78 +2,81 @@
     position: relative;
     flex-shrink: 0;
     width: fit-content;
-    background: var(--bg-light);
     border-radius: var(--radius);
-    border: 1px solid var(--border);
+
     > ul {
         z-index: 1; // Place above slider
-        list-style: none;
         display: flex;
         align-items: stretch;
+        list-style: none;
     }
-}
 
-.LemonSegmentedButton__slider {
-    // This is a real element and not ::after to avoid initial transition from 0 width
-    transition: width 200ms ease, transform 200ms ease, border-radius 200ms ease;
-    will-change: width, transform, border-radius;
-    position: absolute;
-    top: -1px; // 1px of border
-    left: -1px; // 1px of border
-    height: calc(100% + 2px); // 1px of border (top + bottom)
-    width: calc(var(--lemon-segmented-button-slider-width) + 2px); // 1px of border (left + right)
-    transform: translateX(var(--lemon-segmented-button-slider-offset));
-    background: var(--primary);
-    &.LemonSegmentedButton__slider--first {
-        border-top-left-radius: var(--radius);
-        border-bottom-left-radius: var(--radius);
+    &.LemonSegmentedButton--full-width {
+        width: 100%;
     }
-    &.LemonSegmentedButton__slider--last {
-        border-top-right-radius: var(--radius);
-        border-bottom-right-radius: var(--radius);
-    }
-}
 
-.LemonSegmentedButton__option {
-    display: flex;
-    flex: 1;
-    .LemonButton {
-        // Original transition with outline added
-        transition: background-color 200ms ease, color 200ms ease, border 200ms ease, opacity 200ms ease,
-            outline 200ms ease;
-        outline: 1px solid transparent;
-        border-radius: 0;
-    }
-    &:first-child,
-    &:first-child .LemonButton {
-        border-top-left-radius: var(--radius);
-        border-bottom-left-radius: var(--radius);
-    }
-    &:last-child,
-    &:last-child .LemonButton {
-        border-top-right-radius: var(--radius);
-        border-bottom-right-radius: var(--radius);
-    }
-    &:not(:last-child) {
-        border-right: 1px solid var(--border);
-    }
-    &:not(.LemonSegmentedButton__option--disabled):not(.LemonSegmentedButton__option--selected) {
-        &:hover .LemonButton {
-            outline-color: var(--primary);
+    .LemonSegmentedButton__option {
+        display: flex;
+        flex: 1;
+
+        .LemonButton__content {
+            white-space: nowrap;
         }
-        &:active .LemonButton {
-            outline-color: var(--primary-dark);
+
+        & .LemonButton,
+        & .LemonButton > .LemonButton__chrome::after,
+        & .LemonButton > .LemonButton__chrome::before {
+            border-radius: 0 !important;
         }
-    }
-    &.LemonSegmentedButton__option--selected {
-        .LemonButton,
-        .LemonButton__icon {
-            color: #fff;
+
+        .LemonButton:not(:hover) {
+            background: var(--bg-3000);
+
+            .LemonButton__content {
+                opacity: var(--lemon-button-icon-opacity);
+            }
         }
-        .LemonButton {
-            &:hover,
-            &:active {
-                background: none; // Disable LemonButton's hover styles for the selected option
+
+        .LemonButton.LemonButton--secondary:not([aria-disabled='true']):hover {
+            > .LemonButton__chrome::after {
+                border-color: var(--secondary-3000-button-border);
+            }
+        }
+
+        &:first-child,
+        &:first-child .LemonButton,
+        &:first-child .LemonButton > .LemonButton__chrome::after,
+        &:first-child .LemonButton > .LemonButton__chrome::before {
+            border-top-left-radius: var(--radius) !important;
+            border-bottom-left-radius: var(--radius) !important;
+        }
+
+        &:last-child,
+        &:last-child .LemonButton,
+        &:last-child .LemonButton > .LemonButton__chrome::after,
+        &:last-child .LemonButton > .LemonButton__chrome::before {
+            border-top-right-radius: var(--radius) !important;
+            border-bottom-right-radius: var(--radius) !important;
+        }
+
+        &:not(:first-child) {
+            .LemonButton__chrome {
+                margin-left: -1px;
+            }
+        }
+
+        &.LemonSegmentedButton__option--selected {
+            z-index: 2;
+
+            .LemonButton {
+                --lemon-button-icon-opacity: 1;
+                --lemon-button-profile-picture-opacity: 1;
+            }
+        }
+
+        &--disabled {
+            > div {
+                width: 100%;
             }
         }
     }

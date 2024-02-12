@@ -1,38 +1,22 @@
-import { api } from '@posthog/apps-common'
-import { NodeViewProps } from '@tiptap/core'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
-import { lazyImageBlobReducer } from 'lib/lemon-ui/LemonFileInput/LemonFileInput'
 import { SpinnerOverlay } from 'lib/lemon-ui/Spinner'
 import { ReactEventHandler, useEffect, useMemo, useState } from 'react'
 import { createPostHogWidgetNode } from 'scenes/notebooks/Nodes/NodeWrapper'
-import { MediaUploadResponse, NotebookNodeType } from '~/types'
+import { NotebookNodeType } from '~/types'
+import { uploadFile } from 'lib/hooks/useUploadFiles'
+import { NotebookNodeProps } from '../Notebook/utils'
 
 const MAX_DEFAULT_HEIGHT = 1000
 
-async function uploadFile(file: File): Promise<MediaUploadResponse> {
-    if (!file.type.startsWith('image/')) {
-        throw new Error('File is not an image')
-    }
-
-    const compressedBlob = await lazyImageBlobReducer(file)
-    const fileToUpload = new File([compressedBlob], file.name, { type: compressedBlob.type })
-
-    const formData = new FormData()
-    formData.append('image', fileToUpload)
-    const media = await api.media.upload(formData)
-
-    return media
-}
-
-const Component = (props: NodeViewProps): JSX.Element => {
-    const { file, src, height } = props.node.attrs
+const Component = ({ attributes, updateAttributes }: NotebookNodeProps<NotebookNodeImageAttributes>): JSX.Element => {
+    const { file, src, height } = attributes
     const [uploading, setUploading] = useState(false)
     const [error, setError] = useState<string>()
 
     useEffect(() => {
         if (file) {
             if (!file.type) {
-                props.updateAttributes({ file: undefined })
+                updateAttributes({ file: undefined })
                 return
             }
 
@@ -40,7 +24,7 @@ const Component = (props: NodeViewProps): JSX.Element => {
 
             uploadFile(file)
                 .then(async (media) => {
-                    props.updateAttributes({
+                    updateAttributes({
                         file: undefined,
                         src: media.image_location,
                     })
@@ -68,28 +52,41 @@ const Component = (props: NodeViewProps): JSX.Element => {
     const onImageLoad: ReactEventHandler<HTMLImageElement> = (e): void => {
         if (!height) {
             // Set the height value to match the image if it isn't already set
-            props.updateAttributes({
+            updateAttributes({
                 height: Math.min(e.currentTarget.naturalHeight, MAX_DEFAULT_HEIGHT),
             })
         }
     }
 
     if (error) {
-        return <LemonBanner type="error">{error}</LemonBanner>
+        return (
+            <div className="flex flex-1 items-center justify-center">
+                <LemonBanner type="error">{error}</LemonBanner>
+            </div>
+        )
     }
 
     return (
         <>
-            <img src={imageSource} onLoad={onImageLoad} />
+            <img src={imageSource} onLoad={onImageLoad} alt="user uploaded file" />
             {uploading ? <SpinnerOverlay className="text-3xl" /> : null}
         </>
     )
 }
 
-export const NotebookNodeImage = createPostHogWidgetNode({
+type NotebookNodeImageAttributes = {
+    file?: File
+    src?: string
+}
+
+export const NotebookNodeImage = createPostHogWidgetNode<NotebookNodeImageAttributes>({
     nodeType: NotebookNodeType.Image,
-    title: 'Image',
+    titlePlaceholder: 'Image',
     Component,
+    serializedText: (attrs) => {
+        // TODO file is null when this runs... should it be?
+        return attrs?.file?.name || ''
+    },
     heightEstimate: 400,
     minHeight: 100,
     resizeable: true,

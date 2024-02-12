@@ -13,8 +13,13 @@ from posthog.models.cohort import Cohort
 from posthog.models.filters import Filter
 from posthog.models.instance_setting import get_instance_setting
 from posthog.queries.funnels import ClickhouseFunnel, ClickhouseFunnelActors
-from posthog.queries.funnels.test.breakdown_cases import assert_funnel_results_equal, funnel_breakdown_test_factory
-from posthog.queries.funnels.test.conversion_time_cases import funnel_conversion_time_test_factory
+from posthog.queries.funnels.test.breakdown_cases import (
+    assert_funnel_results_equal,
+    funnel_breakdown_test_factory,
+)
+from posthog.queries.funnels.test.conversion_time_cases import (
+    funnel_conversion_time_test_factory,
+)
 from posthog.test.base import (
     APIBaseTest,
     ClickhouseTestMixin,
@@ -36,12 +41,26 @@ def _create_action(**kwargs):
     return action
 
 
-class TestFunnelBreakdown(ClickhouseTestMixin, funnel_breakdown_test_factory(ClickhouseFunnel, ClickhouseFunnelActors, _create_event, _create_action, _create_person)):  # type: ignore
+class TestFunnelBreakdown(
+    ClickhouseTestMixin,
+    funnel_breakdown_test_factory(  # type: ignore
+        ClickhouseFunnel,
+        ClickhouseFunnelActors,
+        _create_event,
+        _create_action,
+        _create_person,
+    ),
+):
     maxDiff = None
     pass
 
 
-class TestFunnelConversionTime(ClickhouseTestMixin, funnel_conversion_time_test_factory(ClickhouseFunnel, ClickhouseFunnelActors, _create_event, _create_person)):  # type: ignore
+class TestFunnelConversionTime(
+    ClickhouseTestMixin,
+    funnel_conversion_time_test_factory(  # type: ignore
+        ClickhouseFunnel, ClickhouseFunnelActors, _create_event, _create_person
+    ),
+):
     maxDiff = None
     pass
 
@@ -96,10 +115,18 @@ def funnel_test_factory(Funnel, event_factory, person_factory):
         def _basic_funnel(self, properties=None, filters=None):
             action_credit_card = Action.objects.create(team=self.team, name="paid")
             ActionStep.objects.create(
-                action=action_credit_card, event="$autocapture", tag_name="button", text="Pay $10"
+                action=action_credit_card,
+                event="$autocapture",
+                tag_name="button",
+                text="Pay $10",
             )
             action_play_movie = Action.objects.create(team=self.team, name="watched movie")
-            ActionStep.objects.create(action=action_play_movie, event="$autocapture", tag_name="a", href="/movie")
+            ActionStep.objects.create(
+                action=action_play_movie,
+                event="$autocapture",
+                tag_name="a",
+                href="/movie",
+            )
 
             if filters is None:
                 filters = {
@@ -157,7 +184,10 @@ def funnel_test_factory(Funnel, event_factory, person_factory):
             self._signup_event(distinct_id="stopped_after_pay")
             self._pay_event(distinct_id="stopped_after_pay")
 
-            person_factory(distinct_ids=["had_anonymous_id", "completed_movie"], team_id=self.team.pk)
+            person_factory(
+                distinct_ids=["had_anonymous_id", "completed_movie"],
+                team_id=self.team.pk,
+            )
             self._signup_event(distinct_id="had_anonymous_id")
             self._pay_event(distinct_id="completed_movie")
             self._movie_event(distinct_id="completed_movie")
@@ -193,18 +223,30 @@ def funnel_test_factory(Funnel, event_factory, person_factory):
                 # events
                 stopped_after_signup_person_id = uuid.uuid4()
                 person_factory(distinct_ids=["stopped_after_signup"], team_id=self.team.pk)
-                self._signup_event(distinct_id="stopped_after_signup", person_id=stopped_after_signup_person_id)
+                self._signup_event(
+                    distinct_id="stopped_after_signup",
+                    person_id=stopped_after_signup_person_id,
+                )
 
             with freeze_time("2012-01-01T03:21:36.000Z"):
                 stopped_after_pay_person_id = uuid.uuid4()
                 person_factory(distinct_ids=["stopped_after_pay"], team_id=self.team.pk)
-                self._signup_event(distinct_id="stopped_after_pay", person_id=stopped_after_pay_person_id)
+                self._signup_event(
+                    distinct_id="stopped_after_pay",
+                    person_id=stopped_after_pay_person_id,
+                )
             with freeze_time("2012-01-01T03:21:37.000Z"):
-                self._pay_event(distinct_id="stopped_after_pay", person_id=stopped_after_pay_person_id)
+                self._pay_event(
+                    distinct_id="stopped_after_pay",
+                    person_id=stopped_after_pay_person_id,
+                )
 
             with freeze_time("2012-01-01T03:21:38.000Z"):
                 had_anonymous_id_person_id = uuid.uuid4()
-                person_factory(distinct_ids=["had_anonymous_id", "completed_movie"], team_id=self.team.pk)
+                person_factory(
+                    distinct_ids=["had_anonymous_id", "completed_movie"],
+                    team_id=self.team.pk,
+                )
                 self._signup_event(distinct_id="had_anonymous_id", person_id=had_anonymous_id_person_id)
             with freeze_time("2012-01-01T03:21:39.000Z"):
                 self._pay_event(distinct_id="completed_movie", person_id=had_anonymous_id_person_id)
@@ -243,7 +285,12 @@ def funnel_test_factory(Funnel, event_factory, person_factory):
 
         def test_funnel_with_messed_up_order(self):
             action_play_movie = Action.objects.create(team=self.team, name="watched movie")
-            ActionStep.objects.create(action=action_play_movie, event="$autocapture", tag_name="a", href="/movie")
+            ActionStep.objects.create(
+                action=action_play_movie,
+                event="$autocapture",
+                tag_name="a",
+                href="/movie",
+            )
 
             funnel = self._basic_funnel(
                 filters={
@@ -261,7 +308,10 @@ def funnel_test_factory(Funnel, event_factory, person_factory):
             self._signup_event(distinct_id="stopped_after_pay")
             self._movie_event(distinct_id="completed_movie")
 
-            person_factory(distinct_ids=["had_anonymous_id", "completed_movie"], team_id=self.team.pk)
+            person_factory(
+                distinct_ids=["had_anonymous_id", "completed_movie"],
+                team_id=self.team.pk,
+            )
             self._signup_event(distinct_id="had_anonymous_id")
             self._movie_event(distinct_id="completed_movie")
 
@@ -323,7 +373,12 @@ def funnel_test_factory(Funnel, event_factory, person_factory):
 
         def test_funnel_with_new_entities_that_mess_up_order(self):
             action_play_movie = Action.objects.create(team=self.team, name="watched movie")
-            ActionStep.objects.create(action=action_play_movie, event="$autocapture", tag_name="a", href="/movie")
+            ActionStep.objects.create(
+                action=action_play_movie,
+                event="$autocapture",
+                tag_name="a",
+                href="/movie",
+            )
 
             funnel = self._basic_funnel(
                 filters={
@@ -345,7 +400,10 @@ def funnel_test_factory(Funnel, event_factory, person_factory):
             self._signup_event(distinct_id="stopped_after_pay")
             self._movie_event(distinct_id="completed_movie")
 
-            person_factory(distinct_ids=["had_anonymous_id", "completed_movie"], team_id=self.team.pk)
+            person_factory(
+                distinct_ids=["had_anonymous_id", "completed_movie"],
+                team_id=self.team.pk,
+            )
             self._signup_event(distinct_id="had_anonymous_id")
             self._movie_event(distinct_id="completed_movie")
 
@@ -405,10 +463,18 @@ def funnel_test_factory(Funnel, event_factory, person_factory):
         def test_funnel_prop_filters_per_entity(self):
             action_credit_card = Action.objects.create(team_id=self.team.pk, name="paid")
             ActionStep.objects.create(
-                action=action_credit_card, event="$autocapture", tag_name="button", text="Pay $10"
+                action=action_credit_card,
+                event="$autocapture",
+                tag_name="button",
+                text="Pay $10",
             )
             action_play_movie = Action.objects.create(team_id=self.team.pk, name="watched movie")
-            ActionStep.objects.create(action=action_play_movie, event="$autocapture", tag_name="a", href="/movie")
+            ActionStep.objects.create(
+                action=action_play_movie,
+                event="$autocapture",
+                tag_name="a",
+                href="/movie",
+            )
             filters = {
                 "events": [
                     {
@@ -417,7 +483,11 @@ def funnel_test_factory(Funnel, event_factory, person_factory):
                         "order": 0,
                         "properties": [
                             {"key": "$browser", "value": "Safari"},
-                            {"key": "$browser", "operator": "is_not", "value": "Chrome"},
+                            {
+                                "key": "$browser",
+                                "operator": "is_not",
+                                "value": "Chrome",
+                            },
                         ],
                     }
                 ],
@@ -440,7 +510,11 @@ def funnel_test_factory(Funnel, event_factory, person_factory):
             funnel = self._basic_funnel(filters=filters)
 
             # events
-            person_factory(distinct_ids=["with_property"], team_id=self.team.pk, properties={"$browser": "Safari"})
+            person_factory(
+                distinct_ids=["with_property"],
+                team_id=self.team.pk,
+                properties={"$browser": "Safari"},
+            )
             self._signup_event(distinct_id="with_property", properties={"$browser": "Safari"})
             self._pay_event(distinct_id="with_property", properties={"$browser": "Safari"})
             self._movie_event(distinct_id="with_property")
@@ -466,17 +540,31 @@ def funnel_test_factory(Funnel, event_factory, person_factory):
         def test_funnel_person_prop(self):
             action_credit_card = Action.objects.create(team_id=self.team.pk, name="paid")
             ActionStep.objects.create(
-                action=action_credit_card, event="$autocapture", tag_name="button", text="Pay $10"
+                action=action_credit_card,
+                event="$autocapture",
+                tag_name="button",
+                text="Pay $10",
             )
             action_play_movie = Action.objects.create(team_id=self.team.pk, name="watched movie")
-            ActionStep.objects.create(action=action_play_movie, event="$autocapture", tag_name="a", href="/movie")
+            ActionStep.objects.create(
+                action=action_play_movie,
+                event="$autocapture",
+                tag_name="a",
+                href="/movie",
+            )
             filters = {
                 "events": [
                     {
                         "id": "user signed up",
                         "type": "events",
                         "order": 0,
-                        "properties": [{"key": "email", "value": "hello@posthog.com", "type": "person"}],
+                        "properties": [
+                            {
+                                "key": "email",
+                                "value": "hello@posthog.com",
+                                "type": "person",
+                            }
+                        ],
                     }
                 ],
                 "actions": [
@@ -489,7 +577,9 @@ def funnel_test_factory(Funnel, event_factory, person_factory):
 
             # events
             person_factory(
-                distinct_ids=["with_property"], team_id=self.team.pk, properties={"email": "hello@posthog.com"}
+                distinct_ids=["with_property"],
+                team_id=self.team.pk,
+                properties={"email": "hello@posthog.com"},
             )
             self._signup_event(distinct_id="with_property")
             self._pay_event(distinct_id="with_property")
@@ -507,18 +597,34 @@ def funnel_test_factory(Funnel, event_factory, person_factory):
             # This test prevents a regression
             person_factory(distinct_ids=["person1"], team_id=self.team.pk)
             event_factory(distinct_id="person1", event="event1", team=self.team)
-            event_factory(distinct_id="person1", event="event2", properties={"test_propX": "a"}, team=self.team)
+            event_factory(
+                distinct_id="person1",
+                event="event2",
+                properties={"test_propX": "a"},
+                team=self.team,
+            )
 
             action1 = Action.objects.create(team_id=self.team.pk, name="event2")
-            ActionStep.objects.create(action=action1, event="event2", properties=[{"key": "test_propX", "value": "a"}])
+            ActionStep.objects.create(
+                action=action1,
+                event="event2",
+                properties=[{"key": "test_propX", "value": "a"}],
+            )
             action2 = Action.objects.create(team_id=self.team.pk, name="event2")
-            ActionStep.objects.create(action=action2, event="event2", properties=[{"key": "test_propX", "value": "c"}])
+            ActionStep.objects.create(
+                action=action2,
+                event="event2",
+                properties=[{"key": "test_propX", "value": "c"}],
+            )
 
             result = Funnel(
                 filter=Filter(
                     data={
                         "events": [{"id": "event1", "order": 0}],
-                        "actions": [{"id": action1.pk, "order": 1}, {"id": action2.pk, "order": 2}],
+                        "actions": [
+                            {"id": action1.pk, "order": 1},
+                            {"id": action2.pk, "order": 2},
+                        ],
                         "insight": INSIGHT_FUNNELS,
                         "funnel_window_days": 14,
                     }
@@ -531,7 +637,11 @@ def funnel_test_factory(Funnel, event_factory, person_factory):
 
         @also_test_with_materialized_columns(person_properties=["email"])
         def test_funnel_filter_test_accounts(self):
-            person_factory(distinct_ids=["person1"], team_id=self.team.pk, properties={"email": "test@posthog.com"})
+            person_factory(
+                distinct_ids=["person1"],
+                team_id=self.team.pk,
+                properties={"email": "test@posthog.com"},
+            )
             person_factory(distinct_ids=["person2"], team_id=self.team.pk)
             event_factory(distinct_id="person1", event="event1", team=self.team)
             event_factory(distinct_id="person2", event="event1", team=self.team)
@@ -551,8 +661,16 @@ def funnel_test_factory(Funnel, event_factory, person_factory):
 
         @also_test_with_materialized_columns(person_properties=["email"])
         def test_funnel_with_entity_person_property_filters(self):
-            person_factory(distinct_ids=["person1"], team_id=self.team.pk, properties={"email": "test@posthog.com"})
-            person_factory(distinct_ids=["person2"], team_id=self.team.pk, properties={"email": "another@example.com"})
+            person_factory(
+                distinct_ids=["person1"],
+                team_id=self.team.pk,
+                properties={"email": "test@posthog.com"},
+            )
+            person_factory(
+                distinct_ids=["person2"],
+                team_id=self.team.pk,
+                properties={"email": "another@example.com"},
+            )
             person_factory(distinct_ids=["person3"], team_id=self.team.pk)
             event_factory(distinct_id="person1", event="event1", team=self.team)
             event_factory(distinct_id="person2", event="event1", team=self.team)
@@ -566,7 +684,12 @@ def funnel_test_factory(Funnel, event_factory, person_factory):
                                 "id": "event1",
                                 "order": 0,
                                 "properties": [
-                                    {"key": "email", "value": "is_set", "operator": "is_set", "type": "person"}
+                                    {
+                                        "key": "email",
+                                        "value": "is_set",
+                                        "operator": "is_set",
+                                        "type": "person",
+                                    }
                                 ],
                             }
                         ],
@@ -580,8 +703,16 @@ def funnel_test_factory(Funnel, event_factory, person_factory):
 
         @also_test_with_materialized_columns(person_properties=["email"], verify_no_jsonextract=False)
         def test_funnel_filter_by_action_with_person_properties(self):
-            person_factory(distinct_ids=["person1"], team_id=self.team.pk, properties={"email": "test@posthog.com"})
-            person_factory(distinct_ids=["person2"], team_id=self.team.pk, properties={"email": "another@example.com"})
+            person_factory(
+                distinct_ids=["person1"],
+                team_id=self.team.pk,
+                properties={"email": "test@posthog.com"},
+            )
+            person_factory(
+                distinct_ids=["person2"],
+                team_id=self.team.pk,
+                properties={"email": "another@example.com"},
+            )
             person_factory(distinct_ids=["person3"], team_id=self.team.pk)
             event_factory(distinct_id="person1", event="event1", team=self.team)
             event_factory(distinct_id="person2", event="event1", team=self.team)
@@ -591,7 +722,14 @@ def funnel_test_factory(Funnel, event_factory, person_factory):
             ActionStep.objects.create(
                 action=action,
                 event="event1",
-                properties=[{"key": "email", "value": "is_set", "operator": "is_set", "type": "person"}],
+                properties=[
+                    {
+                        "key": "email",
+                        "value": "is_set",
+                        "operator": "is_set",
+                        "type": "person",
+                    }
+                ],
             )
 
             result = Funnel(
@@ -624,9 +762,17 @@ def funnel_test_factory(Funnel, event_factory, person_factory):
             # event
             _create_person(distinct_ids=["user_1"], team_id=self.team.pk)
             _create_event(
-                team=self.team, event="user signed up", distinct_id="user_1", timestamp="2020-01-02T14:00:00Z"
+                team=self.team,
+                event="user signed up",
+                distinct_id="user_1",
+                timestamp="2020-01-02T14:00:00Z",
             )
-            _create_event(team=self.team, event="paid", distinct_id="user_1", timestamp="2020-01-10T14:00:00Z")
+            _create_event(
+                team=self.team,
+                event="paid",
+                distinct_id="user_1",
+                timestamp="2020-01-10T14:00:00Z",
+            )
 
             result = funnel.run()
 
@@ -653,11 +799,23 @@ def funnel_test_factory(Funnel, event_factory, person_factory):
             person1_stopped_after_two_signups = _create_person(
                 distinct_ids=["stopped_after_signup1"], team_id=self.team.pk
             )
-            _create_event(team=self.team, event="user signed up", distinct_id="stopped_after_signup1")
-            _create_event(team=self.team, event="user signed up", distinct_id="stopped_after_signup1")
+            _create_event(
+                team=self.team,
+                event="user signed up",
+                distinct_id="stopped_after_signup1",
+            )
+            _create_event(
+                team=self.team,
+                event="user signed up",
+                distinct_id="stopped_after_signup1",
+            )
 
             person2_stopped_after_signup = _create_person(distinct_ids=["stopped_after_signup2"], team_id=self.team.pk)
-            _create_event(team=self.team, event="user signed up", distinct_id="stopped_after_signup2")
+            _create_event(
+                team=self.team,
+                event="user signed up",
+                distinct_id="stopped_after_signup2",
+            )
 
             result = funnel.run()
             self.assertEqual(result[0]["name"], "user signed up")
@@ -667,16 +825,27 @@ def funnel_test_factory(Funnel, event_factory, person_factory):
 
             self.assertCountEqual(
                 self._get_actor_ids_at_step(filter, 1),
-                [person1_stopped_after_two_signups.uuid, person2_stopped_after_signup.uuid],
+                [
+                    person1_stopped_after_two_signups.uuid,
+                    person2_stopped_after_signup.uuid,
+                ],
             )
 
-            self.assertCountEqual(self._get_actor_ids_at_step(filter, 2), [person1_stopped_after_two_signups.uuid])
+            self.assertCountEqual(
+                self._get_actor_ids_at_step(filter, 2),
+                [person1_stopped_after_two_signups.uuid],
+            )
 
         @also_test_with_materialized_columns(["key"])
         def test_basic_funnel_with_derivative_steps(self):
             filters = {
                 "events": [
-                    {"id": "user signed up", "type": "events", "order": 0, "properties": {"key": "val"}},
+                    {
+                        "id": "user signed up",
+                        "type": "events",
+                        "order": 0,
+                        "properties": {"key": "val"},
+                    },
                     {"id": "user signed up", "type": "events", "order": 1},
                 ],
                 "insight": INSIGHT_FUNNELS,
@@ -691,13 +860,23 @@ def funnel_test_factory(Funnel, event_factory, person_factory):
                 distinct_ids=["stopped_after_signup1"], team_id=self.team.pk
             )
             _create_event(
-                team=self.team, event="user signed up", distinct_id="stopped_after_signup1", properties={"key": "val"}
+                team=self.team,
+                event="user signed up",
+                distinct_id="stopped_after_signup1",
+                properties={"key": "val"},
             )
-            _create_event(team=self.team, event="user signed up", distinct_id="stopped_after_signup1")
+            _create_event(
+                team=self.team,
+                event="user signed up",
+                distinct_id="stopped_after_signup1",
+            )
 
             person2_stopped_after_signup = _create_person(distinct_ids=["stopped_after_signup2"], team_id=self.team.pk)
             _create_event(
-                team=self.team, event="user signed up", distinct_id="stopped_after_signup2", properties={"key": "val"}
+                team=self.team,
+                event="user signed up",
+                distinct_id="stopped_after_signup2",
+                properties={"key": "val"},
             )
 
             result = funnel.run()
@@ -708,15 +887,24 @@ def funnel_test_factory(Funnel, event_factory, person_factory):
 
             self.assertCountEqual(
                 self._get_actor_ids_at_step(filter, 1),
-                [person1_stopped_after_two_signups.uuid, person2_stopped_after_signup.uuid],
+                [
+                    person1_stopped_after_two_signups.uuid,
+                    person2_stopped_after_signup.uuid,
+                ],
             )
 
-            self.assertCountEqual(self._get_actor_ids_at_step(filter, 2), [person1_stopped_after_two_signups.uuid])
+            self.assertCountEqual(
+                self._get_actor_ids_at_step(filter, 2),
+                [person1_stopped_after_two_signups.uuid],
+            )
 
         def test_basic_funnel_with_repeat_step_updated_param(self):
             people = journeys_for(
                 {
-                    "stopped_after_signup1": [{"event": "user signed up"}, {"event": "user signed up"}],
+                    "stopped_after_signup1": [
+                        {"event": "user signed up"},
+                        {"event": "user signed up"},
+                    ],
                     "stopped_after_signup2": [{"event": "user signed up"}],
                 },
                 self.team,
@@ -743,10 +931,16 @@ def funnel_test_factory(Funnel, event_factory, person_factory):
 
             self.assertCountEqual(
                 self._get_actor_ids_at_step(filter, 1),
-                [people["stopped_after_signup1"].uuid, people["stopped_after_signup2"].uuid],
+                [
+                    people["stopped_after_signup1"].uuid,
+                    people["stopped_after_signup2"].uuid,
+                ],
             )
 
-            self.assertCountEqual(self._get_actor_ids_at_step(filter, 2), [people["stopped_after_signup1"].uuid])
+            self.assertCountEqual(
+                self._get_actor_ids_at_step(filter, 2),
+                [people["stopped_after_signup1"].uuid],
+            )
 
             filters = {
                 "events": [
@@ -792,7 +986,12 @@ def funnel_test_factory(Funnel, event_factory, person_factory):
                 "date_from": "2021-05-01 00:00:00",
                 "date_to": "2021-05-14 00:00:00",
                 "exclusions": [
-                    {"id": "x 1 name with numbers 2", "type": "events", "funnel_from_step": 0, "funnel_to_step": 1}
+                    {
+                        "id": "x 1 name with numbers 2",
+                        "type": "events",
+                        "funnel_from_step": 0,
+                        "funnel_to_step": 1,
+                    }
                 ],
             }
             filter = Filter(data=filters)
@@ -801,26 +1000,53 @@ def funnel_test_factory(Funnel, event_factory, person_factory):
             # event 1
             person1 = _create_person(distinct_ids=["person1"], team_id=self.team.pk)
             _create_event(
-                team=self.team, event="user signed up", distinct_id="person1", timestamp="2021-05-01 01:00:00"
+                team=self.team,
+                event="user signed up",
+                distinct_id="person1",
+                timestamp="2021-05-01 01:00:00",
             )
-            _create_event(team=self.team, event="paid", distinct_id="person1", timestamp="2021-05-01 02:00:00")
+            _create_event(
+                team=self.team,
+                event="paid",
+                distinct_id="person1",
+                timestamp="2021-05-01 02:00:00",
+            )
 
             # event 2
             _create_person(distinct_ids=["person2"], team_id=self.team.pk)
             _create_event(
-                team=self.team, event="user signed up", distinct_id="person2", timestamp="2021-05-01 03:00:00"
+                team=self.team,
+                event="user signed up",
+                distinct_id="person2",
+                timestamp="2021-05-01 03:00:00",
             )
             _create_event(
-                team=self.team, event="x 1 name with numbers 2", distinct_id="person2", timestamp="2021-05-01 03:30:00"
+                team=self.team,
+                event="x 1 name with numbers 2",
+                distinct_id="person2",
+                timestamp="2021-05-01 03:30:00",
             )
-            _create_event(team=self.team, event="paid", distinct_id="person2", timestamp="2021-05-01 04:00:00")
+            _create_event(
+                team=self.team,
+                event="paid",
+                distinct_id="person2",
+                timestamp="2021-05-01 04:00:00",
+            )
 
             # event 3
             person3 = _create_person(distinct_ids=["person3"], team_id=self.team.pk)
             _create_event(
-                team=self.team, event="user signed up", distinct_id="person3", timestamp="2021-05-01 05:00:00"
+                team=self.team,
+                event="user signed up",
+                distinct_id="person3",
+                timestamp="2021-05-01 05:00:00",
             )
-            _create_event(team=self.team, event="paid", distinct_id="person3", timestamp="2021-05-01 06:00:00")
+            _create_event(
+                team=self.team,
+                event="paid",
+                distinct_id="person3",
+                timestamp="2021-05-01 06:00:00",
+            )
 
             result = funnel.run()
             self.assertEqual(len(result), 2)
@@ -845,7 +1071,14 @@ def funnel_test_factory(Funnel, event_factory, person_factory):
                 "date_from": "2021-05-01 00:00:00",
                 "date_to": "2021-05-14 00:00:00",
                 "insight": INSIGHT_FUNNELS,
-                "exclusions": [{"id": "x", "type": "events", "funnel_from_step": 0, "funnel_to_step": 1}],
+                "exclusions": [
+                    {
+                        "id": "x",
+                        "type": "events",
+                        "funnel_from_step": 0,
+                        "funnel_to_step": 1,
+                    }
+                ],
             }
 
             person1 = _create_person(distinct_ids=["person1"], team_id=self.team.pk)
@@ -853,53 +1086,145 @@ def funnel_test_factory(Funnel, event_factory, person_factory):
             # this dude is discarded when funnel_from_step = 2
             # this dude is discarded when funnel_from_step = 3
             _create_event(
-                team=self.team, event="user signed up", distinct_id="person1", timestamp="2021-05-01 01:00:00"
+                team=self.team,
+                event="user signed up",
+                distinct_id="person1",
+                timestamp="2021-05-01 01:00:00",
             )
-            _create_event(team=self.team, event="$pageview", distinct_id="person1", timestamp="2021-05-01 02:00:00")
-            _create_event(team=self.team, event="x", distinct_id="person1", timestamp="2021-05-01 03:00:00")
             _create_event(
-                team=self.team, event="insight viewed", distinct_id="person1", timestamp="2021-05-01 04:00:00"
+                team=self.team,
+                event="$pageview",
+                distinct_id="person1",
+                timestamp="2021-05-01 02:00:00",
             )
-            _create_event(team=self.team, event="x", distinct_id="person1", timestamp="2021-05-01 04:30:00")
             _create_event(
-                team=self.team, event="invite teammate", distinct_id="person1", timestamp="2021-05-01 05:00:00"
+                team=self.team,
+                event="x",
+                distinct_id="person1",
+                timestamp="2021-05-01 03:00:00",
             )
-            _create_event(team=self.team, event="x", distinct_id="person1", timestamp="2021-05-01 05:30:00")
-            _create_event(team=self.team, event="pageview2", distinct_id="person1", timestamp="2021-05-01 06:00:00")
+            _create_event(
+                team=self.team,
+                event="insight viewed",
+                distinct_id="person1",
+                timestamp="2021-05-01 04:00:00",
+            )
+            _create_event(
+                team=self.team,
+                event="x",
+                distinct_id="person1",
+                timestamp="2021-05-01 04:30:00",
+            )
+            _create_event(
+                team=self.team,
+                event="invite teammate",
+                distinct_id="person1",
+                timestamp="2021-05-01 05:00:00",
+            )
+            _create_event(
+                team=self.team,
+                event="x",
+                distinct_id="person1",
+                timestamp="2021-05-01 05:30:00",
+            )
+            _create_event(
+                team=self.team,
+                event="pageview2",
+                distinct_id="person1",
+                timestamp="2021-05-01 06:00:00",
+            )
 
             person2 = _create_person(distinct_ids=["person2"], team_id=self.team.pk)
             # this dude is discarded when funnel_from_step = 2
             # this dude is discarded when funnel_from_step = 3
             _create_event(
-                team=self.team, event="user signed up", distinct_id="person2", timestamp="2021-05-01 01:00:00"
+                team=self.team,
+                event="user signed up",
+                distinct_id="person2",
+                timestamp="2021-05-01 01:00:00",
             )
-            _create_event(team=self.team, event="$pageview", distinct_id="person2", timestamp="2021-05-01 02:00:00")
             _create_event(
-                team=self.team, event="insight viewed", distinct_id="person2", timestamp="2021-05-01 04:00:00"
+                team=self.team,
+                event="$pageview",
+                distinct_id="person2",
+                timestamp="2021-05-01 02:00:00",
             )
-            _create_event(team=self.team, event="x", distinct_id="person2", timestamp="2021-05-01 04:30:00")
             _create_event(
-                team=self.team, event="invite teammate", distinct_id="person2", timestamp="2021-05-01 05:00:00"
+                team=self.team,
+                event="insight viewed",
+                distinct_id="person2",
+                timestamp="2021-05-01 04:00:00",
             )
-            _create_event(team=self.team, event="x", distinct_id="person2", timestamp="2021-05-01 05:30:00")
-            _create_event(team=self.team, event="pageview2", distinct_id="person2", timestamp="2021-05-01 06:00:00")
+            _create_event(
+                team=self.team,
+                event="x",
+                distinct_id="person2",
+                timestamp="2021-05-01 04:30:00",
+            )
+            _create_event(
+                team=self.team,
+                event="invite teammate",
+                distinct_id="person2",
+                timestamp="2021-05-01 05:00:00",
+            )
+            _create_event(
+                team=self.team,
+                event="x",
+                distinct_id="person2",
+                timestamp="2021-05-01 05:30:00",
+            )
+            _create_event(
+                team=self.team,
+                event="pageview2",
+                distinct_id="person2",
+                timestamp="2021-05-01 06:00:00",
+            )
 
             person3 = _create_person(distinct_ids=["person3"], team_id=self.team.pk)
             # this dude is discarded when funnel_from_step = 0
             # this dude is discarded when funnel_from_step = 3
             _create_event(
-                team=self.team, event="user signed up", distinct_id="person3", timestamp="2021-05-01 01:00:00"
-            )
-            _create_event(team=self.team, event="x", distinct_id="person3", timestamp="2021-05-01 01:30:00")
-            _create_event(team=self.team, event="$pageview", distinct_id="person3", timestamp="2021-05-01 02:00:00")
-            _create_event(
-                team=self.team, event="insight viewed", distinct_id="person3", timestamp="2021-05-01 04:00:00"
+                team=self.team,
+                event="user signed up",
+                distinct_id="person3",
+                timestamp="2021-05-01 01:00:00",
             )
             _create_event(
-                team=self.team, event="invite teammate", distinct_id="person3", timestamp="2021-05-01 05:00:00"
+                team=self.team,
+                event="x",
+                distinct_id="person3",
+                timestamp="2021-05-01 01:30:00",
             )
-            _create_event(team=self.team, event="x", distinct_id="person3", timestamp="2021-05-01 05:30:00")
-            _create_event(team=self.team, event="pageview2", distinct_id="person3", timestamp="2021-05-01 06:00:00")
+            _create_event(
+                team=self.team,
+                event="$pageview",
+                distinct_id="person3",
+                timestamp="2021-05-01 02:00:00",
+            )
+            _create_event(
+                team=self.team,
+                event="insight viewed",
+                distinct_id="person3",
+                timestamp="2021-05-01 04:00:00",
+            )
+            _create_event(
+                team=self.team,
+                event="invite teammate",
+                distinct_id="person3",
+                timestamp="2021-05-01 05:00:00",
+            )
+            _create_event(
+                team=self.team,
+                event="x",
+                distinct_id="person3",
+                timestamp="2021-05-01 05:30:00",
+            )
+            _create_event(
+                team=self.team,
+                event="pageview2",
+                distinct_id="person3",
+                timestamp="2021-05-01 06:00:00",
+            )
 
             filter = Filter(data=filters)
             funnel = Funnel(filter, self.team)
@@ -914,7 +1239,16 @@ def funnel_test_factory(Funnel, event_factory, person_factory):
             self.assertCountEqual(self._get_actor_ids_at_step(filter, 1), [person1.uuid, person2.uuid])
 
             filter = filter.shallow_clone(
-                {"exclusions": [{"id": "x", "type": "events", "funnel_from_step": 1, "funnel_to_step": 2}]}
+                {
+                    "exclusions": [
+                        {
+                            "id": "x",
+                            "type": "events",
+                            "funnel_from_step": 1,
+                            "funnel_to_step": 2,
+                        }
+                    ]
+                }
             )
             funnel = Funnel(filter, self.team)
 
@@ -928,7 +1262,16 @@ def funnel_test_factory(Funnel, event_factory, person_factory):
             self.assertCountEqual(self._get_actor_ids_at_step(filter, 1), [person2.uuid, person3.uuid])
 
             filter = filter.shallow_clone(
-                {"exclusions": [{"id": "x", "type": "events", "funnel_from_step": 2, "funnel_to_step": 3}]}
+                {
+                    "exclusions": [
+                        {
+                            "id": "x",
+                            "type": "events",
+                            "funnel_from_step": 2,
+                            "funnel_to_step": 3,
+                        }
+                    ]
+                }
             )
             funnel = Funnel(filter, self.team)
 
@@ -942,7 +1285,16 @@ def funnel_test_factory(Funnel, event_factory, person_factory):
             self.assertCountEqual(self._get_actor_ids_at_step(filter, 1), [person3.uuid])
 
             filter = filter.shallow_clone(
-                {"exclusions": [{"id": "x", "type": "events", "funnel_from_step": 3, "funnel_to_step": 4}]}
+                {
+                    "exclusions": [
+                        {
+                            "id": "x",
+                            "type": "events",
+                            "funnel_from_step": 3,
+                            "funnel_to_step": 4,
+                        }
+                    ]
+                }
             )
             funnel = Funnel(filter, self.team)
 
@@ -957,7 +1309,16 @@ def funnel_test_factory(Funnel, event_factory, person_factory):
 
             #  bigger step window
             filter = filter.shallow_clone(
-                {"exclusions": [{"id": "x", "type": "events", "funnel_from_step": 1, "funnel_to_step": 3}]}
+                {
+                    "exclusions": [
+                        {
+                            "id": "x",
+                            "type": "events",
+                            "funnel_from_step": 1,
+                            "funnel_to_step": 3,
+                        }
+                    ]
+                }
             )
             funnel = Funnel(filter, self.team)
 
@@ -988,7 +1349,10 @@ def funnel_test_factory(Funnel, event_factory, person_factory):
             people = journeys_for(
                 {
                     "stopped_after_signup1": [{"event": "user signed up"}],
-                    "stopped_after_pageview1": [{"event": "user signed up"}, {"event": "$pageview"}],
+                    "stopped_after_pageview1": [
+                        {"event": "user signed up"},
+                        {"event": "$pageview"},
+                    ],
                     "stopped_after_pageview2": [
                         {"event": "user signed up"},
                         {"event": "$pageview"},
@@ -1062,10 +1426,16 @@ def funnel_test_factory(Funnel, event_factory, person_factory):
 
             self.assertCountEqual(
                 self._get_actor_ids_at_step(filter, 4),
-                [people["stopped_after_pageview3"].uuid, people["stopped_after_pageview4"].uuid],
+                [
+                    people["stopped_after_pageview3"].uuid,
+                    people["stopped_after_pageview4"].uuid,
+                ],
             )
 
-            self.assertCountEqual(self._get_actor_ids_at_step(filter, 5), [people["stopped_after_pageview4"].uuid])
+            self.assertCountEqual(
+                self._get_actor_ids_at_step(filter, 5),
+                [people["stopped_after_pageview4"].uuid],
+            )
 
         def test_advanced_funnel_with_repeat_steps_out_of_order_events(self):
             filters = {
@@ -1088,45 +1458,85 @@ def funnel_test_factory(Funnel, event_factory, person_factory):
                 distinct_ids=["random", "stopped_after_signup1"], team_id=self.team.pk
             )
             _create_event(team=self.team, event="$pageview", distinct_id="random")
-            _create_event(team=self.team, event="user signed up", distinct_id="stopped_after_signup1")
+            _create_event(
+                team=self.team,
+                event="user signed up",
+                distinct_id="stopped_after_signup1",
+            )
 
             person2_stopped_after_one_pageview = _create_person(
                 distinct_ids=["stopped_after_pageview1"], team_id=self.team.pk
             )
-            _create_event(team=self.team, event="user signed up", distinct_id="stopped_after_pageview1")
+            _create_event(
+                team=self.team,
+                event="user signed up",
+                distinct_id="stopped_after_pageview1",
+            )
             _create_event(team=self.team, event="$pageview", distinct_id="stopped_after_pageview1")
 
             person3_stopped_after_two_pageview = _create_person(
                 distinct_ids=["stopped_after_pageview2"], team_id=self.team.pk
             )
             _create_event(team=self.team, event="$pageview", distinct_id="stopped_after_pageview2")
-            _create_event(team=self.team, event="user signed up", distinct_id="stopped_after_pageview2")
-            _create_event(team=self.team, event="blaah blaa", distinct_id="stopped_after_pageview2")
+            _create_event(
+                team=self.team,
+                event="user signed up",
+                distinct_id="stopped_after_pageview2",
+            )
+            _create_event(
+                team=self.team,
+                event="blaah blaa",
+                distinct_id="stopped_after_pageview2",
+            )
             _create_event(team=self.team, event="$pageview", distinct_id="stopped_after_pageview2")
 
             person4_stopped_after_three_pageview = _create_person(
                 distinct_ids=["stopped_after_pageview3"], team_id=self.team.pk
             )
-            _create_event(team=self.team, event="blaah blaa", distinct_id="stopped_after_pageview3")
+            _create_event(
+                team=self.team,
+                event="blaah blaa",
+                distinct_id="stopped_after_pageview3",
+            )
             _create_event(team=self.team, event="$pageview", distinct_id="stopped_after_pageview3")
-            _create_event(team=self.team, event="blaah blaa", distinct_id="stopped_after_pageview3")
+            _create_event(
+                team=self.team,
+                event="blaah blaa",
+                distinct_id="stopped_after_pageview3",
+            )
             _create_event(team=self.team, event="$pageview", distinct_id="stopped_after_pageview3")
-            _create_event(team=self.team, event="user signed up", distinct_id="stopped_after_pageview3")
+            _create_event(
+                team=self.team,
+                event="user signed up",
+                distinct_id="stopped_after_pageview3",
+            )
             _create_event(team=self.team, event="$pageview", distinct_id="stopped_after_pageview3")
 
             person5_stopped_after_many_pageview = _create_person(
                 distinct_ids=["stopped_after_pageview4"], team_id=self.team.pk
             )
-            _create_event(team=self.team, event="user signed up", distinct_id="stopped_after_pageview4")
+            _create_event(
+                team=self.team,
+                event="user signed up",
+                distinct_id="stopped_after_pageview4",
+            )
             _create_event(team=self.team, event="$pageview", distinct_id="stopped_after_pageview4")
-            _create_event(team=self.team, event="blaah blaa", distinct_id="stopped_after_pageview4")
+            _create_event(
+                team=self.team,
+                event="blaah blaa",
+                distinct_id="stopped_after_pageview4",
+            )
             _create_event(team=self.team, event="$pageview", distinct_id="stopped_after_pageview4")
             _create_event(team=self.team, event="$pageview", distinct_id="stopped_after_pageview4")
             _create_event(team=self.team, event="$pageview", distinct_id="stopped_after_pageview4")
 
             _create_person(distinct_ids=["stopped_after_pageview5"], team_id=self.team.pk)
             _create_event(team=self.team, event="$pageview", distinct_id="stopped_after_pageview5")
-            _create_event(team=self.team, event="blaah blaa", distinct_id="stopped_after_pageview5")
+            _create_event(
+                team=self.team,
+                event="blaah blaa",
+                distinct_id="stopped_after_pageview5",
+            )
             _create_event(team=self.team, event="$pageview", distinct_id="stopped_after_pageview5")
             _create_event(team=self.team, event="$pageview", distinct_id="stopped_after_pageview5")
             _create_event(team=self.team, event="$pageview", distinct_id="stopped_after_pageview5")
@@ -1168,19 +1578,34 @@ def funnel_test_factory(Funnel, event_factory, person_factory):
                 ],
             )
 
-            self.assertCountEqual(self._get_actor_ids_at_step(filter, 3), [person5_stopped_after_many_pageview.uuid])
+            self.assertCountEqual(
+                self._get_actor_ids_at_step(filter, 3),
+                [person5_stopped_after_many_pageview.uuid],
+            )
 
-            self.assertCountEqual(self._get_actor_ids_at_step(filter, 4), [person5_stopped_after_many_pageview.uuid])
+            self.assertCountEqual(
+                self._get_actor_ids_at_step(filter, 4),
+                [person5_stopped_after_many_pageview.uuid],
+            )
 
-            self.assertCountEqual(self._get_actor_ids_at_step(filter, 5), [person5_stopped_after_many_pageview.uuid])
+            self.assertCountEqual(
+                self._get_actor_ids_at_step(filter, 5),
+                [person5_stopped_after_many_pageview.uuid],
+            )
 
         @also_test_with_materialized_columns(["key"])
         def test_funnel_with_actions(self):
-
             sign_up_action = _create_action(
                 name="sign up",
                 team=self.team,
-                properties=[{"key": "key", "type": "event", "value": ["val"], "operator": "exact"}],
+                properties=[
+                    {
+                        "key": "key",
+                        "type": "event",
+                        "value": ["val"],
+                        "operator": "exact",
+                    }
+                ],
             )
 
             filters = {
@@ -1199,15 +1624,24 @@ def funnel_test_factory(Funnel, event_factory, person_factory):
                 distinct_ids=["stopped_after_signup1"], team_id=self.team.pk
             )
             _create_event(
-                team=self.team, event="sign up", distinct_id="stopped_after_signup1", properties={"key": "val"}
+                team=self.team,
+                event="sign up",
+                distinct_id="stopped_after_signup1",
+                properties={"key": "val"},
             )
             _create_event(
-                team=self.team, event="sign up", distinct_id="stopped_after_signup1", properties={"key": "val"}
+                team=self.team,
+                event="sign up",
+                distinct_id="stopped_after_signup1",
+                properties={"key": "val"},
             )
 
             person2_stopped_after_signup = _create_person(distinct_ids=["stopped_after_signup2"], team_id=self.team.pk)
             _create_event(
-                team=self.team, event="sign up", distinct_id="stopped_after_signup2", properties={"key": "val"}
+                team=self.team,
+                event="sign up",
+                distinct_id="stopped_after_signup2",
+                properties={"key": "val"},
             )
 
             result = funnel.run()
@@ -1220,17 +1654,29 @@ def funnel_test_factory(Funnel, event_factory, person_factory):
             # check ordering of people in first step
             self.assertCountEqual(
                 self._get_actor_ids_at_step(filter, 1),
-                [person1_stopped_after_two_signups.uuid, person2_stopped_after_signup.uuid],
+                [
+                    person1_stopped_after_two_signups.uuid,
+                    person2_stopped_after_signup.uuid,
+                ],
             )
 
-            self.assertCountEqual(self._get_actor_ids_at_step(filter, 2), [person1_stopped_after_two_signups.uuid])
+            self.assertCountEqual(
+                self._get_actor_ids_at_step(filter, 2),
+                [person1_stopped_after_two_signups.uuid],
+            )
 
         def test_funnel_with_different_actions_at_same_time_count_as_converted(self):
-
             sign_up_action = _create_action(
                 name="sign up",
                 team=self.team,
-                properties=[{"key": "key", "type": "event", "value": ["val"], "operator": "exact"}],
+                properties=[
+                    {
+                        "key": "key",
+                        "type": "event",
+                        "value": ["val"],
+                        "operator": "exact",
+                    }
+                ],
             )
 
             filters = {
@@ -1250,17 +1696,26 @@ def funnel_test_factory(Funnel, event_factory, person_factory):
                     distinct_ids=["stopped_after_signup1"], team_id=self.team.pk
                 )
                 _create_event(
-                    team=self.team, event="sign up", distinct_id="stopped_after_signup1", properties={"key": "val"}
+                    team=self.team,
+                    event="sign up",
+                    distinct_id="stopped_after_signup1",
+                    properties={"key": "val"},
                 )
                 _create_event(
-                    team=self.team, event="$pageview", distinct_id="stopped_after_signup1", properties={"key": "val"}
+                    team=self.team,
+                    event="$pageview",
+                    distinct_id="stopped_after_signup1",
+                    properties={"key": "val"},
                 )
 
                 person2_stopped_after_signup = _create_person(
                     distinct_ids=["stopped_after_signup2"], team_id=self.team.pk
                 )
                 _create_event(
-                    team=self.team, event="sign up", distinct_id="stopped_after_signup2", properties={"key": "val"}
+                    team=self.team,
+                    event="sign up",
+                    distinct_id="stopped_after_signup2",
+                    properties={"key": "val"},
                 )
 
                 result = funnel.run()
@@ -1273,16 +1728,29 @@ def funnel_test_factory(Funnel, event_factory, person_factory):
                 # check ordering of people in first step
                 self.assertCountEqual(
                     self._get_actor_ids_at_step(filter, 1),
-                    [person1_stopped_after_two_signups.uuid, person2_stopped_after_signup.uuid],
+                    [
+                        person1_stopped_after_two_signups.uuid,
+                        person2_stopped_after_signup.uuid,
+                    ],
                 )
 
-                self.assertCountEqual(self._get_actor_ids_at_step(filter, 2), [person1_stopped_after_two_signups.uuid])
+                self.assertCountEqual(
+                    self._get_actor_ids_at_step(filter, 2),
+                    [person1_stopped_after_two_signups.uuid],
+                )
 
         def test_funnel_with_actions_and_props(self):
             sign_up_action = _create_action(
                 name="sign up",
                 team=self.team,
-                properties=[{"key": "email", "operator": "icontains", "value": ".com", "type": "person"}],
+                properties=[
+                    {
+                        "key": "email",
+                        "operator": "icontains",
+                        "value": ".com",
+                        "type": "person",
+                    }
+                ],
             )
 
             filters = {
@@ -1298,20 +1766,33 @@ def funnel_test_factory(Funnel, event_factory, person_factory):
 
             # event
             person1_stopped_after_two_signups = _create_person(
-                distinct_ids=["stopped_after_signup1"], team_id=self.team.pk, properties={"email": "fake@test.com"}
+                distinct_ids=["stopped_after_signup1"],
+                team_id=self.team.pk,
+                properties={"email": "fake@test.com"},
             )
             _create_event(
-                team=self.team, event="sign up", distinct_id="stopped_after_signup1", properties={"key": "val"}
+                team=self.team,
+                event="sign up",
+                distinct_id="stopped_after_signup1",
+                properties={"key": "val"},
             )
             _create_event(
-                team=self.team, event="sign up", distinct_id="stopped_after_signup1", properties={"key": "val"}
+                team=self.team,
+                event="sign up",
+                distinct_id="stopped_after_signup1",
+                properties={"key": "val"},
             )
 
             person2_stopped_after_signup = _create_person(
-                distinct_ids=["stopped_after_signup2"], team_id=self.team.pk, properties={"email": "fake@test.com"}
+                distinct_ids=["stopped_after_signup2"],
+                team_id=self.team.pk,
+                properties={"email": "fake@test.com"},
             )
             _create_event(
-                team=self.team, event="sign up", distinct_id="stopped_after_signup2", properties={"key": "val"}
+                team=self.team,
+                event="sign up",
+                distinct_id="stopped_after_signup2",
+                properties={"key": "val"},
             )
 
             result = funnel.run()
@@ -1324,13 +1805,18 @@ def funnel_test_factory(Funnel, event_factory, person_factory):
             # check ordering of people in first step
             self.assertCountEqual(
                 self._get_actor_ids_at_step(filter, 1),
-                [person1_stopped_after_two_signups.uuid, person2_stopped_after_signup.uuid],
+                [
+                    person1_stopped_after_two_signups.uuid,
+                    person2_stopped_after_signup.uuid,
+                ],
             )
 
-            self.assertCountEqual(self._get_actor_ids_at_step(filter, 2), [person1_stopped_after_two_signups.uuid])
+            self.assertCountEqual(
+                self._get_actor_ids_at_step(filter, 2),
+                [person1_stopped_after_two_signups.uuid],
+            )
 
         def test_funnel_with_actions_and_props_with_zero_person_ids(self):
-
             # only a person-on-event test
             if not get_instance_setting("PERSON_ON_EVENTS_ENABLED"):
                 return True
@@ -1338,7 +1824,14 @@ def funnel_test_factory(Funnel, event_factory, person_factory):
             sign_up_action = _create_action(
                 name="sign up",
                 team=self.team,
-                properties=[{"key": "email", "operator": "icontains", "value": ".com", "type": "person"}],
+                properties=[
+                    {
+                        "key": "email",
+                        "operator": "icontains",
+                        "value": ".com",
+                        "type": "person",
+                    }
+                ],
             )
 
             filters = {
@@ -1354,20 +1847,33 @@ def funnel_test_factory(Funnel, event_factory, person_factory):
 
             # event
             person1_stopped_after_two_signups = _create_person(
-                distinct_ids=["stopped_after_signup1"], team_id=self.team.pk, properties={"email": "fake@test.com"}
+                distinct_ids=["stopped_after_signup1"],
+                team_id=self.team.pk,
+                properties={"email": "fake@test.com"},
             )
             _create_event(
-                team=self.team, event="sign up", distinct_id="stopped_after_signup1", properties={"key": "val"}
+                team=self.team,
+                event="sign up",
+                distinct_id="stopped_after_signup1",
+                properties={"key": "val"},
             )
             _create_event(
-                team=self.team, event="sign up", distinct_id="stopped_after_signup1", properties={"key": "val"}
+                team=self.team,
+                event="sign up",
+                distinct_id="stopped_after_signup1",
+                properties={"key": "val"},
             )
 
             person2_stopped_after_signup = _create_person(
-                distinct_ids=["stopped_after_signup2"], team_id=self.team.pk, properties={"email": "fake@test.com"}
+                distinct_ids=["stopped_after_signup2"],
+                team_id=self.team.pk,
+                properties={"email": "fake@test.com"},
             )
             _create_event(
-                team=self.team, event="sign up", distinct_id="stopped_after_signup2", properties={"key": "val"}
+                team=self.team,
+                event="sign up",
+                distinct_id="stopped_after_signup2",
+                properties={"key": "val"},
             )
 
             _create_event(
@@ -1395,19 +1901,31 @@ def funnel_test_factory(Funnel, event_factory, person_factory):
             # check ordering of people in first step
             self.assertCountEqual(
                 self._get_actor_ids_at_step(filter, 1),
-                [person1_stopped_after_two_signups.uuid, person2_stopped_after_signup.uuid],
+                [
+                    person1_stopped_after_two_signups.uuid,
+                    person2_stopped_after_signup.uuid,
+                ],
             )
 
-            self.assertCountEqual(self._get_actor_ids_at_step(filter, 2), [person1_stopped_after_two_signups.uuid])
+            self.assertCountEqual(
+                self._get_actor_ids_at_step(filter, 2),
+                [person1_stopped_after_two_signups.uuid],
+            )
 
         @also_test_with_materialized_columns(["key"])
         @skip("Flaky funnel test")
         def test_funnel_with_actions_and_events(self):
-
             sign_up_action = _create_action(
                 name="sign up",
                 team=self.team,
-                properties=[{"key": "key", "type": "event", "value": ["val"], "operator": "exact"}],
+                properties=[
+                    {
+                        "key": "key",
+                        "type": "event",
+                        "value": ["val"],
+                        "operator": "exact",
+                    }
+                ],
             )
 
             filters = {
@@ -1479,7 +1997,10 @@ def funnel_test_factory(Funnel, event_factory, person_factory):
 
             person3 = _create_person(distinct_ids=["person3"], team_id=self.team.pk)
             _create_event(
-                team=self.team, event="user signed up", distinct_id="person3", timestamp="2021-05-01 00:00:07"
+                team=self.team,
+                event="user signed up",
+                distinct_id="person3",
+                timestamp="2021-05-01 00:00:07",
             )
             _create_event(
                 team=self.team,
@@ -1489,7 +2010,10 @@ def funnel_test_factory(Funnel, event_factory, person_factory):
                 timestamp="2021-05-01 00:00:08",
             )
             _create_event(
-                team=self.team, event="user signed up", distinct_id="person3", timestamp="2021-05-01 00:00:09"
+                team=self.team,
+                event="user signed up",
+                distinct_id="person3",
+                timestamp="2021-05-01 00:00:09",
             )
             _create_event(
                 team=self.team,
@@ -1501,7 +2025,10 @@ def funnel_test_factory(Funnel, event_factory, person_factory):
 
             person4 = _create_person(distinct_ids=["person4"], team_id=self.team.pk)
             _create_event(
-                team=self.team, event="user signed up", distinct_id="person4", timestamp="2021-05-01 00:00:11"
+                team=self.team,
+                event="user signed up",
+                distinct_id="person4",
+                timestamp="2021-05-01 00:00:11",
             )
             _create_event(
                 team=self.team,
@@ -1511,7 +2038,10 @@ def funnel_test_factory(Funnel, event_factory, person_factory):
                 timestamp="2021-05-01 00:00:12",
             )
             _create_event(
-                team=self.team, event="user signed up", distinct_id="person4", timestamp="2021-05-01 00:00:13"
+                team=self.team,
+                event="user signed up",
+                distinct_id="person4",
+                timestamp="2021-05-01 00:00:13",
             )
 
             _create_person(distinct_ids=["person5"], team_id=self.team.pk)
@@ -1535,33 +2065,58 @@ def funnel_test_factory(Funnel, event_factory, person_factory):
             # check ordering of people in steps
             self.assertCountEqual(
                 self._get_actor_ids_at_step(filter, 1),
-                [person1_stopped_after_two_signups.uuid, person2_stopped_after_signup.uuid, person3.uuid, person4.uuid],
+                [
+                    person1_stopped_after_two_signups.uuid,
+                    person2_stopped_after_signup.uuid,
+                    person3.uuid,
+                    person4.uuid,
+                ],
             )
 
             self.assertCountEqual(
                 self._get_actor_ids_at_step(filter, 2),
-                [person1_stopped_after_two_signups.uuid, person2_stopped_after_signup.uuid, person3.uuid, person4.uuid],
+                [
+                    person1_stopped_after_two_signups.uuid,
+                    person2_stopped_after_signup.uuid,
+                    person3.uuid,
+                    person4.uuid,
+                ],
             )
 
             self.assertCountEqual(
                 self._get_actor_ids_at_step(filter, 3),
-                [person1_stopped_after_two_signups.uuid, person2_stopped_after_signup.uuid, person3.uuid],
+                [
+                    person1_stopped_after_two_signups.uuid,
+                    person2_stopped_after_signup.uuid,
+                    person3.uuid,
+                ],
             )
 
-            self.assertCountEqual(self._get_actor_ids_at_step(filter, 4), [person1_stopped_after_two_signups.uuid])
+            self.assertCountEqual(
+                self._get_actor_ids_at_step(filter, 4),
+                [person1_stopped_after_two_signups.uuid],
+            )
 
         @also_test_with_materialized_columns(["$current_url"])
         def test_funnel_with_matching_properties(self):
             filters = {
                 "events": [
                     {"id": "user signed up", "order": 0},
-                    {"id": "$pageview", "order": 1, "properties": {"$current_url": "aloha.com"}},
+                    {
+                        "id": "$pageview",
+                        "order": 1,
+                        "properties": {"$current_url": "aloha.com"},
+                    },
                     {
                         "id": "$pageview",
                         "order": 2,
                         "properties": {"$current_url": "aloha2.com"},
                     },  # different event to above
-                    {"id": "$pageview", "order": 3, "properties": {"$current_url": "aloha2.com"}},
+                    {
+                        "id": "$pageview",
+                        "order": 3,
+                        "properties": {"$current_url": "aloha2.com"},
+                    },
                     {"id": "$pageview", "order": 4},
                 ],
                 "insight": INSIGHT_FUNNELS,
@@ -1577,28 +2132,61 @@ def funnel_test_factory(Funnel, event_factory, person_factory):
                     "stopped_after_signup1": [{"event": "user signed up"}],
                     "stopped_after_pageview1": [
                         {"event": "user signed up"},
-                        {"event": "$pageview", "properties": {"$current_url": "aloha.com"}},
+                        {
+                            "event": "$pageview",
+                            "properties": {"$current_url": "aloha.com"},
+                        },
                     ],
                     "stopped_after_pageview2": [
                         {"event": "user signed up"},
-                        {"event": "$pageview", "properties": {"$current_url": "aloha.com"}},
-                        {"event": "blaah blaa", "properties": {"$current_url": "aloha.com"}},
-                        {"event": "$pageview", "properties": {"$current_url": "aloha2.com"}},
+                        {
+                            "event": "$pageview",
+                            "properties": {"$current_url": "aloha.com"},
+                        },
+                        {
+                            "event": "blaah blaa",
+                            "properties": {"$current_url": "aloha.com"},
+                        },
+                        {
+                            "event": "$pageview",
+                            "properties": {"$current_url": "aloha2.com"},
+                        },
                     ],
                     "stopped_after_pageview3": [
                         {"event": "user signed up"},
-                        {"event": "$pageview", "properties": {"$current_url": "aloha.com"}},
-                        {"event": "$pageview", "properties": {"$current_url": "aloha2.com"}},
-                        {"event": "$pageview", "properties": {"$current_url": "aloha2.com"}},
+                        {
+                            "event": "$pageview",
+                            "properties": {"$current_url": "aloha.com"},
+                        },
+                        {
+                            "event": "$pageview",
+                            "properties": {"$current_url": "aloha2.com"},
+                        },
+                        {
+                            "event": "$pageview",
+                            "properties": {"$current_url": "aloha2.com"},
+                        },
                         {"event": "blaah blaa"},
                     ],
                     "stopped_after_pageview4": [
                         {"event": "user signed up"},
-                        {"event": "$pageview", "properties": {"$current_url": "aloha.com"}},
+                        {
+                            "event": "$pageview",
+                            "properties": {"$current_url": "aloha.com"},
+                        },
                         {"event": "blaah blaa"},
-                        {"event": "$pageview", "properties": {"$current_url": "aloha2.com"}},
-                        {"event": "$pageview", "properties": {"$current_url": "aloha.com"}},
-                        {"event": "$pageview", "properties": {"$current_url": "aloha2.com"}},
+                        {
+                            "event": "$pageview",
+                            "properties": {"$current_url": "aloha2.com"},
+                        },
+                        {
+                            "event": "$pageview",
+                            "properties": {"$current_url": "aloha.com"},
+                        },
+                        {
+                            "event": "$pageview",
+                            "properties": {"$current_url": "aloha2.com"},
+                        },
                     ],
                 },
                 self.team,
@@ -1647,7 +2235,10 @@ def funnel_test_factory(Funnel, event_factory, person_factory):
 
             self.assertCountEqual(
                 self._get_actor_ids_at_step(filter, 4),
-                [people["stopped_after_pageview3"].uuid, people["stopped_after_pageview4"].uuid],
+                [
+                    people["stopped_after_pageview3"].uuid,
+                    people["stopped_after_pageview4"].uuid,
+                ],
             )
 
             self.assertCountEqual(self._get_actor_ids_at_step(filter, 5), [])
@@ -1658,19 +2249,31 @@ def funnel_test_factory(Funnel, event_factory, person_factory):
                 person = _create_person(distinct_ids=[f"user_{i}"], team=self.team)
                 ids_to_compare.append(str(person.uuid))
                 _create_event(
-                    event="step one", distinct_id=f"user_{i}", team=self.team, timestamp="2021-05-01 00:00:00"
+                    event="step one",
+                    distinct_id=f"user_{i}",
+                    team=self.team,
+                    timestamp="2021-05-01 00:00:00",
                 )
                 _create_event(
-                    event="step two", distinct_id=f"user_{i}", team=self.team, timestamp="2021-05-02 00:00:00"
+                    event="step two",
+                    distinct_id=f"user_{i}",
+                    team=self.team,
+                    timestamp="2021-05-02 00:00:00",
                 )
 
             for i in range(10, 25):
                 _create_person(distinct_ids=[f"user_{i}"], team=self.team)
                 _create_event(
-                    event="step one", distinct_id=f"user_{i}", team=self.team, timestamp="2021-05-01 00:00:00"
+                    event="step one",
+                    distinct_id=f"user_{i}",
+                    team=self.team,
+                    timestamp="2021-05-01 00:00:00",
                 )
                 _create_event(
-                    event="step two", distinct_id=f"user_{i}", team=self.team, timestamp="2021-05-10 00:00:00"
+                    event="step two",
+                    distinct_id=f"user_{i}",
+                    team=self.team,
+                    timestamp="2021-05-10 00:00:00",
                 )
 
             data = {
@@ -1693,7 +2296,10 @@ def funnel_test_factory(Funnel, event_factory, person_factory):
             self.assertEqual(results[1]["count"], 10)
             self.assertEqual(results[2]["count"], 0)
 
-            self.assertCountEqual([str(id) for id in self._get_actor_ids_at_step(filter, 2)], ids_to_compare)
+            self.assertCountEqual(
+                [str(id) for id in self._get_actor_ids_at_step(filter, 2)],
+                ids_to_compare,
+            )
 
         @snapshot_clickhouse_queries
         def test_funnel_conversion_window_seconds(self):
@@ -1702,19 +2308,31 @@ def funnel_test_factory(Funnel, event_factory, person_factory):
                 person = _create_person(distinct_ids=[f"user_{i}"], team=self.team)
                 ids_to_compare.append(str(person.uuid))
                 _create_event(
-                    event="step one", distinct_id=f"user_{i}", team=self.team, timestamp="2021-05-01 00:00:00"
+                    event="step one",
+                    distinct_id=f"user_{i}",
+                    team=self.team,
+                    timestamp="2021-05-01 00:00:00",
                 )
                 _create_event(
-                    event="step two", distinct_id=f"user_{i}", team=self.team, timestamp="2021-05-01 00:00:10"
+                    event="step two",
+                    distinct_id=f"user_{i}",
+                    team=self.team,
+                    timestamp="2021-05-01 00:00:10",
                 )
 
             for i in range(10, 25):
                 _create_person(distinct_ids=[f"user_{i}"], team=self.team)
                 _create_event(
-                    event="step one", distinct_id=f"user_{i}", team=self.team, timestamp="2021-05-01 00:00:00"
+                    event="step one",
+                    distinct_id=f"user_{i}",
+                    team=self.team,
+                    timestamp="2021-05-01 00:00:00",
                 )
                 _create_event(
-                    event="step two", distinct_id=f"user_{i}", team=self.team, timestamp="2021-05-01 00:00:20"
+                    event="step two",
+                    distinct_id=f"user_{i}",
+                    team=self.team,
+                    timestamp="2021-05-01 00:00:20",
                 )
 
             data = {
@@ -1737,7 +2355,10 @@ def funnel_test_factory(Funnel, event_factory, person_factory):
             self.assertEqual(results[1]["count"], 10)
             self.assertEqual(results[2]["count"], 0)
 
-            self.assertCountEqual([str(id) for id in self._get_actor_ids_at_step(filter, 2)], ids_to_compare)
+            self.assertCountEqual(
+                [str(id) for id in self._get_actor_ids_at_step(filter, 2)],
+                ids_to_compare,
+            )
 
         def test_funnel_exclusions_invalid_params(self):
             filters = {
@@ -1749,23 +2370,57 @@ def funnel_test_factory(Funnel, event_factory, person_factory):
                 "funnel_window_days": 14,
                 "date_from": "2021-05-01 00:00:00",
                 "date_to": "2021-05-14 00:00:00",
-                "exclusions": [{"id": "x", "type": "events", "funnel_from_step": 1, "funnel_to_step": 1}],
+                "exclusions": [
+                    {
+                        "id": "x",
+                        "type": "events",
+                        "funnel_from_step": 1,
+                        "funnel_to_step": 1,
+                    }
+                ],
             }
             filter = Filter(data=filters)
             self.assertRaises(ValidationError, lambda: Funnel(filter, self.team))
 
             filter = filter.shallow_clone(
-                {"exclusions": [{"id": "x", "type": "events", "funnel_from_step": 1, "funnel_to_step": 2}]}
+                {
+                    "exclusions": [
+                        {
+                            "id": "x",
+                            "type": "events",
+                            "funnel_from_step": 1,
+                            "funnel_to_step": 2,
+                        }
+                    ]
+                }
             )
             self.assertRaises(ValidationError, lambda: Funnel(filter, self.team))
 
             filter = filter.shallow_clone(
-                {"exclusions": [{"id": "x", "type": "events", "funnel_from_step": 2, "funnel_to_step": 1}]}
+                {
+                    "exclusions": [
+                        {
+                            "id": "x",
+                            "type": "events",
+                            "funnel_from_step": 2,
+                            "funnel_to_step": 1,
+                        }
+                    ]
+                }
             )
             self.assertRaises(ValidationError, lambda: Funnel(filter, self.team))
 
             filter = filter.shallow_clone(
-                {"exclusions": [{"id": "x", "type": "events", "funnel_from_step": 0, "funnel_to_step": 2}]}
+                {
+                    "exclusions": [
+                        {
+                            "id": "x",
+                            "type": "events",
+                            "funnel_from_step": 0,
+                            "funnel_to_step": 2,
+                        }
+                    ]
+                }
             )
             self.assertRaises(ValidationError, lambda: Funnel(filter, self.team))
 
@@ -1779,7 +2434,14 @@ def funnel_test_factory(Funnel, event_factory, person_factory):
                 "funnel_window_days": 1,
                 "date_from": "2021-05-01 00:00:00",
                 "date_to": "2021-05-14 00:00:00",
-                "exclusions": [{"id": "x", "type": "events", "funnel_from_step": 0, "funnel_to_step": 1}],
+                "exclusions": [
+                    {
+                        "id": "x",
+                        "type": "events",
+                        "funnel_from_step": 0,
+                        "funnel_to_step": 1,
+                    }
+                ],
             }
             filter = Filter(data=filters)
             funnel = Funnel(filter, self.team)
@@ -1787,32 +2449,69 @@ def funnel_test_factory(Funnel, event_factory, person_factory):
             # event 1
             person1 = _create_person(distinct_ids=["person1"], team_id=self.team.pk)
             _create_event(
-                team=self.team, event="user signed up", distinct_id="person1", timestamp="2021-05-01 01:00:00"
+                team=self.team,
+                event="user signed up",
+                distinct_id="person1",
+                timestamp="2021-05-01 01:00:00",
             )
-            _create_event(team=self.team, event="paid", distinct_id="person1", timestamp="2021-05-01 02:00:00")
+            _create_event(
+                team=self.team,
+                event="paid",
+                distinct_id="person1",
+                timestamp="2021-05-01 02:00:00",
+            )
 
             # event 2
             _create_person(distinct_ids=["person2"], team_id=self.team.pk)
             _create_event(
-                team=self.team, event="user signed up", distinct_id="person2", timestamp="2021-05-01 03:00:00"
+                team=self.team,
+                event="user signed up",
+                distinct_id="person2",
+                timestamp="2021-05-01 03:00:00",
             )
-            _create_event(team=self.team, event="x", distinct_id="person2", timestamp="2021-05-01 03:30:00")
-            _create_event(team=self.team, event="paid", distinct_id="person2", timestamp="2021-05-01 04:00:00")
+            _create_event(
+                team=self.team,
+                event="x",
+                distinct_id="person2",
+                timestamp="2021-05-01 03:30:00",
+            )
+            _create_event(
+                team=self.team,
+                event="paid",
+                distinct_id="person2",
+                timestamp="2021-05-01 04:00:00",
+            )
 
             # event 3
             _create_person(distinct_ids=["person3"], team_id=self.team.pk)
             # should be discarded, even if nothing happened after x, since within conversion window
             _create_event(
-                team=self.team, event="user signed up", distinct_id="person3", timestamp="2021-05-01 05:00:00"
+                team=self.team,
+                event="user signed up",
+                distinct_id="person3",
+                timestamp="2021-05-01 05:00:00",
             )
-            _create_event(team=self.team, event="x", distinct_id="person3", timestamp="2021-05-01 06:00:00")
+            _create_event(
+                team=self.team,
+                event="x",
+                distinct_id="person3",
+                timestamp="2021-05-01 06:00:00",
+            )
 
             # event 4 - outside conversion window
             person4 = _create_person(distinct_ids=["person4"], team_id=self.team.pk)
             _create_event(
-                team=self.team, event="user signed up", distinct_id="person4", timestamp="2021-05-01 07:00:00"
+                team=self.team,
+                event="user signed up",
+                distinct_id="person4",
+                timestamp="2021-05-01 07:00:00",
             )
-            _create_event(team=self.team, event="x", distinct_id="person4", timestamp="2021-05-02 08:00:00")
+            _create_event(
+                team=self.team,
+                event="x",
+                distinct_id="person4",
+                timestamp="2021-05-02 08:00:00",
+            )
 
             result = funnel.run()
             self.assertEqual(len(result), 2)
@@ -1827,11 +2526,17 @@ def funnel_test_factory(Funnel, event_factory, person_factory):
 
         @also_test_with_materialized_columns(["key"])
         def test_funnel_exclusions_with_actions(self):
-
             sign_up_action = _create_action(
                 name="sign up",
                 team=self.team,
-                properties=[{"key": "key", "type": "event", "value": ["val"], "operator": "exact"}],
+                properties=[
+                    {
+                        "key": "key",
+                        "type": "event",
+                        "value": ["val"],
+                        "operator": "exact",
+                    }
+                ],
             )
 
             filters = {
@@ -1844,7 +2549,12 @@ def funnel_test_factory(Funnel, event_factory, person_factory):
                 "date_from": "2021-05-01 00:00:00",
                 "date_to": "2021-05-14 00:00:00",
                 "exclusions": [
-                    {"id": sign_up_action.id, "type": "actions", "funnel_from_step": 0, "funnel_to_step": 1}
+                    {
+                        "id": sign_up_action.id,
+                        "type": "actions",
+                        "funnel_from_step": 0,
+                        "funnel_to_step": 1,
+                    }
                 ],
             }
             filter = Filter(data=filters)
@@ -1853,14 +2563,25 @@ def funnel_test_factory(Funnel, event_factory, person_factory):
             # event 1
             person1 = _create_person(distinct_ids=["person1"], team_id=self.team.pk)
             _create_event(
-                team=self.team, event="user signed up", distinct_id="person1", timestamp="2021-05-01 01:00:00"
+                team=self.team,
+                event="user signed up",
+                distinct_id="person1",
+                timestamp="2021-05-01 01:00:00",
             )
-            _create_event(team=self.team, event="paid", distinct_id="person1", timestamp="2021-05-01 02:00:00")
+            _create_event(
+                team=self.team,
+                event="paid",
+                distinct_id="person1",
+                timestamp="2021-05-01 02:00:00",
+            )
 
             # event 2
             _create_person(distinct_ids=["person2"], team_id=self.team.pk)
             _create_event(
-                team=self.team, event="user signed up", distinct_id="person2", timestamp="2021-05-01 03:00:00"
+                team=self.team,
+                event="user signed up",
+                distinct_id="person2",
+                timestamp="2021-05-01 03:00:00",
             )
             _create_event(
                 team=self.team,
@@ -1869,14 +2590,27 @@ def funnel_test_factory(Funnel, event_factory, person_factory):
                 properties={"key": "val"},
                 timestamp="2021-05-01 03:30:00",
             )
-            _create_event(team=self.team, event="paid", distinct_id="person2", timestamp="2021-05-01 04:00:00")
+            _create_event(
+                team=self.team,
+                event="paid",
+                distinct_id="person2",
+                timestamp="2021-05-01 04:00:00",
+            )
 
             # event 3
             person3 = _create_person(distinct_ids=["person3"], team_id=self.team.pk)
             _create_event(
-                team=self.team, event="user signed up", distinct_id="person3", timestamp="2021-05-01 05:00:00"
+                team=self.team,
+                event="user signed up",
+                distinct_id="person3",
+                timestamp="2021-05-01 05:00:00",
             )
-            _create_event(team=self.team, event="paid", distinct_id="person3", timestamp="2021-05-01 06:00:00")
+            _create_event(
+                team=self.team,
+                event="paid",
+                distinct_id="person3",
+                timestamp="2021-05-01 06:00:00",
+            )
 
             result = funnel.run()
             self.assertEqual(len(result), 2)
@@ -1919,7 +2653,12 @@ def funnel_test_factory(Funnel, event_factory, person_factory):
                 timestamp="2020-01-02T14:00:00Z",
                 properties={"test_prop": "hi"},
             )
-            _create_event(team=self.team, event="paid", distinct_id="user_1", timestamp="2020-01-10T14:00:00Z")
+            _create_event(
+                team=self.team,
+                event="paid",
+                distinct_id="user_1",
+                timestamp="2020-01-10T14:00:00Z",
+            )
 
             result = funnel.run()
 
@@ -1939,69 +2678,190 @@ def funnel_test_factory(Funnel, event_factory, person_factory):
                 "date_to": "2021-05-14 00:00:00",
                 "insight": INSIGHT_FUNNELS,
                 "exclusions": [
-                    {"id": "x", "type": "events", "funnel_from_step": 0, "funnel_to_step": 1},
-                    {"id": "y", "type": "events", "funnel_from_step": 2, "funnel_to_step": 3},
+                    {
+                        "id": "x",
+                        "type": "events",
+                        "funnel_from_step": 0,
+                        "funnel_to_step": 1,
+                    },
+                    {
+                        "id": "y",
+                        "type": "events",
+                        "funnel_from_step": 2,
+                        "funnel_to_step": 3,
+                    },
                 ],
             }
 
             _create_person(distinct_ids=["person1"], team_id=self.team.pk)
             _create_event(
-                team=self.team, event="user signed up", distinct_id="person1", timestamp="2021-05-01 01:00:00"
+                team=self.team,
+                event="user signed up",
+                distinct_id="person1",
+                timestamp="2021-05-01 01:00:00",
             )
-            _create_event(team=self.team, event="x", distinct_id="person1", timestamp="2021-05-01 02:00:00")
-            _create_event(team=self.team, event="$pageview", distinct_id="person1", timestamp="2021-05-01 03:00:00")
             _create_event(
-                team=self.team, event="insight viewed", distinct_id="person1", timestamp="2021-05-01 04:00:00"
+                team=self.team,
+                event="x",
+                distinct_id="person1",
+                timestamp="2021-05-01 02:00:00",
             )
-            _create_event(team=self.team, event="y", distinct_id="person1", timestamp="2021-05-01 04:30:00")
             _create_event(
-                team=self.team, event="invite teammate", distinct_id="person1", timestamp="2021-05-01 05:00:00"
+                team=self.team,
+                event="$pageview",
+                distinct_id="person1",
+                timestamp="2021-05-01 03:00:00",
             )
-            _create_event(team=self.team, event="pageview2", distinct_id="person1", timestamp="2021-05-01 06:00:00")
+            _create_event(
+                team=self.team,
+                event="insight viewed",
+                distinct_id="person1",
+                timestamp="2021-05-01 04:00:00",
+            )
+            _create_event(
+                team=self.team,
+                event="y",
+                distinct_id="person1",
+                timestamp="2021-05-01 04:30:00",
+            )
+            _create_event(
+                team=self.team,
+                event="invite teammate",
+                distinct_id="person1",
+                timestamp="2021-05-01 05:00:00",
+            )
+            _create_event(
+                team=self.team,
+                event="pageview2",
+                distinct_id="person1",
+                timestamp="2021-05-01 06:00:00",
+            )
 
             _create_person(distinct_ids=["person2"], team_id=self.team.pk)
             _create_event(
-                team=self.team, event="user signed up", distinct_id="person2", timestamp="2021-05-01 01:00:00"
+                team=self.team,
+                event="user signed up",
+                distinct_id="person2",
+                timestamp="2021-05-01 01:00:00",
             )
-            _create_event(team=self.team, event="y", distinct_id="person2", timestamp="2021-05-01 01:30:00")
-            _create_event(team=self.team, event="$pageview", distinct_id="person2", timestamp="2021-05-01 02:00:00")
             _create_event(
-                team=self.team, event="insight viewed", distinct_id="person2", timestamp="2021-05-01 04:00:00"
+                team=self.team,
+                event="y",
+                distinct_id="person2",
+                timestamp="2021-05-01 01:30:00",
             )
-            _create_event(team=self.team, event="y", distinct_id="person2", timestamp="2021-05-01 04:30:00")
             _create_event(
-                team=self.team, event="invite teammate", distinct_id="person2", timestamp="2021-05-01 05:00:00"
+                team=self.team,
+                event="$pageview",
+                distinct_id="person2",
+                timestamp="2021-05-01 02:00:00",
             )
-            _create_event(team=self.team, event="x", distinct_id="person2", timestamp="2021-05-01 05:30:00")
-            _create_event(team=self.team, event="pageview2", distinct_id="person2", timestamp="2021-05-01 06:00:00")
+            _create_event(
+                team=self.team,
+                event="insight viewed",
+                distinct_id="person2",
+                timestamp="2021-05-01 04:00:00",
+            )
+            _create_event(
+                team=self.team,
+                event="y",
+                distinct_id="person2",
+                timestamp="2021-05-01 04:30:00",
+            )
+            _create_event(
+                team=self.team,
+                event="invite teammate",
+                distinct_id="person2",
+                timestamp="2021-05-01 05:00:00",
+            )
+            _create_event(
+                team=self.team,
+                event="x",
+                distinct_id="person2",
+                timestamp="2021-05-01 05:30:00",
+            )
+            _create_event(
+                team=self.team,
+                event="pageview2",
+                distinct_id="person2",
+                timestamp="2021-05-01 06:00:00",
+            )
 
             _create_person(distinct_ids=["person3"], team_id=self.team.pk)
             _create_event(
-                team=self.team, event="user signed up", distinct_id="person3", timestamp="2021-05-01 01:00:00"
-            )
-            _create_event(team=self.team, event="x", distinct_id="person3", timestamp="2021-05-01 01:30:00")
-            _create_event(team=self.team, event="$pageview", distinct_id="person3", timestamp="2021-05-01 02:00:00")
-            _create_event(
-                team=self.team, event="insight viewed", distinct_id="person3", timestamp="2021-05-01 04:00:00"
+                team=self.team,
+                event="user signed up",
+                distinct_id="person3",
+                timestamp="2021-05-01 01:00:00",
             )
             _create_event(
-                team=self.team, event="invite teammate", distinct_id="person3", timestamp="2021-05-01 05:00:00"
+                team=self.team,
+                event="x",
+                distinct_id="person3",
+                timestamp="2021-05-01 01:30:00",
             )
-            _create_event(team=self.team, event="x", distinct_id="person3", timestamp="2021-05-01 05:30:00")
-            _create_event(team=self.team, event="pageview2", distinct_id="person3", timestamp="2021-05-01 06:00:00")
+            _create_event(
+                team=self.team,
+                event="$pageview",
+                distinct_id="person3",
+                timestamp="2021-05-01 02:00:00",
+            )
+            _create_event(
+                team=self.team,
+                event="insight viewed",
+                distinct_id="person3",
+                timestamp="2021-05-01 04:00:00",
+            )
+            _create_event(
+                team=self.team,
+                event="invite teammate",
+                distinct_id="person3",
+                timestamp="2021-05-01 05:00:00",
+            )
+            _create_event(
+                team=self.team,
+                event="x",
+                distinct_id="person3",
+                timestamp="2021-05-01 05:30:00",
+            )
+            _create_event(
+                team=self.team,
+                event="pageview2",
+                distinct_id="person3",
+                timestamp="2021-05-01 06:00:00",
+            )
 
             person4 = _create_person(distinct_ids=["person4"], team_id=self.team.pk)
             _create_event(
-                team=self.team, event="user signed up", distinct_id="person4", timestamp="2021-05-01 01:00:00"
+                team=self.team,
+                event="user signed up",
+                distinct_id="person4",
+                timestamp="2021-05-01 01:00:00",
             )
-            _create_event(team=self.team, event="$pageview", distinct_id="person4", timestamp="2021-05-01 02:00:00")
             _create_event(
-                team=self.team, event="insight viewed", distinct_id="person4", timestamp="2021-05-01 04:00:00"
+                team=self.team,
+                event="$pageview",
+                distinct_id="person4",
+                timestamp="2021-05-01 02:00:00",
             )
             _create_event(
-                team=self.team, event="invite teammate", distinct_id="person4", timestamp="2021-05-01 05:00:00"
+                team=self.team,
+                event="insight viewed",
+                distinct_id="person4",
+                timestamp="2021-05-01 04:00:00",
             )
-            _create_event(team=self.team, event="pageview2", distinct_id="person4", timestamp="2021-05-01 06:00:00")
+            _create_event(
+                team=self.team,
+                event="invite teammate",
+                distinct_id="person4",
+                timestamp="2021-05-01 05:00:00",
+            )
+            _create_event(
+                team=self.team,
+                event="pageview2",
+                distinct_id="person4",
+                timestamp="2021-05-01 06:00:00",
+            )
 
             filter = Filter(data=filters)
             funnel = Funnel(filter, self.team)
@@ -2018,8 +2878,18 @@ def funnel_test_factory(Funnel, event_factory, person_factory):
             filter = filter.shallow_clone(
                 {
                     "exclusions": [
-                        {"id": "x", "type": "events", "funnel_from_step": 0, "funnel_to_step": 1},
-                        {"id": "y", "type": "events", "funnel_from_step": 0, "funnel_to_step": 1},
+                        {
+                            "id": "x",
+                            "type": "events",
+                            "funnel_from_step": 0,
+                            "funnel_to_step": 1,
+                        },
+                        {
+                            "id": "y",
+                            "type": "events",
+                            "funnel_from_step": 0,
+                            "funnel_to_step": 1,
+                        },
                     ]
                 }
             )
@@ -2037,8 +2907,18 @@ def funnel_test_factory(Funnel, event_factory, person_factory):
             filter = filter.shallow_clone(
                 {
                     "exclusions": [
-                        {"id": "x", "type": "events", "funnel_from_step": 0, "funnel_to_step": 1},
-                        {"id": "y", "type": "events", "funnel_from_step": 0, "funnel_to_step": 1},
+                        {
+                            "id": "x",
+                            "type": "events",
+                            "funnel_from_step": 0,
+                            "funnel_to_step": 1,
+                        },
+                        {
+                            "id": "y",
+                            "type": "events",
+                            "funnel_from_step": 0,
+                            "funnel_to_step": 1,
+                        },
                     ]
                 }
             )
@@ -2056,8 +2936,18 @@ def funnel_test_factory(Funnel, event_factory, person_factory):
             filter = filter.shallow_clone(
                 {
                     "exclusions": [
-                        {"id": "x", "type": "events", "funnel_from_step": 0, "funnel_to_step": 4},
-                        {"id": "y", "type": "events", "funnel_from_step": 0, "funnel_to_step": 4},
+                        {
+                            "id": "x",
+                            "type": "events",
+                            "funnel_from_step": 0,
+                            "funnel_to_step": 4,
+                        },
+                        {
+                            "id": "y",
+                            "type": "events",
+                            "funnel_from_step": 0,
+                            "funnel_to_step": 4,
+                        },
                     ]
                 }
             )
@@ -2095,7 +2985,12 @@ def funnel_test_factory(Funnel, event_factory, person_factory):
                             "name": "$autocapture",
                             "order": 1,
                             "properties": [
-                                {"key": "tag_name", "value": [tag_name], "operator": "exact", "type": "element"}
+                                {
+                                    "key": "tag_name",
+                                    "value": [tag_name],
+                                    "operator": "exact",
+                                    "type": "element",
+                                }
                             ],
                             "type": "events",
                         },
@@ -2133,22 +3028,52 @@ def funnel_test_factory(Funnel, event_factory, person_factory):
 
         @snapshot_clickhouse_queries
         def test_funnel_with_cohorts_step_filter(self):
-
-            _create_person(distinct_ids=["user_1"], team_id=self.team.pk, properties={"email": "n@test.com"})
-            _create_event(
-                team=self.team, event="user signed up", distinct_id="user_1", timestamp="2020-01-02T14:00:00Z"
+            _create_person(
+                distinct_ids=["user_1"],
+                team_id=self.team.pk,
+                properties={"email": "n@test.com"},
             )
-            _create_event(team=self.team, event="paid", distinct_id="user_1", timestamp="2020-01-10T14:00:00Z")
+            _create_event(
+                team=self.team,
+                event="user signed up",
+                distinct_id="user_1",
+                timestamp="2020-01-02T14:00:00Z",
+            )
+            _create_event(
+                team=self.team,
+                event="paid",
+                distinct_id="user_1",
+                timestamp="2020-01-10T14:00:00Z",
+            )
 
             _create_person(distinct_ids=["user_2"], team_id=self.team.pk)
             _create_event(
-                team=self.team, event="user signed up", distinct_id="user_2", timestamp="2020-01-02T14:00:00Z"
+                team=self.team,
+                event="user signed up",
+                distinct_id="user_2",
+                timestamp="2020-01-02T14:00:00Z",
             )
-            _create_event(team=self.team, event="paid", distinct_id="user_2", timestamp="2020-01-10T14:00:00Z")
+            _create_event(
+                team=self.team,
+                event="paid",
+                distinct_id="user_2",
+                timestamp="2020-01-10T14:00:00Z",
+            )
 
             cohort = Cohort.objects.create(
                 team=self.team,
-                groups=[{"properties": [{"key": "email", "operator": "icontains", "value": ".com", "type": "person"}]}],
+                groups=[
+                    {
+                        "properties": [
+                            {
+                                "key": "email",
+                                "operator": "icontains",
+                                "value": ".com",
+                                "type": "person",
+                            }
+                        ]
+                    }
+                ],
             )
 
             filters = {
@@ -2176,22 +3101,52 @@ def funnel_test_factory(Funnel, event_factory, person_factory):
 
         @snapshot_clickhouse_queries
         def test_funnel_with_precalculated_cohort_step_filter(self):
-
-            _create_person(distinct_ids=["user_1"], team_id=self.team.pk, properties={"email": "n@test.com"})
-            _create_event(
-                team=self.team, event="user signed up", distinct_id="user_1", timestamp="2020-01-02T14:00:00Z"
+            _create_person(
+                distinct_ids=["user_1"],
+                team_id=self.team.pk,
+                properties={"email": "n@test.com"},
             )
-            _create_event(team=self.team, event="paid", distinct_id="user_1", timestamp="2020-01-10T14:00:00Z")
+            _create_event(
+                team=self.team,
+                event="user signed up",
+                distinct_id="user_1",
+                timestamp="2020-01-02T14:00:00Z",
+            )
+            _create_event(
+                team=self.team,
+                event="paid",
+                distinct_id="user_1",
+                timestamp="2020-01-10T14:00:00Z",
+            )
 
             _create_person(distinct_ids=["user_2"], team_id=self.team.pk)
             _create_event(
-                team=self.team, event="user signed up", distinct_id="user_2", timestamp="2020-01-02T14:00:00Z"
+                team=self.team,
+                event="user signed up",
+                distinct_id="user_2",
+                timestamp="2020-01-02T14:00:00Z",
             )
-            _create_event(team=self.team, event="paid", distinct_id="user_2", timestamp="2020-01-10T14:00:00Z")
+            _create_event(
+                team=self.team,
+                event="paid",
+                distinct_id="user_2",
+                timestamp="2020-01-10T14:00:00Z",
+            )
 
             cohort = Cohort.objects.create(
                 team=self.team,
-                groups=[{"properties": [{"key": "email", "operator": "icontains", "value": ".com", "type": "person"}]}],
+                groups=[
+                    {
+                        "properties": [
+                            {
+                                "key": "email",
+                                "operator": "icontains",
+                                "value": ".com",
+                                "type": "person",
+                            }
+                        ]
+                    }
+                ],
             )
 
             filters = {
@@ -2200,7 +3155,13 @@ def funnel_test_factory(Funnel, event_factory, person_factory):
                         "id": "user signed up",
                         "type": "events",
                         "order": 0,
-                        "properties": [{"type": "precalculated-cohort", "key": "id", "value": cohort.pk}],
+                        "properties": [
+                            {
+                                "type": "precalculated-cohort",
+                                "key": "id",
+                                "value": cohort.pk,
+                            }
+                        ],
                     },
                     {"id": "paid", "type": "events", "order": 1},
                 ],
@@ -2222,18 +3183,37 @@ def funnel_test_factory(Funnel, event_factory, person_factory):
 
         @snapshot_clickhouse_queries
         def test_funnel_with_static_cohort_step_filter(self):
-
-            _create_person(distinct_ids=["user_1"], team_id=self.team.pk, properties={"email": "n@test.com"})
-            _create_event(
-                team=self.team, event="user signed up", distinct_id="user_1", timestamp="2020-01-02T14:00:00Z"
+            _create_person(
+                distinct_ids=["user_1"],
+                team_id=self.team.pk,
+                properties={"email": "n@test.com"},
             )
-            _create_event(team=self.team, event="paid", distinct_id="user_1", timestamp="2020-01-10T14:00:00Z")
+            _create_event(
+                team=self.team,
+                event="user signed up",
+                distinct_id="user_1",
+                timestamp="2020-01-02T14:00:00Z",
+            )
+            _create_event(
+                team=self.team,
+                event="paid",
+                distinct_id="user_1",
+                timestamp="2020-01-10T14:00:00Z",
+            )
 
             _create_person(distinct_ids=["user_2"], team_id=self.team.pk)
             _create_event(
-                team=self.team, event="user signed up", distinct_id="user_2", timestamp="2020-01-02T14:00:00Z"
+                team=self.team,
+                event="user signed up",
+                distinct_id="user_2",
+                timestamp="2020-01-02T14:00:00Z",
             )
-            _create_event(team=self.team, event="paid", distinct_id="user_2", timestamp="2020-01-10T14:00:00Z")
+            _create_event(
+                team=self.team,
+                event="paid",
+                distinct_id="user_2",
+                timestamp="2020-01-10T14:00:00Z",
+            )
 
             cohort = Cohort.objects.create(team=self.team, groups=[], is_static=True)
             cohort.insert_users_by_list(["user_2", "rando"])
@@ -2269,7 +3249,11 @@ def funnel_test_factory(Funnel, event_factory, person_factory):
                 "date_to": "2020-07-01 00:00:00",
                 "events": [
                     {"id": "user signed up", "order": 0},
-                    {"id": "$pageview", "order": 1, "properties": {"$current_url": "aloha.com"}},
+                    {
+                        "id": "$pageview",
+                        "order": 1,
+                        "properties": {"$current_url": "aloha.com"},
+                    },
                     {
                         "id": "$pageview",
                         "order": 2,
@@ -2284,15 +3268,35 @@ def funnel_test_factory(Funnel, event_factory, person_factory):
                         {
                             "type": "AND",
                             "values": [
-                                {"key": "email", "operator": "icontains", "value": ".com", "type": "person"},
-                                {"key": "age", "operator": "exact", "value": "20", "type": "person"},
+                                {
+                                    "key": "email",
+                                    "operator": "icontains",
+                                    "value": ".com",
+                                    "type": "person",
+                                },
+                                {
+                                    "key": "age",
+                                    "operator": "exact",
+                                    "value": "20",
+                                    "type": "person",
+                                },
                             ],
                         },
                         {
                             "type": "OR",
                             "values": [
-                                {"key": "email", "operator": "icontains", "value": ".org", "type": "person"},
-                                {"key": "age", "operator": "exact", "value": "28", "type": "person"},
+                                {
+                                    "key": "email",
+                                    "operator": "icontains",
+                                    "value": ".org",
+                                    "type": "person",
+                                },
+                                {
+                                    "key": "age",
+                                    "operator": "exact",
+                                    "value": "28",
+                                    "type": "person",
+                                },
                             ],
                         },
                     ],
@@ -2332,10 +3336,23 @@ def funnel_test_factory(Funnel, event_factory, person_factory):
             # event
             journeys_for(
                 {
-                    "stopped_after_signup1": [{"event": "user signed up", "timestamp": datetime(2020, 5, 1, 0)}],
-                    "stopped_after_pageview1": [{"event": "user signed up", "timestamp": datetime(2020, 5, 1, 0)}],
+                    "stopped_after_signup1": [
+                        {
+                            "event": "user signed up",
+                            "timestamp": datetime(2020, 5, 1, 0),
+                        }
+                    ],
+                    "stopped_after_pageview1": [
+                        {
+                            "event": "user signed up",
+                            "timestamp": datetime(2020, 5, 1, 0),
+                        }
+                    ],
                     "stopped_after_pageview2": [
-                        {"event": "user signed up", "timestamp": datetime(2020, 5, 1, 0)},
+                        {
+                            "event": "user signed up",
+                            "timestamp": datetime(2020, 5, 1, 0),
+                        },
                         {
                             "event": "$pageview",
                             "properties": {"$current_url": "aloha.com"},
@@ -2343,7 +3360,10 @@ def funnel_test_factory(Funnel, event_factory, person_factory):
                         },
                     ],
                     "stopped_after_pageview3": [
-                        {"event": "user signed up", "timestamp": datetime(2020, 5, 1, 0)},
+                        {
+                            "event": "user signed up",
+                            "timestamp": datetime(2020, 5, 1, 0),
+                        },
                         {
                             "event": "$pageview",
                             "properties": {"$current_url": "aloha.com"},
@@ -2398,10 +3418,16 @@ def funnel_test_factory(Funnel, event_factory, person_factory):
 
             self.assertCountEqual(
                 self._get_actor_ids_at_step(filter, 2),
-                [people["stopped_after_pageview2"].uuid, people["stopped_after_pageview3"].uuid],
+                [
+                    people["stopped_after_pageview2"].uuid,
+                    people["stopped_after_pageview3"].uuid,
+                ],
             )
 
-            self.assertCountEqual(self._get_actor_ids_at_step(filter, 3), [people["stopped_after_pageview3"].uuid])
+            self.assertCountEqual(
+                self._get_actor_ids_at_step(filter, 3),
+                [people["stopped_after_pageview3"].uuid],
+            )
 
         @snapshot_clickhouse_queries
         def test_timezones(self):
@@ -2425,7 +3451,10 @@ def funnel_test_factory(Funnel, event_factory, person_factory):
             _create_person(distinct_ids=["user_1"], team_id=self.team.pk)
             #  this event shouldn't appear as in US/Pacific this would be the previous day
             _create_event(
-                team=self.team, event="user signed up", distinct_id="user_1", timestamp="2020-01-01T01:00:00Z"
+                team=self.team,
+                event="user signed up",
+                distinct_id="user_1",
+                timestamp="2020-01-01T01:00:00Z",
             )
             result = funnel.run()
 
@@ -2434,7 +3463,12 @@ def funnel_test_factory(Funnel, event_factory, person_factory):
 
         def test_funnel_with_sampling(self):
             action_play_movie = Action.objects.create(team=self.team, name="watched movie")
-            ActionStep.objects.create(action=action_play_movie, event="$autocapture", tag_name="a", href="/movie")
+            ActionStep.objects.create(
+                action=action_play_movie,
+                event="$autocapture",
+                tag_name="a",
+                href="/movie",
+            )
 
             funnel = self._basic_funnel(
                 filters={
@@ -2453,7 +3487,10 @@ def funnel_test_factory(Funnel, event_factory, person_factory):
             self._signup_event(distinct_id="stopped_after_pay")
             self._movie_event(distinct_id="completed_movie")
 
-            person_factory(distinct_ids=["had_anonymous_id", "completed_movie"], team_id=self.team.pk)
+            person_factory(
+                distinct_ids=["had_anonymous_id", "completed_movie"],
+                team_id=self.team.pk,
+            )
             self._signup_event(distinct_id="had_anonymous_id")
             self._movie_event(distinct_id="completed_movie")
 
@@ -2511,7 +3548,10 @@ def funnel_test_factory(Funnel, event_factory, person_factory):
 
             # properties.$session_id
             result = self._basic_funnel(
-                filters={**basic_filters, "funnel_aggregate_by_hogql": "properties.$session_id"}
+                filters={
+                    **basic_filters,
+                    "funnel_aggregate_by_hogql": "properties.$session_id",
+                }
             ).run()
             self.assertEqual(result[0]["count"], 3)
             self.assertEqual(result[1]["count"], 2)
@@ -2544,14 +3584,27 @@ def funnel_test_factory(Funnel, event_factory, person_factory):
 
             filters = {
                 "events": [
-                    {"type": "events", "id": "user signed up", "order": 0, "name": "user signed up", "math": "total"},
+                    {
+                        "type": "events",
+                        "id": "user signed up",
+                        "order": 0,
+                        "name": "user signed up",
+                        "math": "total",
+                    },
                     {
                         "type": "events",
                         "id": None,
                         "order": 1,
                         "name": "All events",
                         "math": "total",
-                        "properties": [{"key": "is_saved", "value": ["true"], "operator": "exact", "type": "event"}],
+                        "properties": [
+                            {
+                                "key": "is_saved",
+                                "value": ["true"],
+                                "operator": "exact",
+                                "type": "event",
+                            }
+                        ],
                     },
                 ],
                 "funnel_window_days": 14,

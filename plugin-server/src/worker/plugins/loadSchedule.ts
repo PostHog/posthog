@@ -1,5 +1,12 @@
+import { Summary } from 'prom-client'
+
 import { Hub, PluginConfigId } from '../../types'
 import { status } from '../../utils/status'
+
+const loadScheduleMsSummary = new Summary({
+    name: 'load_schedule_ms',
+    help: 'Time to load schedule',
+})
 
 export async function loadSchedule(server: Hub): Promise<void> {
     const timer = new Date()
@@ -25,5 +32,5 @@ export async function loadSchedule(server: Hub): Promise<void> {
     }
 
     server.pluginSchedule = pluginSchedule
-    server.statsd?.timing('load_schedule.success', timer)
+    loadScheduleMsSummary.observe(new Date().getTime() - timer.getTime())
 }

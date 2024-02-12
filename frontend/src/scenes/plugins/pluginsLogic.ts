@@ -1,43 +1,29 @@
+import type { FormInstance } from 'antd/lib/form/hooks/useForm.d'
 import { actions, afterMount, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import { actionToUrl, router, urlToAction } from 'kea-router'
-import type { pluginsLogicType } from './pluginsLogicType'
 import api from 'lib/api'
-import { AvailableFeature, PersonalAPIKeyType, PluginConfigType, PluginType } from '~/types'
-import {
-    PluginInstallationType,
-    PluginRepositoryEntry,
-    PluginTab,
-    PluginTypeWithConfig,
-    PluginUpdateStatusType,
-} from './types'
-import { userLogic } from 'scenes/userLogic'
-import { getConfigSchemaArray, getConfigSchemaObject, getPluginConfigFormData } from 'scenes/plugins/utils'
+import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import posthog from 'posthog-js'
-import type { FormInstance } from 'antd/lib/form/hooks/useForm.d'
-import { canGloballyManagePlugins, canInstallPlugins } from './access'
-import { teamLogic } from '../teamLogic'
-import { createDefaultPluginSource } from 'scenes/plugins/source/createDefaultPluginSource'
 import { frontendAppsLogic } from 'scenes/apps/frontendAppsLogic'
+import { getConfigSchemaArray, getConfigSchemaObject, getPluginConfigFormData } from 'scenes/pipeline/configUtils'
+import { createDefaultPluginSource } from 'scenes/plugins/source/createDefaultPluginSource'
 import { urls } from 'scenes/urls'
-import { lemonToast } from 'lib/lemon-ui/lemonToast'
+import { userLogic } from 'scenes/userLogic'
+
+import { PersonalAPIKeyType, PluginConfigType, PluginInstallationType, PluginType } from '~/types'
+
+import { teamLogic } from '../teamLogic'
+import { canGloballyManagePlugins, canInstallPlugins } from './access'
+import type { pluginsLogicType } from './pluginsLogicType'
+import { PluginRepositoryEntry, PluginTab, PluginTypeWithConfig, PluginUpdateStatusType } from './types'
 
 export type PluginForm = FormInstance
-
-export enum PluginSection {
-    Upgrade = 'upgrade',
-    Installed = 'installed',
-    Enabled = 'enabled',
-    Disabled = 'disabled',
-}
 
 export interface PluginSelectionType {
     name: string
     url?: string
-    tab: PluginTab
 }
-
-const PAGINATION_DEFAULT_MAX_PAGES = 10
 
 function capturePluginEvent(event: string, plugin: PluginType, type?: PluginInstallationType): void {
     posthog.capture(event, {
@@ -48,37 +34,19 @@ function capturePluginEvent(event: string, plugin: PluginType, type?: PluginInst
     })
 }
 
-async function loadPaginatedResults(
-    url: string | null,
-    maxIterations: number = PAGINATION_DEFAULT_MAX_PAGES
-): Promise<any[]> {
-    let results: any[] = []
-    for (let i = 0; i <= maxIterations; ++i) {
-        if (!url) {
-            break
-        }
-
-        const { results: partialResults, next } = await api.get(url)
-        results = results.concat(partialResults)
-        url = next
-    }
-    return results
-}
-
 export const pluginsLogic = kea<pluginsLogicType>([
     path(['scenes', 'plugins', 'pluginsLogic']),
-    connect(frontendAppsLogic),
+    connect(() => frontendAppsLogic),
     actions({
         editPlugin: (id: number | null, pluginConfigChanges: Record<string, any> = {}) => ({ id, pluginConfigChanges }),
         savePluginConfig: (pluginConfigChanges: Record<string, any>) => ({ pluginConfigChanges }),
         installPlugin: (pluginUrl: string, pluginType: PluginInstallationType) => ({ pluginUrl, pluginType }),
-        uninstallPlugin: (name: string) => ({ name }),
+        uninstallPlugin: (id: number) => ({ id }),
         setCustomPluginUrl: (customPluginUrl: string) => ({ customPluginUrl }),
         setLocalPluginUrl: (localPluginUrl: string) => ({ localPluginUrl }),
         setSourcePluginName: (sourcePluginName: string) => ({ sourcePluginName }),
         setPluginTab: (tab: PluginTab) => ({ tab }),
         setEditingSource: (editingSource: boolean) => ({ editingSource }),
-        resetPluginConfigError: (id: number) => ({ id }),
         checkForUpdates: (checkAll: boolean, initialUpdateStatus: Record<string, PluginUpdateStatusType> = {}) => ({
             checkAll,
             initialUpdateStatus,
@@ -90,21 +58,20 @@ export const pluginsLogic = kea<pluginsLogicType>([
         pluginUpdated: (id: number) => ({ id }),
         patchPlugin: (id: number, pluginChanges: Partial<PluginType> = {}) => ({ id, pluginChanges }),
         generateApiKeysIfNeeded: (form: PluginForm) => ({ form }),
-        rearrange: true,
         setTemporaryOrder: (temporaryOrder: Record<number, number>, movedPluginId: number) => ({
             temporaryOrder,
             movedPluginId,
         }),
-        makePluginOrderSaveable: true,
         savePluginOrders: (newOrders: Record<number, number>) => ({ newOrders }),
         cancelRearranging: true,
         showPluginLogs: (id: number) => ({ id }),
         hidePluginLogs: true,
-        processSearchInput: (term: string) => ({ term }),
         setSearchTerm: (term: string | null) => ({ term }),
-        setPluginConfigPollTimeout: (timeout: number | null) => ({ timeout }),
-        toggleSectionOpen: (section: PluginSection) => ({ section }),
         syncFrontendAppState: (id: number) => ({ id }),
+        openAdvancedInstallModal: true,
+        closeAdvancedInstallModal: true,
+        openReorderModal: true,
+        closeReorderModal: true,
     }),
 
     loaders(({ actions, values }) => ({
@@ -112,7 +79,7 @@ export const pluginsLogic = kea<pluginsLogicType>([
             {} as Record<number, PluginType>,
             {
                 loadPlugins: async () => {
-                    const results: PluginType[] = await loadPaginatedResults('api/organizations/@current/plugins')
+                    const results: PluginType[] = await api.loadPaginatedResults('api/organizations/@current/plugins')
                     const plugins: Record<string, PluginType> = {}
                     for (const plugin of results) {
                         plugins[plugin.id] = plugin
@@ -132,16 +99,14 @@ export const pluginsLogic = kea<pluginsLogicType>([
                         actions.loadPlugins()
                     }
                     capturePluginEvent(`plugin installed`, response, pluginType)
+
+                    actions.closeAdvancedInstallModal()
                     return { ...values.plugins, [response.id]: response }
                 },
-                uninstallPlugin: async () => {
-                    const { plugins, editingPlugin } = values
-                    if (!editingPlugin) {
-                        return plugins
-                    }
-                    await api.delete(`api/organizations/@current/plugins/${editingPlugin.id}`)
-                    capturePluginEvent(`plugin uninstalled`, editingPlugin)
-                    const { [editingPlugin.id]: _discard, ...rest } = plugins
+                uninstallPlugin: async ({ id }) => {
+                    await api.delete(`api/organizations/@current/plugins/${id}`)
+                    capturePluginEvent(`plugin uninstalled`, values.plugins[id])
+                    const { [id]: _discard, ...rest } = values.plugins
                     return rest
                 },
                 updatePlugin: async ({ id }) => {
@@ -172,7 +137,7 @@ export const pluginsLogic = kea<pluginsLogicType>([
             {
                 loadPluginConfigs: async () => {
                     const pluginConfigs: Record<string, PluginConfigType> = {}
-                    const results: PluginConfigType[] = await loadPaginatedResults('api/plugin_config')
+                    const results: PluginConfigType[] = await api.loadPaginatedResults('api/plugin_config')
 
                     for (const pluginConfig of results) {
                         pluginConfigs[pluginConfig.plugin] = { ...pluginConfig }
@@ -187,7 +152,11 @@ export const pluginsLogic = kea<pluginsLogicType>([
                         return pluginConfigs
                     }
 
-                    const formData = getPluginConfigFormData(editingPlugin, pluginConfigChanges)
+                    const formData = getPluginConfigFormData(
+                        editingPlugin.config_schema,
+                        editingPlugin.pluginConfig?.config,
+                        pluginConfigChanges
+                    )
 
                     if (!editingPlugin.pluginConfig?.enabled) {
                         formData.append('order', values.nextPluginOrder.toString())
@@ -225,13 +194,6 @@ export const pluginsLogic = kea<pluginsLogicType>([
                     })
                     return { ...pluginConfigs, [response.plugin]: response }
                 },
-                resetPluginConfigError: async ({ id }) => {
-                    const { pluginConfigs } = values
-                    const response = await api.update(`api/plugin_config/${id}`, {
-                        error: null,
-                    })
-                    return { ...pluginConfigs, [response.plugin]: response }
-                },
                 savePluginOrders: async ({ newOrders }) => {
                     const { pluginConfigs } = values
                     const response: PluginConfigType[] = await api.update(`api/plugin_config/rearrange`, {
@@ -257,6 +219,16 @@ export const pluginsLogic = kea<pluginsLogicType>([
                         }
                     }
                     return repository
+                },
+            },
+        ],
+        unusedPlugins: [
+            // used for know if plugin can be uninstalled
+            [] as number[],
+            {
+                loadUnusedPlugins: async () => {
+                    const results = await api.get('api/organizations/@current/plugins/unused')
+                    return results
                 },
             },
         ],
@@ -341,10 +313,9 @@ export const pluginsLogic = kea<pluginsLogicType>([
             },
         },
         pluginTab: [
-            PluginTab.Installed as PluginTab,
+            PluginTab.Apps as PluginTab,
             {
                 setPluginTab: (_, { tab }) => tab,
-                installPluginSuccess: () => PluginTab.Installed,
             },
         ],
         updateStatus: [
@@ -374,26 +345,9 @@ export const pluginsLogic = kea<pluginsLogicType>([
                 checkedForUpdates: () => false,
             },
         ],
-        pluginOrderSaveable: [
-            false,
-            {
-                makePluginOrderSaveable: () => true,
-                cancelRearranging: () => false,
-                savePluginOrdersSuccess: () => false,
-            },
-        ],
-        rearranging: [
-            false,
-            {
-                rearrange: () => true,
-                cancelRearranging: () => false,
-                savePluginOrdersSuccess: () => false,
-            },
-        ],
         temporaryOrder: [
             {} as Record<number, number>,
             {
-                rearrange: () => ({}),
                 setTemporaryOrder: (_, { temporaryOrder }) => temporaryOrder,
                 cancelRearranging: () => ({}),
                 savePluginOrdersSuccess: () => ({}),
@@ -402,7 +356,6 @@ export const pluginsLogic = kea<pluginsLogicType>([
         movedPlugins: [
             {} as Record<number, boolean>,
             {
-                rearrange: () => ({}),
                 setTemporaryOrder: (state, { movedPluginId }) => ({ ...state, [movedPluginId]: true }),
                 cancelRearranging: () => ({}),
                 savePluginOrdersSuccess: () => ({}),
@@ -415,27 +368,24 @@ export const pluginsLogic = kea<pluginsLogicType>([
                 hidePluginLogs: () => null,
             },
         ],
-        lastShownLogsPluginId: [
-            null as number | null,
-            {
-                showPluginLogs: (_, { id }) => id,
-            },
-        ],
         searchTerm: [
             null as string | null,
             {
                 setSearchTerm: (_, { term }) => term,
             },
         ],
-        sectionsOpen: [
-            [PluginSection.Enabled, PluginSection.Disabled] as PluginSection[],
+        advancedInstallModalOpen: [
+            false,
             {
-                toggleSectionOpen: (currentOpenSections, { section }) => {
-                    if (currentOpenSections.includes(section)) {
-                        return currentOpenSections.filter((s) => section !== s)
-                    }
-                    return [...currentOpenSections, section]
-                },
+                openAdvancedInstallModal: () => true,
+                closeAdvancedInstallModal: () => false,
+            },
+        ],
+        reorderModalOpen: [
+            false,
+            {
+                openReorderModal: () => true,
+                closeReorderModal: () => false,
             },
         ],
     }),
@@ -457,6 +407,7 @@ export const pluginsLogic = kea<pluginsLogicType>([
                 }
 
                 const pluginValues = Object.values(plugins)
+
                 return pluginValues
                     .map((plugin, index) => {
                         let pluginConfig: PluginConfigType = { ...pluginConfigs[plugin.id] }
@@ -467,6 +418,7 @@ export const pluginsLogic = kea<pluginsLogicType>([
                                     config[key] = def
                                 }
                             )
+
                             pluginConfig = {
                                 id: undefined,
                                 team_id: currentTeam.id,
@@ -570,16 +522,6 @@ export const pluginsLogic = kea<pluginsLogicType>([
             (pluginsLoading, repositoryLoading, pluginConfigsLoading) =>
                 pluginsLoading || repositoryLoading || pluginConfigsLoading,
         ],
-        showingLogsPlugin: [
-            (s) => [s.showingLogsPluginId, s.installedPlugins],
-            (showingLogsPluginId, installedPlugins) =>
-                showingLogsPluginId ? installedPlugins.find((plugin) => plugin.id === showingLogsPluginId) : null,
-        ],
-        lastShownLogsPlugin: [
-            (s) => [s.lastShownLogsPluginId, s.installedPlugins],
-            (lastShownLogsPluginId, installedPlugins) =>
-                lastShownLogsPluginId ? installedPlugins.find((plugin) => plugin.id === lastShownLogsPluginId) : null,
-        ],
         filteredUninstalledPlugins: [
             (s) => [s.searchTerm, s.uninstalledPlugins],
             (searchTerm, uninstalledPlugins) =>
@@ -646,39 +588,29 @@ export const pluginsLogic = kea<pluginsLogicType>([
             (s) => [s.repository, s.plugins],
             (repository, plugins) => {
                 const allPossiblePlugins: PluginSelectionType[] = []
-                for (const plugin of Object.values(plugins) as PluginType[]) {
-                    allPossiblePlugins.push({ name: plugin.name, url: plugin.url, tab: PluginTab.Installed })
+                for (const plugin of Object.values(plugins)) {
+                    allPossiblePlugins.push({ name: plugin.name, url: plugin.url })
                 }
 
                 const installedUrls = new Set(Object.values(plugins).map((plugin) => plugin.url))
 
-                for (const plugin of Object.values(repository) as PluginRepositoryEntry[]) {
+                for (const plugin of Object.values(repository)) {
                     if (!installedUrls.has(plugin.url)) {
-                        allPossiblePlugins.push({ name: plugin.name, url: plugin.url, tab: PluginTab.Repository })
+                        allPossiblePlugins.push({ name: plugin.name, url: plugin.url })
                     }
                 }
                 return allPossiblePlugins
             },
         ],
-        shouldShowAppMetrics: [
-            () => [userLogic.selectors.hasAvailableFeature],
-            (hasAvailableFeature) => hasAvailableFeature(AvailableFeature.APP_METRICS),
-        ],
         showAppMetricsForPlugin: [
-            (s) => [s.shouldShowAppMetrics],
-            (featureShown) => (plugin: Partial<PluginTypeWithConfig> | undefined) => {
-                if (!featureShown) {
-                    return false
-                }
+            () => [],
+            () => (plugin: Partial<PluginTypeWithConfig> | undefined) => {
                 return plugin?.capabilities?.methods?.length || plugin?.capabilities?.scheduled_tasks?.length
             },
         ],
     }),
 
     listeners(({ actions, values }) => ({
-        toggleEnabledSuccess: ({ payload: { id } }) => {
-            actions.syncFrontendAppState(id)
-        },
         // Load or unload an app, as directed by its enabled state in pluginsLogic
         syncFrontendAppState: ({ id }) => {
             const pluginConfig = values.getPluginConfig(id)
@@ -705,7 +637,6 @@ export const pluginsLogic = kea<pluginsLogicType>([
             }
 
             actions.checkedForUpdates()
-            actions.toggleSectionOpen(PluginSection.Upgrade)
         },
         loadPluginsSuccess() {
             const initialUpdateStatus: Record<string, PluginUpdateStatusType> = {}
@@ -716,15 +647,11 @@ export const pluginsLogic = kea<pluginsLogicType>([
             }
             if (canInstallPlugins(userLogic.values.user?.organization)) {
                 actions.checkForUpdates(false, initialUpdateStatus)
-                if (
-                    Object.keys(values.plugins).length === 0 &&
-                    canGloballyManagePlugins(userLogic.values.user?.organization)
-                ) {
-                    actions.setPluginTab(PluginTab.Repository)
-                }
             }
         },
         generateApiKeysIfNeeded: async ({ form }, breakpoint) => {
+            // TODO: Auto-generated keys for posthogApiKey fields are deprecated
+            // This whole action can be removed at some point
             const { editingPlugin } = values
             if (!editingPlugin) {
                 return
@@ -754,6 +681,10 @@ export const pluginsLogic = kea<pluginsLogicType>([
                 form.setFieldsValue({ posthogHost: window.location.origin })
             }
         },
+
+        savePluginOrdersSuccess: () => {
+            actions.closeReorderModal()
+        },
     })),
     actionToUrl(({ values }) => {
         function getUrl(): string {
@@ -775,8 +706,8 @@ export const pluginsLogic = kea<pluginsLogicType>([
                 }
 
                 let replace = false // set a page in history
-                if (!searchParams['tab'] && values.pluginTab === PluginTab.Installed) {
-                    // we are on the Installed page, and have clicked the Installed tab, don't set history
+                if (!searchParams['tab'] && values.pluginTab === PluginTab.Apps) {
+                    // we are on the Apps page, and have clicked the Apps tab, don't set history
                     replace = true
                 }
                 searchParams['tab'] = values.pluginTab
@@ -810,7 +741,7 @@ export const pluginsLogic = kea<pluginsLogicType>([
                 if (tab) {
                     actions.setPluginTab(tab as PluginTab)
                 }
-                if (name && [PluginTab.Repository, PluginTab.Installed].includes(values.pluginTab)) {
+                if (name && values.pluginTab === PluginTab.Apps) {
                     actions.setSearchTerm(name)
                 }
                 runActions(null, false, null)
@@ -832,6 +763,7 @@ export const pluginsLogic = kea<pluginsLogicType>([
         actions.loadPluginConfigs()
         if (canGloballyManagePlugins(userLogic.values.user?.organization)) {
             actions.loadRepository()
+            actions.loadUnusedPlugins()
         }
     }),
 ])

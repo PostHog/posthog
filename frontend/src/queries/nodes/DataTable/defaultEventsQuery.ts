@@ -1,7 +1,8 @@
-import { TeamType } from '~/types'
-import { EventsQuery, NodeKind } from '~/queries/schema'
 import { getDefaultEventsSceneQuery } from 'scenes/events/defaults'
+
+import { EventsQuery, NodeKind } from '~/queries/schema'
 import { escapePropertyAsHogQlIdentifier } from '~/queries/utils'
+import { TeamType } from '~/types'
 
 /** Indicates HogQL usage if team.live_events_columns = [HOGQL_COLUMNS_KEY, ...] */
 export const HOGQL_COLUMNS_KEY = '--v2:hogql'

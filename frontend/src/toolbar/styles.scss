@@ -1,55 +1,32 @@
 @import '../styles/vars';
 
-:host {
-    @include root-variables;
+// was inherited from antd.less before removing that
+*,
+*::before,
+*::after {
+    box-sizing: border-box;
+}
 
+:host {
     // reset fonts
     all: initial;
     font-family: var(--font-sans);
     font-size: 14px;
     line-height: 1.5;
-}
 
-.toolbar-block {
-    background: white;
-    color: black;
-    font-size: 14px;
-
-    &.no-padding {
-        padding: 0;
-    }
-}
-
-.ant-modal-mask,
-.ant-modal-wrap {
-    z-index: 2147483030 !important;
-}
-
-.ant-select-dropdown,
-.ant-picker-dropdown {
-    z-index: 2147483031 !important;
-}
-
-.ant-tooltip {
-    z-index: 2147483032 !important;
+    @include root-variables;
 }
 
 .LemonModal__overlay--force-modal-above-popovers {
     z-index: 2147483033 !important;
 }
 
-.ant-list-item {
-    &:hover {
-        background: #f0f0f0;
-    }
-}
-
 .section-title {
-    font-size: 12px;
-    text-transform: uppercase;
-    font-weight: bold;
-    color: hsla(220, 15%, 49%, 1);
     margin-bottom: 10px;
+    font-size: 12px;
+    font-weight: bold;
+    color: hsl(220deg 15% 49% / 100%);
+    text-transform: uppercase;
 }
 
 .fade-component-container {
@@ -63,10 +40,7 @@
 
 .toolbar-global-fade-container {
     position: absolute;
-    top: 0;
-    left: 0;
-    right: 0;
-    bottom: 0;
+    inset: 0;
     pointer-events: none;
 
     > * {

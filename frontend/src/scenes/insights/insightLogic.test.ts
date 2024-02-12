@@ -1,6 +1,22 @@
+import { combineUrl, router } from 'kea-router'
 import { expectLogic, partial, truth } from 'kea-test-utils'
+import api from 'lib/api'
+import { MOCK_DEFAULT_TEAM, MOCK_TEAM_ID } from 'lib/api.mock'
+import { DashboardPrivilegeLevel, DashboardRestrictionLevel } from 'lib/constants'
+import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
+import { dashboardLogic } from 'scenes/dashboard/dashboardLogic'
+import { cleanFilters } from 'scenes/insights/utils/cleanFilters'
+import { savedInsightsLogic } from 'scenes/saved-insights/savedInsightsLogic'
+import { teamLogic } from 'scenes/teamLogic'
+import { urls } from 'scenes/urls'
+
+import { resumeKeaLoadersErrors, silenceKeaLoadersErrors } from '~/initKea'
+import { useAvailableFeatures } from '~/mocks/features'
+import { useMocks } from '~/mocks/jest'
+import { dashboardsModel } from '~/models/dashboardsModel'
+import { insightsModel } from '~/models/insightsModel'
+import { DataTableNode, NodeKind } from '~/queries/schema'
 import { initKeaTests } from '~/test/init'
-import { createEmptyInsight, insightLogic } from './insightLogic'
 import {
     AnyPropertyFilter,
     AvailableFeature,
@@ -18,22 +34,8 @@ import {
     PropertyGroupFilter,
     PropertyOperator,
 } from '~/types'
-import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
-import { combineUrl, router } from 'kea-router'
-import { dashboardLogic } from 'scenes/dashboard/dashboardLogic'
-import { savedInsightsLogic } from 'scenes/saved-insights/savedInsightsLogic'
-import { teamLogic } from 'scenes/teamLogic'
-import { urls } from 'scenes/urls'
-import { resumeKeaLoadersErrors, silenceKeaLoadersErrors } from '~/initKea'
-import { useMocks } from '~/mocks/jest'
-import { useAvailableFeatures } from '~/mocks/features'
-import { cleanFilters } from 'scenes/insights/utils/cleanFilters'
-import { MOCK_DEFAULT_TEAM, MOCK_TEAM_ID } from 'lib/api.mock'
-import { dashboardsModel } from '~/models/dashboardsModel'
-import { insightsModel } from '~/models/insightsModel'
-import { DashboardPrivilegeLevel, DashboardRestrictionLevel } from 'lib/constants'
-import api from 'lib/api'
-import { DataTableNode, NodeKind } from '~/queries/schema'
+
+import { createEmptyInsight, insightLogic } from './insightLogic'
 
 const API_FILTERS: Partial<FilterType> = {
     insight: InsightType.TRENDS as InsightType,
@@ -246,22 +248,6 @@ describe('insightLogic', () => {
     })
 
     describe('insight legend', () => {
-        it('toggles insight legend', async () => {
-            logic = insightLogic({
-                dashboardItemId: undefined,
-                filters: { show_legend: false },
-            })
-            logic.mount()
-
-            await expectLogic(logic, () => {
-                logic.actions.toggleInsightLegend()
-            })
-                .toDispatchActions(['toggleInsightLegend', 'setFilters'])
-                .toMatchValues({
-                    filters: partial({ show_legend: true }),
-                })
-        })
-
         it('initialize insight with hidden keys', async () => {
             logic = insightLogic({
                 dashboardItemId: undefined,

@@ -3,7 +3,15 @@ from typing import Any, Dict, List, Optional, cast
 from uuid import UUID
 
 from posthog.constants import AvailableFeature
-from posthog.models import Dashboard, DashboardTile, Insight, Organization, OrganizationMembership, Team, User
+from posthog.models import (
+    Dashboard,
+    DashboardTile,
+    Insight,
+    Organization,
+    OrganizationMembership,
+    Team,
+    User,
+)
 
 
 class UserPermissions:
@@ -64,7 +72,6 @@ class UserPermissions:
         candidate_teams = Team.objects.filter(organization_id__in=self.organizations.keys()).only(
             "pk", "organization_id", "access_control"
         )
-
         return [team.pk for team in candidate_teams if self.team(team).effective_membership_level is not None]
 
     # Cached properties/functions for efficient lookups in other classes
@@ -88,7 +95,7 @@ class UserPermissions:
         return {membership.organization_id: membership for membership in memberships}
 
     @cached_property
-    def explicit_team_memberships(self) -> Dict[UUID, Any]:
+    def explicit_team_memberships(self) -> Dict[int, Any]:
         try:
             from ee.models import ExplicitTeamMembership
         except ImportError:
@@ -96,8 +103,8 @@ class UserPermissions:
 
         memberships = ExplicitTeamMembership.objects.filter(
             parent_membership_id__in=[membership.pk for membership in self.organization_memberships.values()]
-        ).only("parent_membership_id", "level")
-        return {membership.parent_membership_id: membership.level for membership in memberships}
+        ).only("parent_membership_id", "level", "team_id")
+        return {membership.team_id: membership.level for membership in memberships}
 
     @cached_property
     def dashboard_privileges(self) -> Dict[int, Dashboard.PrivilegeLevel]:
@@ -147,7 +154,9 @@ class UserTeamPermissions:
         return self.effective_membership_level_for_parent_membership(organization, membership)
 
     def effective_membership_level_for_parent_membership(
-        self, organization: Optional[Organization], organization_membership: Optional[OrganizationMembership]
+        self,
+        organization: Optional[Organization],
+        organization_membership: Optional[OrganizationMembership],
     ) -> Optional["OrganizationMembership.Level"]:
         if organization is None or organization_membership is None:
             return None
@@ -158,7 +167,7 @@ class UserTeamPermissions:
         ):
             return organization_membership.level
 
-        explicit_membership_level = self.p.explicit_team_memberships.get(organization_membership.pk)
+        explicit_membership_level = self.p.explicit_team_memberships.get(self.team.id)
         if explicit_membership_level is not None:
             return max(explicit_membership_level, organization_membership.level)
         # Only organizations admins and above get implicit project membership

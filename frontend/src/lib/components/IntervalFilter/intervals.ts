@@ -10,19 +10,19 @@ export type Intervals = {
 
 export const intervals: Intervals = {
     hour: {
-        label: 'Hour',
+        label: 'hour',
         newDateFrom: 'dStart',
     },
     day: {
-        label: 'Day',
+        label: 'day',
         newDateFrom: undefined,
     },
     week: {
-        label: 'Week',
+        label: 'week',
         newDateFrom: '-30d',
     },
     month: {
-        label: 'Month',
+        label: 'month',
         newDateFrom: '-90d',
     },
 }

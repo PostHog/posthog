@@ -1,17 +1,20 @@
 import * as Sentry from '@sentry/node'
-import { Message, MessageHeader } from 'node-rdkafka-acosom'
+import { Message, MessageHeader } from 'node-rdkafka'
 
 import { KAFKA_EVENTS_PLUGIN_INGESTION_DLQ, KAFKA_EVENTS_PLUGIN_INGESTION_OVERFLOW } from '../../../config/kafka-topics'
-import { Hub, PipelineEvent, WorkerMethods } from '../../../types'
+import { Hub, PipelineEvent, ValueMatcher } from '../../../types'
 import { formPipelineEvent } from '../../../utils/event'
+import { retryIfRetriable } from '../../../utils/retries'
 import { status } from '../../../utils/status'
-import { ConfiguredLimiter, LoggingLimiter, WarningLimiter } from '../../../utils/token-bucket'
-import { EventPipelineResult } from '../../../worker/ingestion/event-pipeline/runner'
+import { ConfiguredLimiter, LoggingLimiter, OverflowWarningLimiter } from '../../../utils/token-bucket'
+import { EventPipelineResult, runEventPipeline } from '../../../worker/ingestion/event-pipeline/runner'
 import { captureIngestionWarning } from '../../../worker/ingestion/utils'
 import { ingestionPartitionKeyOverflowed } from '../analytics-events-ingestion-consumer'
 import { IngestionConsumer } from '../kafka-queue'
-import { latestOffsetTimestampGauge } from '../metrics'
+import { eventDroppedCounter, latestOffsetTimestampGauge } from '../metrics'
 import {
+    ingestEventBatchingBatchCountSummary,
+    ingestEventBatchingInputLengthSummary,
     ingestionOverflowingMessagesTotal,
     ingestionParallelism,
     ingestionParallelismPotential,
@@ -25,7 +28,8 @@ require('@sentry/tracing')
 export enum IngestionOverflowMode {
     Disabled,
     Reroute,
-    Consume,
+    ConsumeSplitByDistinctId,
+    ConsumeSplitEvenly,
 }
 
 type IngestionSplitBatch = {
@@ -40,15 +44,65 @@ type IngestResult = {
     promises?: Array<Promise<void>>
 }
 
+async function handleProcessingError(
+    error: any,
+    message: Message,
+    pluginEvent: PipelineEvent,
+    queue: IngestionConsumer
+) {
+    status.error('🔥', `Error processing message`, {
+        stack: error.stack,
+        error: error,
+    })
+
+    // If the error is a non-retriable error, push to the dlq and commit the offset. Else raise the
+    // error.
+    //
+    // NOTE: there is behavior to push to a DLQ at the moment within EventPipelineRunner. This
+    // doesn't work so well with e.g. messages that when sent to the DLQ is it's self too large.
+    // Here we explicitly do _not_ add any additional metadata to the message. We might want to add
+    // some metadata to the message e.g. in the header or reference e.g. the sentry event id.
+    //
+    // TODO: property abstract out this `isRetriable` error logic. This is currently relying on the
+    // fact that node-rdkafka adheres to the `isRetriable` interface.
+    if (error?.isRetriable === false) {
+        const sentryEventId = Sentry.captureException(error)
+        const headers: MessageHeader[] = message.headers ?? []
+        headers.push({ ['sentry-event-id']: sentryEventId })
+        headers.push({ ['event-id']: pluginEvent.uuid })
+        try {
+            await queue.pluginsServer.kafkaProducer.produce({
+                topic: KAFKA_EVENTS_PLUGIN_INGESTION_DLQ,
+                value: message.value,
+                key: message.key,
+                headers: headers,
+                waitForAck: true,
+            })
+        } catch (error) {
+            // If we can't send to the DLQ and it's not retriable, just continue. We'll commit the
+            // offset and move on.
+            if (error?.isRetriable === false) {
+                status.error('🔥', `Error pushing to DLQ`, {
+                    stack: error.stack,
+                    error: error,
+                })
+                return
+            }
+
+            // If we can't send to the DLQ and it is retriable, raise the error.
+            throw error
+        }
+    } else {
+        throw error
+    }
+}
+
 export async function eachBatchParallelIngestion(
+    tokenBlockList: ValueMatcher<string>,
     messages: Message[],
     queue: IngestionConsumer,
     overflowMode: IngestionOverflowMode
 ): Promise<void> {
-    async function eachMessage(event: PipelineEvent, queue: IngestionConsumer): Promise<IngestResult> {
-        return ingestEvent(queue.pluginsServer, queue.workerMethods, event)
-    }
-
     const batchStartTimer = new Date()
     const metricKey = 'ingestion'
     const loggingKey = `each_batch_parallel_ingestion`
@@ -62,15 +116,11 @@ export async function eachBatchParallelIngestion(
          * and a separate array for single messages, but let's look at profiles before optimizing.
          */
         const prepareSpan = transaction.startChild({ op: 'prepareBatch' })
-        const splitBatch = splitIngestionBatch(messages, overflowMode)
+        const splitBatch = splitIngestionBatch(tokenBlockList, messages, overflowMode)
         splitBatch.toProcess.sort((a, b) => a.length - b.length)
 
-        queue.pluginsServer.statsd?.histogram('ingest_event_batching.input_length', messages.length, {
-            key: metricKey,
-        })
-        queue.pluginsServer.statsd?.histogram('ingest_event_batching.batch_count', splitBatch.toProcess.length, {
-            key: metricKey,
-        })
+        ingestEventBatchingInputLengthSummary.observe(messages.length)
+        ingestEventBatchingBatchCountSummary.observe(splitBatch.toProcess.length)
         prepareSpan.finish()
 
         const processingPromises: Array<Promise<void>> = []
@@ -86,76 +136,38 @@ export async function eachBatchParallelIngestion(
                 })
 
                 // Process overflow ingestion warnings
-                if (overflowMode == IngestionOverflowMode.Consume && currentBatch.length > 0) {
+                if (
+                    (overflowMode == IngestionOverflowMode.ConsumeSplitByDistinctId ||
+                        overflowMode == IngestionOverflowMode.ConsumeSplitEvenly) &&
+                    currentBatch.length > 0
+                ) {
                     const team = await queue.pluginsServer.teamManager.getTeamForEvent(currentBatch[0].pluginEvent)
                     const distinct_id = currentBatch[0].pluginEvent.distinct_id
-                    if (team && WarningLimiter.consume(`${team.id}:${distinct_id}`, 1)) {
-                        captureIngestionWarning(queue.pluginsServer.db, team.id, 'ingestion_capacity_overflow', {
-                            overflowDistinctId: distinct_id,
-                        })
+                    if (team && OverflowWarningLimiter.consume(`${team.id}:${distinct_id}`, 1)) {
+                        processingPromises.push(
+                            captureIngestionWarning(queue.pluginsServer.db, team.id, 'ingestion_capacity_overflow', {
+                                overflowDistinctId: distinct_id,
+                            })
+                        )
                     }
                 }
 
                 // Process every message sequentially, stash promises to await on later
                 for (const { message, pluginEvent } of currentBatch) {
                     try {
-                        const result = await eachMessage(pluginEvent, queue)
-                        if (result.promises) {
-                            processingPromises.push(...result.promises)
-                        }
-                    } catch (error) {
-                        status.error('🔥', `Error processing message`, {
-                            stack: error.stack,
-                            error: error,
-                        })
+                        const result = (await retryIfRetriable(async () => {
+                            return await ingestEvent(queue.pluginsServer, pluginEvent)
+                        })) as IngestResult
 
-                        // If there error is a non-retriable error, push
-                        // to the dlq and commit the offset. Else raise the
-                        // error.
-                        //
-                        // NOTE: there is behavior to push to a DLQ at the
-                        // moment within EventPipelineRunner. This doesn't work
-                        // so well with e.g. messages that when sent to the DLQ
-                        // is it's self too large. Here we explicitly do _not_
-                        // add any additional metadata to the message. We might
-                        // want to add some metadata to the message e.g. in the
-                        // header or reference e.g. the sentry event id.
-                        //
-                        // TODO: property abstract out this `isRetriable` error
-                        // logic. This is currently relying on the fact that
-                        // node-rdkafka adheres to the `isRetriable` interface.
-                        if (error?.isRetriable === false) {
-                            const sentryEventId = Sentry.captureException(error)
-                            const headers: MessageHeader[] = message.headers ?? []
-                            headers.push({ ['sentry-event-id']: sentryEventId })
-                            headers.push({ ['event-id']: pluginEvent.uuid })
-                            try {
-                                await queue.pluginsServer.kafkaProducer.produce({
-                                    topic: KAFKA_EVENTS_PLUGIN_INGESTION_DLQ,
-                                    value: message.value,
-                                    key: message.key,
-                                    headers: headers,
-                                    waitForAck: true,
+                        result.promises?.forEach((promise) =>
+                            processingPromises.push(
+                                promise.catch(async (error) => {
+                                    await handleProcessingError(error, message, pluginEvent, queue)
                                 })
-                            } catch (error) {
-                                // If we can't send to the DLQ and it's not
-                                // retriable, just continue. We'll commit the
-                                // offset and move on.
-                                if (error?.isRetriable === false) {
-                                    status.error('🔥', `Error pushing to DLQ`, {
-                                        stack: error.stack,
-                                        error: error,
-                                    })
-                                    continue
-                                }
-
-                                // If we can't send to the DLQ and it is
-                                // retriable, raise the error.
-                                throw error
-                            }
-                        } else {
-                            throw error
-                        }
+                            )
+                        )
+                    } catch (error) {
+                        await handleProcessingError(error, message, pluginEvent, queue)
                     }
                 }
 
@@ -187,10 +199,11 @@ export async function eachBatchParallelIngestion(
             .observe(splitBatch.toProcess.length)
         kafkaBatchStart.inc() // just before processing any events
         const tasks = [...Array(parallelism)].map(() => processMicroBatches(splitBatch.toProcess))
-        await Promise.all(tasks)
 
-        // Process overflow after the main batch is successful to reduce the risk of duplicates
-        // generated by batch retries. Delay ACKs into processingPromises too.
+        /**
+         * Process overflow redirection while the micro-batches move forward.
+         * This increases throughput at the risk of duplication if the batch fails and retries.
+         */
         if (splitBatch.toOverflow.length > 0) {
             const overflowSpan = transaction.startChild({
                 op: 'emitToOverflow',
@@ -199,6 +212,8 @@ export async function eachBatchParallelIngestion(
             processingPromises.push(emitToOverflow(queue, splitBatch.toOverflow))
             overflowSpan.finish()
         }
+
+        await Promise.all(tasks)
 
         // Await on successful Kafka writes before closing the batch. At this point, messages
         // have been successfully queued in the producer, only broker / network failures could
@@ -224,34 +239,19 @@ export async function eachBatchParallelIngestion(
             }ms (${loggingKey})`
         )
     } finally {
-        queue.pluginsServer.statsd?.timing(`kafka_queue.${loggingKey}`, batchStartTimer)
         transaction.finish()
     }
 }
 
 async function ingestEvent(
     server: Hub,
-    workerMethods: WorkerMethods,
     event: PipelineEvent,
     checkAndPause?: () => void // pause incoming messages if we are slow in getting them out again
 ): Promise<EventPipelineResult> {
-    const eachEventStartTimer = new Date()
-
     checkAndPause?.()
-
-    server.statsd?.increment('kafka_queue_ingest_event_hit', {
-        pipeline: 'runEventPipeline',
-    })
-    const result = await workerMethods.runEventPipeline(event)
-
-    server.statsd?.timing('kafka_queue.each_event', eachEventStartTimer)
-    countAndLogEvents()
-
+    const result = await runEventPipeline(server, event)
     return result
 }
-
-let messageCounter = 0
-let messageLogDate = 0
 
 function computeKey(pluginEvent: PipelineEvent): string {
     return `${pluginEvent.team_id ?? pluginEvent.token}:${pluginEvent.distinct_id}`
@@ -264,7 +264,7 @@ async function emitToOverflow(queue: IngestionConsumer, kafkaMessages: Message[]
             queue.pluginsServer.kafkaProducer.produce({
                 topic: KAFKA_EVENTS_PLUGIN_INGESTION_OVERFLOW,
                 value: message.value,
-                key: message.key,
+                key: null, // No locality guarantees in overflow
                 headers: message.headers,
                 waitForAck: true,
             })
@@ -273,6 +273,7 @@ async function emitToOverflow(queue: IngestionConsumer, kafkaMessages: Message[]
 }
 
 export function splitIngestionBatch(
+    tokenBlockList: ValueMatcher<string>,
     kafkaMessages: Message[],
     overflowMode: IngestionOverflowMode
 ): IngestionSplitBatch {
@@ -286,14 +287,28 @@ export function splitIngestionBatch(
         toOverflow: [],
     }
 
-    if (overflowMode === IngestionOverflowMode.Consume) {
+    if (overflowMode === IngestionOverflowMode.ConsumeSplitEvenly) {
         /**
          * Grouping by distinct_id is inefficient here, because only a few ones are overflowing
          * at a time. When messages are sent to overflow, we already give away the ordering guarantee,
          * so we just return batches of one to increase concurrency.
          * TODO: add a PipelineEvent[] field to IngestionSplitBatch for batches of 1
          */
-        output.toProcess = kafkaMessages.map((m) => new Array({ message: m, pluginEvent: formPipelineEvent(m) }))
+        for (const message of kafkaMessages) {
+            // Drop based on a token blocklist
+            const pluginEvent = formPipelineEvent(message)
+            if (pluginEvent.token && tokenBlockList(pluginEvent.token)) {
+                eventDroppedCounter
+                    .labels({
+                        event_type: 'analytics',
+                        drop_cause: 'blocked_token',
+                    })
+                    .inc()
+                continue
+            }
+            output.toProcess.push(new Array({ message: message, pluginEvent }))
+        }
+
         return output
     }
 
@@ -301,12 +316,28 @@ export function splitIngestionBatch(
     for (const message of kafkaMessages) {
         if (overflowMode === IngestionOverflowMode.Reroute && message.key == null) {
             // Overflow detected by capture, reroute to overflow topic
+            // Not applying tokenBlockList to save CPU. TODO: do so once token is in the message headers
             output.toOverflow.push(message)
             continue
         }
         const pluginEvent = formPipelineEvent(message)
+
+        // Drop based on a token blocklist
+        if (pluginEvent.token && tokenBlockList(pluginEvent.token)) {
+            eventDroppedCounter
+                .labels({
+                    event_type: 'analytics',
+                    drop_cause: 'blocked_token',
+                })
+                .inc()
+            continue
+        }
+
         const eventKey = computeKey(pluginEvent)
-        if (overflowMode === IngestionOverflowMode.Reroute && !ConfiguredLimiter.consume(eventKey, 1)) {
+        if (
+            overflowMode === IngestionOverflowMode.Reroute &&
+            !ConfiguredLimiter.consume(eventKey, 1, message.timestamp)
+        ) {
             // Local overflow detection triggering, reroute to overflow topic too
             message.key = null
             ingestionPartitionKeyOverflowed.labels(`${pluginEvent.team_id ?? pluginEvent.token}`).inc()
@@ -325,19 +356,4 @@ export function splitIngestionBatch(
     }
     output.toProcess = Array.from(batches.values())
     return output
-}
-
-function countAndLogEvents(): void {
-    const now = new Date().valueOf()
-    messageCounter++
-    if (now - messageLogDate > 10000) {
-        status.info(
-            '🕒',
-            `Processed ${messageCounter} events${
-                messageLogDate === 0 ? '' : ` in ${Math.round((now - messageLogDate) / 10) / 100}s`
-            }`
-        )
-        messageCounter = 0
-        messageLogDate = now
-    }
 }

@@ -1,12 +1,13 @@
 import { actions, afterMount, kea, listeners, path, props, reducers, selectors } from 'kea'
-import type { toolbarLogicType } from './toolbarLogicType'
-import { ToolbarProps } from '~/types'
-import { clearSessionToolbarToken } from '~/toolbar/utils'
-import { posthog } from '~/toolbar/posthog'
+import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
+
 import { actionsTabLogic } from '~/toolbar/actions/actionsTabLogic'
 import { toolbarButtonLogic } from '~/toolbar/button/toolbarButtonLogic'
-import type { PostHog } from 'posthog-js'
-import { lemonToast } from 'lib/lemon-ui/lemonToast'
+import { posthog } from '~/toolbar/posthog'
+import { clearSessionToolbarToken } from '~/toolbar/utils'
+import { ToolbarProps } from '~/types'
+
+import type { toolbarLogicType } from './toolbarLogicType'
 
 export const toolbarLogic = kea<toolbarLogicType>([
     path(['toolbar', 'toolbarLogic']),
@@ -30,8 +31,8 @@ export const toolbarLogic = kea<toolbarLogicType>([
         userIntent: [props.userIntent || null, { logout: () => null, clearUserIntent: () => null }],
         source: [props.source || null, { logout: () => null }],
         buttonVisible: [true, { showButton: () => true, hideButton: () => false, logout: () => false }],
-        dataAttributes: [(props.dataAttributes || []) as string[]],
-        posthog: [(props.posthog ?? null) as PostHog | null],
+        dataAttributes: [props.dataAttributes || []],
+        posthog: [props.posthog ?? null],
     })),
 
     selectors({
@@ -63,7 +64,7 @@ export const toolbarLogic = kea<toolbarLogicType>([
             }
             clearSessionToolbarToken()
         },
-        processUserIntent: async () => {
+        processUserIntent: () => {
             if (props.userIntent === 'add-action' || props.userIntent === 'edit-action') {
                 actionsTabLogic.actions.showButtonActions()
                 toolbarButtonLogic.actions.showActionsInfo()

@@ -1,8 +1,10 @@
 from unittest import mock
+from unittest.mock import patch
 
 from django.utils import timezone
 
 from posthog.models import Organization, OrganizationInvite, Plugin
+from posthog.models.organization import OrganizationMembership
 from posthog.plugins.test.mock import mocked_plugin_requests_get
 from posthog.plugins.test.plugin_archives import HELLO_WORLD_PLUGIN_GITHUB_ZIP
 from posthog.test.base import BaseTest
@@ -29,16 +31,19 @@ class TestOrganization(BaseTest):
         with self.is_cloud(False):
             with self.settings(PLUGINS_PREINSTALLED_URLS=["https://github.com/PostHog/helloworldplugin/"]):
                 new_org, _, _ = Organization.objects.bootstrap(
-                    self.user, plugins_access_level=Organization.PluginsAccessLevel.INSTALL
+                    self.user,
+                    plugins_access_level=Organization.PluginsAccessLevel.INSTALL,
                 )
 
         self.assertEqual(Plugin.objects.filter(organization=new_org, is_preinstalled=True).count(), 1)
         self.assertEqual(
-            Plugin.objects.filter(organization=new_org, is_preinstalled=True).get().name, "helloworldplugin"
+            Plugin.objects.filter(organization=new_org, is_preinstalled=True).get().name,
+            "helloworldplugin",
         )
         self.assertEqual(mock_get.call_count, 2)
         mock_get.assert_any_call(
-            f"https://github.com/PostHog/helloworldplugin/archive/{HELLO_WORLD_PLUGIN_GITHUB_ZIP[0]}.zip", headers={}
+            f"https://github.com/PostHog/helloworldplugin/archive/{HELLO_WORLD_PLUGIN_GITHUB_ZIP[0]}.zip",
+            headers={},
         )
 
     @mock.patch("requests.get", side_effect=mocked_plugin_requests_get)
@@ -46,7 +51,8 @@ class TestOrganization(BaseTest):
         with self.is_cloud(True):
             with self.settings(PLUGINS_PREINSTALLED_URLS=["https://github.com/PostHog/helloworldplugin/"]):
                 new_org, _, _ = Organization.objects.bootstrap(
-                    self.user, plugins_access_level=Organization.PluginsAccessLevel.INSTALL
+                    self.user,
+                    plugins_access_level=Organization.PluginsAccessLevel.INSTALL,
                 )
 
         self.assertEqual(Plugin.objects.filter(organization=new_org, is_preinstalled=True).count(), 0)
@@ -73,3 +79,25 @@ class TestOrganization(BaseTest):
             new_org.usage = {"events": {"usage": 1000, "limit": None}}
             new_org.update_available_features()
             assert new_org.available_features == ["test1", "test2"]
+
+
+class TestOrganizationMembership(BaseTest):
+    @patch("posthoganalytics.capture")
+    def test_event_sent_when_membership_level_changed(
+        self,
+        mock_capture,
+    ):
+        user = self._create_user("user1")
+        organization = Organization.objects.create(name="Test Org")
+        membership = OrganizationMembership.objects.create(user=user, organization=organization, level=1)
+        mock_capture.assert_not_called()
+        # change the level
+        membership.level = 15
+        membership.save()
+        # check that the event was sent
+        mock_capture.assert_called_once_with(
+            user.distinct_id,
+            "membership level changed",
+            properties={"new_level": 15, "previous_level": 1, "$set": mock.ANY},
+            groups=mock.ANY,
+        )

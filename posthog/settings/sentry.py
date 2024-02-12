@@ -1,7 +1,10 @@
 import logging
 import os
+from datetime import timedelta
+from random import random
 
 import sentry_sdk
+from dateutil import parser
 from sentry_sdk.integrations.celery import CeleryIntegration
 from sentry_sdk.integrations.django import DjangoIntegration
 from sentry_sdk.integrations.logging import LoggingIntegration
@@ -9,6 +12,48 @@ from sentry_sdk.integrations.redis import RedisIntegration
 
 from posthog.settings import get_from_env
 from posthog.settings.base_variables import TEST
+
+
+def before_send(event, hint):
+    for exception in event.get("exception", {}).get("values", []):
+        for frame in exception.get("stacktrace", {}).get("frames", []):
+            args = frame.get("vars", {}).get("args", {})
+            if isinstance(args, dict):
+                for key in args.keys():
+                    if "sensitive" in key:
+                        frame["vars"]["args"][key] = "[Filtered]"
+
+    return event
+
+
+def before_send_transaction(event, hint):
+    url_string = event.get("request", {}).get("url")
+    if url_string and "decide" in url_string:
+        DECIDE_SAMPLE_RATE = 0.00001  # 0.001%
+        should_sample = random() < DECIDE_SAMPLE_RATE
+
+        transaction_start_time = event.get("start_timestamp")
+        transaction_end_time = event.get("timestamp")
+        if transaction_start_time and transaction_end_time:
+            try:
+                parsed_start_time = parser.parse(transaction_start_time)
+                parsed_end_time = parser.parse(transaction_end_time)
+
+                duration = parsed_end_time - parsed_start_time
+
+                if duration >= timedelta(seconds=8):
+                    # return all events for transactions that took more than 8 seconds
+                    return event
+                elif duration > timedelta(seconds=2):
+                    # very high sample rate for transactions that took more than 2 seconds
+                    return event if random() < 0.5 else None
+
+            except Exception:
+                return event if should_sample else None
+
+        return event if should_sample else None
+    else:
+        return event
 
 
 def traces_sampler(sampling_context: dict) -> float:
@@ -36,7 +81,9 @@ def traces_sampler(sampling_context: dict) -> float:
             return 0.0000001  # 0.00001%
         # Get more traces for /decide than other high volume endpoints
         elif path.startswith("/decide"):
-            return 0.00001  # 0.001%
+            # decide sampling happens in before_send_transaction,
+            # where we sample on duration instead of no. of requests
+            return 1.0  # 100%
         # Probes/monitoring endpoints
         elif path.startswith(("/_health", "/_readyz", "/_livez")):
             return 0.00001  # 0.001%
@@ -59,13 +106,23 @@ def traces_sampler(sampling_context: dict) -> float:
 
     elif op == "celery.task":
         task = sampling_context.get("celery_job", {}).get("task")
-        if task == "posthog.celery.redis_heartbeat":
+
+        if task in (
+            "posthog.celery.redis_heartbeat",
+            "posthog.celery.redis_celery_queue_depth",
+        ):
             return 0.0001  # 0.01%
-        if task == "posthog.celery.redis_celery_queue_depth":
-            return 0.0001  # 0.01%
-        else:
-            # Default sample rate for Celery tasks
-            return 0.001  # 0.1%
+
+        # Default sample rate for Celery tasks
+        return 0.001  # 0.1%
+    elif op == "queue.task.celery":
+        task = sampling_context.get("celery_job", {}).get("task")
+        if task == "posthog.tasks.calculate_cohort.insert_cohort_from_feature_flag":
+            # sample all cohort calculations via feature flag
+            return 1
+        # Default sample rate
+        return 0.01
+
     else:
         # Default sample rate for everything else
         return 0.01  # 1%
@@ -86,15 +143,33 @@ def sentry_init() -> None:
         sentry_logging = LoggingIntegration(level=sentry_logging_level, event_level=None)
         profiles_sample_rate = get_from_env("SENTRY_PROFILES_SAMPLE_RATE", type_cast=float, default=0.0)
 
+        release = None
+        try:
+            # Docker containers should have a commit.txt file in the base directory with the git
+            # commit hash used to generate them.
+            with open("commit.txt") as f:
+                release = f.read()
+        except:
+            # The release isn't required, it's just nice to have.
+            pass
+
         sentry_sdk.init(
             send_default_pii=send_pii,
             dsn=os.environ["SENTRY_DSN"],
-            integrations=[DjangoIntegration(), CeleryIntegration(), RedisIntegration(), sentry_logging],
+            release=release,
+            integrations=[
+                DjangoIntegration(),
+                CeleryIntegration(),
+                RedisIntegration(),
+                sentry_logging,
+            ],
             request_bodies="always" if send_pii else "never",
             sample_rate=1.0,
             # Configures the sample rate for error events, in the range of 0.0 to 1.0 (default).
             # If set to 0.1 only 10% of error events will be sent. Events are picked randomly.
             traces_sampler=traces_sampler,
+            before_send=before_send,
+            before_send_transaction=before_send_transaction,
             _experiments={
                 # https://docs.sentry.io/platforms/python/profiling/
                 # The profiles_sample_rate setting is relative to the traces_sample_rate setting.

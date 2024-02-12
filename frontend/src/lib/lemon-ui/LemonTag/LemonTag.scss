@@ -1,68 +1,145 @@
 .LemonTag {
+    display: inline-flex;
+    gap: 0.125rem;
+    align-items: center;
+    padding: 0.125rem 0.25rem;
     font-size: 0.75rem;
     font-weight: var(--font-medium);
-    background: var(--border);
-    padding: 0.125rem 0.25rem;
-    border-radius: var(--radius);
-    display: inline-flex;
-    align-items: center;
-    color: var(--default);
     line-height: 1rem;
+    color: var(--default);
     white-space: nowrap;
+    background: var(--border);
+    border-radius: var(--radius-sm);
 
-    &.primary {
-        background-color: var(--primary);
-        color: #fff;
+    &.LemonTag--normal {
+        font-weight: normal;
     }
 
-    &.highlight {
+    &:not(.LemonTag--breakdown) {
+        padding: 0.075rem 0.25rem;
+        font-size: 0.6875rem;
+        background: none;
+        border-style: solid;
+        border-width: 1px;
+        border-radius: var(--radius-sm);
+    }
+
+    &.LemonTag--primary {
+        color: #fff;
+        background-color: var(--primary-3000);
+
+        .posthog-3000 & {
+            color: var(--primary-3000);
+            background: none;
+            border-color: var(--primary-3000);
+        }
+    }
+
+    &.LemonTag--option {
+        color: var(--primary-3000);
+        background-color: var(--accent-3000);
+    }
+
+    &.LemonTag--highlight {
+        color: var(--bg-charcoal);
         background-color: var(--mark);
-        color: var(--bg-charcoal);
+
+        .posthog-3000 & {
+            color: var(--highlight);
+            background: none;
+            border-color: var(--highlight);
+        }
     }
 
-    &.warning {
+    &.LemonTag--warning {
+        color: var(--bg-charcoal);
         background-color: var(--warning);
-        color: var(--bg-charcoal);
+
+        .posthog-3000 & {
+            color: var(--warning);
+            background: none;
+            border-color: var(--warning);
+        }
     }
 
-    &.danger {
+    &.LemonTag--danger {
+        color: #fff;
         background-color: var(--danger);
-        color: #fff;
+
+        .posthog-3000 & {
+            color: var(--danger);
+            background: none;
+            border-color: var(--danger);
+        }
     }
 
-    &.success {
+    &.LemonTag--success {
+        color: #fff;
         background-color: var(--success);
-        color: #fff;
+
+        .posthog-3000 & {
+            color: var(--success);
+            background: none;
+            border-color: var(--success);
+        }
     }
 
-    &.completion {
+    &.LemonTag--completion {
+        color: var(--bg-charcoal);
         background-color: var(--purple-light);
-        color: var(--bg-charcoal);
+
+        .posthog-3000 & {
+            color: var(--purple);
+            background: none;
+            border-color: var(--purple);
+        }
     }
 
-    &.caution {
+    &.LemonTag--caution {
+        color: var(--bg-charcoal);
         background-color: var(--danger-lighter);
-        color: var(--bg-charcoal);
+
+        .posthog-3000 & {
+            color: var(--danger-lighter);
+            background: none;
+            border-color: var(--danger-lighter);
+        }
     }
 
-    &.none {
+    &.LemonTag--muted {
+        color: var(--muted);
+        background-color: var(--accent-3000);
+    }
+
+    &.LemonTag--none {
         background: none;
     }
 
+    &.LemonTag--breakdown {
+        padding: 8px 12px;
+        font-size: 14px;
+        font-weight: 400;
+        line-height: 16px;
+        color: var(--primary-alt);
+        vertical-align: bottom;
+        background-color: var(--primary-bg-hover);
+        border-radius: 40px;
+    }
+
     &.LemonTag--size-small {
-        font-size: 0.625rem;
         padding: 0.0625rem 0.1875rem;
+        font-size: 0.625rem;
     }
 
     .LemonTag__icon {
-        font-size: 0.875rem;
-        margin-right: 0.125rem;
         display: flex;
+        margin-right: 0.125rem;
+        font-size: 0.875rem;
     }
 
     .LemonTag__right-button {
+        min-height: 1.5rem !important;
+        padding: 0.125rem !important;
         margin-left: 0.25rem;
-        min-height: 1.5rem;
-        padding: 0.125rem 0.125rem;
     }
 }

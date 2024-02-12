@@ -1,71 +1,69 @@
+import './BillingGauge.scss'
+
 import clsx from 'clsx'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { compactNumber } from 'lib/utils'
-import { useEffect, useMemo, useState } from 'react'
-import './BillingGauge.scss'
+import { useMemo } from 'react'
 
+import { BillingProductV2Type } from '~/types'
+
+import { BillingGaugeItemType } from './types'
+
+/*
+ * Billing Gauge Item: Individual bars on the billing gauge.
+ */
 type BillingGaugeItemProps = {
-    width: string
-    className: string
-    tooltip: string | JSX.Element
-    top: boolean
-    value: number
+    item: BillingGaugeItemType
+    maxValue: number
+    isWithinUsageLimit: boolean
 }
 
-const BillingGaugeItem = ({ width, className, tooltip, top, value }: BillingGaugeItemProps): JSX.Element => {
+const BillingGaugeItem = ({ item, maxValue, isWithinUsageLimit }: BillingGaugeItemProps): JSX.Element => {
+    const width = `${(item.value / maxValue) * 100}%`
+
     return (
         <div
-            className={`BillingGaugeItem absolute top-0 left-0 bottom-0 h-2 ${className}`}
-            style={{
-                width: width,
-            }}
+            className={clsx(
+                `BillingGaugeItem BillingGaugeItem--${item.type}`,
+                { 'BillingGaugeItem--within-usage-limit': isWithinUsageLimit },
+                'absolute top-0 left-0 bottom-0 h-2'
+            )}
+            // eslint-disable-next-line react/forbid-dom-props
+            style={{ '--billing-gauge-item-width': width } as React.CSSProperties}
         >
             <div className="absolute right-0 w-px h-full bg-bg-light" />
-            <Tooltip title={value.toLocaleString()} placement={'right'}>
+            <Tooltip title={item.value.toLocaleString()} placement="right">
                 <div
                     className={clsx('BillingGaugeItem__info', {
-                        'BillingGaugeItem__info--bottom': !top,
+                        'BillingGaugeItem__info--bottom': !item.top,
                     })}
                 >
-                    {tooltip}
-                    <div>{compactNumber(value)}</div>
+                    <b>{item.text}</b>
+                    <div>{compactNumber(item.value)}</div>
                 </div>
             </Tooltip>
         </div>
     )
 }
 
+/*
+ * Billing Gauge.
+ */
 export type BillingGaugeProps = {
-    items: {
-        text: string | JSX.Element
-        color: string
-        value: number
-        top: boolean
-    }[]
+    items: BillingGaugeItemType[]
+    product: BillingProductV2Type
 }
 
-export function BillingGauge({ items }: BillingGaugeProps): JSX.Element {
-    const [expanded, setExpanded] = useState(false)
-    const maxScale = useMemo(() => {
+export function BillingGauge({ items, product }: BillingGaugeProps): JSX.Element {
+    const maxValue = useMemo(() => {
         return Math.max(100, ...items.map((item) => item.value)) * 1.3
     }, [items])
-
-    useEffect(() => {
-        // On mount, animate the gauge to full width
-        setExpanded(true)
-    }, [])
+    const isWithinUsageLimit = product.percentage_usage <= 1
 
     return (
         <div className="relative h-2 bg-border-light my-16">
             {items.map((item, i) => (
-                <BillingGaugeItem
-                    key={i}
-                    width={expanded ? `${(item.value / maxScale) * 100}%` : '0%'}
-                    className={`bg-${item.color}`}
-                    tooltip={<b>{item.text}</b>}
-                    top={item.top}
-                    value={item.value}
-                />
+                <BillingGaugeItem key={i} item={item} maxValue={maxValue} isWithinUsageLimit={isWithinUsageLimit} />
             ))}
         </div>
     )

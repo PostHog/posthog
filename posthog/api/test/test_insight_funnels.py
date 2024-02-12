@@ -4,14 +4,21 @@ from typing import Any, Dict, List, Union
 from django.test.client import Client
 from rest_framework import status
 
-from posthog.test.base import APIBaseTest, ClickhouseTestMixin, snapshot_clickhouse_queries
+from posthog.test.base import (
+    APIBaseTest,
+    ClickhouseTestMixin,
+    snapshot_clickhouse_queries,
+)
 from posthog.test.test_journeys import journeys_for
 
 
 class ClickhouseTestFunnelTypes(ClickhouseTestMixin, APIBaseTest):
     def test_funnel_unordered_basic_post(self):
         journeys_for(
-            {"1": [{"event": "step one"}, {"event": "step two"}], "2": [{"event": "step one"}, {"event": "step two"}]},
+            {
+                "1": [{"event": "step one"}, {"event": "step two"}],
+                "2": [{"event": "step one"}, {"event": "step two"}],
+            },
             self.team,
         )
 
@@ -48,16 +55,46 @@ class ClickhouseTestFunnelTypes(ClickhouseTestMixin, APIBaseTest):
 
         events = {
             "person1": [
-                {"event": "sign up", "timestamp": "2020-01-01", "properties": person1_properties},
-                {"event": "buy", "timestamp": "2020-01-02", "properties": person1_properties},
-                {"event": "play movie", "timestamp": "2020-01-03", "properties": person1_properties},
+                {
+                    "event": "sign up",
+                    "timestamp": "2020-01-01",
+                    "properties": person1_properties,
+                },
+                {
+                    "event": "buy",
+                    "timestamp": "2020-01-02",
+                    "properties": person1_properties,
+                },
+                {
+                    "event": "play movie",
+                    "timestamp": "2020-01-03",
+                    "properties": person1_properties,
+                },
             ],
             "person2": [
-                {"event": "buy", "timestamp": "2020-01-01", "properties": person2_properties},
-                {"event": "sign up", "timestamp": "2020-01-02", "properties": person2_properties},
-                {"event": "play movie", "timestamp": "2020-01-03", "properties": person2_properties},
+                {
+                    "event": "buy",
+                    "timestamp": "2020-01-01",
+                    "properties": person2_properties,
+                },
+                {
+                    "event": "sign up",
+                    "timestamp": "2020-01-02",
+                    "properties": person2_properties,
+                },
+                {
+                    "event": "play movie",
+                    "timestamp": "2020-01-03",
+                    "properties": person2_properties,
+                },
             ],
-            "person3": [{"event": "sign up", "timestamp": "2020-01-01", "properties": person3_properties}],
+            "person3": [
+                {
+                    "event": "sign up",
+                    "timestamp": "2020-01-01",
+                    "properties": person3_properties,
+                }
+            ],
         }
 
         journeys_for(team=self.team, events_by_person=events)
@@ -65,7 +102,11 @@ class ClickhouseTestFunnelTypes(ClickhouseTestMixin, APIBaseTest):
         response = self.client.post(
             f"/api/projects/{self.team.pk}/insights/funnel/",
             {
-                "events": [{"id": "sign up", "order": 0}, {"id": "play movie", "order": 1}, {"id": "buy", "order": 2}],
+                "events": [
+                    {"id": "sign up", "order": 0},
+                    {"id": "play movie", "order": 1},
+                    {"id": "buy", "order": 2},
+                ],
                 "insight": "FUNNELS",
                 "date_from": "2020-01-01",
                 "date_to": "2020-01-08",
@@ -80,17 +121,41 @@ class ClickhouseTestFunnelTypes(ClickhouseTestMixin, APIBaseTest):
             {
                 "breakdown_value": "Chrome",
                 "steps": [
-                    {"name": "Completed 1 step", "converted": ["person1"], "dropped": []},
-                    {"name": "Completed 2 steps", "converted": ["person1"], "dropped": []},
-                    {"name": "Completed 3 steps", "converted": ["person1"], "dropped": []},
+                    {
+                        "name": "Completed 1 step",
+                        "converted": ["person1"],
+                        "dropped": [],
+                    },
+                    {
+                        "name": "Completed 2 steps",
+                        "converted": ["person1"],
+                        "dropped": [],
+                    },
+                    {
+                        "name": "Completed 3 steps",
+                        "converted": ["person1"],
+                        "dropped": [],
+                    },
                 ],
             },
             {
                 "breakdown_value": "Safari",
                 "steps": [
-                    {"name": "Completed 1 step", "converted": ["person2", "person3"], "dropped": []},
-                    {"name": "Completed 2 steps", "converted": ["person2"], "dropped": ["person3"]},
-                    {"name": "Completed 3 steps", "converted": ["person2"], "dropped": []},
+                    {
+                        "name": "Completed 1 step",
+                        "converted": ["person2", "person3"],
+                        "dropped": [],
+                    },
+                    {
+                        "name": "Completed 2 steps",
+                        "converted": ["person2"],
+                        "dropped": ["person3"],
+                    },
+                    {
+                        "name": "Completed 3 steps",
+                        "converted": ["person2"],
+                        "dropped": [],
+                    },
                 ],
             },
         ]
@@ -138,13 +203,33 @@ class ClickhouseTestFunnelTypes(ClickhouseTestMixin, APIBaseTest):
 
         events = {
             "person1": [
-                {"event": "sign up", "timestamp": "2020-01-01", "properties": chrome_properties},
-                {"event": "play movie", "timestamp": "2020-01-02", "properties": chrome_properties},
-                {"event": "buy", "timestamp": "2020-01-03", "properties": chrome_properties},
+                {
+                    "event": "sign up",
+                    "timestamp": "2020-01-01",
+                    "properties": chrome_properties,
+                },
+                {
+                    "event": "play movie",
+                    "timestamp": "2020-01-02",
+                    "properties": chrome_properties,
+                },
+                {
+                    "event": "buy",
+                    "timestamp": "2020-01-03",
+                    "properties": chrome_properties,
+                },
             ],
             "person2": [
-                {"event": "sign up", "timestamp": "2020-01-01", "properties": safari_properties},
-                {"event": "play movie", "timestamp": "2020-01-02", "properties": safari_properties},
+                {
+                    "event": "sign up",
+                    "timestamp": "2020-01-01",
+                    "properties": safari_properties,
+                },
+                {
+                    "event": "play movie",
+                    "timestamp": "2020-01-02",
+                    "properties": safari_properties,
+                },
                 {
                     # This person should not convert here as we're in strict mode,
                     # and this event is not in the funnel definition
@@ -152,9 +237,19 @@ class ClickhouseTestFunnelTypes(ClickhouseTestMixin, APIBaseTest):
                     "timestamp": "2020-01-03",
                     "properties": safari_properties,
                 },
-                {"event": "buy", "timestamp": "2020-01-04", "properties": safari_properties},
+                {
+                    "event": "buy",
+                    "timestamp": "2020-01-04",
+                    "properties": safari_properties,
+                },
             ],
-            "person3": [{"event": "sign up", "timestamp": "2020-01-01", "properties": safari_properties}],
+            "person3": [
+                {
+                    "event": "sign up",
+                    "timestamp": "2020-01-01",
+                    "properties": safari_properties,
+                }
+            ],
         }
 
         journeys_for(team=self.team, events_by_person=events)
@@ -162,7 +257,11 @@ class ClickhouseTestFunnelTypes(ClickhouseTestMixin, APIBaseTest):
         response = self.client.post(
             f"/api/projects/{self.team.pk}/insights/funnel/",
             {
-                "events": [{"id": "sign up", "order": 0}, {"id": "play movie", "order": 1}, {"id": "buy", "order": 2}],
+                "events": [
+                    {"id": "sign up", "order": 0},
+                    {"id": "play movie", "order": 1},
+                    {"id": "buy", "order": 2},
+                ],
                 "insight": "FUNNELS",
                 "date_from": "2020-01-01",
                 "date_to": "2020-01-08",
@@ -185,8 +284,16 @@ class ClickhouseTestFunnelTypes(ClickhouseTestMixin, APIBaseTest):
             {
                 "breakdown_value": "Safari",
                 "steps": [
-                    {"name": "sign up", "converted": ["person2", "person3"], "dropped": []},
-                    {"name": "play movie", "converted": ["person2"], "dropped": ["person3"]},
+                    {
+                        "name": "sign up",
+                        "converted": ["person2", "person3"],
+                        "dropped": [],
+                    },
+                    {
+                        "name": "play movie",
+                        "converted": ["person2"],
+                        "dropped": ["person3"],
+                    },
                     {"name": "buy", "converted": [], "dropped": ["person2"]},
                 ],
             },
@@ -203,16 +310,46 @@ class ClickhouseTestFunnelTypes(ClickhouseTestMixin, APIBaseTest):
 
         events = {
             "person1": [
-                {"event": "sign up", "timestamp": "2020-01-01", "properties": person1_properties},
-                {"event": "play movie", "timestamp": "2020-01-02", "properties": person1_properties},
-                {"event": "buy", "timestamp": "2020-01-03", "properties": person1_properties},
+                {
+                    "event": "sign up",
+                    "timestamp": "2020-01-01",
+                    "properties": person1_properties,
+                },
+                {
+                    "event": "play movie",
+                    "timestamp": "2020-01-02",
+                    "properties": person1_properties,
+                },
+                {
+                    "event": "buy",
+                    "timestamp": "2020-01-03",
+                    "properties": person1_properties,
+                },
             ],
             "person2": [
-                {"event": "sign up", "timestamp": "2020-01-01", "properties": person2_properties},
-                {"event": "play movie", "timestamp": "2020-01-02", "properties": person2_properties},
-                {"event": "buy", "timestamp": "2020-01-03", "properties": person2_properties},
+                {
+                    "event": "sign up",
+                    "timestamp": "2020-01-01",
+                    "properties": person2_properties,
+                },
+                {
+                    "event": "play movie",
+                    "timestamp": "2020-01-02",
+                    "properties": person2_properties,
+                },
+                {
+                    "event": "buy",
+                    "timestamp": "2020-01-03",
+                    "properties": person2_properties,
+                },
             ],
-            "person3": [{"event": "sign up", "timestamp": "2020-01-01", "properties": person3_properties}],
+            "person3": [
+                {
+                    "event": "sign up",
+                    "timestamp": "2020-01-01",
+                    "properties": person3_properties,
+                }
+            ],
         }
 
         journeys_for(team=self.team, events_by_person=events)
@@ -220,7 +357,11 @@ class ClickhouseTestFunnelTypes(ClickhouseTestMixin, APIBaseTest):
         response = self.client.post(
             f"/api/projects/{self.team.pk}/insights/funnel/",
             {
-                "events": [{"id": "sign up", "order": 0}, {"id": "play movie", "order": 1}, {"id": "buy", "order": 2}],
+                "events": [
+                    {"id": "sign up", "order": 0},
+                    {"id": "play movie", "order": 1},
+                    {"id": "buy", "order": 2},
+                ],
                 "insight": "FUNNELS",
                 "date_from": "2020-01-01",
                 "date_to": "2020-01-08",
@@ -242,8 +383,16 @@ class ClickhouseTestFunnelTypes(ClickhouseTestMixin, APIBaseTest):
             {
                 "breakdown_value": "Safari",
                 "steps": [
-                    {"name": "sign up", "converted": ["person2", "person3"], "dropped": []},
-                    {"name": "play movie", "converted": ["person2"], "dropped": ["person3"]},
+                    {
+                        "name": "sign up",
+                        "converted": ["person2", "person3"],
+                        "dropped": [],
+                    },
+                    {
+                        "name": "play movie",
+                        "converted": ["person2"],
+                        "dropped": ["person3"],
+                    },
                     {"name": "buy", "converted": ["person2"], "dropped": []},
                 ],
             },
@@ -449,7 +598,8 @@ class ClickhouseTestFunnelTypes(ClickhouseTestMixin, APIBaseTest):
         response_data.pop("last_refresh")
         self.assertEqual(
             response_data,
-            {
+            response_data
+            | {
                 "is_cached": False,
                 "timezone": "UTC",
                 "result": {
@@ -507,7 +657,8 @@ class ClickhouseTestFunnelTypes(ClickhouseTestMixin, APIBaseTest):
         response_data.pop("last_refresh")
         self.assertEqual(
             response_data,
-            {
+            response_data
+            | {
                 "is_cached": False,
                 "timezone": "UTC",
                 "result": {
@@ -565,7 +716,8 @@ class ClickhouseTestFunnelTypes(ClickhouseTestMixin, APIBaseTest):
         response_data.pop("last_refresh")
         self.assertEqual(
             response_data,
-            {
+            response_data
+            | {
                 "is_cached": False,
                 "timezone": "UTC",
                 "result": {
@@ -577,16 +729,24 @@ class ClickhouseTestFunnelTypes(ClickhouseTestMixin, APIBaseTest):
 
     def test_funnel_invalid_action_handled(self):
         response = self.client.post(
-            f"/api/projects/{self.team.id}/insights/funnel/", {"actions": [{"id": 666, "type": "actions", "order": 0}]}
+            f"/api/projects/{self.team.id}/insights/funnel/",
+            {"actions": [{"id": 666, "type": "actions", "order": 0}]},
         )
 
         self.assertEqual(response.status_code, 400)
-        self.assertEqual(response.json(), self.validation_error_response("Action ID 666 does not exist!"))
+        self.assertEqual(
+            response.json(),
+            self.validation_error_response("Action ID 666 does not exist!"),
+        )
 
     def test_funnel_basic_exclusions(self):
         journeys_for(
             {
-                "1": [{"event": "step one"}, {"event": "step x"}, {"event": "step two"}],
+                "1": [
+                    {"event": "step one"},
+                    {"event": "step x"},
+                    {"event": "step two"},
+                ],
                 "2": [{"event": "step one"}, {"event": "step two"}],
             },
             self.team,
@@ -599,7 +759,14 @@ class ClickhouseTestFunnelTypes(ClickhouseTestMixin, APIBaseTest):
                     {"id": "step one", "type": "events", "order": 0},
                     {"id": "step two", "type": "events", "order": 1},
                 ],
-                "exclusions": [{"id": "step x", "type": "events", "funnel_from_step": 0, "funnel_to_step": 1}],
+                "exclusions": [
+                    {
+                        "id": "step x",
+                        "type": "events",
+                        "funnel_from_step": 0,
+                        "funnel_to_step": 1,
+                    }
+                ],
                 "funnel_window_days": 14,
                 "insight": "funnels",
             },
@@ -622,7 +789,11 @@ class ClickhouseTestFunnelTypes(ClickhouseTestMixin, APIBaseTest):
     def test_funnel_invalid_exclusions(self):
         journeys_for(
             {
-                "1": [{"event": "step one"}, {"event": "step x"}, {"event": "step two"}],
+                "1": [
+                    {"event": "step one"},
+                    {"event": "step x"},
+                    {"event": "step two"},
+                ],
                 "2": [{"event": "step one"}, {"event": "step two"}],
             },
             self.team,
@@ -660,7 +831,10 @@ class ClickhouseTestFunnelTypes(ClickhouseTestMixin, APIBaseTest):
             if error:
                 self.assertEqual(response.status_code, 400)
                 self.assertEqual(
-                    response.json(), self.validation_error_response("Exclusion event can't be the same as funnel step")
+                    response.json(),
+                    self.validation_error_response(
+                        "Exclusion steps cannot contain an event that's part of funnel steps."
+                    ),
                 )
             else:
                 self.assertEqual(response.status_code, 200)
@@ -669,12 +843,24 @@ class ClickhouseTestFunnelTypes(ClickhouseTestMixin, APIBaseTest):
         journeys_for(
             {
                 "person1": [
-                    {"event": "$pageview", "properties": {"$browser": "Chrome", "$browser_version": 95}},
-                    {"event": "$pageleave", "properties": {"$browser": "Chrome", "$browser_version": 95}},
+                    {
+                        "event": "$pageview",
+                        "properties": {"$browser": "Chrome", "$browser_version": 95},
+                    },
+                    {
+                        "event": "$pageleave",
+                        "properties": {"$browser": "Chrome", "$browser_version": 95},
+                    },
                 ],
                 "person2": [
-                    {"event": "$pageview", "properties": {"$browser": "Safari", "$browser_version": 11}},
-                    {"event": "$pageview", "properties": {"$browser": "Safari", "$browser_version": 11}},
+                    {
+                        "event": "$pageview",
+                        "properties": {"$browser": "Safari", "$browser_version": 11},
+                    },
+                    {
+                        "event": "$pageview",
+                        "properties": {"$browser": "Safari", "$browser_version": 11},
+                    },
                 ],
             },
             self.team,
@@ -686,7 +872,12 @@ class ClickhouseTestFunnelTypes(ClickhouseTestMixin, APIBaseTest):
             "actions": [],
             "events": [
                 {"id": "$pageview", "name": "$pageview", "type": "events", "order": 0},
-                {"id": "$pageleave", "name": "$pageleave", "type": "events", "order": 1},
+                {
+                    "id": "$pageleave",
+                    "name": "$pageleave",
+                    "type": "events",
+                    "order": 1,
+                },
             ],
             "display": "FunnelViz",
             "interval": "day",
@@ -699,7 +890,10 @@ class ClickhouseTestFunnelTypes(ClickhouseTestMixin, APIBaseTest):
             "funnel_to_step": 1,
         }
 
-        response = self.client.post(f"/api/projects/{self.team.id}/insights/funnel?refresh=true", filter_with_breakdown)
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/insights/funnel?refresh=true",
+            filter_with_breakdown,
+        )
         self.assertEqual(200, response.status_code)
 
         response_data = response.json()
@@ -729,12 +923,24 @@ class ClickhouseTestFunnelTypes(ClickhouseTestMixin, APIBaseTest):
         journeys_for(
             {
                 "person1": [
-                    {"event": "$pageview", "properties": {"$browser": "Chrome", "$browser_version": 95}},
-                    {"event": "$pageleave", "properties": {"$browser": "Chrome", "$browser_version": 95}},
+                    {
+                        "event": "$pageview",
+                        "properties": {"$browser": "Chrome", "$browser_version": 95},
+                    },
+                    {
+                        "event": "$pageleave",
+                        "properties": {"$browser": "Chrome", "$browser_version": 95},
+                    },
                 ],
                 "person2": [
-                    {"event": "$pageview", "properties": {"$browser": "Safari", "$browser_version": 11}},
-                    {"event": "$pageview", "properties": {"$browser": "Safari", "$browser_version": 11}},
+                    {
+                        "event": "$pageview",
+                        "properties": {"$browser": "Safari", "$browser_version": 11},
+                    },
+                    {
+                        "event": "$pageview",
+                        "properties": {"$browser": "Safari", "$browser_version": 11},
+                    },
                 ],
             },
             self.team,
@@ -746,7 +952,12 @@ class ClickhouseTestFunnelTypes(ClickhouseTestMixin, APIBaseTest):
             "actions": [],
             "events": [
                 {"id": "$pageview", "name": "$pageview", "type": "events", "order": 0},
-                {"id": "$pageleave", "name": "$pageleave", "type": "events", "order": 1},
+                {
+                    "id": "$pageleave",
+                    "name": "$pageleave",
+                    "type": "events",
+                    "order": 1,
+                },
             ],
             "display": "FunnelViz",
             "interval": "day",
@@ -759,7 +970,10 @@ class ClickhouseTestFunnelTypes(ClickhouseTestMixin, APIBaseTest):
             "funnel_to_step": 1,
         }
 
-        response = self.client.post(f"/api/projects/{self.team.id}/insights/funnel?refresh=true", filter_with_breakdown)
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/insights/funnel?refresh=true",
+            filter_with_breakdown,
+        )
         self.assertEqual(200, response.status_code)
 
         response_data = response.json()
@@ -824,7 +1038,11 @@ def get_converted_and_dropped_people(client: Client, step):
         dropped_people = dropped_people_response.json()["results"][0]["people"]
         dropped_distinct_ids = [distinct_id for people in dropped_people for distinct_id in people["distinct_ids"]]
 
-    return {"name": step["name"], "converted": sorted(converted_distinct_ids), "dropped": sorted(dropped_distinct_ids)}
+    return {
+        "name": step["name"],
+        "converted": sorted(converted_distinct_ids),
+        "dropped": sorted(dropped_distinct_ids),
+    }
 
 
 def get_funnel_people_breakdown_by_step(client: Client, funnel_response):

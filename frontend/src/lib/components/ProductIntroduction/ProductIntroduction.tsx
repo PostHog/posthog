@@ -1,10 +1,19 @@
-import { LemonButton } from 'lib/lemon-ui/LemonButton'
-import { IconClose, IconOpenInNew, IconPlus } from 'lib/lemon-ui/icons'
-import { BuilderHog3, DetectiveHog } from '../hedgehogs'
-import { userLogic } from 'scenes/userLogic'
+import { IconOpenSidebar } from '@posthog/icons'
 import { useActions } from 'kea'
+import { IconClose, IconPlus } from 'lib/lemon-ui/icons'
+import { LemonButton } from 'lib/lemon-ui/LemonButton'
+import { userLogic } from 'scenes/userLogic'
+
 import { ProductKey } from '~/types'
 
+import { BuilderHog3, DetectiveHog } from '../hedgehogs'
+
+/**
+ * A component to introduce new users to a product, and to show something
+ * other than an empty table when there are no items.
+ * Not to be confused with the `OnboardingProductIntroduction` scene,
+ * which is shown when a team has yet to go through onboarding for the product.
+ */
 export const ProductIntroduction = ({
     productName,
     productKey,
@@ -37,14 +46,12 @@ export const ProductIntroduction = ({
     const { updateHasSeenProductIntroFor } = useActions(userLogic)
     const actionable = action || actionElementOverride
     return (
-        <div className="border-2 border-dashed border-border w-full p-8 justify-center rounded-md mt-2 mb-4">
+        <div className="border-2 border-dashed border-border w-full p-8 justify-center rounded mt-2 mb-4">
             {!isEmpty && (
                 <div className="flex justify-end -mb-6 -mt-2 -mr-2">
                     <div>
                         <LemonButton
                             icon={<IconClose />}
-                            type="tertiary"
-                            status="stealth"
                             onClick={() => {
                                 updateHasSeenProductIntroFor(productKey, true)
                             }}
@@ -52,7 +59,7 @@ export const ProductIntroduction = ({
                     </div>
                 </div>
             )}
-            <div className="flex items-center gap-x-8 w-full justify-center">
+            <div className="flex items-center gap-8 w-full justify-center flex-wrap">
                 <div>
                     <div className="w-50 mx-auto mb-4">
                         {CustomHog ? (
@@ -77,15 +84,15 @@ export const ProductIntroduction = ({
                     <p className="ml-0">{description}</p>
                     {!isEmpty && (
                         <p className="ml-0">
-                            Your team has already started using {productName}. You can jump in to see what your team has
-                            made, or create a new one yourself.
+                            Your team is already using {productName}. You can take a look at what they're doing, or get
+                            started yourself.
                         </p>
                     )}
-                    <div className="flex items-center gap-x-4 mt-6">
+                    <div className="flex items-center gap-x-4 gap-y-2 mt-6 flex-wrap">
                         {action ? (
                             <LemonButton
                                 type="primary"
-                                sideIcon={<IconPlus />}
+                                icon={<IconPlus />}
                                 onClick={() => {
                                     updateHasSeenProductIntroFor(productKey, true)
                                     action && action()
@@ -100,13 +107,12 @@ export const ProductIntroduction = ({
                         {docsURL && (
                             <LemonButton
                                 type={actionable ? 'tertiary' : 'secondary'}
-                                status="muted-alt"
-                                sideIcon={<IconOpenInNew className="w-4 h-4" />}
+                                sideIcon={<IconOpenSidebar className="w-4 h-4" />}
                                 to={`${docsURL}?utm_medium=in-product&utm_campaign=empty-state-docs-link`}
                                 data-attr="product-introduction-docs-link"
                                 targetBlank
                             >
-                                Learn more about {productName}
+                                Learn more
                             </LemonButton>
                         )}
                     </div>

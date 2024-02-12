@@ -1,15 +1,14 @@
 import { Meta } from '@storybook/react'
-import { mswDecorator } from '~/mocks/browser'
-import { useEffect } from 'react'
 import { router } from 'kea-router'
-import { urls } from 'scenes/urls'
+import { FEATURE_FLAGS } from 'lib/constants'
+import { useEffect } from 'react'
 import { App } from 'scenes/App'
-import { EMPTY_PAGINATED_RESPONSE } from '~/mocks/handlers'
-import { useActions } from 'kea'
-import { themeLogic } from './themeLogic'
-import { with3000 } from 'storybook/decorators/with3000'
+import { urls } from 'scenes/urls'
 
-export default {
+import { mswDecorator, setFeatureFlags } from '~/mocks/browser'
+import { EMPTY_PAGINATED_RESPONSE } from '~/mocks/handlers'
+
+const meta: Meta = {
     title: 'PostHog 3000/Navigation',
     decorators: [
         mswDecorator({
@@ -21,31 +20,27 @@ export default {
                 '/api/projects/:team_id/session_recordings/': EMPTY_PAGINATED_RESPONSE,
             },
         }),
-        with3000,
     ],
     parameters: {
         layout: 'fullscreen',
-        options: { showPanel: false },
         viewMode: 'story',
         mockDate: '2023-02-01',
     },
-} as Meta
+}
+export default meta
 
-export function LightMode(): JSX.Element {
-    const { overrideTheme } = useActions(themeLogic)
+export function NavigationBase(): JSX.Element {
     useEffect(() => {
         router.actions.push(urls.projectHomepage())
-        overrideTheme(false)
     }, [])
 
     return <App />
 }
 
-export function DarkMode(): JSX.Element {
-    const { overrideTheme } = useActions(themeLogic)
+export function Navigation3000(): JSX.Element {
+    setFeatureFlags([FEATURE_FLAGS.POSTHOG_3000_NAV])
     useEffect(() => {
         router.actions.push(urls.projectHomepage())
-        overrideTheme(true)
     }, [])
 
     return <App />

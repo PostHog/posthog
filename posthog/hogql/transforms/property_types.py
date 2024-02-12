@@ -4,7 +4,6 @@ from posthog.hogql import ast
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.models import DateTimeDatabaseField
 from posthog.hogql.escape_sql import escape_hogql_identifier
-from posthog.hogql.parser import parse_expr
 from posthog.hogql.visitor import CloningVisitor, TraversingVisitor
 from posthog.models.property import PropertyName, TableColumn
 from posthog.utils import PersonOnEventsMode
@@ -46,7 +45,10 @@ def resolve_property_types(node: ast.Expr, context: HogQLContext = None) -> ast.
 
     timezone = context.database.get_timezone() if context and context.database else "UTC"
     property_swapper = PropertySwapper(
-        timezone=timezone, event_properties=event_properties, person_properties=person_properties, context=context
+        timezone=timezone,
+        event_properties=event_properties,
+        person_properties=person_properties,
+        context=context,
     )
     return property_swapper.visit(node)
 
@@ -83,7 +85,11 @@ class PropertyFinder(TraversingVisitor):
 
 class PropertySwapper(CloningVisitor):
     def __init__(
-        self, timezone: str, event_properties: Dict[str, str], person_properties: Dict[str, str], context: HogQLContext
+        self,
+        timezone: str,
+        event_properties: Dict[str, str],
+        person_properties: Dict[str, str],
+        context: HogQLContext,
     ):
         super().__init__(clear_types=False)
         self.timezone = timezone
@@ -98,7 +104,9 @@ class PropertySwapper(CloningVisitor):
                     name="toTimeZone",
                     args=[node, ast.Constant(value=self.timezone)],
                     type=ast.CallType(
-                        name="toTimeZone", arg_types=[ast.DateTimeType()], return_type=ast.DateTimeType()
+                        name="toTimeZone",
+                        arg_types=[ast.DateTimeType()],
+                        return_type=ast.DateTimeType(),
                     ),
                 )
 
@@ -128,7 +136,10 @@ class PropertySwapper(CloningVisitor):
         return node
 
     def _convert_string_property_to_type(
-        self, node: ast.Field, property_type: Literal["event", "person"], property_name: str
+        self,
+        node: ast.Field,
+        property_type: Literal["event", "person"],
+        property_name: str,
     ):
         posthog_field_type = (
             self.person_properties.get(property_name)
@@ -143,22 +154,38 @@ class PropertySwapper(CloningVisitor):
         if field_type == "Float":
             return ast.Call(name="toFloat", args=[node])
         if field_type == "Boolean":
-            return parse_expr("{node} = 'true'", {"node": node})
+            return ast.Call(
+                name="transform",
+                args=[
+                    node,
+                    ast.Constant(value=["true", "false"]),
+                    ast.Constant(value=[True, False]),
+                    ast.Constant(value=None),
+                ],
+            )
         return node
 
-    def _add_property_notice(self, node: ast.Field, property_type: Literal["event", "person"], field_type: str) -> str:
+    def _add_property_notice(
+        self,
+        node: ast.Field,
+        property_type: Literal["event", "person"],
+        field_type: str,
+    ) -> str:
         property_name = node.chain[-1]
         if property_type == "person":
-            if self.context.person_on_events_mode != PersonOnEventsMode.DISABLED:
+            if self.context.modifiers.personsOnEventsMode != PersonOnEventsMode.DISABLED:
                 materialized_column = self._get_materialized_column("events", property_name, "person_properties")
             else:
                 materialized_column = self._get_materialized_column("person", property_name, "properties")
         else:
             materialized_column = self._get_materialized_column("events", property_name, "properties")
 
-        message = f"{property_type.capitalize()} property '{property_name}' is of type '{field_type}'"
-        if materialized_column:
-            message = "⚡️" + message
+        message = f"{property_type.capitalize()} property '{property_name}' is of type '{field_type}'."
+        if self.context.debug:
+            if materialized_column:
+                message += " This property is materialized ⚡️."
+            else:
+                message += " This property is not materialized 🐢."
 
         self._add_notice(node=node, message=message)
 

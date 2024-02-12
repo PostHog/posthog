@@ -1,22 +1,25 @@
+import './FunnelBarGraph.scss'
+
 import clsx from 'clsx'
-import { humanFriendlyDuration, percentage, pluralize } from 'lib/utils'
+import { useActions, useValues } from 'kea'
+import { EntityFilterInfo } from 'lib/components/EntityFilterInfo'
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
 import { SeriesGlyph } from 'lib/components/SeriesGlyph'
-import { IconTrendingFlatDown, IconInfinity, IconTrendingFlat } from 'lib/lemon-ui/icons'
-import './FunnelBarGraph.scss'
-import { useActions, useValues } from 'kea'
-import { getBreakdownMaxIndex, getReferenceStep } from '../funnelUtils'
-import { ChartParams, FunnelStepReference, StepOrderValue } from '~/types'
-import { EntityFilterInfo } from 'lib/components/EntityFilterInfo'
-import { getActionFilterFromFunnelStep } from 'scenes/insights/views/Funnels/funnelStepTableUtils'
 import { useResizeObserver } from 'lib/hooks/useResizeObserver'
-import { FunnelStepMore } from '../FunnelStepMore'
-import { ValueInspectorButton } from '../ValueInspectorButton'
-import { DuplicateStepIndicator } from './DuplicateStepIndicator'
-import { Bar } from './Bar'
+import { IconInfinity, IconTrendingFlat, IconTrendingFlatDown } from 'lib/lemon-ui/icons'
+import { humanFriendlyDuration, percentage, pluralize } from 'lib/utils'
 import { insightLogic } from 'scenes/insights/insightLogic'
+import { getActionFilterFromFunnelStep } from 'scenes/insights/views/Funnels/funnelStepTableUtils'
+
+import { ChartParams, FunnelStepReference, StepOrderValue } from '~/types'
+
 import { funnelDataLogic } from '../funnelDataLogic'
 import { funnelPersonsModalLogic } from '../funnelPersonsModalLogic'
+import { FunnelStepMore } from '../FunnelStepMore'
+import { getBreakdownMaxIndex, getReferenceStep } from '../funnelUtils'
+import { ValueInspectorButton } from '../ValueInspectorButton'
+import { Bar } from './Bar'
+import { DuplicateStepIndicator } from './DuplicateStepIndicator'
 
 export function FunnelBarGraph({
     inCardView,
@@ -33,13 +36,13 @@ export function FunnelBarGraph({
     const { ref: graphRef, width } = useResizeObserver()
 
     const steps = visibleStepsWithConversionMetrics
-    const stepReference = funnelsFilter?.funnel_step_reference || FunnelStepReference.total
+    const stepReference = funnelsFilter?.funnelStepReference || FunnelStepReference.total
 
     const showPersonsModal = canOpenPersonModal && showPersonsModalProp
 
     // Everything rendered after is a funnel in top-to-bottom mode.
     return (
-        <div data-attr="funnel-bar-graph" className={clsx('funnel-bar-graph', 'white')} ref={graphRef}>
+        <div data-attr="funnel-bar-graph" className={clsx('FunnelBarGraph')} ref={graphRef}>
             {steps.map((step, stepIndex) => {
                 const basisStep = getReferenceStep(steps, stepReference, stepIndex)
                 const previousStep = getReferenceStep(steps, FunnelStepReference.previous, stepIndex)
@@ -64,7 +67,7 @@ export function FunnelBarGraph({
                     <section key={step.order} className="funnel-step">
                         <div className="funnel-series-container">
                             <div className={`funnel-series-linebox ${showLineBefore ? 'before' : ''}`} />
-                            {funnelsFilter?.funnel_order_type === StepOrderValue.UNORDERED ? (
+                            {funnelsFilter?.funnelOrderType === StepOrderValue.UNORDERED ? (
                                 <SeriesGlyph variant="funnel-step-glyph">
                                     <IconInfinity style={{ fill: 'var(--primary_alt)', width: 14 }} />
                                 </SeriesGlyph>
@@ -76,13 +79,13 @@ export function FunnelBarGraph({
                         <header>
                             <div className="flex items-center max-w-full grow">
                                 <div className="funnel-step-title">
-                                    {funnelsFilter?.funnel_order_type === StepOrderValue.UNORDERED ? (
+                                    {funnelsFilter?.funnelOrderType === StepOrderValue.UNORDERED ? (
                                         <span>Completed {step.order + 1} steps</span>
                                     ) : (
                                         <EntityFilterInfo filter={getActionFilterFromFunnelStep(step)} />
                                     )}
                                 </div>
-                                {funnelsFilter?.funnel_order_type !== StepOrderValue.UNORDERED &&
+                                {funnelsFilter?.funnelOrderType !== StepOrderValue.UNORDERED &&
                                     stepIndex > 0 &&
                                     step.action_id === steps[stepIndex - 1].action_id && <DuplicateStepIndicator />}
                                 <FunnelStepMore stepIndex={stepIndex} />
@@ -95,7 +98,7 @@ export function FunnelBarGraph({
                             ) : null}
                         </header>
                         <div className="funnel-inner-viz">
-                            <div className={clsx('funnel-bar-wrapper', { breakdown: isBreakdown })}>
+                            <div className={clsx('funnel-bar-wrapper', { breakdown: isBreakdown })} aria-busy={!width}>
                                 {!width ? null : isBreakdown ? (
                                     <>
                                         {step?.nested_breakdown?.map((breakdown, index) => {

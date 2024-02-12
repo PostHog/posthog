@@ -6,8 +6,8 @@ from django.conf import settings
 from django.core.management.base import BaseCommand
 from temporalio.common import RetryPolicy, WorkflowIDReusePolicy
 
-from posthog.temporal.client import connect
-from posthog.temporal.workflows import WORKFLOWS
+from posthog.temporal.common.client import connect
+from posthog.temporal.batch_exports import WORKFLOWS
 
 
 class Command(BaseCommand):
@@ -31,17 +31,45 @@ class Command(BaseCommand):
                 "Set an ID in order to limit concurrency."
             ),
         )
-        parser.add_argument("--temporal-host", default=settings.TEMPORAL_HOST, help="Hostname for Temporal Scheduler")
-        parser.add_argument("--temporal-port", default=settings.TEMPORAL_PORT, help="Port for Temporal Scheduler")
-        parser.add_argument("--namespace", default=settings.TEMPORAL_NAMESPACE, help="Namespace to connect to")
-        parser.add_argument("--task-queue", default=settings.TEMPORAL_TASK_QUEUE, help="Task queue to service")
         parser.add_argument(
-            "--server-root-ca-cert", default=settings.TEMPORAL_CLIENT_ROOT_CA, help="Optional root server CA cert"
+            "--temporal-host",
+            default=settings.TEMPORAL_HOST,
+            help="Hostname for Temporal Scheduler",
         )
-        parser.add_argument("--client-cert", default=settings.TEMPORAL_CLIENT_CERT, help="Optional client cert")
-        parser.add_argument("--client-key", default=settings.TEMPORAL_CLIENT_KEY, help="Optional client key")
         parser.add_argument(
-            "--max-attempts", default=settings.TEMPORAL_WORKFLOW_MAX_ATTEMPTS, help="Number of max attempts"
+            "--temporal-port",
+            default=settings.TEMPORAL_PORT,
+            help="Port for Temporal Scheduler",
+        )
+        parser.add_argument(
+            "--namespace",
+            default=settings.TEMPORAL_NAMESPACE,
+            help="Namespace to connect to",
+        )
+        parser.add_argument(
+            "--task-queue",
+            default=settings.TEMPORAL_TASK_QUEUE,
+            help="Task queue to service",
+        )
+        parser.add_argument(
+            "--server-root-ca-cert",
+            default=settings.TEMPORAL_CLIENT_ROOT_CA,
+            help="Optional root server CA cert",
+        )
+        parser.add_argument(
+            "--client-cert",
+            default=settings.TEMPORAL_CLIENT_CERT,
+            help="Optional client cert",
+        )
+        parser.add_argument(
+            "--client-key",
+            default=settings.TEMPORAL_CLIENT_KEY,
+            help="Optional client key",
+        )
+        parser.add_argument(
+            "--max-attempts",
+            default=settings.TEMPORAL_WORKFLOW_MAX_ATTEMPTS,
+            help="Number of max attempts",
         )
 
     def handle(self, *args, **options):

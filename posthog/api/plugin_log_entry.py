@@ -7,8 +7,12 @@ from rest_framework_dataclasses.serializers import DataclassSerializer
 
 from posthog.api.plugin import PluginOwnershipPermission, PluginsAccessLevelPermission
 from posthog.api.routing import StructuredViewSetMixin
-from posthog.models.plugin import PluginLogEntry, PluginLogEntryType, fetch_plugin_log_entries
-from posthog.permissions import ProjectMembershipNecessaryPermissions, TeamMemberAccessPermission
+from posthog.models.plugin import (
+    PluginLogEntry,
+    PluginLogEntryType,
+    fetch_plugin_log_entries,
+)
+from posthog.permissions import TeamMemberAccessPermission
 
 
 class PluginLogEntrySerializer(DataclassSerializer):
@@ -20,7 +24,6 @@ class PluginLogEntryViewSet(StructuredViewSetMixin, mixins.ListModelMixin, views
     serializer_class = PluginLogEntrySerializer
     permission_classes = [
         IsAuthenticated,
-        ProjectMembershipNecessaryPermissions,
         PluginsAccessLevelPermission,
         PluginOwnershipPermission,
         TeamMemberAccessPermission,

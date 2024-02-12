@@ -1,10 +1,30 @@
 import { useValues } from 'kea'
-import { allOperatorsMapping, alphabet, capitalizeFirstLetter, formatPropertyLabel } from 'lib/utils'
+import {
+    formatPropertyLabel,
+    isAnyPropertyfilter,
+    isCohortPropertyFilter,
+    isPropertyFilterWithOperator,
+    PROPERTY_FILTER_TYPE_TO_TAXONOMIC_FILTER_GROUP_TYPE,
+} from 'lib/components/PropertyFilters/utils'
+import { SeriesLetter } from 'lib/components/SeriesGlyph'
+import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
+import { IconCalculate, IconSubdirectoryArrowRight } from 'lib/lemon-ui/icons'
+import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
+import { LemonRow } from 'lib/lemon-ui/LemonRow'
+import { Link } from 'lib/lemon-ui/Link'
+import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
+import { allOperatorsMapping, capitalizeFirstLetter } from 'lib/utils'
+import React from 'react'
 import { LocalFilter, toLocalFilters } from 'scenes/insights/filters/ActionFilter/entityFilterLogic'
-import { TaxonomicBreakdownFilter } from 'scenes/insights/filters/BreakdownFilter/TaxonomicBreakdownFilter'
+import { BreakdownTag } from 'scenes/insights/filters/BreakdownFilter/BreakdownTag'
+import { isPathsFilter, isTrendsFilter } from 'scenes/insights/sharedUtils'
 import { humanizePathsEventTypes } from 'scenes/insights/utils'
 import { apiValueToMathType, MathCategory, MathDefinition, mathsLogic } from 'scenes/trends/mathsLogic'
 import { urls } from 'scenes/urls'
+
+import { cohortsModel } from '~/models/cohortsModel'
+import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
+import { filterForQuery, isInsightQueryNode } from '~/queries/utils'
 import {
     FilterLogicalOperator,
     FilterType,
@@ -13,25 +33,9 @@ import {
     PathsFilterType,
     PropertyGroupFilter,
 } from '~/types'
-import { IconCalculate, IconSubdirectoryArrowRight } from 'lib/lemon-ui/icons'
-import { LemonRow } from 'lib/lemon-ui/LemonRow'
-import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
-import { Lettermark } from 'lib/lemon-ui/Lettermark'
-import { Link } from 'lib/lemon-ui/Link'
-import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
+
 import { PropertyKeyInfo } from '../../PropertyKeyInfo'
-import { KEY_MAPPING } from 'lib/taxonomy'
 import { TZLabel } from '../../TZLabel'
-import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
-import { cohortsModel } from '~/models/cohortsModel'
-import React from 'react'
-import { isPathsFilter, isTrendsFilter } from 'scenes/insights/sharedUtils'
-import {
-    isAnyPropertyfilter,
-    isCohortPropertyFilter,
-    isPropertyFilterWithOperator,
-} from 'lib/components/PropertyFilters/utils'
-import { filterForQuery, isInsightQueryNode } from '~/queries/utils'
 
 function CompactPropertyFiltersDisplay({
     groupFilter,
@@ -76,7 +80,6 @@ function CompactPropertyFiltersDisplay({
                                                 {formatPropertyLabel(
                                                     leafFilter,
                                                     cohortsById,
-                                                    KEY_MAPPING,
                                                     (s) =>
                                                         formatPropertyValueForDisplay(leafFilter.key, s)?.toString() ||
                                                         '?'
@@ -91,7 +94,14 @@ function CompactPropertyFiltersDisplay({
                                             's
                                             <span className="SeriesDisplay__raw-name">
                                                 {isAnyPropertyfilter(leafFilter) && leafFilter.key && (
-                                                    <PropertyKeyInfo value={leafFilter.key} />
+                                                    <PropertyKeyInfo
+                                                        value={leafFilter.key}
+                                                        type={
+                                                            PROPERTY_FILTER_TYPE_TO_TAXONOMIC_FILTER_GROUP_TYPE[
+                                                                leafFilter.type
+                                                            ]
+                                                        }
+                                                    />
                                                 )}
                                             </span>
                                             {
@@ -122,10 +132,12 @@ function SeriesDisplay({
     filter,
     insightType = InsightType.TRENDS,
     index,
+    hasBreakdown,
 }: {
     filter: LocalFilter
     insightType?: InsightType
     index: number
+    hasBreakdown: boolean
 }): JSX.Element {
     const { mathDefinitions } = useValues(mathsLogic)
 
@@ -141,7 +153,7 @@ function SeriesDisplay({
         <LemonRow
             fullWidth
             className="SeriesDisplay"
-            icon={<Lettermark name={insightType !== InsightType.FUNNELS ? alphabet[index] : index + 1} />}
+            icon={<SeriesLetter seriesIndex={index} hasBreakdown={hasBreakdown} />}
             extendedContent={
                 <>
                     {insightType !== InsightType.FUNNELS && (
@@ -157,7 +169,10 @@ function SeriesDisplay({
                                                 {' '}
                                                 event's
                                                 <span className="SeriesDisplay__raw-name">
-                                                    <PropertyKeyInfo value={filter.math_property} />
+                                                    <PropertyKeyInfo
+                                                        value={filter.math_property}
+                                                        type={TaxonomicFilterGroupType.EventProperties}
+                                                    />
                                                 </span>
                                             </>
                                         )}
@@ -190,7 +205,7 @@ function SeriesDisplay({
                 </Link>
             ) : (
                 <span className="SeriesDisplay__raw-name SeriesDisplay__raw-name--event" title="Event series">
-                    <PropertyKeyInfo value={filter.name || '$pageview'} />
+                    <PropertyKeyInfo value={filter.name || '$pageview'} type={TaxonomicFilterGroupType.Events} />
                 </span>
             )}
         </LemonRow>
@@ -241,11 +256,17 @@ export function QuerySummary({ filters }: { filters: Partial<FilterType> }): JSX
                             <PathsSummary filters={filters} />
                         ) : (
                             <>
-                                <SeriesDisplay filter={localFilters[0]} insightType={filters.insight} index={0} />
+                                <SeriesDisplay
+                                    hasBreakdown={!!filters.breakdown}
+                                    filter={localFilters[0]}
+                                    insightType={filters.insight}
+                                    index={0}
+                                />
                                 {localFilters.slice(1).map((filter, index) => (
                                     <>
                                         <LemonDivider />
                                         <SeriesDisplay
+                                            hasBreakdown={!!filters.breakdown}
                                             key={index}
                                             filter={filter}
                                             insightType={filters.insight}
@@ -288,12 +309,22 @@ export function FiltersSummary({ filters }: { filters: Partial<FilterType> }): J
     )
 }
 
-export function BreakdownSummary({ filters }: { filters: Partial<FilterType> }): JSX.Element {
+export function BreakdownSummary({ filters }: { filters: Partial<FilterType> }): JSX.Element | null {
+    if (filters.breakdown_type == null || filters.breakdown == null) {
+        return null
+    }
+
+    const breakdownArray = Array.isArray(filters.breakdown) ? filters.breakdown : [filters.breakdown]
+
     return (
-        <div>
+        <>
             <h5>Breakdown by</h5>
-            <TaxonomicBreakdownFilter filters={filters} />
-        </div>
+            <section className="InsightDetails__breakdown">
+                {breakdownArray.map((breakdown) => (
+                    <BreakdownTag key={breakdown} breakdown={breakdown} breakdownType={filters.breakdown_type} />
+                ))}
+            </section>
+        </>
     )
 }
 
@@ -307,15 +338,21 @@ function InsightDetailsInternal({ insight }: { insight: InsightModel }, ref: Rea
         <div className="InsightDetails" ref={ref}>
             <QuerySummary filters={filters} />
             <FiltersSummary filters={filters} />
+            <BreakdownSummary filters={filters} />
             <div className="InsightDetails__footer">
                 <div>
                     <h5>Created by</h5>
                     <section>
-                        <ProfilePicture name={created_by?.first_name} email={created_by?.email} showName size="md" />{' '}
-                        <TZLabel time={created_at} />
+                        <ProfilePicture user={created_by} showName size="md" /> <TZLabel time={created_at} />
                     </section>
                 </div>
-                {filters.breakdown_type && <BreakdownSummary filters={filters} />}
+                <div>
+                    <h5>Last modified by</h5>
+                    <section>
+                        <ProfilePicture user={insight.last_modified_by} showName size="md" />{' '}
+                        <TZLabel time={insight.last_modified_at} />
+                    </section>
+                </div>
             </div>
         </div>
     )

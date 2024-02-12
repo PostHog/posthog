@@ -1,14 +1,12 @@
-import React, { FunctionComponent, useCallback, useMemo } from 'react'
+import React, { FunctionComponent, ReactNode, useCallback, useMemo } from 'react'
+
+import { KeyboardShortcut, KeyboardShortcutProps } from '~/layout/navigation-3000/components/KeyboardShortcut'
+
 import { LemonButton, LemonButtonProps } from '../LemonButton'
-import { TooltipProps } from '../Tooltip'
-import { TooltipPlacement } from 'antd/lib/tooltip'
 import { LemonDivider } from '../LemonDivider'
 import { LemonDropdown, LemonDropdownProps } from '../LemonDropdown'
+import { TooltipProps } from '../Tooltip'
 import { useKeyboardNavigation } from './useKeyboardNavigation'
-import { useValues } from 'kea'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { FEATURE_FLAGS } from 'lib/constants'
-import { KeyboardShortcut, KeyboardShortcutProps } from '~/layout/navigation-3000/components/KeyboardShortcut'
 
 type KeyboardShortcut = Array<keyof KeyboardShortcutProps>
 
@@ -68,7 +66,6 @@ export interface LemonMenuProps
             LemonDropdownProps,
             | 'placement'
             | 'fallbackPlacements'
-            | 'actionable'
             | 'sameWidth'
             | 'maxContentWidth'
             | 'visible'
@@ -98,7 +95,7 @@ export function LemonMenu({
     )
 
     const _onVisibilityChange = useCallback(
-        (visible) => {
+        (visible: boolean) => {
             onVisibilityChange?.(visible)
             if (visible && activeItemIndex && activeItemIndex > -1) {
                 // Scroll the active item into view once the menu is open (i.e. in the next tick)
@@ -126,22 +123,19 @@ export interface LemonMenuOverlayProps {
 }
 
 export function LemonMenuOverlay({ items, tooltipPlacement, itemsRef }: LemonMenuOverlayProps): JSX.Element {
-    const { featureFlags } = useValues(featureFlagLogic)
     const sectionsOrItems = useMemo(() => normalizeItems(items), [items])
-
-    const buttonSize = featureFlags[FEATURE_FLAGS.POSTHOG_3000] ? 'small' : 'medium'
 
     return sectionsOrItems.length > 0 && isLemonMenuSection(sectionsOrItems[0]) ? (
         <LemonMenuSectionList
             sections={sectionsOrItems as LemonMenuSection[]}
-            buttonSize={buttonSize}
+            buttonSize="small"
             tooltipPlacement={tooltipPlacement}
             itemsRef={itemsRef}
         />
     ) : (
         <LemonMenuItemList
             items={sectionsOrItems as LemonMenuItem[]}
-            buttonSize={buttonSize}
+            buttonSize="small"
             tooltipPlacement={tooltipPlacement}
             itemsRef={itemsRef}
             itemIndexOffset={0}
@@ -152,7 +146,7 @@ export function LemonMenuOverlay({ items, tooltipPlacement, itemsRef }: LemonMen
 interface LemonMenuSectionListProps {
     sections: LemonMenuSection[]
     buttonSize: 'small' | 'medium'
-    tooltipPlacement: TooltipPlacement | undefined
+    tooltipPlacement: TooltipProps['placement'] | undefined
     itemsRef: React.RefObject<React.RefObject<HTMLButtonElement>[]> | undefined
 }
 
@@ -172,7 +166,7 @@ export function LemonMenuSectionList({
                         <section className="space-y-px">
                             {section.title ? (
                                 typeof section.title === 'string' ? (
-                                    <h5>{section.title}</h5>
+                                    <h5 className="mx-2 my-1">{section.title}</h5>
                                 ) : (
                                     section.title
                                 )
@@ -201,7 +195,7 @@ export function LemonMenuSectionList({
 interface LemonMenuItemListProps {
     items: LemonMenuItem[]
     buttonSize: 'small' | 'medium'
-    tooltipPlacement: TooltipPlacement | undefined
+    tooltipPlacement: TooltipProps['placement'] | undefined
     itemsRef: React.RefObject<React.RefObject<HTMLButtonElement>[]> | undefined
     itemIndexOffset?: number
 }
@@ -234,7 +228,7 @@ export function LemonMenuItemList({
 interface LemonMenuItemButtonProps {
     item: LemonMenuItem
     size: 'small' | 'medium'
-    tooltipPlacement: TooltipPlacement | undefined
+    tooltipPlacement: TooltipProps['placement'] | undefined
 }
 
 const LemonMenuItemButton: FunctionComponent<LemonMenuItemButtonProps & React.RefAttributes<HTMLButtonElement>> =
@@ -250,13 +244,12 @@ const LemonMenuItemButton: FunctionComponent<LemonMenuItemButtonProps & React.Re
                 <LemonButton
                     ref={ref}
                     tooltipPlacement={tooltipPlacement}
-                    status="stealth"
                     fullWidth
                     role="menuitem"
                     size={size}
                     {...buttonProps}
                 >
-                    {label}
+                    {label as ReactNode}
                     {keyboardShortcut && (
                         <div className="-mr-0.5 inline-flex grow justify-end">
                             {/* Show the keyboard shortcut on the right */}
@@ -271,7 +264,6 @@ const LemonMenuItemButton: FunctionComponent<LemonMenuItemButtonProps & React.Re
                     items={items}
                     tooltipPlacement={tooltipPlacement}
                     placement="right-start"
-                    actionable
                     closeOnClickInside={custom ? false : true}
                     closeParentPopoverOnClickInside={custom ? false : true}
                 >

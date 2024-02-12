@@ -1,118 +1,141 @@
-import { LemonBadge } from '@posthog/lemon-ui'
+import { IconGear, IconSearch, IconToolbar } from '@posthog/icons'
+import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
-import { HelpButton } from 'lib/components/HelpButton/HelpButton'
-import { IconDarkMode, IconHelpOutline, IconLightMode, IconSettings, IconSync } from 'lib/lemon-ui/icons'
+import { commandBarLogic } from 'lib/components/CommandBar/commandBarLogic'
+import { DebugNotice } from 'lib/components/DebugNotice'
+import { Resizer } from 'lib/components/Resizer/Resizer'
+import { ScrollableShadows } from 'lib/components/ScrollableShadows/ScrollableShadows'
+import { IconWarning } from 'lib/lemon-ui/icons'
 import { Popover } from 'lib/lemon-ui/Popover'
 import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { useRef } from 'react'
 import { Scene } from 'scenes/sceneTypes'
-import { userLogic } from 'scenes/userLogic'
-import { navigationLogic } from '~/layout/navigation/navigationLogic'
-import { SitePopoverOverlay } from '~/layout/navigation/TopBar/SitePopover'
-import { navigation3000Logic } from '../navigationLogic'
-import { NAVBAR_ITEMS } from '../navbarItems'
-import { themeLogic } from '../themeLogic'
-import { NavbarButton } from './NavbarButton'
 import { urls } from 'scenes/urls'
+import { userLogic } from 'scenes/userLogic'
+
+import { navigationLogic } from '~/layout/navigation/navigationLogic'
+import { AccountPopoverOverlay } from '~/layout/navigation/TopBar/AccountPopover'
+
+import { navigation3000Logic } from '../navigationLogic'
+import { NavbarButton } from './NavbarButton'
 
 export function Navbar(): JSX.Element {
     const { user } = useValues(userLogic)
-    const { isSitePopoverOpen } = useValues(navigationLogic)
-    const { closeSitePopover, toggleSitePopover } = useActions(navigationLogic)
-    const { isSidebarShown, activeNavbarItemId } = useValues(navigation3000Logic)
-    const { showSidebar, hideSidebar } = useActions(navigation3000Logic)
-    const { isDarkModeOn, darkModeSavedPreference, darkModeSystemPreference, isThemeSyncedWithSystem } =
-        useValues(themeLogic)
-    const { toggleTheme } = useActions(themeLogic)
+    const { isAccountPopoverOpen, systemStatusHealthy } = useValues(navigationLogic)
+    const { closeAccountPopover, toggleAccountPopover } = useActions(navigationLogic)
+    const { isNavShown, isSidebarShown, activeNavbarItemId, navbarItems, mobileLayout } = useValues(navigation3000Logic)
+    const { showSidebar, hideSidebar, toggleNavCollapsed, hideNavOnMobile } = useActions(navigation3000Logic)
+    const { featureFlags } = useValues(featureFlagLogic)
+    const { toggleSearchBar } = useActions(commandBarLogic)
 
-    const activeThemeIcon = isDarkModeOn ? <IconDarkMode /> : <IconLightMode />
+    const containerRef = useRef<HTMLDivElement | null>(null)
 
     return (
-        <nav className="Navbar3000">
-            <div className="Navbar3000__content">
-                <div className="Navbar3000__top">
-                    {NAVBAR_ITEMS.map((section, index) => (
-                        <ul key={index}>
-                            {section.map((item) => (
-                                <NavbarButton
-                                    key={item.identifier}
-                                    title={item.label}
-                                    identifier={item.identifier}
-                                    icon={item.icon}
-                                    to={'to' in item ? item.to : undefined}
-                                    onClick={
-                                        'logic' in item
-                                            ? () => {
-                                                  if (activeNavbarItemId === item.identifier && isSidebarShown) {
-                                                      hideSidebar()
-                                                  } else {
-                                                      showSidebar(item.identifier)
-                                                  }
-                                              }
-                                            : undefined
-                                    }
-                                    active={activeNavbarItemId === item.identifier && isSidebarShown}
-                                />
-                            ))}
-                        </ul>
-                    ))}
-                </div>
-                <div className="Navbar3000__bottom">
-                    <ul>
-                        <NavbarButton
-                            icon={
-                                isThemeSyncedWithSystem ? (
-                                    <div className="relative">
-                                        {activeThemeIcon}
-                                        <LemonBadge size="small" position="top-right" content={<IconSync />} />
-                                    </div>
-                                ) : (
-                                    activeThemeIcon
-                                )
-                            }
-                            identifier="theme-button"
-                            title={
-                                darkModeSavedPreference === false
-                                    ? `Sync theme with system preference (${
-                                          darkModeSystemPreference ? 'dark' : 'light'
-                                      } mode)`
-                                    : darkModeSavedPreference
-                                    ? 'Switch to light mode'
-                                    : 'Switch to dark mode'
-                            }
-                            onClick={() => toggleTheme()}
-                            persistentTooltip
-                        />
-                        <HelpButton
-                            customComponent={
-                                <NavbarButton
-                                    icon={<IconHelpOutline />}
-                                    identifier="help-button"
-                                    title="Need any help?"
-                                />
-                            }
-                            placement="right-end"
-                        />
-                        <NavbarButton
-                            icon={<IconSettings />}
-                            identifier={Scene.ProjectSettings}
-                            to={urls.projectSettings()}
-                        />
-                        <Popover
-                            overlay={<SitePopoverOverlay />}
-                            visible={isSitePopoverOpen}
-                            onClickOutside={closeSitePopover}
-                            placement="right-end"
-                        >
+        <>
+            <nav className={clsx('Navbar3000', !isNavShown && 'Navbar3000--hidden')} ref={containerRef}>
+                <div className="Navbar3000__content">
+                    <ScrollableShadows innerClassName="Navbar3000__top" direction="vertical">
+                        {navbarItems.map((section, index) => (
+                            <ul key={index}>
+                                {section.map((item) =>
+                                    item.featureFlag && !featureFlags[item.featureFlag] ? null : (
+                                        <NavbarButton
+                                            key={item.identifier}
+                                            title={item.label}
+                                            identifier={item.identifier}
+                                            icon={item.icon}
+                                            sideAction={item.sideAction}
+                                            tag={item.tag}
+                                            to={'to' in item ? item.to : undefined}
+                                            onClick={
+                                                'logic' in item
+                                                    ? () => {
+                                                          if (
+                                                              activeNavbarItemId === item.identifier &&
+                                                              isSidebarShown
+                                                          ) {
+                                                              hideSidebar()
+                                                          } else {
+                                                              showSidebar(item.identifier)
+                                                          }
+                                                      }
+                                                    : undefined
+                                            }
+                                            active={activeNavbarItemId === item.identifier && isSidebarShown}
+                                        />
+                                    )
+                                )}
+                            </ul>
+                        ))}
+                    </ScrollableShadows>
+                    <div className="Navbar3000__bottom">
+                        <ul>
+                            <DebugNotice />
                             <NavbarButton
-                                icon={<ProfilePicture name={user?.first_name} email={user?.email} size="md" />}
-                                identifier="me"
-                                title={`Hi${user?.first_name ? `, ${user?.first_name}` : ''}!`}
-                                onClick={toggleSitePopover}
+                                identifier="search-button"
+                                icon={<IconSearch />}
+                                title="Search"
+                                onClick={toggleSearchBar}
+                                keyboardShortcut={{ command: true, k: true }}
                             />
-                        </Popover>
-                    </ul>
+                            <NavbarButton
+                                icon={<IconToolbar />}
+                                identifier={Scene.ToolbarLaunch}
+                                title="Toolbar"
+                                to={urls.toolbarLaunch()}
+                            />
+                            <NavbarButton
+                                icon={<IconGear />}
+                                identifier={Scene.Settings}
+                                title="Settings"
+                                to={urls.settings('project')}
+                            />
+
+                            {!systemStatusHealthy ? (
+                                <NavbarButton
+                                    icon={<IconWarning />}
+                                    identifier={Scene.Settings}
+                                    title="System issue!"
+                                    to={urls.instanceStatus()}
+                                />
+                            ) : null}
+
+                            <Popover
+                                overlay={<AccountPopoverOverlay />}
+                                visible={isAccountPopoverOpen}
+                                onClickOutside={closeAccountPopover}
+                                placement="right-end"
+                                className="min-w-70"
+                            >
+                                <NavbarButton
+                                    icon={<ProfilePicture user={user} size="md" />}
+                                    identifier="me"
+                                    title={`Hi${user?.first_name ? `, ${user?.first_name}` : ''}!`}
+                                    shortTitle={user?.first_name || user?.email}
+                                    onClick={toggleAccountPopover}
+                                />
+                            </Popover>
+                        </ul>
+                    </div>
                 </div>
-            </div>
-        </nav>
+                {!mobileLayout && (
+                    <Resizer
+                        logicKey="navbar"
+                        placement="right"
+                        containerRef={containerRef}
+                        closeThreshold={100}
+                        onToggleClosed={(shouldBeClosed) => toggleNavCollapsed(shouldBeClosed)}
+                        onDoubleClick={() => toggleNavCollapsed()}
+                    />
+                )}
+            </nav>
+            {mobileLayout && (
+                <div
+                    className={clsx('Navbar3000__overlay', !isNavShown && 'Navbar3000--hidden')}
+                    onClick={() => hideNavOnMobile()}
+                />
+            )}
+        </>
     )
 }

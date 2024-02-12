@@ -12,7 +12,11 @@ from freezegun import freeze_time
 from posthog.client import sync_execute
 from posthog.constants import ENTITY_ID, ENTITY_TYPE
 from posthog.models.team import Team
-from posthog.test.base import APIBaseTest, create_person_id_override_by_distinct_id, snapshot_clickhouse_queries
+from posthog.test.base import (
+    APIBaseTest,
+    create_person_id_override_by_distinct_id,
+    snapshot_clickhouse_queries,
+)
 from posthog.utils import encode_get_request_params
 
 
@@ -71,7 +75,11 @@ def stickiness_test_factory(stickiness, event_factory, person_factory, action_fa
             if period is None:
                 period = timedelta(days=1)
             base_time = datetime.fromisoformat("2020-01-01T12:00:00.000000")
-            p1 = person_factory(team_id=self.team.id, distinct_ids=["person1"], properties={"name": "person1"})
+            p1 = person_factory(
+                team_id=self.team.id,
+                distinct_ids=["person1"],
+                properties={"name": "person1"},
+            )
             p1_person_id = str(uuid.uuid4())
             event_factory(
                 team=self.team,
@@ -82,7 +90,11 @@ def stickiness_test_factory(stickiness, event_factory, person_factory, action_fa
                 person_id=p1_person_id,
             )
 
-            p2 = person_factory(team_id=self.team.id, distinct_ids=["person2"], properties={"name": "person2"})
+            p2 = person_factory(
+                team_id=self.team.id,
+                distinct_ids=["person2"],
+                properties={"name": "person2"},
+            )
             p2_person_id = str(uuid.uuid4())
             event_factory(
                 team=self.team,
@@ -111,7 +123,9 @@ def stickiness_test_factory(stickiness, event_factory, person_factory, action_fa
             )
 
             p3 = person_factory(
-                team_id=self.team.id, distinct_ids=["person3a", "person3b"], properties={"name": "person3"}
+                team_id=self.team.id,
+                distinct_ids=["person3a", "person3b"],
+                properties={"name": "person3"},
             )
             p3_person_id = str(uuid.uuid4())
             event_factory(
@@ -139,7 +153,11 @@ def stickiness_test_factory(stickiness, event_factory, person_factory, action_fa
                 person_id=p3_person_id,
             )
 
-            p4 = person_factory(team_id=self.team.id, distinct_ids=["person4"], properties={"name": "person4"})
+            p4 = person_factory(
+                team_id=self.team.id,
+                distinct_ids=["person4"],
+                properties={"name": "person4"},
+            )
             p4_person_id = str(uuid.uuid4())
 
             event_factory(
@@ -224,7 +242,11 @@ def stickiness_test_factory(stickiness, event_factory, person_factory, action_fa
                 stickiness_response = get_stickiness_ok(
                     client=self.client,
                     team=self.team,
-                    request={"shown_as": "Stickiness", "date_from": "all", "events": [{"id": "watched movie"}]},
+                    request={
+                        "shown_as": "Stickiness",
+                        "date_from": "all",
+                        "events": [{"id": "watched movie"}],
+                    },
                 )
                 response = stickiness_response["result"]
 
@@ -390,7 +412,12 @@ def stickiness_test_factory(stickiness, event_factory, person_factory, action_fa
                         "shown_as": "Stickiness",
                         "date_from": "2020-01-01",
                         "date_to": "2020-01-08",
-                        "events": [{"id": "watched movie", "properties": [{"key": "$browser", "value": "Chrome"}]}],
+                        "events": [
+                            {
+                                "id": "watched movie",
+                                "properties": [{"key": "$browser", "value": "Chrome"}],
+                            }
+                        ],
                     },
                 )
                 response = stickiness_response["result"]
@@ -544,7 +571,11 @@ def stickiness_test_factory(stickiness, event_factory, person_factory, action_fa
         def test_stickiness_people_paginated(self):
             for i in range(150):
                 person_name = f"person{i}"
-                person_factory(team_id=self.team.id, distinct_ids=[person_name], properties={"name": person_name})
+                person_factory(
+                    team_id=self.team.id,
+                    distinct_ids=[person_name],
+                    properties={"name": person_name},
+                )
                 event_factory(
                     team=self.team,
                     event="watched movie",
@@ -601,7 +632,11 @@ def stickiness_test_factory(stickiness, event_factory, person_factory, action_fa
 
         def test_filter_test_accounts(self):
             self._create_multiple_people()
-            person_factory(team_id=self.team.id, distinct_ids=["ph"], properties={"email": "test@posthog.com"})
+            person_factory(
+                team_id=self.team.id,
+                distinct_ids=["ph"],
+                properties={"email": "test@posthog.com"},
+            )
             event_factory(
                 team=self.team,
                 event="watched movie",

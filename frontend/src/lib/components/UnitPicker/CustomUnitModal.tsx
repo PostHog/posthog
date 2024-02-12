@@ -1,10 +1,11 @@
-import { RefCallback, useEffect, useState } from 'react'
-import { LemonModal } from 'lib/lemon-ui/LemonModal'
-import { LemonButton } from 'lib/lemon-ui/LemonButton'
-import { PureField } from 'lib/forms/Field'
-import { capitalizeFirstLetter } from 'lib/utils'
-import { LemonInput } from 'lib/lemon-ui/LemonInput/LemonInput'
 import { HandleUnitChange } from 'lib/components/UnitPicker/UnitPicker'
+import { PureField } from 'lib/forms/Field'
+import { LemonButton } from 'lib/lemon-ui/LemonButton'
+import { LemonInput } from 'lib/lemon-ui/LemonInput/LemonInput'
+import { LemonModal } from 'lib/lemon-ui/LemonModal'
+import { capitalizeFirstLetter } from 'lib/utils'
+import { RefCallback, useEffect, useState } from 'react'
+
 import { TrendsFilter } from '~/queries/schema'
 
 function chooseFormativeElementValue(
@@ -12,11 +13,11 @@ function chooseFormativeElementValue(
     trendsFilter: TrendsFilter | null | undefined
 ): string {
     if (formativeElement === 'prefix') {
-        return trendsFilter?.aggregation_axis_prefix || ''
+        return trendsFilter?.aggregationAxisPrefix || ''
     }
 
     if (formativeElement === 'postfix') {
-        return trendsFilter?.aggregation_axis_postfix || ''
+        return trendsFilter?.aggregationAxisPostfix || ''
     }
 
     return ''

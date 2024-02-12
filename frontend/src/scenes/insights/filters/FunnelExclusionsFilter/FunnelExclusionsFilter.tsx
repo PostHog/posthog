@@ -1,32 +1,35 @@
-import { useRef } from 'react'
-import { useActions, useValues } from 'kea'
 import useSize from '@react-hook/size'
-import { ActionFilter } from 'scenes/insights/filters/ActionFilter/ActionFilter'
+import { useActions, useValues } from 'kea'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
-import { FunnelStepRangeEntityFilter, EntityTypes, FilterType } from '~/types'
-import { insightLogic } from 'scenes/insights/insightLogic'
+import { useRef } from 'react'
+import { ActionFilter } from 'scenes/insights/filters/ActionFilter/ActionFilter'
 import { MathAvailability } from 'scenes/insights/filters/ActionFilter/ActionFilterRow/ActionFilterRow'
-import { funnelDataLogic } from 'scenes/funnels/funnelDataLogic'
-import { ExclusionRowSuffix } from './ExclusionRowSuffix'
+import { insightLogic } from 'scenes/insights/insightLogic'
+import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
+import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
+
+import { legacyEntityToNode } from '~/queries/nodes/InsightQuery/utils/filtersToQueryNode'
+import { ActionFilter as ActionFilterType, EntityTypes, FilterType } from '~/types'
+
 import { ExclusionRow } from './ExclusionRow'
+import { ExclusionRowSuffix } from './ExclusionRowSuffix'
 
 export function FunnelExclusionsFilter(): JSX.Element {
     const { insightProps } = useValues(insightLogic)
     const { exclusionFilters, exclusionDefaultStepRange, isFunnelWithEnoughSteps } = useValues(
-        funnelDataLogic(insightProps)
+        insightVizDataLogic(insightProps)
     )
-    const { updateInsightFilter } = useActions(funnelDataLogic(insightProps))
+    const { updateInsightFilter } = useActions(insightVizDataLogic(insightProps))
 
     const ref = useRef(null)
     const [width] = useSize(ref)
     const isVerticalLayout = !!width && width < 450 // If filter container shrinks below 500px, initiate verticality
 
     const setFilters = (filters: Partial<FilterType>): void => {
-        const exclusions = (filters.events as FunnelStepRangeEntityFilter[]).map((e) => ({
-            ...e,
-            funnel_from_step: e.funnel_from_step || exclusionDefaultStepRange.funnel_from_step,
-            funnel_to_step: e.funnel_to_step || exclusionDefaultStepRange.funnel_to_step,
-        }))
+        const exclusions = filters.events?.map((entity) => {
+            const baseEntity = legacyEntityToNode(entity as ActionFilterType, false, MathAvailability.None)
+            return { ...baseEntity, funnelFromStep: entity.funnel_from_step, funnelToStep: entity.funnel_to_step }
+        })
         updateInsightFilter({ exclusions })
     }
 
@@ -35,12 +38,13 @@ export function FunnelExclusionsFilter(): JSX.Element {
             ref={ref}
             setFilters={setFilters}
             filters={exclusionFilters}
-            typeKey="funnel-exclusions-filter"
+            typeKey={`${keyForInsightLogicProps('new')(insightProps)}-FunnelExclusionsFilter`}
             addFilterDefaultOptions={{
                 id: '$pageview',
                 name: '$pageview',
                 type: EntityTypes.EVENTS,
-                ...exclusionDefaultStepRange,
+                funnel_from_step: exclusionDefaultStepRange.funnelFromStep,
+                funnel_to_step: exclusionDefaultStepRange.funnelToStep,
             }}
             disabled={!isFunnelWithEnoughSteps}
             buttonCopy="Add exclusion"

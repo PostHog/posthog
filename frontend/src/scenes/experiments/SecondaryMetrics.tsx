@@ -1,22 +1,24 @@
-import { Col, Row } from 'antd'
-import { useActions, useValues } from 'kea'
-import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
-import { Form } from 'kea-forms'
-import { ActionFilter } from 'scenes/insights/filters/ActionFilter/ActionFilter'
-import { InsightType } from '~/types'
 import './Experiment.scss'
-import { secondaryMetricsLogic, SecondaryMetricsProps } from './secondaryMetricsLogic'
-import { LemonButton } from 'lib/lemon-ui/LemonButton'
-import { MathAvailability } from 'scenes/insights/filters/ActionFilter/ActionFilterRow/ActionFilterRow'
-import { IconDelete, IconEdit } from 'lib/lemon-ui/icons'
+
 import { LemonInput, LemonModal, LemonTable } from '@posthog/lemon-ui'
-import { Field } from 'lib/forms/Field'
-import { MetricSelector } from './MetricSelector'
-import { experimentLogic, TabularSecondaryMetricResults } from './experimentLogic'
+import { useActions, useValues } from 'kea'
+import { Form } from 'kea-forms'
 import { getSeriesColor } from 'lib/colors'
-import { capitalizeFirstLetter, humanFriendlyNumber } from 'lib/utils'
+import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
+import { Field } from 'lib/forms/Field'
+import { IconDelete, IconEdit } from 'lib/lemon-ui/icons'
+import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonTableColumns } from 'lib/lemon-ui/LemonTable'
+import { capitalizeFirstLetter, humanFriendlyNumber } from 'lib/utils'
+import { ActionFilter } from 'scenes/insights/filters/ActionFilter/ActionFilter'
+import { MathAvailability } from 'scenes/insights/filters/ActionFilter/ActionFilterRow/ActionFilterRow'
+
+import { InsightType } from '~/types'
+
 import { SECONDARY_METRIC_INSIGHT_ID } from './constants'
+import { experimentLogic, TabularSecondaryMetricResults } from './experimentLogic'
+import { MetricSelector } from './MetricSelector'
+import { secondaryMetricsLogic, SecondaryMetricsProps } from './secondaryMetricsLogic'
 
 export function SecondaryMetrics({
     onMetricsChange,
@@ -53,14 +55,15 @@ export function SecondaryMetrics({
             render: function Key(_, item: TabularSecondaryMetricResults): JSX.Element {
                 return (
                     <div
+                        className="flex items-center w-fit h-5 px-1 rounded text-white text-xs"
                         // eslint-disable-next-line react/forbid-dom-props
                         style={{
-                            color: getSeriesColor(
+                            background: getSeriesColor(
                                 getIndexForVariant(item.variant, experiment.filters?.insight || InsightType.TRENDS)
                             ),
                         }}
                     >
-                        <span className="text-sm">{capitalizeFirstLetter(item.variant)}</span>
+                        {capitalizeFirstLetter(item.variant)}
                     </div>
                 )
             },
@@ -80,7 +83,6 @@ export function SecondaryMetrics({
                         <LemonButton
                             icon={<IconEdit />}
                             size="small"
-                            status="muted"
                             onClick={() => openModalToEditSecondaryMetric(metric, idx)}
                         />
                     </div>
@@ -145,13 +147,13 @@ export function SecondaryMetrics({
             >
                 <Form
                     logic={secondaryMetricsLogic}
-                    props={{ onMetricsChange, initialMetrics, experimentId }}
+                    props={{ onMetricsChange, initialMetrics, experimentId, defaultAggregationType }}
                     formKey="secondaryMetricModal"
                     id="secondary-metric-modal-form"
                     className="space-y-4"
                 >
                     <Field name="name" label="Name">
-                        <LemonInput />
+                        <LemonInput data-attr="secondary-metric-name" />
                     </Field>
                     <Field name="filters" label="Query">
                         <MetricSelector
@@ -163,11 +165,11 @@ export function SecondaryMetrics({
                 </Form>
             </LemonModal>
             {experimentId == 'new' || editingExistingExperiment ? (
-                <Row>
-                    <Col>
+                <div className="flex">
+                    <div>
                         {metrics.map((metric, idx) => (
-                            <Row key={idx} className="mt-4 border rounded p-4">
-                                <Row align="middle" justify="space-between" className="w-full mb-3 pb-2 border-b">
+                            <div key={idx} className="mt-4 border rounded p-4">
+                                <div className="flex items-center justify-between w-full mb-3 pb-2 border-b">
                                     <div>
                                         <b>{metric.name}</b>
                                     </div>
@@ -175,17 +177,15 @@ export function SecondaryMetrics({
                                         <LemonButton
                                             icon={<IconEdit />}
                                             size="small"
-                                            status="muted"
                                             onClick={() => openModalToEditSecondaryMetric(metric, idx)}
                                         />
                                         <LemonButton
                                             icon={<IconDelete />}
                                             size="small"
-                                            status="muted"
                                             onClick={() => deleteMetric(idx)}
                                         />
                                     </div>
-                                </Row>
+                                </div>
                                 {metric.filters.insight === InsightType.FUNNELS && (
                                     <ActionFilter
                                         bordered
@@ -196,7 +196,7 @@ export function SecondaryMetrics({
                                         buttonCopy="Add funnel step"
                                         seriesIndicatorType="numeric"
                                         sortable
-                                        showNestedArrow={true}
+                                        showNestedArrow
                                         propertiesTaxonomicGroupTypes={[
                                             TaxonomicFilterGroupType.EventProperties,
                                             TaxonomicFilterGroupType.PersonProperties,
@@ -204,7 +204,7 @@ export function SecondaryMetrics({
                                             TaxonomicFilterGroupType.Cohorts,
                                             TaxonomicFilterGroupType.Elements,
                                         ]}
-                                        readOnly={true}
+                                        readOnly
                                     />
                                 )}
                                 {metric.filters.insight === InsightType.TRENDS && (
@@ -226,19 +226,21 @@ export function SecondaryMetrics({
                                         readOnly={true}
                                     />
                                 )}
-                            </Row>
+                            </div>
                         ))}
                         {metrics && !(metrics.length > 2) && (
-                            <Col>
-                                <div className="mb-2 mt-4">
-                                    <LemonButton type="secondary" onClick={openModalToCreateSecondaryMetric}>
-                                        Add metric
-                                    </LemonButton>
-                                </div>
-                            </Col>
+                            <div className="mb-2 mt-4">
+                                <LemonButton
+                                    data-attr="add-secondary-metric-btn"
+                                    type="secondary"
+                                    onClick={openModalToCreateSecondaryMetric}
+                                >
+                                    Add metric
+                                </LemonButton>
+                            </div>
                         )}
-                    </Col>
-                </Row>
+                    </div>
+                </div>
             ) : (
                 <>
                     <div className="card-secondary mt-4 mb-1">Secondary metrics</div>

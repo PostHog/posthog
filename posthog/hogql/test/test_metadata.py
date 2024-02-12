@@ -1,17 +1,30 @@
 from posthog.hogql.metadata import get_hogql_metadata
 from posthog.models import PropertyDefinition, Cohort
-from posthog.schema import HogQLMetadata, HogQLMetadataResponse
+from posthog.schema import HogQLMetadata, HogQLMetadataResponse, HogQLQuery
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin
+from django.test import override_settings
 
 
 class TestMetadata(ClickhouseTestMixin, APIBaseTest):
     maxDiff = None
 
-    def _expr(self, query: str) -> HogQLMetadataResponse:
-        return get_hogql_metadata(query=HogQLMetadata(expr=query), team=self.team)
+    def _expr(self, query: str, table: str = "events", debug=True) -> HogQLMetadataResponse:
+        return get_hogql_metadata(
+            query=HogQLMetadata(
+                kind="HogQLMetadata",
+                expr=query,
+                exprSource=HogQLQuery(kind="HogQLQuery", query=f"select * from {table}"),
+                response=None,
+                debug=debug,
+            ),
+            team=self.team,
+        )
 
     def _select(self, query: str) -> HogQLMetadataResponse:
-        return get_hogql_metadata(query=HogQLMetadata(select=query), team=self.team)
+        return get_hogql_metadata(
+            query=HogQLMetadata(kind="HogQLMetadata", select=query, response=None),
+            team=self.team,
+        )
 
     def test_metadata_valid_expr_select(self):
         metadata = self._expr("select 1")
@@ -22,7 +35,14 @@ class TestMetadata(ClickhouseTestMixin, APIBaseTest):
                 "isValid": False,
                 "inputExpr": "select 1",
                 "inputSelect": None,
-                "errors": [{"message": "extraneous input '1' expecting <EOF>", "start": 7, "end": 8, "fix": None}],
+                "errors": [
+                    {
+                        "message": "extraneous input '1' expecting <EOF>",
+                        "start": 7,
+                        "end": 8,
+                        "fix": None,
+                    }
+                ],
             },
         )
 
@@ -60,7 +80,7 @@ class TestMetadata(ClickhouseTestMixin, APIBaseTest):
                 "inputSelect": "timestamp",
                 "errors": [
                     {
-                        "message": "mismatched input 'timestamp' expecting {SELECT, WITH, '('}",
+                        "message": "mismatched input 'timestamp' expecting {SELECT, WITH, '{', '(', '<'}",
                         "start": 0,
                         "end": 9,
                         "fix": None,
@@ -80,7 +100,7 @@ class TestMetadata(ClickhouseTestMixin, APIBaseTest):
                 "inputSelect": None,
                 "errors": [
                     {
-                        "message": "Alias 'true' is a reserved keyword",
+                        "message": '"true" cannot be an alias or identifier, as it\'s a reserved keyword',
                         "start": 0,
                         "end": 9,
                         "fix": None,
@@ -109,6 +129,20 @@ class TestMetadata(ClickhouseTestMixin, APIBaseTest):
             },
         )
 
+    def test_metadata_table(self):
+        metadata = self._expr("timestamp", "events")
+        self.assertEqual(metadata.isValid, True)
+
+        metadata = self._expr("timestamp", "persons")
+        self.assertEqual(metadata.isValid, False)
+
+        metadata = self._expr("is_identified", "events")
+        self.assertEqual(metadata.isValid, False)
+
+        metadata = self._expr("is_identified", "persons")
+        self.assertEqual(metadata.isValid, True)
+
+    @override_settings(PERSON_ON_EVENTS_OVERRIDE=True, PERSON_ON_EVENTS_V2_OVERRIDE=False)
     def test_metadata_in_cohort(self):
         cohort = Cohort.objects.create(team=self.team, name="cohort_name")
         query = (
@@ -116,8 +150,8 @@ class TestMetadata(ClickhouseTestMixin, APIBaseTest):
         )
         metadata = self._select(query)
         self.assertEqual(
-            metadata.dict(),
-            metadata.dict()
+            metadata.model_dump(),
+            metadata.model_dump()
             | {
                 "isValid": True,
                 "inputExpr": None,
@@ -157,7 +191,7 @@ class TestMetadata(ClickhouseTestMixin, APIBaseTest):
             },
         )
 
-    def test_metadata_property_type_notice(self):
+    def test_metadata_property_type_notice_debug(self):
         try:
             from ee.clickhouse.materialized_columns.analyze import materialize
         except ModuleNotFoundError:
@@ -178,17 +212,103 @@ class TestMetadata(ClickhouseTestMixin, APIBaseTest):
                 "inputSelect": None,
                 "notices": [
                     {
-                        "message": "Event property 'string' is of type 'String'",
+                        "message": "Event property 'string' is of type 'String'. This property is not materialized 🐢.",
                         "start": 11,
                         "end": 17,
                         "fix": None,
                     },
                     {
-                        "message": "⚡️Event property 'number' is of type 'Float'",
+                        "message": "Event property 'number' is of type 'Float'. This property is materialized ⚡️.",
                         "start": 32,
                         "end": 38,
                         "fix": None,
                     },
                 ],
+            },
+        )
+
+    def test_metadata_property_type_notice_no_debug(self):
+        try:
+            from ee.clickhouse.materialized_columns.analyze import materialize
+        except ModuleNotFoundError:
+            # EE not available? Assume we're good
+            self.assertEqual(1 + 2, 3)
+            return
+        materialize("events", "number")
+
+        PropertyDefinition.objects.create(team=self.team, name="string", property_type="String")
+        PropertyDefinition.objects.create(team=self.team, name="number", property_type="Numeric")
+        metadata = self._expr("properties.string || properties.number", debug=False)
+        self.assertEqual(
+            metadata.dict(),
+            metadata.dict()
+            | {
+                "isValid": True,
+                "inputExpr": "properties.string || properties.number",
+                "inputSelect": None,
+                "notices": [
+                    {
+                        "message": "Event property 'string' is of type 'String'.",
+                        "start": 11,
+                        "end": 17,
+                        "fix": None,
+                    },
+                    {
+                        "message": "Event property 'number' is of type 'Float'.",
+                        "start": 32,
+                        "end": 38,
+                        "fix": None,
+                    },
+                ],
+            },
+        )
+
+    def test_valid_view(self):
+        metadata = self._select("select event AS event FROM events")
+        self.assertEqual(
+            metadata.dict(),
+            metadata.dict()
+            | {
+                "isValid": True,
+                "isValidView": True,
+                "inputExpr": None,
+                "inputSelect": "select event AS event FROM events",
+                "errors": [],
+            },
+        )
+
+    def test_valid_view_nested_view(self):
+        self.client.post(
+            f"/api/projects/{self.team.id}/warehouse_saved_queries/",
+            {
+                "name": "event_view",
+                "query": {
+                    "kind": "HogQLQuery",
+                    "query": f"select event as event from events LIMIT 100",
+                },
+            },
+        )
+
+        metadata = self._select("select event AS event FROM event_view")
+        self.assertEqual(
+            metadata.dict(),
+            metadata.dict()
+            | {
+                "isValid": True,
+                "isValidView": True,
+                "inputExpr": None,
+                "inputSelect": "select event AS event FROM event_view",
+                "errors": [],
+            },
+        )
+
+    def test_union_all_does_not_crash(self):
+        metadata = self._select("SELECT events.event FROM events UNION ALL SELECT events.event FROM events WHERE 1 = 2")
+        self.assertEqual(
+            metadata.dict(),
+            metadata.dict()
+            | {
+                "isValid": True,
+                "errors": [],
             },
         )

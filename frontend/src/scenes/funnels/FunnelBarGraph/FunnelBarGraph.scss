@@ -4,34 +4,19 @@ $label_position_offset: 8px;
 $series_container_width: 1.5rem;
 $glyph_height: 23px; // Based on .funnel-step-glyph
 
-.funnel-bar-graph {
+.FunnelBarGraph {
     min-height: 100%;
     padding: 1rem;
 
-    .ant-popover {
-        .ant-popover-content {
-            background: #fafafa;
-            border-radius: var(--radius);
-            border: 1px solid var(--border);
-        }
-
-        .ant-popover-inner {
-            background: #fafafa;
-        }
-
-        .ant-popover-inner-content {
-            padding: 8px 0;
-            min-width: 300px;
-        }
-
-        .ant-popover-arrow {
-            background: #fafafa;
-        }
+    .InsightCard & {
+        padding-right: 1rem;
+        padding-left: 1rem;
     }
 
     .funnel-step {
         position: relative;
         padding-left: $series_container_width + 0.5rem;
+
         &:not(:first-child) {
             &,
             .funnel-series-container {
@@ -50,9 +35,10 @@ $glyph_height: 23px; // Based on .funnel-step-glyph
 
             .funnel-inspect-button {
                 line-height: 1.5rem;
+
                 .value-inspector-button-icon {
-                    font-size: 1.5rem;
                     margin-right: 0.25rem;
+                    font-size: 1.5rem;
                     vertical-align: bottom;
                 }
             }
@@ -60,13 +46,13 @@ $glyph_height: 23px; // Based on .funnel-step-glyph
 
         .funnel-series-container {
             position: absolute;
-            left: 0;
             top: 0;
-            height: 100%;
-            width: $series_container_width;
+            left: 0;
             display: flex;
             flex-direction: column;
             align-items: center;
+            width: $series_container_width;
+            height: 100%;
 
             .graph-series-glyph {
                 user-select: none;
@@ -75,9 +61,10 @@ $glyph_height: 23px; // Based on .funnel-step-glyph
             .funnel-series-linebox {
                 position: absolute;
                 left: 0;
-                width: calc(#{$series_container_width} / 2 + 1px);
                 box-sizing: border-box;
-                border-right: 2px solid var(--mid);
+                width: calc(#{$series_container_width} / 2 + 1px);
+                border-right: 2px solid var(--border);
+                opacity: 0.5;
 
                 &.before {
                     top: 0;
@@ -85,8 +72,8 @@ $glyph_height: 23px; // Based on .funnel-step-glyph
                 }
 
                 &.after {
-                    bottom: 0;
                     top: calc(#{$glyph_height} / 2);
+                    bottom: 0;
                     height: calc(100% - #{$glyph_height} / 2);
                 }
             }
@@ -100,20 +87,21 @@ $glyph_height: 23px; // Based on .funnel-step-glyph
 
         header,
         footer {
-            line-height: $glyph_height;
             display: flex;
             align-items: center;
+            line-height: $glyph_height;
         }
 
         header {
-            display: flex;
-            justify-content: space-between;
-            flex-wrap: wrap;
             position: relative;
+            display: flex;
+            flex-wrap: wrap;
+            justify-content: space-between;
 
             .funnel-step-title {
-                @extend %mixin-text-ellipsis;
                 font-weight: bold;
+
+                @extend %mixin-text-ellipsis;
             }
 
             button {
@@ -123,21 +111,25 @@ $glyph_height: 23px; // Based on .funnel-step-glyph
     }
 
     .funnel-bar-wrapper {
-        height: 32px;
-        margin: 4px 0;
-        background-color: var(--funnel-background);
-        border-radius: 4px;
         display: flex;
         flex-direction: row;
+        height: 32px;
+        margin: 4px 0;
+        background-color: var(--border-light);
+        border-radius: var(--radius);
+
+        .posthog-3000 & {
+            background-color: var(--border-3000);
+        }
 
         .funnel-bar {
             position: relative;
             height: 100%;
-            background: var(--funnel-default);
+            background: var(--primary-3000);
             transition: width 0.2s ease, height 0.2s ease;
 
             &.first {
-                border-radius: 4px 0 0 4px;
+                border-radius: var(--radius) 0 0 4px;
             }
 
             &.last {
@@ -145,14 +137,14 @@ $glyph_height: 23px; // Based on .funnel-step-glyph
             }
 
             &.only {
-                border-radius: 4px;
+                border-radius: var(--radius);
             }
 
             .funnel-bar-percentage {
                 position: absolute;
                 top: 8px;
-                line-height: 16px;
                 font-weight: bold;
+                line-height: 16px;
                 color: #fff;
 
                 &.inside {
@@ -161,7 +153,7 @@ $glyph_height: 23px; // Based on .funnel-step-glyph
 
                 &.outside {
                     left: calc(100% + #{$label_position_offset});
-                    color: var(--funnel-default);
+                    color: var(--default);
                 }
             }
         }

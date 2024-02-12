@@ -1,6 +1,7 @@
 import { LemonSelect } from '@posthog/lemon-ui'
-import { DurationType } from '~/types'
 import { posthog } from 'posthog-js'
+
+import { DurationType } from '~/types'
 
 interface DurationTypeFilterProps {
     // what to call this when reporting analytics to PostHog

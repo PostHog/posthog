@@ -2,7 +2,12 @@ from typing import Any, Dict, List, Optional, Tuple, Union, cast
 
 from django.forms import ValidationError
 
-from posthog.constants import BREAKDOWN_TYPES, MONTHLY_ACTIVE, WEEKLY_ACTIVE, PropertyOperatorType
+from posthog.constants import (
+    BREAKDOWN_TYPES,
+    MONTHLY_ACTIVE,
+    WEEKLY_ACTIVE,
+    PropertyOperatorType,
+)
 from posthog.hogql.hogql import HogQLContext
 from posthog.models.cohort import Cohort
 from posthog.models.cohort.util import format_filter_query
@@ -25,8 +30,11 @@ from posthog.queries.person_distinct_id_query import get_team_distinct_ids_query
 from posthog.queries.person_on_events_v2_sql import PERSON_OVERRIDES_JOIN_SQL
 from posthog.queries.person_query import PersonQuery
 from posthog.queries.query_date_range import QueryDateRange
-from posthog.queries.session_query import SessionQuery
-from posthog.queries.trends.sql import HISTOGRAM_ELEMENTS_ARRAY_OF_KEY_SQL, TOP_ELEMENTS_ARRAY_OF_KEY_SQL
+from posthog.session_recordings.queries.session_query import SessionQuery
+from posthog.queries.trends.sql import (
+    HISTOGRAM_ELEMENTS_ARRAY_OF_KEY_SQL,
+    TOP_ELEMENTS_ARRAY_OF_KEY_SQL,
+)
 from posthog.queries.util import PersonPropertiesMode
 from posthog.utils import PersonOnEventsMode
 
@@ -42,7 +50,7 @@ def get_breakdown_prop_values(
     column_optimizer: Optional[ColumnOptimizer] = None,
     person_properties_mode: PersonPropertiesMode = PersonPropertiesMode.USING_PERSON_PROPERTIES_COLUMN,
     use_all_funnel_entities: bool = False,
-):
+) -> Tuple[List[Any], bool]:
     """
     Returns the top N breakdown prop values for event/person breakdown
 
@@ -98,7 +106,10 @@ def get_breakdown_prop_values(
         )
 
         person_query = PersonQuery(
-            filter, team.pk, column_optimizer=column_optimizer, entity=entity if not use_all_funnel_entities else None
+            filter,
+            team.pk,
+            column_optimizer=column_optimizer,
+            entity=entity if not use_all_funnel_entities else None,
         )
         if person_properties_mode == PersonPropertiesMode.DIRECT_ON_EVENTS_WITH_POE_V2:
             person_join_clauses = PERSON_OVERRIDES_JOIN_SQL.format(
@@ -121,7 +132,7 @@ def get_breakdown_prop_values(
     if session_query.is_used:
         session_query_clause, sessions_join_params = session_query.get_query()
         sessions_join_clause = f"""
-                INNER JOIN ({session_query_clause}) AS {SessionQuery.SESSION_TABLE_ALIAS} ON {SessionQuery.SESSION_TABLE_ALIAS}.$session_id = e.$session_id
+                INNER JOIN ({session_query_clause}) AS {SessionQuery.SESSION_TABLE_ALIAS} ON {SessionQuery.SESSION_TABLE_ALIAS}."$session_id" = e."$session_id"
         """
     prop_filters, prop_filter_params = parse_prop_grouped_clauses(
         team_id=team.pk,
@@ -153,14 +164,17 @@ def get_breakdown_prop_values(
             hogql_context=filter.hogql_context,
         )
 
-    value_expression = _to_value_expression(
+    breakdown_expression, breakdown_params = _to_value_expression(
         filter.breakdown_type,
         filter.breakdown,
         filter.breakdown_group_type_index,
         filter.hogql_context,
         filter.breakdown_normalize_url,
         direct_on_events=person_properties_mode
-        in [PersonPropertiesMode.DIRECT_ON_EVENTS, PersonPropertiesMode.DIRECT_ON_EVENTS_WITH_POE_V2],
+        in [
+            PersonPropertiesMode.DIRECT_ON_EVENTS,
+            PersonPropertiesMode.DIRECT_ON_EVENTS_WITH_POE_V2,
+        ],
         cast_as_float=filter.using_histogram,
     )
 
@@ -171,7 +185,7 @@ def get_breakdown_prop_values(
         bucketing_expression = _to_bucketing_expression(cast(int, filter.breakdown_histogram_bin_count))
         elements_query = HISTOGRAM_ELEMENTS_ARRAY_OF_KEY_SQL.format(
             bucketing_expression=bucketing_expression,
-            value_expression=value_expression,
+            breakdown_expression=breakdown_expression,
             parsed_date_from=parsed_date_from,
             parsed_date_to=parsed_date_to,
             prop_filters=prop_filters,
@@ -185,7 +199,7 @@ def get_breakdown_prop_values(
         )
     else:
         elements_query = TOP_ELEMENTS_ARRAY_OF_KEY_SQL.format(
-            value_expression=value_expression,
+            breakdown_expression=breakdown_expression,
             parsed_date_from=parsed_date_from,
             parsed_date_to=parsed_date_to,
             prop_filters=prop_filters,
@@ -198,16 +212,17 @@ def get_breakdown_prop_values(
             **entity_format_params,
         )
 
-    return insight_sync_execute(
+    response = insight_sync_execute(
         elements_query,
         {
             "key": filter.breakdown,
-            "limit": filter.breakdown_limit_or_default,
+            "limit": filter.breakdown_limit_or_default + 1,
             "team_id": team.pk,
             "offset": filter.offset,
             "timezone": team.timezone,
             **prop_filter_params,
             **entity_params,
+            **breakdown_params,
             **person_join_params,
             **groups_join_params,
             **sessions_join_params,
@@ -219,7 +234,14 @@ def get_breakdown_prop_values(
         query_type="get_breakdown_prop_values",
         filter=filter,
         team_id=team.pk,
-    )[0][0]
+    )
+
+    if filter.using_histogram:
+        return response[0][0], False
+    else:
+        return [row[0] for row in response[0 : filter.breakdown_limit_or_default]], len(
+            response
+        ) > filter.breakdown_limit_or_default
 
 
 def _to_value_expression(
@@ -230,7 +252,8 @@ def _to_value_expression(
     breakdown_normalize_url: bool = False,
     direct_on_events: bool = False,
     cast_as_float: bool = False,
-) -> str:
+) -> Tuple[str, Dict]:
+    params: Dict[str, Any] = {}
     if breakdown_type == "session":
         if breakdown == "$session_duration":
             # Return the session duration expression right away because it's already an number,
@@ -239,7 +262,7 @@ def _to_value_expression(
         else:
             raise ValidationError(f'Invalid breakdown "{breakdown}" for breakdown type "session"')
     elif breakdown_type == "person":
-        value_expression = get_single_or_multi_property_string_expr(
+        value_expression, params = get_single_or_multi_property_string_expr(
             breakdown,
             query_alias=None,
             table="events" if direct_on_events else "person",
@@ -268,14 +291,18 @@ def _to_value_expression(
         else:
             value_expression = translate_hogql(cast(str, breakdown), hogql_context)
     else:
-        value_expression = get_single_or_multi_property_string_expr(
-            breakdown, table="events", query_alias=None, column="properties", normalize_url=breakdown_normalize_url
+        value_expression, params = get_single_or_multi_property_string_expr(
+            breakdown,
+            table="events",
+            query_alias=None,
+            column="properties",
+            normalize_url=breakdown_normalize_url,
         )
 
     if cast_as_float:
         value_expression = f"toFloat64OrNull(toString({value_expression}))"
 
-    return f"{value_expression} AS value"
+    return f"{value_expression} AS value", params
 
 
 def _to_bucketing_expression(bin_count: int) -> str:

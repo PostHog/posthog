@@ -1,29 +1,30 @@
-import { ComponentMeta } from '@storybook/react'
-
-import { EditableField as EditableFieldComponent } from './EditableField'
-import { PageHeader } from '../PageHeader'
+import { Meta, StoryFn } from '@storybook/react'
 import { useState } from 'react'
 
-export default {
+import { EditableField as EditableFieldComponent } from './EditableField'
+
+const meta: Meta<typeof EditableFieldComponent> = {
     title: 'Components/Editable Field',
     component: EditableFieldComponent,
-} as ComponentMeta<typeof EditableFieldComponent>
+    tags: ['autodocs'],
+}
+export default meta
 
-export function EditableField_(): JSX.Element {
-    const [savedTitle, setSavedTitle] = useState('Foo')
-    const [savedDescription, setSavedDescription] = useState('Lorem ipsum dolor sit amet.')
+const Template: StoryFn<typeof EditableFieldComponent> = (args) => {
+    const [value, setValue] = useState(args.value ?? 'Lorem ipsum')
 
     return (
-        <PageHeader
-            title={<EditableFieldComponent name="title" value={savedTitle} onSave={(value) => setSavedTitle(value)} />}
-            caption={
-                <EditableFieldComponent
-                    name="description"
-                    value={savedDescription}
-                    onSave={(value) => setSavedDescription(value)}
-                    multiline
-                />
-            }
-        />
+        <div className="flex">
+            <EditableFieldComponent {...args} value={value} onSave={(value) => setValue(value)} />
+        </div>
     )
+}
+
+export const Default = Template.bind({})
+
+export const MultilineWithMarkdown = Template.bind({})
+MultilineWithMarkdown.args = {
+    multiline: true,
+    markdown: true,
+    value: 'Lorem ipsum **dolor** sit amet, consectetur adipiscing _elit_.',
 }

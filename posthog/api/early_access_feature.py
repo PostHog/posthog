@@ -15,11 +15,13 @@ from rest_framework import status
 
 from posthog.models.feature_flag.feature_flag import FeatureFlag
 from posthog.models.team.team import Team
-from posthog.permissions import ProjectMembershipNecessaryPermissions, TeamMemberAccessPermission
+from posthog.permissions import (
+    TeamMemberAccessPermission,
+)
 from django.utils.text import slugify
 from django.views.decorators.csrf import csrf_exempt
 
-from posthog.utils import cors_response
+from posthog.utils_cors import cors_response
 from typing import Any
 
 
@@ -65,7 +67,6 @@ class EarlyAccessFeatureSerializer(serializers.ModelSerializer):
         stage = validated_data.get("stage", None)
 
         if instance.stage != EarlyAccessFeature.Stage.BETA and stage == EarlyAccessFeature.Stage.BETA:
-
             super_conditions = lambda feature_flag_key: [
                 {
                     "properties": [
@@ -82,7 +83,6 @@ class EarlyAccessFeatureSerializer(serializers.ModelSerializer):
 
             related_feature_flag = instance.feature_flag
             if related_feature_flag:
-
                 related_feature_flag_key = related_feature_flag.key
                 serialized_data_filters = {
                     **related_feature_flag.filters,
@@ -90,7 +90,10 @@ class EarlyAccessFeatureSerializer(serializers.ModelSerializer):
                 }
 
                 serializer = FeatureFlagSerializer(
-                    related_feature_flag, data={"filters": serialized_data_filters}, context=self.context, partial=True
+                    related_feature_flag,
+                    data={"filters": serialized_data_filters},
+                    context=self.context,
+                    partial=True,
                 )
                 serializer.is_valid(raise_exception=True)
                 serializer.save()
@@ -178,10 +181,16 @@ class EarlyAccessFeatureSerializerCreateOnly(EarlyAccessFeatureSerializer):
             feature_flag_key = feature_flag.key
 
             if validated_data.get("stage") == EarlyAccessFeature.Stage.BETA:
-                serialized_data_filters = {**feature_flag.filters, "super_groups": super_conditions(feature_flag_key)}
+                serialized_data_filters = {
+                    **feature_flag.filters,
+                    "super_groups": super_conditions(feature_flag_key),
+                }
 
                 serializer = FeatureFlagSerializer(
-                    feature_flag, data={"filters": serialized_data_filters}, context=self.context, partial=True
+                    feature_flag,
+                    data={"filters": serialized_data_filters},
+                    context=self.context,
+                    partial=True,
                 )
                 serializer.is_valid(raise_exception=True)
                 serializer.save()
@@ -214,11 +223,7 @@ class EarlyAccessFeatureSerializerCreateOnly(EarlyAccessFeatureSerializer):
 
 class EarlyAccessFeatureViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
     queryset = EarlyAccessFeature.objects.select_related("feature_flag").all()
-    permission_classes = [
-        IsAuthenticated,
-        ProjectMembershipNecessaryPermissions,
-        TeamMemberAccessPermission,
-    ]
+    permission_classes = [IsAuthenticated, TeamMemberAccessPermission]
 
     def get_serializer_class(self) -> Type[serializers.Serializer]:
         if self.request.method == "POST":
@@ -242,7 +247,6 @@ class EarlyAccessFeatureViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
 
 @csrf_exempt
 def early_access_features(request: Request):
-
     token = get_token(None, request)
 
     if not token:

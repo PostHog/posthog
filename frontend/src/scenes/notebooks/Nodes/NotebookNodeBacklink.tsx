@@ -2,70 +2,176 @@ import { mergeAttributes, Node, NodeViewProps } from '@tiptap/core'
 import { NodeViewWrapper, ReactNodeViewRenderer } from '@tiptap/react'
 import { InsightModel, NotebookNodeType, NotebookTarget } from '~/types'
 import { Link } from '@posthog/lemon-ui'
-import { IconGauge, IconBarChart, IconFlag, IconExperiment, IconLive, IconPerson, IconCohort } from 'lib/lemon-ui/icons'
-import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
+import { IconBarChart, IconFlag, IconExperiment, IconLive, IconPerson, IconCohort } from 'lib/lemon-ui/icons'
 import { urls } from 'scenes/urls'
 import clsx from 'clsx'
 import { router } from 'kea-router'
-import { openNotebook } from '../Notebook/notebooksListLogic'
+import { posthogNodePasteRule } from './utils'
+import api from 'lib/api'
 import { useValues } from 'kea'
 import { notebookLogic } from '../Notebook/notebookLogic'
 
-const ICON_MAP = {
-    dashboards: <IconGauge />,
-    insights: <IconBarChart />,
-    feature_flags: <IconFlag />,
-    experiments: <IconExperiment />,
-    events: <IconLive width="1em" height="1em" />,
-    persons: <IconPerson />,
-    cohorts: <IconCohort />,
+import { openNotebook } from '~/models/notebooksModel'
+import { IconChat, IconDashboard, IconLogomark, IconNotebook, IconPlaylist, IconRewindPlay } from '@posthog/icons'
+import { useEffect } from 'react'
+
+type BackLinkMapper = {
+    regex: RegExp
+    type: string
+    icon: JSX.Element
+    getTitle: (match: string) => Promise<string>
 }
+
+const BACKLINK_MAP: BackLinkMapper[] = [
+    {
+        type: 'dashboards',
+        regex: new RegExp(urls.dashboard('(.+)')),
+        icon: <IconDashboard />,
+        getTitle: async (path: string) => {
+            const id = path.split('/')[2]
+            const dashboard = await api.dashboards.get(Number(id))
+            return dashboard.name ?? ''
+        },
+    },
+    {
+        type: 'insights',
+        regex: new RegExp(urls.insightView('(.+)' as InsightModel['short_id'])),
+        icon: <IconBarChart />,
+        getTitle: async (path: string) => {
+            const id = path.split('/')[2]
+            const insight = await api.insights.loadInsight(id as InsightModel['short_id'])
+            return insight.results[0]?.name ?? ''
+        },
+    },
+    {
+        type: 'feature_flags',
+        regex: new RegExp(urls.featureFlag('(.+)')),
+        icon: <IconFlag />,
+        getTitle: async (path: string) => {
+            const id = path.split('/')[2]
+            const flag = await api.featureFlags.get(Number(id))
+            return flag.name ?? ''
+        },
+    },
+    {
+        type: 'experiments',
+        regex: new RegExp(urls.experiment('(.+)')),
+        icon: <IconExperiment />,
+        getTitle: async (path: string) => {
+            const id = path.split('/')[2]
+            const experiment = await api.experiments.get(Number(id))
+            return experiment.name ?? ''
+        },
+    },
+    {
+        type: 'surveys',
+        regex: new RegExp(urls.survey('(.+)')),
+        icon: <IconChat />,
+        getTitle: async (path: string) => {
+            const id = path.split('/')[2]
+            const survey = await api.surveys.get(id)
+            return survey.name ?? ''
+        },
+    },
+    {
+        type: 'events',
+        regex: new RegExp(urls.eventDefinition('(.+)')),
+        icon: <IconLive width="1em" height="1em" />,
+        getTitle: async (path: string) => {
+            const id = path.split('/')[3]
+            const event = await api.eventDefinitions.get({ eventDefinitionId: id })
+            return event.name ?? ''
+        },
+    },
+    {
+        type: 'persons',
+        regex: new RegExp(urls.personByDistinctId('(.+)')),
+        icon: <IconPerson />,
+        getTitle: async (path: string) => {
+            const id = path.split('/')[2]
+            const response = await api.persons.list({ distinct_id: id })
+            return response.results[0]?.name ?? ''
+        },
+    },
+    {
+        type: 'cohorts',
+        regex: new RegExp(urls.cohort('(.+)')),
+        icon: <IconCohort />,
+        getTitle: async (path: string) => {
+            const id = path.split('/')[2]
+            const cohort = await api.cohorts.get(Number(id))
+            return cohort.name ?? ''
+        },
+    },
+    {
+        type: 'playlist',
+        regex: new RegExp(urls.replayPlaylist('(.+)')),
+        icon: <IconPlaylist />,
+        getTitle: async (path: string) => {
+            const id = path.split('/')[3]
+            const playlist = await api.recordings.getPlaylist(id)
+            return playlist.name ?? 'None'
+        },
+    },
+    {
+        type: 'replay',
+        regex: new RegExp(urls.replaySingle('(.+)')),
+        icon: <IconRewindPlay />,
+        getTitle: async (path: string) => {
+            const id = path.split('/')[2]
+            return id
+        },
+    },
+    {
+        type: 'notebooks',
+        regex: new RegExp(urls.notebook('(.+)')),
+        icon: <IconNotebook />,
+        getTitle: async (path: string) => {
+            const id = path.split('/')[2]
+            const notebook = await api.notebooks.get(id)
+            return notebook.title ?? ''
+        },
+    },
+]
 
 const Component = (props: NodeViewProps): JSX.Element => {
     const { shortId } = useValues(notebookLogic)
+    const { location } = useValues(router)
 
-    const type: TaxonomicFilterGroupType = props.node.attrs.type
-    const title: string = props.node.attrs.title
-    const id: string = props.node.attrs.id
-    const href = backlinkHref(id, type)
+    const href: string = props.node.attrs.href ?? ''
 
-    const isViewing = router.values.location.pathname === href
+    const backLinkConfig = BACKLINK_MAP.find((config) => config.regex.test(href))
+    const derivedText: string = props.node.attrs.title || props.node.attrs.href
+    const isViewing = location.pathname === href
+
+    useEffect(() => {
+        if (props.node.attrs.title || !backLinkConfig) {
+            return
+        }
+
+        void backLinkConfig
+            .getTitle(href)
+            .then((title) => {
+                props.updateAttributes({
+                    title,
+                })
+            })
+            .catch((e) => {
+                console.error(e)
+            })
+    }, [props.node.attrs.title])
 
     return (
         <NodeViewWrapper
             as="span"
             className={clsx('Backlink', isViewing && 'Backlink--active', props.selected && 'Backlink--selected')}
         >
-            <Link
-                to={href}
-                onClick={() => openNotebook(shortId, NotebookTarget.Popover)}
-                target={undefined}
-                className="space-x-1"
-            >
-                <span>{ICON_MAP[type]}</span>
-                <span className="Backlink__label">{title}</span>
+            <Link to={href} onClick={() => void openNotebook(shortId, NotebookTarget.Popover)} className="space-x-1">
+                <span>{backLinkConfig?.icon || <IconLogomark />}</span>
+                <span className="Backlink__label">{derivedText}</span>
             </Link>
         </NodeViewWrapper>
     )
-}
-
-function backlinkHref(id: string, type: TaxonomicFilterGroupType): string {
-    if (type === TaxonomicFilterGroupType.Events) {
-        return urls.eventDefinition(id)
-    } else if (type === TaxonomicFilterGroupType.Cohorts) {
-        return urls.cohort(id)
-    } else if (type === TaxonomicFilterGroupType.Persons) {
-        return urls.person(id)
-    } else if (type === TaxonomicFilterGroupType.Insights) {
-        return urls.insightView(id as InsightModel['short_id'])
-    } else if (type === TaxonomicFilterGroupType.FeatureFlags) {
-        return urls.featureFlag(id)
-    } else if (type === TaxonomicFilterGroupType.Experiments) {
-        return urls.experiment(id)
-    } else if (type === TaxonomicFilterGroupType.Dashboards) {
-        return urls.dashboard(id)
-    }
-    return ''
 }
 
 export const NotebookNodeBacklink = Node.create({
@@ -76,18 +182,14 @@ export const NotebookNodeBacklink = Node.create({
 
     addAttributes() {
         return {
-            id: { default: '' },
-            type: { default: '' },
-            title: { default: '' },
+            href: { default: '' },
+            type: {},
+            title: {},
         }
     },
 
     parseHTML() {
-        return [
-            {
-                tag: NotebookNodeType.Backlink,
-            },
-        ]
+        return [{ tag: NotebookNodeType.Backlink }]
     },
 
     renderHTML({ HTMLAttributes }) {
@@ -96,5 +198,18 @@ export const NotebookNodeBacklink = Node.create({
 
     addNodeView() {
         return ReactNodeViewRenderer(Component)
+    },
+
+    addPasteRules() {
+        return [
+            posthogNodePasteRule({
+                find: '(.+)',
+                editor: this.editor,
+                type: this.type,
+                getAttributes: async (match) => {
+                    return { href: match[1] }
+                },
+            }),
+        ]
     },
 })

@@ -31,6 +31,5 @@
         "created_at": "2023-07-11T14:21:33.883000Z",
         "uuid": "01894554-925a-0000-11d9-a44d69b426d7"
     },
-    "storage": "clickhouse",
-    "pinned_count": 0
+    "storage": "object_storage"
 }

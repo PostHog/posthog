@@ -30,7 +30,11 @@ class TestHooksAPI(ClickhouseTestMixin, APILicensedTest):
         )
 
     def test_create_hook_with_resource_id(self):
-        data = {"target": "https://hooks.zapier.com/abcd/", "event": "action_performed", "resource_id": "66"}
+        data = {
+            "target": "https://hooks.zapier.com/abcd/",
+            "event": "action_performed",
+            "resource_id": "66",
+        }
         response = self.client.post(f"/api/projects/{self.team.id}/hooks/", data)
         response_data = response.json()
 
@@ -58,13 +62,15 @@ class TestHooksAPI(ClickhouseTestMixin, APILicensedTest):
         self.assertEqual(response.status_code, 204)
 
     def test_invalid_target(self):
-        data = {"target": "https://hooks.non-zapier.com/abcd/", "event": "action_performed"}
+        data = {
+            "target": "https://hooks.non-zapier.com/abcd/",
+            "event": "action_performed",
+        }
         response = self.client.post(f"/api/projects/{self.team.id}/hooks/", data)
         self.assertEqual(response.status_code, 400)
 
 
 def test_valid_domain() -> None:
-
     test_cases = {
         "http://hooks.zapier.com": True,
         "https://hooks.zapier.com": True,

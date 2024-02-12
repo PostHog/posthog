@@ -1,13 +1,16 @@
-import { kea, connect, path, selectors, events } from 'kea'
+import { afterMount, connect, kea, path, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
-import { Breadcrumb } from '~/types'
-import { urls } from 'scenes/urls'
 import api from 'lib/api'
-
-import type { ingestionWarningsLogicType } from './ingestionWarningsLogicType'
-import { teamLogic } from '../../teamLogic'
-import { range } from 'lib/utils'
 import { dayjs, dayjsUtcToTimezone } from 'lib/dayjs'
+import { range } from 'lib/utils'
+import { Scene } from 'scenes/sceneTypes'
+import { urls } from 'scenes/urls'
+
+import { Breadcrumb } from '~/types'
+
+import { teamLogic } from '../../teamLogic'
+import { DataManagementTab } from '../DataManagementScene'
+import type { ingestionWarningsLogicType } from './ingestionWarningsLogicType'
 
 export interface IngestionWarningSummary {
     type: string
@@ -47,11 +50,13 @@ export const ingestionWarningsLogic = kea<ingestionWarningsLogicType>([
             (): Breadcrumb[] => {
                 return [
                     {
-                        name: `Data Management`,
+                        key: Scene.DataManagement,
+                        name: `Data management`,
                         path: urls.eventDefinitions(),
                     },
                     {
-                        name: 'Ingestion Warnings',
+                        key: DataManagementTab.IngestionWarnings,
+                        name: 'Ingestion warnings',
                         path: urls.ingestionWarnings(),
                     },
                 ]
@@ -82,10 +87,7 @@ export const ingestionWarningsLogic = kea<ingestionWarningsLogicType>([
             },
         ],
     }),
-
-    events(({ actions }) => ({
-        afterMount: () => {
-            actions.loadData()
-        },
-    })),
+    afterMount(({ actions }) => {
+        actions.loadData()
+    }),
 ])

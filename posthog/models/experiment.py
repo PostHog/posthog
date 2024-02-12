@@ -23,8 +23,8 @@ class Experiment(models.Model):
     # A list of filters for secondary metrics
     secondary_metrics: models.JSONField = models.JSONField(default=list, null=True)
 
-    feature_flag: models.ForeignKey = models.ForeignKey("FeatureFlag", blank=False, on_delete=models.CASCADE)
-    created_by: models.ForeignKey = models.ForeignKey("User", on_delete=models.CASCADE)
+    created_by: models.ForeignKey = models.ForeignKey("User", on_delete=models.SET_NULL, null=True)
+    feature_flag: models.ForeignKey = models.ForeignKey("FeatureFlag", blank=False, on_delete=models.RESTRICT)
     start_date: models.DateTimeField = models.DateTimeField(null=True)
     end_date: models.DateTimeField = models.DateTimeField(null=True)
     created_at: models.DateTimeField = models.DateTimeField(default=timezone.now)

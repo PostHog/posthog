@@ -1,22 +1,26 @@
+import { IconTerminal } from 'lib/lemon-ui/icons'
 import { parseGithubRepoURL } from 'lib/utils'
-import { useEffect, useState } from 'react'
-import { CodeOutlined } from '@ant-design/icons'
 import imgPluginDefault from 'public/plugin-default.svg'
-import { PluginInstallationType } from 'scenes/plugins/types'
+import { useEffect, useState } from 'react'
+
+import { PluginType } from '~/types'
+
+export type PluginImageSize = 'small' | 'medium' | 'large'
 
 export function PluginImage({
-    url,
-    icon,
-    pluginType,
+    plugin,
     size = 'medium',
 }: {
-    url?: string
-    icon?: string
-    pluginType?: PluginInstallationType
-    size?: 'medium' | 'large'
+    plugin: Partial<Pick<PluginType, 'plugin_type' | 'url' | 'icon'>>
+    size?: PluginImageSize
 }): JSX.Element {
+    const { plugin_type: pluginType, url, icon } = plugin
     const [state, setState] = useState({ image: imgPluginDefault })
-    const pixelSize = size === 'large' ? 100 : 60
+    const pixelSize = {
+        large: 100,
+        medium: 60,
+        small: 30,
+    }[size]
 
     useEffect(() => {
         if (icon) {
@@ -32,10 +36,16 @@ export function PluginImage({
     }, [url])
 
     return pluginType === 'source' ? (
-        <CodeOutlined style={{ fontSize: pixelSize }} className="plugin-image" />
+        <IconTerminal
+            className="plugin-image shrink-0"
+            style={{
+                fontSize: pixelSize,
+            }}
+        />
     ) : (
         <div
-            className="plugin-image"
+            className="plugin-image shrink-0"
+            // eslint-disable-next-line react/forbid-dom-props
             style={{
                 width: pixelSize,
                 height: pixelSize,

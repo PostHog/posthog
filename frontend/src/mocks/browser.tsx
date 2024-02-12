@@ -1,14 +1,15 @@
+import { DecoratorFunction } from '@storybook/types'
 import { rest, setupWorker } from 'msw'
+
 import { handlers } from '~/mocks/handlers'
 import { Mocks, mocksToHandlers } from '~/mocks/utils'
-import { DecoratorFunction } from '@storybook/addons'
 
 // Default handlers ensure no request is unhandled by msw
 export const worker = setupWorker(...handlers)
 
 export const useStorybookMocks = (mocks: Mocks): void => worker.use(...mocksToHandlers(mocks))
 
-export const mswDecorator = (mocks: Mocks): DecoratorFunction<JSX.Element> => {
+export const mswDecorator = (mocks: Mocks): DecoratorFunction<any> => {
     return function StoryMock(Story, { parameters }): JSX.Element {
         // merge the default mocks provided in `preview.tsx` with any provided by the story
         // allow the story to override defaults
@@ -30,6 +31,6 @@ export const mswDecorator = (mocks: Mocks): DecoratorFunction<JSX.Element> => {
     }
 }
 
-export const useFeatureFlags = (featureFlags: string[]): void => {
+export const setFeatureFlags = (featureFlags: string[]): void => {
     ;(window as any).POSTHOG_APP_CONTEXT.persisted_feature_flags = featureFlags
 }

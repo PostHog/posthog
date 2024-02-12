@@ -1,17 +1,19 @@
+import { Meta } from '@storybook/react'
 import {
     featureFlagsActivityResponseJson,
     insightsActivityResponseJson,
     personActivityResponseJson,
+    teamActivityResponseJson,
 } from 'lib/components/ActivityLog/__mocks__/activityLogMocks'
-import { mswDecorator } from '~/mocks/browser'
-import { ComponentMeta } from '@storybook/react'
 import { ActivityLog } from 'lib/components/ActivityLog/ActivityLog'
-import { ActivityScope } from 'lib/components/ActivityLog/humanizeActivity'
 
-export default {
+import { mswDecorator } from '~/mocks/browser'
+import { ActivityScope } from '~/types'
+
+const meta: Meta<typeof ActivityLog> = {
     title: 'Components/ActivityLog',
     component: ActivityLog,
-    parameters: { testOptions: { skip: true } }, // FIXME: Currently disabled as the Timeout story is flaky
+    tags: ['test-skip'], // FIXME: Currently disabled as the Timeout story is flaky
     decorators: [
         mswDecorator({
             get: {
@@ -36,10 +38,15 @@ export default {
                     ctx.status(200),
                     ctx.json({ results: personActivityResponseJson }),
                 ],
+                '/api/projects/:id/activity': (_, __, ctx) => [
+                    ctx.status(200),
+                    ctx.json({ results: teamActivityResponseJson }),
+                ],
             },
         }),
     ],
-} as ComponentMeta<typeof ActivityLog>
+}
+export default meta
 
 export function FeatureFlagActivity(): JSX.Element {
     return <ActivityLog scope={ActivityScope.FEATURE_FLAG} id={7} />
@@ -55,6 +62,10 @@ export function InsightActivity(): JSX.Element {
 
 export function PersonsActivity(): JSX.Element {
     return <ActivityLog scope={ActivityScope.PERSON} id={12} />
+}
+
+export function TeamActivity(): JSX.Element {
+    return <ActivityLog scope={ActivityScope.TEAM} id={12} />
 }
 
 export function WithCaption(): JSX.Element {

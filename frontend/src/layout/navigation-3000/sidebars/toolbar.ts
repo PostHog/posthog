@@ -1,21 +1,22 @@
-import { connect, kea, path, selectors } from 'kea'
-import { sceneLogic } from 'scenes/sceneLogic'
-import { Scene } from 'scenes/sceneTypes'
-import { urls } from 'scenes/urls'
-import { SidebarCategory, BasicListItem } from '../types'
 import Fuse from 'fuse.js'
+import { connect, kea, path, selectors } from 'kea'
 import { subscriptions } from 'kea-subscriptions'
-import { navigation3000Logic } from '~/layout/navigation-3000/navigationLogic'
-import { FuseSearchMatch } from './utils'
 import {
+    authorizedUrlListLogic,
     AuthorizedUrlListType,
     KeyedAppUrl,
-    authorizedUrlListLogic,
     validateProposedUrl,
 } from 'lib/components/AuthorizedUrlList/authorizedUrlListLogic'
-
-import type { toolbarSidebarLogicType } from './toolbarType'
+import { sceneLogic } from 'scenes/sceneLogic'
+import { Scene } from 'scenes/sceneTypes'
 import { teamLogic } from 'scenes/teamLogic'
+import { urls } from 'scenes/urls'
+
+import { navigation3000Logic } from '~/layout/navigation-3000/navigationLogic'
+
+import { BasicListItem, SidebarCategory } from '../types'
+import type { toolbarSidebarLogicType } from './toolbarType'
+import { FuseSearchMatch } from './utils'
 
 const fuse = new Fuse<KeyedAppUrl>([], {
     keys: ['url'],

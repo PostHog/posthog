@@ -1,24 +1,64 @@
 from typing import Optional
 
-from posthog.celery import app
+from celery import shared_task
+from prometheus_client import Counter, Histogram
+
+from django.db import transaction
+
+from posthog import settings
 from posthog.models import ExportedAsset
+from posthog.tasks.utils import CeleryQueue
+
+EXPORT_QUEUED_COUNTER = Counter(
+    "exporter_task_queued",
+    "An export task was queued",
+    labelnames=["type"],
+)
+EXPORT_SUCCEEDED_COUNTER = Counter(
+    "exporter_task_succeeded",
+    "An export task succeeded",
+    labelnames=["type"],
+)
+EXPORT_ASSET_UNKNOWN_COUNTER = Counter(
+    "exporter_task_unknown_asset",
+    "An export task was for an unknown asset",
+    labelnames=["type"],
+)
+EXPORT_FAILED_COUNTER = Counter(
+    "exporter_task_failed",
+    "An export task failed",
+    labelnames=["type"],
+)
+EXPORT_TIMER = Histogram(
+    "exporter_task_duration_seconds",
+    "Time spent exporting an asset",
+    labelnames=["type"],
+    buckets=(1, 5, 10, 30, 60, 120, 240, 300, 360, 420, 480, 540, 600, float("inf")),
+)
 
 
-@app.task(autoretry_for=(Exception,), max_retries=5, retry_backoff=True, acks_late=True)
+# export_asset is used in chords/groups and so must not ignore its results
+@shared_task(
+    acks_late=True,
+    ignore_result=False,
+    time_limit=settings.ASSET_GENERATION_MAX_TIMEOUT_SECONDS,
+    queue=CeleryQueue.EXPORTS.value,
+)
+@transaction.atomic
 def export_asset(exported_asset_id: int, limit: Optional[int] = None) -> None:
-    from statshog.defaults.django import statsd
-
     from posthog.tasks.exports import csv_exporter, image_exporter
 
-    exported_asset: ExportedAsset = ExportedAsset.objects.select_related("insight", "dashboard").get(
+    # if Celery is lagging then you can end up with an exported asset that has had a TTL added
+    # and that TTL has passed, in the exporter we don't care about that.
+    # the TTL is for later cleanup.
+    exported_asset: ExportedAsset = ExportedAsset.objects_including_ttl_deleted.select_for_update().get(
         pk=exported_asset_id
     )
 
     is_csv_export = exported_asset.export_format == ExportedAsset.ExportFormat.CSV
     if is_csv_export:
-        max_limit = exported_asset.export_context.get("max_limit", 10000)
-        csv_exporter.export_csv(exported_asset, limit=limit, max_limit=max_limit)
-        statsd.incr("csv_exporter.queued", tags={"team_id": str(exported_asset.team_id)})
+        csv_exporter.export_csv(exported_asset, limit=limit)
+        EXPORT_QUEUED_COUNTER.labels(type="csv").inc()
     else:
         image_exporter.export_image(exported_asset)
-        statsd.incr("image_exporter.queued", tags={"team_id": str(exported_asset.team_id)})
+        EXPORT_QUEUED_COUNTER.labels(type="image").inc()

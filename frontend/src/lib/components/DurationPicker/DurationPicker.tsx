@@ -1,6 +1,7 @@
+import { LemonInput, LemonSelect } from '@posthog/lemon-ui'
 import { useEffect, useState } from 'react'
+
 import { Duration, SmallTimeUnit } from '~/types'
-import { LemonSelect, LemonInput } from '@posthog/lemon-ui'
 
 interface DurationPickerProps {
     onChange: (value_seconds: number) => void

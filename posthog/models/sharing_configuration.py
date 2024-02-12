@@ -26,7 +26,11 @@ class SharingConfiguration(models.Model):
 
     enabled: models.BooleanField = models.BooleanField(default=False)
     access_token: models.CharField = models.CharField(
-        max_length=400, null=True, blank=True, default=get_default_access_token, unique=True
+        max_length=400,
+        null=True,
+        blank=True,
+        default=get_default_access_token,
+        unique=True,
     )
 
     def can_access_object(self, obj: models.Model):

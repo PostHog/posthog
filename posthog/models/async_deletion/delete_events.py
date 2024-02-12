@@ -27,7 +27,10 @@ class AsyncEventDeletion(AsyncDeletionProcess):
 
         logger.info(
             "Starting AsyncDeletion on `events` table in ClickHouse",
-            {"count": len(deletions), "team_ids": list(set(row.team_id for row in deletions))},
+            {
+                "count": len(deletions),
+                "team_ids": list(set(row.team_id for row in deletions)),
+            },
         )
 
         conditions, args = self._conditions(deletions)
@@ -48,7 +51,10 @@ class AsyncEventDeletion(AsyncDeletionProcess):
 
         logger.info(
             "Starting AsyncDeletion for teams on other tables",
-            {"count": len(team_deletions), "team_ids": list(set(row.team_id for row in deletions))},
+            {
+                "count": len(team_deletions),
+                "team_ids": list(set(row.team_id for row in deletions)),
+            },
         )
         conditions, args = self._conditions(team_deletions)
         for table in TABLES_TO_DELETE_TEAM_DATA_FROM:
@@ -97,5 +103,8 @@ class AsyncEventDeletion(AsyncDeletionProcess):
         else:
             return (
                 f"(team_id = %(team_id{suffix})s AND {self._column_name(async_deletion)} = %(key{suffix})s)",
-                {f"team_id{suffix}": async_deletion.team_id, f"key{suffix}": async_deletion.key},
+                {
+                    f"team_id{suffix}": async_deletion.team_id,
+                    f"key{suffix}": async_deletion.key,
+                },
             )

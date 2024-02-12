@@ -8,7 +8,6 @@ from django.db import migrations, models
 
 
 class Migration(migrations.Migration):
-
     dependencies = [
         ("posthog", "0282_fix_insight_caching_state_model"),
     ]
@@ -17,21 +16,40 @@ class Migration(migrations.Migration):
         migrations.CreateModel(
             name="Prompt",
             fields=[
-                ("id", models.AutoField(auto_created=True, primary_key=True, serialize=False, verbose_name="ID")),
+                (
+                    "id",
+                    models.AutoField(
+                        auto_created=True,
+                        primary_key=True,
+                        serialize=False,
+                        verbose_name="ID",
+                    ),
+                ),
                 ("step", models.IntegerField()),
                 ("type", models.CharField(max_length=200)),
                 ("title", models.CharField(max_length=200)),
                 ("text", models.CharField(max_length=1000)),
                 ("placement", models.CharField(default="top", max_length=200)),
                 ("buttons", models.JSONField()),
-                ("reference", models.CharField(default=None, max_length=200, null=True)),
+                (
+                    "reference",
+                    models.CharField(default=None, max_length=200, null=True),
+                ),
                 ("icon", models.CharField(max_length=200)),
             ],
         ),
         migrations.CreateModel(
             name="PromptSequence",
             fields=[
-                ("id", models.AutoField(auto_created=True, primary_key=True, serialize=False, verbose_name="ID")),
+                (
+                    "id",
+                    models.AutoField(
+                        auto_created=True,
+                        primary_key=True,
+                        serialize=False,
+                        verbose_name="ID",
+                    ),
+                ),
                 ("key", models.CharField(max_length=200)),
                 ("type", models.CharField(max_length=200)),
                 (
@@ -45,23 +63,46 @@ class Migration(migrations.Migration):
                 ("status", models.CharField(max_length=200)),
                 ("requires_opt_in", models.BooleanField(default=False)),
                 ("autorun", models.BooleanField(default=True)),
-                ("must_have_completed", models.ManyToManyField(blank=True, to="posthog.PromptSequence")),
+                (
+                    "must_have_completed",
+                    models.ManyToManyField(blank=True, to="posthog.PromptSequence"),
+                ),
                 ("prompts", models.ManyToManyField(to="posthog.Prompt")),
             ],
         ),
         migrations.CreateModel(
             name="UserPromptState",
             fields=[
-                ("id", models.AutoField(auto_created=True, primary_key=True, serialize=False, verbose_name="ID")),
-                ("last_updated_at", models.DateTimeField(default=django.utils.timezone.now)),
+                (
+                    "id",
+                    models.AutoField(
+                        auto_created=True,
+                        primary_key=True,
+                        serialize=False,
+                        verbose_name="ID",
+                    ),
+                ),
+                (
+                    "last_updated_at",
+                    models.DateTimeField(default=django.utils.timezone.now),
+                ),
                 ("step", models.IntegerField(default=None, null=True)),
                 ("completed", models.BooleanField(default=False)),
                 ("dismissed", models.BooleanField(default=False)),
                 (
                     "sequence",
-                    models.ForeignKey(on_delete=django.db.models.deletion.CASCADE, to="posthog.promptsequence"),
+                    models.ForeignKey(
+                        on_delete=django.db.models.deletion.CASCADE,
+                        to="posthog.promptsequence",
+                    ),
                 ),
-                ("user", models.ForeignKey(on_delete=django.db.models.deletion.CASCADE, to=settings.AUTH_USER_MODEL)),
+                (
+                    "user",
+                    models.ForeignKey(
+                        on_delete=django.db.models.deletion.CASCADE,
+                        to=settings.AUTH_USER_MODEL,
+                    ),
+                ),
             ],
         ),
         migrations.DeleteModel(

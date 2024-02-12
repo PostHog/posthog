@@ -1,13 +1,22 @@
-import { LineGraph } from '../../insights/views/LineGraph/LineGraph'
 import { useValues } from 'kea'
-import { InsightEmptyState } from '../../insights/EmptyStates'
-import { ChartDisplayType, ChartParams, GraphType } from '~/types'
-import { insightLogic } from 'scenes/insights/insightLogic'
-import { capitalizeFirstLetter, isMultiSeriesFormula } from 'lib/utils'
-import { openPersonsModal } from '../persons-modal/PersonsModal'
-import { urlsForDatasets } from '../persons-modal/persons-modal-utils'
 import { DateDisplay } from 'lib/components/DateDisplay'
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
+import { FEATURE_FLAGS } from 'lib/constants'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { capitalizeFirstLetter, isMultiSeriesFormula } from 'lib/utils'
+import { insightDataLogic } from 'scenes/insights/insightDataLogic'
+import { insightLogic } from 'scenes/insights/insightLogic'
+
+import { cohortsModel } from '~/models/cohortsModel'
+import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
+import { NodeKind } from '~/queries/schema'
+import { isInsightVizNode, isLifecycleQuery, isStickinessQuery, isTrendsQuery } from '~/queries/utils'
+import { ChartDisplayType, ChartParams, GraphType } from '~/types'
+
+import { InsightEmptyState } from '../../insights/EmptyStates'
+import { LineGraph } from '../../insights/views/LineGraph/LineGraph'
+import { urlsForDatasets } from '../persons-modal/persons-modal-utils'
+import { openPersonsModal } from '../persons-modal/PersonsModal'
 import { trendsDataLogic } from '../trendsDataLogic'
 
 export function ActionsLineGraph({
@@ -16,6 +25,10 @@ export function ActionsLineGraph({
     context,
 }: ChartParams): JSX.Element | null {
     const { insightProps, hiddenLegendKeys } = useValues(insightLogic)
+    const { featureFlags } = useValues(featureFlagLogic)
+    const { cohorts } = useValues(cohortsModel)
+    const { formatPropertyValueForDisplay } = useValues(propertyDefinitionsModel)
+    const { query } = useValues(insightDataLogic(insightProps))
     const {
         indexedResults,
         labelGroupType,
@@ -24,14 +37,42 @@ export function ActionsLineGraph({
         compare,
         display,
         interval,
-        shownAs,
         showValueOnSeries,
         showPercentStackView,
         supportsPercentStackView,
         trendsFilter,
         isLifecycle,
         isStickiness,
+        isTrends,
     } = useValues(trendsDataLogic(insightProps))
+
+    const labels =
+        (indexedResults.length === 2 &&
+            indexedResults.every((x) => x.compare) &&
+            indexedResults.find((x) => x.compare_label === 'current')?.days) ||
+        (indexedResults[0] && indexedResults[0].labels) ||
+        []
+
+    const isLifecycleQueryWithFeatureFlagOn =
+        featureFlags[FEATURE_FLAGS.HOGQL_INSIGHTS_LIFECYCLE] &&
+        isLifecycle &&
+        query &&
+        isInsightVizNode(query) &&
+        isLifecycleQuery(query.source)
+
+    const isStickinessQueryWithFeatureFlagOn =
+        featureFlags[FEATURE_FLAGS.HOGQL_INSIGHTS_STICKINESS] &&
+        isStickiness &&
+        query &&
+        isInsightVizNode(query) &&
+        isStickinessQuery(query.source)
+
+    const isTrendsQueryWithFeatureFlagOn =
+        featureFlags[FEATURE_FLAGS.HOGQL_INSIGHTS_TRENDS] &&
+        isTrends &&
+        query &&
+        isInsightVizNode(query) &&
+        isTrendsQuery(query.source)
 
     return indexedResults &&
         indexedResults[0]?.data &&
@@ -41,7 +82,7 @@ export function ActionsLineGraph({
             type={display === ChartDisplayType.ActionsBar || isLifecycle ? GraphType.Bar : GraphType.Line}
             hiddenLegendKeys={hiddenLegendKeys}
             datasets={indexedResults}
-            labels={(indexedResults[0] && indexedResults[0].labels) || []}
+            labels={labels}
             inSharedMode={inSharedMode}
             labelGroupType={labelGroupType}
             showPersonsModal={showPersonsModal}
@@ -74,35 +115,57 @@ export function ActionsLineGraph({
                           const { index, points, crossDataset } = payload
 
                           const dataset = points.referencePoint.dataset
-                          const day = dataset?.days?.[index] ?? ''
-                          const label = dataset?.label ?? dataset?.labels?.[index] ?? ''
-
                           if (!dataset) {
                               return
                           }
 
-                          const urls = urlsForDatasets(crossDataset, index)
+                          const day = dataset.action?.days?.[index] ?? dataset?.days?.[index] ?? ''
+                          const label = dataset?.label ?? dataset?.labels?.[index] ?? ''
 
-                          if (urls?.length) {
-                              const title =
-                                  shownAs === 'Stickiness' ? (
-                                      <>
-                                          <PropertyKeyInfo value={label || ''} disablePopover /> stickiness on day {day}
-                                      </>
-                                  ) : (
-                                      (label: string) => (
-                                          <>
-                                              {label} on{' '}
-                                              <DateDisplay interval={interval || 'day'} date={day?.toString() || ''} />
-                                          </>
-                                      )
-                                  )
+                          const title = isStickiness ? (
+                              <>
+                                  <PropertyKeyInfo value={label || ''} disablePopover /> stickiness on day {day}
+                              </>
+                          ) : (
+                              (label: string) => (
+                                  <>
+                                      {label} on{' '}
+                                      <DateDisplay interval={interval || 'day'} date={day?.toString() || ''} />
+                                  </>
+                              )
+                          )
 
+                          if (
+                              isLifecycleQueryWithFeatureFlagOn ||
+                              isStickinessQueryWithFeatureFlagOn ||
+                              isTrendsQueryWithFeatureFlagOn
+                          ) {
                               openPersonsModal({
-                                  urls,
-                                  urlsIndex: crossDataset?.findIndex((x) => x.id === dataset.id) || 0,
                                   title,
+                                  query: {
+                                      kind: NodeKind.InsightActorsQuery,
+                                      source: query.source,
+                                      day,
+                                      status: dataset.status,
+                                      series: dataset.action?.order ?? 0,
+                                      breakdown: dataset.breakdown_value,
+                                      compare: dataset.compare_label,
+                                  },
                               })
+                          } else {
+                              const datasetUrls = urlsForDatasets(
+                                  crossDataset,
+                                  index,
+                                  cohorts,
+                                  formatPropertyValueForDisplay
+                              )
+                              if (datasetUrls?.length) {
+                                  openPersonsModal({
+                                      urls: datasetUrls,
+                                      urlsIndex: crossDataset?.findIndex((x) => x.id === dataset.id) || 0,
+                                      title,
+                                  })
+                              }
                           }
                       }
             }

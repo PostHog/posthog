@@ -3,14 +3,18 @@ import { CacheExtension } from '@posthog/plugin-scaffold'
 import { Hub } from '../../../types'
 import { IllegalOperationError } from '../../../utils/utils'
 
+export function getCacheKey(pluginId: number, teamId: number, key: string): string {
+    return `@plugin/${pluginId}/${typeof teamId === 'undefined' ? '@all' : teamId}/${key}`
+}
+
 export function createCache(server: Hub, pluginId: number, teamId: number): CacheExtension {
-    const getKey = (key: string) => `@plugin/${pluginId}/${typeof teamId === 'undefined' ? '@all' : teamId}/${key}`
+    const getKey = (key: string) => getCacheKey(pluginId, teamId, key)
     return {
         set: async function (key, value, ttlSeconds, options) {
-            return await server.db.redisSet(getKey(key), value, ttlSeconds, options)
+            return await server.db.redisSet(getKey(key), value, 'app_cache.set', ttlSeconds, options)
         },
         get: async function (key, defaultValue, options) {
-            return await server.db.redisGet(getKey(key), defaultValue, options)
+            return await server.db.redisGet(getKey(key), defaultValue, 'app_cache.get', options)
         },
         incr: async function (key) {
             return await server.db.redisIncr(getKey(key))

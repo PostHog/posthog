@@ -1,13 +1,12 @@
-import { expectLogic } from 'kea-test-utils'
-import { initKeaTests } from '~/test/init'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { router } from 'kea-router'
-import { urls } from 'scenes/urls'
-import { announcementLogic, AnnouncementType, DEFAULT_CLOUD_ANNOUNCEMENT } from './announcementLogic'
-import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
-import { userLogic } from 'scenes/userLogic'
-import { navigationLogic } from '../navigationLogic'
+import { expectLogic } from 'kea-test-utils'
 import { FEATURE_FLAGS } from 'lib/constants'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { urls } from 'scenes/urls'
+
+import { initKeaTests } from '~/test/init'
+
+import { announcementLogic, DEFAULT_CLOUD_ANNOUNCEMENT } from './announcementLogic'
 
 describe('announcementLogic', () => {
     let logic: ReturnType<typeof announcementLogic.build>
@@ -16,7 +15,7 @@ describe('announcementLogic', () => {
         initKeaTests()
         logic = announcementLogic()
         logic.mount()
-        await expectLogic(logic).toMount([featureFlagLogic, preflightLogic, userLogic, navigationLogic])
+        await expectLogic(logic).toMount([featureFlagLogic])
         featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.CLOUD_ANNOUNCEMENT], {
             [FEATURE_FLAGS.CLOUD_ANNOUNCEMENT]: true,
         })
@@ -26,15 +25,15 @@ describe('announcementLogic', () => {
     it('shows a cloud announcement', async () => {
         await expectLogic(logic).toMatchValues({
             cloudAnnouncement: DEFAULT_CLOUD_ANNOUNCEMENT,
-            shownAnnouncementType: AnnouncementType.CloudFlag,
+            showAnnouncement: true,
         })
     })
 
     it('hides announcements during the ingestion phase', async () => {
-        router.actions.push(urls.ingestion())
+        router.actions.push(urls.products())
         await expectLogic(logic).toMatchValues({
             cloudAnnouncement: DEFAULT_CLOUD_ANNOUNCEMENT,
-            shownAnnouncementType: null,
+            showAnnouncement: false,
         })
     })
 })

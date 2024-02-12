@@ -16,7 +16,6 @@ class OrderedCsvRenderer(
             header = data.header
 
         if data:
-
             # First, flatten the data (i.e., convert it to a list of
             # dictionaries that are each exactly one level deep).  The key for
             # each item designates the name of the column that the item will

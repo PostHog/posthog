@@ -1,7 +1,8 @@
-import { AnyPropertyFilter, PropertyFilterValue, PropertyOperator } from '~/types'
-import { allOperatorsMapping, genericOperatorMap } from 'lib/utils'
-import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { isPropertyFilterWithOperator } from 'lib/components/PropertyFilters/utils'
+import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
+import { allOperatorsMapping, genericOperatorMap } from 'lib/utils'
+
+import { AnyPropertyFilter, PropertyFilterValue, PropertyOperator } from '~/types'
 
 export function operatorToHumanName(operator?: string): string {
     if (operator === 'gte') {

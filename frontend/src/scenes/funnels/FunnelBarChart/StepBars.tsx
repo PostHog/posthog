@@ -1,5 +1,6 @@
 import clsx from 'clsx'
-import { StepBarProps, StepBar } from './StepBar'
+
+import { StepBar, StepBarProps } from './StepBar'
 
 export function StepBars({ step, stepIndex, showPersonsModal }: Omit<StepBarProps, 'series'>): JSX.Element {
     return (

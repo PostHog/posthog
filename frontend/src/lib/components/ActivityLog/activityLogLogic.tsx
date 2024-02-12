@@ -1,24 +1,28 @@
-import { kea } from 'kea'
-import api, { ACTIVITY_PAGE_SIZE, ActivityLogPaginatedResponse } from 'lib/api'
+import { actions, events, kea, key, listeners, path, props, reducers, selectors } from 'kea'
+import { loaders } from 'kea-loaders'
+import { router, urlToAction } from 'kea-router'
+import api, { ActivityLogPaginatedResponse } from 'lib/api'
 import {
     ActivityLogItem,
-    ActivityScope,
+    defaultDescriber,
     Describer,
     humanize,
     HumanizedActivityLogItem,
 } from 'lib/components/ActivityLog/humanizeActivity'
-import { ActivityLogProps } from 'lib/components/ActivityLog/ActivityLog'
-
-import type { activityLogLogicType } from './activityLogLogicType'
+import { ACTIVITY_PAGE_SIZE } from 'lib/constants'
 import { PaginationManual } from 'lib/lemon-ui/PaginationControl'
-import { urls } from 'scenes/urls'
-import { router } from 'kea-router'
+import { dataManagementActivityDescriber } from 'scenes/data-management/dataManagementDescribers'
 import { flagActivityDescriber } from 'scenes/feature-flags/activityDescriptions'
+import { notebookActivityDescriber } from 'scenes/notebooks/Notebook/notebookActivityDescriber'
+import { personActivityDescriber } from 'scenes/persons/activityDescriptions'
 import { pluginActivityDescriber } from 'scenes/plugins/pluginActivityDescriptions'
 import { insightActivityDescriber } from 'scenes/saved-insights/activityDescriptions'
-import { personActivityDescriber } from 'scenes/persons/activityDescriptions'
-import { dataManagementActivityDescriber } from 'scenes/data-management/dataManagementDescribers'
-import { notebookActivityDescriber } from 'scenes/notebooks/Notebook/notebookActivityDescriber'
+import { teamActivityDescriber } from 'scenes/teamActivityDescriber'
+import { urls } from 'scenes/urls'
+
+import { ActivityScope } from '~/types'
+
+import type { activityLogLogicType } from './activityLogLogicType'
 
 /**
  * Having this function inside the `humanizeActivity module was causing very weird test errors in other modules
@@ -41,57 +45,43 @@ export const describerFor = (logItem?: ActivityLogItem): Describer | undefined =
             return dataManagementActivityDescriber
         case ActivityScope.NOTEBOOK:
             return notebookActivityDescriber
+        case ActivityScope.TEAM:
+            return teamActivityDescriber
         default:
-            return undefined
+            return (logActivity, asNotification) => defaultDescriber(logActivity, asNotification)
     }
 }
 
-export const activityLogLogic = kea<activityLogLogicType>({
-    path: (key) => ['lib', 'components', 'ActivityLog', 'activitylog', 'logic', key],
-    props: {} as ActivityLogProps,
-    key: ({ scope, id }) => `activity/${scope}/${id || 'all'}`,
-    actions: {
+export type ActivityLogLogicProps = {
+    scope: ActivityScope
+    // if no id is provided, the list is not scoped by id and shows all activity ordered by time
+    id?: number | string
+}
+
+export const activityLogLogic = kea<activityLogLogicType>([
+    props({} as ActivityLogLogicProps),
+    key(({ scope, id }) => `activity/${scope}/${id || 'all'}`),
+    path((key) => ['lib', 'components', 'ActivityLog', 'activitylog', 'logic', key]),
+    actions({
         setPage: (page: number) => ({ page }),
-    },
-    loaders: ({ values, props }) => ({
-        nextPage: [
-            { results: [], total_count: 0 } as ActivityLogPaginatedResponse<ActivityLogItem>,
-            {
-                fetchNextPage: async () => await api.activity.list(props, values.page),
-            },
-        ],
-        previousPage: [
-            { results: [], total_count: 0 } as ActivityLogPaginatedResponse<ActivityLogItem>,
-            {
-                fetchPreviousPage: async () => await api.activity.list(props, values.page - 1),
-            },
-        ],
     }),
-    reducers: () => ({
+    loaders(({ values, props }) => ({
+        activity: [
+            { results: [], total_count: 0 } as ActivityLogPaginatedResponse<ActivityLogItem>,
+            {
+                fetchActivity: async () => await api.activity.listLegacy(props, values.page),
+            },
+        ],
+    })),
+    reducers(() => ({
         page: [
             1,
             {
                 setPage: (_, { page }) => page,
             },
         ],
-        humanizedActivity: [
-            [] as HumanizedActivityLogItem[],
-            {
-                fetchNextPageSuccess: (state, { nextPage }) =>
-                    nextPage ? humanize(nextPage.results, describerFor) : state,
-                fetchPreviousPageSuccess: (state, { previousPage }) =>
-                    previousPage ? humanize(previousPage.results, describerFor) : state,
-            },
-        ],
-        totalCount: [
-            null as number | null,
-            {
-                fetchNextPageSuccess: (_, { nextPage }) => nextPage.total_count || null,
-                fetchPreviousPageSuccess: (_, { previousPage }) => previousPage.total_count || null,
-            },
-        ],
-    }),
-    selectors: ({ actions }) => ({
+    })),
+    selectors(({ actions }) => ({
         pagination: [
             (s) => [s.page, s.totalCount],
             (page, totalCount): PaginationManual => {
@@ -100,19 +90,31 @@ export const activityLogLogic = kea<activityLogLogicType>({
                     pageSize: ACTIVITY_PAGE_SIZE,
                     currentPage: page,
                     entryCount: totalCount || 0,
-                    onBackward: actions.fetchPreviousPage,
-                    onForward: actions.fetchNextPage,
+                    onBackward: () => actions.setPage(page - 1),
+                    onForward: () => actions.setPage(page + 1),
                 }
             },
         ],
-    }),
-    listeners: ({ actions }) => ({
+        humanizedActivity: [
+            (s) => [s.activity],
+            (activity): HumanizedActivityLogItem[] => {
+                return activity.results ? humanize(activity.results, describerFor) : []
+            },
+        ],
+        totalCount: [
+            (s) => [s.activity],
+            (activity): number | null => {
+                return activity.total_count ?? null
+            },
+        ],
+    })),
+    listeners(({ actions }) => ({
         setPage: async (_, breakpoint) => {
-            await breakpoint()
-            actions.fetchNextPage()
+            breakpoint()
+            actions.fetchActivity()
         },
-    }),
-    urlToAction: ({ values, actions, props }) => {
+    })),
+    urlToAction(({ values, actions, props }) => {
         const onPageChange = (
             searchParams: Record<string, any>,
             hashParams: Record<string, any>,
@@ -146,22 +148,22 @@ export const activityLogLogic = kea<activityLogLogicType>({
             }
         }
         return {
-            '/person/*': ({}, searchParams, hashParams) => onPageChange(searchParams, hashParams, ActivityScope.PERSON),
-            [urls.featureFlags()]: ({}, searchParams, hashParams) =>
+            '/person/*': (_, searchParams, hashParams) => onPageChange(searchParams, hashParams, ActivityScope.PERSON),
+            [urls.featureFlags()]: (_, searchParams, hashParams) =>
                 onPageChange(searchParams, hashParams, ActivityScope.FEATURE_FLAG),
-            [urls.savedInsights()]: ({}, searchParams, hashParams) =>
+            [urls.savedInsights()]: (_, searchParams, hashParams) =>
                 onPageChange(searchParams, hashParams, ActivityScope.INSIGHT),
-            [urls.projectApps()]: ({}, searchParams, hashParams) =>
+            [urls.projectApps()]: (_, searchParams, hashParams) =>
                 onPageChange(searchParams, hashParams, ActivityScope.PLUGIN),
-            [urls.featureFlag(':id')]: ({}, searchParams, hashParams) =>
+            [urls.featureFlag(':id')]: (_, searchParams, hashParams) =>
                 onPageChange(searchParams, hashParams, ActivityScope.FEATURE_FLAG, true),
-            [urls.appHistory(':pluginConfigId')]: ({}, searchParams, hashParams) =>
+            [urls.appHistory(':pluginConfigId')]: (_, searchParams, hashParams) =>
                 onPageChange(searchParams, hashParams, ActivityScope.PLUGIN, true),
         }
-    },
-    events: ({ actions }) => ({
-        afterMount: () => {
-            actions.fetchNextPage()
-        },
     }),
-})
+    events(({ actions }) => ({
+        afterMount: () => {
+            actions.fetchActivity()
+        },
+    })),
+])

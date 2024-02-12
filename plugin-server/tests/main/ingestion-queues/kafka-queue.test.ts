@@ -1,4 +1,7 @@
+import { Assignment } from 'node-rdkafka'
+
 import { KAFKA_EVENTS_PLUGIN_INGESTION } from '../../../src/config/kafka-topics'
+import { countPartitionsPerTopic } from '../../../src/kafka/consumer'
 import { ServerInstance, startPluginsServer } from '../../../src/main/pluginsServer'
 import { LogLevel, PluginsServerConfig } from '../../../src/types'
 import { Hub } from '../../../src/types'
@@ -51,11 +54,6 @@ describe.skip('IngestionConsumer', () => {
 
     test('consumer consumes from both topics - ingestion and buffer', async () => {
         expect((await hub.db.fetchEvents()).length).toBe(0)
-        hub.statsd = {
-            timing: jest.fn(),
-            increment: jest.fn(),
-            gauge: jest.fn(),
-        } as any
 
         const uuid = new UUIDT().toString()
 
@@ -67,15 +65,24 @@ describe.skip('IngestionConsumer', () => {
         const events = await hub.db.fetchEvents()
 
         expect(events.length).toEqual(1)
+    })
+})
 
-        const statsdTimingCalls = (hub.statsd?.timing as any).mock.calls
+describe('countPartitionsPerTopic', () => {
+    it('should correctly count the number of partitions per topic', () => {
+        const assignments: Assignment[] = [
+            { topic: 'topic1', partition: 0 },
+            { topic: 'topic1', partition: 1 },
+            { topic: 'topic2', partition: 0 },
+            { topic: 'topic2', partition: 1 },
+            { topic: 'topic2', partition: 2 },
+            { topic: 'topic3', partition: 0 },
+        ]
 
-        const mainIngestionCalls = statsdTimingCalls.filter(
-            (item: string[]) => item[0] === 'kafka_queue.single_ingestion'
-        )
-        expect(mainIngestionCalls.length).toEqual(1)
-
-        const bufferCalls = statsdTimingCalls.filter((item: string[]) => item[0] === 'kafka_queue.ingest_buffer_event')
-        expect(bufferCalls.length).toEqual(1)
+        const result = countPartitionsPerTopic(assignments)
+        expect(result.get('topic1')).toBe(2)
+        expect(result.get('topic2')).toBe(3)
+        expect(result.get('topic3')).toBe(1)
+        expect(result.size).toBe(3)
     })
 })

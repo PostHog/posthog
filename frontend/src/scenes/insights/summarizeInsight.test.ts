@@ -1,4 +1,27 @@
+import { RETENTION_FIRST_TIME, RETENTION_RECURRING } from 'lib/constants'
+import { summarizeInsight, SummaryContext } from 'scenes/insights/summarizeInsight'
+import {
+    BASE_MATH_DEFINITIONS,
+    COUNT_PER_ACTOR_MATH_DEFINITIONS,
+    HOGQL_MATH_DEFINITIONS,
+    MathCategory,
+    MathDefinition,
+    PROPERTY_MATH_DEFINITIONS,
+} from 'scenes/trends/mathsLogic'
+
 import { Noun } from '~/models/groupsModel'
+import {
+    DataTableNode,
+    FunnelsQuery,
+    InsightVizNode,
+    LifecycleQuery,
+    NodeKind,
+    PathsQuery,
+    RetentionQuery,
+    StickinessQuery,
+    TimeToSeeDataWaterfallNode,
+    TrendsQuery,
+} from '~/queries/schema'
 import {
     BaseMathType,
     CohortType,
@@ -12,28 +35,6 @@ import {
     RetentionFilterType,
     TrendsFilterType,
 } from '~/types'
-import {
-    BASE_MATH_DEFINITIONS,
-    COUNT_PER_ACTOR_MATH_DEFINITIONS,
-    HOGQL_MATH_DEFINITIONS,
-    MathCategory,
-    MathDefinition,
-    PROPERTY_MATH_DEFINITIONS,
-} from 'scenes/trends/mathsLogic'
-import { RETENTION_FIRST_TIME, RETENTION_RECURRING } from 'lib/constants'
-import {
-    DataTableNode,
-    FunnelsQuery,
-    InsightVizNode,
-    LifecycleQuery,
-    NodeKind,
-    PathsQuery,
-    RetentionQuery,
-    StickinessQuery,
-    TimeToSeeDataWaterfallNode,
-    TrendsQuery,
-} from '~/queries/schema'
-import { summarizeInsight, SummaryContext } from 'scenes/insights/summarizeInsight'
 
 const aggregationLabel = (groupTypeIndex: number | null | undefined): Noun =>
     groupTypeIndex != undefined
@@ -307,12 +308,12 @@ describe('summarizing insights', () => {
                         target_entity: {
                             id: '$autocapture',
                             name: '$autocapture',
-                            type: 'event',
+                            type: 'events',
                         },
                         returning_entity: {
                             id: '$autocapture',
                             name: '$autocapture',
-                            type: 'event',
+                            type: 'events',
                         },
                         retention_type: RETENTION_FIRST_TIME,
                     } as RetentionFilterType,
@@ -332,12 +333,12 @@ describe('summarizing insights', () => {
                         target_entity: {
                             id: 'purchase',
                             name: 'purchase',
-                            type: 'event',
+                            type: 'events',
                         },
                         returning_entity: {
                             id: '$pageview',
                             name: '$pageview',
-                            type: 'event',
+                            type: 'events',
                         },
                         retention_type: RETENTION_RECURRING,
                         aggregation_group_type_index: 0,
@@ -584,7 +585,7 @@ describe('summarizing insights', () => {
                         math: BaseMathType.UniqueUsers,
                     },
                 ],
-                breakdown: {
+                breakdownFilter: {
                     breakdown_type: 'event',
                     breakdown: '$browser',
                 },
@@ -615,7 +616,7 @@ describe('summarizing insights', () => {
                         math: BaseMathType.UniqueUsers,
                     },
                 ],
-                breakdown: {
+                breakdownFilter: {
                     breakdown_type: 'cohort',
                     breakdown: ['all', 1],
                 },
@@ -708,7 +709,7 @@ describe('summarizing insights', () => {
                     },
                 ],
                 aggregation_group_type_index: 0,
-                breakdown: {
+                breakdownFilter: {
                     breakdown_type: 'person',
                     breakdown: 'some_prop',
                 },
@@ -727,17 +728,17 @@ describe('summarizing insights', () => {
             const query: RetentionQuery = {
                 kind: NodeKind.RetentionQuery,
                 retentionFilter: {
-                    target_entity: {
+                    targetEntity: {
                         id: '$autocapture',
                         name: '$autocapture',
-                        type: 'event',
+                        type: 'events',
                     },
-                    returning_entity: {
+                    returningEntity: {
                         id: '$autocapture',
                         name: '$autocapture',
-                        type: 'event',
+                        type: 'events',
                     },
-                    retention_type: RETENTION_FIRST_TIME,
+                    retentionType: RETENTION_FIRST_TIME,
                 },
             }
 
@@ -756,17 +757,17 @@ describe('summarizing insights', () => {
             const query: RetentionQuery = {
                 kind: NodeKind.RetentionQuery,
                 retentionFilter: {
-                    target_entity: {
+                    targetEntity: {
                         id: 'purchase',
                         name: 'purchase',
-                        type: 'event',
+                        type: 'events',
                     },
-                    returning_entity: {
+                    returningEntity: {
                         id: '$pageview',
                         name: '$pageview',
-                        type: 'event',
+                        type: 'events',
                     },
-                    retention_type: RETENTION_RECURRING,
+                    retentionType: RETENTION_RECURRING,
                 },
                 aggregation_group_type_index: 0,
             }
@@ -786,7 +787,7 @@ describe('summarizing insights', () => {
             const query: PathsQuery = {
                 kind: NodeKind.PathsQuery,
                 pathsFilter: {
-                    include_event_types: [PathType.PageView, PathType.Screen, PathType.CustomEvent],
+                    includeEventTypes: [PathType.PageView, PathType.Screen, PathType.CustomEvent],
                 },
             }
 
@@ -799,11 +800,11 @@ describe('summarizing insights', () => {
             expect(result).toEqual('User paths based on all events')
         })
 
-        it('summarizes a Paths insight based on all events (empty include_event_types case)', () => {
+        it('summarizes a Paths insight based on all events (empty includeEventTypes case)', () => {
             const query: PathsQuery = {
                 kind: NodeKind.PathsQuery,
                 pathsFilter: {
-                    include_event_types: [],
+                    includeEventTypes: [],
                 },
             }
 
@@ -820,9 +821,9 @@ describe('summarizing insights', () => {
             const query: PathsQuery = {
                 kind: NodeKind.PathsQuery,
                 pathsFilter: {
-                    include_event_types: [PathType.PageView],
-                    start_point: '/landing-page',
-                    end_point: '/basket',
+                    includeEventTypes: [PathType.PageView],
+                    startPoint: '/landing-page',
+                    endPoint: '/basket',
                 },
             }
 

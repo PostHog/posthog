@@ -10,7 +10,11 @@ from posthog.async_migrations.definition import (
     AsyncMigrationOperationSQL,
 )
 from posthog.async_migrations.disk_util import analyze_enough_disk_space_free_for_table
-from posthog.async_migrations.utils import execute_op_clickhouse, run_optimize_table, sleep_until_finished
+from posthog.async_migrations.utils import (
+    execute_op_clickhouse,
+    run_optimize_table,
+    sleep_until_finished,
+)
 from posthog.client import sync_execute
 from posthog.models.event.sql import EVENTS_DATA_TABLE
 from posthog.utils import str_to_bool
@@ -74,16 +78,36 @@ class Migration(AsyncMigrationDefinition):
     posthog_max_version = "1.41.99"
 
     parameters = {
-        "PERSON_DICT_CACHE_SIZE": (5000000, "ClickHouse cache size (in rows) for persons data.", int),
+        "PERSON_DICT_CACHE_SIZE": (
+            5000000,
+            "ClickHouse cache size (in rows) for persons data.",
+            int,
+        ),
         "PERSON_DISTINCT_ID_DICT_CACHE_SIZE": (
             5000000,
             "ClickHouse cache size (in rows) for person distinct id data.",
             int,
         ),
-        "GROUPS_DICT_CACHE_SIZE": (1000000, "ClickHouse cache size (in rows) for groups data.", int),
-        "RUN_DATA_VALIDATION_POSTCHECK": ("True", "Whether to run a postcheck validating the backfilled data.", str),
-        "TIMESTAMP_LOWER_BOUND": ("2020-01-01", "Timestamp lower bound for events to backfill", str),
-        "TIMESTAMP_UPPER_BOUND": ("2024-01-01", "Timestamp upper bound for events to backfill", str),
+        "GROUPS_DICT_CACHE_SIZE": (
+            1000000,
+            "ClickHouse cache size (in rows) for groups data.",
+            int,
+        ),
+        "RUN_DATA_VALIDATION_POSTCHECK": (
+            "True",
+            "Whether to run a postcheck validating the backfilled data.",
+            str,
+        ),
+        "TIMESTAMP_LOWER_BOUND": (
+            "2020-01-01",
+            "Timestamp lower bound for events to backfill",
+            str,
+        ),
+        "TIMESTAMP_UPPER_BOUND": (
+            "2025-01-01",
+            "Timestamp upper bound for events to backfill",
+            str,
+        ),
         "TEAM_ID": (
             None,
             "The team_id of team to run backfill for. If unset the backfill will run for all teams.",
@@ -95,7 +119,6 @@ class Migration(AsyncMigrationDefinition):
         return analyze_enough_disk_space_free_for_table(EVENTS_DATA_TABLE(), required_ratio=2.0)
 
     def is_required(self) -> bool:
-
         # we don't check groupX_created_at columns as they are 0 by default
         rows_to_backfill_check = sync_execute(
             """
@@ -435,8 +458,9 @@ class Migration(AsyncMigrationDefinition):
         )
 
     def _create_dictionaries(self, query_id):
-        execute_op_clickhouse(
-            f"""
+        (
+            execute_op_clickhouse(
+                f"""
                 CREATE DICTIONARY IF NOT EXISTS {settings.CLICKHOUSE_DATABASE}.person_dict {{on_cluster_clause}}
                 (
                     team_id Int64,
@@ -449,12 +473,14 @@ class Migration(AsyncMigrationDefinition):
                 LAYOUT(complex_key_cache(size_in_cells %(cache_size)s max_threads_for_updates 6 allow_read_expired_keys 1))
                 Lifetime(60000)
             """,
-            {"cache_size": self.get_parameter("PERSON_DICT_CACHE_SIZE")},
-            per_shard=True,
-            query_id=query_id,
-        ),
-        execute_op_clickhouse(
-            f"""
+                {"cache_size": self.get_parameter("PERSON_DICT_CACHE_SIZE")},
+                per_shard=True,
+                query_id=query_id,
+            ),
+        )
+        (
+            execute_op_clickhouse(
+                f"""
                 CREATE DICTIONARY IF NOT EXISTS {settings.CLICKHOUSE_DATABASE}.person_distinct_id2_dict {{on_cluster_clause}}
                 (
                     team_id Int64,
@@ -466,10 +492,11 @@ class Migration(AsyncMigrationDefinition):
                 LAYOUT(complex_key_cache(size_in_cells %(cache_size)s max_threads_for_updates 6 allow_read_expired_keys 1))
                 Lifetime(60000)
             """,
-            {"cache_size": self.get_parameter("PERSON_DISTINCT_ID_DICT_CACHE_SIZE")},
-            per_shard=True,
-            query_id=query_id,
-        ),
+                {"cache_size": self.get_parameter("PERSON_DISTINCT_ID_DICT_CACHE_SIZE")},
+                per_shard=True,
+                query_id=query_id,
+            ),
+        )
         execute_op_clickhouse(
             f"""
                 CREATE DICTIONARY IF NOT EXISTS {settings.CLICKHOUSE_DATABASE}.groups_dict {{on_cluster_clause}}
@@ -501,7 +528,10 @@ class Migration(AsyncMigrationDefinition):
             FROM clusterAllReplicas(%(cluster)s, system, 'mutations')
             WHERE not is_done AND command LIKE %(pattern)s
             """,
-            {"cluster": settings.CLICKHOUSE_CLUSTER, "pattern": "%person_created_at = toDateTime(0)%"},
+            {
+                "cluster": settings.CLICKHOUSE_CLUSTER,
+                "pattern": "%person_created_at = toDateTime(0)%",
+            },
         )[0][0]
 
     def _clear_temporary_tables(self, query_id):

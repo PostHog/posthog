@@ -105,8 +105,7 @@ class TrendsFormula:
                     additional_values["aggregated_value"] = item[1][0]
                 else:
                     additional_values["data"] = [
-                        round(number, 2) if not math.isnan(number) and not math.isinf(number) else 0.0
-                        for number in item[1]
+                        number if not math.isnan(number) and not math.isinf(number) else 0.0 for number in item[1]
                     ]
                     if filter.display == TRENDS_CUMULATIVE:
                         additional_values["data"] = list(accumulate(additional_values["data"]))

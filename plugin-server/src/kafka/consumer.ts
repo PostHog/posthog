@@ -1,23 +1,25 @@
 import {
+    Assignment,
     ClientMetrics,
     CODES,
     ConsumerGlobalConfig,
+    ConsumerTopicConfig,
     KafkaConsumer as RdKafkaConsumer,
     LibrdKafkaError,
     Message,
     TopicPartition,
     TopicPartitionOffset,
-} from 'node-rdkafka-acosom'
+} from 'node-rdkafka'
 
-import { latestOffsetTimestampGauge } from '../main/ingestion-queues/metrics'
+import { kafkaRebalancePartitionCount, latestOffsetTimestampGauge } from '../main/ingestion-queues/metrics'
 import { status } from '../utils/status'
 
-export const createKafkaConsumer = async (config: ConsumerGlobalConfig) => {
+export const createKafkaConsumer = async (config: ConsumerGlobalConfig, topicConfig: ConsumerTopicConfig = {}) => {
     // Creates a node-rdkafka consumer and connects it to the brokers, resolving
     // only when the connection is established.
 
     return await new Promise<RdKafkaConsumer>((resolve, reject) => {
-        const consumer = new RdKafkaConsumer(config, {})
+        const consumer = new RdKafkaConsumer(config, topicConfig)
 
         consumer.on('event.log', (log) => {
             status.info('📝', 'librdkafka log', { log: log })
@@ -54,6 +56,19 @@ export const createKafkaConsumer = async (config: ConsumerGlobalConfig) => {
         })
     })
 }
+
+export function countPartitionsPerTopic(assignments: Assignment[]): Map<string, number> {
+    const partitionsPerTopic = new Map()
+    for (const assignment of assignments) {
+        if (partitionsPerTopic.has(assignment.topic)) {
+            partitionsPerTopic.set(assignment.topic, partitionsPerTopic.get(assignment.topic) + 1)
+        } else {
+            partitionsPerTopic.set(assignment.topic, 1)
+        }
+    }
+    return partitionsPerTopic
+}
+
 export const instrumentConsumerMetrics = (consumer: RdKafkaConsumer, groupId: string) => {
     // For each message consumed, we record the latest timestamp processed for
     // each partition assigned to this consumer group member. This consumer
@@ -88,9 +103,17 @@ export const instrumentConsumerMetrics = (consumer: RdKafkaConsumer, groupId: st
          * And when the balancing is completed the new assignments are received with ERR__ASSIGN_PARTITIONS
          */
         if (error.code === CODES.ERRORS.ERR__ASSIGN_PARTITIONS) {
-            status.info('📝️', 'librdkafka rebalance, partitions assigned', { assignments })
+            status.info('📝️', `librdkafka cooperative rebalance, partitions assigned`, { assignments })
+            for (const [topic, count] of countPartitionsPerTopic(assignments)) {
+                kafkaRebalancePartitionCount.labels({ topic: topic }).inc(count)
+            }
         } else if (error.code === CODES.ERRORS.ERR__REVOKE_PARTITIONS) {
-            status.info('📝️', 'librdkafka rebalance started, partitions revoked', { assignments })
+            status.info('📝️', `librdkafka cooperative rebalance started, partitions revoked`, {
+                revocations: assignments,
+            })
+            for (const [topic, count] of countPartitionsPerTopic(assignments)) {
+                kafkaRebalancePartitionCount.labels({ topic: topic }).dec(count)
+            }
         } else {
             // We had a "real" error
             status.error('⚠️', 'rebalance_error', { error })
@@ -168,7 +191,13 @@ export const findOffsetsToCommit = (messages: TopicPartitionOffset[]): TopicPart
     return highestOffsets
 }
 
-export const commitOffsetsForMessages = (messages: Message[], consumer: RdKafkaConsumer) => {
+/**
+ * Updates the offsets that will be committed on the next call to commit() (without offsets
+ * specified) or the next auto commit.
+ *
+ * This is a local (in-memory) operation and does not talk to the Kafka broker.
+ */
+export const storeOffsetsForMessages = (messages: Message[], consumer: RdKafkaConsumer) => {
     const topicPartitionOffsets = findOffsetsToCommit(messages).map((message) => {
         return {
             ...message,
@@ -178,8 +207,8 @@ export const commitOffsetsForMessages = (messages: Message[], consumer: RdKafkaC
     })
 
     if (topicPartitionOffsets.length > 0) {
-        status.debug('📝', 'Committing offsets', { topicPartitionOffsets })
-        consumer.commit(topicPartitionOffsets)
+        status.debug('📝', 'Storing offsets', { topicPartitionOffsets })
+        consumer.offsetsStore(topicPartitionOffsets)
     }
 }
 

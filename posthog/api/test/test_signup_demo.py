@@ -57,7 +57,12 @@ class TestDemoSignupAPI(APIBaseTest):
         # first_name and organization_name aren't used when logging in
         # In demo, the signup endpoint functions as login if the email already exists
         response = self.client.post(
-            "/api/signup/", {"email": "charlie@tech-r-us.com", "first_name": "X", "organization_name": "Y"}
+            "/api/signup/",
+            {
+                "email": "charlie@tech-r-us.com",
+                "first_name": "X",
+                "organization_name": "Y",
+            },
         )
 
         user = auth.get_user(self.client)

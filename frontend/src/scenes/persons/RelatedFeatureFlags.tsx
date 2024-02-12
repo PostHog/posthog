@@ -1,12 +1,14 @@
 import { LemonInput, LemonSelect, LemonTable, LemonTag, Link } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
+import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
 import { LemonTableColumns } from 'lib/lemon-ui/LemonTable'
-import { normalizeColumnTitle } from 'lib/components/Table/utils'
 import { capitalizeFirstLetter } from 'lib/utils'
 import stringWithWBR from 'lib/utils/stringWithWBR'
 import { urls } from 'scenes/urls'
+
 import { FeatureFlagReleaseType } from '~/types'
-import { relatedFeatureFlagsLogic, RelatedFeatureFlag } from './relatedFeatureFlagsLogic'
+
+import { RelatedFeatureFlag, relatedFeatureFlagsLogic } from './relatedFeatureFlagsLogic'
 
 interface Props {
     distinctId: string
@@ -39,7 +41,7 @@ export function RelatedFeatureFlags({ distinctId, groups }: Props): JSX.Element 
 
     const columns: LemonTableColumns<RelatedFeatureFlag> = [
         {
-            title: normalizeColumnTitle('Key'),
+            title: 'Key',
             dataIndex: 'key',
             className: 'ph-no-capture',
             sticky: true,
@@ -55,7 +57,11 @@ export function RelatedFeatureFlags({ distinctId, groups }: Props): JSX.Element 
                                 {isExperiment ? 'Experiment' : 'Feature flag'}
                             </LemonTag>
                         </Link>
-                        {featureFlag.name && <span className="row-description">{featureFlag.name}</span>}
+                        {featureFlag.name && (
+                            <LemonMarkdown className="row-description" lowKeyHeadings>
+                                {featureFlag.name}
+                            </LemonMarkdown>
+                        )}
                     </>
                 )
             },
@@ -75,10 +81,10 @@ export function RelatedFeatureFlags({ distinctId, groups }: Props): JSX.Element 
             width: 150,
             render: function Render(_, featureFlag: RelatedFeatureFlag) {
                 return (
-                    <div style={{ wordBreak: 'break-word' }}>
+                    <div className="break-words">
                         {featureFlag.active && featureFlag.value
                             ? capitalizeFirstLetter(featureFlag.value.toString())
-                            : '--'}
+                            : 'False'}
                     </div>
                 )
             },
@@ -94,7 +100,7 @@ export function RelatedFeatureFlags({ distinctId, groups }: Props): JSX.Element 
                         {featureFlag.active ? <>{featureFlagMatchMapping[featureFlag.evaluation.reason]}</> : '--'}
 
                         {matchesSet && (
-                            <span className="simple-tag ml-2" style={{ background: 'var(--primary-highlight)' }}>
+                            <span className="simple-tag ml-2 bg-primary-highlight">
                                 Set {(featureFlag.evaluation.condition_index ?? 0) + 1}
                             </span>
                         )}
@@ -112,9 +118,19 @@ export function RelatedFeatureFlags({ distinctId, groups }: Props): JSX.Element 
             },
         },
     ]
+
+    const options = [
+        { label: 'All types', value: 'all' },
+        {
+            label: FeatureFlagReleaseType.ReleaseToggle,
+            value: FeatureFlagReleaseType.ReleaseToggle,
+        },
+        { label: FeatureFlagReleaseType.Variants, value: FeatureFlagReleaseType.Variants },
+    ]
+
     return (
         <>
-            <div className="flex justify-between mb-4">
+            <div className="flex justify-between mb-4 gap-2 flex-wrap">
                 <LemonInput
                     type="search"
                     placeholder="Search for feature flags"
@@ -126,14 +142,7 @@ export function RelatedFeatureFlags({ distinctId, groups }: Props): JSX.Element 
                         <b>Type</b>
                     </span>
                     <LemonSelect
-                        options={[
-                            { label: 'All types', value: 'all' },
-                            {
-                                label: FeatureFlagReleaseType.ReleaseToggle,
-                                value: FeatureFlagReleaseType.ReleaseToggle,
-                            },
-                            { label: FeatureFlagReleaseType.Variants, value: FeatureFlagReleaseType.Variants },
-                        ]}
+                        options={options}
                         onChange={(type) => {
                             if (type) {
                                 if (type === 'all') {
@@ -153,11 +162,13 @@ export function RelatedFeatureFlags({ distinctId, groups }: Props): JSX.Element 
                         <b>Match evaluation</b>
                     </span>
                     <LemonSelect
-                        options={[
-                            { label: 'All', value: 'all' },
-                            { label: 'Matched', value: FeatureFlagMatchReason.ConditionMatch },
-                            { label: 'Not matched', value: 'not matched' },
-                        ]}
+                        options={
+                            [
+                                { label: 'All', value: 'all' },
+                                { label: 'Matched', value: FeatureFlagMatchReason.ConditionMatch },
+                                { label: 'Not matched', value: 'not matched' },
+                            ] as { label: string; value: string }[]
+                        }
                         onChange={(reason) => {
                             if (reason) {
                                 if (reason === 'all') {
@@ -174,7 +185,7 @@ export function RelatedFeatureFlags({ distinctId, groups }: Props): JSX.Element 
                         dropdownMaxContentWidth
                     />
                     <span className="ml-2">
-                        <b>Status</b>
+                        <b>Flag status</b>
                     </span>
                     <LemonSelect
                         onChange={(status) => {
@@ -189,11 +200,13 @@ export function RelatedFeatureFlags({ distinctId, groups }: Props): JSX.Element 
                                 }
                             }
                         }}
-                        options={[
-                            { label: 'All', value: 'all' },
-                            { label: 'Enabled', value: 'true' },
-                            { label: 'Disabled', value: 'false' },
-                        ]}
+                        options={
+                            [
+                                { label: 'All', value: 'all' },
+                                { label: 'Enabled', value: 'true' },
+                                { label: 'Disabled', value: 'false' },
+                            ] as { label: string; value: string }[]
+                        }
                         value="all"
                         dropdownMaxContentWidth
                     />

@@ -1,23 +1,27 @@
+import '../../lib/components/Cards/InsightCard/InsightCard.scss'
+
+import { captureException } from '@sentry/react'
 import {
     ActivityChange,
     ActivityLogItem,
     ChangeMapping,
+    defaultDescriber,
     Description,
     detectBoolean,
     HumanizedChange,
+    userNameForLogItem,
 } from 'lib/components/ActivityLog/humanizeActivity'
-import { Link } from 'lib/lemon-ui/Link'
-import { urls } from 'scenes/urls'
-import { FilterType, InsightModel, InsightShortId } from '~/types'
-import { BreakdownSummary, FiltersSummary, QuerySummary } from 'lib/components/Cards/InsightCard/InsightDetails'
-import '../../lib/components/Cards/InsightCard/InsightCard.scss'
-import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
-import { areObjectValuesEmpty, pluralize } from 'lib/utils'
 import { SentenceList } from 'lib/components/ActivityLog/SentenceList'
+import { BreakdownSummary, FiltersSummary, QuerySummary } from 'lib/components/Cards/InsightCard/InsightDetails'
+import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
+import { Link } from 'lib/lemon-ui/Link'
+import { areObjectValuesEmpty, pluralize } from 'lib/utils'
+import { urls } from 'scenes/urls'
+
 import { queryNodeToFilter } from '~/queries/nodes/InsightQuery/utils/queryNodeToFilter'
 import { InsightQueryNode, QuerySchema } from '~/queries/schema'
 import { isInsightQueryNode } from '~/queries/utils'
-import { captureException } from '@sentry/react'
+import { FilterType, InsightModel, InsightShortId } from '~/types'
 
 const nameOrLinkToInsight = (short_id?: InsightShortId | null, name?: string | null): string | JSX.Element => {
     const displayName = name || '(empty string)'
@@ -99,7 +103,8 @@ const insightActionsMapping: Record<
         return {
             description: [
                 <>
-                    changed the short id {asNotification && ' of the insight '}to <strong>"{change?.after}"</strong>
+                    changed the short id {asNotification && ' of the insight '}to{' '}
+                    <strong>"{change?.after as string}"</strong>
                 </>,
             ],
         }
@@ -119,7 +124,8 @@ const insightActionsMapping: Record<
         return {
             description: [
                 <>
-                    changed the description {asNotification && ' of the insight '}to <strong>"{change?.after}"</strong>
+                    changed the description {asNotification && ' of the insight '}to{' '}
+                    <strong>"{change?.after as string}"</strong>
                 </>,
             ],
         }
@@ -229,7 +235,7 @@ function summarizeChanges(filtersAfter: Partial<FilterType>): ChangeMapping | nu
     return {
         description: ['changed query definition'],
         extendedDescription: (
-            <div className="summary-card">
+            <div className="ActivityDescription">
                 <QuerySummary filters={filtersAfter} />
                 <FiltersSummary filters={filtersAfter} />
                 {filtersAfter.breakdown_type && <BreakdownSummary filters={filtersAfter} />}
@@ -248,7 +254,7 @@ export function insightActivityDescriber(logItem: ActivityLogItem, asNotificatio
         return {
             description: (
                 <>
-                    <strong>{logItem.user.first_name}</strong> created the insight:{' '}
+                    <strong>{userNameForLogItem(logItem)}</strong> created the insight:{' '}
                     {nameOrLinkToInsight(logItem?.detail.short_id, logItem?.detail.name)}
                 </>
             ),
@@ -259,7 +265,7 @@ export function insightActivityDescriber(logItem: ActivityLogItem, asNotificatio
         return {
             description: (
                 <>
-                    <strong>{logItem.user.first_name}</strong> deleted {asNotification ? 'your' : 'the'} insight:{' '}
+                    <strong>{userNameForLogItem(logItem)}</strong> deleted {asNotification ? 'your' : 'the'} insight:{' '}
                     {logItem.detail.name}
                 </>
             ),
@@ -281,7 +287,7 @@ export function insightActivityDescriber(logItem: ActivityLogItem, asNotificatio
         return {
             description: (
                 <>
-                    <strong>{logItem.user.first_name}</strong> shared {asNotification ? 'your' : 'the'} insight:{' '}
+                    <strong>{userNameForLogItem(logItem)}</strong> shared {asNotification ? 'your' : 'the'} insight:{' '}
                     {logItem.detail.name}.
                 </>
             ),
@@ -292,8 +298,8 @@ export function insightActivityDescriber(logItem: ActivityLogItem, asNotificatio
         return {
             description: (
                 <>
-                    <strong>{logItem.user.first_name}</strong> deleted shared link for {asNotification ? 'your' : 'the'}{' '}
-                    insight: {logItem.detail.name}.
+                    <strong>{userNameForLogItem(logItem)}</strong> deleted shared link for{' '}
+                    {asNotification ? 'your' : 'the'} insight: {logItem.detail.name}.
                 </>
             ),
         }
@@ -342,7 +348,7 @@ export function insightActivityDescriber(logItem: ActivityLogItem, asNotificatio
                 description: (
                     <SentenceList
                         listParts={changes}
-                        prefix={<strong>{logItem.user.first_name}</strong>}
+                        prefix={<strong>{userNameForLogItem(logItem)}</strong>}
                         suffix={changeSuffix}
                     />
                 ),
@@ -360,12 +366,12 @@ export function insightActivityDescriber(logItem: ActivityLogItem, asNotificatio
         return {
             description: (
                 <>
-                    <strong>{logItem.user.first_name}</strong> exported{' '}
+                    <strong>{userNameForLogItem(logItem)}</strong> exported{' '}
                     {nameOrLinkToInsight(logItem?.detail.short_id, logItem?.detail.name)} as a {exportType}
                 </>
             ),
         }
     }
 
-    return { description: null }
+    return defaultDescriber(logItem, asNotification, nameOrLinkToInsight(logItem?.detail.short_id))
 }

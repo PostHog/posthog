@@ -1,7 +1,16 @@
 import * as Sentry from '@sentry/node'
+import RE2 from 're2'
 
 import { Element } from '../../types'
 import { escapeQuotes } from './utils'
+
+// Below splits all elements by ;, while ignoring escaped quotes and semicolons within quotes
+const splitChainRegex = new RE2(/(?:[^\s;"]|"(?:\\.|[^"])*")+/g)
+// Below splits the tag/classes from attributes
+// Needs a regex because classes can have : too
+const splitClassAttributes = new RE2(/(.*?)($|:([a-zA-Z\-_0-9]*=.*))/g)
+const parseAttributesRegex = new RE2(/((.*?)="(.*?[^\\])")/gm)
+const newLine = new RE2(/\\n/g)
 
 export function elementsToString(elements: Element[]): string {
     const ret = elements.map((element) => {
@@ -40,15 +49,7 @@ export function elementsToString(elements: Element[]): string {
 export function chainToElements(chain: string, teamId: number, options: { throwOnError?: boolean } = {}): Element[] {
     const elements: Element[] = []
 
-    // Below splits all elements by ;, while ignoring escaped quotes and semicolons within quotes
-    const splitChainRegex = /(?:[^\s;"]|"(?:\\.|[^"])*")+/g
-
-    // Below splits the tag/classes from attributes
-    // Needs a regex because classes can have : too
-    const splitClassAttributes = /(.*?)($|:([a-zA-Z\-_0-9]*=.*))/g
-    const parseAttributesRegex = /((.*?)="(.*?[^\\])")/gm
-
-    chain = chain.replaceAll('\n', '')
+    chain = chain.replaceAll(newLine, '')
 
     try {
         Array.from(chain.matchAll(splitChainRegex))

@@ -1,14 +1,16 @@
-import { Properties } from '@posthog/plugin-scaffold'
-import { PropertiesTable } from 'lib/components/PropertiesTable'
-import { useActions, useValues } from 'kea'
 import { LemonDivider } from '@posthog/lemon-ui'
-import { propertiesTimelineLogic, PropertiesTimelineProps } from './propertiesTimelineLogic'
-import { TimelineSeekbar } from '../TimelineSeekbar'
-import { Tooltip } from 'lib/lemon-ui/Tooltip'
+import { Properties } from '@posthog/plugin-scaffold'
+import { useActions, useValues } from 'kea'
+import { PropertiesTable } from 'lib/components/PropertiesTable'
 import { IconInfo } from 'lib/lemon-ui/icons'
+import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { humanList } from 'lib/utils'
 import { teamLogic } from 'scenes/teamLogic'
+
 import { PropertyDefinitionType } from '~/types'
+
+import { TimelineSeekbar } from '../TimelineSeekbar'
+import { propertiesTimelineLogic, PropertiesTimelineProps } from './propertiesTimelineLogic'
 
 export function PropertiesTimeline({ actor, filter }: PropertiesTimelineProps): JSX.Element {
     const logic = propertiesTimelineLogic({ actor, filter })

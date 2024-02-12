@@ -1,4 +1,5 @@
 import posthog from 'posthog-js'
+
 import { ExportedData } from '~/exporter/types'
 
 declare global {

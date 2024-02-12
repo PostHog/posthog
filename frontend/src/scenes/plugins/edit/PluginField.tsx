@@ -1,15 +1,14 @@
-import { UploadField } from 'scenes/plugins/edit/UploadField'
-import { Button, Input, Select } from 'antd'
-import { useState } from 'react'
+import { LemonButton, LemonInput, LemonSelect } from '@posthog/lemon-ui'
 import { PluginConfigSchema } from '@posthog/plugin-scaffold/src/types'
-import { EditOutlined } from '@ant-design/icons'
-import { SECRET_FIELD_VALUE } from 'scenes/plugins/utils'
-import MonacoEditor from '@monaco-editor/react'
+import { CodeEditor } from 'lib/components/CodeEditors'
+import { IconEdit } from 'lib/lemon-ui/icons'
+import { useState } from 'react'
 import { AutoSizer } from 'react-virtualized/dist/es/AutoSizer'
-import { Spinner } from 'lib/lemon-ui/Spinner'
+import { SECRET_FIELD_VALUE } from 'scenes/pipeline/configUtils'
+import { UploadField } from 'scenes/plugins/edit/UploadField'
 
 function JsonConfigField(props: {
-    onChange: (value: any) => void
+    onChange?: (value: any) => void
     className: string
     autoFocus: boolean
     value: any
@@ -17,19 +16,17 @@ function JsonConfigField(props: {
     return (
         <AutoSizer disableWidth className="min-h-60">
             {({ height }) => (
-                <MonacoEditor
-                    theme="vs-light"
+                <CodeEditor
                     className="border"
                     language="json"
                     value={props.value}
-                    onChange={(v) => props.onChange(v ?? '')}
+                    onChange={(v) => props.onChange?.(v ?? '')}
                     height={height}
                     options={{
                         minimap: {
                             enabled: false,
                         },
                     }}
-                    loading={<Spinner />}
                 />
             )}
         </AutoSizer>
@@ -42,7 +39,7 @@ export function PluginField({
     fieldConfig,
 }: {
     value?: any
-    onChange: (value: any) => void
+    onChange?: (value: any) => void
     fieldConfig: PluginConfigSchema
 }): JSX.Element {
     const [editingSecret, setEditingSecret] = useState(false)
@@ -53,34 +50,37 @@ export function PluginField({
         (value === SECRET_FIELD_VALUE || value.name === SECRET_FIELD_VALUE)
     ) {
         return (
-            <Button
-                icon={<EditOutlined />}
+            <LemonButton
+                type="secondary"
+                icon={<IconEdit />}
                 onClick={() => {
-                    onChange(fieldConfig.default || '')
+                    onChange?.(fieldConfig.default || '')
                     setEditingSecret(true)
                 }}
             >
                 Reset secret {fieldConfig.type === 'attachment' ? 'attachment' : 'field'}
-            </Button>
+            </LemonButton>
         )
     }
 
     return fieldConfig.type === 'attachment' ? (
         <UploadField value={value} onChange={onChange} />
     ) : fieldConfig.type === 'string' ? (
-        <Input value={value} onChange={onChange} autoFocus={editingSecret} className="ph-no-capture" />
+        <LemonInput value={value} onChange={onChange} autoFocus={editingSecret} className="ph-no-capture" />
     ) : fieldConfig.type === 'json' ? (
         <JsonConfigField value={value} onChange={onChange} autoFocus={editingSecret} className="ph-no-capture" />
     ) : fieldConfig.type === 'choice' ? (
-        <Select dropdownMatchSelectWidth={false} value={value} className="ph-no-capture" onChange={onChange} showSearch>
-            {fieldConfig.choices.map((choice) => (
-                <Select.Option value={choice} key={choice}>
-                    {choice}
-                </Select.Option>
-            ))}
-        </Select>
+        <LemonSelect
+            fullWidth
+            value={value}
+            className="ph-no-capture"
+            onChange={onChange}
+            options={fieldConfig.choices.map((choice) => {
+                return { label: choice, value: choice }
+            })}
+        />
     ) : (
-        <strong style={{ color: 'var(--danger)' }}>
+        <strong className="text-danger">
             Unknown field type "<code>{fieldConfig.type}</code>".
             <br />
             You may need to upgrade PostHog!

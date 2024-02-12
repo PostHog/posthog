@@ -1,6 +1,7 @@
-import { CreateOrganizationModal } from '../CreateOrganizationModal'
-import { SceneExport } from 'scenes/sceneTypes'
 import { organizationLogic } from 'scenes/organizationLogic'
+import { SceneExport } from 'scenes/sceneTypes'
+
+import { CreateOrganizationModal } from '../CreateOrganizationModal'
 
 export const scene: SceneExport = {
     component: OrganizationCreate,

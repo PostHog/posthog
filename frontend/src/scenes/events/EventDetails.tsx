@@ -1,28 +1,26 @@
-import { useState } from 'react'
-import { KEY_MAPPING } from 'lib/taxonomy'
-import { PropertiesTable } from 'lib/components/PropertiesTable'
-import { HTMLElementsDisplay } from 'lib/components/HTMLElementsDisplay/HTMLElementsDisplay'
-import { EventJSON } from 'scenes/events/EventJSON'
-import { EventType, PropertyDefinitionType } from '../../types'
+import './EventDetails.scss'
+
 import { Properties } from '@posthog/plugin-scaffold'
+import { ErrorDisplay } from 'lib/components/Errors/ErrorDisplay'
+import { HTMLElementsDisplay } from 'lib/components/HTMLElementsDisplay/HTMLElementsDisplay'
+import { JSONViewer } from 'lib/components/JSONViewer'
+import { PropertiesTable } from 'lib/components/PropertiesTable'
 import { dayjs } from 'lib/dayjs'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
-import { pluralize } from 'lib/utils'
 import { LemonTableProps } from 'lib/lemon-ui/LemonTable'
-import ReactJson from 'react-json-view'
-import { ErrorDisplay } from 'lib/components/Errors/ErrorDisplay'
 import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
+import { CORE_FILTER_DEFINITIONS_BY_GROUP } from 'lib/taxonomy'
+import { pluralize } from 'lib/utils'
+import { useState } from 'react'
 
-import './EventDetails.scss'
+import { EventType, PropertyDefinitionType } from '~/types'
 
 interface EventDetailsProps {
     event: EventType
     tableProps?: Partial<LemonTableProps<Record<string, any>>>
-    /** Used under data exploration tables */
-    useReactJsonView?: boolean
 }
 
-export function EventDetails({ event, tableProps, useReactJsonView }: EventDetailsProps): JSX.Element {
+export function EventDetails({ event, tableProps }: EventDetailsProps): JSX.Element {
     const [showSystemProps, setShowSystemProps] = useState(false)
     const [activeTab, setActiveTab] = useState(event.event === '$exception' ? 'exception' : 'properties')
 
@@ -30,13 +28,13 @@ export function EventDetails({ event, tableProps, useReactJsonView }: EventDetai
     const visibleSystemProperties: Properties = {}
     let systemPropsCount = 0
     for (const key of Object.keys(event.properties)) {
-        if (KEY_MAPPING.event[key] && KEY_MAPPING.event[key].system) {
+        if (CORE_FILTER_DEFINITIONS_BY_GROUP.events[key] && CORE_FILTER_DEFINITIONS_BY_GROUP.events[key].system) {
             systemPropsCount += 1
             if (showSystemProps) {
                 visibleSystemProperties[key] = event.properties[key]
             }
         }
-        if (!KEY_MAPPING.event[key] || !KEY_MAPPING.event[key].system) {
+        if (!CORE_FILTER_DEFINITIONS_BY_GROUP.events[key] || !CORE_FILTER_DEFINITIONS_BY_GROUP.events[key].system) {
             displayedEventProperties[key] = event.properties[key]
         }
     }
@@ -50,7 +48,7 @@ export function EventDetails({ event, tableProps, useReactJsonView }: EventDetai
                     <PropertiesTable
                         type={PropertyDefinitionType.Event}
                         properties={{
-                            $timestamp: dayjs(event.timestamp).toISOString(),
+                            ...('timestamp' in event ? { $timestamp: dayjs(event.timestamp).toISOString() } : {}),
                             ...displayedEventProperties,
                             ...visibleSystemProperties,
                         }}
@@ -72,12 +70,8 @@ export function EventDetails({ event, tableProps, useReactJsonView }: EventDetai
             key: 'json',
             label: 'JSON',
             content: (
-                <div className={useReactJsonView ? 'px-4 py-4' : 'px-2'}>
-                    {useReactJsonView ? (
-                        <ReactJson src={event} name={'event'} collapsed={1} collapseStringsAfterLength={80} sortKeys />
-                    ) : (
-                        <EventJSON event={event} />
-                    )}
+                <div className="px-4 py-4">
+                    <JSONViewer src={event} name="event" collapsed={1} collapseStringsAfterLength={80} sortKeys />
                 </div>
             ),
         },

@@ -2,8 +2,8 @@ from enum import Enum
 from typing import Any, Dict, List, Literal, Optional, Union
 from dataclasses import dataclass, field
 
-from posthog.hogql.base import Type, Expr, CTE, ConstantType, UnknownType
-from posthog.hogql.constants import ConstantDataType
+from posthog.hogql.base import Type, Expr, CTE, ConstantType, UnknownType, AST
+from posthog.hogql.constants import ConstantDataType, HogQLQuerySettings
 from posthog.hogql.database.models import (
     FieldTraverser,
     LazyJoin,
@@ -20,6 +20,7 @@ from posthog.hogql.database.models import (
     FieldOrTable,
     DatabaseField,
     StringArrayDatabaseField,
+    ExpressionField,
 )
 from posthog.hogql.errors import HogQLException, NotImplementedException
 
@@ -37,6 +38,14 @@ class FieldAliasType(Type):
 
     def has_child(self, name: str) -> bool:
         return self.type.has_child(name)
+
+    def resolve_constant_type(self):
+        return self.type.resolve_constant_type()
+
+    def resolve_database_field(self):
+        if isinstance(self.type, FieldType):
+            return self.type.resolve_database_field()
+        raise NotImplementedException("FieldAliasType.resolve_database_field not implemented")
 
 
 @dataclass(kw_only=True)
@@ -60,6 +69,8 @@ class BaseTableType(Type):
                 return FieldTraverserType(table_type=self, chain=field.chain)
             if isinstance(field, VirtualTable):
                 return VirtualTableType(table_type=self, field=name, virtual_table=field)
+            if isinstance(field, ExpressionField):
+                return ExpressionFieldType(table_type=self, name=name, expr=field.expr)
             return FieldType(name=name, table_type=self)
         raise HogQLException(f"Field not found: {name}")
 
@@ -275,6 +286,13 @@ class FieldTraverserType(Type):
 
 
 @dataclass(kw_only=True)
+class ExpressionFieldType(Type):
+    name: str
+    expr: Expr
+    table_type: TableOrSelectType
+
+
+@dataclass(kw_only=True)
 class FieldType(Type):
     name: str
     table_type: TableOrSelectType
@@ -346,6 +364,12 @@ class LambdaArgumentType(Type):
 class Alias(Expr):
     alias: str
     expr: Expr
+    """
+    Aliases are "hidden" if they're automatically created by HogQL when abstracting fields.
+    E.g. "events.timestamp" gets turned into a "toTimeZone(events.timestamp, 'UTC') AS timestamp".
+    Hidden aliases are printed only when printing the columns of a SELECT query in the ClickHouse dialect.
+    """
+    hidden: bool = False
 
 
 class ArithmeticOperationOp(str, Enum):
@@ -365,14 +389,14 @@ class ArithmeticOperation(Expr):
 
 @dataclass(kw_only=True)
 class And(Expr):
-    type: Optional[ConstantType]
+    type: Optional[ConstantType] = None
     exprs: List[Expr]
 
 
 @dataclass(kw_only=True)
 class Or(Expr):
-    type: Optional[ConstantType]
     exprs: List[Expr]
+    type: Optional[ConstantType] = None
 
 
 class CompareOperationOp(str, Enum):
@@ -387,7 +411,9 @@ class CompareOperationOp(str, Enum):
     NotLike = "not like"
     NotILike = "not ilike"
     In = "in"
+    GlobalIn = "global in"
     NotIn = "not in"
+    GlobalNotIn = "global not in"
     InCohort = "in cohort"
     NotInCohort = "not in cohort"
     Regex = "=~"
@@ -480,10 +506,11 @@ class JoinConstraint(Expr):
 @dataclass(kw_only=True)
 class JoinExpr(Expr):
     # :TRICKY: When adding new fields, make sure they're handled in visitor.py and resolver.py
-    type: Optional[TableOrSelectType]
+    type: Optional[TableOrSelectType] = None
 
     join_type: Optional[str] = None
     table: Optional[Union["SelectQuery", "SelectUnionQuery", Field]] = None
+    table_args: Optional[List[Expr]] = None
     alias: Optional[str] = None
     table_final: Optional[bool] = None
     constraint: Optional["JoinConstraint"] = None
@@ -522,6 +549,8 @@ class SelectQuery(Expr):
     select: List[Expr]
     distinct: Optional[bool] = None
     select_from: Optional[JoinExpr] = None
+    array_join_op: Optional[str] = None
+    array_join_list: Optional[List[Expr]] = None
     window_exprs: Optional[Dict[str, WindowExpr]] = None
     where: Optional[Expr] = None
     prewhere: Optional[Expr] = None
@@ -532,11 +561,12 @@ class SelectQuery(Expr):
     limit_by: Optional[List[Expr]] = None
     limit_with_ties: Optional[bool] = None
     offset: Optional[Expr] = None
+    settings: Optional[HogQLQuerySettings] = None
 
 
 @dataclass(kw_only=True)
 class SelectUnionQuery(Expr):
-    type: Optional[SelectUnionQueryType]
+    type: Optional[SelectUnionQueryType] = None
     select_queries: List[SelectQuery]
 
 
@@ -551,3 +581,21 @@ class SampleExpr(Expr):
     # k or n
     sample_value: RatioExpr
     offset_value: Optional[RatioExpr] = None
+
+
+@dataclass(kw_only=True)
+class HogQLXAttribute(AST):
+    name: str
+    value: Any
+
+
+@dataclass(kw_only=True)
+class HogQLXTag(AST):
+    kind: str
+    attributes: List[HogQLXAttribute]
+
+    def to_dict(self):
+        return {
+            "kind": self.kind,
+            **{a.name: a.value for a in self.attributes},
+        }

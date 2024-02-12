@@ -1,12 +1,14 @@
-import { connect, kea, path, reducers, actions, listeners } from 'kea'
+import { actions, connect, kea, listeners, path, reducers } from 'kea'
 import { loaders } from 'kea-loaders'
 import api from 'lib/api'
-import { SessionRecordingPropertiesType, SessionRecordingType } from '~/types'
-import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
-import type { sessionRecordingsListPropertiesLogicType } from './sessionRecordingsListPropertiesLogicType'
-import { HogQLQuery, NodeKind } from '~/queries/schema'
 import { dayjs } from 'lib/dayjs'
+import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
+
+import { HogQLQuery, NodeKind } from '~/queries/schema'
 import { hogql } from '~/queries/utils'
+import { SessionRecordingPropertiesType, SessionRecordingType } from '~/types'
+
+import type { sessionRecordingsListPropertiesLogicType } from './sessionRecordingsListPropertiesLogicType'
 
 // This logic is used to fetch properties for a list of recordings
 // It is used in a global way as the cached values can be re-used

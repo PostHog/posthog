@@ -1,12 +1,13 @@
-import { ElementType } from '~/types'
-import {
-    parseCSSSelector,
-    matchesSelector,
-    preselect,
-    parsedSelectorToSelectorString,
-} from 'lib/components/HTMLElementsDisplay/preselectWithCSS'
-import { elementsExample } from 'lib/components/HTMLElementsDisplay/HTMLElementsDisplay.stories'
+import { EXAMPLE_ELEMENTS } from 'lib/components/HTMLElementsDisplay/HTMLElementsDisplay.stories'
 import { elementsChain } from 'lib/components/HTMLElementsDisplay/htmlElementsDisplayLogic'
+import {
+    matchesSelector,
+    parseCSSSelector,
+    parsedSelectorToSelectorString,
+    preselect,
+} from 'lib/components/HTMLElementsDisplay/preselectWithCSS'
+
+import { ElementType } from '~/types'
 
 const elements = [
     {
@@ -382,18 +383,18 @@ describe('can preselect selectors for editing', () => {
     test('fixing the storybook example', () => {
         const selector = 'div div.SideBar .LemonButton__content span.text-default'
 
-        expect(preselect(elementsChain(elementsExample), selector)).toEqual({
-            '0': {
+        expect(preselect(elementsChain(EXAMPLE_ELEMENTS), selector)).toEqual({
+            '1': {
                 tag: 'div',
             },
-            '1': {
+            '3': {
                 class: ['SideBar'],
                 tag: 'div',
             },
-            '8': {
+            '10': {
                 class: ['LemonButton__content'],
             },
-            '9': {
+            '11': {
                 class: ['text-default'],
                 tag: 'span',
             },

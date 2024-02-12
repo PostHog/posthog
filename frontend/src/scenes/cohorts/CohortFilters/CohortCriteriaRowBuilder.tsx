@@ -1,17 +1,18 @@
 import './CohortCriteriaRowBuilder.scss'
-import { BehavioralFilterType, CohortFieldProps, Field, FilterType } from 'scenes/cohorts/CohortFilters/types'
-import { renderField, ROWS } from 'scenes/cohorts/CohortFilters/constants'
-import { Col, Divider, Row } from 'antd'
-import { LemonButton } from 'lib/lemon-ui/LemonButton'
-import { IconCopy, IconDelete } from 'lib/lemon-ui/icons'
-import { AnyCohortCriteriaType, BehavioralEventType, FilterLogicalOperator } from '~/types'
+
+import { LemonDivider } from '@posthog/lemon-ui'
 import clsx from 'clsx'
-import { Field as KeaField } from 'kea-forms'
-import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { useActions } from 'kea'
+import { Field as KeaField } from 'kea-forms'
+import { IconCopy, IconDelete } from 'lib/lemon-ui/icons'
+import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
+import { LemonButton } from 'lib/lemon-ui/LemonButton'
+import { cohortEditLogic, CohortLogicProps } from 'scenes/cohorts/cohortEditLogic'
+import { renderField, ROWS } from 'scenes/cohorts/CohortFilters/constants'
+import { BehavioralFilterType, CohortFieldProps, Field, FilterType } from 'scenes/cohorts/CohortFilters/types'
 import { cleanCriteria } from 'scenes/cohorts/cohortUtils'
-import { cohortEditLogic } from 'scenes/cohorts/cohortEditLogic'
-import { CohortLogicProps } from 'scenes/cohorts/cohortLogic'
+
+import { AnyCohortCriteriaType, BehavioralEventType, FilterLogicalOperator } from '~/types'
 
 export interface CohortCriteriaRowBuilderProps {
     id: CohortLogicProps['id']
@@ -39,15 +40,15 @@ export function CohortCriteriaRowBuilder({
 
     const renderFieldComponent = (_field: Field, i: number): JSX.Element => {
         return (
-            <Col key={_field.fieldKey ?? i}>
+            <div key={_field.fieldKey ?? i}>
                 {renderField[_field.type]({
                     fieldKey: _field.fieldKey,
                     criteria,
                     ...(_field.type === FilterType.Text ? { value: _field.defaultValue } : {}),
-                    ...(!!_field.groupTypeFieldKey ? { groupTypeFieldKey: _field.groupTypeFieldKey } : {}),
+                    ...(_field.groupTypeFieldKey ? { groupTypeFieldKey: _field.groupTypeFieldKey } : {}),
                     onChange: (newCriteria) => setCriteria(newCriteria, groupIndex, index),
                 } as CohortFieldProps)}
-            </Col>
+            </div>
         )
     }
 
@@ -77,7 +78,7 @@ export function CohortCriteriaRowBuilder({
                 }}
             >
                 <>
-                    <Row align="middle" wrap={false} className="mb-1">
+                    <div className="flex flex-nowrap items-center mb-1">
                         <KeaField
                             name="value"
                             template={({ error, kids }) => {
@@ -96,7 +97,7 @@ export function CohortCriteriaRowBuilder({
                             }}
                         >
                             <>
-                                <Col>
+                                <div>
                                     {renderField[FilterType.Behavioral]({
                                         fieldKey: 'value',
                                         criteria,
@@ -105,29 +106,21 @@ export function CohortCriteriaRowBuilder({
                                             onChangeType?.(newCriteria['value'] ?? BehavioralEventType.PerformEvent)
                                         },
                                     })}
-                                </Col>
+                                </div>
                             </>
                         </KeaField>
                         <div className="CohortCriteriaRow__inline-divider" />
-                        <LemonButton
-                            icon={<IconCopy />}
-                            status="primary-alt"
-                            onClick={() => duplicateFilter(groupIndex, index)}
-                        />
+                        <LemonButton icon={<IconCopy />} onClick={() => duplicateFilter(groupIndex, index)} />
                         {!hideDeleteIcon && (
-                            <LemonButton
-                                icon={<IconDelete />}
-                                status="primary-alt"
-                                onClick={() => removeFilter(groupIndex, index)}
-                            />
+                            <LemonButton icon={<IconDelete />} onClick={() => removeFilter(groupIndex, index)} />
                         )}
-                    </Row>
-                    <div style={{ display: 'flex' }}>
-                        <Col>
+                    </div>
+                    <div className="flex">
+                        <div>
                             <span className="CohortCriteriaRow__Criteria__arrow">&#8627;</span>
-                        </Col>
-                        <Col>
-                            <Row align="middle">
+                        </div>
+                        <div>
+                            <div className="flex items-center">
                                 {rowShape.fields.map((field, i) => {
                                     return (
                                         !field.hide &&
@@ -159,8 +152,8 @@ export function CohortCriteriaRowBuilder({
                                         ))
                                     )
                                 })}
-                            </Row>
-                        </Col>
+                            </div>
+                        </div>
                     </div>
                 </>
             </KeaField>
@@ -173,9 +166,5 @@ export interface LogicalRowDividerProps {
 }
 
 export function LogicalRowDivider({ logicalOperator }: LogicalRowDividerProps): JSX.Element {
-    return (
-        <Divider className="logical-row-divider" orientation="left">
-            <span className="text-xs text-primary-alt font-semibold">{logicalOperator}</span>
-        </Divider>
-    )
+    return <LemonDivider className="logical-row-divider my-4" label={logicalOperator} />
 }

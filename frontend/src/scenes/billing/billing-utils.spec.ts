@@ -1,7 +1,16 @@
-import { convertAmountToUsage, convertUsageToAmount, projectUsage, summarizeUsage } from './billing-utils'
-import tk from 'timekeeper'
 import { dayjs } from 'lib/dayjs'
-import billingJson from '~/mocks/fixtures/_billing_v2.json'
+import tk from 'timekeeper'
+
+import { billingJson } from '~/mocks/fixtures/_billing_v2'
+import billingJsonWithFlatFee from '~/mocks/fixtures/_billing_v2_with_flat_fee.json'
+
+import {
+    convertAmountToUsage,
+    convertLargeNumberToWords,
+    convertUsageToAmount,
+    projectUsage,
+    summarizeUsage,
+} from './billing-utils'
 
 describe('summarizeUsage', () => {
     it('should summarise usage', () => {
@@ -55,32 +64,32 @@ describe('projectUsage', () => {
 const amountToUsageMapping = [
     { usage: 0, amount: '0.00' },
     { usage: 1_000_000, amount: '0.00' },
-    { usage: 1_500_000, amount: '225.00' },
-    { usage: 2_000_000, amount: '450.00' },
-    { usage: 6_000_000, amount: '1350.00' },
-    { usage: 10_000_000, amount: '2250.00' },
-    { usage: 230_000_000, amount: '12250.00' },
+    { usage: 1_500_000, amount: '155.00' },
+    { usage: 2_000_000, amount: '310.00' },
+    { usage: 6_000_000, amount: '830.00' },
+    { usage: 10_000_000, amount: '1350.00' },
+    { usage: 230_000_000, amount: '10183.50' },
 ]
 
 const amountToUsageMappingWithAddons = [
     { usage: 0, amount: '0.00' },
     { usage: 1_000_000, amount: '0.00' },
-    { usage: 1_409_091, amount: '225.00' },
-    { usage: 1_818_182, amount: '450.00' },
-    { usage: 4_888_087, amount: '1350.00' },
-    { usage: 8_137_184, amount: '2250.00' },
-    { usage: 139_090_909, amount: '12250.00' },
+    { usage: 1_409_086, amount: '155.78' },
+    { usage: 1_818_172, amount: '311.56' },
+    { usage: 4_888_063, amount: '842.89' },
+    { usage: 8_137_188, amount: '1362.75' },
+    { usage: 139_090_972, amount: '9914.62' },
 ]
 
 // 20% discount
 const amountToUsageMappingWithPercentDiscount = [
     { usage: 0, amount: '0.00' },
     { usage: 1_000_000, amount: '0.00' },
-    { usage: 1_625_000, amount: '225.00' }, // $281.25 worth of units
-    { usage: 2_500_000, amount: '450.00' }, // $562.50 worth of units
-    { usage: 7_500_000, amount: '1350.00' }, // $1687.50 worth of units
-    { usage: 17_500_000, amount: '2250.00' }, // $2812.50 worth of units
-    { usage: 352_500_000, amount: '12250.00' }, // $15,312.50 worth of units
+    { usage: 1_625_000, amount: '155.00' },
+    { usage: 2_500_000, amount: '300.00' },
+    { usage: 7_500_000, amount: '820.00' },
+    { usage: 17_500_000, amount: '1763.80' },
+    { usage: 352_500_000, amount: '8947.60' },
 ]
 
 describe('convertUsageToAmount', () => {
@@ -96,7 +105,7 @@ describe('convertUsageToAmountWithAddons', () => {
             expect(
                 convertUsageToAmount(mapping.usage, [
                     billingJson.products[0].tiers,
-                    billingJson.products[0].addons[0].tiers,
+                    billingJson.products[0].addons[0].tiers || [],
                 ])
             ).toEqual(mapping.amount)
         }
@@ -123,7 +132,7 @@ describe('convertAmountToUsageWithAddons', () => {
             expect(
                 convertAmountToUsage(mapping.amount, [
                     billingJson.products[0].tiers,
-                    billingJson.products[0].addons[0].tiers,
+                    billingJson.products[0].addons[0].tiers || [],
                 ])
             ).toEqual(mapping.usage)
         }
@@ -137,6 +146,34 @@ describe('convertUsageToAmountWithPercentDiscount', () => {
             if (billingJson.products[0].tiers) {
                 expect(convertUsageToAmount(mapping.usage, [billingJson.products[0].tiers], discountPercent)).toEqual(
                     mapping.amount
+                )
+            }
+        }
+    )
+})
+
+const amountToUsageMappingWithFirstTierFlatFee = [
+    { usage: 5_000_000, amount: '200.00' },
+    { usage: 10_000_000, amount: '575.00' },
+    { usage: 30_000_000, amount: '1725.00' },
+]
+describe('amountToUsageMappingWithFirstTierFlatFee', () => {
+    it.each(amountToUsageMappingWithFirstTierFlatFee)(
+        'should convert usage to an amount based on the tiers',
+        (mapping) => {
+            if (billingJsonWithFlatFee.products[0].tiers) {
+                expect(convertUsageToAmount(mapping.usage, [billingJsonWithFlatFee.products[0].tiers])).toEqual(
+                    mapping.amount
+                )
+            }
+        }
+    )
+    it.each(amountToUsageMappingWithFirstTierFlatFee)(
+        'should convert amount to a usage based on the tiers',
+        (mapping) => {
+            if (billingJsonWithFlatFee.products[0].tiers) {
+                expect(convertAmountToUsage(mapping.amount, [billingJsonWithFlatFee.products[0].tiers])).toEqual(
+                    mapping.usage
                 )
             }
         }
@@ -158,4 +195,14 @@ describe('convertAmountToUsageWithPercentDiscount', () => {
             }
         }
     )
+})
+
+describe('convertLargeNumberToWords', () => {
+    it('should convert large numbers to words', () => {
+        expect(convertLargeNumberToWords(250, null, true, 'survey')).toEqual('First 250 surveys/mo')
+        expect(convertLargeNumberToWords(500, 250, true, 'survey')).toEqual('251-500')
+        expect(convertLargeNumberToWords(1000, 500, true, 'survey')).toEqual('501-1k')
+        expect(convertLargeNumberToWords(10000, 1000, true, 'survey')).toEqual('1-10k')
+        expect(convertLargeNumberToWords(10000000, 1000000, true, 'survey')).toEqual('1-10 million')
+    })
 })

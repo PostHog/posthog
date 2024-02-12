@@ -1,16 +1,20 @@
-import { PropertyOperator, RecordingFilters, SessionRecordingPlaylistType } from '~/types'
-import { cohortsModelType } from '~/models/cohortsModelType'
+import { router } from 'kea-router'
+import api from 'lib/api'
+import { convertPropertyGroupToProperties } from 'lib/components/PropertyFilters/utils'
+import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
+import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
+import { getCoreFilterDefinition } from 'lib/taxonomy'
+import { genericOperatorMap } from 'lib/utils'
+import { deleteWithUndo } from 'lib/utils/deleteWithUndo'
+import { openBillingPopupModal } from 'scenes/billing/BillingPopup'
 import { toLocalFilters } from 'scenes/insights/filters/ActionFilter/entityFilterLogic'
 import { getDisplayNameFromEntityFilter } from 'scenes/insights/utils'
-import { convertPropertyGroupToProperties, deleteWithUndo, genericOperatorMap } from 'lib/utils'
-import { getKeyMapping } from 'lib/taxonomy'
-import api from 'lib/api'
-import { lemonToast } from 'lib/lemon-ui/lemonToast'
-import { DEFAULT_RECORDING_FILTERS } from 'scenes/session-recordings/playlist/sessionRecordingsListLogic'
-import { router } from 'kea-router'
-import { urls } from 'scenes/urls'
-import { openBillingPopupModal } from 'scenes/billing/BillingPopup'
+import { DEFAULT_RECORDING_FILTERS } from 'scenes/session-recordings/playlist/sessionRecordingsPlaylistLogic'
 import { PLAYLIST_LIMIT_REACHED_MESSAGE } from 'scenes/session-recordings/sessionRecordingsLogic'
+import { urls } from 'scenes/urls'
+
+import { cohortsModelType } from '~/models/cohortsModelType'
+import { PropertyOperator, RecordingFilters, SessionRecordingPlaylistType } from '~/types'
 
 function getOperatorSymbol(operator: PropertyOperator | null): string {
     if (!operator) {
@@ -40,9 +44,10 @@ export function summarizePlaylistFilters(
         const propertiesSummary = properties
             .map((property) => {
                 if (property.type === 'person') {
-                    return `${getKeyMapping(property.key, 'event')?.label || property.key} ${getOperatorSymbol(
-                        property.operator
-                    )} ${property.value}`
+                    return `${
+                        getCoreFilterDefinition(property.key, TaxonomicFilterGroupType.PersonProperties)?.label ||
+                        property.key
+                    } ${getOperatorSymbol(property.operator)} ${property.value}`
                 }
                 if (property.type === 'cohort') {
                     const cohortId = Number(property.value)

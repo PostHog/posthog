@@ -1,17 +1,20 @@
-import { actions, connect, events, kea, listeners, path, reducers, selectors } from 'kea'
-import api from 'lib/api'
-import type { teamLogicType } from './teamLogicType'
-import { CorrelationConfigType, PropertyOperator, TeamPublicType, TeamType } from '~/types'
-import { userLogic } from './userLogic'
-import { identifierToHuman, isUserLoggedIn, resolveWebhookService } from 'lib/utils'
-import { organizationLogic } from './organizationLogic'
-import { getAppContext } from 'lib/utils/getAppContext'
-import { lemonToast } from 'lib/lemon-ui/lemonToast'
-import { IconSwapHoriz } from 'lib/lemon-ui/icons'
+import { actions, afterMount, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
+import api, { ApiConfig } from 'lib/api'
+import { PROPERTY_FILTER_TYPE_TO_TAXONOMIC_FILTER_GROUP_TYPE } from 'lib/components/PropertyFilters/utils'
 import { OrganizationMembershipLevel } from 'lib/constants'
+import { IconSwapHoriz } from 'lib/lemon-ui/icons'
+import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
+import { getFilterLabel } from 'lib/taxonomy'
+import { identifierToHuman, isUserLoggedIn, resolveWebhookService } from 'lib/utils'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
-import { getPropertyLabel } from 'lib/taxonomy'
+import { getAppContext } from 'lib/utils/getAppContext'
+
+import { CorrelationConfigType, PropertyOperator, TeamPublicType, TeamType } from '~/types'
+
+import { organizationLogic } from './organizationLogic'
+import type { teamLogicType } from './teamLogicType'
+import { userLogic } from './userLogic'
 
 const parseUpdatedAttributeName = (attr: string | null): string => {
     if (attr === 'slack_incoming_webhook') {
@@ -37,7 +40,7 @@ export interface FrequentMistakeAdvice {
 export const teamLogic = kea<teamLogicType>([
     path(['scenes', 'teamLogic']),
     connect(() => ({
-        actions: [userLogic, ['loadUser']],
+        actions: [userLogic, ['loadUser', 'switchTeam']],
     })),
     actions({
         deleteTeam: (team: TeamType) => ({ team }),
@@ -69,11 +72,14 @@ export const teamLogic = kea<teamLogicType>([
                         return null
                     }
                 },
-                updateCurrentTeam: async (payload: Partial<TeamType>) => {
+                updateCurrentTeam: async (payload: Partial<TeamType>, breakpoint) => {
                     if (!values.currentTeam) {
                         throw new Error('Current team has not been loaded yet, so it cannot be updated!')
                     }
+
                     const patchedTeam = (await api.update(`api/projects/${values.currentTeam.id}`, payload)) as TeamType
+                    breakpoint()
+
                     actions.loadUser()
 
                     /* Notify user the update was successful  */
@@ -86,7 +92,10 @@ export const teamLogic = kea<teamLogicType>([
                                   payload.slack_incoming_webhook
                               )}`
                             : 'Webhook integration disabled'
-                    } else if (updatedAttribute === 'completed_snippet_onboarding') {
+                    } else if (
+                        updatedAttribute === 'completed_snippet_onboarding' ||
+                        updatedAttribute === 'has_completed_onboarding_for'
+                    ) {
                         message = "Congrats! You're now ready to use PostHog."
                     } else {
                         message = `${parseUpdatedAttributeName(updatedAttribute)} updated successfully!`
@@ -96,20 +105,20 @@ export const teamLogic = kea<teamLogicType>([
                         eventUsageLogic.findMounted()?.actions?.reportTeamSettingChange(property, payload[property])
                     })
 
-                    lemonToast.dismiss('updateCurrentTeam')
-                    lemonToast.success(message, {
-                        toastId: 'updateCurrentTeam',
-                    })
+                    if (!window.location.pathname.match(/\/(onboarding|products)/)) {
+                        lemonToast.success(message)
+                    }
 
                     return patchedTeam
                 },
-                createTeam: async ({ name, is_demo }: { name: string; is_demo: boolean }): Promise<TeamType> =>
-                    await api.create('api/projects/', { name, is_demo }),
+                createTeam: async ({ name, is_demo }: { name: string; is_demo: boolean }) => {
+                    return await api.create('api/projects/', { name, is_demo })
+                },
                 resetToken: async () => await api.update(`api/projects/${values.currentTeamId}/reset_token`, {}),
             },
         ],
     })),
-    selectors({
+    selectors(() => ({
         currentTeamId: [
             (selectors) => [selectors.currentTeam],
             (currentTeam): number | null => (currentTeam ? currentTeam.id : null),
@@ -132,6 +141,11 @@ export const teamLogic = kea<teamLogicType>([
             },
         ],
         timezone: [(selectors) => [selectors.currentTeam], (currentTeam): string => currentTeam?.timezone || 'UTC'],
+        /** 0 means Sunday, 1 means Monday. */
+        weekStartDay: [
+            (selectors) => [selectors.currentTeam],
+            (currentTeam): number => currentTeam?.week_start_day || 0,
+        ],
         isTeamTokenResetAvailable: [
             (selectors) => [selectors.currentTeam],
             (currentTeam): boolean =>
@@ -166,9 +180,10 @@ export const teamLogic = kea<teamLogicType>([
                         // person properties can be checked for a label as if they were event properties
                         // so, we can check each acceptable type and see if it returns a value
                         return (
-                            getPropertyLabel(filter.key, 'event') ||
-                            getPropertyLabel(filter.key, 'element') ||
-                            filter.key
+                            getFilterLabel(
+                                filter.key,
+                                PROPERTY_FILTER_TYPE_TO_TAXONOMIC_FILTER_GROUP_TYPE[filter.type]
+                            ) || filter.key
                         )
                     } else {
                         return filter.key
@@ -196,8 +211,18 @@ export const teamLogic = kea<teamLogicType>([
                 return frequentMistakes
             },
         ],
-    }),
+    })),
     listeners(({ actions }) => ({
+        loadCurrentTeamSuccess: ({ currentTeam }) => {
+            if (currentTeam) {
+                ApiConfig.setCurrentTeamId(currentTeam.id)
+            }
+        },
+        createTeamSuccess: ({ currentTeam }) => {
+            if (currentTeam) {
+                actions.switchTeam(currentTeam.id)
+            }
+        },
         deleteTeam: async ({ team }) => {
             try {
                 await api.delete(`api/projects/${team.id}`)
@@ -211,29 +236,26 @@ export const teamLogic = kea<teamLogicType>([
             lemonToast.success('Project has been deleted')
         },
     })),
-    events(({ actions }) => ({
-        afterMount: () => {
-            const appContext = getAppContext()
-            const contextualTeam = appContext?.current_team
+    afterMount(({ actions }) => {
+        const appContext = getAppContext()
+        const currentTeam = appContext?.current_team
+        const switchedTeam = appContext?.switched_team
+        if (switchedTeam) {
+            lemonToast.info(<>You've switched to&nbsp;project {currentTeam?.name}</>, {
+                button: {
+                    label: 'Switch back',
+                    action: () => actions.switchTeam(switchedTeam),
+                },
+                icon: <IconSwapHoriz />,
+            })
+        }
 
-            const switchedTeam = appContext?.switched_team
-            if (switchedTeam) {
-                lemonToast.info(<>You've switched to&nbsp;project {contextualTeam?.name}</>, {
-                    button: {
-                        label: 'Switch back',
-                        action: () => userLogic.actions.updateCurrentTeam(switchedTeam),
-                    },
-                    icon: <IconSwapHoriz />,
-                })
-            }
-
-            if (contextualTeam) {
-                // If app context is available (it should be practically always) we can immediately know currentTeam
-                actions.loadCurrentTeamSuccess(contextualTeam)
-            } else {
-                // If app context is not available, a traditional request is needed
-                actions.loadCurrentTeam()
-            }
-        },
-    })),
+        if (currentTeam) {
+            // If app context is available (it should be practically always) we can immediately know currentTeam
+            actions.loadCurrentTeamSuccess(currentTeam)
+        } else {
+            // If app context is not available, a traditional request is needed
+            actions.loadCurrentTeam()
+        }
+    }),
 ])

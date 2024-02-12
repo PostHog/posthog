@@ -1,22 +1,24 @@
-import { ComponentMeta, ComponentStory } from '@storybook/react'
-import { LemonSnack, LemonSnackProps } from './LemonSnack'
-import { ProfilePicture } from '../ProfilePicture'
+import { Meta, StoryFn, StoryObj } from '@storybook/react'
 
-export default {
+import { ProfilePicture } from '../ProfilePicture'
+import { LemonSnack, LemonSnackProps } from './LemonSnack'
+
+type Story = StoryObj<typeof LemonSnack>
+const meta: Meta<typeof LemonSnack> = {
     title: 'Lemon UI/Lemon Snack',
     component: LemonSnack,
-    argTypes: {
-        children: {
-            defaultValue: 'Tasty snacks',
-        },
+    args: {
+        children: 'Tasty snacks',
     },
-} as ComponentMeta<typeof LemonSnack>
+    tags: ['autodocs'],
+}
+export default meta
 
-const BasicTemplate: ComponentStory<typeof LemonSnack> = (props: LemonSnackProps) => {
+const BasicTemplate: StoryFn<typeof LemonSnack> = (props: LemonSnackProps) => {
     return <LemonSnack {...props} />
 }
 
-export const Default = BasicTemplate.bind({})
+export const Default: Story = BasicTemplate.bind({})
 Default.args = {
     onClose: null as any,
 }
@@ -38,11 +40,11 @@ export const Pill = (): JSX.Element => {
     )
 }
 
-export const ComplexContent = BasicTemplate.bind({})
+export const ComplexContent: Story = BasicTemplate.bind({})
 ComplexContent.args = {
     children: (
         <span className="flex gap-2 items-center">
-            <ProfilePicture email="ben@posthog.com" size="sm" />
+            <ProfilePicture name="ben" size="sm" />
             <span>
                 Look at me I'm <b>bold!</b>
             </span>

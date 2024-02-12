@@ -1,23 +1,27 @@
-import { ComponentMeta, ComponentStory } from '@storybook/react'
-import { LemonBadge } from './LemonBadge'
-import { LemonButton } from 'lib/lemon-ui/LemonButton'
+import { Meta, StoryFn, StoryObj } from '@storybook/react'
 import { IconPlusMini } from 'lib/lemon-ui/icons'
+import { LemonButton } from 'lib/lemon-ui/LemonButton'
 
-export default {
+import { LemonBadge } from './LemonBadge'
+
+type Story = StoryObj<typeof LemonBadge>
+const meta: Meta<typeof LemonBadge> = {
     title: 'Lemon UI/Lemon Badge/Lemon Badge',
     component: LemonBadge,
-} as ComponentMeta<typeof LemonBadge>
+    tags: ['autodocs'],
+}
+export default meta
 
-const Template: ComponentStory<typeof LemonBadge> = (props) => (
+const Template: StoryFn<typeof LemonBadge> = (props) => (
     <div className="flex">
         <LemonBadge {...props} />
     </div>
 )
 
-export const Standard = Template.bind({})
+export const Standard: Story = Template.bind({})
 Standard.args = { content: '@' }
 
-export const Positioning: ComponentStory<typeof LemonBadge> = () => {
+export const Positioning: StoryFn<typeof LemonBadge> = () => {
     return (
         <div className="space-y-4 m-2">
             <LemonButton type="secondary">
@@ -43,7 +47,7 @@ export const Positioning: ComponentStory<typeof LemonBadge> = () => {
     )
 }
 
-export const Sizes: ComponentStory<typeof LemonBadge> = () => {
+export const Sizes: StoryFn<typeof LemonBadge> = () => {
     return (
         <div className="flex space-x-2 items-center">
             <span>small:</span>
@@ -56,7 +60,7 @@ export const Sizes: ComponentStory<typeof LemonBadge> = () => {
     )
 }
 
-export const Status: ComponentStory<typeof LemonBadge> = () => {
+export const Status: StoryFn<typeof LemonBadge> = () => {
     return (
         <div className="flex space-x-2 items-center">
             <span>primary:</span>
@@ -69,7 +73,7 @@ export const Status: ComponentStory<typeof LemonBadge> = () => {
     )
 }
 
-export const Active: ComponentStory<typeof LemonBadge> = () => {
+export const Active: StoryFn<typeof LemonBadge> = () => {
     return (
         <div className="flex space-x-2 items-center my-1 mr-1">
             <span>inactive:</span>

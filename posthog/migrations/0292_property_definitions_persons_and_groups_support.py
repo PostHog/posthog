@@ -35,7 +35,9 @@ class Migration(migrations.Migration):
             model_name="propertydefinition",
             constraint=models.CheckConstraint(
                 check=models.Q(
-                    models.Q(("type", 3), _negated=True), ("group_type_index__isnull", False), _connector="OR"
+                    models.Q(("type", 3), _negated=True),
+                    ("group_type_index__isnull", False),
+                    _connector="OR",
                 ),
                 name="group_type_index_set",
             ),

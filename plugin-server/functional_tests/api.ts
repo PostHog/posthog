@@ -2,9 +2,10 @@ import ClickHouse from '@posthog/clickhouse'
 import { makeWorkerUtils, WorkerUtils } from 'graphile-worker'
 import Redis from 'ioredis'
 import parsePrometheusTextFormat from 'parse-prometheus-text-format'
-import { Pool, PoolClient } from 'pg'
+import { PoolClient } from 'pg'
 
 import { defaultConfig } from '../src/config/config'
+import { KAFKA_SESSION_RECORDING_SNAPSHOT_ITEM_EVENTS } from '../src/config/kafka-topics'
 import {
     ActionStep,
     Hook,
@@ -13,30 +14,26 @@ import {
     PluginLogEntry,
     RawAction,
     RawClickHouseEvent,
-    RawPerformanceEvent,
-    RawSessionRecordingEvent,
+    RawSessionReplayEvent,
 } from '../src/types'
+import { PostgresRouter, PostgresUse } from '../src/utils/db/postgres'
 import { parseRawClickHouseEvent } from '../src/utils/event'
-import { UUIDT } from '../src/utils/utils'
+import { createPostgresPool, UUIDT } from '../src/utils/utils'
+import { RawAppMetric } from '../src/worker/ingestion/app-metrics'
 import { insertRow } from '../tests/helpers/sql'
 import { waitForExpect } from './expectations'
 import { produce } from './kafka'
 
 let clickHouseClient: ClickHouse
-export let postgres: Pool // NOTE: we use a Pool here but it's probably not necessary, but for instance `insertRow` uses a Pool.
-let redis: Redis.Redis
+export let postgres: PostgresRouter
+export let redis: Redis.Redis
 let graphileWorker: WorkerUtils
 
 beforeAll(async () => {
     // Setup connections to kafka, clickhouse, and postgres
-    postgres = new Pool({
-        connectionString: defaultConfig.DATABASE_URL!,
-        // We use a pool only for typings sake, but we don't actually need to,
-        // so set max connections to 1.
-        max: 1,
-    })
+    postgres = new PostgresRouter({ ...defaultConfig, POSTGRES_CONNECTION_POOL_SIZE: 1 }, null)
     graphileWorker = await makeWorkerUtils({
-        pgPool: postgres,
+        pgPool: createPostgresPool(defaultConfig.DATABASE_URL!, 1),
     })
     clickHouseClient = new ClickHouse({
         host: defaultConfig.CLICKHOUSE_HOST,
@@ -66,8 +63,8 @@ export const capture = async ({
     now = new Date(),
     $set = undefined,
     $set_once = undefined,
-    topic = ['$performance_event', '$snapshot'].includes(event)
-        ? 'session_recording_events'
+    topic = ['$performance_event', '$snapshot_items'].includes(event)
+        ? KAFKA_SESSION_RECORDING_SNAPSHOT_ITEM_EVENTS
         : 'events_plugin_ingestion',
 }: {
     teamId: number | null
@@ -84,7 +81,7 @@ export const capture = async ({
     $set_once?: object
 }) => {
     // WARNING: this capture method is meant to simulate the ingestion of events
-    // from the capture endpoint, but there is no guarantee that is is 100%
+    // from the capture endpoint, but there is no guarantee that it is 100%
     // accurate.
     return await produce({
         topic,
@@ -120,7 +117,6 @@ export const createPluginAttachment = async ({
     fileName,
     key,
     contents,
-    client,
 }: {
     teamId: number
     pluginConfigId: number
@@ -131,7 +127,7 @@ export const createPluginAttachment = async ({
     contents: string
     client?: PoolClient
 }) => {
-    return await insertRow(client ?? postgres, 'posthog_pluginattachment', {
+    return await insertRow(postgres, 'posthog_pluginattachment', {
         team_id: teamId,
         plugin_config_id: pluginConfigId,
         key: key,
@@ -156,24 +152,29 @@ export const createPlugin = async (plugin: Omit<Plugin, 'id'>) => {
 }
 
 export const createPluginConfig = async (
-    pluginConfig: Omit<PluginConfig, 'id' | 'created_at' | 'enabled' | 'order' | 'has_error'>,
-    client?: PoolClient
+    pluginConfig: Omit<PluginConfig, 'id' | 'created_at' | 'enabled' | 'order'>,
+    enabled = true
 ) => {
-    return await insertRow(client ?? postgres, 'posthog_pluginconfig', {
+    return await insertRow(postgres, 'posthog_pluginconfig', {
         ...pluginConfig,
         config: pluginConfig.config ?? {},
         created_at: new Date().toISOString(),
         updated_at: new Date().toISOString(),
-        enabled: true,
+        enabled,
         order: 0,
     })
 }
 
 export const getPluginConfig = async (teamId: number, pluginId: number) => {
-    const queryResult = (await postgres.query(`SELECT * FROM posthog_pluginconfig WHERE team_id = $1 AND id = $2`, [
-        teamId,
-        pluginId,
-    ])) as { rows: any[] }
+    const queryResult = (await postgres.query(
+        PostgresUse.COMMON_WRITE,
+        `SELECT *
+         FROM posthog_pluginconfig
+         WHERE team_id = $1
+           AND id = $2`,
+        [teamId, pluginId],
+        'getPluginConfig'
+    )) as { rows: any[] }
     return queryResult.rows[0]
 }
 
@@ -183,8 +184,10 @@ export const updatePluginConfig = async (
     pluginConfig: Partial<PluginConfig>
 ) => {
     await postgres.query(
+        PostgresUse.COMMON_WRITE,
         `UPDATE posthog_pluginconfig SET config = $1, updated_at = $2 WHERE id = $3 AND team_id = $4`,
-        [pluginConfig.config ?? {}, pluginConfig.updated_at, pluginConfigId, teamId]
+        [pluginConfig.config ?? {}, pluginConfig.updated_at, pluginConfigId, teamId],
+        'updatePluginConfig'
     )
 }
 
@@ -208,17 +211,27 @@ export const createAndReloadPluginConfig = async (teamId: number, pluginId: numb
 }
 
 export const disablePluginConfig = async (teamId: number, pluginConfigId: number) => {
-    await postgres.query(`UPDATE posthog_pluginconfig SET enabled = false WHERE id = $1 AND team_id = $2`, [
-        pluginConfigId,
-        teamId,
-    ])
+    await postgres.query(
+        PostgresUse.COMMON_WRITE,
+        `UPDATE posthog_pluginconfig
+         SET enabled = false
+         WHERE id = $1
+           AND team_id = $2`,
+        [pluginConfigId, teamId],
+        'disablePluginConfig'
+    )
 }
 
 export const enablePluginConfig = async (teamId: number, pluginConfigId: number) => {
-    await postgres.query(`UPDATE posthog_pluginconfig SET enabled = true WHERE id = $1 AND team_id = $2`, [
-        pluginConfigId,
-        teamId,
-    ])
+    await postgres.query(
+        PostgresUse.COMMON_WRITE,
+        `UPDATE posthog_pluginconfig
+         SET enabled = true
+         WHERE id = $1
+           AND team_id = $2`,
+        [pluginConfigId, teamId],
+        'enablePluginConfig'
+    )
 }
 
 export const schedulePluginJob = async ({
@@ -238,7 +251,14 @@ export const schedulePluginJob = async ({
 }
 
 export const getScheduledPluginJob = async (jobId: string) => {
-    const result = await postgres.query(`SELECT * FROM graphile_worker.jobs WHERE id = $1`, [jobId])
+    const result = await postgres.query(
+        PostgresUse.COMMON_WRITE,
+        `SELECT *
+         FROM graphile_worker.jobs
+         WHERE id = $1`,
+        [jobId],
+        'getScheduledPluginJob'
+    )
     return result.rows[0]
 }
 
@@ -271,29 +291,28 @@ export const fetchPersons = async (teamId: number) => {
 }
 
 export const fetchPostgresPersons = async (teamId: number) => {
-    const { rows } = await postgres.query(`SELECT * FROM posthog_person WHERE team_id = $1`, [teamId])
+    const { rows } = await postgres.query(
+        PostgresUse.COMMON_WRITE,
+        `SELECT *
+         FROM posthog_person
+         WHERE team_id = $1`,
+        [teamId],
+        'fetchPostgresPersons'
+    )
     return rows
 }
 
-export const fetchSessionRecordingsEvents = async (teamId: number, uuid?: string) => {
+export const fetchSessionReplayEvents = async (teamId: number, sessionId?: string) => {
     const queryResult = (await clickHouseClient.querying(
-        `SELECT * FROM session_recording_events WHERE team_id = ${teamId} ${
-            uuid ? ` AND uuid = '${uuid}'` : ''
-        } ORDER BY timestamp ASC`
-    )) as unknown as ClickHouse.ObjectQueryResult<RawSessionRecordingEvent>
+        `SELECT min(min_first_timestamp) as min_fs_ts, any(team_id), any(distinct_id), session_id FROM session_replay_events WHERE team_id = ${teamId} ${
+            sessionId ? ` AND session_id = '${sessionId}'` : ''
+        } group by session_id ORDER BY min_fs_ts ASC`
+    )) as unknown as ClickHouse.ObjectQueryResult<RawSessionReplayEvent>
     return queryResult.data.map((event) => {
         return {
             ...event,
-            snapshot_data: event.snapshot_data ? JSON.parse(event.snapshot_data) : null,
         }
     })
-}
-
-export const fetchPerformanceEvents = async (teamId: number) => {
-    const queryResult = (await clickHouseClient.querying(
-        `SELECT * FROM performance_events WHERE team_id = ${teamId} ORDER BY timestamp ASC`
-    )) as unknown as ClickHouse.ObjectQueryResult<RawPerformanceEvent>
-    return queryResult.data
 }
 
 export const fetchPluginConsoleLogEntries = async (pluginConfigId: number) => {
@@ -310,6 +329,14 @@ export const fetchPluginLogEntries = async (pluginConfigId: number) => {
         WHERE plugin_config_id = ${pluginConfigId}
     `)) as unknown as ClickHouse.ObjectQueryResult<PluginLogEntry>
     return logEntries
+}
+
+export const fetchPluginAppMetrics = async (pluginConfigId: number) => {
+    const { data: appMetrics } = (await clickHouseClient.querying(`
+        SELECT * FROM app_metrics
+        WHERE plugin_config_id = ${pluginConfigId} ORDER BY timestamp
+    `)) as unknown as ClickHouse.ObjectQueryResult<RawAppMetric>
+    return appMetrics
 }
 
 export const createOrganization = async (organizationProperties = {}) => {
@@ -409,7 +436,14 @@ export async function createHook(teamId: number, userId: number, resourceId: num
 }
 
 export const getPropertyDefinitions = async (teamId: number) => {
-    const { rows } = await postgres.query(`SELECT * FROM posthog_propertydefinition WHERE team_id = $1`, [teamId])
+    const { rows } = await postgres.query(
+        PostgresUse.COMMON_WRITE,
+        `SELECT *
+         FROM posthog_propertydefinition
+         WHERE team_id = $1`,
+        [teamId],
+        'getPropertyDefinitions'
+    )
     return rows
 }
 

@@ -1,12 +1,15 @@
-import { useEffect, useRef } from 'react'
-import { getColorVar } from 'lib/colors'
-import { Chart, ChartDataset, ChartItem } from 'lib/Chart'
-import { DescriptionColumns } from './constants'
-import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
-
 import './AppMetricsGraph.scss'
+
+import { Chart, ChartDataset, ChartItem } from 'lib/Chart'
+import { getColorVar } from 'lib/colors'
+import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
 import { inStorybookTestRunner, lightenDarkenColor } from 'lib/utils'
-import { AppMetrics, AppMetricsTab } from './appMetricsSceneLogic'
+import { useEffect, useRef } from 'react'
+
+import { AppMetricsTab } from '~/types'
+
+import { AppMetrics } from './appMetricsSceneLogic'
+import { DescriptionColumns } from './constants'
 
 export interface AppMetricsGraphProps {
     tab: AppMetricsTab
@@ -31,21 +34,21 @@ export function AppMetricsGraph({ tab, metrics, metricsLoading }: AppMetricsGrap
                             label: descriptions.successes,
                             data: metrics.successes,
                             borderColor: '',
-                            ...colorConfig('data-brand-blue'),
+                            ...colorConfig('data-color-1'),
                         },
                         ...(descriptions.successes_on_retry
                             ? [
                                   {
                                       label: descriptions.successes_on_retry,
                                       data: metrics.successes_on_retry,
-                                      ...colorConfig('data-yellow'),
+                                      ...colorConfig('data-color-13'),
                                   },
                               ]
                             : []),
                         {
                             label: descriptions.failures,
                             data: metrics.failures,
-                            ...colorConfig('data-vermilion'),
+                            ...colorConfig('data-color-5'),
                         },
                     ],
                 },

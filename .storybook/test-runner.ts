@@ -1,78 +1,89 @@
 import { toMatchImageSnapshot } from 'jest-image-snapshot'
-import { OptionsParameter } from '@storybook/addons'
-import { getStoryContext, TestRunnerConfig, TestContext } from '@storybook/test-runner'
-import type { Locator, Page, LocatorScreenshotOptions } from 'playwright-core'
+import { getStoryContext, TestRunnerConfig, TestContext, waitForPageReady } from '@storybook/test-runner'
+import type { Locator, Page, LocatorScreenshotOptions } from '@playwright/test'
 import type { Mocks } from '~/mocks/utils'
-import { StoryContext } from '@storybook/react'
+import { StoryContext } from '@storybook/csf'
 
 // 'firefox' is technically supported too, but as of June 2023 it has memory usage issues that make is unusable
 type SupportedBrowserName = 'chromium' | 'webkit'
+type SnapshotTheme = 'legacy' | 'light' | 'dark'
 
 // Extend Storybook interface `Parameters` with Chromatic parameters
-declare module '@storybook/react' {
+declare module '@storybook/types' {
     interface Parameters {
-        options?: OptionsParameter
+        options?: any
         layout?: 'padded' | 'fullscreen' | 'centered'
         testOptions?: {
             /**
-             * Whether the test should be a no-op (doesn't jest.skip as @storybook/test-runner doesn't allow that).
-             * @default false
-             */
-            skip?: boolean
-            /**
              * Whether we should wait for all loading indicators to disappear before taking a snapshot.
-             *
-             * This is on by default for stories that have a layout of 'fullscreen', and off otherwise.
-             * Override that behavior by setting this to `true` or `false` manually.
-             *
-             * You can also provide a selector string instead of a boolean - in that case we'll wait
-             * for a matching element to be be visible once all loaders are gone.
+             * @default true
              */
-            waitForLoadersToDisappear?: boolean | string
+            waitForLoadersToDisappear?: boolean
+            /** If set, we'll wait for the given selector to be satisfied. */
+            waitForSelector?: string
             /**
              * Whether navigation (sidebar + topbar) should be excluded from the snapshot.
              * Warning: Fails if enabled for stories in which navigation is not present.
+             * @default false
              */
             excludeNavigationFromSnapshot?: boolean
             /**
              * The test will always run for all the browers, but snapshots are only taken in Chromium by default.
              * Override this to take snapshots in other browsers too.
+             *
              * @default ['chromium']
              */
             snapshotBrowsers?: SupportedBrowserName[]
             /** If taking a component snapshot, you can narrow it down by specifying the selector. */
             snapshotTargetSelector?: string
         }
-        mockDate?: string | number | Date
         msw?: {
             mocks?: Mocks
         }
         [name: string]: any
     }
+
+    interface Globals {
+        theme: SnapshotTheme
+    }
 }
 
-const RETRY_TIMES = 5
-const LOADER_SELECTORS = ['.ant-skeleton', '.Spinner', '.LemonSkeleton', '.LemonTableLoader']
+const RETRY_TIMES = 3
+const LOADER_SELECTORS = [
+    '.ant-skeleton',
+    '.Spinner',
+    '.LemonSkeleton',
+    '.LemonTableLoader',
+    '.Toastify__toast-container',
+    '[aria-busy="true"]',
+    '.SessionRecordingPlayer--buffering',
+    '.Lettermark--unknown',
+]
 
 const customSnapshotsDir = `${process.cwd()}/frontend/__snapshots__`
+
+const JEST_TIMEOUT_MS = 15000
+const PLAYWRIGHT_TIMEOUT_MS = 10000 // Must be shorter than JEST_TIMEOUT_MS
 
 module.exports = {
     setup() {
         expect.extend({ toMatchImageSnapshot })
         jest.retryTimes(RETRY_TIMES, { logErrorsBeforeRetry: true })
+        jest.setTimeout(JEST_TIMEOUT_MS)
     },
-    async postRender(page, context) {
+    async postVisit(page, context) {
         const browserContext = page.context()
         const storyContext = await getStoryContext(page, context)
-        const { skip = false, snapshotBrowsers = ['chromium'] } = storyContext.parameters?.testOptions ?? {}
+        const { snapshotBrowsers = ['chromium'] } = storyContext.parameters?.testOptions ?? {}
 
-        browserContext.setDefaultTimeout(1000) // Reduce the default timeout from 30 s to 1 s to pre-empt Jest timeouts
-        if (!skip) {
-            const currentBrowser = browserContext.browser()!.browserType().name() as SupportedBrowserName
-            if (snapshotBrowsers.includes(currentBrowser)) {
-                await expectStoryToMatchSnapshot(page, context, storyContext, currentBrowser)
-            }
+        browserContext.setDefaultTimeout(PLAYWRIGHT_TIMEOUT_MS)
+        const currentBrowser = browserContext.browser()!.browserType().name() as SupportedBrowserName
+        if (snapshotBrowsers.includes(currentBrowser)) {
+            await expectStoryToMatchSnapshot(page, context, storyContext, currentBrowser)
         }
+    },
+    tags: {
+        skip: ['test-skip'], // NOTE: This is overridden by the CI action storybook-chromatic.yml to include browser specific skipping
     },
 } as TestRunnerConfig
 
@@ -82,9 +93,9 @@ async function expectStoryToMatchSnapshot(
     storyContext: StoryContext,
     browser: SupportedBrowserName
 ): Promise<void> {
-    // await page.setViewportSize(DEFAULT_PAGE_DIMENSIONS)
     const {
-        waitForLoadersToDisappear = storyContext.parameters?.layout === 'fullscreen',
+        waitForLoadersToDisappear = true,
+        waitForSelector,
         excludeNavigationFromSnapshot = false,
     } = storyContext.parameters?.testOptions ?? {}
 
@@ -92,6 +103,7 @@ async function expectStoryToMatchSnapshot(
         page: Page,
         context: TestContext,
         browser: SupportedBrowserName,
+        theme: SnapshotTheme,
         targetSelector?: string
     ) => Promise<void>
     if (storyContext.parameters?.layout === 'fullscreen') {
@@ -104,52 +116,74 @@ async function expectStoryToMatchSnapshot(
         check = expectStoryToMatchComponentSnapshot
     }
 
-    // Wait for story to load
-    await page.waitForSelector('.sb-show-preparing-story', { state: 'detached' })
+    await waitForPageReady(page)
     await page.evaluate(() => {
         // Stop all animations for consistent snapshots
         document.body.classList.add('storybook-test-runner')
     })
     if (waitForLoadersToDisappear) {
-        await page.waitForTimeout(300) // Wait for initial UI to load
-        await Promise.all(LOADER_SELECTORS.map((selector) => page.waitForSelector(selector, { state: 'detached' })))
-        if (typeof waitForLoadersToDisappear === 'string') {
-            await page.waitForSelector(waitForLoadersToDisappear)
-        }
+        // The timeout is reduced so that we never allow toasts – they usually signify something wrong
+        await page.waitForSelector(LOADER_SELECTORS.join(','), { state: 'detached', timeout: 1000 })
     }
-    await page.waitForTimeout(100) // Just a bit of extra delay for things to settle
-    await check(page, context, browser, storyContext.parameters?.testOptions?.snapshotTargetSelector)
+    if (waitForSelector) {
+        await page.waitForSelector(waitForSelector)
+    }
+
+    await page.waitForTimeout(400) // Wait for effects to finish
+
+    // Wait for all images to load
+    await page.waitForFunction(() =>
+        Array.from(document.querySelectorAll('img')).every((i: HTMLImageElement) => i.complete)
+    )
+
+    // snapshot light theme
+    await page.evaluate(() => {
+        document.body.classList.add('posthog-3000')
+        document.body.setAttribute('theme', 'light')
+    })
+
+    await check(page, context, browser, 'light', storyContext.parameters?.testOptions?.snapshotTargetSelector)
+
+    // snapshot dark theme
+    await page.evaluate(() => {
+        document.body.setAttribute('theme', 'dark')
+    })
+
+    await check(page, context, browser, 'dark', storyContext.parameters?.testOptions?.snapshotTargetSelector)
 }
 
 async function expectStoryToMatchFullPageSnapshot(
     page: Page,
     context: TestContext,
-    browser: SupportedBrowserName
+    browser: SupportedBrowserName,
+    theme: SnapshotTheme
 ): Promise<void> {
-    await expectLocatorToMatchStorySnapshot(page, context, browser)
+    await expectLocatorToMatchStorySnapshot(page, context, browser, theme)
 }
 
 async function expectStoryToMatchSceneSnapshot(
     page: Page,
     context: TestContext,
-    browser: SupportedBrowserName
+    browser: SupportedBrowserName,
+    theme: SnapshotTheme
 ): Promise<void> {
     await page.evaluate(() => {
-        // The screenshot gets clipped by the overflow hidden of the sidebar
-        document.querySelector('.SideBar')?.setAttribute('style', 'overflow: visible;')
+        // The screenshot gets clipped by overflow hidden on .Navigation3000
+        document.querySelector('Navigation3000')?.setAttribute('style', 'overflow: visible;')
     })
 
-    await expectLocatorToMatchStorySnapshot(page.locator('.main-app-content'), context, browser)
+    await expectLocatorToMatchStorySnapshot(page.locator('main'), context, browser, theme)
 }
 
 async function expectStoryToMatchComponentSnapshot(
     page: Page,
     context: TestContext,
     browser: SupportedBrowserName,
-    targetSelector: string = '#root'
+    theme: SnapshotTheme,
+    targetSelector: string = '#storybook-root'
 ): Promise<void> {
-    await page.evaluate(() => {
-        const rootEl = document.getElementById('root')
+    await page.evaluate((theme) => {
+        const rootEl = document.getElementById('storybook-root')
         if (!rootEl) {
             throw new Error('Could not find root element')
         }
@@ -172,21 +206,27 @@ async function expectStoryToMatchComponentSnapshot(
                 rootEl.style.width = `${-popoverBoundingClientRect.left + currentRootBoundingClientRect.right}px`
             }
         })
-        // Make the body transparent to take the screenshot without background
-        document.body.style.background = 'transparent'
-    })
+        // For legacy style, make the body transparent to take the screenshot without background
+        document.body.style.background = theme === 'legacy' ? 'transparent' : 'var(--bg-3000)'
+    }, theme)
 
-    await expectLocatorToMatchStorySnapshot(page.locator(targetSelector), context, browser, { omitBackground: true })
+    await expectLocatorToMatchStorySnapshot(page.locator(targetSelector), context, browser, theme, {
+        omitBackground: true,
+    })
 }
 
 async function expectLocatorToMatchStorySnapshot(
     locator: Locator | Page,
     context: TestContext,
     browser: SupportedBrowserName,
+    theme: SnapshotTheme,
     options?: LocatorScreenshotOptions
 ): Promise<void> {
-    const image = await locator.screenshot({ timeout: 3000, ...options })
+    const image = await locator.screenshot({ ...options })
     let customSnapshotIdentifier = context.id
+    if (theme !== 'legacy') {
+        customSnapshotIdentifier += `--${theme}`
+    }
     if (browser !== 'chromium') {
         customSnapshotIdentifier += `--${browser}`
     }
@@ -196,7 +236,8 @@ async function expectLocatorToMatchStorySnapshot(
         // Compare structural similarity instead of raw pixels - reducing false positives
         // See https://github.com/americanexpress/jest-image-snapshot#recommendations-when-using-ssim-comparison
         comparisonMethod: 'ssim',
-        failureThreshold: 0.0003,
+        // 0.01 would be a 1% difference
+        failureThreshold: 0.01,
         failureThresholdType: 'percent',
     })
 }

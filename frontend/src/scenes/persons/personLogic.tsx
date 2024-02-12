@@ -1,7 +1,8 @@
 import { actions, afterMount, kea, key, path, props } from 'kea'
-import api from 'lib/api'
-import { PersonType } from '~/types'
 import { loaders } from 'kea-loaders'
+import api from 'lib/api'
+
+import { PersonType } from '~/types'
 
 import type { personLogicType } from './personLogicType'
 

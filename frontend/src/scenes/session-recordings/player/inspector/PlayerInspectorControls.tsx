@@ -1,21 +1,31 @@
-import { LemonButton, LemonInput, LemonSelect, LemonCheckbox } from '@posthog/lemon-ui'
-import { Tooltip } from 'antd'
-import { useValues, useActions } from 'kea'
+import { IconX } from '@posthog/icons'
+import { LemonButton, LemonCheckbox, LemonInput, LemonSelect, Tooltip } from '@posthog/lemon-ui'
+import { useActions, useValues } from 'kea'
+import { FEATURE_FLAGS } from 'lib/constants'
 import {
-    IconInfo,
-    IconSchedule,
-    IconPlayCircle,
+    IconBugShield,
     IconGauge,
+    IconInfo,
+    IconPause,
+    IconPlayCircle,
+    IconSchedule,
     IconTerminal,
     IconUnverifiedEvent,
-    IconPause,
 } from 'lib/lemon-ui/icons'
 import { Spinner } from 'lib/lemon-ui/Spinner/Spinner'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { capitalizeFirstLetter } from 'lib/utils'
-import { SessionRecordingPlayerTab } from '~/types'
 import { IconWindow } from 'scenes/session-recordings/player/icons'
+
+import { SessionRecordingPlayerTab } from '~/types'
+
 import { playerSettingsLogic } from '../playerSettingsLogic'
-import { SessionRecordingPlayerMode, sessionRecordingPlayerLogic } from '../sessionRecordingPlayerLogic'
+import {
+    sessionRecordingPlayerLogic,
+    SessionRecordingPlayerLogicProps,
+    SessionRecordingPlayerMode,
+} from '../sessionRecordingPlayerLogic'
+import { InspectorSearchInfo } from './components/InspectorSearchInfo'
 import { playerInspectorLogic } from './playerInspectorLogic'
 
 const TabToIcon = {
@@ -23,18 +33,55 @@ const TabToIcon = {
     [SessionRecordingPlayerTab.EVENTS]: IconUnverifiedEvent,
     [SessionRecordingPlayerTab.CONSOLE]: IconTerminal,
     [SessionRecordingPlayerTab.NETWORK]: IconGauge,
+    [SessionRecordingPlayerTab.DOCTOR]: IconBugShield,
 }
 
-export function PlayerInspectorControls(): JSX.Element {
+function TabButtons({
+    tabs,
+    logicProps,
+}: {
+    tabs: SessionRecordingPlayerTab[]
+    logicProps: SessionRecordingPlayerLogicProps
+}): JSX.Element {
+    const inspectorLogic = playerInspectorLogic(logicProps)
+    const { tab, tabsState } = useValues(inspectorLogic)
+    const { setTab } = useActions(inspectorLogic)
+
+    return (
+        <>
+            {tabs.map((tabId) => {
+                const TabIcon = TabToIcon[tabId]
+                return (
+                    <LemonButton
+                        key={tabId}
+                        size="small"
+                        // We want to indicate the tab is loading, but not disable it so we just override the icon here
+                        icon={
+                            TabIcon ? tabsState[tabId] === 'loading' ? <Spinner textColored /> : <TabIcon /> : undefined
+                        }
+                        active={tab === tabId}
+                        onClick={() => setTab(tabId)}
+                    >
+                        {capitalizeFirstLetter(tabId)}
+                    </LemonButton>
+                )
+            })}
+        </>
+    )
+}
+
+export function PlayerInspectorControls({ onClose }: { onClose: () => void }): JSX.Element {
     const { logicProps } = useValues(sessionRecordingPlayerLogic)
     const inspectorLogic = playerInspectorLogic(logicProps)
-    const { windowIdFilter, tab, searchQuery, syncScrollingPaused, tabsState, windowIds, showMatchingEventsFilter } =
-        useValues(inspectorLogic)
-    const { setWindowIdFilter, setTab, setSearchQuery, setSyncScrollPaused } = useActions(inspectorLogic)
-    const { showOnlyMatching, timestampMode, miniFilters, syncScroll } = useValues(playerSettingsLogic)
-    const { setShowOnlyMatching, setTimestampMode, setMiniFilter, setSyncScroll } = useActions(playerSettingsLogic)
+    const { tab, windowIdFilter, syncScrollingPaused, windowIds, showMatchingEventsFilter } = useValues(inspectorLogic)
+    const { setWindowIdFilter, setSyncScrollPaused, setTab } = useActions(inspectorLogic)
+    const { showOnlyMatching, timestampMode, miniFilters, syncScroll, searchQuery } = useValues(playerSettingsLogic)
+    const { setShowOnlyMatching, setTimestampMode, setMiniFilter, setSyncScroll, setSearchQuery } =
+        useActions(playerSettingsLogic)
 
     const mode = logicProps.mode ?? SessionRecordingPlayerMode.Standard
+
+    const { featureFlags } = useValues(featureFlagLogic)
 
     const tabs = [
         SessionRecordingPlayerTab.ALL,
@@ -42,111 +89,101 @@ export function PlayerInspectorControls(): JSX.Element {
         SessionRecordingPlayerTab.CONSOLE,
         SessionRecordingPlayerTab.NETWORK,
     ]
+    if (window.IMPERSONATED_SESSION || featureFlags[FEATURE_FLAGS.SESSION_REPLAY_DOCTOR]) {
+        tabs.push(SessionRecordingPlayerTab.DOCTOR)
+    } else {
+        // ensure we've not left the doctor tab in the tabs state
+        if (tab === SessionRecordingPlayerTab.DOCTOR) {
+            setTab(SessionRecordingPlayerTab.ALL)
+        }
+    }
 
     if (mode === SessionRecordingPlayerMode.Sharing) {
         // Events can't be loaded in sharing mode
         tabs.splice(1, 1)
+        // Doctor tab is not available in sharing mode
+        tabs.pop()
     }
 
     return (
         <div className="bg-side p-2 space-y-2 border-b">
-            <div className="flex justify-between gap-2 flex-wrap">
+            <div className="flex justify-between gap-2 flex-nowrap">
                 <div className="flex flex-1 items-center gap-1">
-                    {tabs.map((tabId) => {
-                        const TabIcon = TabToIcon[tabId]
-                        return (
-                            <LemonButton
-                                key={tabId}
-                                size="small"
-                                // We want to indicate the tab is loading, but not disable it so we just override the icon here
-                                icon={
-                                    TabIcon ? (
-                                        tabsState[tabId] === 'loading' ? (
-                                            <Spinner textColored />
-                                        ) : (
-                                            <TabIcon />
-                                        )
-                                    ) : undefined
-                                }
-                                status={tab === tabId ? 'primary' : 'primary-alt'}
-                                active={tab === tabId}
-                                onClick={() => setTab(tabId)}
-                            >
-                                {capitalizeFirstLetter(tabId)}
-                            </LemonButton>
-                        )
-                    })}
+                    <TabButtons tabs={tabs} logicProps={logicProps} />
                 </div>
-
-                <div className="flex items-center gap-2 flex-1">
-                    <LemonInput
-                        className="min-w-40"
-                        size="small"
-                        onChange={(e) => setSearchQuery(e)}
-                        placeholder="Search..."
-                        type="search"
-                        value={searchQuery}
-                        fullWidth
-                    />
-                </div>
-                {windowIds.length > 1 ? (
-                    <div className="flex items-center gap-2 flex-wrap">
-                        <LemonSelect
-                            size="small"
-                            data-attr="player-window-select"
-                            value={windowIdFilter}
-                            onChange={(val) => setWindowIdFilter(val || null)}
-                            options={[
-                                {
-                                    value: null,
-                                    label: 'All windows',
-                                    icon: <IconWindow size="small" value="A" className="text-muted" />,
-                                },
-                                ...windowIds.map((windowId, index) => ({
-                                    value: windowId,
-                                    label: `Window ${index + 1}`,
-                                    icon: <IconWindow size="small" value={index + 1} className="text-muted" />,
-                                })),
-                            ]}
-                        />
-                        <Tooltip
-                            title="Each recording window translates to a distinct browser tab or window."
-                            className="text-base text-muted-alt"
-                        >
-                            <IconInfo />
-                        </Tooltip>
-                    </div>
-                ) : null}
+                <LemonButton size="small" icon={<IconX />} onClick={onClose} />
             </div>
 
-            <div className="flex items-center gap-2 justify-between">
-                <div
-                    className="flex items-center gap-1 flex-wrap font-medium text-primary-alt"
-                    data-attr={'mini-filters'}
-                >
-                    {miniFilters.map((filter) => (
-                        <LemonButton
-                            key={filter.key}
+            <div className="flex items-center gap-1 flex-wrap font-medium text-primary-alt" data-attr="mini-filters">
+                {miniFilters.map((filter) => (
+                    <LemonButton
+                        key={filter.key}
+                        size="small"
+                        noPadding
+                        active={filter.enabled}
+                        onClick={() => {
+                            // "alone" should always be a select-to-true action
+                            setMiniFilter(filter.key, filter.alone || !filter.enabled)
+                        }}
+                        tooltip={filter.tooltip}
+                    >
+                        <span className="p-1 text-xs">{filter.name}</span>
+                    </LemonButton>
+                ))}
+            </div>
+
+            <div className="flex items-center gap-8 justify-between">
+                <div className="flex items-center gap-2 flex-1">
+                    <div className="flex flex-1">
+                        <LemonInput
                             size="small"
-                            noPadding
-                            status="primary-alt"
-                            active={filter.enabled}
-                            onClick={() => {
-                                // "alone" should always be a select-to-true action
-                                setMiniFilter(filter.key, filter.alone || !filter.enabled)
-                            }}
-                            tooltip={filter.tooltip}
-                        >
-                            <span className="p-1 text-xs">{filter.name}</span>
-                        </LemonButton>
-                    ))}
+                            onChange={(e) => setSearchQuery(e)}
+                            placeholder="Search..."
+                            type="search"
+                            value={searchQuery}
+                            fullWidth
+                            suffix={
+                                <Tooltip title={<InspectorSearchInfo />}>
+                                    <IconInfo />
+                                </Tooltip>
+                            }
+                        />
+                    </div>
+
+                    {windowIds.length > 1 ? (
+                        <div className="flex items-center gap-2 flex-wrap">
+                            <LemonSelect
+                                size="small"
+                                data-attr="player-window-select"
+                                value={windowIdFilter}
+                                onChange={(val) => setWindowIdFilter(val || null)}
+                                options={[
+                                    {
+                                        value: null,
+                                        label: 'All windows',
+                                        icon: <IconWindow size="small" value="A" className="text-muted" />,
+                                    },
+                                    ...windowIds.map((windowId, index) => ({
+                                        value: windowId,
+                                        label: `Window ${index + 1}`,
+                                        icon: <IconWindow size="small" value={index + 1} className="text-muted" />,
+                                    })),
+                                ]}
+                            />
+                            <Tooltip
+                                title="Each recording window translates to a distinct browser tab or window."
+                                className="text-base text-muted-alt"
+                            >
+                                <IconInfo />
+                            </Tooltip>
+                        </div>
+                    ) : null}
                 </div>
 
                 <div className="flex items-center gap-1">
                     <LemonButton
                         size="small"
                         noPadding
-                        status="primary-alt"
                         onClick={() => setTimestampMode(timestampMode === 'absolute' ? 'relative' : 'absolute')}
                         tooltipPlacement="left"
                         tooltip={
@@ -164,8 +201,7 @@ export function PlayerInspectorControls(): JSX.Element {
                     <LemonButton
                         size="small"
                         noPadding
-                        status="primary-alt"
-                        type={syncScroll ? 'primary' : 'tertiary'}
+                        active={syncScroll}
                         onClick={() => {
                             // If the user has syncScrolling on but it is paused due to interacting with the Inspector, we want to resume it
                             if (syncScroll && syncScrollingPaused) {

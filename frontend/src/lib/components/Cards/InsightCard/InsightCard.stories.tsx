@@ -1,23 +1,26 @@
 import { Meta, Story } from '@storybook/react'
 import { useState } from 'react'
-import { ChartDisplayType, InsightColor, InsightModel, InsightShortId, TrendsFilterType } from '~/types'
-import { InsightCard as InsightCardComponent } from './index'
 
-import EXAMPLE_TRENDS from './__mocks__/trends.json'
-import EXAMPLE_TRENDS_HORIZONTAL_BAR from './__mocks__/trendsHorizontalBar.json'
-import EXAMPLE_TRENDS_TABLE from './__mocks__/trendsTable.json'
-import EXAMPLE_TRENDS_PIE from './__mocks__/trendsPie.json'
-import EXAMPLE_TRENDS_WORLD_MAP from './__mocks__/trendsWorldMap.json'
-import EXAMPLE_FUNNEL from './__mocks__/funnel.json'
-import EXAMPLE_RETENTION from './__mocks__/retention.json'
-import EXAMPLE_PATHS from './__mocks__/paths.json'
-import EXAMPLE_STICKINESS from './__mocks__/stickiness.json'
-import EXAMPLE_LIFECYCLE from './__mocks__/lifecycle.json'
-import EXAMPLE_DATA_TABLE_NODE_HOGQL_QUERY from './__mocks__/dataTableHogQL.json'
-import EXAMPLE_DATA_TABLE_NODE_EVENTS_QUERY from './__mocks__/dataTableEvents.json'
+import { ChartDisplayType, InsightColor, InsightModel, InsightShortId, TrendsFilterType } from '~/types'
+
+import EXAMPLE_DATA_TABLE_NODE_EVENTS_QUERY from '../../../../mocks/fixtures/api/projects/team_id/insights/dataTableEvents.json'
+import EXAMPLE_DATA_TABLE_NODE_HOGQL_QUERY from '../../../../mocks/fixtures/api/projects/team_id/insights/dataTableHogQL.json'
+import EXAMPLE_FUNNEL from '../../../../mocks/fixtures/api/projects/team_id/insights/funnelLeftToRight.json'
+import EXAMPLE_LIFECYCLE from '../../../../mocks/fixtures/api/projects/team_id/insights/lifecycle.json'
+import EXAMPLE_RETENTION from '../../../../mocks/fixtures/api/projects/team_id/insights/retention.json'
+import EXAMPLE_STICKINESS from '../../../../mocks/fixtures/api/projects/team_id/insights/stickiness.json'
+import EXAMPLE_TRENDS from '../../../../mocks/fixtures/api/projects/team_id/insights/trendsLine.json'
+import EXAMPLE_TRENDS_MULTI from '../../../../mocks/fixtures/api/projects/team_id/insights/trendsLineMulti.json'
+import EXAMPLE_TRENDS_PIE from '../../../../mocks/fixtures/api/projects/team_id/insights/trendsPie.json'
+import EXAMPLE_TRENDS_TABLE from '../../../../mocks/fixtures/api/projects/team_id/insights/trendsTable.json'
+import EXAMPLE_TRENDS_HORIZONTAL_BAR from '../../../../mocks/fixtures/api/projects/team_id/insights/trendsValue.json'
+import EXAMPLE_TRENDS_WORLD_MAP from '../../../../mocks/fixtures/api/projects/team_id/insights/trendsWorldMap.json'
+import EXAMPLE_PATHS from '../../../../mocks/fixtures/api/projects/team_id/insights/userPaths.json'
+import { InsightCard as InsightCardComponent } from './index'
 
 const examples = [
     EXAMPLE_TRENDS,
+    EXAMPLE_TRENDS_MULTI,
     EXAMPLE_TRENDS_HORIZONTAL_BAR,
     EXAMPLE_TRENDS_TABLE,
     EXAMPLE_TRENDS_PIE,
@@ -31,7 +34,7 @@ const examples = [
     EXAMPLE_DATA_TABLE_NODE_EVENTS_QUERY,
 ] as unknown as InsightModel[]
 
-export default {
+const meta: Meta = {
     title: 'Components/Cards/Insight Card',
     component: InsightCardComponent,
     parameters: {
@@ -41,11 +44,9 @@ export default {
     argTypes: {
         insightName: {
             control: { type: 'text' },
-            defaultValue: 'Insight title (edit in story controls)',
         },
         insightDescription: {
             control: { type: 'text' },
-            defaultValue: 'Insight description (edit in story controls)',
         },
         loading: {
             control: { type: 'boolean' },
@@ -60,8 +61,8 @@ export default {
             control: { type: 'boolean' },
         },
     },
-} as Meta
-
+}
+export default meta
 export const InsightCard: Story = (args) => {
     const [insightColor, setInsightColor] = useState<InsightColor | null>(null)
     const [wasItemRemoved, setWasItemRemoved] = useState(false)
@@ -88,7 +89,7 @@ export const InsightCard: Story = (args) => {
                     removeFromDashboard={() => setWasItemRemoved(true)}
                     rename={() => {}}
                     duplicate={() => {}}
-                    placement={'SavedInsightGrid'}
+                    placement="SavedInsightGrid"
                 />
             )}
             <InsightCardComponent
@@ -103,7 +104,7 @@ export const InsightCard: Story = (args) => {
                 }
                 rename={() => {}}
                 duplicate={() => {}}
-                placement={'SavedInsightGrid'}
+                placement="SavedInsightGrid"
             />
             <InsightCardComponent
                 insight={
@@ -111,7 +112,7 @@ export const InsightCard: Story = (args) => {
                 }
                 rename={() => {}}
                 duplicate={() => {}}
-                placement={'SavedInsightGrid'}
+                placement="SavedInsightGrid"
             />
             <InsightCardComponent
                 insight={
@@ -124,13 +125,13 @@ export const InsightCard: Story = (args) => {
                 }
                 rename={() => {}}
                 duplicate={() => {}}
-                placement={'SavedInsightGrid'}
+                placement="SavedInsightGrid"
             />
             <InsightCardComponent
                 insight={{ ...EXAMPLE_FUNNEL, name: 'What a plentiful funnel' } as unknown as InsightModel}
                 rename={() => {}}
                 duplicate={() => {}}
-                placement={'SavedInsightGrid'}
+                placement="SavedInsightGrid"
             />
             <InsightCardComponent
                 insight={
@@ -144,7 +145,7 @@ export const InsightCard: Story = (args) => {
                 }
                 rename={() => {}}
                 duplicate={() => {}}
-                placement={'SavedInsightGrid'}
+                placement="SavedInsightGrid"
             />
             {examples.map((e) => (
                 <InsightCardComponent
@@ -152,7 +153,7 @@ export const InsightCard: Story = (args) => {
                     insight={e}
                     rename={() => {}}
                     duplicate={() => {}}
-                    placement={'SavedInsightGrid'}
+                    placement="SavedInsightGrid"
                 />
             ))}
         </div>

@@ -1,44 +1,36 @@
-import { EventDefinition, PropertyDefinition } from '~/types'
-import {
-    IconAutocapture,
-    IconPageleave,
-    IconPreview,
-    PropertyIcon,
-    IconUnverifiedEvent,
-    IconVerifiedEvent,
-    VerifiedPropertyIcon,
-    IconSelectAll,
-} from 'lib/lemon-ui/icons'
-import { getKeyMapping, KEY_MAPPING } from 'lib/taxonomy'
+import { IconBadge, IconBolt, IconCursor, IconEye, IconLeave, IconList, IconLogomark } from '@posthog/icons'
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
-import { Tooltip } from 'lib/lemon-ui/Tooltip'
-import { TaxonomicFilterGroup, TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
-import clsx from 'clsx'
-import { Link } from 'lib/lemon-ui/Link'
-import { urls } from 'scenes/urls'
 import {
     eventTaxonomicGroupProps,
     propertyTaxonomicGroupProps,
 } from 'lib/components/TaxonomicFilter/taxonomicFilterLogic'
+import { TaxonomicFilterGroup, TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
+import { IconSelectAll } from 'lib/lemon-ui/icons'
+import { Link } from 'lib/lemon-ui/Link'
+import { Tooltip } from 'lib/lemon-ui/Tooltip'
+import { CORE_FILTER_DEFINITIONS_BY_GROUP, getCoreFilterDefinition } from 'lib/taxonomy'
+import { urls } from 'scenes/urls'
+
+import { EventDefinition, PropertyDefinition } from '~/types'
 
 export function getPropertyDefinitionIcon(definition: PropertyDefinition): JSX.Element {
-    if (!!KEY_MAPPING.event[definition.name]) {
+    if (CORE_FILTER_DEFINITIONS_BY_GROUP.event_properties[definition.name]) {
         return (
             <Tooltip title="PostHog event property">
-                <VerifiedPropertyIcon className="taxonomy-icon taxonomy-icon-verified" />
+                <IconList className="taxonomy-icon taxonomy-icon-muted" />
             </Tooltip>
         )
     }
-    if (!!definition.verified) {
+    if (definition.verified) {
         return (
             <Tooltip title="Verified event property">
-                <VerifiedPropertyIcon className="taxonomy-icon taxonomy-icon-verified" />
+                <IconList className="taxonomy-icon taxonomy-icon-muted" />
             </Tooltip>
         )
     }
     return (
         <Tooltip title="Event property">
-            <PropertyIcon className="taxonomy-icon taxonomy-icon-muted" />
+            <IconList className="taxonomy-icon taxonomy-icon-muted" />
         </Tooltip>
     )
 }
@@ -47,29 +39,32 @@ export function getEventDefinitionIcon(definition: EventDefinition & { value: st
     // Rest are events
     if (definition.name === '$pageview' || definition.name === '$screen') {
         return (
-            <Tooltip title="PostHog event">
-                <IconPreview className="taxonomy-icon taxonomy-icon-ph taxonomy-icon-verified" />
+            <Tooltip title="Pageview">
+                <IconEye className="taxonomy-icon taxonomy-icon-ph taxonomy-icon-muted" />
             </Tooltip>
         )
     }
     if (definition.name === '$pageleave') {
         return (
             <Tooltip title="PostHog event">
-                <IconPageleave className="taxonomy-icon taxonomy-icon-ph taxonomy-icon-verified" />
+                <IconLeave className="taxonomy-icon taxonomy-icon-ph taxonomy-icon-muted" />
             </Tooltip>
         )
     }
     if (definition.name === '$autocapture') {
+        return <IconBolt className="taxonomy-icon taxonomy-icon-ph taxonomy-icon-muted" />
+    }
+    if (definition.name && definition.verified) {
         return (
-            <Tooltip title="PostHog event">
-                <IconAutocapture className="taxonomy-icon taxonomy-icon-ph taxonomy-icon-verified" />
+            <Tooltip title="Custom event">
+                <IconCursor className="taxonomy-icon taxonomy-icon-muted" />
             </Tooltip>
         )
     }
-    if (definition.name && (definition.verified || !!KEY_MAPPING.event[definition.name])) {
+    if (definition.name && !!CORE_FILTER_DEFINITIONS_BY_GROUP.events[definition.name]) {
         return (
-            <Tooltip title={`${!!KEY_MAPPING.event[definition.name] ? 'PostHog' : 'Verified'} event`}>
-                <IconVerifiedEvent className="taxonomy-icon taxonomy-icon-verified" />
+            <Tooltip title="PostHog event">
+                <IconLogomark className="taxonomy-icon taxonomy-icon-muted" />
             </Tooltip>
         )
     }
@@ -81,8 +76,8 @@ export function getEventDefinitionIcon(definition: EventDefinition & { value: st
         )
     }
     return (
-        <Tooltip title={`Unverified event`}>
-            <IconUnverifiedEvent className="taxonomy-icon taxonomy-icon-muted" />
+        <Tooltip title="Custom event">
+            <IconCursor className="taxonomy-icon taxonomy-icon-muted" />
         </Tooltip>
     )
 }
@@ -108,8 +103,8 @@ function RawDefinitionHeader({
     const isLink = asLink && fullDetailUrl
 
     const innerContent = (
-        <span className={clsx('definition-column-name-content-title', asLink && 'text-primary cursor-pointer')}>
-            <PropertyKeyInfo value={definition.name ?? ''} disablePopover disableIcon />
+        <span className={asLink ? 'text-link cursor-pointer' : ''}>
+            <PropertyKeyInfo value={definition.name ?? ''} disablePopover disableIcon type={group.type} />
         </span>
     )
     const linkedInnerContent = isLink ? (
@@ -120,14 +115,40 @@ function RawDefinitionHeader({
         innerContent
     )
 
-    const description = definition.description || getKeyMapping(definition.name, 'event')?.description
+    const description = definition.description || getCoreFilterDefinition(definition.name, group.type)?.description
 
     return (
         <>
             {!hideIcon && icon && <div className="definition-column-name-icon">{icon}</div>}
             {!hideText && (
                 <div className="definition-column-name-content">
-                    <div>{linkedInnerContent}</div>
+                    <div className="definition-column-name-content-title">
+                        {linkedInnerContent}
+                        {definition.verified && (
+                            <>
+                                <Tooltip
+                                    title={`${
+                                        CORE_FILTER_DEFINITIONS_BY_GROUP.events[definition.name]
+                                            ? 'PostHog'
+                                            : 'Verified'
+                                    } event`}
+                                >
+                                    <IconBadge
+                                        className="w-5 h-5 taxonomy-icon taxonomy-icon-muted"
+                                        style={{ width: '1.25rem' }}
+                                    />
+                                </Tooltip>
+                            </>
+                        )}
+                        {!!CORE_FILTER_DEFINITIONS_BY_GROUP.events[definition.name] && (
+                            <Tooltip title="PostHog event">
+                                <IconBadge
+                                    className="w-5 h-5 taxonomy-icon taxonomy-icon-muted"
+                                    style={{ width: '1.25rem' }}
+                                />
+                            </Tooltip>
+                        )}
+                    </div>
                     {description ? <div className="text-xs text-ellipsis">{description}</div> : null}
                 </div>
             )}

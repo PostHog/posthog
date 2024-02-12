@@ -1,4 +1,5 @@
 import type { Config } from 'jest'
+import fs from 'fs'
 
 process.env.TZ = process.env.TZ || 'UTC'
 
@@ -8,6 +9,14 @@ process.env.TZ = process.env.TZ || 'UTC'
  */
 
 const esmModules = ['query-selector-shadow-dom', 'react-syntax-highlighter', '@react-hook', '@medv']
+const eeFolderExists = fs.existsSync('ee/frontend/exports.ts')
+function rootDirectories() {
+    const rootDirectories = ['<rootDir>/frontend/src']
+    if (eeFolderExists) {
+        rootDirectories.push('<rootDir>/ee/frontend')
+    }
+    return rootDirectories
+}
 
 const config: Config = {
     // All imported modules in your tests should be mocked automatically
@@ -85,15 +94,17 @@ const config: Config = {
 
     // A map from regular expressions to module names or to arrays of module names that allow to stub out resources with a single module
     moduleNameMapper: {
-        '^.+\\.(css|less|scss|svg|png|lottie)$': '<rootDir>/test/mocks/styleMock.js',
-        '^~/(.*)$': '<rootDir>/$1',
-        '^@posthog/lemon-ui(|/.*)$': '<rootDir>/../@posthog/lemon-ui/src/$1',
-        '^@posthog/apps-common(|/.*)$': '<rootDir>/../@posthog/apps-common/src/$1',
-        '^lib/(.*)$': '<rootDir>/lib/$1',
-        '^scenes/(.*)$': '<rootDir>/scenes/$1',
+        '^.+\\.(css|less|scss|svg|png|lottie)$': '<rootDir>/frontend/src/test/mocks/styleMock.js',
+        '^~/(.*)$': '<rootDir>/frontend/src/$1',
+        '^@posthog/lemon-ui(|/.*)$': '<rootDir>/frontend/@posthog/lemon-ui/src/$1',
+        '^@posthog/apps-common(|/.*)$': '<rootDir>/frontend/@posthog/apps-common/src/$1',
+        '^@posthog/ee/exports': ['<rootDir>/ee/frontend/exports', '<rootDir>/frontend/@posthog/ee/exports'],
+        '^lib/(.*)$': '<rootDir>/frontend/src/lib/$1',
+        '^scenes/(.*)$': '<rootDir>/frontend/src/scenes/$1',
         '^antd/es/(.*)$': 'antd/lib/$1',
         '^react-virtualized/dist/es/(.*)$': 'react-virtualized/dist/commonjs/$1',
-        d3: '<rootDir>/../../node_modules/d3/dist/d3.min.js',
+        '^rrweb/es/rrweb': 'rrweb/dist/rrweb.min.js',
+        d3: '<rootDir>/node_modules/d3/dist/d3.min.js',
         '^d3-(.*)$': `d3-$1/dist/d3-$1`,
     },
 
@@ -128,22 +139,19 @@ const config: Config = {
     // restoreMocks: false,
 
     // The root directory that Jest should scan for tests and modules within
-    rootDir: 'frontend/src',
     modulePaths: ['<rootDir>/'],
 
     // A list of paths to directories that Jest should use to search for files in
-    // roots: [
-    //   "<rootDir>"
-    // ],
+    roots: rootDirectories(),
 
     // Allows you to use a custom runner instead of Jest's default test runner
     // runner: "jest-runner",
 
     // The paths to modules that run some code to configure or set up the testing environment before each test
-    setupFiles: ['../../jest.setup.ts'],
+    setupFiles: ['<rootDir>/jest.setup.ts'],
 
     // A list of paths to modules that run some code to configure or set up the testing framework before each test
-    setupFilesAfterEnv: ['../../jest.setupAfterEnv.ts', 'givens/setup', './mocks/jest.ts'],
+    setupFilesAfterEnv: ['<rootDir>/jest.setupAfterEnv.ts', 'givens/setup', '<rootDir>/frontend/src/mocks/jest.ts'],
 
     // The number of seconds after which a test is considered as slow and reported as such in the results.
     // slowTestThreshold: 5,

@@ -1,11 +1,12 @@
-import { ComponentMeta } from '@storybook/react'
+import { Meta } from '@storybook/react'
 
-import { CodeInstructions, CodeInstructionsProps } from './FeatureFlagInstructions'
-import { OPTIONS } from './FeatureFlagCodeOptions'
-import { FeatureFlagType } from '~/types'
 import { useStorybookMocks } from '~/mocks/browser'
 import { useAvailableFeatures } from '~/mocks/features'
+import { FeatureFlagType, SDKKey } from '~/types'
 import { AvailableFeature } from '~/types'
+
+import { OPTIONS } from './FeatureFlagCodeOptions'
+import { CodeInstructions, CodeInstructionsProps } from './FeatureFlagInstructions'
 
 const REGULAR_FEATURE_FLAG: FeatureFlagType = {
     id: 1,
@@ -13,7 +14,7 @@ const REGULAR_FEATURE_FLAG: FeatureFlagType = {
     key: 'test',
     rollout_percentage: 50,
     filters: {
-        groups: [{ properties: [], rollout_percentage: null, variant: null }],
+        groups: [{ properties: [], rollout_percentage: undefined, variant: null }],
         multivariate: null,
         payloads: { true: '' },
     },
@@ -29,6 +30,7 @@ const REGULAR_FEATURE_FLAG: FeatureFlagType = {
     performed_rollback: false,
     can_edit: true,
     tags: [],
+    surveys: [],
 }
 
 const GROUP_FEATURE_FLAG: FeatureFlagType = {
@@ -46,7 +48,7 @@ const MULTIVARIATE_FEATURE_FLAG: FeatureFlagType = {
     ...REGULAR_FEATURE_FLAG,
     key: 'multivariate-flag',
     filters: {
-        groups: [{ properties: [], rollout_percentage: null, variant: null }],
+        groups: [{ properties: [], rollout_percentage: undefined, variant: null }],
         payloads: {},
         multivariate: {
             variants: [
@@ -62,7 +64,7 @@ const MULTIVARIATE_GROUP_WITH_PAYLOADS_FEATURE_FLAG: FeatureFlagType = {
     key: 'multivariate-group-flag',
     filters: {
         aggregation_group_type_index: 1,
-        groups: [{ properties: [], rollout_percentage: null, variant: null }],
+        groups: [{ properties: [], rollout_percentage: undefined, variant: null }],
         payloads: { alpha: 'abcd', beta: 'xyz' },
         multivariate: {
             variants: [
@@ -73,32 +75,23 @@ const MULTIVARIATE_GROUP_WITH_PAYLOADS_FEATURE_FLAG: FeatureFlagType = {
     },
 }
 
-export default {
+const meta: Meta<typeof CodeInstructions> = {
     title: 'Scenes-App/Feature Flags/Code Examples',
     component: CodeInstructions,
-    argTypes: {
-        options: {
-            defaultValue: OPTIONS,
-        },
-        selectedLanguage: {
-            defaultValue: 'JavaScript',
-        },
-        featureFlag: {
-            defaultValue: REGULAR_FEATURE_FLAG,
-        },
-        showLocalEval: {
-            defaultValue: false,
-        },
-        showBootstrap: {
-            defaultValue: false,
-        },
+    args: {
+        options: OPTIONS,
+        selectedLanguage: SDKKey.JS_WEB,
+        featureFlag: REGULAR_FEATURE_FLAG,
+        showLocalEval: false,
+        showBootstrap: false,
     },
     parameters: {
         testOptions: {
             waitForLoadersToDisappear: true,
         },
     },
-} as ComponentMeta<typeof CodeInstructions>
+}
+export default meta
 
 export const CodeInstructionsOverview = (props: CodeInstructionsProps): JSX.Element => {
     useAvailableFeatures([AvailableFeature.GROUP_ANALYTICS, AvailableFeature.MULTIVARIATE_FLAGS])
@@ -107,11 +100,11 @@ export const CodeInstructionsOverview = (props: CodeInstructionsProps): JSX.Elem
 }
 
 export const CodeInstructionsReactNativeWithBootstrap = (): JSX.Element => {
-    return <CodeInstructions selectedLanguage="React Native" options={OPTIONS} showBootstrap={true} />
+    return <CodeInstructions selectedLanguage={SDKKey.REACT_NATIVE} options={OPTIONS} showBootstrap={true} />
 }
 
 export const CodeInstructionsPythonWithLocalEvaluation = (): JSX.Element => {
-    return <CodeInstructions selectedLanguage="Python" options={OPTIONS} showLocalEval={true} />
+    return <CodeInstructions selectedLanguage={SDKKey.PYTHON} options={OPTIONS} showLocalEval={true} />
 }
 
 export const CodeInstructionsRubyWithGroupFlagLocalEvaluation = (): JSX.Element => {
@@ -127,7 +120,7 @@ export const CodeInstructionsRubyWithGroupFlagLocalEvaluation = (): JSX.Element 
     })
     return (
         <CodeInstructions
-            selectedLanguage="Ruby"
+            selectedLanguage={SDKKey.RUBY}
             options={OPTIONS}
             showLocalEval={true}
             featureFlag={GROUP_FEATURE_FLAG}
@@ -136,7 +129,7 @@ export const CodeInstructionsRubyWithGroupFlagLocalEvaluation = (): JSX.Element 
 }
 
 export const CodeInstructionsiOSWithMultivariateFlag = (): JSX.Element => {
-    return <CodeInstructions selectedLanguage="iOS" options={OPTIONS} featureFlag={MULTIVARIATE_FEATURE_FLAG} />
+    return <CodeInstructions selectedLanguage={SDKKey.IOS} options={OPTIONS} featureFlag={MULTIVARIATE_FEATURE_FLAG} />
 }
 
 export const CodeInstructionsNodeWithGroupMultivariateFlagLocalEvaluation = (): JSX.Element => {
@@ -152,7 +145,7 @@ export const CodeInstructionsNodeWithGroupMultivariateFlagLocalEvaluation = (): 
     })
     return (
         <CodeInstructions
-            selectedLanguage="Node.js"
+            selectedLanguage={SDKKey.NODE_JS}
             options={OPTIONS}
             showLocalEval={true}
             featureFlag={MULTIVARIATE_GROUP_WITH_PAYLOADS_FEATURE_FLAG}

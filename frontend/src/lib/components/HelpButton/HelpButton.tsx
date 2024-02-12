@@ -1,47 +1,45 @@
 import './HelpButton.scss'
-import { kea, useActions, useValues } from 'kea'
-import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
-import { HelpType } from '~/types'
-import type { helpButtonLogicType } from './HelpButtonType'
+
+import { Placement } from '@floating-ui/react'
+import { IconChevronDown } from '@posthog/icons'
+import clsx from 'clsx'
+import { actions, connect, kea, key, listeners, path, props, reducers, useActions, useValues } from 'kea'
 import {
-    IconArrowDropDown,
     IconArticle,
+    IconBugReport,
+    IconFeedback,
     IconHelpOutline,
     IconQuestionAnswer,
-    IconMessages,
-    IconFlare,
-    IconLive,
     IconSupport,
-    IconFeedback,
-    IconBugReport,
 } from 'lib/lemon-ui/icons'
-import clsx from 'clsx'
-import { Placement } from '@floating-ui/react'
-import { DefaultAction, inAppPromptLogic } from 'lib/logic/inAppPrompt/inAppPromptLogic'
-import { hedgehogbuddyLogic } from '../HedgehogBuddy/hedgehogbuddyLogic'
-import { HedgehogBuddyWithLogic } from '../HedgehogBuddy/HedgehogBuddy'
-import { supportLogic } from '../Support/supportLogic'
-import { SupportModal } from '../Support/SupportModal'
 import { LemonMenu } from 'lib/lemon-ui/LemonMenu'
+import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
+
+import { HelpType } from '~/types'
+
+import { supportLogic } from '../Support/supportLogic'
+import type { helpButtonLogicType } from './HelpButtonType'
 
 const HELP_UTM_TAGS = '?utm_medium=in-product&utm_campaign=help-button-top'
 
-export const helpButtonLogic = kea<helpButtonLogicType>({
-    props: {} as {
-        key?: string
-    },
-    key: (props: { key?: string }) => props.key || 'global',
-    path: (key) => ['lib', 'components', 'HelpButton', key],
-    connect: {
+export const helpButtonLogic = kea<helpButtonLogicType>([
+    props(
+        {} as {
+            key?: string
+        }
+    ),
+    key((props: { key?: string }) => props.key || 'global'),
+    path((key) => ['lib', 'components', 'HelpButton', key]),
+    connect({
         actions: [eventUsageLogic, ['reportHelpButtonViewed']],
-    },
-    actions: {
+    }),
+    actions({
         toggleHelp: true,
         showHelp: true,
         hideHelp: true,
-    },
-    reducers: {
+    }),
+    reducers({
         isHelpVisible: [
             false,
             {
@@ -50,8 +48,8 @@ export const helpButtonLogic = kea<helpButtonLogicType>({
                 hideHelp: () => false,
             },
         ],
-    },
-    listeners: ({ actions, values }) => ({
+    }),
+    listeners(({ actions, values }) => ({
         showHelp: () => {
             actions.reportHelpButtonViewed()
         },
@@ -60,8 +58,8 @@ export const helpButtonLogic = kea<helpButtonLogicType>({
                 actions.reportHelpButtonViewed()
             }
         },
-    }),
-})
+    })),
+])
 
 export interface HelpButtonProps {
     placement?: Placement
@@ -83,15 +81,10 @@ export function HelpButton({
     const { reportHelpButtonUsed } = useActions(eventUsageLogic)
     const { isHelpVisible } = useValues(helpButtonLogic({ key: customKey }))
     const { toggleHelp, hideHelp } = useActions(helpButtonLogic({ key: customKey }))
-    const { validProductTourSequences } = useValues(inAppPromptLogic)
-    const { runFirstValidSequence, promptAction } = useActions(inAppPromptLogic)
-    const { isPromptVisible } = useValues(inAppPromptLogic)
-    const { hedgehogModeEnabled } = useValues(hedgehogbuddyLogic)
-    const { setHedgehogModeEnabled } = useActions(hedgehogbuddyLogic)
     const { openSupportForm } = useActions(supportLogic)
-    const { preflight } = useValues(preflightLogic)
+    const { isCloudOrDev } = useValues(preflightLogic)
 
-    const showSupportOptions: boolean = preflight?.cloud || false
+    const showSupportOptions: boolean = isCloudOrDev || false
 
     if (contactOnly && !showSupportOptions) {
         return null // We don't offer support for self-hosted instances
@@ -101,20 +94,6 @@ export function HelpButton({
         <>
             <LemonMenu
                 items={[
-                    !contactOnly && {
-                        items: [
-                            {
-                                icon: <IconLive />,
-                                label: "What's new?",
-                                onClick: () => {
-                                    reportHelpButtonUsed(HelpType.Updates)
-                                    hideHelp()
-                                },
-                                to: 'https://posthog.com/changelog',
-                                targetBlank: true,
-                            },
-                        ],
-                    },
                     showSupportOptions && {
                         items: [
                             {
@@ -132,7 +111,7 @@ export function HelpButton({
                                 icon: <IconBugReport />,
                                 onClick: () => {
                                     reportHelpButtonUsed(HelpType.SupportForm)
-                                    openSupportForm('bug')
+                                    openSupportForm({ kind: 'bug' })
                                     hideHelp()
                                 },
                             },
@@ -141,7 +120,7 @@ export function HelpButton({
                                 icon: <IconFeedback />,
                                 onClick: () => {
                                     reportHelpButtonUsed(HelpType.SupportForm)
-                                    openSupportForm('feedback')
+                                    openSupportForm({ kind: 'feedback' })
                                     hideHelp()
                                 },
                             },
@@ -150,7 +129,7 @@ export function HelpButton({
                                 icon: <IconSupport />,
                                 onClick: () => {
                                     reportHelpButtonUsed(HelpType.SupportForm)
-                                    openSupportForm('support')
+                                    openSupportForm({ kind: 'support' })
                                     hideHelp()
                                 },
                             },
@@ -168,46 +147,23 @@ export function HelpButton({
                                 to: `https://posthog.com/docs${HELP_UTM_TAGS}`,
                                 targetBlank: true,
                             },
-                            validProductTourSequences.length > 0 && {
-                                label: isPromptVisible ? 'Stop tutorial' : 'Explain this page',
-                                icon: <IconMessages />,
-                                onClick: () => {
-                                    if (isPromptVisible) {
-                                        promptAction(DefaultAction.SKIP)
-                                    } else {
-                                        runFirstValidSequence({ runDismissedOrCompleted: true })
-                                    }
-                                    hideHelp()
-                                },
-                            },
-                            {
-                                label: `${hedgehogModeEnabled ? 'Disable' : 'Enable'} hedgehog mode`,
-                                icon: <IconFlare />,
-                                onClick: () => {
-                                    setHedgehogModeEnabled(!hedgehogModeEnabled)
-                                    hideHelp()
-                                },
-                            },
                         ],
                     },
                 ]}
                 onVisibilityChange={(visible) => !visible && hideHelp()}
                 visible={isHelpVisible}
                 placement={placement}
-                actionable
                 onClickOutside={hideHelp}
             >
                 <div className={clsx('help-button', inline && 'inline')} onClick={toggleHelp} data-attr="help-button">
                     {customComponent || (
                         <>
                             <IconHelpOutline />
-                            <IconArrowDropDown />
+                            <IconChevronDown />
                         </>
                     )}
                 </div>
             </LemonMenu>
-            <HedgehogBuddyWithLogic />
-            <SupportModal />
         </>
     )
 }

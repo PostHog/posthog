@@ -4,7 +4,6 @@ from django.db import migrations, models
 
 
 class Migration(migrations.Migration):
-
     dependencies = [
         ("posthog", "0234_create_plugin_jsons"),
     ]
@@ -20,7 +19,11 @@ class Migration(migrations.Migration):
             name="status",
             field=models.CharField(
                 null=True,
-                choices=[("LOCKED", "locked"), ("TRANSPILED", "transpiled"), ("ERROR", "error")],
+                choices=[
+                    ("LOCKED", "locked"),
+                    ("TRANSPILED", "transpiled"),
+                    ("ERROR", "error"),
+                ],
                 max_length=20,
             ),
         ),

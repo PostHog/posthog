@@ -1,8 +1,14 @@
 from django.core import mail
 from rest_framework import status
 
-from posthog.api.instance_settings import get_instance_setting as get_instance_setting_helper
-from posthog.models.instance_setting import get_instance_setting, override_instance_config, set_instance_setting
+from posthog.api.instance_settings import (
+    get_instance_setting as get_instance_setting_helper,
+)
+from posthog.models.instance_setting import (
+    get_instance_setting,
+    override_instance_config,
+    set_instance_setting,
+)
 from posthog.settings import CONSTANCE_CONFIG
 from posthog.test.base import APIBaseTest
 
@@ -14,7 +20,6 @@ class TestInstanceSettings(APIBaseTest):
         self.user.save()
 
     def test_list_instance_settings(self):
-
         response = self.client.get(f"/api/instance_settings/")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         json_response = response.json()
@@ -41,7 +46,6 @@ class TestInstanceSettings(APIBaseTest):
                 self.assertEqual(item["value"], "")
 
     def test_can_retrieve_setting(self):
-
         response = self.client.get(f"/api/instance_settings/AUTO_START_ASYNC_MIGRATIONS")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         json_response = response.json()
@@ -56,7 +60,6 @@ class TestInstanceSettings(APIBaseTest):
         self.assertEqual(json_response["editable"], True)
 
     def test_retrieve_secret_setting(self):
-
         response = self.client.get(f"/api/instance_settings/EMAIL_HOST_PASSWORD")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         json_response = response.json()
@@ -83,13 +86,15 @@ class TestInstanceSettings(APIBaseTest):
         response = self.client.get(f"/api/instance_settings/")
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
         self.assertEqual(
-            response.json(), self.permission_denied_response("You are not a staff user, contact your instance admin.")
+            response.json(),
+            self.permission_denied_response("You are not a staff user, contact your instance admin."),
         )
 
         response = self.client.get(f"/api/instance_settings/AUTO_START_ASYNC_MIGRATIONS")
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
         self.assertEqual(
-            response.json(), self.permission_denied_response("You are not a staff user, contact your instance admin.")
+            response.json(),
+            self.permission_denied_response("You are not a staff user, contact your instance admin."),
         )
 
     def test_update_setting(self):
@@ -108,7 +113,8 @@ class TestInstanceSettings(APIBaseTest):
         set_instance_setting("EMAIL_HOST", "localhost")
         with self.settings(SITE_URL="http://localhost:8000", CELERY_TASK_ALWAYS_EAGER=True):
             response = self.client.patch(
-                f"/api/instance_settings/EMAIL_DEFAULT_FROM", {"value": "hellohello@posthog.com"}
+                f"/api/instance_settings/EMAIL_DEFAULT_FROM",
+                {"value": "hellohello@posthog.com"},
             )
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.json()["value"], "hellohello@posthog.com")
@@ -116,11 +122,16 @@ class TestInstanceSettings(APIBaseTest):
         self.assertEqual(mail.outbox[0].from_email, "hellohello@posthog.com")
         self.assertEqual(mail.outbox[0].subject, "This is a test email of your PostHog instance")
         html_message = mail.outbox[0].alternatives[0][0]  # type: ignore
-        self.validate_basic_html(html_message, "http://localhost:8000", preheader="Email successfully set up!")
+        self.validate_basic_html(
+            html_message,
+            "http://localhost:8000",
+            preheader="Email successfully set up!",
+        )
 
     def test_update_integer_setting(self):
         response = self.client.patch(
-            f"/api/instance_settings/ASYNC_MIGRATIONS_ROLLBACK_TIMEOUT", {"value": 48343943943}
+            f"/api/instance_settings/ASYNC_MIGRATIONS_ROLLBACK_TIMEOUT",
+            {"value": 48343943943},
         )
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.json()["value"], 48343943943)
@@ -147,7 +158,8 @@ class TestInstanceSettings(APIBaseTest):
         response = self.client.get(f"/api/instance_settings/AUTO_START_ASYNC_MIGRATIONS", {"value": True})
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
         self.assertEqual(
-            response.json(), self.permission_denied_response("You are not a staff user, contact your instance admin.")
+            response.json(),
+            self.permission_denied_response("You are not a staff user, contact your instance admin."),
         )
 
         self.assertEqual(get_instance_setting_helper("AUTO_START_ASYNC_MIGRATIONS").value, False)

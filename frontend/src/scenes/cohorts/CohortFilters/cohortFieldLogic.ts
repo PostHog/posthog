@@ -1,15 +1,17 @@
-import { actions, kea, key, connect, propsChanged, listeners, path, props, reducers, selectors } from 'kea'
-import { BehavioralFilterKey, FieldOptionsType, FieldValues } from 'scenes/cohorts/CohortFilters/types'
-import { FIELD_VALUES, SCALE_FIELD_VALUES } from 'scenes/cohorts/CohortFilters/constants'
-import { groupsModel } from '~/models/groupsModel'
-import { ActorGroupType, AnyCohortCriteriaType, AvailableFeature } from '~/types'
-import type { cohortFieldLogicType } from './cohortFieldLogicType'
-import { cleanBehavioralTypeCriteria, resolveCohortFieldValue } from 'scenes/cohorts/cohortUtils'
-import { cohortsModel } from '~/models/cohortsModel'
-import { actionsModel } from '~/models/actionsModel'
+import { actions, connect, kea, key, listeners, path, props, propsChanged, reducers, selectors } from 'kea'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { objectsEqual } from 'lib/utils'
+import { FIELD_VALUES, SCALE_FIELD_VALUES } from 'scenes/cohorts/CohortFilters/constants'
+import { BehavioralFilterKey, FieldOptionsType, FieldValues } from 'scenes/cohorts/CohortFilters/types'
+import { cleanBehavioralTypeCriteria, resolveCohortFieldValue } from 'scenes/cohorts/cohortUtils'
 import { userLogic } from 'scenes/userLogic'
+
+import { actionsModel } from '~/models/actionsModel'
+import { cohortsModel } from '~/models/cohortsModel'
+import { groupsModel } from '~/models/groupsModel'
+import { ActorGroupType, AnyCohortCriteriaType, AvailableFeature } from '~/types'
+
+import type { cohortFieldLogicType } from './cohortFieldLogicType'
 
 export interface CohortFieldLogicProps {
     cohortFilterLogicKey: string
@@ -71,10 +73,12 @@ export const cohortFieldLogic = kea<cohortFieldLogicType>([
                                 label: 'Persons',
                             },
                             ...Object.fromEntries(
-                                groupTypes.map((type) => [
-                                    `${ActorGroupType.GroupPrefix}_${type.group_type_index}`,
-                                    { label: aggregationLabel(type.group_type_index).plural },
-                                ])
+                                Array.from(groupTypes.values())
+                                    .map((type) => [
+                                        `${ActorGroupType.GroupPrefix}_${type.group_type_index}`,
+                                        { label: aggregationLabel(type.group_type_index).plural },
+                                    ])
+                                    .filter(Boolean)
                             ),
                         },
                     },
@@ -92,10 +96,10 @@ export const cohortFieldLogic = kea<cohortFieldLogicType>([
                     : null,
         ],
         calculatedValueLoading: [
-            (s) => [
+            (s, p) => [
                 s.value,
-                (_, props) => props.criteria,
-                (_, props) => props.fieldKey,
+                p.criteria,
+                p.fieldKey,
                 cohortsModel.selectors.cohortsLoading,
                 actionsModel.selectors.actionsLoading,
             ],
@@ -113,10 +117,10 @@ export const cohortFieldLogic = kea<cohortFieldLogicType>([
                 },
         ],
         calculatedValue: [
-            (s) => [
+            (s, p) => [
                 s.value,
-                (_, props) => props.criteria,
-                (_, props) => props.fieldKey,
+                p.criteria,
+                p.fieldKey,
                 cohortsModel.selectors.cohortsLoading,
                 actionsModel.selectors.actionsLoading,
             ],

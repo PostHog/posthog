@@ -4,6 +4,6 @@ set -e
 
 trap "trap - SIGTERM && kill -- -$$" SIGINT SIGTERM EXIT
 
-python3 manage.py start_temporal_worker
+python3 manage.py start_temporal_worker "$@"
 
 wait

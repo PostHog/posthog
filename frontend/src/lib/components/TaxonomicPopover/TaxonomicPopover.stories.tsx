@@ -1,17 +1,20 @@
-import { useState } from 'react'
-import { TaxonomicPopover, TaxonomicStringPopover } from './TaxonomicPopover'
-import { cohortsModel } from '~/models/cohortsModel'
-import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
-import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
+import { Meta } from '@storybook/react'
 import { useMountedLogic } from 'kea'
+import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
 import { taxonomicFilterMocksDecorator } from 'lib/components/TaxonomicFilter/__mocks__/taxonomicFilterMocksDecorator'
-import { ComponentMeta } from '@storybook/react'
+import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
+import { useState } from 'react'
 
-export default {
+import { cohortsModel } from '~/models/cohortsModel'
+
+import { TaxonomicPopover, TaxonomicStringPopover } from './TaxonomicPopover'
+
+const meta: Meta<typeof TaxonomicPopover> = {
     title: 'Filters/TaxonomicPopover',
     component: TaxonomicPopover,
     decorators: [taxonomicFilterMocksDecorator],
-} as ComponentMeta<typeof TaxonomicPopover>
+}
+export default meta
 
 export function TaxonomicStringPopoverOneCategory(): JSX.Element {
     useMountedLogic(cohortsModel)
@@ -22,7 +25,7 @@ export function TaxonomicStringPopoverOneCategory(): JSX.Element {
             groupType={TaxonomicFilterGroupType.PersonProperties}
             value={value}
             onChange={setValue}
-            renderValue={(v) => <PropertyKeyInfo value={v} />}
+            renderValue={(v) => <PropertyKeyInfo value={v} type={TaxonomicFilterGroupType.PersonProperties} />}
         />
     )
 }

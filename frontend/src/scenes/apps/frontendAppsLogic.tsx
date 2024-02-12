@@ -1,13 +1,15 @@
 import { actions, afterMount, connect, defaults, kea, path, reducers } from 'kea'
-import type { frontendAppsLogicType } from './frontendAppsLogicType'
-import { getAppContext } from 'lib/utils/getAppContext'
 import { loaders } from 'kea-loaders'
-import { FrontendApp, FrontendAppConfig } from '~/types'
-import { frontendAppRequire } from './frontendAppRequire'
-import { lemonToast } from 'lib/lemon-ui/lemonToast'
+import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { getAppContext } from 'lib/utils/getAppContext'
 import { pluginsLogic } from 'scenes/plugins/pluginsLogic'
 import { urls } from 'scenes/urls'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+
+import { FrontendApp, FrontendAppConfig } from '~/types'
+
+import { frontendAppRequire } from './frontendAppRequire'
+import type { frontendAppsLogicType } from './frontendAppsLogicType'
 
 /** Manages the loading and lifecycle of frontend apps. */
 export const frontendAppsLogic = kea<frontendAppsLogicType>([

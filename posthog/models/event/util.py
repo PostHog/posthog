@@ -3,7 +3,7 @@ import json
 import uuid
 from typing import Any, Dict, List, Optional, Set, Union
 
-import pytz
+from zoneinfo import ZoneInfo
 from dateutil.parser import isoparse
 from django.utils import timezone
 from rest_framework import serializers
@@ -12,7 +12,11 @@ from posthog.client import sync_execute
 from posthog.kafka_client.client import ClickhouseProducer
 from posthog.kafka_client.topics import KAFKA_EVENTS_JSON
 from posthog.models import Group
-from posthog.models.element.element import Element, chain_to_elements, elements_to_string
+from posthog.models.element.element import (
+    Element,
+    chain_to_elements,
+    elements_to_string,
+)
 from posthog.models.event.sql import BULK_INSERT_EVENT_SQL, INSERT_EVENT_SQL
 from posthog.models.person import Person
 from posthog.models.team import Team
@@ -47,7 +51,7 @@ def create_event(
         timestamp = timezone.now()
     assert timestamp is not None
 
-    timestamp = isoparse(timestamp) if isinstance(timestamp, str) else timestamp.astimezone(pytz.utc)
+    timestamp = isoparse(timestamp) if isinstance(timestamp, str) else timestamp.astimezone(ZoneInfo("UTC"))
 
     elements_chain = ""
     if elements and len(elements) > 0:
@@ -89,7 +93,9 @@ def format_clickhouse_timestamp(
     if default is None:
         default = timezone.now()
     parsed_datetime = (
-        isoparse(raw_timestamp) if isinstance(raw_timestamp, str) else (raw_timestamp or default).astimezone(pytz.utc)
+        isoparse(raw_timestamp)
+        if isinstance(raw_timestamp, str)
+        else (raw_timestamp or default).astimezone(ZoneInfo("UTC"))
     )
     return parsed_datetime.strftime("%Y-%m-%d %H:%M:%S.%f")
 
@@ -110,16 +116,16 @@ def bulk_create_events(events: List[Dict[str, Any]], person_mapping: Optional[Di
     inserts = []
     params: Dict[str, Any] = {}
     for index, event in enumerate(events):
-        datetime64_default_timestamp = timezone.now().astimezone(pytz.utc).strftime("%Y-%m-%d %H:%M:%S")
+        datetime64_default_timestamp = timezone.now().astimezone(ZoneInfo("UTC")).strftime("%Y-%m-%d %H:%M:%S")
         timestamp = event.get("timestamp") or dt.datetime.now()
         if isinstance(timestamp, str):
             timestamp = isoparse(timestamp)
         # Offset timezone-naive datetime by project timezone, to facilitate @also_test_with_different_timezones
         if timestamp.tzinfo is None:
             team_timezone = event["team"].timezone if event.get("team") else "UTC"
-            timestamp = pytz.timezone(team_timezone).localize(timestamp)
+            timestamp = timestamp.replace(tzinfo=ZoneInfo(team_timezone))
         # Format for ClickHouse
-        timestamp = timestamp.astimezone(pytz.utc).strftime("%Y-%m-%d %H:%M:%S.%f")
+        timestamp = timestamp.astimezone(ZoneInfo("UTC")).strftime("%Y-%m-%d %H:%M:%S.%f")
 
         elements_chain = ""
         if event.get("elements") and len(event["elements"]) > 0:
@@ -150,9 +156,7 @@ def bulk_create_events(events: List[Dict[str, Any]], person_mapping: Optional[Di
                 %(created_at_{i})s,
                 now(),
                 0
-            )""".format(
-                i=index
-            )
+            )""".format(i=index)
         )
 
         #  use person properties mapping to populate person properties in given event
@@ -165,7 +169,8 @@ def bulk_create_events(events: List[Dict[str, Any]], person_mapping: Optional[Di
         else:
             try:
                 person = Person.objects.get(
-                    persondistinctid__distinct_id=event["distinct_id"], persondistinctid__team_id=team_id
+                    persondistinctid__distinct_id=event["distinct_id"],
+                    persondistinctid__team_id=team_id,
                 )
                 person_properties = person.properties
                 person_id = person.uuid
@@ -177,7 +182,10 @@ def bulk_create_events(events: List[Dict[str, Any]], person_mapping: Optional[Di
 
         event = {
             **event,
-            "person_properties": {**person_properties, **event.get("person_properties", {})},
+            "person_properties": {
+                **person_properties,
+                **event.get("person_properties", {}),
+            },
             "person_id": person_id,
             "person_created_at": person_created_at,
         }
@@ -187,13 +195,20 @@ def bulk_create_events(events: List[Dict[str, Any]], person_mapping: Optional[Di
             if property_key.startswith("$group_"):
                 group_type_index = property_key[-1]
                 try:
-                    group = Group.objects.get(team_id=team_id, group_type_index=group_type_index, group_key=value)
+                    group = Group.objects.get(
+                        team_id=team_id,
+                        group_type_index=group_type_index,
+                        group_key=value,
+                    )
                     group_property_key = f"group{group_type_index}_properties"
                     group_created_at_key = f"group{group_type_index}_created_at"
 
                     event = {
                         **event,
-                        group_property_key: {**group.group_properties, **event.get(group_property_key, {})},
+                        group_property_key: {
+                            **group.group_properties,
+                            **event.get(group_property_key, {}),
+                        },
                         group_created_at_key: event.get(group_created_at_key, datetime64_default_timestamp),
                     }
 
@@ -236,7 +251,10 @@ def bulk_create_events(events: List[Dict[str, Any]], person_mapping: Optional[Di
             else datetime64_default_timestamp,
         }
 
-        params = {**params, **{"{}_{}".format(key, index): value for key, value in event.items()}}
+        params = {
+            **params,
+            **{"{}_{}".format(key, index): value for key, value in event.items()},
+        }
     sync_execute(BULK_INSERT_EVENT_SQL() + ", ".join(inserts), params, flush=False)
 
 
@@ -360,10 +378,12 @@ def get_event_count_for_team(team_id: Union[str, int]) -> int:
 
 
 def get_event_count() -> int:
+    """
+    ```SELECT count(1) as count FROM events``` is too slow on cloud
+    """
     result = sync_execute(
         """
-        SELECT count(1) as count
-        FROM events
+        SELECT sum(rows) FROM system.parts WHERE (active = 1) AND (table = 'sharded_events')
     """
     )[0][0]
     return result

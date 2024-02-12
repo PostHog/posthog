@@ -1,0 +1,58 @@
+.YearInHog__mask {
+    background-color: var(--bg-3000);
+    border-radius: var(--radius);
+}
+
+.CheekyHog {
+    position: absolute;
+    top: -0.2rem;
+    animation-timing-function: ease-out;
+    animation-delay: 0s;
+    animation-fill-mode: both;
+}
+
+.CheekyHog--peek {
+    animation-name: CheekyHog__Peek;
+    animation-duration: 1s;
+    animation-iteration-count: 1;
+}
+
+.CheekyHog--hide {
+    animation-name: CheekyHog__Hide;
+    animation-duration: 1s;
+    animation-iteration-count: 1;
+}
+
+@keyframes CheekyHog__Peek {
+    0% {
+        left: 0;
+        transform: rotate(0);
+    }
+
+    50% {
+        left: -0.5rem;
+        transform: rotate(-20deg);
+    }
+
+    100% {
+        left: -1.45rem;
+        transform: rotate(-45deg);
+    }
+}
+
+@keyframes CheekyHog__Hide {
+    0% {
+        left: -1.45rem;
+        transform: rotate(-45deg);
+    }
+
+    50% {
+        left: -0.5rem;
+        transform: rotate(-20deg);
+    }
+
+    100% {
+        left: 0;
+        transform: rotate(0);
+    }
+}

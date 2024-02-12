@@ -1,11 +1,14 @@
 import { actions, afterMount, connect, kea, listeners, path, reducers, selectors } from 'kea'
-import api from 'lib/api'
-import { deleteWithUndo } from 'lib/utils'
-import type { annotationsModelType } from './annotationsModelType'
-import { RawAnnotationType, AnnotationType } from '~/types'
 import { loaders } from 'kea-loaders'
-import { isAuthenticatedTeam, teamLogic } from 'scenes/teamLogic'
+import api from 'lib/api'
 import { dayjsUtcToTimezone } from 'lib/dayjs'
+import { deleteWithUndo } from 'lib/utils/deleteWithUndo'
+import { permanentlyMount } from 'lib/utils/kea-logic-builders'
+import { isAuthenticatedTeam, teamLogic } from 'scenes/teamLogic'
+
+import { AnnotationType, RawAnnotationType } from '~/types'
+
+import type { annotationsModelType } from './annotationsModelType'
 
 export type AnnotationData = Pick<RawAnnotationType, 'date_marker' | 'scope' | 'content' | 'dashboard_item'>
 export type AnnotationDataWithoutInsight = Omit<AnnotationData, 'dashboard_item'>
@@ -125,4 +128,5 @@ export const annotationsModel = kea<annotationsModelType>([
             actions.loadAnnotations()
         }
     }),
+    permanentlyMount(),
 ])

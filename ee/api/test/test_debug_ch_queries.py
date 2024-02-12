@@ -9,7 +9,6 @@ class TestProjectEnterpriseAPI(APIBaseTest):
     CLASS_DATA_LEVEL_SETUP = False
 
     def test_denied(self):
-
         with patch("ee.api.debug_ch_queries.is_cloud", return_value=True):
             with patch("ee.api.debug_ch_queries.DEBUG", True):
                 resp = self.client.get("/api/debug_ch_queries/")

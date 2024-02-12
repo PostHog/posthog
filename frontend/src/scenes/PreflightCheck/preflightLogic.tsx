@@ -1,12 +1,14 @@
 import { actions, events, kea, listeners, path, reducers, selectors } from 'kea'
-import api from 'lib/api'
-import { PreflightStatus, Realm } from '~/types'
-import posthog from 'posthog-js'
-import { getAppContext } from 'lib/utils/getAppContext'
-import type { preflightLogicType } from './preflightLogicType'
-import { urls } from 'scenes/urls'
-import { actionToUrl, router, urlToAction } from 'kea-router'
 import { loaders } from 'kea-loaders'
+import { actionToUrl, router, urlToAction } from 'kea-router'
+import api from 'lib/api'
+import { getAppContext } from 'lib/utils/getAppContext'
+import posthog from 'posthog-js'
+import { urls } from 'scenes/urls'
+
+import { PreflightStatus, Realm } from '~/types'
+
+import type { preflightLogicType } from './preflightLogicType'
 
 export type PreflightMode = 'experimentation' | 'live'
 
@@ -37,7 +39,7 @@ export const preflightLogic = kea<preflightLogicType>([
             null as PreflightStatus | null,
             {
                 loadPreflight: async () => {
-                    const response = (await api.get('_preflight/')) as PreflightStatus
+                    const response = await api.get<PreflightStatus>('_preflight/')
                     return response
                 },
             },
@@ -222,7 +224,7 @@ export const preflightLogic = kea<preflightLogicType>([
         siteUrlMisconfigured: [
             (s) => [s.preflight],
             (preflight): boolean => {
-                if (process.env.STORYBOOK) {
+                if (global.process?.env.STORYBOOK) {
                     // Disable the "site URL misconfigured" warning in Storybook. This is for consistent snapshots
                     // - when opening Storybook in the browser or when updating the snapshots in CI, the origin is
                     // http://localhost:6006, but in the local dockerized setup http://host.docker.internal:6006
@@ -251,6 +253,24 @@ export const preflightLogic = kea<preflightLogicType>([
                     metric: config.label,
                     value: preflight[config.key],
                 }))
+            },
+        ],
+        isCloudOrDev: [
+            (s) => [s.preflight],
+            (preflight): boolean | undefined => {
+                return preflight?.cloud || preflight?.is_debug
+            },
+        ],
+        isCloud: [
+            (s) => [s.preflight],
+            (preflight): boolean | undefined => {
+                return preflight?.cloud
+            },
+        ],
+        isDev: [
+            (s) => [s.preflight],
+            (preflight): boolean | undefined => {
+                return preflight?.is_debug
             },
         ],
     }),

@@ -1,31 +1,30 @@
-import { autoCaptureEventToDescription, clamp } from 'lib/utils'
-import {
-    FunnelStepRangeEntityFilter,
-    FunnelStep,
-    FunnelStepWithNestedBreakdown,
-    BreakdownKeyType,
-    FunnelResultType,
-    FunnelStepReference,
-    FunnelConversionWindow,
-    FunnelsFilterType,
-    Breakdown,
-    FunnelStepWithConversionMetrics,
-    FlattenedFunnelStepByBreakdown,
-    FunnelCorrelation,
-    AnyPropertyFilter,
-    PropertyOperator,
-    ElementPropertyFilter,
-    PropertyFilterType,
-    FunnelCorrelationResultsType,
-    CorrelationConfigType,
-} from '~/types'
-import { dayjs } from 'lib/dayjs'
 import { combineUrl } from 'kea-router'
-import { FunnelsQuery } from '~/queries/schema'
 import { FunnelLayout } from 'lib/constants'
+import { dayjs } from 'lib/dayjs'
+import { autoCaptureEventToDescription, clamp } from 'lib/utils'
 import { elementsToAction } from 'scenes/events/createActionFromEvent'
 import { teamLogic } from 'scenes/teamLogic'
+
 import { Noun } from '~/models/groupsModel'
+import { FunnelExclusionSteps, FunnelsQuery } from '~/queries/schema'
+import {
+    AnyPropertyFilter,
+    Breakdown,
+    BreakdownKeyType,
+    CorrelationConfigType,
+    ElementPropertyFilter,
+    FlattenedFunnelStepByBreakdown,
+    FunnelConversionWindow,
+    FunnelCorrelation,
+    FunnelCorrelationResultsType,
+    FunnelResultType,
+    FunnelStep,
+    FunnelStepReference,
+    FunnelStepWithConversionMetrics,
+    FunnelStepWithNestedBreakdown,
+    PropertyFilterType,
+    PropertyOperator,
+} from '~/types'
 
 /** Chosen via heuristics by eyeballing some values
  * Assuming a normal distribution, then 90% of values are within 1.5 standard deviations of the mean
@@ -219,89 +218,24 @@ export const getBreakdownStepValues = (
     return EMPTY_BREAKDOWN_VALUES
 }
 
-export const isStepsEmpty = (filters: FunnelsFilterType): boolean =>
-    [...(filters.actions || []), ...(filters.events || [])].length === 0
-
-export const isStepsUndefined = (filters: FunnelsFilterType): boolean =>
-    typeof filters.events === 'undefined' && (typeof filters.actions === 'undefined' || filters.actions.length === 0)
-
-export const deepCleanFunnelExclusionEvents = (
-    filters: FunnelsFilterType
-): FunnelStepRangeEntityFilter[] | undefined => {
-    if (!filters.exclusions) {
-        return undefined
-    }
-
-    const lastIndex = Math.max((filters.events?.length || 0) + (filters.actions?.length || 0) - 1, 1)
-    const exclusions = filters.exclusions.map((event) => {
-        const funnel_from_step = event.funnel_from_step ? clamp(event.funnel_from_step, 0, lastIndex - 1) : 0
-        return {
-            ...event,
-            ...{ funnel_from_step },
-            ...{
-                funnel_to_step: event.funnel_to_step
-                    ? clamp(event.funnel_to_step, funnel_from_step + 1, lastIndex)
-                    : lastIndex,
-            },
-        }
-    })
-    return exclusions.length > 0 ? exclusions : undefined
-}
-
-const findFirstNumber = (candidates: (number | undefined)[]): number | undefined =>
-    candidates.find((s) => typeof s === 'number')
-
-export const getClampedStepRangeFilter = ({
-    stepRange,
-    filters,
-}: {
-    stepRange?: FunnelStepRangeEntityFilter
-    filters: FunnelsFilterType
-}): FunnelStepRangeEntityFilter => {
-    const maxStepIndex = Math.max((filters.events?.length || 0) + (filters.actions?.length || 0) - 1, 1)
-
-    let funnel_from_step = findFirstNumber([stepRange?.funnel_from_step, filters.funnel_from_step])
-    let funnel_to_step = findFirstNumber([stepRange?.funnel_to_step, filters.funnel_to_step])
-
-    const funnelFromStepIsSet = typeof funnel_from_step === 'number'
-    const funnelToStepIsSet = typeof funnel_to_step === 'number'
-
-    if (funnelFromStepIsSet && funnelToStepIsSet) {
-        funnel_from_step = clamp(funnel_from_step ?? 0, 0, maxStepIndex)
-        funnel_to_step = clamp(funnel_to_step ?? maxStepIndex, funnel_from_step + 1, maxStepIndex)
-    }
-
-    return {
-        ...(stepRange || {}),
-        funnel_from_step,
-        funnel_to_step,
-    }
-}
-
-export const getClampedStepRangeFilterDataExploration = ({
+export const getClampedExclusionStepRange = ({
     stepRange,
     query,
 }: {
-    stepRange?: FunnelStepRangeEntityFilter
+    stepRange: FunnelExclusionSteps
     query: FunnelsQuery
-}): FunnelStepRangeEntityFilter => {
-    const maxStepIndex = Math.max(query.series.length || 0 - 1, 1)
+}): FunnelExclusionSteps => {
+    const maxStepIndex = Math.max((query.series.length || 0) - 1, 1)
 
-    let funnel_from_step = findFirstNumber([stepRange?.funnel_from_step, query.funnelsFilter?.funnel_from_step])
-    let funnel_to_step = findFirstNumber([stepRange?.funnel_to_step, query.funnelsFilter?.funnel_to_step])
+    let { funnelFromStep, funnelToStep } = stepRange
 
-    const funnelFromStepIsSet = typeof funnel_from_step === 'number'
-    const funnelToStepIsSet = typeof funnel_to_step === 'number'
-
-    if (funnelFromStepIsSet && funnelToStepIsSet) {
-        funnel_from_step = clamp(funnel_from_step ?? 0, 0, maxStepIndex)
-        funnel_to_step = clamp(funnel_to_step ?? maxStepIndex, funnel_from_step + 1, maxStepIndex)
-    }
+    funnelFromStep = clamp(funnelFromStep ?? 0, 0, maxStepIndex)
+    funnelToStep = clamp(funnelToStep ?? maxStepIndex, funnelFromStep + 1, maxStepIndex)
 
     return {
         ...(stepRange || {}),
-        funnel_from_step,
-        funnel_to_step,
+        funnelFromStep,
+        funnelToStep,
     }
 }
 
@@ -324,8 +258,8 @@ export function getIncompleteConversionWindowStartDate(
     window: FunnelConversionWindow,
     startDate: dayjs.Dayjs = dayjs()
 ): dayjs.Dayjs {
-    const { funnel_window_interval, funnel_window_interval_unit } = window
-    return startDate.subtract(funnel_window_interval, funnel_window_interval_unit)
+    const { funnelWindowInterval, funnelWindowIntervalUnit } = window
+    return startDate.subtract(funnelWindowInterval, funnelWindowIntervalUnit)
 }
 
 export function generateBaselineConversionUrl(url?: string | null): string {
@@ -441,7 +375,7 @@ export function flattenedStepsByBreakdown(
     skipInitialRows: boolean = false
 ): FlattenedFunnelStepByBreakdown[] {
     // Initialize with two rows for rendering graph and header
-    const flattenedStepsByBreakdown: FlattenedFunnelStepByBreakdown[] = !!skipInitialRows
+    const flattenedStepsByBreakdown: FlattenedFunnelStepByBreakdown[] = skipInitialRows
         ? []
         : [{ rowKey: 'steps-meta' }, { rowKey: 'graph' }, { rowKey: 'table-header' }]
 
@@ -602,7 +536,7 @@ export const parseDisplayNameForCorrelation = (
         first_value = autoCaptureEventToDescription({
             ...record.event,
             event: '$autocapture',
-        }) as string
+        })
         return { first_value, second_value }
     } else {
         // FunnelCorrelationResultsType.EventWithProperties
@@ -644,11 +578,11 @@ export const appendToCorrelationConfig = (
     })
 }
 
-export function aggregationLabelForHogQL(funnel_aggregate_by_hogql: string): Noun {
-    if (funnel_aggregate_by_hogql === 'person_id') {
+export function aggregationLabelForHogQL(funnelAggregateByHogQL: string): Noun {
+    if (funnelAggregateByHogQL === 'person_id') {
         return { singular: 'person', plural: 'persons' }
     }
-    if (funnel_aggregate_by_hogql === 'properties.$session_id') {
+    if (funnelAggregateByHogQL === 'properties.$session_id') {
         return { singular: 'session', plural: 'sessions' }
     }
     return { singular: 'result', plural: 'results' }

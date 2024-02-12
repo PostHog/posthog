@@ -1,8 +1,10 @@
-import { ElementType } from '~/types'
-import clsx from 'clsx'
 import './SelectableElement.scss'
+
+import clsx from 'clsx'
 import { ParsedCSSSelector } from 'lib/components/HTMLElementsDisplay/preselectWithCSS'
 import { objectsEqual } from 'lib/utils'
+
+import { ElementType } from '~/types'
 
 export function TagPart({
     tagName,
@@ -47,7 +49,7 @@ function IdPart({
     const htmlElementsSelector = clsx('decoration-primary-highlight', !readonly && 'cursor-pointer SelectableElement')
     const isSelected = !readonly && !!selectedParts.id
 
-    return !!id ? (
+    return id ? (
         <span
             onClick={(e) => {
                 e.stopPropagation()

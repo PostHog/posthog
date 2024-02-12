@@ -2,8 +2,9 @@ import { LemonButton, LemonInput, LemonModal, Link } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { PureField } from 'lib/forms/Field'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { teamLogic } from 'scenes/teamLogic'
+
 import { organizationLogic } from '../organizationLogic'
 
 export function CreateProjectModal({
@@ -15,6 +16,7 @@ export function CreateProjectModal({
     onClose?: () => void
     inline?: boolean
 }): JSX.Element {
+    const { currentTeam, currentTeamLoading } = useValues(teamLogic)
     const { createTeam } = useActions(teamLogic)
     const { currentOrganization } = useValues(organizationLogic)
     const { reportProjectCreationSubmitted } = useActions(eventUsageLogic)
@@ -31,8 +33,12 @@ export function CreateProjectModal({
     const handleSubmit = (): void => {
         createTeam({ name, is_demo: false })
         reportProjectCreationSubmitted(currentOrganization?.teams ? currentOrganization.teams.length : 0, name.length)
-        closeModal()
     }
+
+    // Anytime the team changes close the modal as it indicates we have created a new team
+    useEffect(() => {
+        closeModal()
+    }, [currentTeam])
 
     return (
         <LemonModal
@@ -61,13 +67,18 @@ export function CreateProjectModal({
             footer={
                 <>
                     {onClose && (
-                        <LemonButton type="secondary" onClick={() => onClose()}>
+                        <LemonButton
+                            type="secondary"
+                            onClick={onClose}
+                            disabledReason={currentTeamLoading ? 'Creating team...' : undefined}
+                        >
                             Cancel
                         </LemonButton>
                     )}
                     <LemonButton
                         type="primary"
-                        onClick={() => handleSubmit()}
+                        onClick={handleSubmit}
+                        loading={currentTeamLoading}
                         disabledReason={!name ? 'Think of a name!' : null}
                     >
                         Create project
@@ -77,6 +88,7 @@ export function CreateProjectModal({
             isOpen={isVisible}
             onClose={onClose}
             inline={inline}
+            closable={!currentTeamLoading}
         >
             <PureField label="Project name">
                 <LemonInput
@@ -90,6 +102,7 @@ export function CreateProjectModal({
                             handleSubmit()
                         }
                     }}
+                    disabled={currentTeamLoading}
                 />
             </PureField>
         </LemonModal>

@@ -1,5 +1,10 @@
+import { dayjs } from 'lib/dayjs'
 import tk from 'timekeeper'
+
+import { ElementType, EventType, PropertyType, TimeUnitType } from '~/types'
+
 import {
+    areDatesValidForInterval,
     areObjectValuesEmpty,
     average,
     booleanOperatorMap,
@@ -9,8 +14,6 @@ import {
     chooseOperatorMap,
     colonDelimitedDuration,
     compactNumber,
-    convertPropertiesToPropertyGroup,
-    convertPropertyGroupToProperties,
     dateFilterToText,
     dateMapping,
     dateStringToDayJs,
@@ -20,42 +23,30 @@ import {
     ensureStringIsNotBlank,
     eventToDescription,
     floorMsToClosestSecond,
-    formatLabel,
     genericOperatorMap,
+    getDefaultInterval,
     getFormattedLastWeekDate,
     hexToRGBA,
     humanFriendlyDuration,
+    humanFriendlyLargeNumber,
     identifierToHuman,
     isExternalLink,
     isURL,
     median,
     midEllipsis,
     numericOperatorMap,
-    objectDiffShallow,
     objectClean,
     objectCleanWithEmpty,
+    objectDiffShallow,
     pluralize,
     range,
     reverseColonDelimitedDuration,
     roundToDecimal,
     selectorOperatorMap,
+    shortTimeZone,
     stringOperatorMap,
     toParams,
-    shortTimeZone,
 } from './utils'
-import {
-    ActionFilter,
-    AnyPropertyFilter,
-    ElementType,
-    EventType,
-    FilterLogicalOperator,
-    PropertyFilterType,
-    PropertyGroupFilter,
-    PropertyOperator,
-    PropertyType,
-    TimeUnitType,
-} from '~/types'
-import { dayjs } from 'lib/dayjs'
 
 describe('toParams', () => {
     it('handles unusual input', () => {
@@ -107,46 +98,6 @@ describe('identifierToHuman()', () => {
         expect(identifierToHuman('500')).toEqual('500')
         expect(identifierToHuman(404)).toEqual('404')
         expect(identifierToHuman('CreateProject')).toEqual('Create project')
-    })
-})
-
-describe('formatLabel()', () => {
-    const action: ActionFilter = {
-        id: 123,
-        name: 'Test Action',
-        properties: [],
-        type: 'actions',
-    }
-
-    it('formats the label', () => {
-        expect(formatLabel('some_event', action)).toEqual('some_event')
-    })
-
-    it('DAU queries', () => {
-        expect(formatLabel('some_event', { ...action, math: 'dau' })).toEqual('some_event (Unique users)')
-    })
-
-    it('summing by property', () => {
-        expect(formatLabel('some_event', { ...action, math: 'sum', math_property: 'event_property' })).toEqual(
-            'some_event (sum of event_property)'
-        )
-    })
-
-    it('action with properties', () => {
-        expect(
-            formatLabel('some_event', {
-                ...action,
-                properties: [
-                    {
-                        value: 'hello',
-                        key: 'greeting',
-                        operator: PropertyOperator.Exact,
-                        type: PropertyFilterType.Person,
-                    },
-                    { operator: PropertyOperator.GreaterThan, value: 5, key: '', type: PropertyFilterType.Person },
-                ],
-            })
-        ).toEqual('some_event (greeting = hello, > 5)')
     })
 })
 
@@ -433,6 +384,72 @@ describe('dateStringToDayJs', () => {
     })
 })
 
+describe('getDefaultInterval', () => {
+    it('should return days for last 7 days', () => {
+        expect(getDefaultInterval('-7d', null)).toEqual('day')
+    })
+
+    it('should return hours for last 24 hours', () => {
+        expect(getDefaultInterval('-24h', null)).toEqual('hour')
+    })
+
+    it('should return days for month to date', () => {
+        expect(getDefaultInterval('mStart', null)).toEqual('day')
+    })
+
+    it('should return month for year to date', () => {
+        expect(getDefaultInterval('yStart', null)).toEqual('month')
+    })
+
+    it('should return month for all time', () => {
+        expect(getDefaultInterval('all', null)).toEqual('month')
+    })
+
+    it('should handle explicit dates 6 months apart', () => {
+        expect(getDefaultInterval('2023-10-01', '2023-04-01')).toEqual('month')
+    })
+    it('should handle explicit dates a month apart', () => {
+        expect(getDefaultInterval('2023-10-01', '2023-09-01')).toEqual('week')
+    })
+    it('should handle explicit dates a week apart', () => {
+        expect(getDefaultInterval('2023-10-01', '2023-09-25')).toEqual('day')
+    })
+    it('should handle explicit dates a day apart', () => {
+        expect(getDefaultInterval('2023-10-02', '2023-10-01')).toEqual('hour')
+    })
+    it('should handle explicit dates 12 hours apart', () => {
+        expect(getDefaultInterval('2023-10-01T18:00:00', '2023-10-01T6:00:00')).toEqual('hour')
+    })
+})
+
+describe('areDatesValidForInterval', () => {
+    it('should require interval to be month for all time', () => {
+        expect(areDatesValidForInterval('month', 'all', null)).toEqual(true)
+        expect(areDatesValidForInterval('week', 'all', null)).toEqual(false)
+        expect(areDatesValidForInterval('day', 'all', null)).toEqual(false)
+        expect(areDatesValidForInterval('hour', 'all', null)).toEqual(false)
+    })
+    it('should return false if the dates are one interval apart', () => {
+        expect(areDatesValidForInterval('day', '-24h', null)).toEqual(false)
+        expect(areDatesValidForInterval('week', '-7d', null)).toEqual(false)
+        expect(areDatesValidForInterval('day', '-1d', null)).toEqual(false)
+    })
+    it('should return true if the dates are two intervals apart', () => {
+        expect(areDatesValidForInterval('day', '-48h', null)).toEqual(true)
+        expect(areDatesValidForInterval('week', '-14d', null)).toEqual(true)
+        expect(areDatesValidForInterval('day', '-2d', null)).toEqual(true)
+    })
+    it('should return false for hourly if over 2 weeks', () => {
+        expect(areDatesValidForInterval('hour', '-15d', null)).toEqual(false)
+    })
+    it('should support explicit dates', () => {
+        expect(areDatesValidForInterval('month', '2023-08-01', '2023-11-01')).toEqual(true)
+        expect(areDatesValidForInterval('week', '2023-10-01', '2023-11-01')).toEqual(true)
+        expect(areDatesValidForInterval('day', '2023-10-16', '2023-11-01')).toEqual(true)
+        expect(areDatesValidForInterval('hour', '2023-11-01T12', '2023-11-01T18')).toEqual(true)
+    })
+})
+
 describe('hexToRGBA()', () => {
     it('converts hex to RGBA correctly', () => {
         expect(hexToRGBA('#ff0000', 0.3)).toEqual('rgba(255,0,0,0.3)')
@@ -458,6 +475,24 @@ describe('median()', () => {
     })
 })
 
+describe('humanFriendlyLargeNumber()', () => {
+    it('returns the correct string', () => {
+        expect(humanFriendlyLargeNumber(1.234)).toEqual('1.23')
+        expect(humanFriendlyLargeNumber(12.34)).toEqual('12.3')
+        expect(humanFriendlyLargeNumber(123.4)).toEqual('123')
+        expect(humanFriendlyLargeNumber(1234)).toEqual('1.23K')
+        expect(humanFriendlyLargeNumber(12345)).toEqual('12.3K')
+        expect(humanFriendlyLargeNumber(123456)).toEqual('123K')
+        expect(humanFriendlyLargeNumber(1234567)).toEqual('1.23M')
+        expect(humanFriendlyLargeNumber(-1234567)).toEqual('-1.23M')
+        expect(humanFriendlyLargeNumber(-1)).toEqual('-1')
+        expect(humanFriendlyLargeNumber(-0.1)).toEqual('-0.1')
+        expect(humanFriendlyLargeNumber(0)).toEqual('0')
+        expect(humanFriendlyLargeNumber(NaN)).toEqual('NaN')
+        expect(humanFriendlyLargeNumber(Infinity)).toEqual('inf')
+        expect(humanFriendlyLargeNumber(-Infinity)).toEqual('-inf')
+    })
+})
 describe('humanFriendlyDuration()', () => {
     it('returns correct value for <= 60', () => {
         expect(humanFriendlyDuration(60)).toEqual('1m')
@@ -731,70 +766,6 @@ describe('{floor|ceil}MsToClosestSecond()', () => {
             it(`correctly maps ${testcase.propertyType} to operator options`, () => {
                 expect(chooseOperatorMap(testcase.propertyType)).toEqual(testcase.expected)
             })
-        })
-    })
-})
-
-describe('convertPropertyGroupToProperties()', () => {
-    it('converts a single layer property group into an array of properties', () => {
-        const propertyGroup = {
-            type: FilterLogicalOperator.And,
-            values: [
-                {
-                    type: FilterLogicalOperator.And,
-                    values: [
-                        { key: '$browser', type: PropertyFilterType.Event, operator: PropertyOperator.IsSet },
-                        { key: '$current_url', type: PropertyFilterType.Event, operator: PropertyOperator.IsSet },
-                    ] as AnyPropertyFilter[],
-                },
-                {
-                    type: FilterLogicalOperator.And,
-                    values: [
-                        { key: '$lib', type: PropertyFilterType.Event, operator: PropertyOperator.IsSet },
-                    ] as AnyPropertyFilter[],
-                },
-            ],
-        }
-        expect(convertPropertyGroupToProperties(propertyGroup)).toEqual([
-            { key: '$browser', type: PropertyFilterType.Event, operator: PropertyOperator.IsSet },
-            { key: '$current_url', type: PropertyFilterType.Event, operator: PropertyOperator.IsSet },
-            { key: '$lib', type: PropertyFilterType.Event, operator: PropertyOperator.IsSet },
-        ])
-    })
-
-    it('converts a deeply nested property group into an array of properties', () => {
-        const propertyGroup: PropertyGroupFilter = {
-            type: FilterLogicalOperator.And,
-            values: [
-                {
-                    type: FilterLogicalOperator.And,
-                    values: [{ type: FilterLogicalOperator.And, values: [{ key: '$lib' } as any] }],
-                },
-                { type: FilterLogicalOperator.And, values: [{ key: '$browser' } as any] },
-            ],
-        }
-        expect(convertPropertyGroupToProperties(propertyGroup)).toEqual([{ key: '$lib' }, { key: '$browser' }])
-    })
-})
-
-describe('convertPropertiesToPropertyGroup', () => {
-    it('converts properties to one AND operator property group', () => {
-        const properties: any[] = [{ key: '$lib' }, { key: '$browser' }, { key: '$current_url' }]
-        expect(convertPropertiesToPropertyGroup(properties)).toEqual({
-            type: FilterLogicalOperator.And,
-            values: [
-                {
-                    type: FilterLogicalOperator.And,
-                    values: [{ key: '$lib' }, { key: '$browser' }, { key: '$current_url' }],
-                },
-            ],
-        })
-    })
-
-    it('converts properties to one AND operator property group', () => {
-        expect(convertPropertiesToPropertyGroup(undefined)).toEqual({
-            type: FilterLogicalOperator.And,
-            values: [],
         })
     })
 })

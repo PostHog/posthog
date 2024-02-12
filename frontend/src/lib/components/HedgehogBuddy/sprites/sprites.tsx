@@ -22,7 +22,6 @@ export type AccessoryInfo = {
     /** Path to the img */
     img: string
     group: (typeof accessoryGroups)[number]
-    topOffset?: number
 }
 
 // If loaded via the toolbar the root domain won't be app.posthog.com and so the assets won't load
@@ -121,70 +120,69 @@ export const standardAnimations: { [key: string]: SpriteInfo } = {
 }
 
 export const standardAccessories: { [key: string]: AccessoryInfo } = {
+    xmas_hat: {
+        img: 'xmas-hat',
+        group: 'headwear',
+    },
+    xmas_antlers: {
+        img: 'xmas-antlers',
+        group: 'headwear',
+    },
+    xmas_scarf: {
+        img: 'xmas-scarf',
+        group: 'other',
+    },
     beret: {
         img: 'beret',
         group: 'headwear',
-        topOffset: 10,
     },
     cap: {
         img: 'cap',
         group: 'headwear',
-        topOffset: 10,
     },
     chef: {
         img: 'chef',
         group: 'headwear',
-        topOffset: 10,
     },
     cowboy: {
         img: 'cowboy',
         group: 'headwear',
-        topOffset: 10,
     },
     eyepatch: {
         img: 'eyepatch',
         group: 'eyewear',
-        topOffset: 20,
     },
     flag: {
         img: 'flag',
         group: 'headwear',
-        topOffset: 10,
     },
     glasses: {
         img: 'glasses',
         group: 'eyewear',
-        topOffset: 20,
     },
     graduation: {
         img: 'graduation',
         group: 'headwear',
-        topOffset: 10,
     },
 
     parrot: {
         img: 'parrot',
         group: 'other',
-        topOffset: 20,
     },
     party: {
         img: 'party',
         group: 'headwear',
-        topOffset: 10,
     },
     pineapple: {
         img: 'pineapple',
         group: 'headwear',
-        topOffset: 10,
     },
     sunglasses: {
         img: 'sunglasses',
         group: 'eyewear',
-        topOffset: 20,
     },
     tophat: {
         img: 'tophat',
         group: 'headwear',
-        topOffset: 10,
     },
 }

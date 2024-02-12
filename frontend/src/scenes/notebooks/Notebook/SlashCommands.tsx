@@ -1,25 +1,60 @@
-import { Extension } from '@tiptap/core'
-import Suggestion from '@tiptap/suggestion'
-
-import { ReactRenderer } from '@tiptap/react'
+import {
+    IconCursor,
+    IconFunnels,
+    IconHogQL,
+    IconLifecycle,
+    IconPeople,
+    IconRetention,
+    IconRewindPlay,
+    IconStickiness,
+    IconTrends,
+    IconUpload,
+    IconUserPaths,
+} from '@posthog/icons'
+import { IconCode } from '@posthog/icons'
 import { LemonButton, LemonDivider, lemonToast } from '@posthog/lemon-ui'
-import { IconCohort, IconQueryEditor, IconRecording, IconTableChart, IconUploadFile } from 'lib/lemon-ui/icons'
-import { forwardRef, useCallback, useEffect, useImperativeHandle, useMemo, useState } from 'react'
-import { EditorCommands, EditorRange } from './utils'
-import { NotebookNodeType } from '~/types'
-import { examples } from '~/queries/examples'
-import { Popover } from 'lib/lemon-ui/Popover'
-import { KeyboardShortcut } from '~/layout/navigation-3000/components/KeyboardShortcut'
+import { Extension } from '@tiptap/core'
+import { ReactRenderer } from '@tiptap/react'
+import Suggestion from '@tiptap/suggestion'
 import Fuse from 'fuse.js'
 import { useValues } from 'kea'
-import { notebookLogic } from './notebookLogic'
-import { selectFile } from '../Nodes/utils'
+import { IconBold, IconItalic } from 'lib/lemon-ui/icons'
+import { Popover } from 'lib/lemon-ui/Popover'
+import { selectFiles } from 'lib/utils/file-utils'
+import { forwardRef, useCallback, useEffect, useImperativeHandle, useMemo, useState } from 'react'
 
-type SlashCommandsProps = {
-    mode: 'slash' | 'add'
+import { KeyboardShortcut } from '~/layout/navigation-3000/components/KeyboardShortcut'
+import { defaultDataTableColumns } from '~/queries/nodes/DataTable/utils'
+import { NodeKind } from '~/queries/schema'
+import { BaseMathType, ChartDisplayType, FunnelVizType, NotebookNodeType, PathType, RetentionPeriod } from '~/types'
+
+import { buildNodeEmbed } from '../Nodes/NotebookNodeEmbed'
+import { buildInsightVizQueryContent, buildNodeQueryContent } from '../Nodes/NotebookNodeQuery'
+import NotebookIconHeading from './NotebookIconHeading'
+import { notebookLogic } from './notebookLogic'
+import { EditorCommands, EditorRange } from './utils'
+
+type SlashCommandConditionalProps =
+    | {
+          mode: 'add'
+          getPos: () => number
+          range?: never
+      }
+    | {
+          mode: 'slash'
+          getPos?: never
+          range: EditorRange
+      }
+
+type SlashCommandsProps = SlashCommandConditionalProps & {
     query?: string
-    range?: EditorRange
     decorationNode?: any
+    onClose?: () => void
+}
+
+type SlashCommandsPopoverProps = SlashCommandsProps & {
+    visible: boolean
+    children?: JSX.Element
 }
 
 type SlashCommandsRef = {
@@ -30,71 +65,258 @@ type SlashCommandsItem = {
     title: string
     search?: string
     icon?: JSX.Element
-    command: (chain: EditorCommands) => EditorCommands | Promise<EditorCommands>
+    command: (chain: EditorCommands, pos: number | EditorRange) => EditorCommands | Promise<EditorCommands>
 }
 
 const TEXT_CONTROLS: SlashCommandsItem[] = [
     {
-        title: 'H1',
+        title: 'h1',
+        icon: <NotebookIconHeading level={1} />,
         command: (chain) => chain.toggleHeading({ level: 1 }),
     },
     {
-        title: 'H2',
+        title: 'h2',
+        icon: <NotebookIconHeading level={2} />,
         command: (chain) => chain.toggleHeading({ level: 2 }),
     },
     {
-        title: 'H3',
+        title: 'h3',
+        icon: <NotebookIconHeading level={3} />,
         command: (chain) => chain.toggleHeading({ level: 3 }),
     },
     {
-        title: 'B',
+        title: 'bold',
+        icon: <IconBold />,
         command: (chain) => chain.toggleBold(),
     },
     {
-        title: 'I',
+        title: 'italic',
+        icon: <IconItalic />,
         command: (chain) => chain.toggleItalic(),
     },
 ]
 
 const SLASH_COMMANDS: SlashCommandsItem[] = [
     {
+        title: 'Trend',
+        search: 'graph trend insight',
+        icon: <IconTrends color="currentColor" />,
+        command: (chain, pos) =>
+            chain.insertContentAt(
+                pos,
+                buildInsightVizQueryContent({
+                    kind: NodeKind.TrendsQuery,
+                    filterTestAccounts: false,
+                    series: [
+                        {
+                            kind: NodeKind.EventsNode,
+                            event: '$pageview',
+                            name: '$pageview',
+                            math: BaseMathType.TotalCount,
+                        },
+                    ],
+                    interval: 'day',
+                    trendsFilter: {
+                        display: ChartDisplayType.ActionsLineGraph,
+                    },
+                })
+            ),
+    },
+    {
+        title: 'Funnel',
+        search: 'funnel insight',
+        icon: <IconFunnels color="currentColor" />,
+        command: (chain, pos) =>
+            chain.insertContentAt(
+                pos,
+                buildInsightVizQueryContent({
+                    kind: NodeKind.FunnelsQuery,
+                    series: [
+                        {
+                            kind: NodeKind.EventsNode,
+                            name: '$pageview',
+                            event: '$pageview',
+                        },
+                        {
+                            kind: NodeKind.EventsNode,
+                            name: '$pageview',
+                            event: '$pageview',
+                        },
+                    ],
+                    funnelsFilter: {
+                        funnelVizType: FunnelVizType.Steps,
+                    },
+                })
+            ),
+    },
+    {
+        title: 'Retention',
+        search: 'retention insight',
+        icon: <IconRetention color="currentColor" />,
+        command: (chain, pos) =>
+            chain.insertContentAt(
+                pos,
+                buildInsightVizQueryContent({
+                    kind: NodeKind.RetentionQuery,
+                    retentionFilter: {
+                        period: RetentionPeriod.Day,
+                        totalIntervals: 11,
+                        targetEntity: {
+                            id: '$pageview',
+                            name: '$pageview',
+                            type: 'events',
+                        },
+                        returningEntity: {
+                            id: '$pageview',
+                            name: '$pageview',
+                            type: 'events',
+                        },
+                        retentionType: 'retention_first_time',
+                    },
+                })
+            ),
+    },
+    {
+        title: 'Paths',
+        search: 'user paths insight',
+        icon: <IconUserPaths color="currentColor" />,
+        command: (chain, pos) =>
+            chain.insertContentAt(
+                pos,
+                buildInsightVizQueryContent({
+                    kind: NodeKind.PathsQuery,
+                    pathsFilter: {
+                        includeEventTypes: [PathType.PageView],
+                    },
+                })
+            ),
+    },
+    {
+        title: 'Stickiness',
+        search: 'stickiness insight',
+        icon: <IconStickiness color="currentColor" />,
+        command: (chain, pos) =>
+            chain.insertContentAt(
+                pos,
+                buildInsightVizQueryContent({
+                    kind: NodeKind.StickinessQuery,
+                    series: [
+                        {
+                            kind: NodeKind.EventsNode,
+                            name: '$pageview',
+                            event: '$pageview',
+                            math: BaseMathType.TotalCount,
+                        },
+                    ],
+                    stickinessFilter: {},
+                })
+            ),
+    },
+    {
+        title: 'Lifecycle',
+        search: 'lifecycle insight',
+        icon: <IconLifecycle color="currentColor" />,
+        command: (chain, pos) =>
+            chain.insertContentAt(
+                pos,
+                buildInsightVizQueryContent({
+                    kind: NodeKind.LifecycleQuery,
+                    series: [
+                        {
+                            kind: NodeKind.EventsNode,
+                            name: '$pageview',
+                            event: '$pageview',
+                            math: BaseMathType.TotalCount,
+                        },
+                    ],
+                })
+            ),
+    },
+    {
         title: 'HogQL',
         search: 'sql',
-        icon: <IconQueryEditor />,
-        command: (chain) =>
-            chain.insertContent({ type: NotebookNodeType.Query, attrs: { query: examples['HogQLTable'] } }),
+        icon: <IconHogQL color="currentColor" />,
+        command: (chain, pos) =>
+            chain.insertContentAt(
+                pos,
+                buildNodeQueryContent({
+                    kind: NodeKind.DataTableNode,
+                    source: {
+                        kind: NodeKind.HogQLQuery,
+                        query: `select event,
+        person.properties.email,
+        properties.$browser,
+        count()
+    from events
+    where {filters} -- replaced with global date and property filters
+    and person.properties.email is not null
+group by event,
+        properties.$browser,
+        person.properties.email
+order by count() desc
+    limit 100`,
+                        filters: {
+                            dateRange: {
+                                date_from: '-24h',
+                            },
+                        },
+                    },
+                })
+            ),
     },
     {
         title: 'Events',
         search: 'data explore',
-        icon: <IconTableChart />,
-        command: (chain) =>
-            chain.insertContent({ type: NotebookNodeType.Query, attrs: { query: examples['EventsTableFull'] } }),
+        icon: <IconCursor />,
+        command: (chain, pos) =>
+            chain.insertContentAt(
+                pos,
+                buildNodeQueryContent({
+                    kind: NodeKind.DataTableNode,
+                    source: {
+                        kind: NodeKind.EventsQuery,
+                        select: defaultDataTableColumns(NodeKind.EventsQuery),
+                        properties: [],
+                        after: '-24h',
+                        limit: 100,
+                    },
+                })
+            ),
     },
     {
-        title: 'Persons',
-        search: 'people users',
-        icon: <IconCohort />,
-        command: (chain) =>
-            chain.insertContent({ type: NotebookNodeType.Query, attrs: { query: examples['PersonsTableFull'] } }),
+        title: 'People',
+        search: 'persons users',
+        icon: <IconPeople />,
+        command: (chain, pos) =>
+            chain.insertContentAt(
+                pos,
+                buildNodeQueryContent({
+                    kind: NodeKind.DataTableNode,
+                    columns: defaultDataTableColumns(NodeKind.PersonsNode),
+                    source: {
+                        kind: NodeKind.PersonsNode,
+                        properties: [],
+                    },
+                })
+            ),
     },
     {
-        title: 'Session Replays',
-        search: 'recordings video',
-        icon: <IconRecording />,
-        command: (chain) => chain.insertContent({ type: NotebookNodeType.RecordingPlaylist, attrs: {} }),
+        title: 'Session recordings',
+        search: 'video replay',
+        icon: <IconRewindPlay />,
+        command: (chain, pos) => chain.insertContentAt(pos, { type: NotebookNodeType.RecordingPlaylist, attrs: {} }),
     },
     {
         title: 'Image',
-        search: 'picture',
-        icon: <IconUploadFile />,
-        command: async (chain) => {
+        search: 'picture gif',
+        icon: <IconUpload />,
+        command: async (chain, pos) => {
             // Trigger upload followed by insert
             try {
-                const files = await selectFile({ contentType: 'image/*', multiple: false })
+                const files = await selectFiles({ contentType: 'image/*', multiple: false })
 
                 if (files.length) {
-                    return chain.insertContent({ type: NotebookNodeType.Image, attrs: { file: files[0] } })
+                    return chain.insertContentAt(pos, { type: NotebookNodeType.Image, attrs: { file: files[0] } })
                 }
             } catch (e) {
                 lemonToast.error('Something went wrong when trying to select a file.')
@@ -103,10 +325,18 @@ const SLASH_COMMANDS: SlashCommandsItem[] = [
             return chain
         },
     },
+    {
+        title: 'Embedded iframe',
+        search: 'iframe embed',
+        icon: <IconCode />,
+        command: async (chain, pos) => {
+            return chain.insertContentAt(pos, buildNodeEmbed())
+        },
+    },
 ]
 
 export const SlashCommands = forwardRef<SlashCommandsRef, SlashCommandsProps>(function SlashCommands(
-    { mode, range = { from: 0, to: 0 }, query },
+    { mode, range, getPos, onClose, query }: SlashCommandsProps,
     ref
 ): JSX.Element | null {
     const { editor } = useValues(notebookLogic)
@@ -140,16 +370,31 @@ export const SlashCommands = forwardRef<SlashCommandsRef, SlashCommandsProps>(fu
         setSelectedHorizontalIndex(0)
     }, [query])
 
-    const onPressEnter = async (): Promise<void> => {
-        if (!!editor) {
-            const command =
-                selectedIndex === -1
-                    ? TEXT_CONTROLS[selectedHorizontalIndex].command
-                    : filteredSlashCommands[selectedIndex].command
+    const execute = async (item: SlashCommandsItem): Promise<void> => {
+        if (editor) {
+            const selectedNode = editor.getSelectedNode()
+            const isTextNode = selectedNode === null || selectedNode.isText
+            const isTextCommand = TEXT_CONTROLS.map((c) => c.title).includes(item.title)
 
-            const partialCommand = await command(editor.deleteRange(range))
+            const position = mode === 'slash' ? range.from : getPos()
+            let chain = mode === 'slash' ? editor.deleteRange(range) : editor.chain()
+
+            if (!isTextNode && isTextCommand) {
+                chain = chain.insertContentAt(position, { type: 'paragraph' })
+            }
+
+            const partialCommand = await item.command(chain, position)
             partialCommand.run()
+
+            onClose?.()
         }
+    }
+
+    const onPressEnter = async (): Promise<void> => {
+        const command =
+            selectedIndex === -1 ? TEXT_CONTROLS[selectedHorizontalIndex] : filteredSlashCommands[selectedIndex]
+
+        await execute(command)
     }
     const onPressUp = (): void => {
         setSelectedIndex(Math.max(selectedIndex - 1, -1))
@@ -211,31 +456,28 @@ export const SlashCommands = forwardRef<SlashCommandsRef, SlashCommandsProps>(fu
     }
 
     return (
-        <div className="SlashCommands space-y-px">
+        <div className="space-y-px">
             <div className="flex items-center gap-1">
                 {TEXT_CONTROLS.map((item, index) => (
                     <LemonButton
                         key={item.title}
-                        status="primary-alt"
                         size="small"
                         active={selectedIndex === -1 && selectedHorizontalIndex === index}
-                        onClick={async () => (await item.command(editor.deleteRange(range))).run()}
-                    >
-                        {item.title}
-                    </LemonButton>
+                        onClick={() => void execute(item)}
+                        icon={item.icon}
+                    />
                 ))}
             </div>
 
-            <LemonDivider className="my-2" />
+            <LemonDivider />
 
             {filteredSlashCommands.map((item, index) => (
                 <LemonButton
                     key={item.title}
                     fullWidth
-                    status="primary-alt"
                     icon={item.icon}
                     active={index === selectedIndex}
-                    onClick={async () => (await item.command(editor.deleteRange(range))).run()}
+                    onClick={() => void execute(item)}
                 >
                     {item.title}
                 </LemonButton>
@@ -259,18 +501,25 @@ export const SlashCommands = forwardRef<SlashCommandsRef, SlashCommandsProps>(fu
     )
 })
 
-const SlashCommandsPopover = forwardRef<SlashCommandsRef, SlashCommandsProps>(function SlashCommandsPopover(
-    props: SlashCommandsProps,
-    ref
-): JSX.Element | null {
-    return (
-        <Popover
-            overlay={<SlashCommands ref={ref} {...props} mode="slash" />}
-            visible
-            referenceElement={props.decorationNode}
-        />
-    )
-})
+export const SlashCommandsPopover = forwardRef<SlashCommandsRef, SlashCommandsPopoverProps>(
+    function SlashCommandsPopover(
+        { visible = true, decorationNode, children, onClose, ...props }: SlashCommandsPopoverProps,
+        ref
+    ): JSX.Element | null {
+        return (
+            <Popover
+                placement="right-start"
+                fallbackPlacements={['left-start', 'right-end']}
+                overlay={<SlashCommands ref={ref} onClose={onClose} {...props} />}
+                referenceElement={decorationNode}
+                visible={visible}
+                onClickOutside={onClose}
+            >
+                {children}
+            </Popover>
+        )
+    }
+)
 
 export const SlashCommandsExtension = Extension.create({
     name: 'slash-commands',
@@ -287,7 +536,7 @@ export const SlashCommandsExtension = Extension.create({
                     return {
                         onStart: (props) => {
                             renderer = new ReactRenderer(SlashCommandsPopover, {
-                                props,
+                                props: { ...props, mode: 'slash' },
                                 editor: props.editor,
                             })
                         },

@@ -1,12 +1,14 @@
-import { useValues, useActions } from 'kea'
+import { useActions, useValues } from 'kea'
+import { PureField } from 'lib/forms/Field'
+import { LemonButton } from 'lib/lemon-ui/LemonButton'
+import { funnelDataLogic } from 'scenes/funnels/funnelDataLogic'
+
+import { Noun } from '~/models/groupsModel'
 import { EditorFilterProps } from '~/types'
-import { FunnelStepOrderPicker } from '../views/Funnels/FunnelStepOrderPicker'
+
 import { FunnelExclusionsFilter } from '../filters/FunnelExclusionsFilter/FunnelExclusionsFilter'
 import { FunnelStepReferencePicker } from '../filters/FunnelStepReferencePicker'
-import { LemonButton } from 'lib/lemon-ui/LemonButton'
-import { PureField } from 'lib/forms/Field'
-import { Noun } from '~/models/groupsModel'
-import { funnelDataLogic } from 'scenes/funnels/funnelDataLogic'
+import { FunnelStepOrderPicker } from '../views/Funnels/FunnelStepOrderPicker'
 
 export function FunnelsAdvanced({ insightProps }: EditorFilterProps): JSX.Element {
     const { querySource, aggregationTargetLabel, advancedOptionsUsedCount } = useValues(funnelDataLogic(insightProps))
@@ -39,8 +41,8 @@ export function FunnelsAdvanced({ insightProps }: EditorFilterProps): JSX.Elemen
                         status="danger"
                         onClick={() => {
                             updateInsightFilter({
-                                funnel_order_type: undefined,
-                                funnel_step_reference: undefined,
+                                funnelOrderType: undefined,
+                                funnelStepReference: undefined,
                                 exclusions: undefined,
                             })
                         }}

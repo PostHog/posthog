@@ -90,13 +90,17 @@ class TestRoleAPI(APILicensedTest):
         self.organization_membership.level = OrganizationMembership.Level.ADMIN
         self.organization_membership.save()
         self.assertEqual(self.organization_membership.level, OrganizationMembership.Level.ADMIN)
-        self.assertEqual(role.feature_flags_access_level, OrganizationResourceAccess.AccessLevel.CAN_ALWAYS_EDIT)
+        self.assertEqual(
+            role.feature_flags_access_level,
+            OrganizationResourceAccess.AccessLevel.CAN_ALWAYS_EDIT,
+        )
         self.client.patch(
             f"/api/organizations/@current/roles/{role.id}",
             {"feature_flags_access_level": OrganizationResourceAccess.AccessLevel.CAN_ONLY_VIEW},
         )
         self.assertEqual(
-            Role.objects.first().feature_flags_access_level, OrganizationResourceAccess.AccessLevel.CAN_ONLY_VIEW  # type: ignore
+            Role.objects.first().feature_flags_access_level,
+            OrganizationResourceAccess.AccessLevel.CAN_ONLY_VIEW,  # type: ignore
         )
         self.client.patch(
             f"/api/organizations/@current/roles/{role.id}",

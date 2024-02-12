@@ -2,7 +2,8 @@ import { actions, kea, path, reducers } from 'kea'
 import { loaders } from 'kea-loaders'
 import { urlToAction } from 'kea-router'
 import api from 'lib/api'
-import { lemonToast } from 'lib/lemon-ui/lemonToast'
+import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
+
 import type { verifyEmailLogicType } from './verifyEmailLogicType'
 
 export interface ResponseType {
@@ -96,7 +97,7 @@ export const verifyEmailLogic = kea<verifyEmailLogicType>([
                 actions.validateEmailToken({ uuid, token })
             }
         },
-        '/verify_email': ({}) => {
+        '/verify_email': () => {
             actions.setView('invalid')
         },
     })),

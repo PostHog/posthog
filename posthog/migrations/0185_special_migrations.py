@@ -4,7 +4,6 @@ from django.db import migrations, models
 
 
 class Migration(migrations.Migration):
-
     dependencies = [
         ("posthog", "0184_delete_sessionsfilter"),
     ]
@@ -15,17 +14,29 @@ class Migration(migrations.Migration):
             fields=[
                 ("id", models.BigAutoField(primary_key=True, serialize=False)),
                 ("name", models.CharField(max_length=50)),
-                ("description", models.CharField(blank=True, max_length=400, null=True)),
+                (
+                    "description",
+                    models.CharField(blank=True, max_length=400, null=True),
+                ),
                 ("progress", models.PositiveSmallIntegerField(default=0)),
                 ("status", models.PositiveSmallIntegerField(default=0)),
-                ("current_operation_index", models.PositiveSmallIntegerField(default=0)),
+                (
+                    "current_operation_index",
+                    models.PositiveSmallIntegerField(default=0),
+                ),
                 ("current_query_id", models.CharField(default="", max_length=100)),
                 ("celery_task_id", models.CharField(default="", max_length=100)),
                 ("started_at", models.DateTimeField(blank=True, null=True)),
                 ("finished_at", models.DateTimeField(blank=True, null=True)),
                 ("last_error", models.TextField(blank=True, null=True)),
-                ("posthog_min_version", models.CharField(blank=True, max_length=20, null=True)),
-                ("posthog_max_version", models.CharField(blank=True, max_length=20, null=True)),
+                (
+                    "posthog_min_version",
+                    models.CharField(blank=True, max_length=20, null=True),
+                ),
+                (
+                    "posthog_max_version",
+                    models.CharField(blank=True, max_length=20, null=True),
+                ),
             ],
         ),
         migrations.AddConstraint(

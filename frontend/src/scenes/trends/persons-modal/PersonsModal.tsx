@@ -1,5 +1,40 @@
-import { useState } from 'react'
+import './PersonsModal.scss'
+
+import {
+    LemonBadge,
+    LemonButton,
+    LemonDivider,
+    LemonInput,
+    LemonModal,
+    LemonSelect,
+    LemonSkeleton,
+    Link,
+} from '@posthog/lemon-ui'
+import { LemonModalProps } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
+import { CopyToClipboardInline } from 'lib/components/CopyToClipboard'
+import { triggerExport } from 'lib/components/ExportButton/exporter'
+import { PropertiesTable } from 'lib/components/PropertiesTable'
+import { PropertiesTimeline } from 'lib/components/PropertiesTimeline'
+import { IconPlayCircle, IconUnfoldLess, IconUnfoldMore } from 'lib/lemon-ui/icons'
+import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
+import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
+import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
+import { Spinner } from 'lib/lemon-ui/Spinner/Spinner'
+import { Tooltip } from 'lib/lemon-ui/Tooltip'
+import { capitalizeFirstLetter, isGroupType, midEllipsis, pluralize } from 'lib/utils'
+import { useCallback, useState } from 'react'
+import { createRoot } from 'react-dom/client'
+import { InsightErrorState, InsightValidationError } from 'scenes/insights/EmptyStates'
+import { isOtherBreakdown } from 'scenes/insights/utils'
+import { GroupActorDisplay, groupDisplayId } from 'scenes/persons/GroupActorDisplay'
+import { asDisplay } from 'scenes/persons/person-utils'
+import { PersonDisplay } from 'scenes/persons/PersonDisplay'
+import { SessionPlayerModal } from 'scenes/session-recordings/player/modal/SessionPlayerModal'
+import { sessionPlayerModalLogic } from 'scenes/session-recordings/player/modal/sessionPlayerModalLogic'
+import { teamLogic } from 'scenes/teamLogic'
+
+import { Noun } from '~/models/groupsModel'
 import {
     ActorType,
     ExporterFormat,
@@ -7,36 +42,12 @@ import {
     PropertyDefinitionType,
     SessionRecordingType,
 } from '~/types'
-import { personsModalLogic } from './personsModalLogic'
-import { CopyToClipboardInline } from 'lib/components/CopyToClipboard'
-import { capitalizeFirstLetter, isGroupType, midEllipsis, pluralize } from 'lib/utils'
-import { GroupActorDisplay, groupDisplayId } from 'scenes/persons/GroupActorDisplay'
-import { IconPlayCircle, IconUnfoldLess, IconUnfoldMore } from 'lib/lemon-ui/icons'
-import { triggerExport } from 'lib/components/ExportButton/exporter'
-import { LemonButton, LemonBadge, LemonDivider, LemonInput, LemonModal, LemonSelect, Link } from '@posthog/lemon-ui'
-import { PersonDisplay } from 'scenes/persons/PersonDisplay'
-import ReactDOM from 'react-dom'
-import { Spinner } from 'lib/lemon-ui/Spinner/Spinner'
+
+import { PersonModalLogicProps, personsModalLogic } from './personsModalLogic'
 import { SaveCohortModal } from './SaveCohortModal'
-import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
-import { Skeleton } from 'antd'
-import { SessionPlayerModal } from 'scenes/session-recordings/player/modal/SessionPlayerModal'
-import { sessionPlayerModalLogic } from 'scenes/session-recordings/player/modal/sessionPlayerModalLogic'
-import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
-import { Tooltip } from 'lib/lemon-ui/Tooltip'
-import { Noun } from '~/models/groupsModel'
-import { LemonModalProps } from '@posthog/lemon-ui'
-import { PropertiesTimeline } from 'lib/components/PropertiesTimeline'
-import { PropertiesTable } from 'lib/components/PropertiesTable'
-import { teamLogic } from 'scenes/teamLogic'
-import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
 
-import './PersonsModal.scss'
-import { asDisplay } from 'scenes/persons/person-utils'
-
-export interface PersonsModalProps extends Pick<LemonModalProps, 'inline'> {
+export interface PersonsModalProps extends PersonModalLogicProps, Pick<LemonModalProps, 'inline'> {
     onAfterClose?: () => void
-    url?: string | null
     urlsIndex?: number
     urls?: {
         label: string | JSX.Element
@@ -49,33 +60,57 @@ export function PersonsModal({
     url: _url,
     urlsIndex,
     urls,
+    query: _query,
     title,
     onAfterClose,
     inline,
+    additionalSelect,
+    orderBy,
 }: PersonsModalProps): JSX.Element {
     const [selectedUrlIndex, setSelectedUrlIndex] = useState(urlsIndex || 0)
     const originalUrl = (urls || [])[selectedUrlIndex]?.value || _url || ''
 
     const logic = personsModalLogic({
         url: originalUrl,
+        query: _query,
+        additionalSelect,
+        orderBy,
     })
 
     const {
+        query,
         actors,
         actorsResponseLoading,
         actorsResponse,
+        errorObject,
+        validationError,
+        insightActorsQueryOptions,
         searchTerm,
         actorLabel,
         isCohortModalOpen,
         isModalOpen,
         missingActorsCount,
         propertiesTimelineFilterFromUrl,
+        exploreUrl,
+        actorsQuery,
     } = useValues(logic)
-    const { loadActors, setSearchTerm, saveCohortWithUrl, setIsCohortModalOpen, closeModal } = useActions(logic)
+    const { updateActorsQuery, setSearchTerm, saveAsCohort, setIsCohortModalOpen, closeModal, loadNextActors } =
+        useActions(logic)
     const { openSessionPlayer } = useActions(sessionPlayerModalLogic)
     const { currentTeam } = useValues(teamLogic)
-
     const totalActorsCount = missingActorsCount + actors.length
+
+    const getTitle = useCallback(() => {
+        if (typeof title === 'function') {
+            return title(capitalizeFirstLetter(actorLabel.plural))
+        }
+
+        if (isOtherBreakdown(title)) {
+            return 'Other'
+        }
+
+        return title
+    }, [title, actorLabel.plural])
 
     return (
         <>
@@ -89,7 +124,7 @@ export function PersonsModal({
                 inline={inline}
             >
                 <LemonModal.Header>
-                    <h3>{typeof title === 'function' ? title(capitalizeFirstLetter(actorLabel.plural)) : title}</h3>
+                    <h3>{getTitle()}</h3>
                 </LemonModal.Header>
                 <div className="px-6 py-2">
                     {actorsResponse && !!missingActorsCount && (
@@ -121,6 +156,27 @@ export function PersonsModal({
                         />
                     ) : null}
 
+                    {query &&
+                        Object.entries(insightActorsQueryOptions ?? {})
+                            .filter(([, value]) => {
+                                if (Array.isArray(value)) {
+                                    return !!value.length
+                                }
+
+                                return !!value
+                            })
+                            .map(([key, options]) => (
+                                <div key={key}>
+                                    <LemonSelect
+                                        fullWidth
+                                        className="mb-2"
+                                        value={query?.[key] ?? null}
+                                        onChange={(v) => updateActorsQuery({ [key]: v })}
+                                        options={options}
+                                    />
+                                </div>
+                            ))}
+
                     <div className="flex items-center gap-2 text-muted">
                         {actorsResponseLoading ? (
                             <>
@@ -129,7 +185,7 @@ export function PersonsModal({
                             </>
                         ) : (
                             <span>
-                                {actorsResponse?.next ? 'More than ' : ''}
+                                {actorsResponse?.next || actorsResponse?.offset ? 'More than ' : ''}
                                 <b>
                                     {totalActorsCount || 'No'} unique{' '}
                                     {pluralize(totalActorsCount, actorLabel.singular, actorLabel.plural, false)}
@@ -140,7 +196,13 @@ export function PersonsModal({
                 </div>
                 <div className="px-6 overflow-hidden flex flex-col">
                     <div className="relative min-h-20 p-2 space-y-2 rounded bg-border-light overflow-y-auto mb-2">
-                        {actors && actors.length > 0 ? (
+                        {errorObject ? (
+                            validationError ? (
+                                <InsightValidationError detail={validationError} />
+                            ) : (
+                                <InsightErrorState />
+                            )
+                        ) : actors && actors.length > 0 ? (
                             <>
                                 {actors.map((actor) => (
                                     <ActorRow
@@ -158,20 +220,19 @@ export function PersonsModal({
                                 ))}
                             </>
                         ) : actorsResponseLoading ? (
-                            <Skeleton title={false} />
+                            <div className="space-y-3">
+                                <LemonSkeleton active={false} className="h-4 w-full" />
+                                <LemonSkeleton active={false} className="h-4 w-3/5" />
+                            </div>
                         ) : (
                             <div className="text-center p-5">
                                 We couldn't find any matching {actorLabel.plural} for this data point.
                             </div>
                         )}
 
-                        {actorsResponse?.next && (
+                        {(actorsResponse?.next || actorsResponse?.offset) && (
                             <div className="m-4 flex justify-center">
-                                <LemonButton
-                                    type="primary"
-                                    onClick={() => actorsResponse?.next && loadActors({ url: actorsResponse?.next })}
-                                    loading={actorsResponseLoading}
-                                >
+                                <LemonButton type="primary" onClick={loadNextActors} loading={actorsResponseLoading}>
                                     Load more {actorLabel.plural}
                                 </LemonButton>
                             </div>
@@ -179,40 +240,51 @@ export function PersonsModal({
                     </div>
                 </div>
                 <LemonModal.Footer>
-                    <div className="flex-1">
-                        <LemonButton
-                            type="secondary"
-                            onClick={() => {
-                                triggerExport({
-                                    export_format: ExporterFormat.CSV,
-                                    export_context: {
-                                        path: originalUrl,
-                                    },
-                                })
-                            }}
-                            data-attr="person-modal-download-csv"
-                            disabled={!actors.length}
-                        >
-                            Download CSV
-                        </LemonButton>
+                    <div className="flex justify-between gap-2 w-full">
+                        <div className="flex gap-2">
+                            <LemonButton
+                                type="secondary"
+                                onClick={() => {
+                                    void triggerExport({
+                                        export_format: ExporterFormat.CSV,
+                                        export_context: query
+                                            ? { source: actorsQuery as Record<string, any> }
+                                            : { path: originalUrl },
+                                    })
+                                }}
+                                data-attr="person-modal-download-csv"
+                                disabled={!actors.length}
+                            >
+                                Download CSV
+                            </LemonButton>
+                            {actors && actors.length > 0 && !isGroupType(actors[0]) && (
+                                <LemonButton
+                                    onClick={() => setIsCohortModalOpen(true)}
+                                    type="secondary"
+                                    data-attr="person-modal-save-as-cohort"
+                                    disabled={!actors.length}
+                                >
+                                    Save as cohort
+                                </LemonButton>
+                            )}
+                        </div>
+                        {exploreUrl && (
+                            <LemonButton
+                                type="primary"
+                                to={exploreUrl}
+                                data-attr="person-modal-new-insight"
+                                onClick={() => {
+                                    closeModal()
+                                }}
+                            >
+                                Explore
+                            </LemonButton>
+                        )}
                     </div>
-                    <LemonButton type="secondary" onClick={closeModal}>
-                        Close
-                    </LemonButton>
-                    {actors && actors.length > 0 && !isGroupType(actors[0]) && (
-                        <LemonButton
-                            onClick={() => setIsCohortModalOpen(true)}
-                            type="primary"
-                            data-attr="person-modal-save-as-cohort"
-                            disabled={!actors.length}
-                        >
-                            Save as cohort
-                        </LemonButton>
-                    )}
                 </LemonModal.Footer>
             </LemonModal>
             <SaveCohortModal
-                onSave={(title) => saveCohortWithUrl(title)}
+                onSave={(title) => saveAsCohort(title)}
                 onCancel={() => setIsCohortModalOpen(false)}
                 isOpen={isCohortModalOpen}
             />
@@ -255,7 +327,6 @@ export function ActorRow({ actor, onOpenRecording, propertiesTimelineFilter }: A
             <div className="flex items-center gap-2 p-2">
                 <LemonButton
                     noPadding
-                    status="stealth"
                     active={expanded}
                     onClick={() => setExpanded(!expanded)}
                     icon={expanded ? <IconUnfoldLess /> : <IconUnfoldMore />}
@@ -275,14 +346,16 @@ export function ActorRow({ actor, onOpenRecording, propertiesTimelineFilter }: A
                             <div className="font-bold flex items-start">
                                 <PersonDisplay person={actor} withIcon={false} />
                             </div>
-                            <CopyToClipboardInline
-                                explicitValue={actor.distinct_ids[0]}
-                                iconStyle={{ color: 'var(--primary)' }}
-                                iconPosition="end"
-                                className="text-xs text-muted-alt"
-                            >
-                                {midEllipsis(actor.distinct_ids[0], 32)}
-                            </CopyToClipboardInline>
+                            {actor.distinct_ids?.[0] && (
+                                <CopyToClipboardInline
+                                    explicitValue={actor.distinct_ids[0]}
+                                    iconStyle={{ color: 'var(--primary)' }}
+                                    iconPosition="end"
+                                    className="text-xs text-muted-alt"
+                                >
+                                    {midEllipsis(actor.distinct_ids[0], 32)}
+                                </CopyToClipboardInline>
+                            )}
                         </>
                     )}
                 </div>
@@ -403,13 +476,14 @@ export type OpenPersonsModalProps = Omit<PersonsModalProps, 'onClose' | 'onAfter
 
 export const openPersonsModal = (props: OpenPersonsModalProps): void => {
     const div = document.createElement('div')
+    const root = createRoot(div)
     function destroy(): void {
-        const unmountResult = ReactDOM.unmountComponentAtNode(div)
-        if (unmountResult && div.parentNode) {
+        root.unmount()
+        if (div.parentNode) {
             div.parentNode.removeChild(div)
         }
     }
 
     document.body.appendChild(div)
-    ReactDOM.render(<PersonsModal {...props} onAfterClose={destroy} />, div)
+    root.render(<PersonsModal {...props} onAfterClose={destroy} />)
 }

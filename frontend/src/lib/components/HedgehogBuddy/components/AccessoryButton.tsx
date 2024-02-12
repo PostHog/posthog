@@ -1,20 +1,24 @@
-import { capitalizeFirstLetter } from 'lib/utils'
-import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { useActions, useValues } from 'kea'
 import { IconLock } from 'lib/lemon-ui/icons'
-import { hedgehogbuddyLogic } from '../hedgehogbuddyLogic'
-import { AccessoryInfo, baseSpriteAccessoriesPath } from '../sprites/sprites'
-import { themeLogic } from '~/layout/navigation-3000/themeLogic'
+import { LemonButton } from 'lib/lemon-ui/LemonButton'
+import { capitalizeFirstLetter } from 'lib/utils'
+
+import { hedgehogBuddyLogic } from '../hedgehogBuddyLogic'
+import { AccessoryInfo, baseSpriteAccessoriesPath, baseSpritePath } from '../sprites/sprites'
 
 export type HedgehogBuddyAccessoryProps = {
     accessory: AccessoryInfo
     accessoryKey: string
+    isDarkModeOn: boolean
 }
 
-export function HedgehogBuddyAccessory({ accessoryKey, accessory }: HedgehogBuddyAccessoryProps): JSX.Element {
-    const { accessories, availableAccessories } = useValues(hedgehogbuddyLogic)
-    const { addAccessory, removeAccessory } = useActions(hedgehogbuddyLogic)
-    const { isDarkModeOn } = useValues(themeLogic)
+export function HedgehogBuddyAccessory({
+    accessoryKey,
+    accessory,
+    isDarkModeOn,
+}: HedgehogBuddyAccessoryProps): JSX.Element {
+    const { accessories, availableAccessories } = useValues(hedgehogBuddyLogic)
+    const { addAccessory, removeAccessory } = useActions(hedgehogBuddyLogic)
 
     const isUnlocked = availableAccessories.includes(accessoryKey)
 
@@ -27,6 +31,8 @@ export function HedgehogBuddyAccessory({ accessoryKey, accessory }: HedgehogBudd
     }
 
     const imgExt = isDarkModeOn ? 'dark.png' : 'png'
+    const imgSize = 60
+    const hedgehogImgSize = imgSize * 4
 
     return (
         <LemonButton
@@ -34,6 +40,7 @@ export function HedgehogBuddyAccessory({ accessoryKey, accessory }: HedgehogBudd
             size="small"
             onClick={onClick}
             active={accessories.includes(accessory)}
+            noPadding
             tooltip={
                 <>
                     {capitalizeFirstLetter(accessoryKey)}
@@ -42,14 +49,31 @@ export function HedgehogBuddyAccessory({ accessoryKey, accessory }: HedgehogBudd
             }
         >
             {!isUnlocked && <IconLock className=" absolute right-0 top-0 rounded" />}
-            <div className="relative w-8 h-8 overflow-hidden">
+            <div
+                className="relative overflow-hidden pointer-events-none"
+                // eslint-disable-next-line react/forbid-dom-props
+                style={{
+                    width: imgSize,
+                    height: imgSize,
+                }}
+            >
                 <img
-                    src={`${baseSpriteAccessoriesPath()}/${accessory.img}.${imgExt}`}
+                    src={`${baseSpritePath()}/wave.${imgExt}`}
+                    className="object-cover absolute inset-0 image-pixelated"
                     // eslint-disable-next-line react/forbid-dom-props
                     style={{
-                        position: 'absolute',
-                        top: -(accessory.topOffset || 0),
-                        left: -30,
+                        width: hedgehogImgSize,
+                        height: hedgehogImgSize,
+                    }}
+                />
+
+                <img
+                    src={`${baseSpriteAccessoriesPath()}/${accessory.img}.${imgExt}`}
+                    className="object-cover absolute inset-0 image-pixelated"
+                    // eslint-disable-next-line react/forbid-dom-props
+                    style={{
+                        width: imgSize,
+                        height: imgSize,
                     }}
                 />
             </div>

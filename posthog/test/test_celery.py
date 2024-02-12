@@ -1,7 +1,7 @@
 from unittest import TestCase
 from unittest.mock import patch
 
-from posthog.celery import clickhouse_errors_count
+from posthog.tasks.tasks import clickhouse_errors_count
 
 
 class TestCeleryMetrics(TestCase):
@@ -16,6 +16,7 @@ class TestCeleryMetrics(TestCase):
         self.assertEqual(
             60,
             registry.get_sample_value(
-                "posthog_celery_clickhouse_errors", labels={"name": "NO_ZOOKEEPER", "replica": "ch1", "shard": "1"}
+                "posthog_celery_clickhouse_errors",
+                labels={"name": "NO_ZOOKEEPER", "replica": "ch1", "shard": "1"},
             ),
         )

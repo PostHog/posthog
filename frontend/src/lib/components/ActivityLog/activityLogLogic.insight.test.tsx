@@ -1,8 +1,12 @@
-import { ActivityScope } from 'lib/components/ActivityLog/humanizeActivity'
-import { render } from '@testing-library/react'
 import '@testing-library/jest-dom'
+
+import { render } from '@testing-library/react'
 import { MOCK_TEAM_ID } from 'lib/api.mock'
 import { makeTestSetup } from 'lib/components/ActivityLog/activityLogLogic.test.setup'
+
+import { ActivityScope } from '~/types'
+
+jest.mock('lib/colors')
 
 describe('the activity log logic', () => {
     describe('humanizing insights', () => {
@@ -14,7 +18,7 @@ describe('the activity log logic', () => {
         it('can handle change of name', async () => {
             const logic = await insightTestSetup('test insight', 'updated', [
                 {
-                    type: 'Insight',
+                    type: ActivityScope.INSIGHT,
                     action: 'changed',
                     field: 'name',
                     before: 'start',
@@ -31,7 +35,7 @@ describe('the activity log logic', () => {
         it('can handle change of filters', async () => {
             const logic = await insightTestSetup('test insight', 'updated', [
                 {
-                    type: 'Insight',
+                    type: ActivityScope.INSIGHT,
                     action: 'changed',
                     field: 'filters',
                     after: {
@@ -82,7 +86,7 @@ describe('the activity log logic', () => {
         it('can handle change of insight query', async () => {
             const logic = await insightTestSetup('test insight', 'updated', [
                 {
-                    type: 'Insight',
+                    type: ActivityScope.INSIGHT,
                     action: 'changed',
                     field: 'query',
                     after: {
@@ -139,7 +143,7 @@ describe('the activity log logic', () => {
                         trendsFilter: {
                             display: 'ActionsAreaGraph',
                         },
-                        breakdown: {
+                        breakdownFilter: {
                             breakdown: '$geoip_country_code',
                             breakdown_type: 'event',
                         },
@@ -160,7 +164,7 @@ describe('the activity log logic', () => {
         it('can handle change of filters on a retention graph', async () => {
             const logic = await insightTestSetup('test insight', 'updated', [
                 {
-                    type: 'Insight',
+                    type: ActivityScope.INSIGHT,
                     action: 'changed',
                     field: 'filters',
                     after: {
@@ -190,7 +194,7 @@ describe('the activity log logic', () => {
         it('can handle soft delete', async () => {
             const logic = await insightTestSetup('test insight', 'updated', [
                 {
-                    type: 'Insight',
+                    type: ActivityScope.INSIGHT,
                     action: 'changed',
                     field: 'deleted',
                     after: 'true',
@@ -204,7 +208,7 @@ describe('the activity log logic', () => {
         it('can handle change of short id', async () => {
             const logic = await insightTestSetup('test insight', 'updated', [
                 {
-                    type: 'Insight',
+                    type: ActivityScope.INSIGHT,
                     action: 'changed',
                     field: 'short_id',
                     after: 'changed',
@@ -220,7 +224,7 @@ describe('the activity log logic', () => {
         it('can handle change of derived name', async () => {
             const logic = await insightTestSetup('test insight', 'updated', [
                 {
-                    type: 'Insight',
+                    type: ActivityScope.INSIGHT,
                     action: 'changed',
                     field: 'derived_name',
                     before: 'original',
@@ -237,7 +241,7 @@ describe('the activity log logic', () => {
         it('can handle change of description', async () => {
             const logic = await insightTestSetup('test insight', 'updated', [
                 {
-                    type: 'Insight',
+                    type: ActivityScope.INSIGHT,
                     action: 'changed',
                     field: 'description',
                     after: 'changed',
@@ -253,7 +257,7 @@ describe('the activity log logic', () => {
         it('can handle change of favorited', async () => {
             const logic = await insightTestSetup('test insight', 'updated', [
                 {
-                    type: 'Insight',
+                    type: ActivityScope.INSIGHT,
                     action: 'changed',
                     field: 'favorited',
                     after: true,
@@ -267,7 +271,7 @@ describe('the activity log logic', () => {
         it('can handle removal of favorited', async () => {
             const logic = await insightTestSetup('test insight', 'updated', [
                 {
-                    type: 'Insight',
+                    type: ActivityScope.INSIGHT,
                     action: 'changed',
                     field: 'favorited',
                     after: false,
@@ -281,7 +285,7 @@ describe('the activity log logic', () => {
         it('can handle addition of tags', async () => {
             const logic = await insightTestSetup('test insight', 'updated', [
                 {
-                    type: 'Insight',
+                    type: ActivityScope.INSIGHT,
                     action: 'changed',
                     field: 'tags',
                     before: ['1', '2'],
@@ -298,7 +302,7 @@ describe('the activity log logic', () => {
         it('can handle removal of tags', async () => {
             const logic = await insightTestSetup('test insight', 'updated', [
                 {
-                    type: 'Insight',
+                    type: ActivityScope.INSIGHT,
                     action: 'changed',
                     field: 'tags',
                     before: ['1', '2', '3'],
@@ -315,7 +319,7 @@ describe('the activity log logic', () => {
         it('can handle addition and removal of tags', async () => {
             const logic = await insightTestSetup('test insight', 'updated', [
                 {
-                    type: 'Insight',
+                    type: ActivityScope.INSIGHT,
                     action: 'changed',
                     field: 'tags',
                     before: ['1', '2', '3'],
@@ -332,7 +336,7 @@ describe('the activity log logic', () => {
         it('can handle addition of dashboards link', async () => {
             const logic = await insightTestSetup('test insight', 'updated', [
                 {
-                    type: 'Insight',
+                    type: ActivityScope.INSIGHT,
                     action: 'changed',
                     field: 'dashboards',
                     before: [
@@ -356,7 +360,7 @@ describe('the activity log logic', () => {
         it('can handle addition of tile style dashboards link', async () => {
             const logic = await insightTestSetup('test insight', 'updated', [
                 {
-                    type: 'Insight',
+                    type: ActivityScope.INSIGHT,
                     action: 'changed',
                     field: 'dashboards',
                     before: [
@@ -380,7 +384,7 @@ describe('the activity log logic', () => {
         it('can handle removal of dashboards link', async () => {
             const logic = await insightTestSetup('test-insight', 'updated', [
                 {
-                    type: 'Insight',
+                    type: ActivityScope.INSIGHT,
                     action: 'changed',
                     field: 'dashboards',
                     before: [
@@ -405,7 +409,7 @@ describe('the activity log logic', () => {
             it(`can handle export of insight to ${format}`, async () => {
                 const logic = await insightTestSetup('test insight', 'exported', [
                     {
-                        type: 'Insight',
+                        type: ActivityScope.INSIGHT,
                         action: 'exported',
                         field: 'export_format',
                         before: undefined,

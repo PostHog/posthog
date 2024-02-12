@@ -1,26 +1,29 @@
+import './AnnotationsOverlay.scss'
+
+import { Chart } from 'chart.js'
 import { BindLogic, useActions, useValues } from 'kea'
 import { dayjs } from 'lib/dayjs'
-import { humanFriendlyDetailedTime, pluralize, shortTimeZone } from 'lib/utils'
-import React, { useRef, useState } from 'react'
-import { IntervalType, AnnotationType } from '~/types'
 import { IconDelete, IconEdit, IconPlusMini } from 'lib/lemon-ui/icons'
 import { LemonBadge } from 'lib/lemon-ui/LemonBadge/LemonBadge'
+import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonModal } from 'lib/lemon-ui/LemonModal'
+import { Popover } from 'lib/lemon-ui/Popover/Popover'
+import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
+import { humanFriendlyDetailedTime, pluralize, shortTimeZone } from 'lib/utils'
+import React, { useRef, useState } from 'react'
+import { AnnotationModal } from 'scenes/annotations/AnnotationModal'
+import { annotationModalLogic, annotationScopeToName } from 'scenes/annotations/annotationModalLogic'
+import { insightLogic } from 'scenes/insights/insightLogic'
+
+import { annotationsModel } from '~/models/annotationsModel'
+import { AnnotationType, IntervalType } from '~/types'
+
 import {
     annotationsOverlayLogic,
     AnnotationsOverlayLogicProps,
     determineAnnotationsDateGroup,
 } from './annotationsOverlayLogic'
-import './AnnotationsOverlay.scss'
-import { LemonButton } from 'lib/lemon-ui/LemonButton'
-import { AnnotationModal } from 'scenes/annotations/AnnotationModal'
-import { annotationModalLogic, annotationScopeToName } from 'scenes/annotations/annotationModalLogic'
-import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
-import { annotationsModel } from '~/models/annotationsModel'
-import { Chart } from 'chart.js'
 import { useAnnotationsPositioning } from './useAnnotationsPositioning'
-import { Popover } from 'lib/lemon-ui/Popover/Popover'
-import { insightLogic } from 'scenes/insights/insightLogic'
 
 /** User-facing format for annotation groups. */
 const INTERVAL_UNIT_TO_HUMAN_DAYJS_FORMAT: Record<IntervalType, string> = {
@@ -155,9 +158,14 @@ const AnnotationsBadge = React.memo(function AnnotationsBadgeRaw({ index, date }
             }
         >
             {annotations.length ? (
-                <LemonBadge.Number count={annotations.length} size="small" active={active && isDateLocked} />
+                <LemonBadge.Number
+                    count={annotations.length}
+                    status="data"
+                    size="small"
+                    active={active && isDateLocked}
+                />
             ) : (
-                <LemonBadge content={<IconPlusMini />} size="small" active={active && isDateLocked} />
+                <LemonBadge content={<IconPlusMini />} status="data" size="small" active={active && isDateLocked} />
             )}
         </button>
     )
@@ -190,6 +198,7 @@ function AnnotationsPopover({
             visible={isPopoverShown}
             onClickOutside={closePopover}
             showArrow
+            padded={false}
             overlay={
                 <LemonModal
                     inline
@@ -240,23 +249,24 @@ function AnnotationCard({ annotation }: { annotation: AnnotationType }): JSX.Ele
                 <LemonButton
                     size="small"
                     icon={<IconEdit />}
-                    status="muted"
                     tooltip="Edit this annotation"
                     onClick={() => openModalToEditAnnotation(annotation, insightId)}
+                    noPadding
                 />
                 <LemonButton
                     size="small"
                     icon={<IconDelete />}
-                    status="muted"
                     tooltip="Delete this annotation"
                     onClick={() => deleteAnnotation(annotation)}
+                    noPadding
                 />
             </div>
             <div className="mt-1">{annotation.content}</div>
             <div className="leading-6 mt-2">
                 <ProfilePicture
-                    name={annotation.creation_type === 'GIT' ? 'GitHub automation' : annotation.created_by?.first_name}
-                    email={annotation.creation_type === 'GIT' ? undefined : annotation.created_by?.email}
+                    user={
+                        annotation.creation_type === 'GIT' ? { first_name: 'GitHub automation' } : annotation.created_by
+                    }
                     showName
                     size="md"
                     type={annotation.creation_type === 'GIT' ? 'bot' : 'person'}

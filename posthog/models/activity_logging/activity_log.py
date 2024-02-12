@@ -1,12 +1,14 @@
 import dataclasses
 import json
 from datetime import datetime
+from decimal import Decimal
 from typing import Any, Dict, List, Literal, Optional, Union
 
 import structlog
 from django.core.paginator import Paginator
 from django.db import models
 from django.utils import timezone
+from django.conf import settings
 
 from posthog.models.dashboard import Dashboard
 from posthog.models.dashboard_tile import DashboardTile
@@ -21,10 +23,18 @@ ActivityScope = Literal[
     "Insight",
     "Plugin",
     "PluginConfig",
-    "SessionRecordingPlaylist",
+    "DataManagement",
     "EventDefinition",
     "PropertyDefinition",
     "Notebook",
+    "Dashboard",
+    "Replay",
+    "Experiment",
+    "Survey",
+    "EarlyAccessFeature",
+    "SessionRecordingPlaylist",
+    "Comment",
+    "Team",
 ]
 ChangeAction = Literal["changed", "created", "deleted", "merged", "split", "exported"]
 
@@ -47,11 +57,13 @@ class Trigger:
 
 @dataclasses.dataclass(frozen=True)
 class Detail:
-    changes: Optional[List[Change]] = None
-    trigger: Optional[Trigger] = None
+    # The display name of the item in question
     name: Optional[str] = None
+    # The short_id if it has one
     short_id: Optional[str] = None
     type: Optional[str] = None
+    changes: Optional[List[Change]] = None
+    trigger: Optional[Trigger] = None
 
 
 class ActivityDetailEncoder(json.JSONEncoder):
@@ -64,6 +76,12 @@ class ActivityDetailEncoder(json.JSONEncoder):
             return str(obj)
         if isinstance(obj, User):
             return {"first_name": obj.first_name, "email": obj.email}
+        if isinstance(obj, float):
+            # more precision than we'll need but avoids rounding too unnecessarily
+            return format(obj, ".6f").rstrip("0").rstrip(".")
+        if isinstance(obj, Decimal):
+            # more precision than we'll need but avoids rounding too unnecessarily
+            return format(obj, ".6f").rstrip("0").rstrip(".")
 
         return json.JSONEncoder.default(self, obj)
 
@@ -72,15 +90,16 @@ class ActivityLog(UUIDModel):
     class Meta:
         constraints = [
             models.CheckConstraint(
-                check=models.Q(team_id__isnull=False) | models.Q(organization_id__isnull=False),
                 name="must_have_team_or_organization_id",
-            )
+                check=models.Q(team_id__isnull=False) | models.Q(organization_id__isnull=False),
+            ),
         ]
         indexes = [models.Index(fields=["team_id", "scope", "item_id"])]
 
     team_id = models.PositiveIntegerField(null=True)
     organization_id = models.UUIDField(null=True)
     user = models.ForeignKey("posthog.User", null=True, on_delete=models.SET_NULL)
+    was_impersonated = models.BooleanField(null=True)
     # If truthy, user can be unset and this indicates a 'system' user made activity asynchronously
     is_system = models.BooleanField(null=True)
 
@@ -98,35 +117,48 @@ class ActivityLog(UUIDModel):
     created_at: models.DateTimeField = models.DateTimeField(default=timezone.now)
 
 
+common_field_exclusions = [
+    "id",
+    "uuid",
+    "short_id",
+    "created_at",
+    "created_by",
+    "last_modified_at",
+    "last_modified_by",
+    "updated_at",
+    "updated_by",
+    "team",
+    "team_id",
+]
+
+
 field_exclusions: Dict[ActivityScope, List[str]] = {
-    "Notebook": ["id", "last_modified_at", "last_modified_by", "created_at", "created_by"],
-    "FeatureFlag": ["id", "created_at", "created_by", "is_simple_flag", "experiment", "team", "featureflagoverride"],
+    "Notebook": [
+        "text_content",
+    ],
+    "FeatureFlag": [
+        "is_simple_flag",
+        "experiment",
+        "featureflagoverride",
+    ],
     "Person": [
-        "id",
-        "uuid",
         "distinct_ids",
         "name",
-        "created_at",
         "is_identified",
         "persondistinctid",
         "cohort",
         "cohortpeople",
         "properties_last_updated_at",
         "properties_last_operation",
-        "team",
         "version",
         "is_user",
     ],
     "Insight": [
-        "id",
         "filters_hash",
-        "created_at",
         "refreshing",
         "dive_dashboard",
-        "updated_at",
         "type",
         "funnel",
-        "last_modified_at",
         "layouts",
         "color",
         "order",
@@ -136,46 +168,34 @@ field_exclusions: Dict[ActivityScope, List[str]] = {
         "saved",
         "is_sample",
         "refresh_attempt",
-        "last_modified_by",
         "short_id",
-        "created_by",
         "insightviewed",
         "dashboardtile",
         "caching_states",
     ],
-    "SessionRecordingPlaylist": ["id", "short_id", "created_at", "created_by", "last_modified_at", "last_modified_by"],
     "EventDefinition": [
         "eventdefinition_ptr_id",
-        "id",
-        "created_at",
         "_state",
         "deprecated_tags",
-        "team_id",
-        "updated_at",
         "owner_id",
         "query_usage_30_day",
         "verified_at",
         "verified_by",
-        "updated_by",
         "post_to_slack",
     ],
     "PropertyDefinition": [
         "propertydefinition_ptr_id",
-        "id",
-        "created_at",
         "_state",
         "deprecated_tags",
-        "team_id",
-        "updated_at",
         "owner_id",
         "query_usage_30_day",
         "volume_30_day",
         "verified_at",
         "verified_by",
-        "updated_by",
         "post_to_slack",
         "property_type_format",
     ],
+    "Team": ["uuid", "updated_at", "api_token", "created_at", "id"],
 }
 
 
@@ -204,7 +224,7 @@ def _read_through_relation(relation: models.Manager) -> List[Union[Dict, str]]:
 
 
 def changes_between(
-    model_type: Literal["FeatureFlag", "Person", "Insight", "SessionRecordingPlaylist", "Notebook"],
+    model_type: ActivityScope,
     previous: Optional[models.Model],
     current: Optional[models.Model],
 ) -> List[Change]:
@@ -219,8 +239,9 @@ def changes_between(
 
     if previous is not None:
         fields = current._meta.get_fields() if current is not None else []
+        excluded_fields = field_exclusions.get(model_type, []) + common_field_exclusions
+        filtered_fields = [f.name for f in fields if f.name not in excluded_fields]
 
-        filtered_fields = [f.name for f in fields if f.name not in field_exclusions[model_type]]
         for field in filtered_fields:
             left = getattr(previous, field, None)
             if isinstance(left, models.Manager):
@@ -246,13 +267,24 @@ def changes_between(
             elif right is None and left is not None:
                 changes.append(Change(type=model_type, field=field, action="deleted", before=left))
             elif left != right:
-                changes.append(Change(type=model_type, field=field, action="changed", before=left, after=right))
+                changes.append(
+                    Change(
+                        type=model_type,
+                        field=field,
+                        action="changed",
+                        before=left,
+                        after=right,
+                    )
+                )
 
     return changes
 
 
 def dict_changes_between(
-    model_type: ActivityScope, previous: Dict[Any, Any], new: Dict[Any, Any], use_field_exclusions: bool = False
+    model_type: ActivityScope,
+    previous: Dict[Any, Any],
+    new: Dict[Any, Any],
+    use_field_exclusions: bool = False,
 ) -> List[Change]:
     """
     Identifies changes between two dictionaries by comparing fields
@@ -267,7 +299,7 @@ def dict_changes_between(
 
     fields = set(list(previous.keys()) + list(new.keys()))
     if use_field_exclusions:
-        fields = fields - set(field_exclusions.get(model_type, []))
+        fields = fields - set(field_exclusions.get(model_type, [])) - set(common_field_exclusions)
 
     for field in fields:
         previous_value = previous.get(field, None)
@@ -276,25 +308,50 @@ def dict_changes_between(
         if previous_value is None and new_value is not None:
             changes.append(Change(type=model_type, field=field, action="created", after=new_value))
         elif new_value is None and previous_value is not None:
-            changes.append(Change(type=model_type, field=field, action="deleted", before=previous_value))
+            changes.append(
+                Change(
+                    type=model_type,
+                    field=field,
+                    action="deleted",
+                    before=previous_value,
+                )
+            )
         elif previous_value != new_value:
             changes.append(
-                Change(type=model_type, field=field, action="changed", before=previous_value, after=new_value)
+                Change(
+                    type=model_type,
+                    field=field,
+                    action="changed",
+                    before=previous_value,
+                    after=new_value,
+                )
             )
 
     return changes
 
 
 def log_activity(
+    *,
     organization_id: Optional[UUIDT],
     team_id: int,
-    user: User | None,
+    user: Optional[User],
     item_id: Optional[Union[int, str, UUIDT]],
     scope: str,
     activity: str,
     detail: Detail,
+    was_impersonated: Optional[bool],
     force_save: bool = False,
 ) -> None:
+    if was_impersonated and user is None:
+        logger.warn(
+            "activity_log.failed_to_write_to_activity_log",
+            team=team_id,
+            organization_id=organization_id,
+            scope=scope,
+            activity=activity,
+            exception=ValueError("Cannot log impersonated activity without a user"),
+        )
+        return
     try:
         if activity == "updated" and (detail.changes is None or len(detail.changes) == 0) and not force_save:
             logger.warn(
@@ -310,6 +367,7 @@ def log_activity(
             organization_id=organization_id,
             team_id=team_id,
             user=user,
+            was_impersonated=was_impersonated,
             is_system=user is None,
             item_id=str(item_id),
             scope=scope,
@@ -325,6 +383,10 @@ def log_activity(
             activity=activity,
             exception=e,
         )
+        if settings.TEST:
+            # Re-raise in tests, so that we can catch failures in test suites - but keep quiet in production,
+            # as we currently don't treat activity logs as critical
+            raise e
 
 
 @dataclasses.dataclass(frozen=True)
@@ -350,7 +412,11 @@ def get_activity_page(activity_query: models.QuerySet, limit: int = 10, page: in
 
 
 def load_activity(
-    scope: ActivityScope, team_id: int, item_id: Optional[int] = None, limit: int = 10, page: int = 1
+    scope: ActivityScope,
+    team_id: int,
+    item_ids: Optional[list[str]] = None,
+    limit: int = 10,
+    page: int = 1,
 ) -> ActivityPage:
     # TODO in follow-up to posthog #8931 selecting specific fields into a return type from this query
 
@@ -358,8 +424,8 @@ def load_activity(
         ActivityLog.objects.select_related("user").filter(team_id=team_id, scope=scope).order_by("-created_at")
     )
 
-    if item_id is not None:
-        activity_query = activity_query.filter(item_id=item_id)
+    if item_ids is not None:
+        activity_query = activity_query.filter(item_id__in=item_ids)
 
     return get_activity_page(activity_query, limit, page)
 

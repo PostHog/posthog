@@ -1,16 +1,16 @@
 .PlayerMeta {
     position: relative;
-    border-bottom: 1px solid var(--border);
     display: flex;
     flex-direction: column;
     flex-shrink: 0;
     overflow: hidden;
+    border-bottom: 1px solid var(--border);
 
     .PlayerMetaPersonProperties {
-        background: var(--side);
-        overflow: auto;
-        border-bottom: 1px solid transparent;
         padding: 0.5rem;
+        overflow: auto;
+        background: var(--side);
+        border-bottom: 1px solid transparent;
     }
 
     &:not(.PlayerMeta--fullscreen) {
@@ -18,7 +18,7 @@
             transition: 200ms height ease-out, 200ms border-bottom-color ease-out;
 
             &--enter {
-                height: 0px;
+                height: 0;
             }
 
             &--enter-active,
@@ -33,7 +33,7 @@
             }
 
             &--exit-active {
-                height: 0px;
+                height: 0;
             }
         }
 
@@ -46,18 +46,18 @@
 
     &--fullscreen {
         flex-direction: row;
-        justify-content: space-between;
         align-items: center;
+        justify-content: space-between;
         height: 48px;
 
         .PlayerMetaPersonProperties {
             position: fixed;
             top: 48px;
-            left: 0px;
             bottom: 97px; // NOTE: This isn't perfect but for now hardcoded to match the bottom area size.
+            left: 0;
             z-index: 1;
-            max-width: 40rem;
             width: 100%;
+            max-width: 40rem;
             border-right: 1px solid var(--border);
             transition: 200ms transform ease-out;
 
@@ -76,6 +76,16 @@
 
             &--exit-active {
                 transform: translateX(-100%);
+            }
+        }
+    }
+
+    .Link {
+        .posthog-3000 & {
+            color: var(--default);
+
+            &:hover {
+                color: var(--primary-3000);
             }
         }
     }

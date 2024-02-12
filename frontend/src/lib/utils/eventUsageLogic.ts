@@ -1,40 +1,11 @@
-import { kea } from 'kea'
-import { isPostHogProp, keyMappingKeys } from 'lib/taxonomy'
-import posthog from 'posthog-js'
-import { userLogic } from 'scenes/userLogic'
-import type { eventUsageLogicType } from './eventUsageLogicType'
-import {
-    FilterType,
-    DashboardType,
-    PersonType,
-    DashboardMode,
-    EntityType,
-    InsightModel,
-    InsightType,
-    HelpType,
-    SessionRecordingUsageType,
-    FunnelCorrelation,
-    ItemMode,
-    AnyPropertyFilter,
-    Experiment,
-    PropertyGroupFilter,
-    FilterLogicalOperator,
-    PropertyFilterValue,
-    InsightShortId,
-    SessionPlayerData,
-    AnyPartialFilterType,
-    Resource,
-    AccessLevel,
-    RecordingReportLoadTimes,
-    SessionRecordingPlayerTab,
-    Survey,
-} from '~/types'
-import type { Dayjs } from 'lib/dayjs'
-import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
-import { convertPropertyGroupToProperties } from 'lib/utils'
+import { actions, connect, kea, listeners, path } from 'kea'
+import { BarStatus, ResultType } from 'lib/components/CommandBar/types'
+import { convertPropertyGroupToProperties, isGroupPropertyFilter } from 'lib/components/PropertyFilters/utils'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
-import { PlatformType, Framework } from 'scenes/ingestion/types'
+import type { Dayjs } from 'lib/dayjs'
 import { now } from 'lib/dayjs'
+import { isCoreFilter, PROPERTY_KEYS } from 'lib/taxonomy'
+import posthog from 'posthog-js'
 import {
     isFilterWithDisplay,
     isFunnelsFilter,
@@ -43,8 +14,39 @@ import {
     isStickinessFilter,
     isTrendsFilter,
 } from 'scenes/insights/sharedUtils'
-import { isGroupPropertyFilter } from 'lib/components/PropertyFilters/utils'
+import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { EventIndex } from 'scenes/session-recordings/player/eventIndex'
+import { SurveyTemplateType } from 'scenes/surveys/constants'
+import { userLogic } from 'scenes/userLogic'
+
+import {
+    AccessLevel,
+    AnyPartialFilterType,
+    AnyPropertyFilter,
+    DashboardMode,
+    DashboardType,
+    EntityType,
+    Experiment,
+    FilterLogicalOperator,
+    FilterType,
+    FunnelCorrelation,
+    HelpType,
+    InsightModel,
+    InsightShortId,
+    InsightType,
+    ItemMode,
+    PersonType,
+    PropertyFilterValue,
+    PropertyGroupFilter,
+    RecordingReportLoadTimes,
+    Resource,
+    SessionPlayerData,
+    SessionRecordingPlayerTab,
+    SessionRecordingUsageType,
+    Survey,
+} from '~/types'
+
+import type { eventUsageLogicType } from './eventUsageLogicType'
 
 export enum DashboardEventSource {
     LongPress = 'long_press',
@@ -103,7 +105,7 @@ interface RecordingViewedProps {
 function flattenProperties(properties: AnyPropertyFilter[]): string[] {
     const output = []
     for (const prop of properties || []) {
-        if (prop.key && isPostHogProp(prop.key)) {
+        if (prop.key && isCoreFilter(prop.key)) {
             output.push(prop.key)
         } else {
             output.push('redacted') // Custom property names are not reported
@@ -172,9 +174,10 @@ function sanitizeFilterParams(filters: AnyPartialFilterType): Record<string, any
     const used_cohort_filter_ids = usedCohortFilterIds(filters.properties)
 
     for (const entity of entities) {
-        properties_local = properties_local.concat(flattenProperties(entity.properties || []))
+        const entityProperties = Array.isArray(entity.properties) ? entity.properties : []
+        properties_local = properties_local.concat(flattenProperties(entityProperties))
 
-        using_groups = using_groups || hasGroupProperties(entity.properties || [])
+        using_groups = using_groups || hasGroupProperties(entityProperties)
         if (entity.math_group_type_index != undefined) {
             aggregating_by_groups = true
         }
@@ -207,12 +210,12 @@ function sanitizeFilterParams(filters: AnyPartialFilterType): Record<string, any
     }
 }
 
-export const eventUsageLogic = kea<eventUsageLogicType>({
-    path: ['lib', 'utils', 'eventUsageLogic'],
-    connect: () => ({
+export const eventUsageLogic = kea<eventUsageLogicType>([
+    path(['lib', 'utils', 'eventUsageLogic']),
+    connect(() => ({
         values: [preflightLogic, ['realm'], userLogic, ['user']],
-    }),
-    actions: {
+    })),
+    actions({
         // persons related
         reportPersonDetailViewed: (person: PersonType) => ({ person }),
         reportPersonsModalViewed: (params: any) => ({
@@ -331,7 +334,6 @@ export const eventUsageLogic = kea<eventUsageLogicType>({
         ) => ({ attribute, originalLength, newLength }),
         reportDashboardShareToggled: (isShared: boolean) => ({ isShared }),
         reportUpgradeModalShown: (featureName: string) => ({ featureName }),
-        reportIngestionLandingSeen: true,
         reportTimezoneComponentViewed: (
             component: 'label' | 'indicator',
             project_timezone?: string,
@@ -351,9 +353,8 @@ export const eventUsageLogic = kea<eventUsageLogicType>({
             playerData: SessionPlayerData,
             durations: RecordingReportLoadTimes,
             type: SessionRecordingUsageType,
-            delay?: number,
-            loadedFromBlobStorage?: boolean
-        ) => ({ playerData, durations, type, delay, loadedFromBlobStorage }),
+            delay?: number
+        ) => ({ playerData, durations, type, delay }),
         reportHelpButtonViewed: true,
         reportHelpButtonUsed: (help_type: HelpType) => ({ help_type }),
         reportRecordingsListFetched: (loadTime: number) => ({
@@ -394,8 +395,6 @@ export const eventUsageLogic = kea<eventUsageLogicType>({
             duration,
             significant,
         }),
-        reportPrimaryDashboardModalOpened: true,
-        reportPrimaryDashboardChanged: true,
         // Definition Popover
         reportDataManagementDefinitionHovered: (type: TaxonomicFilterGroupType) => ({ type }),
         reportDataManagementDefinitionClickView: (type: TaxonomicFilterGroupType) => ({ type }),
@@ -441,27 +440,15 @@ export const eventUsageLogic = kea<eventUsageLogicType>({
         reportInsightOpenedFromRecentInsightList: true,
         reportRecordingOpenedFromRecentRecordingList: true,
         reportPersonOpenedFromNewlySeenPersonsList: true,
-        reportIngestionSelectPlatformType: (platform: PlatformType) => ({ platform }),
-        reportIngestionSelectFrameworkType: (framework: Framework) => ({ framework }),
-        reportIngestionRecordingsTurnedOff: (
-            session_recording_opt_in: boolean,
-            capture_console_log_opt_in: boolean,
-            capture_performance_opt_in: boolean
-        ) => ({ session_recording_opt_in, capture_console_log_opt_in, capture_performance_opt_in }),
-        reportIngestionAutocaptureToggled: (autocapture_opt_out: boolean) => ({ autocapture_opt_out }),
-        reportIngestionAutocaptureExceptionsToggled: (autocapture_opt_in: boolean) => ({ autocapture_opt_in }),
-        reportIngestionHelpClicked: (type: string) => ({ type }),
-        reportIngestionTryWithBookmarkletClicked: true,
-        reportIngestionTryWithDemoDataClicked: true,
         reportIngestionContinueWithoutVerifying: true,
-        reportIngestionContinueWithoutBilling: true,
-        reportIngestionBillingCancelled: true,
-        reportIngestionThirdPartyAboutClicked: (name: string) => ({ name }),
-        reportIngestionThirdPartyConfigureClicked: (name: string) => ({ name }),
-        reportIngestionThirdPartyPluginInstalled: (name: string) => ({ name }),
+        reportAutocaptureToggled: (autocapture_opt_out: boolean) => ({ autocapture_opt_out }),
+        reportAutocaptureExceptionsToggled: (autocapture_opt_in: boolean) => ({ autocapture_opt_in }),
         reportFailedToCreateFeatureFlagWithCohort: (code: string, detail: string) => ({ code, detail }),
+        reportFeatureFlagCopySuccess: true,
+        reportFeatureFlagCopyFailure: (error) => ({ error }),
+        reportFeatureFlagScheduleSuccess: true,
+        reportFeatureFlagScheduleFailure: (error) => ({ error }),
         reportInviteMembersButtonClicked: true,
-        reportIngestionSidebarButtonClicked: (name: string) => ({ name }),
         reportDashboardLoadingTime: (loadingMilliseconds: number, dashboardId: number) => ({
             loadingMilliseconds,
             dashboardId,
@@ -501,9 +488,26 @@ export const eventUsageLogic = kea<eventUsageLogicType>({
         reportSurveyStopped: (survey: Survey) => ({ survey }),
         reportSurveyResumed: (survey: Survey) => ({ survey }),
         reportSurveyArchived: (survey: Survey) => ({ survey }),
+        reportSurveyTemplateClicked: (template: SurveyTemplateType) => ({ template }),
         reportProductUnsubscribed: (product: string) => ({ product }),
-    },
-    listeners: ({ values }) => ({
+        // onboarding
+        reportOnboardingProductSelected: (
+            productKey: string,
+            includeFirstOnboardingProductOnUserProperties: boolean
+        ) => ({
+            productKey,
+            includeFirstOnboardingProductOnUserProperties,
+        }),
+        reportOnboardingCompleted: (productKey: string) => ({ productKey }),
+        reportSubscribedDuringOnboarding: (productKey: string) => ({ productKey }),
+        // command bar
+        reportCommandBarStatusChanged: (status: BarStatus) => ({ status }),
+        reportCommandBarSearch: (queryLength: number) => ({ queryLength }),
+        reportCommandBarSearchResultOpened: (type: ResultType) => ({ type }),
+        reportCommandBarActionSearch: (query: string) => ({ query }),
+        reportCommandBarActionResultExecuted: (resultDisplay) => ({ resultDisplay }),
+    }),
+    listeners(({ values }) => ({
         reportAxisUnitsChanged: (properties) => {
             posthog.capture('axis units changed', properties)
         },
@@ -529,7 +533,7 @@ export const eventUsageLogic = kea<eventUsageLogicType>({
             let custom_properties_count = 0
             let posthog_properties_count = 0
             for (const prop of Object.keys(person.properties)) {
-                if (keyMappingKeys.includes(prop)) {
+                if (PROPERTY_KEYS.includes(prop)) {
                     posthog_properties_count += 1
                 } else {
                     custom_properties_count += 1
@@ -552,7 +556,10 @@ export const eventUsageLogic = kea<eventUsageLogicType>({
         },
         reportInsightSaved: async ({ filters, isNewInsight }) => {
             // "insight saved" is a proxy for the new insight's results being valuable to the user
-            posthog.capture('insight saved', { ...filters, is_new_insight: isNewInsight })
+            posthog.capture('insight saved', {
+                ...filters,
+                is_new_insight: isNewInsight,
+            })
         },
         reportInsightViewed: ({
             insightModel,
@@ -626,7 +633,10 @@ export const eventUsageLogic = kea<eventUsageLogicType>({
                 properties.stickiness_days = filters.stickiness_days
             }
             properties.mode = insightMode // View or edit
-            properties.viewer_is_creator = insightModel.created_by?.uuid === values.user?.uuid ?? null // `null` means we couldn't determine this
+            properties.viewer_is_creator =
+                insightModel.created_by?.uuid && values.user?.uuid
+                    ? insightModel.created_by?.uuid === values.user?.uuid
+                    : null
             properties.is_saved = insightModel.saved
             properties.description_length = insightModel.description?.length ?? 0
             properties.tags_count = insightModel.tags?.length ?? 0
@@ -659,7 +669,7 @@ export const eventUsageLogic = kea<eventUsageLogicType>({
             }
 
             for (const item of dashboard.tiles || []) {
-                if (!!item.insight) {
+                if (item.insight) {
                     const key = `${item.insight.filters?.insight?.toLowerCase() || InsightType.TRENDS}_count`
                     if (!properties[key]) {
                         properties[key] = 1
@@ -787,9 +797,6 @@ export const eventUsageLogic = kea<eventUsageLogicType>({
             }
             posthog.capture('test account filters updated', payload)
         },
-        reportIngestionLandingSeen: async () => {
-            posthog.capture('ingestion landing seen')
-        },
 
         reportInsightFilterRemoved: async ({ index }) => {
             posthog.capture('local filter removed', { index })
@@ -830,21 +837,20 @@ export const eventUsageLogic = kea<eventUsageLogicType>({
         reportSavedInsightNewInsightClicked: ({ insightType }) => {
             posthog.capture('saved insights new insight clicked', { insight_type: insightType })
         },
-        reportRecording: ({ playerData, durations, type, loadedFromBlobStorage }) => {
+        reportRecording: ({ playerData, durations, type }) => {
             // @ts-expect-error
             const eventIndex = new EventIndex(playerData?.snapshots || [])
             const payload: Partial<RecordingViewedProps> = {
-                snapshots_load_time: durations.snapshots?.duration,
-                metadata_load_time: durations.metadata?.duration,
-                events_load_time: durations.events?.duration,
-                first_paint_load_time: durations.firstPaint?.duration,
+                snapshots_load_time: durations.snapshots,
+                metadata_load_time: durations.metadata,
+                events_load_time: durations.events,
+                first_paint_load_time: durations.firstPaint,
                 duration: eventIndex.getDuration(),
                 start_time: playerData.start?.valueOf() ?? 0,
                 end_time: playerData.end?.valueOf() ?? 0,
                 page_change_events_length: eventIndex.pageChangeEvents().length,
                 recording_width: eventIndex.getRecordingScreenMetadata(0)[0]?.width,
-                load_time: durations.firstPaint?.duration ?? 0, // TODO: DEPRECATED field. Keep around so dashboards don't break
-                loadedFromBlobStorage,
+                load_time: durations.firstPaint ?? 0, // TODO: DEPRECATED field. Keep around so dashboards don't break
             }
             posthog.capture(`recording ${type}`, payload)
         },
@@ -986,12 +992,6 @@ export const eventUsageLogic = kea<eventUsageLogicType>({
         reportChangeInnerPropertyGroupFiltersType: ({ type, filtersLength }) => {
             posthog.capture('inner match property group filters type changed', { type, filtersLength })
         },
-        reportPrimaryDashboardModalOpened: () => {
-            posthog.capture('primary dashboard modal opened')
-        },
-        reportPrimaryDashboardChanged: () => {
-            posthog.capture('primary dashboard changed')
-        },
         reportDataManagementDefinitionHovered: ({ type }) => {
             posthog.capture('definition hovered', { type })
         },
@@ -1049,82 +1049,36 @@ export const eventUsageLogic = kea<eventUsageLogicType>({
         reportPersonOpenedFromNewlySeenPersonsList: () => {
             posthog.capture('person opened from newly seen persons list')
         },
-        reportIngestionSelectPlatformType: ({ platform }) => {
-            posthog.capture('ingestion select platform type', {
-                platform: platform,
-            })
-        },
-        reportIngestionSelectFrameworkType: ({ framework }) => {
-            posthog.capture('ingestion select framework type', {
-                framework: framework,
-            })
-        },
-        reportIngestionRecordingsTurnedOff: ({
-            session_recording_opt_in,
-            capture_console_log_opt_in,
-            capture_performance_opt_in,
-        }) => {
-            posthog.capture('ingestion recordings turned off', {
-                session_recording_opt_in,
-                capture_console_log_opt_in,
-                capture_performance_opt_in,
-            })
-        },
-        reportIngestionAutocaptureToggled: ({ autocapture_opt_out }) => {
-            posthog.capture('ingestion autocapture toggled', {
-                autocapture_opt_out,
-            })
-        },
-        reportIngestionAutocaptureExceptionsToggled: ({ autocapture_opt_in }) => {
-            posthog.capture('ingestion autocapture exceptions toggled', {
-                autocapture_opt_in,
-            })
-        },
-        reportIngestionHelpClicked: ({ type }) => {
-            posthog.capture('ingestion help clicked', {
-                type: type,
-            })
-        },
-        reportIngestionTryWithBookmarkletClicked: () => {
-            posthog.capture('ingestion try posthog with bookmarklet clicked')
-        },
-        reportIngestionTryWithDemoDataClicked: () => {
-            posthog.capture('ingestion try posthog with demo data clicked')
-        },
         reportIngestionContinueWithoutVerifying: () => {
             posthog.capture('ingestion continue without verifying')
         },
-        reportIngestionContinueWithoutBilling: () => {
-            posthog.capture('ingestion continue without adding billing details')
-        },
-        reportIngestionBillingCancelled: () => {
-            posthog.capture('ingestion billing cancelled')
-        },
-        reportIngestionThirdPartyAboutClicked: ({ name }) => {
-            posthog.capture('ingestion third party about clicked', {
-                name: name,
+        reportAutocaptureToggled: ({ autocapture_opt_out }) => {
+            posthog.capture('autocapture toggled', {
+                autocapture_opt_out,
             })
         },
-        reportIngestionThirdPartyConfigureClicked: ({ name }) => {
-            posthog.capture('ingestion third party configure clicked', {
-                name: name,
-            })
-        },
-        reportIngestionThirdPartyPluginInstalled: ({ name }) => {
-            posthog.capture('report ingestion third party plugin installed', {
-                name: name,
+        reportAutocaptureExceptionsToggled: ({ autocapture_opt_in }) => {
+            posthog.capture('autocapture exceptions toggled', {
+                autocapture_opt_in,
             })
         },
         reportFailedToCreateFeatureFlagWithCohort: ({ detail, code }) => {
             posthog.capture('failed to create feature flag with cohort', { detail, code })
         },
+        reportFeatureFlagCopySuccess: () => {
+            posthog.capture('feature flag copied')
+        },
+        reportFeatureFlagCopyFailure: ({ error }) => {
+            posthog.capture('feature flag copy failure', { error })
+        },
+        reportFeatureFlagScheduleSuccess: () => {
+            posthog.capture('feature flag scheduled')
+        },
+        reportFeatureFlagScheduleFailure: ({ error }) => {
+            posthog.capture('feature flag schedule failure', { error })
+        },
         reportInviteMembersButtonClicked: () => {
             posthog.capture('invite members button clicked')
-        },
-        reportIngestionSidebarButtonClicked: ({ name }) => {
-            posthog.capture('ingestion sidebar button clicked', {
-                name: name,
-            })
         },
         reportTeamSettingChange: ({ name, value }) => {
             posthog.capture(`${name} team setting updated`, {
@@ -1181,13 +1135,17 @@ export const eventUsageLogic = kea<eventUsageLogicType>({
             posthog.capture('survey created', {
                 name: survey.name,
                 id: survey.id,
+                survey_type: survey.type,
                 questions_length: survey.questions.length,
+                question_types: survey.questions.map((question) => question.type),
             })
         },
         reportSurveyLaunched: ({ survey }) => {
             posthog.capture('survey launched', {
                 name: survey.name,
                 id: survey.id,
+                survey_type: survey.type,
+                question_types: survey.questions.map((question) => question.type),
                 created_at: survey.created_at,
                 start_date: survey.start_date,
             })
@@ -1235,6 +1193,11 @@ export const eventUsageLogic = kea<eventUsageLogicType>({
                 start_date: survey.start_date,
             })
         },
+        reportSurveyTemplateClicked: ({ template }) => {
+            posthog.capture('survey template clicked', {
+                template,
+            })
+        },
         reportProductUnsubscribed: ({ product }) => {
             const property_key = `unsubscribed_from_${product}`
             posthog.capture('product unsubscribed', {
@@ -1242,5 +1205,42 @@ export const eventUsageLogic = kea<eventUsageLogicType>({
                 $set: { [property_key]: true },
             })
         },
-    }),
-})
+        // onboarding
+        reportOnboardingProductSelected: ({ productKey, includeFirstOnboardingProductOnUserProperties }) => {
+            posthog.capture('onboarding product selected', {
+                product_key: productKey,
+                $set_once: {
+                    first_onboarding_product_selected: includeFirstOnboardingProductOnUserProperties
+                        ? productKey
+                        : undefined,
+                },
+            })
+        },
+        reportOnboardingCompleted: ({ productKey }) => {
+            posthog.capture('onboarding completed', {
+                product_key: productKey,
+            })
+        },
+        reportSubscribedDuringOnboarding: ({ productKey }) => {
+            posthog.capture('subscribed during onboarding', {
+                product_key: productKey,
+            })
+        },
+        // command bar
+        reportCommandBarStatusChanged: ({ status }) => {
+            posthog.capture('command bar status changed', { status })
+        },
+        reportCommandBarSearch: ({ queryLength }) => {
+            posthog.capture('command bar search', { queryLength })
+        },
+        reportCommandBarSearchResultOpened: ({ type }) => {
+            posthog.capture('command bar search result opened', { type })
+        },
+        reportCommandBarActionSearch: ({ query }) => {
+            posthog.capture('command bar action search', { query })
+        },
+        reportCommandBarActionResultExecuted: ({ resultDisplay }) => {
+            posthog.capture('command bar search result executed', { resultDisplay })
+        },
+    })),
+])

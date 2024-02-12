@@ -1,5 +1,6 @@
 from datetime import datetime
 from unittest.mock import call, patch
+from zoneinfo import ZoneInfo
 
 import pytest
 from django.core.handlers.wsgi import WSGIRequest
@@ -34,12 +35,36 @@ class TestAbsoluteUrls(TestCase):
         absolute_urls_test_cases = [
             (None, "https://my-amazing.site", "https://my-amazing.site"),
             (None, "https://my-amazing.site/", "https://my-amazing.site/"),
-            ("api/path", "https://my-amazing.site/", "https://my-amazing.site/api/path"),
-            ("/api/path", "https://my-amazing.site/", "https://my-amazing.site/api/path"),
-            ("api/path", "https://my-amazing.site/base_url/", "https://my-amazing.site/base_url/api/path"),
-            ("/api/path", "https://my-amazing.site/base_url", "https://my-amazing.site/base_url/api/path"),
-            (regression_11204, "https://app.posthog.com", f"https://app.posthog.com/{regression_11204}"),
-            ("https://app.posthog.com", "https://app.posthog.com", "https://app.posthog.com"),
+            (
+                "api/path",
+                "https://my-amazing.site/",
+                "https://my-amazing.site/api/path",
+            ),
+            (
+                "/api/path",
+                "https://my-amazing.site/",
+                "https://my-amazing.site/api/path",
+            ),
+            (
+                "api/path",
+                "https://my-amazing.site/base_url/",
+                "https://my-amazing.site/base_url/api/path",
+            ),
+            (
+                "/api/path",
+                "https://my-amazing.site/base_url",
+                "https://my-amazing.site/base_url/api/path",
+            ),
+            (
+                regression_11204,
+                "https://app.posthog.com",
+                f"https://app.posthog.com/{regression_11204}",
+            ),
+            (
+                "https://app.posthog.com",
+                "https://app.posthog.com",
+                "https://app.posthog.com",
+            ),
             (
                 "https://app.posthog.com/some/path?=something",
                 "https://app.posthog.com",
@@ -69,17 +94,17 @@ class TestAbsoluteUrls(TestCase):
     def test_absolute_uri_can_not_escape_out_host(self) -> None:
         with self.settings(SITE_URL="https://app.posthog.com"):
             with pytest.raises(PotentialSecurityProblemException):
-                absolute_uri("https://an.external.domain.com/something-outside-posthog"),
+                (absolute_uri("https://an.external.domain.com/something-outside-posthog"),)
 
     def test_absolute_uri_can_not_escape_out_host_on_different_scheme(self) -> None:
         with self.settings(SITE_URL="https://app.posthog.com"):
             with pytest.raises(PotentialSecurityProblemException):
-                absolute_uri("ftp://an.external.domain.com/something-outside-posthog"),
+                (absolute_uri("ftp://an.external.domain.com/something-outside-posthog"),)
 
     def test_absolute_uri_can_not_escape_out_host_when_site_url_is_the_empty_string(self) -> None:
         with self.settings(SITE_URL=""):
             with pytest.raises(PotentialSecurityProblemException):
-                absolute_uri("https://an.external.domain.com/something-outside-posthog"),
+                (absolute_uri("https://an.external.domain.com/something-outside-posthog"),)
 
 
 class TestFormatUrls(TestCase):
@@ -110,12 +135,18 @@ class TestFormatUrls(TestCase):
         ]
 
         for params, expected in test_to_expected:
-            self.assertEqual(expected, format_query_params_absolute_url(Request(request=build_req), *params))
+            self.assertEqual(
+                expected,
+                format_query_params_absolute_url(Request(request=build_req), *params),
+            )
 
     def test_format_query_params_absolute_url_with_https(self) -> None:
         with self.settings(SECURE_PROXY_SSL_HEADER=("HTTP_X_FORWARDED_PROTO", "https")):
             build_req = HttpRequest()
-            build_req.META = {"HTTP_HOST": "www.testserver", "HTTP_X_FORWARDED_PROTO": "https"}
+            build_req.META = {
+                "HTTP_HOST": "www.testserver",
+                "HTTP_X_FORWARDED_PROTO": "https",
+            }
             request: Request = Request(build_req)
             self.assertEqual("https://www.testserver", format_query_params_absolute_url(request))
 
@@ -154,52 +185,112 @@ class TestGeneralUtils(TestCase):
 class TestRelativeDateParse(TestCase):
     @freeze_time("2020-01-31T12:22:23")
     def test_hour(self):
-        self.assertEqual(relative_date_parse("-24h").isoformat(), "2020-01-30T12:00:00+00:00")
-        self.assertEqual(relative_date_parse("-48h").isoformat(), "2020-01-29T12:00:00+00:00")
+        self.assertEqual(
+            relative_date_parse("-24h", ZoneInfo("UTC")).isoformat(),
+            "2020-01-30T12:22:23+00:00",
+        )
+        self.assertEqual(
+            relative_date_parse("-48h", ZoneInfo("UTC")).isoformat(),
+            "2020-01-29T12:22:23+00:00",
+        )
 
     @freeze_time("2020-01-31")
     def test_day(self):
-        self.assertEqual(relative_date_parse("dStart").strftime("%Y-%m-%d"), "2020-01-31")
-        self.assertEqual(relative_date_parse("-1d").strftime("%Y-%m-%d"), "2020-01-30")
-        self.assertEqual(relative_date_parse("-2d").strftime("%Y-%m-%d"), "2020-01-29")
+        self.assertEqual(
+            relative_date_parse("dStart", ZoneInfo("UTC")).strftime("%Y-%m-%d"),
+            "2020-01-31",
+        )
+        self.assertEqual(
+            relative_date_parse("-1d", ZoneInfo("UTC")).strftime("%Y-%m-%d"),
+            "2020-01-30",
+        )
+        self.assertEqual(
+            relative_date_parse("-2d", ZoneInfo("UTC")).strftime("%Y-%m-%d"),
+            "2020-01-29",
+        )
+
+        self.assertEqual(
+            relative_date_parse("-1dStart", ZoneInfo("UTC")).isoformat(),
+            "2020-01-30T00:00:00+00:00",
+        )
+        self.assertEqual(
+            relative_date_parse("-1dEnd", ZoneInfo("UTC")).isoformat(),
+            "2020-01-30T23:59:59.999999+00:00",
+        )
 
     @freeze_time("2020-01-31")
     def test_month(self):
-        self.assertEqual(relative_date_parse("-1m").strftime("%Y-%m-%d"), "2019-12-31")
-        self.assertEqual(relative_date_parse("-2m").strftime("%Y-%m-%d"), "2019-11-30")
+        self.assertEqual(
+            relative_date_parse("-1m", ZoneInfo("UTC")).strftime("%Y-%m-%d"),
+            "2019-12-31",
+        )
+        self.assertEqual(
+            relative_date_parse("-2m", ZoneInfo("UTC")).strftime("%Y-%m-%d"),
+            "2019-11-30",
+        )
 
-        self.assertEqual(relative_date_parse("mStart").strftime("%Y-%m-%d"), "2020-01-01")
-        self.assertEqual(relative_date_parse("-1mStart").strftime("%Y-%m-%d"), "2019-12-01")
-        self.assertEqual(relative_date_parse("-2mStart").strftime("%Y-%m-%d"), "2019-11-01")
+        self.assertEqual(
+            relative_date_parse("mStart", ZoneInfo("UTC")).strftime("%Y-%m-%d"),
+            "2020-01-01",
+        )
+        self.assertEqual(
+            relative_date_parse("-1mStart", ZoneInfo("UTC")).strftime("%Y-%m-%d"),
+            "2019-12-01",
+        )
+        self.assertEqual(
+            relative_date_parse("-2mStart", ZoneInfo("UTC")).strftime("%Y-%m-%d"),
+            "2019-11-01",
+        )
 
-        self.assertEqual(relative_date_parse("-1mEnd").strftime("%Y-%m-%d"), "2019-12-31")
-        self.assertEqual(relative_date_parse("-2mEnd").strftime("%Y-%m-%d"), "2019-11-30")
+        self.assertEqual(
+            relative_date_parse("-1mEnd", ZoneInfo("UTC")).strftime("%Y-%m-%d"),
+            "2019-12-31",
+        )
+        self.assertEqual(
+            relative_date_parse("-2mEnd", ZoneInfo("UTC")).strftime("%Y-%m-%d"),
+            "2019-11-30",
+        )
 
     @freeze_time("2020-01-31")
     def test_year(self):
-        self.assertEqual(relative_date_parse("-1y").strftime("%Y-%m-%d"), "2019-01-31")
-        self.assertEqual(relative_date_parse("-2y").strftime("%Y-%m-%d"), "2018-01-31")
+        self.assertEqual(
+            relative_date_parse("-1y", ZoneInfo("UTC")).strftime("%Y-%m-%d"),
+            "2019-01-31",
+        )
+        self.assertEqual(
+            relative_date_parse("-2y", ZoneInfo("UTC")).strftime("%Y-%m-%d"),
+            "2018-01-31",
+        )
 
-        self.assertEqual(relative_date_parse("yStart").strftime("%Y-%m-%d"), "2020-01-01")
-        self.assertEqual(relative_date_parse("-1yStart").strftime("%Y-%m-%d"), "2019-01-01")
+        self.assertEqual(
+            relative_date_parse("yStart", ZoneInfo("UTC")).strftime("%Y-%m-%d"),
+            "2020-01-01",
+        )
+        self.assertEqual(
+            relative_date_parse("-1yStart", ZoneInfo("UTC")).strftime("%Y-%m-%d"),
+            "2019-01-01",
+        )
 
     @freeze_time("2020-01-31")
     def test_normal_date(self):
-        self.assertEqual(relative_date_parse("2019-12-31").strftime("%Y-%m-%d"), "2019-12-31")
+        self.assertEqual(
+            relative_date_parse("2019-12-31", ZoneInfo("UTC")).strftime("%Y-%m-%d"),
+            "2019-12-31",
+        )
 
 
 class TestDefaultEventName(BaseTest):
     def test_no_events(self):
-        self.assertEqual(get_default_event_name(), "$pageview")
+        self.assertEqual(get_default_event_name(self.team), "$pageview")
 
     def test_take_screen(self):
         EventDefinition.objects.create(name="$screen", team=self.team)
-        self.assertEqual(get_default_event_name(), "$screen")
+        self.assertEqual(get_default_event_name(self.team), "$screen")
 
     def test_prefer_pageview(self):
         EventDefinition.objects.create(name="$pageview", team=self.team)
         EventDefinition.objects.create(name="$screen", team=self.team)
-        self.assertEqual(get_default_event_name(), "$pageview")
+        self.assertEqual(get_default_event_name(self.team), "$pageview")
 
 
 class TestLoadDataFromRequest(TestCase):
@@ -225,7 +316,11 @@ class TestLoadDataFromRequest(TestCase):
 
         patched_scope.assert_called_once()
         mock_set_tag.assert_has_calls(
-            [call("origin", origin), call("referer", referer), call("library.version", "1.20.0")]
+            [
+                call("origin", origin),
+                call("referer", referer),
+                call("library.version", "1.20.0"),
+            ]
         )
 
     @patch("posthog.utils.configure_scope")
@@ -242,7 +337,11 @@ class TestLoadDataFromRequest(TestCase):
 
         patched_scope.assert_called_once()
         mock_set_tag.assert_has_calls(
-            [call("origin", origin), call("referer", referer), call("library.version", "1.20.0")]
+            [
+                call("origin", origin),
+                call("referer", referer),
+                call("library.version", "1.20.0"),
+            ]
         )
 
     @patch("posthog.utils.configure_scope")
@@ -257,7 +356,11 @@ class TestLoadDataFromRequest(TestCase):
 
         patched_scope.assert_called_once()
         mock_set_tag.assert_has_calls(
-            [call("origin", "unknown"), call("referer", "unknown"), call("library.version", "unknown")]
+            [
+                call("origin", "unknown"),
+                call("referer", "unknown"),
+                call("library.version", "unknown"),
+            ]
         )
 
     def test_fails_to_JSON_parse_the_literal_string_undefined_when_not_compressed(self):
@@ -273,7 +376,10 @@ class TestLoadDataFromRequest(TestCase):
         with self.assertRaises(RequestParsingError) as ctx:
             load_data_from_request(post_request)
 
-        self.assertEqual("Invalid JSON: Expecting value: line 1 column 1 (char 0)", str(ctx.exception))
+        self.assertEqual(
+            "Invalid JSON: Expecting value: line 1 column 1 (char 0)",
+            str(ctx.exception),
+        )
 
     def test_raises_specific_error_for_the_literal_string_undefined_when_compressed(self):
         rf = RequestFactory()
@@ -353,4 +459,10 @@ class TestFlatten(TestCase):
         assert list(flatten([1, [2, 3], [[4], [5, [6, 7]]]])) == [1, 2, 3, 4, 5, 6, 7]
 
     def test_flatten_single_depth(self):
-        assert list(flatten([1, [2, 3], [[4], [5, [6, 7]]]], max_depth=1)) == [1, 2, 3, [4], [5, [6, 7]]]
+        assert list(flatten([1, [2, 3], [[4], [5, [6, 7]]]], max_depth=1)) == [
+            1,
+            2,
+            3,
+            [4],
+            [5, [6, 7]],
+        ]

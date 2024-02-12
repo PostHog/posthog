@@ -1,25 +1,43 @@
 import { useActions, useValues } from 'kea'
+import { router } from 'kea-router'
+import { CopyToClipboardInline } from 'lib/components/CopyToClipboard'
+import { NotFound } from 'lib/components/NotFound'
+import { PageHeader } from 'lib/components/PageHeader'
 import { PropertiesTable } from 'lib/components/PropertiesTable'
 import { TZLabel } from 'lib/components/TZLabel'
-import { groupLogic } from 'scenes/groups/groupLogic'
-import { RelatedGroups } from 'scenes/groups/RelatedGroups'
-import { SceneExport } from 'scenes/sceneTypes'
-import { groupDisplayId } from 'scenes/persons/GroupActorDisplay'
-import { Group as IGroup, PersonsTabType, PropertyDefinitionType } from '~/types'
-import { PageHeader } from 'lib/components/PageHeader'
-import { CopyToClipboardInline } from 'lib/components/CopyToClipboard'
-import { Spinner, SpinnerOverlay } from 'lib/lemon-ui/Spinner/Spinner'
-import { NotFound } from 'lib/components/NotFound'
-import { RelatedFeatureFlags } from 'scenes/persons/RelatedFeatureFlags'
-import { Query } from '~/queries/Query/Query'
+import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
+import { lemonToast } from 'lib/lemon-ui/LemonToast'
+import { Link } from 'lib/lemon-ui/Link'
+import { Spinner, SpinnerOverlay } from 'lib/lemon-ui/Spinner/Spinner'
+import { GroupDashboard } from 'scenes/groups/GroupDashboard'
+import { groupLogic, GroupLogicProps } from 'scenes/groups/groupLogic'
+import { RelatedGroups } from 'scenes/groups/RelatedGroups'
+import { NotebookSelectButton } from 'scenes/notebooks/NotebookSelectButton/NotebookSelectButton'
+import { RelatedFeatureFlags } from 'scenes/persons/RelatedFeatureFlags'
+import { SceneExport } from 'scenes/sceneTypes'
+import { SessionRecordingsPlaylist } from 'scenes/session-recordings/playlist/SessionRecordingsPlaylist'
+import { teamLogic } from 'scenes/teamLogic'
+import { urls } from 'scenes/urls'
+
+import { Query } from '~/queries/Query/Query'
+import { Group as IGroup, NotebookNodeType, PersonsTabType, PropertyDefinitionType } from '~/types'
+
+interface GroupSceneProps {
+    groupTypeIndex?: string
+    groupKey?: string
+}
 
 export const scene: SceneExport = {
     component: Group,
     logic: groupLogic,
+    paramsToProps: ({ params: { groupTypeIndex, groupKey } }: { params: GroupSceneProps }): GroupLogicProps => ({
+        groupTypeIndex: parseInt(groupTypeIndex ?? '0'),
+        groupKey: decodeURIComponent(groupKey ?? ''),
+    }),
 }
 
-function GroupCaption({ groupData, groupTypeName }: { groupData: IGroup; groupTypeName: string }): JSX.Element {
+export function GroupCaption({ groupData, groupTypeName }: { groupData: IGroup; groupTypeName: string }): JSX.Element {
     return (
         <div className="flex items-center flex-wrap">
             <div className="mr-4">
@@ -45,34 +63,47 @@ function GroupCaption({ groupData, groupTypeName }: { groupData: IGroup; groupTy
 
 export function Group(): JSX.Element {
     const {
+        logicProps,
         groupData,
         groupDataLoading,
         groupTypeName,
-        groupKey,
-        groupTypeIndex,
         groupType,
         groupTab,
         groupEventsQuery,
+        showCustomerSuccessDashboards,
     } = useValues(groupLogic)
-    const { setGroupTab, setGroupEventsQuery } = useActions(groupLogic)
+    const { groupKey, groupTypeIndex } = logicProps
+    const { setGroupEventsQuery } = useActions(groupLogic)
+    const { currentTeam } = useValues(teamLogic)
 
-    if (!groupData) {
+    if (!groupData || !groupType) {
         return groupDataLoading ? <SpinnerOverlay sceneLevel /> : <NotFound object="group" />
     }
 
     return (
         <>
             <PageHeader
-                title={groupDisplayId(groupData.group_key, groupData.group_properties)}
                 caption={<GroupCaption groupData={groupData} groupTypeName={groupTypeName} />}
+                buttons={
+                    <NotebookSelectButton
+                        type="secondary"
+                        resource={{
+                            type: NotebookNodeType.Group,
+                            attrs: {
+                                id: groupKey,
+                                groupTypeIndex: groupTypeIndex,
+                            },
+                        }}
+                    />
+                }
             />
             <LemonTabs
                 activeKey={groupTab ?? PersonsTabType.PROPERTIES}
-                onChange={(tab) => setGroupTab(tab)}
+                onChange={(tab) => router.actions.push(urls.group(String(groupTypeIndex), groupKey, true, tab))}
                 tabs={[
                     {
                         key: PersonsTabType.PROPERTIES,
-                        label: <span data-attr="persons-properties-tab">Properties</span>,
+                        label: <span data-attr="groups-properties-tab">Properties</span>,
                         content: (
                             <PropertiesTable
                                 type={PropertyDefinitionType.Group}
@@ -84,11 +115,64 @@ export function Group(): JSX.Element {
                     },
                     {
                         key: PersonsTabType.EVENTS,
-                        label: <span data-attr="persons-events-tab">Events</span>,
+                        label: <span data-attr="groups-events-tab">Events</span>,
                         content: groupEventsQuery ? (
                             <Query query={groupEventsQuery} setQuery={setGroupEventsQuery} />
                         ) : (
                             <Spinner />
+                        ),
+                    },
+                    {
+                        key: PersonsTabType.SESSION_RECORDINGS,
+                        label: <span data-attr="group-session-recordings-tab">Recordings</span>,
+                        content: (
+                            <>
+                                {!currentTeam?.session_recording_opt_in ? (
+                                    <div className="mb-4">
+                                        <LemonBanner type="info">
+                                            Session recordings are currently disabled for this project. To use this
+                                            feature, please go to your{' '}
+                                            <Link to={`${urls.settings('project')}#recordings`}>project settings</Link>{' '}
+                                            and enable it.
+                                        </LemonBanner>
+                                    </div>
+                                ) : (
+                                    <div className="SessionRecordingPlaylistHeightWrapper">
+                                        <SessionRecordingsPlaylist
+                                            logicKey="groups-recordings"
+                                            updateSearchParams
+                                            filters={{
+                                                events: [
+                                                    {
+                                                        type: 'events',
+                                                        order: 0,
+                                                        name: 'All events',
+                                                        properties: [
+                                                            {
+                                                                key: `$group_${groupTypeIndex} = '${groupKey}'`,
+                                                                type: 'hogql',
+                                                            },
+                                                        ],
+                                                    },
+                                                ],
+                                            }}
+                                            onFiltersChange={(filters) => {
+                                                const stillHasGroupFilter = filters.events?.some((event) => {
+                                                    return event.properties.some(
+                                                        (prop: Record<string, any>) =>
+                                                            prop.key === `$group_${groupTypeIndex} = '${groupKey}'`
+                                                    )
+                                                })
+                                                if (!stillHasGroupFilter) {
+                                                    lemonToast.warning(
+                                                        'Group filter removed. Please add it back to see recordings for this group.'
+                                                    )
+                                                }
+                                            }}
+                                        />
+                                    </div>
+                                )}
+                            </>
                         ),
                     },
                     {
@@ -108,6 +192,13 @@ export function Group(): JSX.Element {
                             <RelatedFeatureFlags distinctId={groupData.group_key} groups={{ [groupType]: groupKey }} />
                         ),
                     },
+                    showCustomerSuccessDashboards
+                        ? {
+                              key: PersonsTabType.DASHBOARD,
+                              label: 'Dashboard',
+                              content: <GroupDashboard groupData={groupData} />,
+                          }
+                        : null,
                 ]}
             />
         </>

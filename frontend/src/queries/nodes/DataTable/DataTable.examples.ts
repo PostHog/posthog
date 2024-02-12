@@ -1,6 +1,6 @@
+import { defaultDataTableColumns } from '~/queries/nodes/DataTable/utils'
 import { DataTableNode, NodeKind, PersonsNode } from '~/queries/schema'
 import { PropertyFilterType, PropertyOperator } from '~/types'
-import { defaultDataTableColumns } from '~/queries/nodes/DataTable/utils'
 
 const AllDefaults: DataTableNode = {
     kind: NodeKind.DataTableNode,

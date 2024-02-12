@@ -36,7 +36,9 @@ class Command(BaseCommand):
         parser.add_argument("--person-override", action="store_true", help="Sync person overrides")
         parser.add_argument("--group", action="store_true", help="Sync groups")
         parser.add_argument(
-            "--deletes", action="store_true", help="process deletes for data in ClickHouse but not Postgres"
+            "--deletes",
+            action="store_true",
+            help="process deletes for data in ClickHouse but not Postgres",
         )
         parser.add_argument("--live-run", action="store_true", help="Run changes, default is dry-run")
 

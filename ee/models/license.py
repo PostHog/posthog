@@ -8,9 +8,9 @@ from django.dispatch.dispatcher import receiver
 from django.utils import timezone
 from rest_framework import exceptions, status
 
-from posthog.celery import sync_all_organization_available_features
 from posthog.constants import AvailableFeature
 from posthog.models.utils import sane_repr
+from posthog.tasks.tasks import sync_all_organization_available_features
 
 
 class LicenseError(exceptions.APIException):
@@ -34,7 +34,10 @@ class LicenseManager(models.Manager):
         valid_licenses = list(self.filter(Q(valid_until__gte=timezone.now()) | Q(plan="cloud")))
         if not valid_licenses:
             return None
-        return max(valid_licenses, key=lambda license: License.PLAN_TO_SORTING_VALUE.get(license.plan, 0))
+        return max(
+            valid_licenses,
+            key=lambda license: License.PLAN_TO_SORTING_VALUE.get(license.plan, 0),
+        )
 
 
 class License(models.Model):
@@ -52,7 +55,7 @@ class License(models.Model):
     SCALE_FEATURES = [
         AvailableFeature.ZAPIER,
         AvailableFeature.ORGANIZATIONS_PROJECTS,
-        AvailableFeature.GOOGLE_LOGIN,
+        AvailableFeature.SOCIAL_SSO,
         AvailableFeature.DASHBOARD_COLLABORATION,
         AvailableFeature.INGESTION_TAXONOMY,
         AvailableFeature.PATHS_ADVANCED,

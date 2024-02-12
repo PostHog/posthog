@@ -1,11 +1,10 @@
-import { useActions, useValues } from 'kea'
-
-import { insightLogic } from 'scenes/insights/insightLogic'
-import { funnelDataLogic } from 'scenes/funnels/funnelDataLogic'
-
-import { StepOrderValue } from '~/types'
 import { LemonSelect } from '@posthog/lemon-ui'
+import { useActions, useValues } from 'kea'
+import { funnelDataLogic } from 'scenes/funnels/funnelDataLogic'
+import { insightLogic } from 'scenes/insights/insightLogic'
+
 import { FunnelsFilter } from '~/queries/schema'
+import { StepOrderValue } from '~/types'
 
 interface StepOption {
     key?: string
@@ -33,14 +32,14 @@ export function FunnelStepOrderPicker(): JSX.Element {
     const { insightFilter } = useValues(funnelDataLogic(insightProps))
     const { updateInsightFilter } = useActions(funnelDataLogic(insightProps))
 
-    const { funnel_order_type } = (insightFilter || {}) as FunnelsFilter
+    const { funnelOrderType } = (insightFilter || {}) as FunnelsFilter
 
     return (
         <LemonSelect
             id="funnel-step-order-filter"
             data-attr="funnel-step-order-filter"
-            value={funnel_order_type || StepOrderValue.ORDERED}
-            onChange={(stepOrder) => stepOrder && updateInsightFilter({ funnel_order_type: stepOrder })}
+            value={funnelOrderType || StepOrderValue.ORDERED}
+            onChange={(stepOrder) => stepOrder && updateInsightFilter({ funnelOrderType: stepOrder })}
             dropdownMatchSelectWidth={false}
             options={options}
         />

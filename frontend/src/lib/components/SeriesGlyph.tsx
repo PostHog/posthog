@@ -1,5 +1,8 @@
+import { useValues } from 'kea'
 import { getSeriesColor } from 'lib/colors'
-import { alphabet, hexToRGBA } from 'lib/utils'
+import { alphabet, hexToRGBA, lightenDarkenColor, RGBToRGBA } from 'lib/utils'
+
+import { themeLogic } from '~/layout/navigation-3000/themeLogic'
 
 interface SeriesGlyphProps {
     className?: string
@@ -10,6 +13,7 @@ interface SeriesGlyphProps {
 
 export function SeriesGlyph({ className, style, children, variant }: SeriesGlyphProps): JSX.Element {
     return (
+        // eslint-disable-next-line react/forbid-dom-props
         <div className={`graph-series-glyph ${variant || ''} ${className}`} style={style}>
             {children}
         </div>
@@ -25,6 +29,7 @@ interface SeriesLetterProps {
 
 export function SeriesLetter({ className, hasBreakdown, seriesIndex, seriesColor }: SeriesLetterProps): JSX.Element {
     const color = seriesColor || getSeriesColor(seriesIndex)
+    const { isDarkModeOn } = useValues(themeLogic)
 
     return (
         <SeriesGlyph
@@ -34,9 +39,13 @@ export function SeriesLetter({ className, hasBreakdown, seriesIndex, seriesColor
                     ? {
                           borderColor: color,
                           color: color,
-                          backgroundColor: hexToRGBA(color, 0.15),
+                          backgroundColor: isDarkModeOn
+                              ? RGBToRGBA(lightenDarkenColor(color, -20), 0.3)
+                              : hexToRGBA(color, 0.2),
                       }
-                    : undefined
+                    : {
+                          color: 'var(--default)',
+                      }
             }
         >
             {alphabet[seriesIndex]}

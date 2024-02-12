@@ -1,17 +1,17 @@
-import { ComponentMeta, ComponentStory } from '@storybook/react'
+import { Meta, StoryFn, StoryObj } from '@storybook/react'
 import { PROPERTIES_ICON_MAP, PropertyIcon } from 'lib/components/PropertyIcon'
 import { LemonTable } from 'lib/lemon-ui/LemonTable'
 import { countryCodeToName } from 'scenes/insights/views/WorldMap'
 
-export default {
+type Story = StoryObj<typeof PropertyIcon>
+const meta: Meta<typeof PropertyIcon> = {
     title: 'Lemon UI/Icons/Property Icon',
     component: PropertyIcon,
-    parameters: {
-        testOptions: { skip: true }, // There are too many icons, the snapshots are huge in table form
-    },
-} as ComponentMeta<typeof PropertyIcon>
+    tags: ['autodocs', 'test-skip'], // There are too many icons, the snapshots are huge in table form
+}
+export default meta
 
-const Template: ComponentStory<typeof PropertyIcon> = (args) => {
+const Template: StoryFn<typeof PropertyIcon> = (args) => {
     if (args.value) {
         return <PropertyIcon {...args} />
     }
@@ -52,28 +52,28 @@ const Template: ComponentStory<typeof PropertyIcon> = (args) => {
     )
 }
 
-export const Default_ = Template.bind({})
+export const Default_: Story = Template.bind({})
 Default_.args = {
     property: '$browser',
     value: 'Chrome',
 }
 
-export const Browser_ = Template.bind({})
+export const Browser_: Story = Template.bind({})
 Browser_.args = {
     property: '$browser',
 }
 
-export const DeviceType_ = Template.bind({})
+export const DeviceType_: Story = Template.bind({})
 DeviceType_.args = {
     property: '$device_type',
 }
 
-export const OS_ = Template.bind({})
+export const OS_: Story = Template.bind({})
 OS_.args = {
     property: '$os',
 }
 
-export const Country_ = Template.bind({})
+export const Country_: Story = Template.bind({})
 Country_.args = {
     property: '$geoip_country_code',
 }

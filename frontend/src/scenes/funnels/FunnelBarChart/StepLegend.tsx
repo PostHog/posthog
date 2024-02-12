@@ -1,18 +1,20 @@
 import { useActions, useValues } from 'kea'
-import { AvailableFeature, ChartParams, FunnelStepWithConversionMetrics } from '~/types'
+import { EntityFilterInfo } from 'lib/components/EntityFilterInfo'
+import { IconSchedule, IconTrendingFlat, IconTrendingFlatDown } from 'lib/lemon-ui/icons'
 import { LemonRow } from 'lib/lemon-ui/LemonRow'
 import { Lettermark, LettermarkColor } from 'lib/lemon-ui/Lettermark'
-import { EntityFilterInfo } from 'lib/components/EntityFilterInfo'
-import { getActionFilterFromFunnelStep } from 'scenes/insights/views/Funnels/funnelStepTableUtils'
-import { IconSchedule, IconTrendingFlat, IconTrendingFlatDown } from 'lib/lemon-ui/icons'
-import { capitalizeFirstLetter, humanFriendlyDuration, percentage, pluralize } from 'lib/utils'
-import { ValueInspectorButton } from '../ValueInspectorButton'
-import { FunnelStepMore } from '../FunnelStepMore'
-import { userLogic } from 'scenes/userLogic'
-import { insightLogic } from 'scenes/insights/insightLogic'
-import { funnelDataLogic } from 'scenes/funnels/funnelDataLogic'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
+import { capitalizeFirstLetter, humanFriendlyDuration, percentage, pluralize } from 'lib/utils'
+import { funnelDataLogic } from 'scenes/funnels/funnelDataLogic'
+import { insightLogic } from 'scenes/insights/insightLogic'
+import { getActionFilterFromFunnelStep } from 'scenes/insights/views/Funnels/funnelStepTableUtils'
+import { userLogic } from 'scenes/userLogic'
+
+import { AvailableFeature, ChartParams, FunnelStepWithConversionMetrics } from '~/types'
+
 import { funnelPersonsModalLogic } from '../funnelPersonsModalLogic'
+import { FunnelStepMore } from '../FunnelStepMore'
+import { ValueInspectorButton } from '../ValueInspectorButton'
 
 type StepLegendProps = {
     step: FunnelStepWithConversionMetrics
@@ -23,7 +25,7 @@ type StepLegendProps = {
 export function StepLegend({ step, stepIndex, showTime, showPersonsModal }: StepLegendProps): JSX.Element {
     const { insightProps } = useValues(insightLogic)
     const { aggregationTargetLabel } = useValues(funnelDataLogic(insightProps))
-    const { canOpenPersonModal } = useValues(funnelPersonsModalLogic(insightProps))
+    const { canOpenPersonModal, isInExperimentContext } = useValues(funnelPersonsModalLogic(insightProps))
     const { openPersonsModalForStep } = useActions(funnelPersonsModalLogic(insightProps))
     const { hasAvailableFeature } = useValues(userLogic)
 
@@ -76,7 +78,7 @@ export function StepLegend({ step, stepIndex, showTime, showPersonsModal }: Step
                     }
                     placement="right"
                 >
-                    {!!showPersonsModal && canOpenPersonModal ? (
+                    {!!showPersonsModal && canOpenPersonModal && !isInExperimentContext ? (
                         <ValueInspectorButton
                             onClick={() => openPersonsModalForStep({ step, stepIndex, converted: true })}
                         >
@@ -105,7 +107,7 @@ export function StepLegend({ step, stepIndex, showTime, showPersonsModal }: Step
                             }
                             placement="right"
                         >
-                            {showPersonsModal && stepIndex ? (
+                            {showPersonsModal && stepIndex && !isInExperimentContext ? (
                                 <ValueInspectorButton
                                     onClick={() => openPersonsModalForStep({ step, stepIndex, converted: false })}
                                 >

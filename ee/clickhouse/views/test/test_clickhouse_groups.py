@@ -5,7 +5,15 @@ from freezegun.api import freeze_time
 
 from posthog.models import GroupTypeMapping, Person
 from posthog.models.group.util import create_group
-from posthog.test.base import APIBaseTest, ClickhouseTestMixin, _create_event, snapshot_clickhouse_queries
+from posthog.models.organization import Organization
+from posthog.models.sharing_configuration import SharingConfiguration
+from posthog.models.team.team import Team
+from posthog.test.base import (
+    APIBaseTest,
+    ClickhouseTestMixin,
+    _create_event,
+    snapshot_clickhouse_queries,
+)
 
 
 class ClickhouseTestGroupsApi(ClickhouseTestMixin, APIBaseTest):
@@ -22,13 +30,21 @@ class ClickhouseTestGroupsApi(ClickhouseTestMixin, APIBaseTest):
             )
         with freeze_time("2021-05-02"):
             create_group(
-                team_id=self.team.pk, group_type_index=0, group_key="org:6", properties={"industry": "technology"}
+                team_id=self.team.pk,
+                group_type_index=0,
+                group_key="org:6",
+                properties={"industry": "technology"},
             )
-        create_group(team_id=self.team.pk, group_type_index=1, group_key="company:1", properties={"name": "Plankton"})
+        create_group(
+            team_id=self.team.pk,
+            group_type_index=1,
+            group_key="company:1",
+            properties={"name": "Plankton"},
+        )
 
-        response = self.client.get(f"/api/projects/{self.team.id}/groups?group_type_index=0").json()
+        response_data = self.client.get(f"/api/projects/{self.team.id}/groups?group_type_index=0").json()
         self.assertEqual(
-            response,
+            response_data,
             {
                 "next": None,
                 "previous": None,
@@ -42,15 +58,18 @@ class ClickhouseTestGroupsApi(ClickhouseTestMixin, APIBaseTest):
                     {
                         "created_at": "2021-05-01T00:00:00Z",
                         "group_key": "org:5",
-                        "group_properties": {"industry": "finance", "name": "Mr. Krabs"},
+                        "group_properties": {
+                            "industry": "finance",
+                            "name": "Mr. Krabs",
+                        },
                         "group_type_index": 0,
                     },
                 ],
             },
         )
-        response = self.client.get(f"/api/projects/{self.team.id}/groups?group_type_index=0&search=Krabs").json()
+        response_data = self.client.get(f"/api/projects/{self.team.id}/groups?group_type_index=0&search=Krabs").json()
         self.assertEqual(
-            response,
+            response_data,
             {
                 "next": None,
                 "previous": None,
@@ -58,16 +77,19 @@ class ClickhouseTestGroupsApi(ClickhouseTestMixin, APIBaseTest):
                     {
                         "created_at": "2021-05-01T00:00:00Z",
                         "group_key": "org:5",
-                        "group_properties": {"industry": "finance", "name": "Mr. Krabs"},
+                        "group_properties": {
+                            "industry": "finance",
+                            "name": "Mr. Krabs",
+                        },
                         "group_type_index": 0,
                     },
                 ],
             },
         )
 
-        response = self.client.get(f"/api/projects/{self.team.id}/groups?group_type_index=0&search=org:5").json()
+        response_data = self.client.get(f"/api/projects/{self.team.id}/groups?group_type_index=0&search=org:5").json()
         self.assertEqual(
-            response,
+            response_data,
             {
                 "next": None,
                 "previous": None,
@@ -75,7 +97,10 @@ class ClickhouseTestGroupsApi(ClickhouseTestMixin, APIBaseTest):
                     {
                         "created_at": "2021-05-01T00:00:00Z",
                         "group_key": "org:5",
-                        "group_properties": {"industry": "finance", "name": "Mr. Krabs"},
+                        "group_properties": {
+                            "industry": "finance",
+                            "name": "Mr. Krabs",
+                        },
                         "group_type_index": 0,
                     },
                 ],
@@ -84,10 +109,15 @@ class ClickhouseTestGroupsApi(ClickhouseTestMixin, APIBaseTest):
 
     @freeze_time("2021-05-02")
     def test_groups_list_no_group_type(self):
-        response = self.client.get(f"/api/projects/{self.team.id}/groups/").json()
+        response_data = self.client.get(f"/api/projects/{self.team.id}/groups/").json()
         self.assertEqual(
-            response,
-            {"type": "validation_error", "attr": "group_type_index", "code": "invalid_input", "detail": mock.ANY},
+            response_data,
+            {
+                "type": "validation_error",
+                "attr": "group_type_index",
+                "code": "invalid_input",
+                "detail": mock.ANY,
+            },
         )
 
     @freeze_time("2021-05-02")
@@ -98,15 +128,20 @@ class ClickhouseTestGroupsApi(ClickhouseTestMixin, APIBaseTest):
             group_key="key",
             properties={"industry": "finance", "name": "Mr. Krabs"},
         )
-        create_group(team_id=self.team.pk, group_type_index=1, group_key="foo//bar", properties={})
+        create_group(
+            team_id=self.team.pk,
+            group_type_index=1,
+            group_key="foo//bar",
+            properties={},
+        )
 
         fail_response = self.client.get(f"/api/projects/{self.team.id}/groups/find?group_type_index=1&group_key=key")
         self.assertEqual(fail_response.status_code, 404)
 
-        ok_response = self.client.get(f"/api/projects/{self.team.id}/groups/find?group_type_index=0&group_key=key")
-        self.assertEqual(ok_response.status_code, 200)
+        ok_response_data = self.client.get(f"/api/projects/{self.team.id}/groups/find?group_type_index=0&group_key=key")
+        self.assertEqual(ok_response_data.status_code, 200)
         self.assertEqual(
-            ok_response.json(),
+            ok_response_data.json(),
             {
                 "created_at": "2021-05-02T00:00:00Z",
                 "group_key": "key",
@@ -114,10 +149,12 @@ class ClickhouseTestGroupsApi(ClickhouseTestMixin, APIBaseTest):
                 "group_type_index": 0,
             },
         )
-        ok_response = self.client.get(f"/api/projects/{self.team.id}/groups/find?group_type_index=1&group_key=foo//bar")
-        self.assertEqual(ok_response.status_code, 200)
+        ok_response_data = self.client.get(
+            f"/api/projects/{self.team.id}/groups/find?group_type_index=1&group_key=foo//bar"
+        )
+        self.assertEqual(ok_response_data.status_code, 200)
         self.assertEqual(
-            ok_response.json(),
+            ok_response_data.json(),
             {
                 "created_at": "2021-05-02T00:00:00Z",
                 "group_key": "foo//bar",
@@ -131,9 +168,11 @@ class ClickhouseTestGroupsApi(ClickhouseTestMixin, APIBaseTest):
     def test_related_groups(self):
         self._create_related_groups_data()
 
-        response = self.client.get(f"/api/projects/{self.team.id}/groups/related?id=0::0&group_type_index=0").json()
+        response_data = self.client.get(
+            f"/api/projects/{self.team.id}/groups/related?id=0::0&group_type_index=0"
+        ).json()
         self.assertEqual(
-            response,
+            response_data,
             [
                 {
                     "created_at": "2021-05-10T00:00:00Z",
@@ -175,9 +214,9 @@ class ClickhouseTestGroupsApi(ClickhouseTestMixin, APIBaseTest):
     def test_related_groups_person(self):
         uuid = self._create_related_groups_data()
 
-        response = self.client.get(f"/api/projects/{self.team.id}/groups/related?id={uuid}").json()
+        response_data = self.client.get(f"/api/projects/{self.team.id}/groups/related?id={uuid}").json()
         self.assertEqual(
-            response,
+            response_data,
             [
                 {
                     "created_at": "2021-05-10T00:00:00Z",
@@ -229,13 +268,28 @@ class ClickhouseTestGroupsApi(ClickhouseTestMixin, APIBaseTest):
             group_key="org:5",
             properties={"industry": "finance", "name": "Mr. Krabs"},
         )
-        create_group(team_id=self.team.pk, group_type_index=0, group_key="org:6", properties={"industry": "technology"})
-        create_group(team_id=self.team.pk, group_type_index=1, group_key="company:1", properties={"name": "Plankton"})
-        create_group(team_id=self.team.pk, group_type_index=1, group_key="company:2", properties={})
+        create_group(
+            team_id=self.team.pk,
+            group_type_index=0,
+            group_key="org:6",
+            properties={"industry": "technology"},
+        )
+        create_group(
+            team_id=self.team.pk,
+            group_type_index=1,
+            group_key="company:1",
+            properties={"name": "Plankton"},
+        )
+        create_group(
+            team_id=self.team.pk,
+            group_type_index=1,
+            group_key="company:2",
+            properties={},
+        )
 
-        response = self.client.get(f"/api/projects/{self.team.id}/groups/property_definitions").json()
+        response_data = self.client.get(f"/api/projects/{self.team.id}/groups/property_definitions").json()
         self.assertEqual(
-            response,
+            response_data,
             {
                 "0": [{"name": "industry", "count": 2}, {"name": "name", "count": 1}],
                 "1": [{"name": "name", "count": 1}],
@@ -243,40 +297,74 @@ class ClickhouseTestGroupsApi(ClickhouseTestMixin, APIBaseTest):
         )
 
     def test_property_values(self):
-        create_group(team_id=self.team.pk, group_type_index=0, group_key="org:5", properties={"industry": "finance"})
-        create_group(team_id=self.team.pk, group_type_index=0, group_key="org:6", properties={"industry": "technology"})
-        create_group(team_id=self.team.pk, group_type_index=1, group_key="org:1", properties={"industry": "finance"})
-        response = self.client.get(
+        create_group(
+            team_id=self.team.pk,
+            group_type_index=0,
+            group_key="org:5",
+            properties={"industry": "finance"},
+        )
+        create_group(
+            team_id=self.team.pk,
+            group_type_index=0,
+            group_key="org:6",
+            properties={"industry": "technology"},
+        )
+        create_group(
+            team_id=self.team.pk,
+            group_type_index=1,
+            group_key="org:1",
+            properties={"industry": "finance"},
+        )
+        response_data = self.client.get(
             f"/api/projects/{self.team.id}/groups/property_values/?key=industry&group_type_index=0"
         ).json()
-        self.assertEqual(len(response), 2)
-        self.assertEqual(response, [{"name": "finance"}, {"name": "technology"}])
+        self.assertEqual(len(response_data), 2)
+        self.assertEqual(response_data, [{"name": "finance"}, {"name": "technology"}])
 
     def test_empty_property_values(self):
-        create_group(team_id=self.team.pk, group_type_index=0, group_key="org:5", properties={"industry": "finance"})
-        create_group(team_id=self.team.pk, group_type_index=0, group_key="org:6", properties={"industry": "technology"})
-        create_group(team_id=self.team.pk, group_type_index=1, group_key="org:1", properties={"industry": "finance"})
-        response = self.client.get(
+        create_group(
+            team_id=self.team.pk,
+            group_type_index=0,
+            group_key="org:5",
+            properties={"industry": "finance"},
+        )
+        create_group(
+            team_id=self.team.pk,
+            group_type_index=0,
+            group_key="org:6",
+            properties={"industry": "technology"},
+        )
+        create_group(
+            team_id=self.team.pk,
+            group_type_index=1,
+            group_key="org:1",
+            properties={"industry": "finance"},
+        )
+        response_data = self.client.get(
             f"/api/projects/{self.team.id}/groups/property_values/?key=name&group_type_index=0"
         ).json()
-        self.assertEqual(len(response), 0)
-        self.assertEqual(response, [])
+        self.assertEqual(len(response_data), 0)
+        self.assertEqual(response_data, [])
 
     def test_update_groups_metadata(self):
         GroupTypeMapping.objects.create(team=self.team, group_type="organization", group_type_index=0)
         GroupTypeMapping.objects.create(team=self.team, group_type="playlist", group_type_index=1)
         GroupTypeMapping.objects.create(team=self.team, group_type="another", group_type_index=2)
 
-        response = self.client.patch(
+        response_data = self.client.patch(
             f"/api/projects/{self.team.id}/groups_types/update_metadata",
             [
                 {"group_type_index": 0, "name_singular": "organization!"},
-                {"group_type_index": 1, "group_type": "rename attempt", "name_plural": "playlists"},
+                {
+                    "group_type_index": 1,
+                    "group_type": "rename attempt",
+                    "name_plural": "playlists",
+                },
             ],
         ).json()
 
         self.assertEqual(
-            response,
+            response_data,
             [
                 {
                     "group_type_index": 0,
@@ -284,9 +372,117 @@ class ClickhouseTestGroupsApi(ClickhouseTestMixin, APIBaseTest):
                     "name_singular": "organization!",
                     "name_plural": None,
                 },
-                {"group_type_index": 1, "group_type": "playlist", "name_singular": None, "name_plural": "playlists"},
-                {"group_type_index": 2, "group_type": "another", "name_singular": None, "name_plural": None},
+                {
+                    "group_type_index": 1,
+                    "group_type": "playlist",
+                    "name_singular": None,
+                    "name_plural": "playlists",
+                },
+                {
+                    "group_type_index": 2,
+                    "group_type": "another",
+                    "name_singular": None,
+                    "name_plural": None,
+                },
             ],
+        )
+
+    def test_list_group_types(self):
+        GroupTypeMapping.objects.create(team=self.team, group_type="organization", group_type_index=0)
+        GroupTypeMapping.objects.create(team=self.team, group_type="playlist", group_type_index=1)
+        GroupTypeMapping.objects.create(team=self.team, group_type="another", group_type_index=2)
+
+        response_data = self.client.get(f"/api/projects/{self.team.id}/groups_types").json()
+
+        self.assertEqual(
+            response_data,
+            [
+                {
+                    "group_type_index": 0,
+                    "group_type": "organization",
+                    "name_singular": None,
+                    "name_plural": None,
+                },
+                {
+                    "group_type_index": 1,
+                    "group_type": "playlist",
+                    "name_singular": None,
+                    "name_plural": None,
+                },
+                {
+                    "group_type_index": 2,
+                    "group_type": "another",
+                    "name_singular": None,
+                    "name_plural": None,
+                },
+            ],
+        )
+
+    def test_cannot_list_group_types_of_another_org(self):
+        other_org = Organization.objects.create(name="other org")
+        other_team = Team.objects.create(organization=other_org, name="other project")
+
+        GroupTypeMapping.objects.create(team=other_team, group_type="organization", group_type_index=0)
+        GroupTypeMapping.objects.create(team=other_team, group_type="playlist", group_type_index=1)
+        GroupTypeMapping.objects.create(team=other_team, group_type="another", group_type_index=2)
+
+        response = self.client.get(f"/api/projects/{other_team.id}/groups_types")  # No access to this project
+
+        self.assertEqual(response.status_code, 403, response.json())
+        self.assertEqual(
+            response.json(),
+            self.permission_denied_response("You don't have access to the project."),
+        )
+
+    def test_can_list_group_types_of_another_org_with_sharing_access_token(self):
+        other_org = Organization.objects.create(name="other org")
+        other_team = Team.objects.create(organization=other_org, name="other project")
+        sharing_configuration = SharingConfiguration.objects.create(team=other_team, enabled=True)
+
+        GroupTypeMapping.objects.create(team=other_team, group_type="organization", group_type_index=0)
+        GroupTypeMapping.objects.create(team=other_team, group_type="playlist", group_type_index=1)
+        GroupTypeMapping.objects.create(team=other_team, group_type="another", group_type_index=2)
+
+        disabled_response = self.client.get(
+            f"/api/projects/{other_team.id}/groups_types/?sharing_access_token={sharing_configuration.access_token}"
+        ).json()
+
+        self.assertEqual(
+            disabled_response,
+            [
+                {
+                    "group_type_index": 0,
+                    "group_type": "organization",
+                    "name_singular": None,
+                    "name_plural": None,
+                },
+                {
+                    "group_type_index": 1,
+                    "group_type": "playlist",
+                    "name_singular": None,
+                    "name_plural": None,
+                },
+                {
+                    "group_type_index": 2,
+                    "group_type": "another",
+                    "name_singular": None,
+                    "name_plural": None,
+                },
+            ],
+        )
+
+        # Disable the config now
+        sharing_configuration.enabled = False
+        sharing_configuration.save()
+
+        disabled_response = self.client.get(
+            f"/api/projects/{other_team.id}/groups_types?sharing_access_token={sharing_configuration.access_token}"
+        )
+
+        self.assertEqual(disabled_response.status_code, 403, disabled_response.json())
+        self.assertEqual(
+            disabled_response.json(),
+            self.unauthenticated_response("Sharing access token is invalid.", "authentication_failed"),
         )
 
     def _create_related_groups_data(self):

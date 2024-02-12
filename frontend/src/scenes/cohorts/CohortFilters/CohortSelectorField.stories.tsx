@@ -1,14 +1,17 @@
+import { Meta, StoryFn, StoryObj } from '@storybook/react'
 import { useState } from 'react'
-import { ComponentMeta, ComponentStory } from '@storybook/react'
-import { CohortSelectorField } from './CohortField'
 import { CohortSelectorFieldProps, FieldOptionsType } from 'scenes/cohorts/CohortFilters/types'
 
-export default {
+import { CohortSelectorField } from './CohortField'
+
+type Story = StoryObj<typeof CohortSelectorField>
+const meta: Meta<typeof CohortSelectorField> = {
     title: 'Filters/Cohort Filters/Fields/Select',
     component: CohortSelectorField,
-} as ComponentMeta<typeof CohortSelectorField>
+}
+export default meta
 
-const Template: ComponentStory<typeof CohortSelectorField> = (props: CohortSelectorFieldProps) => {
+const Template: StoryFn<typeof CohortSelectorField> = (props: CohortSelectorFieldProps) => {
     const [value, setValue] = useState<string | undefined>(
         Object.keys(props.fieldOptionGroupTypes?.[0] ?? {})?.[0] ?? null
     )
@@ -22,19 +25,19 @@ const Template: ComponentStory<typeof CohortSelectorField> = (props: CohortSelec
     )
 }
 
-export const AggregationSelector = Template.bind({})
+export const AggregationSelector: Story = Template.bind({})
 AggregationSelector.args = {
     fieldOptionGroupTypes: [FieldOptionsType.EventAggregation, FieldOptionsType.PropertyAggregation],
     placeholder: 'Choose',
 }
 
-export const ActorsSelector = Template.bind({})
+export const ActorsSelector: Story = Template.bind({})
 ActorsSelector.args = {
     fieldOptionGroupTypes: [FieldOptionsType.Actors],
     placeholder: 'Choose',
 }
 
-export const BehavioralSelector = Template.bind({})
+export const BehavioralSelector: Story = Template.bind({})
 BehavioralSelector.args = {
     fieldOptionGroupTypes: [
         FieldOptionsType.EventBehavioral,
@@ -45,25 +48,25 @@ BehavioralSelector.args = {
     placeholder: 'Choose',
 }
 
-export const TimeUnitSelector = Template.bind({})
+export const TimeUnitSelector: Story = Template.bind({})
 TimeUnitSelector.args = {
     fieldOptionGroupTypes: [FieldOptionsType.TimeUnits],
     placeholder: 'Choose',
 }
 
-export const DateOperatorSelector = Template.bind({})
+export const DateOperatorSelector: Story = Template.bind({})
 DateOperatorSelector.args = {
     fieldOptionGroupTypes: [FieldOptionsType.DateOperators],
     placeholder: 'Choose',
 }
 
-export const MathOperatorSelector = Template.bind({})
+export const MathOperatorSelector: Story = Template.bind({})
 MathOperatorSelector.args = {
     fieldOptionGroupTypes: [FieldOptionsType.MathOperators],
     placeholder: 'Choose',
 }
 
-export const ValueOptionSelector = Template.bind({})
+export const ValueOptionSelector: Story = Template.bind({})
 ValueOptionSelector.args = {
     fieldOptionGroupTypes: [FieldOptionsType.ValueOptions],
     placeholder: 'Choose',

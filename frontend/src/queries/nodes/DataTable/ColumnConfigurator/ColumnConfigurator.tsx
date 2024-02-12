@@ -1,31 +1,31 @@
 import './ColumnConfigurator.scss'
+
+import { DndContext } from '@dnd-kit/core'
+import { restrictToParentElement, restrictToVerticalAxis } from '@dnd-kit/modifiers'
+import { SortableContext, useSortable, verticalListSortingStrategy } from '@dnd-kit/sortable'
+import { CSS } from '@dnd-kit/utilities'
 import { BindLogic, useActions, useValues } from 'kea'
-import { LemonButton } from 'lib/lemon-ui/LemonButton'
-import { dataTableLogic } from '~/queries/nodes/DataTable/dataTableLogic'
-import { IconClose, IconEdit, IconTuning, SortableDragIcon } from 'lib/lemon-ui/icons'
-import clsx from 'clsx'
-import { Tooltip } from 'lib/lemon-ui/Tooltip'
-import {
-    SortableContainer as sortableContainer,
-    SortableElement as sortableElement,
-    SortableHandle as sortableHandle,
-} from 'react-sortable-hoc'
-import VirtualizedList, { ListRowProps } from 'react-virtualized/dist/es/List'
-import { AutoSizer } from 'react-virtualized/dist/es/AutoSizer'
-import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
-import { useState } from 'react'
-import { columnConfiguratorLogic, ColumnConfiguratorLogicProps } from './columnConfiguratorLogic'
-import { defaultDataTableColumns, extractExpressionComment, removeExpressionComment } from '../utils'
-import { DataTableNode, NodeKind } from '~/queries/schema'
-import { LemonModal } from 'lib/lemon-ui/LemonModal'
-import { isEventsQuery, taxonomicFilterToHogQl, trimQuotes } from '~/queries/utils'
-import { TaxonomicFilter } from 'lib/components/TaxonomicFilter/TaxonomicFilter'
-import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
 import { PropertyFilterIcon } from 'lib/components/PropertyFilters/components/PropertyFilterIcon'
-import { PropertyFilterType } from '~/types'
-import { TeamMembershipLevel } from 'lib/constants'
+import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
 import { RestrictedArea, RestrictedComponentProps, RestrictionScope } from 'lib/components/RestrictedArea'
+import { TaxonomicFilter } from 'lib/components/TaxonomicFilter/TaxonomicFilter'
+import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
+import { TeamMembershipLevel } from 'lib/constants'
+import { IconClose, IconEdit, IconTuning, SortableDragIcon } from 'lib/lemon-ui/icons'
+import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonCheckbox } from 'lib/lemon-ui/LemonCheckbox'
+import { LemonModal } from 'lib/lemon-ui/LemonModal'
+import { Tooltip } from 'lib/lemon-ui/Tooltip'
+import { useState } from 'react'
+import { AutoSizer } from 'react-virtualized/dist/es/AutoSizer'
+
+import { dataTableLogic } from '~/queries/nodes/DataTable/dataTableLogic'
+import { DataTableNode, NodeKind } from '~/queries/schema'
+import { isEventsQuery, taxonomicEventFilterToHogQL, trimQuotes } from '~/queries/utils'
+import { PropertyFilterType } from '~/types'
+
+import { defaultDataTableColumns, extractExpressionComment, removeExpressionComment } from '../utils'
+import { columnConfiguratorLogic, ColumnConfiguratorLogicProps } from './columnConfiguratorLogic'
 
 let uniqueNode = 0
 
@@ -40,6 +40,7 @@ export function ColumnConfigurator({ query, setQuery }: ColumnConfiguratorProps)
     const [key] = useState(() => String(uniqueNode++))
     const columnConfiguratorLogicProps: ColumnConfiguratorLogicProps = {
         key,
+        isPersistent: !!query.showPersistentColumnConfigurator,
         columns: columnsInQuery,
         setColumns: (columns: string[]) => {
             if (isEventsQuery(query.source)) {
@@ -73,7 +74,7 @@ export function ColumnConfigurator({ query, setQuery }: ColumnConfiguratorProps)
             <LemonButton
                 type="secondary"
                 data-attr="events-table-column-selector"
-                icon={<IconTuning style={{ color: 'var(--primary)' }} />}
+                icon={<IconTuning />}
                 onClick={showModal}
             >
                 Configure columns
@@ -84,97 +85,16 @@ export function ColumnConfigurator({ query, setQuery }: ColumnConfiguratorProps)
 }
 
 function ColumnConfiguratorModal({ query }: ColumnConfiguratorProps): JSX.Element {
-    // the virtualised list doesn't support gaps between items in the list
-    // setting the container to be larger than we need
-    // and adding a container with a smaller height to each row item
-    // allows the new row item to set a margin around itself
-    const rowContainerHeight = 36
-    const rowItemHeight = 32
-
     const { modalVisible, columns, saveAsDefault } = useValues(columnConfiguratorLogic)
     const { hideModal, moveColumn, setColumns, selectColumn, unselectColumn, save, toggleSaveAsDefault } =
         useActions(columnConfiguratorLogic)
 
-    const DragHandle = sortableHandle(() => (
-        <span className="drag-handle">
-            <SortableDragIcon />
-        </span>
-    ))
-    const SelectedColumn = ({ column, dataIndex }: { column: string; dataIndex: number }): JSX.Element => {
-        let columnType: PropertyFilterType | null = null
-        let columnKey = column
-        if (column.startsWith('person.properties.')) {
-            columnType = PropertyFilterType.Person
-            columnKey = column.substring(18)
+    const onEditColumn = (column: string, index: number): void => {
+        const newColumn = window.prompt('Edit column', column)
+        if (newColumn) {
+            setColumns(columns.map((c, i) => (i === index ? newColumn : c)))
         }
-        if (column.startsWith('properties.')) {
-            columnType = PropertyFilterType.Event
-            columnKey = column.substring(11)
-        }
-
-        columnKey = trimQuotes(extractExpressionComment(columnKey))
-
-        return (
-            <div className={clsx(['SelectedColumn', 'selected'])} style={{ height: rowItemHeight }}>
-                <DragHandle />
-                {columnType && <PropertyFilterIcon type={columnType} />}
-                <PropertyKeyInfo className="ml-1" value={columnKey} />
-                <div className="flex-1" />
-                <Tooltip title="Edit">
-                    <LemonButton
-                        onClick={() => {
-                            const newColumn = window.prompt('Edit column', column)
-                            if (newColumn) {
-                                setColumns(columns.map((c, i) => (i === dataIndex ? newColumn : c)))
-                            }
-                        }}
-                        status="primary"
-                        size="small"
-                    >
-                        <IconEdit data-attr="column-display-item-edit-icon" />
-                    </LemonButton>
-                </Tooltip>
-                <Tooltip title="Remove">
-                    <LemonButton onClick={() => unselectColumn(column)} status="danger" size="small">
-                        <IconClose data-attr="column-display-item-remove-icon" />
-                    </LemonButton>
-                </Tooltip>
-            </div>
-        )
     }
-
-    const SortableSelectedColumn = sortableElement(SelectedColumn)
-
-    const SortableSelectedColumnRenderer = ({ index, style, key }: ListRowProps): JSX.Element => {
-        return (
-            <div style={style} key={key}>
-                <SortableSelectedColumn
-                    column={columns[index]}
-                    dataIndex={index}
-                    index={index}
-                    collection="selected-columns"
-                />
-            </div>
-        )
-    }
-
-    const SortableColumnList = sortableContainer(() => (
-        <div style={{ height: 360 }} className="selected-columns-col">
-            <AutoSizer>
-                {({ height, width }: { height: number; width: number }) => {
-                    return (
-                        <VirtualizedList
-                            height={height}
-                            rowCount={columns.length}
-                            rowRenderer={SortableSelectedColumnRenderer}
-                            rowHeight={rowContainerHeight}
-                            width={width}
-                        />
-                    )
-                }}
-            </AutoSizer>
-        </div>
-    ))
 
     return (
         <LemonModal
@@ -206,16 +126,33 @@ function ColumnConfiguratorModal({ query }: ColumnConfiguratorProps): JSX.Elemen
                         <h4 className="secondary uppercase text-muted">
                             Visible columns ({columns.length}) - Drag to reorder
                         </h4>
-                        <SortableColumnList
-                            helperClass="column-configurator-modal-sortable-container"
-                            onSortEnd={({ oldIndex, newIndex }) => moveColumn(oldIndex, newIndex)}
-                            distance={5}
-                            useDragHandle
-                            lockAxis="y"
-                        />
+                        <DndContext
+                            onDragEnd={({ active, over }) => {
+                                if (over && active.id !== over.id) {
+                                    moveColumn(
+                                        columns.indexOf(active.id.toString()),
+                                        columns.indexOf(over.id.toString())
+                                    )
+                                }
+                            }}
+                            modifiers={[restrictToVerticalAxis, restrictToParentElement]}
+                        >
+                            <SortableContext items={columns} strategy={verticalListSortingStrategy}>
+                                {columns.map((column, index) => (
+                                    <SelectedColumn
+                                        key={column}
+                                        column={column}
+                                        dataIndex={index}
+                                        onEdit={onEditColumn}
+                                        onRemove={unselectColumn}
+                                    />
+                                ))}
+                            </SortableContext>
+                        </DndContext>
                     </div>
                     <div className="HalfColumn">
                         <h4 className="secondary uppercase text-muted">Available columns</h4>
+                        {/* eslint-disable-next-line react/forbid-dom-props */}
                         <div style={{ height: 360 }}>
                             <AutoSizer>
                                 {({ height, width }: { height: number; width: number }) => (
@@ -232,7 +169,7 @@ function ColumnConfiguratorModal({ query }: ColumnConfiguratorProps): JSX.Elemen
                                         ]}
                                         value={undefined}
                                         onChange={(group, value) => {
-                                            const column = taxonomicFilterToHogQl(group.type, value)
+                                            const column = taxonomicEventFilterToHogQL(group.type, value)
                                             if (column !== null) {
                                                 selectColumn(column)
                                             }
@@ -245,7 +182,7 @@ function ColumnConfiguratorModal({ query }: ColumnConfiguratorProps): JSX.Elemen
                         </div>
                     </div>
                 </div>
-                {isEventsQuery(query.source) ? (
+                {isEventsQuery(query.source) && query.showPersistentColumnConfigurator ? (
                     <RestrictedArea
                         Component={function SaveColumnsAsDefault({
                             isRestricted,
@@ -268,5 +205,69 @@ function ColumnConfiguratorModal({ query }: ColumnConfiguratorProps): JSX.Elemen
                 ) : null}
             </div>
         </LemonModal>
+    )
+}
+
+const SelectedColumn = ({
+    column,
+    dataIndex,
+    onEdit,
+    onRemove,
+}: {
+    column: string
+    dataIndex: number
+    onEdit: (column: string, index: number) => void
+    onRemove: (column: string) => void
+}): JSX.Element => {
+    const { setNodeRef, attributes, transform, transition, listeners } = useSortable({ id: column })
+
+    let columnType: PropertyFilterType | null = null
+    let filterGroupType: TaxonomicFilterGroupType | undefined
+    let columnKey = column
+    if (column.startsWith('person.properties.')) {
+        columnType = PropertyFilterType.Person
+        filterGroupType = TaxonomicFilterGroupType.PersonProperties
+        columnKey = column.substring(18)
+    }
+    if (column.startsWith('properties.')) {
+        columnType = PropertyFilterType.Event
+        columnKey = column.substring(11)
+    }
+
+    columnKey = trimQuotes(extractExpressionComment(columnKey))
+
+    return (
+        <div
+            ref={setNodeRef}
+            // eslint-disable-next-line react/forbid-dom-props
+            style={{
+                transform: CSS.Transform.toString(transform),
+                transition,
+            }}
+            {...attributes}
+        >
+            <div className="SelectedColumn">
+                <span {...listeners} className="drag-handle">
+                    <SortableDragIcon />
+                </span>
+                {columnType && <PropertyFilterIcon type={columnType} />}
+                <PropertyKeyInfo
+                    className="ml-1"
+                    value={columnKey}
+                    type={filterGroupType || TaxonomicFilterGroupType.EventProperties}
+                />
+                <div className="flex-1" />
+                <Tooltip title="Edit">
+                    <LemonButton onClick={() => onEdit(column, dataIndex)} size="small">
+                        <IconEdit data-attr="column-display-item-edit-icon" />
+                    </LemonButton>
+                </Tooltip>
+                <Tooltip title="Remove">
+                    <LemonButton onClick={() => onRemove(column)} status="danger" size="small">
+                        <IconClose data-attr="column-display-item-remove-icon" />
+                    </LemonButton>
+                </Tooltip>
+            </div>
+        </div>
     )
 }

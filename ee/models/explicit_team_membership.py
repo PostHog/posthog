@@ -1,11 +1,7 @@
-from typing import TYPE_CHECKING
-
 from django.db import models
 
 from posthog.models.utils import UUIDModel, sane_repr
-
-if TYPE_CHECKING:
-    from posthog.models.organization import OrganizationMembership
+from posthog.models.organization import OrganizationMembership
 
 
 # We call models that grant a user access to some grouping of users a "membership"
@@ -36,7 +32,10 @@ class ExplicitTeamMembership(UUIDModel):
 
     class Meta:
         constraints = [
-            models.UniqueConstraint(fields=["team", "parent_membership"], name="unique_explicit_team_membership")
+            models.UniqueConstraint(
+                fields=["team", "parent_membership"],
+                name="unique_explicit_team_membership",
+            )
         ]
 
     def __str__(self):

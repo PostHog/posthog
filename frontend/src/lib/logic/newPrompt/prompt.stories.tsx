@@ -1,15 +1,17 @@
 import { Meta } from '@storybook/react'
 import { useActions } from 'kea'
-import { PromptFlag, PromptPayload } from '~/types'
-import { ModalPrompt, PopupPrompt, Prompt } from './Prompt'
-import { promptLogic } from './promptLogic'
 import BlankDashboardHog from 'public/blank-dashboard-hog.png'
 
-export default {
+import { PromptFlag, PromptPayload } from '~/types'
+
+import { ModalPrompt, PopupPrompt, Prompt } from './Prompt'
+import { promptLogic } from './promptLogic'
+
+const meta: Meta = {
     title: 'Components/Prompts',
     component: Prompt,
-} as Meta
-
+}
+export default meta
 export function ModalPrompt_(): JSX.Element {
     // Ideally we'd instead mock the feature flag and payload but I couldn't get that to work
     const payload = {

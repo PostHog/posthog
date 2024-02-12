@@ -1,20 +1,21 @@
 .ColumnConfiguratorModal {
     .Columns {
-        width: 700px;
         display: flex;
         column-gap: 1rem;
+        width: 700px;
+        padding: 0.5rem;
+        background-color: var(--side);
+        border-radius: var(--radius);
+
         @media (max-width: 960px) {
             display: block;
             width: auto;
         }
-
-        background-color: var(--side);
-        border-radius: 0.25rem;
-        padding: 0.5rem;
     }
 
     .HalfColumn {
         width: 50%;
+
         @media (max-width: 960px) {
             width: 100%;
         }
@@ -24,24 +25,11 @@
         display: flex;
         align-items: center;
         justify-content: flex-start;
-        padding: 0.5rem;
-        overflow: hidden;
-        border-radius: var(--radius);
+        padding: 0 0.5rem;
         margin: calc(var(--radius) / 2) 0;
-
-        &:hover {
-            background-color: var(--mid);
-        }
-
-        &.disabled {
-            cursor: not-allowed;
-            color: var(--muted);
-            background-color: var(--mid);
-        }
-
-        &.selected {
-            background-color: var(--primary-bg-hover);
-        }
+        overflow: hidden;
+        background-color: var(--primary-bg-hover);
+        border-radius: var(--radius);
     }
 
     .selected-column-col {
@@ -50,29 +38,13 @@
     }
 
     .drag-handle {
-        cursor: move;
-        color: var(--default);
-        font-size: 1.2em;
         padding-right: 0.25rem;
+        font-size: 1.2em;
+        color: var(--default);
+        cursor: move;
 
         svg {
-            transform: rotate(90deg) translateX(2px);
+            transform: rotate(90deg);
         }
-    }
-}
-
-.column-configurator-modal-sortable-container {
-    z-index: 9999;
-    display: flex;
-    align-items: center;
-    justify-content: flex-start;
-    padding: 0.5rem;
-    background-color: var(--primary-bg-hover);
-
-    .drag-handle {
-        color: var(--default);
-        font-size: 1.2em;
-        padding-right: 0.25rem;
-        transform: rotate(90deg) translateX(2px);
     }
 }

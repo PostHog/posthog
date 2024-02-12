@@ -1,15 +1,33 @@
 import { captureException } from '@sentry/node'
-import { StatsD } from 'hot-shots'
-import { Client, Pool } from 'pg'
+import { Histogram } from 'prom-client'
 import { format } from 'util'
+import { RustyHook } from 'worker/rusty-hook'
 
 import { Action, Hook, PostIngestionEvent, Team } from '../../types'
-import { postgresQuery } from '../../utils/db/postgres'
-import fetch from '../../utils/fetch'
+import { PostgresRouter, PostgresUse } from '../../utils/db/postgres'
+import { trackedFetch } from '../../utils/fetch'
 import { status } from '../../utils/status'
 import { getPropertyValueByPath, stringify } from '../../utils/utils'
+import { AppMetrics } from './app-metrics'
 import { OrganizationManager } from './organization-manager'
 import { TeamManager } from './team-manager'
+
+export const webhookProcessStepDuration = new Histogram({
+    name: 'webhook_process_event_duration',
+    help: 'Processing step latency to during webhooks processing, per tag',
+    labelNames: ['tag'],
+})
+
+export async function instrumentWebhookStep<T>(tag: string, run: () => Promise<T>): Promise<T> {
+    const end = webhookProcessStepDuration
+        .labels({
+            tag: tag,
+        })
+        .startTimer()
+    const res = await run()
+    end()
+    return res
+}
 
 export enum WebhookType {
     Slack = 'slack',
@@ -122,15 +140,16 @@ export function getEventDetails(
     return toWebhookLink(event.event, getEventLink(event, siteUrl), webhookType)
 }
 
+const TOKENS_REGEX_BRACKETS_EXCLUDED = /(?<=(?<!\\)\[)(.*?)(?=(?<!\\)\])/g
+const TOKENS_REGEX_BRACKETS_INCLUDED = /(?<!\\)\[(.*?)(?<!\\)\]/g
+
 export function getTokens(messageFormat: string): [string[], string] {
     // This finds property value tokens, basically any string contained in square brackets
     // Examples: "[foo]" is matched in "bar [foo]", "[action.name]" is matched in "action [action.name]"
-    const TOKENS_REGEX = /(?<=\[)(.*?)(?=\])/g
-    const matchedTokens = messageFormat.match(TOKENS_REGEX) || []
-    let tokenizedMessage = messageFormat
-    if (matchedTokens.length) {
-        tokenizedMessage = tokenizedMessage.replace(/\[(.*?)\]/g, '%s')
-    }
+    // The backslash is used as an escape character - "\[foo\]" is not matched, allowing square brackets in messages
+    const matchedTokens = messageFormat.match(TOKENS_REGEX_BRACKETS_EXCLUDED) || []
+    // Replace the tokens with placeholders, and unescape leftover brackets
+    const tokenizedMessage = messageFormat.replace(TOKENS_REGEX_BRACKETS_INCLUDED, '%s').replace(/\\(\[|\])/g, '$1')
     return [matchedTokens, tokenizedMessage]
 }
 
@@ -233,20 +252,22 @@ export function getFormattedMessage(
 }
 
 export class HookCommander {
-    postgres: Client | Pool
+    postgres: PostgresRouter
     teamManager: TeamManager
     organizationManager: OrganizationManager
-    statsd: StatsD | undefined
+    rustyHook: RustyHook
+    appMetrics: AppMetrics
     siteUrl: string
-
     /** Hook request timeout in ms. */
-    EXTERNAL_REQUEST_TIMEOUT = 10 * 1000
+    EXTERNAL_REQUEST_TIMEOUT: number
 
     constructor(
-        postgres: Client | Pool,
+        postgres: PostgresRouter,
         teamManager: TeamManager,
         organizationManager: OrganizationManager,
-        statsd?: StatsD
+        rustyHook: RustyHook,
+        appMetrics: AppMetrics,
+        timeout: number
     ) {
         this.postgres = postgres
         this.teamManager = teamManager
@@ -257,7 +278,9 @@ export class HookCommander {
             status.warn('⚠️', 'SITE_URL env is not set for webhooks')
             this.siteUrl = ''
         }
-        this.statsd = statsd
+        this.rustyHook = rustyHook
+        this.appMetrics = appMetrics
+        this.EXTERNAL_REQUEST_TIMEOUT = timeout
     }
 
     public async findAndFireHooks(event: PostIngestionEvent, actionMatches: Action[]): Promise<void> {
@@ -277,26 +300,46 @@ export class HookCommander {
         const webhookUrl = team.slack_incoming_webhook
 
         if (webhookUrl) {
-            const webhookRequests = actionMatches
-                .filter((action) => action.post_to_slack)
-                .map((action) => this.postWebhook(webhookUrl, action, event, team))
-            await Promise.all(webhookRequests).catch((error) =>
-                captureException(error, { tags: { team_id: event.teamId } })
-            )
+            await instrumentWebhookStep('postWebhook', async () => {
+                const webhookRequests = actionMatches
+                    .filter((action) => action.post_to_slack)
+                    .map((action) => this.postWebhook(webhookUrl, action, event, team))
+                await Promise.all(webhookRequests).catch((error) =>
+                    captureException(error, { tags: { team_id: event.teamId } })
+                )
+            })
         }
 
         if (await this.organizationManager.hasAvailableFeature(team.id, 'zapier')) {
-            const restHooks = actionMatches.map(({ hooks }) => hooks).flat()
+            await instrumentWebhookStep('postRestHook', async () => {
+                const restHooks = actionMatches.map(({ hooks }) => hooks).flat()
 
-            if (restHooks.length > 0) {
-                const restHookRequests = restHooks.map((hook) => this.postRestHook(hook, event))
-                await Promise.all(restHookRequests).catch((error) =>
-                    captureException(error, { tags: { team_id: event.teamId } })
-                )
+                if (restHooks.length > 0) {
+                    const restHookRequests = restHooks.map((hook) => this.postRestHook(hook, event))
+                    await Promise.all(restHookRequests).catch((error) =>
+                        captureException(error, { tags: { team_id: event.teamId } })
+                    )
+                }
+            })
+        }
+    }
 
-                this.statsd?.increment('zapier_hooks_fired', {
-                    team_id: String(team.id),
-                })
+    private formatMessage(
+        webhookUrl: string,
+        action: Action,
+        event: PostIngestionEvent,
+        team: Team
+    ): Record<string, any> {
+        const webhookType = determineWebhookType(webhookUrl)
+        const [messageText, messageMarkdown] = getFormattedMessage(action, event, team, this.siteUrl, webhookType)
+        if (webhookType === WebhookType.Slack) {
+            return {
+                text: messageText,
+                blocks: [{ type: 'section', text: { type: 'mrkdwn', text: messageMarkdown } }],
+            }
+        } else {
+            return {
+                text: messageMarkdown,
             }
         }
     }
@@ -307,29 +350,85 @@ export class HookCommander {
         event: PostIngestionEvent,
         team: Team
     ): Promise<void> {
-        const webhookType = determineWebhookType(webhookUrl)
-        const [messageText, messageMarkdown] = getFormattedMessage(action, event, team, this.siteUrl, webhookType)
-        let message: Record<string, any>
-        if (webhookType === WebhookType.Slack) {
-            message = {
-                text: messageText,
-                blocks: [{ type: 'section', text: { type: 'mrkdwn', text: messageMarkdown } }],
-            }
-        } else {
-            message = {
-                text: messageMarkdown,
-            }
+        const end = webhookProcessStepDuration.labels('messageFormatting').startTimer()
+        const message = this.formatMessage(webhookUrl, action, event, team)
+        end()
+
+        const body = JSON.stringify(message, undefined, 4)
+        const enqueuedInRustyHook = await this.rustyHook.enqueueIfEnabledForTeam({
+            webhook: {
+                url: webhookUrl,
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body,
+            },
+            teamId: event.teamId,
+            pluginId: -2, // -2 is hardcoded to mean webhooks
+            pluginConfigId: -2, // -2 is hardcoded to mean webhooks
+        })
+
+        if (enqueuedInRustyHook) {
+            // Rusty-Hook handles it from here, so we're done.
+            return
         }
 
-        await fetch(webhookUrl, {
-            method: 'POST',
-            body: JSON.stringify(message, undefined, 4),
-            headers: { 'Content-Type': 'application/json' },
-            timeout: this.EXTERNAL_REQUEST_TIMEOUT,
-        })
-        this.statsd?.increment('webhook_firings', {
-            team_id: event.teamId.toString(),
-        })
+        const slowWarningTimeout = this.EXTERNAL_REQUEST_TIMEOUT * 0.7
+        const timeout = setTimeout(() => {
+            status.warn(
+                '⌛',
+                `Posting Webhook slow. Timeout warning after ${
+                    slowWarningTimeout / 1000
+                } sec! url=${webhookUrl} team_id=${team.id} event_id=${event.eventUuid}`
+            )
+        }, slowWarningTimeout)
+        try {
+            await instrumentWebhookStep('fetch', async () => {
+                const request = await trackedFetch(webhookUrl, {
+                    method: 'POST',
+                    body,
+                    headers: { 'Content-Type': 'application/json' },
+                    timeout: this.EXTERNAL_REQUEST_TIMEOUT,
+                })
+                if (!request.ok) {
+                    status.warn('⚠️', `HTTP status ${request.status} for team ${team.id}`)
+                    await this.appMetrics.queueError(
+                        {
+                            teamId: event.teamId,
+                            pluginConfigId: -2, // -2 is hardcoded to mean webhooks
+                            category: 'webhook',
+                            failures: 1,
+                        },
+                        {
+                            error: `Request failed with HTTP status ${request.status}`,
+                            event,
+                        }
+                    )
+                } else {
+                    await this.appMetrics.queueMetric({
+                        teamId: event.teamId,
+                        pluginConfigId: -2, // -2 is hardcoded to mean webhooks
+                        category: 'webhook',
+                        successes: 1,
+                    })
+                }
+            })
+        } catch (error) {
+            await this.appMetrics.queueError(
+                {
+                    teamId: event.teamId,
+                    pluginConfigId: -2, // -2 is hardcoded to mean webhooks
+                    category: 'webhook',
+                    failures: 1,
+                },
+                {
+                    error,
+                    event,
+                }
+            )
+            throw error
+        } finally {
+            clearTimeout(timeout)
+        }
     }
 
     public async postRestHook(hook: Hook, event: PostIngestionEvent): Promise<void> {
@@ -348,20 +447,91 @@ export class HookCommander {
             data: { ...data, person: sendablePerson },
         }
 
-        const request = await fetch(hook.target, {
-            method: 'POST',
-            body: JSON.stringify(payload, undefined, 4),
-            headers: { 'Content-Type': 'application/json' },
-            timeout: this.EXTERNAL_REQUEST_TIMEOUT,
+        const body = JSON.stringify(payload, undefined, 4)
+        const enqueuedInRustyHook = await this.rustyHook.enqueueIfEnabledForTeam({
+            webhook: {
+                url: hook.target,
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body,
+            },
+            teamId: event.teamId,
+            pluginId: -1, // -1 is hardcoded to mean resthooks
+            pluginConfigId: -1, // -1 is hardcoded to mean resthooks
         })
-        if (request.status === 410) {
-            // Delete hook on our side if it's gone on Zapier's
-            await this.deleteRestHook(hook.id)
+
+        if (enqueuedInRustyHook) {
+            // Rusty-Hook handles it from here, so we're done.
+            return
         }
-        this.statsd?.increment('rest_hook_firings')
+
+        const slowWarningTimeout = this.EXTERNAL_REQUEST_TIMEOUT * 0.7
+        const timeout = setTimeout(() => {
+            status.warn(
+                '⌛',
+                `Posting RestHook slow. Timeout warning after ${slowWarningTimeout / 1000} sec! url=${
+                    hook.target
+                } team_id=${event.teamId} event_id=${event.eventUuid}`
+            )
+        }, slowWarningTimeout)
+        try {
+            const request = await trackedFetch(hook.target, {
+                method: 'POST',
+                body,
+                headers: { 'Content-Type': 'application/json' },
+                timeout: this.EXTERNAL_REQUEST_TIMEOUT,
+            })
+            if (request.status === 410) {
+                // Delete hook on our side if it's gone on Zapier's
+                await this.deleteRestHook(hook.id)
+            }
+            if (!request.ok) {
+                status.warn('⚠️', `Rest hook failed status ${request.status} for team ${event.teamId}`)
+                await this.appMetrics.queueError(
+                    {
+                        teamId: event.teamId,
+                        pluginConfigId: -1, // -1 is hardcoded to mean resthooks
+                        category: 'webhook',
+                        failures: 1,
+                    },
+                    {
+                        error: `Request failed with HTTP status ${request.status}`,
+                        event,
+                    }
+                )
+            } else {
+                await this.appMetrics.queueMetric({
+                    teamId: event.teamId,
+                    pluginConfigId: -1, // -1 is hardcoded to mean resthooks
+                    category: 'webhook',
+                    successes: 1,
+                })
+            }
+        } catch (error) {
+            await this.appMetrics.queueError(
+                {
+                    teamId: event.teamId,
+                    pluginConfigId: -1, // -1 is hardcoded to mean resthooks
+                    category: 'webhook',
+                    failures: 1,
+                },
+                {
+                    error,
+                    event,
+                }
+            )
+            throw error
+        } finally {
+            clearTimeout(timeout)
+        }
     }
 
     private async deleteRestHook(hookId: Hook['id']): Promise<void> {
-        await postgresQuery(this.postgres, `DELETE FROM ee_hook WHERE id = $1`, [hookId], 'deleteRestHook')
+        await this.postgres.query(
+            PostgresUse.COMMON_WRITE,
+            `DELETE FROM ee_hook WHERE id = $1`,
+            [hookId],
+            'deleteRestHook'
+        )
     }
 }

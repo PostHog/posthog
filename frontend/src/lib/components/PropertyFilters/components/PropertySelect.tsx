@@ -1,11 +1,13 @@
-import { useState } from 'react'
-import Fuse from 'fuse.js'
 import { Select } from 'antd'
+import Fuse from 'fuse.js'
+import { useActions } from 'kea'
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
 import { SelectGradientOverflow } from 'lib/components/SelectGradientOverflow'
-import { SelectOption } from '~/types'
-import { useActions } from 'kea'
+import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
+import { useState } from 'react'
+
+import { SelectOption } from '~/types'
 
 interface Props {
     optionGroups: Array<PropertyOptionGroup>
@@ -79,7 +81,7 @@ export function PropertySelect({
                 return true // set to avoid ant.d doing its own filtering
             }}
             onChange={(_: null, selection) => {
-                const { value: val, type } = selection as SelectionOptionType
+                const { value: val, type } = selection as unknown as SelectionOptionType
                 onChange(type, val.replace(/^(event_|person_|element_)/gi, ''))
             }}
             style={{ width: '100%' }}
@@ -103,7 +105,13 @@ export function PropertySelect({
                                 >
                                     <PropertyKeyInfo
                                         value={option.value}
-                                        type={group.type == 'element' ? group.type : undefined}
+                                        type={
+                                            group.type === 'element'
+                                                ? TaxonomicFilterGroupType.Elements
+                                                : group.type === 'person'
+                                                ? TaxonomicFilterGroupType.PersonProperties
+                                                : TaxonomicFilterGroupType.EventProperties
+                                        }
                                     />
                                 </Select.Option>
                             ))}

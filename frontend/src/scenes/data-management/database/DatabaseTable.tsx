@@ -1,12 +1,13 @@
 import { LemonTable } from 'lib/lemon-ui/LemonTable'
 import { LemonTag } from 'lib/lemon-ui/LemonTag/LemonTag'
 import { Link } from 'lib/lemon-ui/Link'
-import { DatabaseSceneRow } from 'scenes/data-warehouse/types'
+import { DatabaseTableListRow } from 'scenes/data-warehouse/types'
+import { ViewLinkDeleteButton } from 'scenes/data-warehouse/ViewLinkModal'
 import { urls } from 'scenes/urls'
 
 interface DatabaseTableProps {
     table: string
-    tables: DatabaseSceneRow[]
+    tables: DatabaseTableListRow[]
 }
 
 export function DatabaseTable({ table, tables }: DatabaseTableProps): JSX.Element {
@@ -59,7 +60,7 @@ export function DatabaseTable({ table, tables }: DatabaseTableProps): JSX.Elemen
                     key: 'info',
                     dataIndex: 'type',
                     render: function RenderInfo(type, field) {
-                        if (type === 'virtual_table') {
+                        if (type === 'virtual_table' || type === 'view') {
                             return (
                                 <>
                                     Fields: <code>{(field as any).fields.join(', ')}</code>
@@ -79,6 +80,22 @@ export function DatabaseTable({ table, tables }: DatabaseTableProps): JSX.Elemen
                             return <Link to={urls.propertyDefinitions('person')}>Manage person properties</Link>
                         }
                         return ''
+                    },
+                },
+                {
+                    title: 'Actions',
+                    key: 'actions',
+                    dataIndex: 'type',
+                    render: function RenderActions(_, data) {
+                        if (data.type === 'view') {
+                            return (
+                                <div className="flex flex-row justify-between">
+                                    <ViewLinkDeleteButton table={table} column={data.key} />
+                                </div>
+                            )
+                        }
+
+                        return null
                     },
                 },
             ]}

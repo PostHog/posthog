@@ -1,6 +1,8 @@
+import type { Monaco } from '@monaco-editor/react'
 import { actions, connect, kea, key, listeners, path, props, propsChanged, reducers, selectors } from 'kea'
-import { HogQLMetadata, HogQLNotice, HogQLQuery, NodeKind } from '~/queries/schema'
-import type { hogQLQueryEditorLogicType } from './hogQLQueryEditorLogicType'
+import { combineUrl } from 'kea-router'
+import api from 'lib/api'
+import { promptLogic } from 'lib/logic/promptLogic'
 // Note: we can oly import types and not values from monaco-editor, because otherwise some Monaco code breaks
 // auto reload in development. Specifically, on this line:
 // `export const suggestWidgetStatusbarMenu = new MenuId('suggestWidgetStatusBar')`
@@ -9,14 +11,13 @@ import type { hogQLQueryEditorLogicType } from './hogQLQueryEditorLogicType'
 // esbuild doesn't support manual chunks as of 2023, so we can't just put Monaco in its own chunk, which would prevent
 // re-importing. As for @monaco-editor/react, it does some lazy loading and doesn't have this problem.
 import type { editor, MarkerSeverity } from 'monaco-editor'
-import { query } from '~/queries/query'
-import type { Monaco } from '@monaco-editor/react'
-import api from 'lib/api'
-import { combineUrl, router } from 'kea-router'
-import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { dataWarehouseSavedQueriesLogic } from 'scenes/data-warehouse/saved_queries/dataWarehouseSavedQueriesLogic'
-import { promptLogic } from 'lib/logic/promptLogic'
-import { urls } from 'scenes/urls'
+import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
+
+import { query } from '~/queries/query'
+import { HogQLMetadata, HogQLNotice, HogQLQuery, NodeKind } from '~/queries/schema'
+
+import type { hogQLQueryEditorLogicType } from './hogQLQueryEditorLogicType'
 
 export interface ModelMarker extends editor.IMarkerData {
     hogQLFix?: string
@@ -104,6 +105,7 @@ export const hogQLQueryEditorLogic = kea<hogQLQueryEditorLogicType>([
             const response = await query<HogQLMetadata>({
                 kind: NodeKind.HogQLMetadata,
                 select: queryInput,
+                filters: props.query.filters,
             })
             breakpoint()
             const markers: ModelMarker[] = []
@@ -179,8 +181,7 @@ export const hogQLQueryEditorLogic = kea<hogQLQueryEditorLogicType>([
                 kind: NodeKind.HogQLQuery,
                 query: values.queryInput,
             }
-            await actions.createDataWarehouseSavedQuery({ name, query })
-            router.actions.push(urls.dataWarehouseSavedQueries())
+            await dataWarehouseSavedQueriesLogic.asyncActions.createDataWarehouseSavedQuery({ name, query })
         },
     })),
 ])

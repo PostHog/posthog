@@ -147,7 +147,8 @@ class TestDashboardEnterpriseAPI(APILicensedTest):
         )
 
         response = self.client.patch(
-            f"/api/projects/{self.team.id}/dashboards/{dashboard.id}", {"name": "Gentle Antelope"}
+            f"/api/projects/{self.team.id}/dashboards/{dashboard.id}",
+            {"name": "Gentle Antelope"},
         )
         response_data = response.json()
 
@@ -173,13 +174,15 @@ class TestDashboardEnterpriseAPI(APILicensedTest):
         )
 
         response = self.client.patch(
-            f"/api/projects/{self.team.id}/dashboards/{dashboard.id}", {"name": "Gentle Antelope"}
+            f"/api/projects/{self.team.id}/dashboards/{dashboard.id}",
+            {"name": "Gentle Antelope"},
         )
         response_data = response.json()
 
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
         self.assertEquals(
-            response_data, self.permission_denied_response("You don't have edit permissions for this dashboard.")
+            response_data,
+            self.permission_denied_response("You don't have edit permissions for this dashboard."),
         )
 
     def test_can_edit_restricted_dashboard_as_other_user_who_is_project_admin(self):
@@ -194,7 +197,8 @@ class TestDashboardEnterpriseAPI(APILicensedTest):
         )
 
         response = self.client.patch(
-            f"/api/projects/{self.team.id}/dashboards/{dashboard.id}", {"name": "Gentle Antelope"}
+            f"/api/projects/{self.team.id}/dashboards/{dashboard.id}",
+            {"name": "Gentle Antelope"},
         )
         response_data = response.json()
 
@@ -228,12 +232,15 @@ class TestDashboardEnterpriseAPI(APILicensedTest):
         from ee.models.license import License, LicenseManager
 
         super(LicenseManager, cast(LicenseManager, License.objects)).create(
-            key="key_123", plan="enterprise", valid_until=timezone.datetime(2038, 1, 19, 3, 14, 7)
+            key="key_123",
+            plan="enterprise",
+            valid_until=timezone.datetime(2038, 1, 19, 3, 14, 7),
         )
         dashboard = Dashboard.objects.create(team=self.team, name="Edit-restricted dashboard", created_by=self.user)
 
         response = self.client.patch(
-            f"/api/projects/{self.team.id}/dashboards/{dashboard.id}", {"tags": ["a", "b", "a"]}
+            f"/api/projects/{self.team.id}/dashboards/{dashboard.id}",
+            {"tags": ["a", "b", "a"]},
         )
 
         self.assertListEqual(sorted(response.json()["tags"]), ["a", "b"])
@@ -250,14 +257,16 @@ class TestDashboardEnterpriseAPI(APILicensedTest):
         )
 
         response = self.client.patch(
-            f"/api/projects/{self.team.id}/dashboards/{dashboard.id}/sharing", {"enabled": True}
+            f"/api/projects/{self.team.id}/dashboards/{dashboard.id}/sharing",
+            {"enabled": True},
         )
 
         response_data = response.json()
 
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
         self.assertEquals(
-            response_data, self.permission_denied_response("You don't have edit permissions for this dashboard.")
+            response_data,
+            self.permission_denied_response("You don't have edit permissions for this dashboard."),
         )
 
     def test_cannot_edit_dashboard_description_when_collaboration_not_available(self):
@@ -281,7 +290,10 @@ class TestDashboardEnterpriseAPI(APILicensedTest):
 
         response = self.client.patch(
             f"/api/projects/{self.team.id}/dashboards/{dashboard.id}",
-            {"description": "i should not be allowed to edit this", "name": "even though I am allowed to edit this"},
+            {
+                "description": "i should not be allowed to edit this",
+                "name": "even though I am allowed to edit this",
+            },
         )
 
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
@@ -311,7 +323,10 @@ class TestDashboardEnterpriseAPI(APILicensedTest):
 
         response = self.client.patch(
             f"/api/projects/{self.team.id}/dashboards/{dashboard.id}",
-            {"description": "i should be allowed to edit this", "name": "and so also to edit this"},
+            {
+                "description": "i should be allowed to edit this",
+                "name": "and so also to edit this",
+            },
         )
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)

@@ -1,14 +1,19 @@
-import { kea, selectors, path, actions, reducers, connect } from 'kea'
-import { ActionType, Breadcrumb, ProductKey } from '~/types'
+import Fuse from 'fuse.js'
+import { actions, connect, kea, path, reducers, selectors } from 'kea'
+import { subscriptions } from 'kea-subscriptions'
+import { FEATURE_FLAGS } from 'lib/constants'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { DataManagementTab } from 'scenes/data-management/DataManagementScene'
+import { Scene } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
+import { userLogic } from 'scenes/userLogic'
+
+import { actionsModel } from '~/models/actionsModel'
+import { ActionType, Breadcrumb, ProductKey } from '~/types'
 
 import type { actionsLogicType } from './actionsLogicType'
-import { actionsModel } from '~/models/actionsModel'
-import Fuse from 'fuse.js'
-import { userLogic } from 'scenes/userLogic'
-import { subscriptions } from 'kea-subscriptions'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { FEATURE_FLAGS } from 'lib/constants'
+
+export type ActionsFilterType = 'all' | 'me'
 
 export const actionsFuse = new Fuse<ActionType>([], {
     keys: [{ name: 'name', weight: 2 }, 'description', 'tags'],
@@ -30,15 +35,15 @@ export const actionsLogic = kea<actionsLogicType>([
         ],
     })),
     actions({
-        setFilterByMe: (filterByMe: boolean) => ({ filterByMe }),
+        setFilterType: (filterType: ActionsFilterType) => ({ filterType }),
         setSearchTerm: (searchTerm: string) => ({ searchTerm }),
     }),
     reducers({
-        filterByMe: [
-            false,
+        filterType: [
+            'all' as ActionsFilterType,
             { persist: true },
             {
-                setFilterByMe: (_, { filterByMe }) => filterByMe,
+                setFilterType: (_, { filterType }) => filterType,
             },
         ],
         searchTerm: [
@@ -50,13 +55,13 @@ export const actionsLogic = kea<actionsLogicType>([
     }),
     selectors({
         actionsFiltered: [
-            (s) => [s.actions, s.filterByMe, s.searchTerm, s.user],
-            (actions, filterByMe, searchTerm, user) => {
+            (s) => [s.actions, s.filterType, s.searchTerm, s.user],
+            (actions, filterType, searchTerm, user) => {
                 let data = actions
                 if (searchTerm) {
                     data = actionsFuse.search(searchTerm).map((result) => result.item)
                 }
-                if (filterByMe) {
+                if (filterType === 'me') {
                     data = data.filter((item) => item.created_by?.uuid === user?.uuid)
                 }
                 return data
@@ -66,10 +71,12 @@ export const actionsLogic = kea<actionsLogicType>([
             () => [],
             (): Breadcrumb[] => [
                 {
-                    name: `Data Management`,
+                    key: Scene.DataManagement,
+                    name: `Data management`,
                     path: urls.eventDefinitions(),
                 },
                 {
+                    key: DataManagementTab.Actions,
                     name: 'Actions',
                     path: urls.actions(),
                 },

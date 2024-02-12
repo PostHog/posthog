@@ -1,24 +1,31 @@
+import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
+import { useEffect, useState } from 'react'
+
+import { ErrorBoundary } from '~/layout/ErrorBoundary'
+import { DataNode } from '~/queries/nodes/DataNode/DataNode'
+import { DataTable } from '~/queries/nodes/DataTable/DataTable'
+import { InsightViz } from '~/queries/nodes/InsightViz/InsightViz'
+import { WebOverview } from '~/queries/nodes/WebOverview/WebOverview'
+import { QueryEditor } from '~/queries/QueryEditor/QueryEditor'
+import { AnyResponseType, Node, QuerySchema } from '~/queries/schema'
+import { QueryContext } from '~/queries/types'
+
+import { DataTableVisualization } from '../nodes/DataVisualization/DataVisualization'
+import { SavedInsight } from '../nodes/SavedInsight/SavedInsight'
+import { TimeToSeeData } from '../nodes/TimeToSeeData/TimeToSeeData'
 import {
     isDataNode,
     isDataTableNode,
-    isSavedInsightNode,
+    isDataVisualizationNode,
     isInsightVizNode,
+    isSavedInsightNode,
     isTimeToSeeDataSessionsNode,
+    isWebOverviewQuery,
 } from '../utils'
-import { DataTable } from '~/queries/nodes/DataTable/DataTable'
-import { DataNode } from '~/queries/nodes/DataNode/DataNode'
-import { InsightViz } from '~/queries/nodes/InsightViz/InsightViz'
-import { AnyResponseType, Node, QueryContext, QuerySchema } from '~/queries/schema'
-import { ErrorBoundary } from '~/layout/ErrorBoundary'
-import { useEffect, useState } from 'react'
-import { TimeToSeeData } from '../nodes/TimeToSeeData/TimeToSeeData'
-import { NotebookNodeType } from '~/types'
-import { QueryEditor } from '~/queries/QueryEditor/QueryEditor'
-import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
-import { DraggableToNotebook } from 'scenes/notebooks/AddToNotebook/DraggableToNotebook'
-import { SavedInsight } from '../nodes/SavedInsight/SavedInsight'
 
 export interface QueryProps<T extends Node = QuerySchema | Node> {
+    /** An optional key to identify the query */
+    uniqueKey?: string | number
     /** The query to render */
     query: T | string | null
     /** Set this if you're controlling the query parameter */
@@ -63,26 +70,49 @@ export function Query(props: QueryProps): JSX.Element | null {
     let component
     if (isDataTableNode(query)) {
         component = (
-            <DataTable query={query} setQuery={setQuery} context={queryContext} cachedResults={props.cachedResults} />
+            <DataTable
+                query={query}
+                setQuery={setQuery}
+                context={queryContext}
+                cachedResults={props.cachedResults}
+                uniqueKey={props.uniqueKey}
+            />
+        )
+    } else if (isDataVisualizationNode(query)) {
+        component = (
+            <DataTableVisualization
+                query={query}
+                setQuery={setQuery}
+                cachedResults={props.cachedResults}
+                uniqueKey={props.uniqueKey}
+                context={queryContext}
+            />
         )
     } else if (isDataNode(query)) {
         component = <DataNode query={query} cachedResults={props.cachedResults} />
     } else if (isSavedInsightNode(query)) {
         component = <SavedInsight query={query} context={queryContext} />
     } else if (isInsightVizNode(query)) {
-        component = <InsightViz query={query} setQuery={setQuery} context={queryContext} readOnly={readOnly} />
+        component = (
+            <InsightViz
+                query={query}
+                setQuery={setQuery}
+                context={queryContext}
+                readOnly={readOnly}
+                uniqueKey={props.uniqueKey}
+            />
+        )
     } else if (isTimeToSeeDataSessionsNode(query)) {
         component = <TimeToSeeData query={query} cachedResults={props.cachedResults} />
+    } else if (isWebOverviewQuery(query)) {
+        component = <WebOverview query={query} cachedResults={props.cachedResults} context={queryContext} />
     }
 
     if (component) {
-        const queryWithoutFull: any = { ...query }
-        queryWithoutFull.full = false
-
         return (
             <ErrorBoundary>
-                <DraggableToNotebook node={NotebookNodeType.Query} properties={{ query: queryWithoutFull }}>
-                    {!!props.context?.showQueryEditor ? (
+                <>
+                    {props.context?.showQueryEditor ? (
                         <>
                             <QueryEditor
                                 query={JSON.stringify(query)}
@@ -95,7 +125,7 @@ export function Query(props: QueryProps): JSX.Element | null {
                         </>
                     ) : null}
                     {component}
-                </DraggableToNotebook>
+                </>
             </ErrorBoundary>
         )
     }

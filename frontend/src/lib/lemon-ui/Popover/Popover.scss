@@ -8,9 +8,11 @@
     h5 {
         margin: 0.25rem 0.5rem;
     }
+
     p:last-child {
         margin-bottom: 0;
     }
+
     &[data-floating-placement^='top'] {
         perspective-origin: bottom;
     }
@@ -23,53 +25,61 @@
 }
 
 .Popover__box {
-    transition: opacity 100ms ease, transform 100ms ease;
-    transform-origin: top;
-    box-shadow: var(--shadow-elevation);
-    background: var(--bg-light);
+    position: relative; // For arrow
     flex-grow: 1;
     max-width: 100%;
-    padding: 0.5rem;
+    background: var(--bg-light);
+    border: 1px solid var(--secondary-3000-button-border);
     border-radius: var(--radius);
-    border: 1px solid var(--border);
+    box-shadow: var(--shadow-elevation);
     opacity: 0;
+    transition: opacity 50ms ease, transform 50ms ease;
+    transform-origin: top;
 
-    .Popover--actionable & {
-        border-color: var(--primary);
-    }
+    // We set the offset below instead of using floating-ui's offset(), because we need there to be no gap between
+    // the reference and the floating element. This makes hover-based popovers possible
 
     .Popover[data-placement^='bottom'] & {
+        margin-top: 0.25rem;
+        transform: rotateX(-6deg);
         transform-origin: top;
     }
 
+    .Popover[data-placement^='bottom'].Popover--with-arrow & {
+        margin-top: 0.5rem;
+    }
+
     .Popover[data-placement^='top'] & {
+        margin-bottom: 0.25rem;
+        transform: rotateX(6deg);
         transform-origin: bottom;
     }
 
+    .Popover[data-placement^='top'].Popover--with-arrow & {
+        margin-bottom: 0.5rem;
+    }
+
     .Popover[data-placement^='left'] & {
+        margin-right: 0.25rem;
+        transform: rotateY(-6deg);
         transform-origin: right;
     }
 
+    .Popover[data-placement^='left'].Popover--with-arrow & {
+        margin-right: 0.5rem;
+    }
+
     .Popover[data-placement^='right'] & {
+        margin-left: 0.25rem;
+        transform: rotateY(6deg);
         transform-origin: left;
     }
 
-    .Popover[data-placement^='bottom'] & {
-        transform: rotateX(-12deg);
+    .Popover[data-placement^='right'].Popover--with-arrow & {
+        margin-left: 0.5rem;
     }
 
-    .Popover[data-placement^='top'] & {
-        transform: rotateX(12deg);
-    }
-
-    .Popover[data-placement^='left'] & {
-        transform: rotateY(-12deg);
-    }
-
-    .Popover[data-placement^='right'] & {
-        transform: rotateY(12deg);
-    }
-
+    .Popover.Popover--enter-active &,
     .Popover.Popover--enter-done & {
         opacity: 1;
         transform: none;
@@ -78,53 +88,45 @@
     .Popover--max-content-width & {
         width: max-content;
     }
-
-    .posthog-3000 & {
-        background: var(--bg-3000);
-        padding: 0.25rem;
-    }
-    .posthog-3000 .Popover--actionable & {
-        border-color: var(--border);
-    }
 }
 
 .Popover__arrow {
     position: absolute;
     width: 0.5rem;
     height: 0.5rem;
-    transform: rotate(45deg);
     background: var(--bg-light);
+    transform: rotate(45deg);
 
     [data-placement^='bottom'] & {
-        top: -0.25rem;
+        top: -0.3125rem;
         border-top: 1px solid var(--border);
         border-left: 1px solid var(--border);
     }
 
     [data-placement^='top'] & {
-        bottom: -0.25rem;
-        border-bottom: 1px solid var(--border);
+        bottom: -0.3125rem;
         border-right: 1px solid var(--border);
+        border-bottom: 1px solid var(--border);
     }
 
     [data-placement^='left'] & {
-        right: -0.25rem;
+        right: -0.3125rem;
         border-top: 1px solid var(--border);
         border-right: 1px solid var(--border);
     }
 
     [data-placement^='right'] & {
-        left: -0.25rem;
+        left: -0.3125rem;
         border-bottom: 1px solid var(--border);
         border-left: 1px solid var(--border);
-    }
-
-    .Popover--actionable & {
-        border-color: var(--primary);
     }
 }
 
 .Popover__content {
-    overflow-y: auto;
     max-height: 100%;
+    border-radius: calc(var(--radius) - 1px);
+}
+
+.Popover--padded .Popover__content > .ScrollableShadows__inner {
+    padding: 0.25rem;
 }

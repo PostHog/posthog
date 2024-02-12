@@ -1,30 +1,32 @@
-import { ComponentMeta, ComponentStory } from '@storybook/react'
-import { Link, LinkProps } from './Link'
+import { Meta, StoryFn, StoryObj } from '@storybook/react'
 import { urls } from 'scenes/urls'
 
-export default {
+import { Link, LinkProps } from './Link'
+
+type Story = StoryObj<typeof Link>
+const meta: Meta<typeof Link> = {
     title: 'Lemon UI/Link',
     component: Link,
-    argTypes: {
-        children: {
-            defaultValue: 'Click me',
-        },
+    args: {
+        children: 'Click me',
     },
-} as ComponentMeta<typeof Link>
+    tags: ['autodocs'],
+}
+export default meta
 
-const BasicTemplate: ComponentStory<typeof Link> = (props: LinkProps) => {
+const BasicTemplate: StoryFn<typeof Link> = (props: LinkProps) => {
     return <Link {...props} />
 }
 
-export const Default = BasicTemplate.bind({})
+export const Default: Story = BasicTemplate.bind({})
 Default.args = {}
 
-export const ToLink = BasicTemplate.bind({})
+export const ToLink: Story = BasicTemplate.bind({})
 ToLink.args = {
     to: urls.projectHomepage(),
 }
 
-export const DisabledWithReason = BasicTemplate.bind({})
+export const DisabledWithReason: Story = BasicTemplate.bind({})
 DisabledWithReason.args = {
     disabledReason: 'Not allowed',
 }

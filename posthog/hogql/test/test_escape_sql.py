@@ -65,7 +65,10 @@ class TestPrintString(BaseTest):
         uuid = UUIDT()
         self.assertEqual(escape_clickhouse_string(uuid), f"toUUIDOrNull('{str(uuid)}')")
         date = datetime.fromisoformat("2020-02-02 02:02:02")
-        self.assertEqual(escape_clickhouse_string(date), "toDateTime64('2020-02-02 02:02:02.000000', 6, 'UTC')")
+        self.assertEqual(
+            escape_clickhouse_string(date),
+            "toDateTime64('2020-02-02 02:02:02.000000', 6, 'UTC')",
+        )
         self.assertEqual(
             escape_clickhouse_string(date, timezone="Europe/Brussels"),
             "toDateTime64('2020-02-02 03:02:02.000000', 6, 'Europe/Brussels')",
@@ -80,7 +83,10 @@ class TestPrintString(BaseTest):
         self.assertEqual(escape_clickhouse_string(float("123.123")), "123.123")
         self.assertEqual(escape_clickhouse_string(float("-123.123")), "-123.123")
         self.assertEqual(escape_clickhouse_string(float("0.000000000000000001")), "1e-18")
-        self.assertEqual(escape_clickhouse_string(float("234732482374928374923")), "2.3473248237492837e+20")
+        self.assertEqual(
+            escape_clickhouse_string(float("234732482374928374923")),
+            "2.3473248237492837e+20",
+        )
 
     def test_sanitize_hogql_string(self):
         self.assertEqual(escape_hogql_string("a"), "'a'")
@@ -101,7 +107,8 @@ class TestPrintString(BaseTest):
         date = datetime.fromisoformat("2020-02-02 02:02:02")
         self.assertEqual(escape_hogql_string(date), "toDateTime('2020-02-02 02:02:02.000000')")
         self.assertEqual(
-            escape_hogql_string(date, timezone="Europe/Brussels"), "toDateTime('2020-02-02 03:02:02.000000')"
+            escape_hogql_string(date, timezone="Europe/Brussels"),
+            "toDateTime('2020-02-02 03:02:02.000000')",
         )
         self.assertEqual(escape_hogql_string(date.date()), "toDate('2020-02-02')")
         self.assertEqual(escape_hogql_string(1), "1")
@@ -113,7 +120,10 @@ class TestPrintString(BaseTest):
         self.assertEqual(escape_hogql_string(float("123.123")), "123.123")
         self.assertEqual(escape_hogql_string(float("-123.123")), "-123.123")
         self.assertEqual(escape_hogql_string(float("0.000000000000000001")), "1e-18")
-        self.assertEqual(escape_hogql_string(float("234732482374928374923")), "2.3473248237492837e+20")
+        self.assertEqual(
+            escape_hogql_string(float("234732482374928374923")),
+            "2.3473248237492837e+20",
+        )
 
     def test_escape_hogql_identifier_errors(self):
         with self.assertRaises(HogQLException) as context:

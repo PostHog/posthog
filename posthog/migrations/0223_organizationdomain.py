@@ -15,12 +15,14 @@ def migrate_domain_whitelist(apps, schema_editor):
     for organization in Organization.objects.exclude(domain_whitelist=[]):
         for domain in organization.domain_whitelist:
             OrganizationDomain.objects.create(
-                organization=organization, domain=domain, verified_at=timezone.now(), jit_provisioning_enabled=True
+                organization=organization,
+                domain=domain,
+                verified_at=timezone.now(),
+                jit_provisioning_enabled=True,
             )
 
 
 class Migration(migrations.Migration):
-
     dependencies = [
         ("posthog", "0222_fix_deleted_primary_dashboards"),
     ]
@@ -32,18 +34,28 @@ class Migration(migrations.Migration):
                 (
                     "id",
                     models.UUIDField(
-                        default=posthog.models.utils.UUIDT, editable=False, primary_key=True, serialize=False
+                        default=posthog.models.utils.UUIDT,
+                        editable=False,
+                        primary_key=True,
+                        serialize=False,
                     ),
                 ),
                 ("domain", models.CharField(max_length=128, unique=True)),
                 (
                     "verification_challenge",
                     models.CharField(
-                        default=posthog.models.organization_domain.generate_verification_challenge, max_length=128
+                        default=posthog.models.organization_domain.generate_verification_challenge,
+                        max_length=128,
                     ),
                 ),
-                ("verified_at", models.DateTimeField(blank=True, default=None, null=True)),
-                ("last_verification_retry", models.DateTimeField(blank=True, default=None, null=True)),
+                (
+                    "verified_at",
+                    models.DateTimeField(blank=True, default=None, null=True),
+                ),
+                (
+                    "last_verification_retry",
+                    models.DateTimeField(blank=True, default=None, null=True),
+                ),
                 (
                     "jit_provisioning_enabled",
                     models.BooleanField(default=False),
@@ -52,7 +64,9 @@ class Migration(migrations.Migration):
                 (
                     "organization",
                     models.ForeignKey(
-                        on_delete=django.db.models.deletion.CASCADE, related_name="domains", to="posthog.organization"
+                        on_delete=django.db.models.deletion.CASCADE,
+                        related_name="domains",
+                        to="posthog.organization",
                     ),
                 ),
             ],

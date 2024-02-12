@@ -1,11 +1,11 @@
 .dated-highlight {
-    color: var(--muted);
-    margin-right: 4px;
     padding: 0.125rem 0.25rem;
-    border: 1px solid var(--border-light);
-    background-color: var(--bg-light);
-    border-radius: var(--radius);
+    margin-right: 4px;
+    color: var(--muted);
     white-space: nowrap;
+    background-color: var(--bg-light);
+    border: 1px solid var(--border-light);
+    border-radius: var(--radius);
 }
 
 .date-display-dates {
@@ -13,7 +13,7 @@
 
     .secondary-date {
         margin-left: 2px;
-        color: var(--muted-alt);
         font-weight: normal;
+        color: var(--muted-alt);
     }
 }

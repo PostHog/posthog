@@ -5,7 +5,6 @@ from django.db import migrations, models
 
 
 class Migration(migrations.Migration):
-
     dependencies = [
         ("posthog", "0132_team_test_account_filters"),
     ]
@@ -33,7 +32,10 @@ class Migration(migrations.Migration):
             model_name="team",
             name="app_urls",
             field=fields.ArrayField(
-                base_field=models.CharField(max_length=200, null=True), blank=True, default=list, size=None
+                base_field=models.CharField(max_length=200, null=True),
+                blank=True,
+                default=list,
+                size=None,
             ),
         ),
         migrations.AlterField(

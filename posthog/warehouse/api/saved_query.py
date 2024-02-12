@@ -1,14 +1,21 @@
-from posthog.permissions import OrganizationMemberPermissions
+from typing import Any, List
+
+from django.conf import settings
+from rest_framework import exceptions, filters, serializers, viewsets
 from rest_framework.exceptions import NotAuthenticated
 from rest_framework.permissions import IsAuthenticated
-from rest_framework import filters, serializers, viewsets
-from posthog.warehouse.models import DataWarehouseSavedQuery
-from posthog.api.shared import UserBasicSerializer
-from posthog.api.routing import StructuredViewSetMixin
-from posthog.hogql.database.database import serialize_fields
 
+from posthog.api.routing import StructuredViewSetMixin
+from posthog.api.shared import UserBasicSerializer
+from posthog.hogql.context import HogQLContext
+from posthog.hogql.database.database import SerializedField, serialize_fields
+from posthog.hogql.errors import HogQLException
+from posthog.hogql.metadata import is_valid_view
+from posthog.hogql.parser import parse_select
+from posthog.hogql.printer import print_ast
 from posthog.models import User
-from typing import Any, Dict
+from posthog.permissions import OrganizationMemberPermissions
+from posthog.warehouse.models import DataWarehouseSavedQuery
 
 
 class DataWarehouseSavedQuerySerializer(serializers.ModelSerializer):
@@ -17,10 +24,18 @@ class DataWarehouseSavedQuerySerializer(serializers.ModelSerializer):
 
     class Meta:
         model = DataWarehouseSavedQuery
-        fields = ["id", "deleted", "name", "query", "created_by", "created_at", "columns"]
+        fields = [
+            "id",
+            "deleted",
+            "name",
+            "query",
+            "created_by",
+            "created_at",
+            "columns",
+        ]
         read_only_fields = ["id", "created_by", "created_at", "columns"]
 
-    def get_columns(self, view: DataWarehouseSavedQuery) -> Dict[str, str]:
+    def get_columns(self, view: DataWarehouseSavedQuery) -> List[SerializedField]:
         return serialize_fields(view.hogql_definition().fields)
 
     def create(self, validated_data):
@@ -31,6 +46,7 @@ class DataWarehouseSavedQuerySerializer(serializers.ModelSerializer):
         # The columns will be inferred from the query
         try:
             view.columns = view.get_columns()
+            view.external_tables = view.s3_tables
         except Exception as err:
             raise serializers.ValidationError(str(err))
 
@@ -38,14 +54,42 @@ class DataWarehouseSavedQuerySerializer(serializers.ModelSerializer):
         return view
 
     def update(self, instance: Any, validated_data: Any) -> Any:
-        view = super().update(instance, validated_data)
+        view: DataWarehouseSavedQuery = super().update(instance, validated_data)
 
         try:
             view.columns = view.get_columns()
+            view.external_tables = view.s3_tables
         except Exception as err:
             raise serializers.ValidationError(str(err))
         view.save()
         return view
+
+    def validate_query(self, query):
+        team_id = self.context["team_id"]
+
+        context = HogQLContext(team_id=team_id, enable_select_queries=True)
+        context.max_view_depth = 0
+        select_ast = parse_select(query["query"])
+        _is_valid_view = is_valid_view(select_ast)
+        if not _is_valid_view:
+            raise exceptions.ValidationError(detail="Ensure all fields are aliased")
+        try:
+            print_ast(
+                node=select_ast,
+                context=context,
+                dialect="clickhouse",
+                stack=None,
+                settings=None,
+            )
+        except Exception as err:
+            if isinstance(err, ValueError) or isinstance(err, HogQLException):
+                error = str(err)
+                raise exceptions.ValidationError(detail=f"Invalid query: {error}")
+            elif not settings.DEBUG:
+                # We don't want to accidentally expose too much data via errors
+                raise exceptions.ValidationError(detail=f"Unexpected {err.__class__.__name__}")
+
+        return query
 
 
 class DataWarehouseSavedQueryViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):

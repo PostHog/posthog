@@ -1,12 +1,14 @@
+import { decideResponse } from '../fixtures/api/decide'
+
 describe('Signup', () => {
     beforeEach(() => {
-        cy.get('[data-attr=top-menu-toggle]').click()
+        cy.get('[data-attr=menu-item-me]').click()
         cy.get('[data-attr=top-menu-item-logout]').click()
         cy.location('pathname').should('include', '/login')
         cy.visit('/signup')
     })
 
-    it('Cannot create acount with existing email', () => {
+    it('Cannot create account with existing email', () => {
         cy.get('[data-attr=signup-email]').type('test@posthog.com').should('have.value', 'test@posthog.com')
         cy.get('[data-attr=password]').type('12345678').should('have.value', '12345678')
         cy.get('[data-attr=signup-start]').click()
@@ -70,5 +72,30 @@ describe('Signup', () => {
         cy.get('[type=submit]').click()
         // if there are other form issues, we'll get errors on the form, not this toast
         cy.get('.Toastify [data-attr="error-toast"]').contains('Inactive social login session.')
+    })
+
+    it('Shows redirect notice if redirecting for maintenance', () => {
+        cy.intercept('https://app.posthog.com/decide/*', (req) =>
+            req.reply(
+                decideResponse({
+                    'redirect-signups-to-instance': 'us',
+                })
+            )
+        )
+
+        cy.visit('/logout')
+        cy.location('pathname').should('include', '/login')
+
+        cy.visit('/signup?maintenanceRedirect=true', {
+            onLoad(win: Cypress.AUTWindow) {
+                win.POSTHOG_APP_CONTEXT.preflight.cloud = true
+            },
+        })
+
+        cy.get('[data-attr="info-toast"]')
+            .contains(
+                `You've been redirected to signup on our US instance while we perform maintenance on our other instance.`
+            )
+            .should('be.visible')
     })
 })

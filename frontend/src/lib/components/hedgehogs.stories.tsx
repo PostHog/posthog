@@ -1,5 +1,6 @@
-import { Meta } from '@storybook/react'
 import { LemonTable } from '@posthog/lemon-ui'
+import { Meta } from '@storybook/react'
+
 import * as hedgehogs from './hedgehogs'
 
 interface HedgehogDefinition {
@@ -12,11 +13,10 @@ const allHedgehogs: HedgehogDefinition[] = Object.entries(hedgehogs).map(([key, 
     hedgehog: Hedgehog,
 }))
 
-export default {
+const meta: Meta = {
     title: 'Lemon UI/Hog illustrations',
+    tags: ['test-skip', 'autodocs'], // Not valuable to take snapshots of these hedgehogs
     parameters: {
-        options: { showPanel: false },
-        testOptions: { skip: true }, // Not valuable to take snapshots of these hedgehogs
         docs: {
             description: {
                 component: `
@@ -38,8 +38,8 @@ she will get to it dependant on work load.
             },
         },
     },
-} as Meta
-
+}
+export default meta
 export function Library(): JSX.Element {
     return (
         <div className="space-y-2">

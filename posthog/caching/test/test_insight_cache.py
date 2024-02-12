@@ -7,10 +7,19 @@ from django.utils.timezone import now
 from freezegun import freeze_time
 
 from posthog.caching.calculate_results import get_cache_type
-from posthog.caching.insight_cache import fetch_states_in_need_of_updating, schedule_cache_updates, update_cache
+from posthog.caching.insight_cache import (
+    fetch_states_in_need_of_updating,
+    schedule_cache_updates,
+    update_cache,
+)
 from posthog.caching.insight_caching_state import upsert
 from posthog.caching.test.test_insight_caching_state import create_insight, filter_dict
-from posthog.constants import INSIGHT_PATHS, INSIGHT_RETENTION, INSIGHT_STICKINESS, INSIGHT_TRENDS
+from posthog.constants import (
+    INSIGHT_PATHS,
+    INSIGHT_RETENTION,
+    INSIGHT_STICKINESS,
+    INSIGHT_TRENDS,
+)
 from posthog.decorators import CacheType
 from posthog.models import Filter, InsightCachingState, RetentionFilter, Team, User
 from posthog.models.filters import PathFilter
@@ -49,7 +58,7 @@ def cache_keys(cache):
 
 
 @pytest.mark.django_db
-@patch("posthog.celery.update_cache_task")
+@patch("posthog.caching.insight_cache.update_cache_task")
 def test_schedule_cache_updates(update_cache_task, team: Team, user: User):
     caching_state1 = create_insight_caching_state(team, user, filters=filter_dict, last_refresh=None)
     create_insight_caching_state(team, user, filters=filter_dict)
@@ -64,7 +73,10 @@ def test_schedule_cache_updates(update_cache_task, team: Team, user: User):
 
     schedule_cache_updates()
 
-    assert update_cache_task.delay.call_args_list == [call(caching_state1.pk), call(caching_state3.pk)]
+    assert update_cache_task.delay.call_args_list == [
+        call(caching_state1.pk),
+        call(caching_state3.pk),
+    ]
 
     last_refresh_queued_at = InsightCachingState.objects.filter(team=team).values_list(
         "last_refresh_queued_at", flat=True
@@ -81,9 +93,27 @@ def test_schedule_cache_updates(update_cache_task, team: Team, user: User):
         ({"last_refresh": None}, 1),
         ({"target_cache_age": None, "last_refresh": None}, 0),
         ({"target_cache_age": timedelta(days=1), "last_refresh": timedelta(days=2)}, 1),
-        ({"target_cache_age": timedelta(days=1), "last_refresh": timedelta(hours=23)}, 0),
-        ({"target_cache_age": timedelta(days=1), "last_refresh_queued_at": timedelta(hours=23)}, 1),
-        ({"target_cache_age": timedelta(days=1), "last_refresh_queued_at": timedelta(minutes=5)}, 0),
+        (
+            {
+                "target_cache_age": timedelta(days=1),
+                "last_refresh": timedelta(hours=23),
+            },
+            0,
+        ),
+        (
+            {
+                "target_cache_age": timedelta(days=1),
+                "last_refresh_queued_at": timedelta(hours=23),
+            },
+            1,
+        ),
+        (
+            {
+                "target_cache_age": timedelta(days=1),
+                "last_refresh_queued_at": timedelta(minutes=5),
+            },
+            0,
+        ),
         ({"refresh_attempt": 2}, 1),
         ({"refresh_attempt": 3}, 0),
     ],
@@ -134,10 +164,14 @@ def test_update_cache_updates_identical_cache_keys(team: Team, user: User, cache
 
 @pytest.mark.django_db
 @freeze_time("2020-01-04T13:01:01Z")
-@patch("posthog.celery.update_cache_task")
+@patch("posthog.caching.insight_cache.update_cache_task")
 @patch("posthog.caching.insight_cache.calculate_result_by_insight")
 def test_update_cache_when_calculation_fails(
-    spy_calculate_result_by_insight, spy_update_cache_task, team: Team, user: User, cache
+    spy_calculate_result_by_insight,
+    spy_update_cache_task,
+    team: Team,
+    user: User,
+    cache,
 ):
     caching_state = create_insight_caching_state(team, user, refresh_attempt=1)
     spy_calculate_result_by_insight.side_effect = Exception()
@@ -180,6 +214,11 @@ def test_update_cache_when_recently_refreshed(spy_calculate_result_by_insight, t
     ],
 )
 @pytest.mark.django_db
-def test_get_cache_type(team: Team, filter_model: Callable, insight_type: str, expected_cache_type: CacheType) -> None:
+def test_get_cache_type(
+    team: Team,
+    filter_model: Callable,
+    insight_type: str,
+    expected_cache_type: CacheType,
+) -> None:
     filter = filter_model(data={"insight": insight_type}, team=team)
     assert get_cache_type(filter) == expected_cache_type

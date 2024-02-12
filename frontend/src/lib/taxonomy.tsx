@@ -1,220 +1,52 @@
-import { KeyMapping, PropertyFilterValue } from '~/types'
+import { CoreFilterDefinition, PropertyFilterValue } from '~/types'
 
-export interface KeyMappingInterface {
-    event: Record<string, KeyMapping>
-    element: Record<string, KeyMapping>
-}
+import { TaxonomicFilterGroupType } from './components/TaxonomicFilter/types'
+import { Link } from './lemon-ui/Link'
 
-export const KEY_MAPPING: KeyMappingInterface = {
-    event: {
+// copy from https://github.com/PostHog/posthog/blob/29ac8d6b2ba5de4b65a148136b681b8e52e20429/plugin-server/src/utils/db/utils.ts#L44
+const eventToPersonProperties = new Set([
+    // mobile params
+    '$app_build',
+    '$app_name',
+    '$app_namespace',
+    '$app_version',
+    // web params
+    '$browser',
+    '$browser_version',
+    '$device_type',
+    '$current_url',
+    '$pathname',
+    '$os',
+    '$os_version',
+    '$referring_domain',
+    '$referrer',
+    // campaign params - automatically added by posthog-js here https://github.com/PostHog/posthog-js/blob/master/src/utils/event-utils.ts
+    'utm_source',
+    'utm_medium',
+    'utm_campaign',
+    'utm_content',
+    'utm_name',
+    'utm_term',
+    'gclid',
+    'gad_source',
+    'gbraid',
+    'wbraid',
+    'fbclid',
+    'msclkid',
+])
+
+// If adding event properties with labels, check whether they should be added to
+// PROPERTY_NAME_ALIASES in posthog/api/property_definition.py
+// see code to output JSON below this
+export const CORE_FILTER_DEFINITIONS_BY_GROUP = {
+    events: {
         '': {
             label: 'All events',
             description: 'This is a wildcard that matches all events.',
         },
-        $timestamp: {
-            label: 'Timestamp',
-            description: 'Time the event happened.',
-            examples: [new Date().toISOString()],
-        },
-        $sent_at: {
-            label: 'Sent At',
-            description:
-                'Time the event was sent to PostHog. Used for correcting the event timestamp when the device clock is off.',
-            examples: [new Date().toISOString()],
-        },
-        $browser: {
-            label: 'Browser',
-            description: 'Name of the browser the user has used.',
-            examples: ['Chrome', 'Firefox'],
-        },
-        $initial_browser: {
-            label: 'Initial Browser',
-            description: 'Name of the browser the user first used (first-touch).',
-            examples: ['Chrome', 'Firefox'],
-        },
-        $os: {
-            label: 'OS',
-            description: 'The operating system of the user.',
-            examples: ['Windows', 'Mac OS X'],
-        },
-        $initial_os: {
-            label: 'Initial OS',
-            description: 'The operating system that the user first used (first-touch).',
-            examples: ['Windows', 'Mac OS X'],
-        },
-        $browser_language: {
-            label: 'Browser Language',
-            description: 'Language.',
-            examples: ['en', 'en-US', 'cn', 'pl-PL'],
-        },
-        $current_url: {
-            label: 'Current URL',
-            description: 'The URL visited at the time of the event.',
-            examples: ['https://example.com/interesting-article?parameter=true'],
-        },
-        $initial_current_url: {
-            label: 'Initial Current URL',
-            description: 'The first URL the user visited.',
-            examples: ['https://example.com/interesting-article?parameter=true'],
-        },
-        $browser_version: {
-            label: 'Browser Version',
-            description: 'The version of the browser that was used. Used in combination with Browser.',
-            examples: ['70', '79'],
-        },
-        $initial_browser_version: {
-            label: 'Initial Browser Version',
-            description:
-                'The version of the browser that the user first used (first-touch). Used in combination with Browser.',
-            examples: ['70', '79'],
-        },
-
-        $screen_height: {
-            label: 'Screen Height',
-            description: "The height of the user's entire screen (in pixels).",
-            examples: ['2160', '1050'],
-        },
-        $screen_width: {
-            label: 'Screen Width',
-            description: "The width of the user's entire screen (in pixels).",
-            examples: ['1440', '1920'],
-        },
-        $screen_name: {
-            label: 'Screen Name',
-            description: 'The name of the active screen.',
-        },
-        $viewport_height: {
-            label: 'Viewport Height',
-            description: "The height of the user's actual browser window (in pixels).",
-            examples: ['2094', '1031'],
-        },
-        $viewport_width: {
-            label: 'Viewport Width',
-            description: "The width of the user's actual browser window (in pixels).",
-            examples: ['1439', '1915'],
-        },
-        $lib: {
-            label: 'Library',
-            description: 'What library was used to send the event.',
-            examples: ['web', 'posthog-ios'],
-        },
-        $lib_version: {
-            label: 'Library Version',
-            description: 'Version of the library used to send the event. Used in combination with Library.',
-            examples: ['1.0.3'],
-        },
-        $lib_version__major: {
-            label: 'Library Version (Major)',
-            description: 'Major version of the library used to send the event.',
-            examples: [1],
-        },
-        $lib_version__minor: {
-            label: 'Library Version (Minor)',
-            description: 'Minor version of the library used to send the event.',
-            examples: [0],
-        },
-        $lib_version__patch: {
-            label: 'Library Version (Patch)',
-            description: 'Patch version of the library used to send the event.',
-            examples: [3],
-        },
-        $referrer: {
-            label: 'Referrer URL',
-            description: 'URL of where the user came from most recently (last-touch).',
-            examples: ['https://google.com/search?q=posthog&rlz=1C...'],
-        },
-        $referring_domain: {
-            label: 'Referring Domain',
-            description: 'Domain of where the user came from most recently (last-touch).',
-            examples: ['google.com', 'facebook.com'],
-        },
-        $user_id: {
-            label: 'User ID',
-            description: (
-                <span>
-                    This variable will be set to the distinct ID if you've called{' '}
-                    <pre style={{ display: 'inline' }}>posthog.identify('distinct id')</pre>. If the user is anonymous,
-                    it'll be empty.
-                </span>
-            ),
-        },
-        $ip: {
-            label: 'IP Address',
-            description: 'IP address for this user when the event was sent.',
-            examples: ['203.0.113.0'],
-        },
-        $host: {
-            label: 'Host',
-            description: 'The hostname of the Current URL.',
-            examples: ['example.com', 'localhost:8000'],
-        },
-        $pathname: {
-            label: 'Path Name',
-            description: 'The path of the Current URL, which means everything in the url after the domain.',
-            examples: ['/pricing', '/about-us/team'],
-        },
-        $search_engine: {
-            label: 'Search Engine',
-            description: 'The search engine the user came in from (if any). This is last-touch.',
-            examples: ['Google', 'DuckDuckGo'],
-        },
-        $active_feature_flags: {
-            label: 'Active Feature Flags',
-            description: 'Keys of the feature flags that were active while this event was sent.',
-            examples: ["['beta-feature']"],
-        },
-        $enabled_feature_flags: {
-            label: 'Enabled Feature Flags',
-            description:
-                'Keys and multivariate values of the feature flags that were active while this event was sent.',
-            examples: ['{"flag": "value"}'],
-        },
-        $feature_flag_response: {
-            label: 'Feature Flag Response',
-            description: 'What the call to feature flag responded with.',
-            examples: ['true', 'false'],
-        },
-        $feature_flag: {
-            label: 'Feature Flag',
-            description: (
-                <>
-                    The feature flag that was called.
-                    <br />
-                    <br />
-                    Warning! This only works in combination with the $feature_flag_called event. If you want to filter
-                    other events, try "Active Feature Flags".
-                </>
-            ),
-            examples: ['beta-feature'],
-        },
-        $device: {
-            label: 'Device',
-            description: 'The mobile device that was used.',
-            examples: ['iPad', 'iPhone', 'Android'],
-        },
-        $sentry_url: {
-            label: 'Sentry URL',
-            description: 'Direct link to the exception in Sentry',
-            examples: ['https://sentry.io/...'],
-        },
-        $device_type: {
-            label: 'Device Type',
-            description: 'The type of device that was used (last-touch).',
-            examples: ['Mobile', 'Tablet', 'Desktop'],
-        },
-        $initial_device_type: {
-            label: 'Initial Device Type',
-            description: 'The initial type of device that was used (first-touch).',
-            examples: ['Mobile', 'Tablet', 'Desktop'],
-        },
         $pageview: {
             label: 'Pageview',
             description: 'When a user loads (or reloads) a page.',
-        },
-        $pageview_id: {
-            label: 'Pageview ID',
-            description: "PostHog's internal ID for matching events to a pageview.",
-            system: true,
         },
         $pageleave: {
             label: 'Pageleave',
@@ -224,22 +56,6 @@ export const KEY_MAPPING: KeyMappingInterface = {
             label: 'Autocapture',
             description: 'User interactions that were automatically captured.',
             examples: ['clicked button'],
-        },
-        $autocapture_disabled_server_side: {
-            label: 'Autocapture Disabled Server-Side',
-            description: 'If autocapture has been disabled server-side.',
-            system: true,
-        },
-        $console_log_recording_enabled_server_side: {
-            label: 'Console Log Recording Enabled Server-Side',
-            description: 'If console log recording has been enabled server-side.',
-            system: true,
-        },
-        $session_recording_recorder_version_server_side: {
-            label: 'Session Recording Recorder Version Server-Side',
-            description: 'The version of the session recording recorder that is enabled server-side.',
-            examples: ['v2'],
-            system: true,
         },
         $screen: {
             label: 'Screen',
@@ -257,10 +73,6 @@ export const KEY_MAPPING: KeyMappingInterface = {
                 </>
             ),
             examples: ['beta-feature'],
-        },
-        $feature_flag_payloads: {
-            label: 'Feature Flag Payloads',
-            description: 'Feature flag payloads active in the environment.',
         },
         $feature_view: {
             label: 'Feature View',
@@ -290,53 +102,6 @@ export const KEY_MAPPING: KeyMappingInterface = {
             label: 'Group Identify',
             description: 'A group has been identified with properties',
         },
-        $groups: {
-            label: 'Groups',
-            description: 'Relevant groups',
-        },
-        // There are at most 5 group types per project, so indexes 0, 1, 2, 3, and 4
-        $group_0: {
-            label: 'Group 1',
-            system: true,
-        },
-        $group_1: {
-            label: 'Group 2',
-            system: true,
-        },
-        $group_2: {
-            label: 'Group 3',
-            system: true,
-        },
-        $group_3: {
-            label: 'Group 4',
-            system: true,
-        },
-        $group_4: {
-            label: 'Group 5',
-            system: true,
-        },
-        $group_set: {
-            label: 'Group Set',
-            description: 'Group properties to be set',
-        },
-        $group_key: {
-            label: 'Group Key',
-            description: 'Specified group key',
-        },
-        $group_type: {
-            label: 'Group Type',
-            description: 'Specified group type',
-        },
-        $window_id: {
-            label: 'Window ID',
-            description: 'Unique window ID for session recording disambiguation',
-            system: true,
-        },
-        $session_id: {
-            label: 'Session ID',
-            description: 'Unique session ID for session recording disambiguation',
-            system: true,
-        },
         $rageclick: {
             label: 'Rageclick',
             description: 'A user has rapidly and repeatedly clicked in a single place',
@@ -349,127 +114,98 @@ export const KEY_MAPPING: KeyMappingInterface = {
             label: 'Set Once',
             description: 'Person properties to be set if not set already (i.e. first-touch)',
         },
+        $exception: {
+            label: 'Exception',
+            description: 'Automatically captured exceptions from the client Sentry integration',
+        },
+        // Mobile SDKs events
+        'Application Opened': {
+            label: 'Application Opened',
+            description: 'When a user opens the app either for the first time or from the foreground.',
+        },
+        'Application Backgrounded': {
+            label: 'Application Backgrounded',
+            description: 'When a user puts the app in the background.',
+        },
+        'Application Updated': {
+            label: 'Application Updated',
+            description: 'When a user upgrades the app.',
+        },
+        'Application Installed': {
+            label: 'Application Installed',
+            description: 'When a user installs the app.',
+        },
+        'Application Became Active': {
+            label: 'Application Became Active',
+            description: 'When a user puts the app in the foreground.',
+        },
+        'Deep Link Opened': {
+            label: 'Deep Link Opened',
+            description: 'When a user opens the app via a deep link.',
+        },
+    },
+    elements: {
+        tag_name: {
+            label: 'Tag Name',
+            description: 'HTML tag name of the element which you want to filter.',
+            examples: ['a', 'button', 'input'],
+        },
+        selector: {
+            label: 'CSS Selector',
+            description: 'Select any element by CSS selector.',
+            examples: ['div > a', 'table td:nth-child(2)', '.my-class'],
+        },
+        text: {
+            label: 'Text',
+            description: 'Filter on the inner text of the HTML element.',
+        },
+        href: {
+            label: 'Target (href)',
+            description: (
+                <span>
+                    Filter on the <code>href</code> attribute of the element.
+                </span>
+            ),
+            examples: ['https://posthog.com/about'],
+        },
+    },
+    metadata: {
+        distinct_id: {
+            label: 'Distinct ID',
+            description: 'The current distinct ID of the user',
+            examples: ['16ff262c4301e5-0aa346c03894bc-39667c0e-1aeaa0-16ff262c431767'],
+        },
+    },
+    event_properties: {
+        distinct_id: {} as CoreFilterDefinition, // Copied from metadata down below
+        $pageview_id: {
+            label: 'Pageview ID',
+            description: "PostHog's internal ID for matching events to a pageview.",
+            system: true,
+        },
+        $autocapture_disabled_server_side: {
+            label: 'Autocapture Disabled Server-Side',
+            description: 'If autocapture has been disabled server-side.',
+            system: true,
+        },
+        $console_log_recording_enabled_server_side: {
+            label: 'Console Log Recording Enabled Server-Side',
+            description: 'If console log recording has been enabled server-side.',
+            system: true,
+        },
+        $session_recording_recorder_version_server_side: {
+            label: 'Session Recording Recorder Version Server-Side',
+            description: 'The version of the session recording recorder that is enabled server-side.',
+            examples: ['v2'],
+            system: true,
+        },
+        $feature_flag_payloads: {
+            label: 'Feature Flag Payloads',
+            description: 'Feature flag payloads active in the environment.',
+        },
         $capture_failed_request: {
             label: 'Capture Failed Request',
             description: '',
-        },
-        $plugins_succeeded: {
-            label: 'Plugins Succeeded',
-            description: (
-                <>
-                    Plugins that successfully processed the event, e.g. edited properties (plugin method{' '}
-                    <code>processEvent</code>).
-                </>
-            ),
-        },
-        $plugins_failed: {
-            label: 'Plugins Failed',
-            description: (
-                <>
-                    Plugins that failed to process the event (plugin method <code>processEvent</code>).
-                </>
-            ),
-        },
-        $plugins_deferred: {
-            label: 'Plugins Deferred',
-            description: (
-                <>
-                    Plugins to which the event was handed off post-ingestion, e.g. for export (plugin method{' '}
-                    <code>onEvent</code>).
-                </>
-            ),
-        },
-        $$plugin_metrics: {
-            label: 'Plugin Metric',
-            description: 'Performance metrics for a given plugin.',
-        },
-        $creator_event_uuid: {
-            label: 'Creator Event ID',
-            description: 'Unique ID for the event, which created this person.',
-            examples: ['16ff262c4301e5-0aa346c03894bc-39667c0e-1aeaa0-16ff262c431767'],
-        },
-
-        // UTM tags
-        utm_source: {
-            label: 'UTM Source',
-            description: 'UTM source tag (last-touch).',
-            examples: ['Google', 'Bing', 'Twitter', 'Facebook'],
-        },
-        $initial_utm_source: {
-            label: 'Initial UTM Source',
-            description: 'UTM source tag (first-touch).',
-            examples: ['Google', 'Bing', 'Twitter', 'Facebook'],
-        },
-        utm_medium: {
-            label: 'UTM Medium',
-            description: 'UTM medium tag (last-touch).',
-            examples: ['Social', 'Organic', 'Paid', 'Email'],
-        },
-        $initial_utm_medium: {
-            label: 'Initial UTM Medium',
-            description: 'UTM medium tag (first-touch).',
-            examples: ['Social', 'Organic', 'Paid', 'Email'],
-        },
-        utm_campaign: {
-            label: 'UTM Campaign',
-            description: 'UTM campaign tag (last-touch).',
-            examples: ['feature launch', 'discount'],
-        },
-        utm_name: {
-            label: 'UTM Name',
-            description: 'UTM campaign tag, sent via Segment (last-touch).',
-            examples: ['feature launch', 'discount'],
-        },
-        $initial_utm_name: {
-            label: 'Initial UTM Name',
-            description: 'UTM campaign tag, sent via Segment (first-touch).',
-            examples: ['feature launch', 'discount'],
-        },
-        $initial_utm_campaign: {
-            label: 'Initial UTM Campaign',
-            description: 'UTM campaign tag (first-touch).',
-            examples: ['feature launch', 'discount'],
-        },
-        utm_content: {
-            label: 'UTM Content',
-            description: 'UTM content tag (last-touch).',
-            examples: ['bottom link', 'second button'],
-        },
-        $initial_utm_content: {
-            label: 'Initial UTM Content',
-            description: 'UTM content tag (first-touch).',
-            examples: ['bottom link', 'second button'],
-        },
-        utm_term: {
-            label: 'UTM Term',
-            description: 'UTM term tag (last-touch).',
-            examples: ['free goodies'],
-        },
-        $initial_utm_term: {
-            label: 'Initial UTM Term',
-            description: 'UTM term tag (first-touch).',
-            examples: ['free goodies'],
-        },
-        $performance_page_loaded: {
-            label: 'Page Loaded',
-            description: "The time taken until the browser's page load event in milliseconds.",
-        },
-        $performance_raw: {
-            label: 'Browser Performance',
-            description:
-                'The browser performance entries for navigation (the page), paint, and resources. That were available when the page view event fired',
-            system: true,
-        },
-        $had_persisted_distinct_id: {
-            label: '$had_persisted_distinct_id',
-            description: '',
-            system: true,
-        },
-        $sentry_event_id: {
-            label: 'Sentry Event ID',
-            description: 'This is the Sentry key for an event.',
-            examples: ['byroc2ar9ee4ijqp'],
-            system: true,
         },
         $sentry_exception: {
             label: 'Sentry exception',
@@ -638,38 +374,27 @@ export const KEY_MAPPING: KeyMappingInterface = {
             label: 'GeoIP Disabled',
             description: `Whether to skip GeoIP processing for the event.`,
         },
-        // NOTE: This is a hack. $session_duration is a session property, not an event property
-        // but we don't do a good job of tracking property types, so making it a session property
-        // would require a large refactor, and this works (because all properties are treated as
-        // event properties if they're not elements)
-        $session_duration: {
-            label: 'Session duration',
-            description: (
-                <span>
-                    The duration of the session being tracked. Learn more about how PostHog tracks sessions in{' '}
-                    <a href="https://posthog.com/docs/user-guides/sessions">our documentation.</a>
-                    <br /> <br />
-                    Note, if the duration is formatted as a single number (not 'HH:MM:SS'), it's in seconds.
-                </span>
-            ),
-            examples: ['01:04:12'],
+        $el_text: {
+            label: 'Element Text',
+            description: `The text of the element that was clicked. Only sent with Autocapture events.`,
+            examples: ['Click here!'],
         },
         $app_build: {
             label: 'App Build',
-            description: 'The build number for the app',
+            description: 'The build number for the app.',
         },
         $app_name: {
             label: 'App Name',
-            description: 'The name of the app',
+            description: 'The name of the app.',
         },
         $app_namespace: {
             label: 'App Namespace',
-            description: 'The namespace of the app as identified in the app store',
+            description: 'The namespace of the app as identified in the app store.',
             examples: ['com.posthog.app'],
         },
         $app_version: {
             label: 'App Version',
-            description: 'The version of the app',
+            description: 'The version of the app.',
         },
         $device_manufacturer: {
             label: 'Device Manufacturer',
@@ -693,7 +418,7 @@ export const KEY_MAPPING: KeyMappingInterface = {
         },
         $os_version: {
             label: 'OS Version',
-            description: 'The Operating System version',
+            description: 'The Operating System version.',
             examples: ['15.5'],
         },
         $timezone: {
@@ -709,73 +434,563 @@ export const KEY_MAPPING: KeyMappingInterface = {
             label: 'Touch Y',
             description: 'The location of a Touch event on the Y axis',
         },
-        $exception: {
-            label: 'Exception',
-            description: 'Automatically captured exceptions from the client Sentry integration',
+        $plugins_succeeded: {
+            label: 'Plugins Succeeded',
+            description: (
+                <>
+                    Plugins that successfully processed the event, e.g. edited properties (plugin method{' '}
+                    <code>processEvent</code>).
+                </>
+            ),
         },
-    },
-    element: {
-        tag_name: {
-            label: 'Tag Name',
-            description: 'HTML tag name of the element which you want to filter.',
-            examples: ['a', 'button', 'input'],
+        $groups: {
+            label: 'Groups',
+            description: 'Relevant groups',
         },
-        selector: {
-            label: 'CSS Selector',
-            description: 'Select any element by CSS selector.',
-            examples: ['div > a', 'table td:nth-child(2)', '.my-class'],
+        // There are at most 5 group types per project, so indexes 0, 1, 2, 3, and 4
+        $group_0: {
+            label: 'Group 1',
+            system: true,
         },
-        text: {
-            label: 'Text',
-            description: 'Filter on the inner text of the HTML element.',
+        $group_1: {
+            label: 'Group 2',
+            system: true,
         },
-        href: {
-            label: 'Target (href)',
+        $group_2: {
+            label: 'Group 3',
+            system: true,
+        },
+        $group_3: {
+            label: 'Group 4',
+            system: true,
+        },
+        $group_4: {
+            label: 'Group 5',
+            system: true,
+        },
+        $group_set: {
+            label: 'Group Set',
+            description: 'Group properties to be set',
+        },
+        $group_key: {
+            label: 'Group Key',
+            description: 'Specified group key',
+        },
+        $group_type: {
+            label: 'Group Type',
+            description: 'Specified group type',
+        },
+        $window_id: {
+            label: 'Window ID',
+            description: 'Unique window ID for session recording disambiguation',
+            system: true,
+        },
+        $session_id: {
+            label: 'Session ID',
+            description: 'Unique session ID for session recording disambiguation',
+            system: true,
+        },
+        $plugins_failed: {
+            label: 'Plugins Failed',
+            description: (
+                <>
+                    Plugins that failed to process the event (plugin method <code>processEvent</code>).
+                </>
+            ),
+        },
+        $plugins_deferred: {
+            label: 'Plugins Deferred',
+            description: (
+                <>
+                    Plugins to which the event was handed off post-ingestion, e.g. for export (plugin method{' '}
+                    <code>onEvent</code>).
+                </>
+            ),
+        },
+        $$plugin_metrics: {
+            label: 'Plugin Metric',
+            description: 'Performance metrics for a given plugin.',
+        },
+        $creator_event_uuid: {
+            label: 'Creator Event ID',
+            description: 'Unique ID for the event, which created this person.',
+            examples: ['16ff262c4301e5-0aa346c03894bc-39667c0e-1aeaa0-16ff262c431767'],
+        },
+
+        // UTM tags
+        utm_source: {
+            label: 'UTM Source',
+            description: 'UTM source tag.',
+            examples: ['Google', 'Bing', 'Twitter', 'Facebook'],
+        },
+        $initial_utm_source: {
+            label: 'Initial UTM Source',
+            description: 'UTM source tag.',
+            examples: ['Google', 'Bing', 'Twitter', 'Facebook'],
+        },
+        utm_medium: {
+            label: 'UTM Medium',
+            description: 'UTM medium tag.',
+            examples: ['Social', 'Organic', 'Paid', 'Email'],
+        },
+        utm_campaign: {
+            label: 'UTM Campaign',
+            description: 'UTM campaign tag.',
+            examples: ['feature launch', 'discount'],
+        },
+        utm_name: {
+            label: 'UTM Name',
+            description: 'UTM campaign tag, sent via Segment.',
+            examples: ['feature launch', 'discount'],
+        },
+        utm_content: {
+            label: 'UTM Content',
+            description: 'UTM content tag.',
+            examples: ['bottom link', 'second button'],
+        },
+        utm_term: {
+            label: 'UTM Term',
+            description: 'UTM term tag.',
+            examples: ['free goodies'],
+        },
+        $performance_page_loaded: {
+            label: 'Page Loaded',
+            description: "The time taken until the browser's page load event in milliseconds.",
+        },
+        $performance_raw: {
+            label: 'Browser Performance',
+            description:
+                'The browser performance entries for navigation (the page), paint, and resources. That were available when the page view event fired',
+            system: true,
+        },
+        $had_persisted_distinct_id: {
+            label: '$had_persisted_distinct_id',
+            description: '',
+            system: true,
+        },
+        $sentry_event_id: {
+            label: 'Sentry Event ID',
+            description: 'This is the Sentry key for an event.',
+            examples: ['byroc2ar9ee4ijqp'],
+            system: true,
+        },
+        $timestamp: {
+            label: 'Timestamp',
+            description: 'Time the event happened.',
+            examples: [new Date().toISOString()],
+        },
+        $sent_at: {
+            label: 'Sent At',
+            description:
+                'Time the event was sent to PostHog. Used for correcting the event timestamp when the device clock is off.',
+            examples: [new Date().toISOString()],
+        },
+        $browser: {
+            label: 'Browser',
+            description: 'Name of the browser the user has used.',
+            examples: ['Chrome', 'Firefox'],
+        },
+        $os: {
+            label: 'OS',
+            description: 'The operating system of the user.',
+            examples: ['Windows', 'Mac OS X'],
+        },
+        $browser_language: {
+            label: 'Browser Language',
+            description: 'Language.',
+            examples: ['en', 'en-US', 'cn', 'pl-PL'],
+        },
+        $current_url: {
+            label: 'Current URL',
+            description: 'The URL visited at the time of the event.',
+            examples: ['https://example.com/interesting-article?parameter=true'],
+        },
+        $browser_version: {
+            label: 'Browser Version',
+            description: 'The version of the browser that was used. Used in combination with Browser.',
+            examples: ['70', '79'],
+        },
+        $raw_user_agent: {
+            label: 'Raw User Agent',
+            description:
+                'PostHog process information like browser, OS, and device type from the user agent string. This is the raw user agent string.',
+            examples: ['Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko)'],
+        },
+        $user_agent: {
+            label: 'Raw User Agent',
+            description: 'Some SDKs (like Android) send the raw user agent as $user_agent.',
+            examples: ['Dalvik/2.1.0 (Linux; U; Android 11; Pixel 3 Build/RQ2A.210505.002)'],
+        },
+        $screen_height: {
+            label: 'Screen Height',
+            description: "The height of the user's entire screen (in pixels).",
+            examples: ['2160', '1050'],
+        },
+        $screen_width: {
+            label: 'Screen Width',
+            description: "The width of the user's entire screen (in pixels).",
+            examples: ['1440', '1920'],
+        },
+        $screen_name: {
+            label: 'Screen Name',
+            description: 'The name of the active screen.',
+        },
+        $viewport_height: {
+            label: 'Viewport Height',
+            description: "The height of the user's actual browser window (in pixels).",
+            examples: ['2094', '1031'],
+        },
+        $viewport_width: {
+            label: 'Viewport Width',
+            description: "The width of the user's actual browser window (in pixels).",
+            examples: ['1439', '1915'],
+        },
+        $lib: {
+            label: 'Library',
+            description: 'What library was used to send the event.',
+            examples: ['web', 'posthog-ios'],
+        },
+        $lib_version: {
+            label: 'Library Version',
+            description: 'Version of the library used to send the event. Used in combination with Library.',
+            examples: ['1.0.3'],
+        },
+        $lib_version__major: {
+            label: 'Library Version (Major)',
+            description: 'Major version of the library used to send the event.',
+            examples: [1],
+        },
+        $lib_version__minor: {
+            label: 'Library Version (Minor)',
+            description: 'Minor version of the library used to send the event.',
+            examples: [0],
+        },
+        $lib_version__patch: {
+            label: 'Library Version (Patch)',
+            description: 'Patch version of the library used to send the event.',
+            examples: [3],
+        },
+        $referrer: {
+            label: 'Referrer URL',
+            description: 'URL of where the user came from.',
+            examples: ['https://google.com/search?q=posthog&rlz=1C...'],
+        },
+        $referring_domain: {
+            label: 'Referring Domain',
+            description: 'Domain of where the user came from.',
+            examples: ['google.com', 'facebook.com'],
+        },
+        $user_id: {
+            label: 'User ID',
             description: (
                 <span>
-                    Filter on the <code>href</code> attribute of the element.
+                    This variable will be set to the distinct ID if you've called{' '}
+                    <pre className="inline">posthog.identify('distinct id')</pre>. If the user is anonymous, it'll be
+                    empty.
                 </span>
             ),
-            examples: ['https://posthog.com/about'],
+        },
+        $ip: {
+            label: 'IP Address',
+            description: 'IP address for this user when the event was sent.',
+            examples: ['203.0.113.0'],
+        },
+        $host: {
+            label: 'Host',
+            description: 'The hostname of the Current URL.',
+            examples: ['example.com', 'localhost:8000'],
+        },
+        $pathname: {
+            label: 'Path Name',
+            description: 'The path of the Current URL, which means everything in the url after the domain.',
+            examples: ['/pricing', '/about-us/team'],
+        },
+        $search_engine: {
+            label: 'Search Engine',
+            description: 'The search engine the user came in from (if any).',
+            examples: ['Google', 'DuckDuckGo'],
+        },
+        $active_feature_flags: {
+            label: 'Active Feature Flags',
+            description: 'Keys of the feature flags that were active while this event was sent.',
+            examples: ["['beta-feature']"],
+        },
+        $enabled_feature_flags: {
+            label: 'Enabled Feature Flags',
+            description:
+                'Keys and multivariate values of the feature flags that were active while this event was sent.',
+            examples: ['{"flag": "value"}'],
+        },
+        $feature_flag_response: {
+            label: 'Feature Flag Response',
+            description: 'What the call to feature flag responded with.',
+            examples: ['true', 'false'],
+        },
+        $feature_flag: {
+            label: 'Feature Flag',
+            description: (
+                <>
+                    The feature flag that was called.
+                    <br />
+                    <br />
+                    Warning! This only works in combination with the $feature_flag_called event. If you want to filter
+                    other events, try "Active Feature Flags".
+                </>
+            ),
+            examples: ['beta-feature'],
+        },
+        $survey_response: {
+            label: 'Survey Response',
+            description: 'The response value for the first question in the survey.',
+            examples: ['I love it!', 5, "['choice 1', 'choice 3']"],
+        },
+        $survey_name: {
+            label: 'Survey Name',
+            description: 'The name of the survey.',
+            examples: ['Product Feedback for New Product', 'Home page NPS'],
+        },
+        $survey_questions: {
+            label: 'Survey Questions',
+            description: 'The questions asked in the survey.',
+        },
+        $survey_id: {
+            label: 'Survey ID',
+            description: 'The unique identifier for the survey.',
+        },
+        $device: {
+            label: 'Device',
+            description: 'The mobile device that was used.',
+            examples: ['iPad', 'iPhone', 'Android'],
+        },
+        $sentry_url: {
+            label: 'Sentry URL',
+            description: 'Direct link to the exception in Sentry',
+            examples: ['https://sentry.io/...'],
+        },
+        $device_type: {
+            label: 'Device Type',
+            description: 'The type of device that was used.',
+            examples: ['Mobile', 'Tablet', 'Desktop'],
+        },
+        $screen_density: {
+            label: 'Screen density',
+            description:
+                'The logical density of the display. This is a scaling factor for the Density Independent Pixel unit, where one DIP is one pixel on an approximately 160 dpi screen (for example a 240x320, 1.5"x2" screen), providing the baseline of the system\'s display. Thus on a 160dpi screen this density value will be 1; on a 120 dpi screen it would be .75; etc.',
+            examples: [2.75],
+        },
+        $device_model: {
+            label: 'Device Model',
+            description: 'The model of the device that was used.',
+            examples: ['iPhone9,3', 'SM-G965W'],
+        },
+        $network_wifi: {
+            label: 'Network WiFi',
+            description: 'Whether the user was on WiFi when the event was sent.',
+            examples: ['true', 'false'],
+        },
+        $network_bluetooth: {
+            label: 'Network Bluetooth',
+            description: 'Whether the user was on Bluetooth when the event was sent.',
+            examples: ['true', 'false'],
+        },
+        $network_cellular: {
+            label: 'Network Cellular',
+            description: 'Whether the user was on cellular when the event was sent.',
+            examples: ['true', 'false'],
+        },
+        $client_session_initial_referring_host: {
+            label: 'Referrer Host',
+            description: 'Host that the user came from. (First-touch, session-scoped)',
+            examples: ['google.com', 'facebook.com'],
+        },
+        $client_session_initial_pathname: {
+            label: 'Initial Path',
+            description: 'Path that the user started their session on. (First-touch, session-scoped)',
+            examples: ['/register', '/some/landing/page'],
+        },
+        $client_session_initial_utm_source: {
+            label: 'Initial UTM Source',
+            description: 'UTM Source. (First-touch, session-scoped)',
+            examples: ['Google', 'Bing', 'Twitter', 'Facebook'],
+        },
+        $client_session_initial_utm_campaign: {
+            label: 'Initial UTM Campaign',
+            description: 'UTM Campaign. (First-touch, session-scoped)',
+            examples: ['feature launch', 'discount'],
+        },
+        $client_session_initial_utm_medium: {
+            label: 'Initial UTM Medium',
+            description: 'UTM Medium. (First-touch, session-scoped)',
+            examples: ['Social', 'Organic', 'Paid', 'Email'],
+        },
+        $client_session_initial_utm_content: {
+            label: 'Initial UTM Source',
+            description: 'UTM Source. (First-touch, session-scoped)',
+            examples: ['bottom link', 'second button'],
+        },
+        $client_session_initial_utm_term: {
+            label: 'Initial UTM Source',
+            description: 'UTM Source. (First-touch, session-scoped)',
+            examples: ['free goodies'],
+        },
+        $network_carrier: {
+            label: 'Network Carrier',
+            description: 'The network carrier that the user is on.',
+            examples: ['cricket', 'telecom'],
+        },
+        // set by the Application Opened event
+        from_background: {
+            label: 'From Background',
+            description: 'Whether the app was opened for the first time or from the background.',
+            examples: ['true', 'false'],
+        },
+        // set by the Application Opened/Deep Link Opened event
+        url: {
+            label: 'URL',
+            description: 'The deep link URL that the app was opened from.',
+            examples: ['https://open.my.app'],
+        },
+        referring_application: {
+            label: 'Referrer Application',
+            description: 'The namespace of the app that made the request.',
+            examples: ['com.posthog.app'],
+        },
+        // set by the Application Installed/Application Updated/Application Opened events
+        // similar to $app_version
+        version: {
+            label: 'App Version',
+            description: 'The version of the app',
+            examples: ['1.0.0'],
+        },
+        previous_version: {
+            label: 'App Previous Version',
+            description: 'The previous version of the app',
+            examples: ['1.0.0'],
+        },
+        // similar to $app_build
+        build: {
+            label: 'App Build',
+            description: 'The build number for the app',
+            examples: ['1'],
+        },
+        previous_build: {
+            label: 'App Previous Build',
+            description: 'The previous build number for the app',
+            examples: ['1'],
         },
     },
-}
+    person_properties: {}, // Currently person properties are the same as event properties, see assignment below
+    sessions: {
+        $session_duration: {
+            label: 'Session duration',
+            description: (
+                <span>
+                    The duration of the session being tracked. Learn more about how PostHog tracks sessions in{' '}
+                    <Link to="https://posthog.com/docs/user-guides/sessions">our documentation.</Link>
+                    <br /> <br />
+                    Note, if the duration is formatted as a single number (not 'HH:MM:SS'), it's in seconds.
+                </span>
+            ),
+            examples: ['01:04:12'],
+        },
+    },
+    groups: {
+        $group_key: {
+            label: 'Group Key',
+            description: 'Specified group key',
+        },
+    },
+} satisfies Partial<Record<TaxonomicFilterGroupType, Record<string, CoreFilterDefinition>>>
+CORE_FILTER_DEFINITIONS_BY_GROUP.person_properties = Object.fromEntries(
+    Object.entries(CORE_FILTER_DEFINITIONS_BY_GROUP.event_properties).flatMap(([key, value]) =>
+        eventToPersonProperties.has(key) || key.startsWith('$geoip_')
+            ? [
+                  [
+                      key,
+                      {
+                          ...value,
+                          label: `Latest ${value.label}`,
+                          description:
+                              'description' in value
+                                  ? `${value.description} Data from the last time this user was seen.`
+                                  : 'Data from the last time this user was seen.',
+                      },
+                  ],
+                  [
+                      `$initial_${key.replace(/^\$/, '')}`,
+                      {
+                          ...value,
+                          label: `Initial ${value.label}`,
+                          description:
+                              'description' in value
+                                  ? `${value.description} Data from the first time this user was seen.`
+                                  : 'Data from the first time this user was seen.',
+                      },
+                  ],
+              ]
+            : [[key, value]]
+    )
+)
+CORE_FILTER_DEFINITIONS_BY_GROUP.event_properties.distinct_id = CORE_FILTER_DEFINITIONS_BY_GROUP.metadata.distinct_id
 
-export const keyMappingKeys = Object.keys(KEY_MAPPING.event)
+export const PROPERTY_KEYS = Object.keys(CORE_FILTER_DEFINITIONS_BY_GROUP.event_properties)
 
-export function isPostHogProp(key: string): boolean {
-    /*
-    Returns whether a given property is a PostHog-defined property. If the property is custom-defined,
-        function will return false.
-    */
-    if (Object.keys(KEY_MAPPING.event).includes(key) || Object.keys(KEY_MAPPING.element).includes(key)) {
+/** Return whether a given filter key is part of PostHog's core (marked by the PostHog logo). */
+export function isCoreFilter(key: string): boolean {
+    if (Object.values(CORE_FILTER_DEFINITIONS_BY_GROUP).some((mapping) => Object.keys(mapping).includes(key))) {
         return true
     }
     return false
 }
 
 export type PropertyKey = string | null | undefined
-export type PropertyType = 'event' | 'element'
 
-export function getKeyMapping(
+export function getCoreFilterDefinition(
     value: string | PropertyFilterValue | undefined,
-    type: 'event' | 'element'
-): KeyMapping | null {
+    type: TaxonomicFilterGroupType
+): CoreFilterDefinition | null {
     if (value == undefined) {
         return null
     }
 
     value = value.toString()
-    let data = null
-    if (value in KEY_MAPPING[type]) {
-        return { ...KEY_MAPPING[type][value] }
-    } else if (value.startsWith('$initial_') && value.replace(/^\$initial_/, '$') in KEY_MAPPING[type]) {
-        data = { ...KEY_MAPPING[type][value.replace(/^\$initial_/, '$')] }
-        if (data.description) {
-            data.label = `Initial ${data.label}`
-            data.description = `${data.description} Data from the first time this user was seen.`
+    const isGroupTaxonomicFilterType = type.startsWith('groups_')
+    if (type in CORE_FILTER_DEFINITIONS_BY_GROUP && value in CORE_FILTER_DEFINITIONS_BY_GROUP[type]) {
+        return { ...CORE_FILTER_DEFINITIONS_BY_GROUP[type][value] }
+    } else if (
+        isGroupTaxonomicFilterType &&
+        value in CORE_FILTER_DEFINITIONS_BY_GROUP[TaxonomicFilterGroupType.GroupsPrefix]
+    ) {
+        return { ...CORE_FILTER_DEFINITIONS_BY_GROUP[TaxonomicFilterGroupType.GroupsPrefix][value] }
+    } else if (value.startsWith('$survey_responded/')) {
+        const surveyId = value.replace(/^\$survey_responded\//, '')
+        if (surveyId) {
+            return {
+                label: `Survey Responded: ${surveyId}`,
+                description: `Whether the user responded to survey with ID: "${surveyId}".`,
+            }
         }
-        return data
+    } else if (value.startsWith('$survey_dismissed/')) {
+        const surveyId = value.replace(/^\$survey_dismissed\//, '')
+        if (surveyId) {
+            return {
+                label: `Survey Dismissed: ${surveyId}`,
+                description: `Whether the user dismissed survey with ID: "${surveyId}".`,
+            }
+        }
+    } else if (value.startsWith('$survey_response_')) {
+        const surveyIndex = value.replace(/^\$survey_response_/, '')
+        if (surveyIndex) {
+            const index = Number(surveyIndex) + 1
+            // yes this will return 21th, but I'm applying the domain logic of
+            // it being very unlikely that someone will have more than 20 questions,
+            // rather than hyper optimising the suffix.
+            const suffix = index === 1 ? 'st' : index === 2 ? 'nd' : index === 3 ? 'rd' : 'th'
+            return {
+                label: `Survey Response Question ID: ${surveyIndex}`,
+                description: `The response value for the ${index}${suffix} question in the survey.`,
+            }
+        }
     } else if (value.startsWith('$feature/')) {
         const featureFlagKey = value.replace(/^\$feature\//, '')
         if (featureFlagKey) {
@@ -807,7 +1022,7 @@ export function getKeyMapping(
     return null
 }
 
-export function getPropertyLabel(value: PropertyKey, type: PropertyType = 'event'): string {
-    const data = getKeyMapping(value, type)
-    return (data ? data.label : value)?.trim() ?? '(empty string)'
+export function getFilterLabel(key: PropertyKey, type: TaxonomicFilterGroupType): string {
+    const data = getCoreFilterDefinition(key, type)
+    return (data ? data.label : key)?.trim() ?? '(empty string)'
 }

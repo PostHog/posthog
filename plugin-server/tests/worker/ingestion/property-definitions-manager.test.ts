@@ -3,13 +3,11 @@ import { v4 } from 'uuid'
 
 import { DateTimePropertyTypeFormat, Hub, PropertyDefinitionTypeEnum, PropertyType } from '../../../src/types'
 import { createHub } from '../../../src/utils/db/hub'
+import { PostgresUse } from '../../../src/utils/db/postgres'
 import { posthog } from '../../../src/utils/posthog'
 import { UUIDT } from '../../../src/utils/utils'
 import { GroupTypeManager } from '../../../src/worker/ingestion/group-type-manager'
-import {
-    dateTimePropertyTypeFormatPatterns,
-    isNumericString,
-} from '../../../src/worker/ingestion/property-definitions-auto-discovery'
+import { dateTimePropertyTypeFormatPatterns } from '../../../src/worker/ingestion/property-definitions-auto-discovery'
 import { NULL_AFTER_PROPERTY_TYPE_DETECTION } from '../../../src/worker/ingestion/property-definitions-cache'
 import { PropertyDefinitionsManager } from '../../../src/worker/ingestion/property-definitions-manager'
 import { createOrganization, createOrganizationMembership, createTeam, createUser } from '../../helpers/sql'
@@ -46,17 +44,20 @@ describe('PropertyDefinitionsManager()', () => {
     describe('updateEventNamesAndProperties()', () => {
         describe('base tests', () => {
             beforeEach(async () => {
-                await hub.db.postgresQuery(
+                await hub.db.postgres.query(
+                    PostgresUse.COMMON_WRITE,
                     `INSERT INTO posthog_eventdefinition (id, name, volume_30_day, query_usage_30_day, team_id, created_at) VALUES ($1, $2, $3, $4, $5, NOW())`,
                     [new UUIDT().toString(), '$pageview', 3, 2, teamId],
                     'testTag'
                 )
-                await hub.db.postgresQuery(
+                await hub.db.postgres.query(
+                    PostgresUse.COMMON_WRITE,
                     `INSERT INTO posthog_eventdefinition (id, name, team_id, created_at, last_seen_at) VALUES ($1, $2, $3, NOW(), $4)`,
                     [new UUIDT().toString(), 'another_test_event', teamId, '2014-03-23T23:23:23Z'],
                     'testTag'
                 )
-                await hub.db.postgresQuery(
+                await hub.db.postgres.query(
+                    PostgresUse.COMMON_WRITE,
                     `INSERT INTO posthog_propertydefinition (id, name, type, is_numerical, volume_30_day, query_usage_30_day, team_id) VALUES ($1, $2, $3, $4, $5, $6, $7)`,
                     [
                         new UUIDT().toString(),
@@ -69,7 +70,8 @@ describe('PropertyDefinitionsManager()', () => {
                     ],
                     'testTag'
                 )
-                await hub.db.postgresQuery(
+                await hub.db.postgres.query(
+                    PostgresUse.COMMON_WRITE,
                     `INSERT INTO posthog_propertydefinition (id, name, type, is_numerical, volume_30_day, query_usage_30_day, team_id) VALUES ($1, $2, $3, $4, $5, $6, $7)`,
                     [
                         new UUIDT().toString(),
@@ -82,7 +84,8 @@ describe('PropertyDefinitionsManager()', () => {
                     ],
                     'testTag'
                 )
-                await hub.db.postgresQuery(
+                await hub.db.postgres.query(
+                    PostgresUse.COMMON_WRITE,
                     `INSERT INTO posthog_eventproperty (event, property, team_id) VALUES ($1, $2, $3)`,
                     ['new-event', 'numeric_prop', teamId],
                     'testTag'
@@ -210,7 +213,7 @@ describe('PropertyDefinitionsManager()', () => {
                 expect(manager.eventLastSeenCache.get(`[${teamId},"another_test_event"]`)).toEqual(20150404)
 
                 // Start tracking queries
-                const postgresQuery = jest.spyOn(manager.db, 'postgresQuery')
+                const postgresQuery = jest.spyOn(manager.db.postgres, 'query')
 
                 // New event, 10 sec later (all caches should be hit)
                 jest.spyOn(global.Date, 'now').mockImplementation(() => new Date('2015-04-04T04:04:14.000Z').getTime())
@@ -221,6 +224,7 @@ describe('PropertyDefinitionsManager()', () => {
                 jest.spyOn(global.Date, 'now').mockImplementation(() => new Date('2015-04-05T04:04:14.000Z').getTime())
                 await manager.updateEventNamesAndProperties(teamId, 'another_test_event', {})
                 expect(postgresQuery).toHaveBeenCalledWith(
+                    PostgresUse.COMMON_WRITE,
                     'UPDATE posthog_eventdefinition SET last_seen_at=$1 WHERE team_id=$2 AND name=$3',
                     [DateTime.now(), teamId, 'another_test_event'],
                     'updateEventLastSeenAt'
@@ -244,28 +248,29 @@ describe('PropertyDefinitionsManager()', () => {
             it('handles cache invalidation properly', async () => {
                 await manager.teamManager.fetchTeam(teamId)
                 await manager.cacheEventNamesAndProperties(teamId, '$foobar')
-                await hub.db.postgresQuery(
+                await hub.db.postgres.query(
+                    PostgresUse.COMMON_WRITE,
                     `INSERT INTO posthog_eventdefinition (id, name, volume_30_day, query_usage_30_day, team_id) VALUES ($1, $2, NULL, NULL, $3) ON CONFLICT DO NOTHING`,
                     [new UUIDT().toString(), '$foobar', teamId],
                     'insertEventDefinition'
                 )
 
                 jest.spyOn(manager.teamManager, 'fetchTeam')
-                jest.spyOn(hub.db, 'postgresQuery')
+                jest.spyOn(hub.db.postgres, 'query')
 
                 // Scenario: Different request comes in, team gets reloaded in the background with no updates
                 await manager.updateEventNamesAndProperties(teamId, '$foobar', {})
                 expect(manager.teamManager.fetchTeam).toHaveBeenCalledTimes(1)
-                expect(hub.db.postgresQuery).toHaveBeenCalledTimes(1)
+                expect(hub.db.postgres.query).toHaveBeenCalledTimes(1)
 
                 // Scenario: Next request but a real update
                 jest.mocked(manager.teamManager.fetchTeam).mockClear()
-                jest.mocked(hub.db.postgresQuery).mockClear()
+                jest.mocked(hub.db.postgres.query).mockClear()
 
                 await manager.updateEventNamesAndProperties(teamId, '$newevent', {})
                 expect(manager.teamManager.fetchTeam).toHaveBeenCalledTimes(1)
                 // extra query for `cacheEventNamesAndProperties` that we did manually before
-                expect(hub.db.postgresQuery).toHaveBeenCalledTimes(2)
+                expect(hub.db.postgres.query).toHaveBeenCalledTimes(2)
             })
         })
 
@@ -386,9 +391,10 @@ describe('PropertyDefinitionsManager()', () => {
                 const distinctId = v4()
                 const userId = await createUser(hub.db.postgres, distinctId)
                 await createOrganizationMembership(hub.db.postgres, organizationId, userId)
-                await hub.db.postgresQuery(
+                await hub.db.postgres.query(
+                    PostgresUse.COMMON_WRITE,
                     `
-                        UPDATE posthog_team 
+                        UPDATE posthog_team
                         SET ingested_event = false
                         WHERE id = $1
                     `,
@@ -507,20 +513,19 @@ describe('PropertyDefinitionsManager()', () => {
                 ])
             })
 
-            it('identifies a numeric type sent as a string', async () => {
+            it('identifies a numeric type sent as a string... as a string', async () => {
                 await manager.updateEventNamesAndProperties(teamId, 'another_test_event', {
                     some_number: String(randomInteger()),
                 })
 
-                expect(manager.propertyDefinitionsCache.get(teamId)?.peek('1some_number')).toEqual('Numeric')
+                expect(manager.propertyDefinitionsCache.get(teamId)?.peek('1some_number')).toEqual('String')
 
                 expect(await hub.db.fetchPropertyDefinitions(teamId)).toEqual([
                     expect.objectContaining({
                         id: expect.any(String),
                         team_id: teamId,
                         name: 'some_number',
-                        is_numerical: true,
-                        property_type: 'Numeric',
+                        property_type: 'String',
                     }),
                 ])
             })
@@ -565,17 +570,17 @@ describe('PropertyDefinitionsManager()', () => {
                 {
                     propertyKey: 'unix timestamp with fractional seconds as a string',
                     date: '1234567890.123',
-                    expectedPropertyType: PropertyType.DateTime,
+                    expectedPropertyType: PropertyType.String,
                 },
                 {
                     propertyKey: 'unix timestamp with five decimal places of fractional seconds as a string',
                     date: '1234567890.12345',
-                    expectedPropertyType: PropertyType.DateTime,
+                    expectedPropertyType: PropertyType.String,
                 },
                 {
                     propertyKey: 'unix timestamp as a string',
                     date: '1234567890',
-                    expectedPropertyType: PropertyType.DateTime,
+                    expectedPropertyType: PropertyType.String,
                 },
                 {
                     propertyKey: 'unix timestamp in milliseconds as a number',
@@ -585,7 +590,7 @@ describe('PropertyDefinitionsManager()', () => {
                 {
                     propertyKey: 'unix timestamp in milliseconds as a string',
                     date: '1234567890123',
-                    expectedPropertyType: PropertyType.DateTime,
+                    expectedPropertyType: PropertyType.String,
                 },
             ].flatMap((testcase) => {
                 const toEdit = testcase
@@ -598,7 +603,7 @@ describe('PropertyDefinitionsManager()', () => {
                 const toNotMatch = {
                     ...toEdit,
                     propertyKey: toEdit.propertyKey.replace('timestamp', 'as a string'),
-                    expectedPropertyType: isNumericString(toEdit.date) ? PropertyType.Numeric : PropertyType.String,
+                    expectedPropertyType: typeof toEdit.date === 'number' ? PropertyType.Numeric : PropertyType.String,
                 }
 
                 return [testcase, toMatchWithJustTimeInName, toNotMatch]
@@ -746,7 +751,8 @@ describe('PropertyDefinitionsManager()', () => {
             })
 
             it('does identify type if the property was previously saved with no type', async () => {
-                await manager.db.postgresQuery(
+                await manager.db.postgres.query(
+                    PostgresUse.COMMON_WRITE,
                     'INSERT INTO posthog_propertydefinition (id, name, type, is_numerical, volume_30_day, query_usage_30_day, team_id, property_type) VALUES ($1, $2, $3, $4, NULL, NULL, $5, $6)',
                     [new UUIDT().toString(), 'a_timestamp', PropertyDefinitionTypeEnum.Event, false, teamId, null],
                     'testTag'
@@ -756,7 +762,8 @@ describe('PropertyDefinitionsManager()', () => {
                     a_timestamp: 1234567890,
                 })
 
-                const results = await manager.db.postgresQuery(
+                const results = await manager.db.postgres.query(
+                    PostgresUse.COMMON_WRITE,
                     `
                     SELECT property_type from posthog_propertydefinition
                     where name=$1
@@ -768,7 +775,8 @@ describe('PropertyDefinitionsManager()', () => {
             })
 
             it('does not replace property type if the property was previously saved with a different type', async () => {
-                await manager.db.postgresQuery(
+                await manager.db.postgres.query(
+                    PostgresUse.COMMON_WRITE,
                     'INSERT INTO posthog_propertydefinition (id, name, type, is_numerical, volume_30_day, query_usage_30_day, team_id, property_type) VALUES ($1, $2, $3, $4, NULL, NULL, $5, $6)',
                     [
                         new UUIDT().toString(),
@@ -785,7 +793,8 @@ describe('PropertyDefinitionsManager()', () => {
                     a_prop_with_type: 1234567890,
                 })
 
-                const results = await manager.db.postgresQuery(
+                const results = await manager.db.postgres.query(
+                    PostgresUse.COMMON_WRITE,
                     `
                     SELECT property_type from posthog_propertydefinition
                     where name=$1

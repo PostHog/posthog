@@ -1,19 +1,24 @@
 from datetime import timedelta
 from os.path import abspath, dirname, join
 from typing import Dict, Generator, List, Tuple
-import pytz
+from zoneinfo import ZoneInfo
 
 from dateutil.relativedelta import relativedelta
 from django.utils import timezone
 
-from posthog.api.dead_letter_queue import get_dead_letter_queue_events_last_24h, get_dead_letter_queue_size
+from posthog.api.dead_letter_queue import (
+    get_dead_letter_queue_events_last_24h,
+    get_dead_letter_queue_size,
+)
 from posthog.cache_utils import cache_for
 from posthog.client import query_with_columns, sync_execute
-from posthog.cloud_utils import is_cloud
-from posthog.models.event.util import get_event_count, get_event_count_for_last_month, get_event_count_month_to_date
-from posthog.models.session_recording_event.util import (
-    get_recording_count_month_to_date,
-    get_recording_events_count_month_to_date,
+from posthog.models.event.util import (
+    get_event_count,
+    get_event_count_for_last_month,
+    get_event_count_month_to_date,
+)
+from posthog.session_recordings.models.system_status_queries import (
+    get_recording_status_month_to_date,
 )
 
 SLOW_THRESHOLD_MS = 10000
@@ -27,12 +32,20 @@ SystemStatusRow = Dict
 
 def system_status() -> Generator[SystemStatusRow, None, None]:
     alive = is_alive()
-    yield {"key": "clickhouse_alive", "metric": "Clickhouse database alive", "value": alive}
+    yield {
+        "key": "clickhouse_alive",
+        "metric": "Clickhouse database alive",
+        "value": alive,
+    }
 
     if not alive:
         return
 
-    yield {"key": "clickhouse_event_count", "metric": "Events in ClickHouse", "value": get_event_count()}
+    yield {
+        "key": "clickhouse_event_count",
+        "metric": "Events in ClickHouse",
+        "value": get_event_count(),
+    }
     yield {
         "key": "clickhouse_event_count_last_month",
         "metric": "Events recorded last month",
@@ -44,19 +57,24 @@ def system_status() -> Generator[SystemStatusRow, None, None]:
         "value": get_event_count_month_to_date(),
     }
 
-    if not is_cloud():
-        # NOTE: These metrics can be quite expensive to calculate and are only really interesting to self-hosted customers
-        yield {
-            "key": "clickhouse_session_recordings_count_month_to_date",
-            "metric": "Session recordings month to date",
-            "value": get_recording_count_month_to_date(),
-        }
+    recordings_status = get_recording_status_month_to_date()
+    yield {
+        "key": "clickhouse_session_recordings_count_month_to_date",
+        "metric": "Session recordings month to date",
+        "value": recordings_status.count,
+    }
 
-        yield {
-            "key": "clickhouse_session_recordings_events_count_month_to_date",
-            "metric": "Session recordings events month to date",
-            "value": get_recording_events_count_month_to_date(),
-        }
+    yield {
+        "key": "clickhouse_session_recordings_events_count_month_to_date",
+        "metric": "Session recordings events month to date",
+        "value": recordings_status.events,
+    }
+
+    yield {
+        "key": "clickhouse_session_recordings_events_size_ingested",
+        "metric": "Session recordings events data ingested month to date",
+        "value": recordings_status.size,
+    }
 
     disk_status = sync_execute(
         "SELECT formatReadableSize(total_space), formatReadableSize(free_space) FROM system.disks"
@@ -64,8 +82,16 @@ def system_status() -> Generator[SystemStatusRow, None, None]:
 
     for index, (total_space, free_space) in enumerate(disk_status):
         metric = "Clickhouse disk" if len(disk_status) == 1 else f"Clickhouse disk {index}"
-        yield {"key": f"clickhouse_disk_{index}_free_space", "metric": f"{metric} free space", "value": free_space}
-        yield {"key": f"clickhouse_disk_{index}_total_space", "metric": f"{metric} total space", "value": total_space}
+        yield {
+            "key": f"clickhouse_disk_{index}_free_space",
+            "metric": f"{metric} free space",
+            "value": free_space,
+        }
+        yield {
+            "key": f"clickhouse_disk_{index}_total_space",
+            "metric": f"{metric} total space",
+            "value": total_space,
+        }
 
     table_sizes = sync_execute(
         """
@@ -94,16 +120,24 @@ def system_status() -> Generator[SystemStatusRow, None, None]:
         "key": "clickhouse_system_metrics",
         "metric": "Clickhouse system metrics",
         "value": "",
-        "subrows": {"columns": ["Metric", "Value", "Description"], "rows": list(sorted(system_metrics))},
+        "subrows": {
+            "columns": ["Metric", "Value", "Description"],
+            "rows": list(sorted(system_metrics)),
+        },
     }
 
     # This timestamp is a naive timestamp (does not include a timezone)
     # ClickHouse always stores timezone agnostic unix timestamp
     # See https://clickhouse.com/docs/en/sql-reference/data-types/datetime#usage-remarks
-    last_event_ingested_timestamp = sync_execute("SELECT max(_timestamp) FROM events")[0][0]
+    last_event_ingested_timestamp = sync_execute(
+        """
+    SELECT max(_timestamp) FROM events
+    WHERE timestamp >= now() - INTERVAL 1 HOUR
+    """
+    )[0][0]
 
     # Therefore we can confidently apply the UTC timezone
-    last_event_ingested_timestamp_utc = last_event_ingested_timestamp.replace(tzinfo=pytz.UTC)
+    last_event_ingested_timestamp_utc = last_event_ingested_timestamp.replace(tzinfo=ZoneInfo("UTC"))
 
     yield {
         "key": "last_event_ingested_timestamp",
@@ -113,9 +147,16 @@ def system_status() -> Generator[SystemStatusRow, None, None]:
 
     dead_letter_queue_size = get_dead_letter_queue_size()
 
-    yield {"key": "dead_letter_queue_size", "metric": "Dead letter queue size", "value": dead_letter_queue_size}
+    yield {
+        "key": "dead_letter_queue_size",
+        "metric": "Dead letter queue size",
+        "value": dead_letter_queue_size,
+    }
 
-    dead_letter_queue_events_high, dead_letter_queue_events_last_day = dead_letter_queue_ratio()
+    (
+        dead_letter_queue_events_high,
+        dead_letter_queue_events_last_day,
+    ) = dead_letter_queue_ratio()
 
     yield {
         "key": "dead_letter_queue_events_last_day",

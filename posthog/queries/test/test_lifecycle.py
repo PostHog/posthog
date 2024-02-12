@@ -25,7 +25,17 @@ def create_action(**kwargs):
     return action
 
 
-class TestLifecycle(ClickhouseTestMixin, APIBaseTest):
+class TestLifecycleBase(ClickhouseTestMixin, APIBaseTest):
+    def assertLifecycleResults(self, results, expected):
+        sorted_results = [
+            {"status": r["status"], "data": r["data"]} for r in sorted(results, key=lambda r: r["status"])
+        ]
+        sorted_expected = list(sorted(expected, key=lambda r: r["status"]))
+
+        self.assertListEqual(sorted_results, sorted_expected)
+
+
+class TestLifecycle(TestLifecycleBase):
     def _create_events(self, data, event="$pageview"):
         person_result = []
         for id, timestamps in data:
@@ -34,7 +44,10 @@ class TestLifecycle(ClickhouseTestMixin, APIBaseTest):
                     _create_person(
                         team_id=self.team.pk,
                         distinct_ids=[id],
-                        properties={"name": id, **({"email": "test@posthog.com"} if id == "p1" else {})},
+                        properties={
+                            "name": id,
+                            **({"email": "test@posthog.com"} if id == "p1" else {}),
+                        },
                     )
                 )
             for timestamp in timestamps:
@@ -73,7 +86,7 @@ class TestLifecycle(ClickhouseTestMixin, APIBaseTest):
             self.team,
         )
 
-        assertLifecycleResults(
+        self.assertLifecycleResults(
             result,
             [
                 {"status": "dormant", "data": [0, -2, -1, 0, -2, 0, -1, 0]},
@@ -121,7 +134,7 @@ class TestLifecycle(ClickhouseTestMixin, APIBaseTest):
             self.team,
         )
 
-        assertLifecycleResults(
+        self.assertLifecycleResults(
             result,
             [
                 {"status": "dormant", "data": [0, -2, -1, 0, -2, 0, -1, 0]},
@@ -182,7 +195,7 @@ class TestLifecycle(ClickhouseTestMixin, APIBaseTest):
             self.team,
         )
 
-        assertLifecycleResults(
+        self.assertLifecycleResults(
             result,
             [
                 {"status": "dormant", "data": [0, -2, -1, 0, -2, 0, -1, 0]},
@@ -241,14 +254,34 @@ class TestLifecycle(ClickhouseTestMixin, APIBaseTest):
         )
 
         _create_person(team_id=self.team.pk, distinct_ids=["p2"], properties={"name": "p2"})
-        _create_event(team=self.team, event="$pageview", distinct_id="p2", timestamp="2020-01-09T12:00:00Z")
-        _create_event(team=self.team, event="$pageview", distinct_id="p2", timestamp="2020-01-12T12:00:00Z")
+        _create_event(
+            team=self.team,
+            event="$pageview",
+            distinct_id="p2",
+            timestamp="2020-01-09T12:00:00Z",
+        )
+        _create_event(
+            team=self.team,
+            event="$pageview",
+            distinct_id="p2",
+            timestamp="2020-01-12T12:00:00Z",
+        )
 
         _create_person(team_id=self.team.pk, distinct_ids=["p3"], properties={"name": "p3"})
-        _create_event(team=self.team, event="$pageview", distinct_id="p3", timestamp="2020-01-12T12:00:00Z")
+        _create_event(
+            team=self.team,
+            event="$pageview",
+            distinct_id="p3",
+            timestamp="2020-01-12T12:00:00Z",
+        )
 
         _create_person(team_id=self.team.pk, distinct_ids=["p4"], properties={"name": "p4"})
-        _create_event(team=self.team, event="$pageview", distinct_id="p4", timestamp="2020-01-15T12:00:00Z")
+        _create_event(
+            team=self.team,
+            event="$pageview",
+            distinct_id="p4",
+            timestamp="2020-01-15T12:00:00Z",
+        )
 
         result = Trends().run(
             Filter(
@@ -263,7 +296,7 @@ class TestLifecycle(ClickhouseTestMixin, APIBaseTest):
             self.team,
         )
 
-        assertLifecycleResults(
+        self.assertLifecycleResults(
             result,
             [
                 {"status": "dormant", "data": [0, 0, -1, 0, -1, 0, -1, 0]},
@@ -293,7 +326,7 @@ class TestLifecycle(ClickhouseTestMixin, APIBaseTest):
             self.team,
         )
 
-        assertLifecycleResults(
+        self.assertLifecycleResults(
             result,
             [
                 {"status": "dormant", "data": [0, 0, -1, 0, -1, 0, -1, 0]},
@@ -352,14 +385,34 @@ class TestLifecycle(ClickhouseTestMixin, APIBaseTest):
         )
 
         _create_person(team_id=self.team.pk, distinct_ids=["p2"], properties={"name": "p2"})
-        _create_event(team=self.team, event="$pageview", distinct_id="p2", timestamp="2020-01-09T12:00:00Z")
-        _create_event(team=self.team, event="$pageview", distinct_id="p2", timestamp="2020-01-12T12:00:00Z")
+        _create_event(
+            team=self.team,
+            event="$pageview",
+            distinct_id="p2",
+            timestamp="2020-01-09T12:00:00Z",
+        )
+        _create_event(
+            team=self.team,
+            event="$pageview",
+            distinct_id="p2",
+            timestamp="2020-01-12T12:00:00Z",
+        )
 
         _create_person(team_id=self.team.pk, distinct_ids=["p3"], properties={"name": "p3"})
-        _create_event(team=self.team, event="$pageview", distinct_id="p3", timestamp="2020-01-12T12:00:00Z")
+        _create_event(
+            team=self.team,
+            event="$pageview",
+            distinct_id="p3",
+            timestamp="2020-01-12T12:00:00Z",
+        )
 
         _create_person(team_id=self.team.pk, distinct_ids=["p4"], properties={"name": "p4"})
-        _create_event(team=self.team, event="$pageview", distinct_id="p4", timestamp="2020-01-15T12:00:00Z")
+        _create_event(
+            team=self.team,
+            event="$pageview",
+            distinct_id="p4",
+            timestamp="2020-01-15T12:00:00Z",
+        )
 
         result = Trends().run(
             Filter(
@@ -380,7 +433,7 @@ class TestLifecycle(ClickhouseTestMixin, APIBaseTest):
             self.team,
         )
 
-        assertLifecycleResults(
+        self.assertLifecycleResults(
             result,
             [
                 {"status": "dormant", "data": [0, 0, -1, 0, -1, 0, -1, 0]},
@@ -392,15 +445,44 @@ class TestLifecycle(ClickhouseTestMixin, APIBaseTest):
 
     def test_lifecycle_trends_distinct_id_repeat(self):
         with freeze_time("2020-01-12T12:00:00Z"):
-            _create_person(team_id=self.team.pk, distinct_ids=["p1", "another_p1"], properties={"name": "p1"})
+            _create_person(
+                team_id=self.team.pk,
+                distinct_ids=["p1", "another_p1"],
+                properties={"name": "p1"},
+            )
 
-        _create_event(team=self.team, event="$pageview", distinct_id="p1", timestamp="2020-01-12T12:00:00Z")
-        _create_event(team=self.team, event="$pageview", distinct_id="another_p1", timestamp="2020-01-14T12:00:00Z")
-        _create_event(team=self.team, event="$pageview", distinct_id="p1", timestamp="2020-01-15T12:00:00Z")
+        _create_event(
+            team=self.team,
+            event="$pageview",
+            distinct_id="p1",
+            timestamp="2020-01-12T12:00:00Z",
+        )
+        _create_event(
+            team=self.team,
+            event="$pageview",
+            distinct_id="another_p1",
+            timestamp="2020-01-14T12:00:00Z",
+        )
+        _create_event(
+            team=self.team,
+            event="$pageview",
+            distinct_id="p1",
+            timestamp="2020-01-15T12:00:00Z",
+        )
 
-        _create_event(team=self.team, event="$pageview", distinct_id="p1", timestamp="2020-01-17T12:00:00Z")
+        _create_event(
+            team=self.team,
+            event="$pageview",
+            distinct_id="p1",
+            timestamp="2020-01-17T12:00:00Z",
+        )
 
-        _create_event(team=self.team, event="$pageview", distinct_id="p1", timestamp="2020-01-19T12:00:00Z")
+        _create_event(
+            team=self.team,
+            event="$pageview",
+            distinct_id="p1",
+            timestamp="2020-01-19T12:00:00Z",
+        )
 
         result = Trends().run(
             Filter(
@@ -414,7 +496,7 @@ class TestLifecycle(ClickhouseTestMixin, APIBaseTest):
             self.team,
         )
 
-        assertLifecycleResults(
+        self.assertLifecycleResults(
             result,
             [
                 {"status": "dormant", "data": [0, -1, 0, 0, -1, 0, -1, 0]},
@@ -495,7 +577,10 @@ class TestLifecycle(ClickhouseTestMixin, APIBaseTest):
                 person_id = "person{}".format(i)
                 _create_person(team_id=self.team.pk, distinct_ids=[person_id])
                 _create_event(
-                    team=self.team, event="$pageview", distinct_id=person_id, timestamp="2020-01-15T12:00:00Z"
+                    team=self.team,
+                    event="$pageview",
+                    distinct_id=person_id,
+                    timestamp="2020-01-15T12:00:00Z",
                 )
         # even if set to hour 6 it should default to beginning of day and include all pageviews above
         result = self.client.get(
@@ -548,7 +633,7 @@ class TestLifecycle(ClickhouseTestMixin, APIBaseTest):
             self.team,
         )
 
-        assertLifecycleResults(
+        self.assertLifecycleResults(
             result,
             [
                 {"status": "dormant", "data": [0, -2, -1, 0, -2, 0, -1, 0]},
@@ -590,7 +675,7 @@ class TestLifecycle(ClickhouseTestMixin, APIBaseTest):
                 self.team,
             )
 
-        assertLifecycleResults(
+        self.assertLifecycleResults(
             result,
             [
                 {"status": "dormant", "data": [0, -1, 0, 0, -2, -1, 0, -2, 0]},
@@ -635,10 +720,18 @@ class TestLifecycle(ClickhouseTestMixin, APIBaseTest):
         )
 
         self.assertEqual(
-            result[0]["days"], ["2020-02-03", "2020-02-10", "2020-02-17", "2020-02-24", "2020-03-02", "2020-03-09"]
+            result[0]["days"],
+            [
+                "2020-02-03",
+                "2020-02-10",
+                "2020-02-17",
+                "2020-02-24",
+                "2020-03-02",
+                "2020-03-09",
+            ],
         )
 
-        assertLifecycleResults(
+        self.assertLifecycleResults(
             result,
             [
                 {"status": "dormant", "data": [0, 0, -2, -1, -1, -1]},
@@ -681,7 +774,7 @@ class TestLifecycle(ClickhouseTestMixin, APIBaseTest):
             self.team,
         )
 
-        assertLifecycleResults(
+        self.assertLifecycleResults(
             result,
             [
                 {"status": "dormant", "data": [0, -2, -1, 0, -2, 0, -1, 0]},
@@ -725,7 +818,7 @@ class TestLifecycle(ClickhouseTestMixin, APIBaseTest):
             self.team,
         )
 
-        assertLifecycleResults(
+        self.assertLifecycleResults(
             result,
             [
                 {"status": "dormant", "data": [0, -2, 0, 0, -1, 0, 0, 0]},
@@ -772,19 +865,18 @@ class TestLifecycle(ClickhouseTestMixin, APIBaseTest):
             ]
         )
 
+        filter_data = {
+            "date_from": "2020-01-12",
+            "date_to": "2020-01-19",
+            "events": [{"id": "$pageview", "type": "events", "order": 0}],
+            "shown_as": TRENDS_LIFECYCLE,
+        }
         result = Trends().run(
-            Filter(
-                data={
-                    "date_from": "2020-01-12T00:00:00Z",
-                    "date_to": "2020-01-19T00:00:00Z",
-                    "events": [{"id": "$pageview", "type": "events", "order": 0}],
-                    "shown_as": TRENDS_LIFECYCLE,
-                }
-            ),
+            Filter(data=filter_data),
             self.team,
         )
 
-        assertLifecycleResults(
+        self.assertLifecycleResults(
             result,
             [
                 {"status": "dormant", "data": [0, -2, -1, 0, -2, 0, -1, 0]},
@@ -798,21 +890,16 @@ class TestLifecycle(ClickhouseTestMixin, APIBaseTest):
         self.team.save()
 
         result_pacific = Trends().run(
-            Filter(
-                data={
-                    "date_from": "2020-01-12T00:00:00Z",
-                    "date_to": "2020-01-19T00:00:00Z",
-                    "events": [{"id": "$pageview", "type": "events", "order": 0}],
-                    "shown_as": TRENDS_LIFECYCLE,
-                },
-                team=self.team,
-            ),
+            Filter(data=filter_data),
             self.team,
         )
-        assertLifecycleResults(
+        self.assertLifecycleResults(
             result_pacific,
             [
-                {"status": "dormant", "data": [-1.0, -2.0, -1.0, 0.0, -2.0, 0.0, -1.0, 0.0]},
+                {
+                    "status": "dormant",
+                    "data": [-1.0, -2.0, -1.0, 0.0, -2.0, 0.0, -1.0, 0.0],
+                },
                 {"status": "new", "data": [1, 0, 0, 1, 0, 0, 0, 0]},
                 {"status": "resurrecting", "data": [1, 1, 0, 1, 0, 1, 0, 1]},
                 {"status": "returning", "data": [0, 0, 0, 0, 0, 0, 0, 0]},
@@ -853,10 +940,3 @@ class TestLifecycle(ClickhouseTestMixin, APIBaseTest):
             ),
             self.team,
         )
-
-
-def assertLifecycleResults(results, expected):
-    sorted_results = [{"status": r["status"], "data": r["data"]} for r in sorted(results, key=lambda r: r["status"])]
-    sorted_expected = list(sorted(expected, key=lambda r: r["status"]))
-
-    assert sorted_results == sorted_expected

@@ -13,7 +13,6 @@ from posthog.test.test_journeys import journeys_for
 
 
 class TestExperimentCRUD(APILicensedTest):
-
     # List experiments
     def test_can_list_experiments(self):
         response = self.client.get(f"/api/projects/{self.team.id}/experiments/")
@@ -87,7 +86,10 @@ class TestExperimentCRUD(APILicensedTest):
                 "feature_flag_key": ff_key,
                 "parameters": None,
                 "filters": {
-                    "events": [{"order": 0, "id": "$pageview"}, {"order": 1, "id": "$pageleave"}],
+                    "events": [
+                        {"order": 0, "id": "$pageview"},
+                        {"order": 1, "id": "$pageleave"},
+                    ],
                     "properties": [],
                 },
             },
@@ -109,7 +111,8 @@ class TestExperimentCRUD(APILicensedTest):
 
         # Now update
         response = self.client.patch(
-            f"/api/projects/{self.team.id}/experiments/{id}", {"description": "Bazinga", "end_date": end_date}
+            f"/api/projects/{self.team.id}/experiments/{id}",
+            {"description": "Bazinga", "end_date": end_date},
         )
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
@@ -119,7 +122,6 @@ class TestExperimentCRUD(APILicensedTest):
         self.assertEqual(experiment.end_date.strftime("%Y-%m-%dT%H:%M"), end_date)
 
     def test_adding_behavioral_cohort_filter_to_experiment_fails(self):
-
         cohort = Cohort.objects.create(
             team=self.team,
             filters={
@@ -150,7 +152,10 @@ class TestExperimentCRUD(APILicensedTest):
                 "feature_flag_key": ff_key,
                 "parameters": None,
                 "filters": {
-                    "events": [{"order": 0, "id": "$pageview"}, {"order": 1, "id": "$pageleave"}],
+                    "events": [
+                        {"order": 0, "id": "$pageview"},
+                        {"order": 1, "id": "$pageleave"},
+                    ],
                     "properties": [],
                 },
             },
@@ -168,7 +173,10 @@ class TestExperimentCRUD(APILicensedTest):
 
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertEqual(response.json()["type"], "validation_error")
-        self.assertEqual(response.json()["detail"], "Experiments do not support global filter properties")
+        self.assertEqual(
+            response.json()["detail"],
+            "Experiments do not support global filter properties",
+        )
 
     def test_invalid_create(self):
         # Draft experiment
@@ -227,15 +235,26 @@ class TestExperimentCRUD(APILicensedTest):
         # Now update
         response = self.client.patch(
             f"/api/projects/{self.team.id}/experiments/{id}",
-            {"description": "Bazinga", "filters": {}, "feature_flag_key": "new_key"},  # invalid
+            {
+                "description": "Bazinga",
+                "filters": {},
+                "feature_flag_key": "new_key",
+            },  # invalid
         )
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-        self.assertEqual(response.json()["detail"], "Can't update keys: get_feature_flag_key on Experiment")
+        self.assertEqual(
+            response.json()["detail"],
+            "Can't update keys: get_feature_flag_key on Experiment",
+        )
 
     def test_cant_reuse_existing_feature_flag(self):
         ff_key = "a-b-test"
         FeatureFlag.objects.create(
-            team=self.team, rollout_percentage=50, name="Beta feature", key=ff_key, created_by=self.user
+            team=self.team,
+            rollout_percentage=50,
+            name="Beta feature",
+            key=ff_key,
+            created_by=self.user,
         )
         response = self.client.post(
             f"/api/projects/{self.team.id}/experiments/",
@@ -297,7 +316,8 @@ class TestExperimentCRUD(APILicensedTest):
 
         # Now update
         response = self.client.patch(
-            f"/api/projects/{self.team.id}/experiments/{id}", {"description": "Bazinga", "filters": {}}
+            f"/api/projects/{self.team.id}/experiments/{id}",
+            {"description": "Bazinga", "filters": {}},
         )
         self.assertEqual(response.status_code, status.HTTP_200_OK)
 
@@ -307,7 +327,8 @@ class TestExperimentCRUD(APILicensedTest):
 
         # Now launch experiment
         response = self.client.patch(
-            f"/api/projects/{self.team.id}/experiments/{id}", {"start_date": "2021-12-01T10:23"}
+            f"/api/projects/{self.team.id}/experiments/{id}",
+            {"start_date": "2021-12-01T10:23"},
         )
         self.assertEqual(response.status_code, status.HTTP_200_OK)
 
@@ -356,13 +377,28 @@ class TestExperimentCRUD(APILicensedTest):
                 "feature_flag_key": ff_key,
                 "parameters": {
                     "feature_flag_variants": [
-                        {"key": "control", "name": "Control Group", "rollout_percentage": 33},
-                        {"key": "test_1", "name": "Test Variant", "rollout_percentage": 33},
-                        {"key": "test_2", "name": "Test Variant", "rollout_percentage": 34},
+                        {
+                            "key": "control",
+                            "name": "Control Group",
+                            "rollout_percentage": 33,
+                        },
+                        {
+                            "key": "test_1",
+                            "name": "Test Variant",
+                            "rollout_percentage": 33,
+                        },
+                        {
+                            "key": "test_2",
+                            "name": "Test Variant",
+                            "rollout_percentage": 34,
+                        },
                     ]
                 },
                 "filters": {
-                    "events": [{"order": 0, "id": "$pageview"}, {"order": 1, "id": "$pageleave"}],
+                    "events": [
+                        {"order": 0, "id": "$pageview"},
+                        {"order": 1, "id": "$pageleave"},
+                    ],
                     "properties": [],
                 },
             },
@@ -392,7 +428,10 @@ class TestExperimentCRUD(APILicensedTest):
             },
         )
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-        self.assertEqual(response.json()["detail"], "Can't update feature_flag_variants on Experiment")
+        self.assertEqual(
+            response.json()["detail"],
+            "Can't update feature_flag_variants on Experiment",
+        )
 
         # Allow changing FF rollout %s
         created_ff = FeatureFlag.objects.get(key=ff_key)
@@ -400,7 +439,11 @@ class TestExperimentCRUD(APILicensedTest):
             **created_ff.filters,
             "multivariate": {
                 "variants": [
-                    {"key": "control", "name": "Control Group", "rollout_percentage": 35},
+                    {
+                        "key": "control",
+                        "name": "Control Group",
+                        "rollout_percentage": 35,
+                    },
                     {"key": "test_1", "name": "Test Variant", "rollout_percentage": 33},
                     {"key": "test_2", "name": "Test Variant", "rollout_percentage": 32},
                 ]
@@ -414,9 +457,21 @@ class TestExperimentCRUD(APILicensedTest):
                 "description": "Bazinga 222",
                 "parameters": {
                     "feature_flag_variants": [
-                        {"key": "control", "name": "Control Group", "rollout_percentage": 33},
-                        {"key": "test_1", "name": "Test Variant", "rollout_percentage": 33},
-                        {"key": "test_2", "name": "Test Variant", "rollout_percentage": 34},
+                        {
+                            "key": "control",
+                            "name": "Control Group",
+                            "rollout_percentage": 33,
+                        },
+                        {
+                            "key": "test_1",
+                            "name": "Test Variant",
+                            "rollout_percentage": 33,
+                        },
+                        {
+                            "key": "test_2",
+                            "name": "Test Variant",
+                            "rollout_percentage": 34,
+                        },
                     ]
                 },
             },
@@ -442,15 +497,30 @@ class TestExperimentCRUD(APILicensedTest):
                 "description": "Bazinga",
                 "parameters": {
                     "feature_flag_variants": [
-                        {"key": "control", "name": "Control Group", "rollout_percentage": 33},
-                        {"key": "test", "name": "Test Variant", "rollout_percentage": 33},
-                        {"key": "test2", "name": "Test Variant", "rollout_percentage": 34},
+                        {
+                            "key": "control",
+                            "name": "Control Group",
+                            "rollout_percentage": 33,
+                        },
+                        {
+                            "key": "test",
+                            "name": "Test Variant",
+                            "rollout_percentage": 33,
+                        },
+                        {
+                            "key": "test2",
+                            "name": "Test Variant",
+                            "rollout_percentage": 34,
+                        },
                     ]
                 },
             },
         )
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-        self.assertEqual(response.json()["detail"], "Can't update feature_flag_variants on Experiment")
+        self.assertEqual(
+            response.json()["detail"],
+            "Can't update feature_flag_variants on Experiment",
+        )
 
         # Now try updating other parameter keys
         response = self.client.patch(
@@ -473,20 +543,38 @@ class TestExperimentCRUD(APILicensedTest):
                 "parameters": {
                     "feature_flag_variants": [
                         # no control
-                        {"key": "test_0", "name": "Control Group", "rollout_percentage": 33},
-                        {"key": "test_1", "name": "Test Variant", "rollout_percentage": 33},
-                        {"key": "test_2", "name": "Test Variant", "rollout_percentage": 33},
+                        {
+                            "key": "test_0",
+                            "name": "Control Group",
+                            "rollout_percentage": 33,
+                        },
+                        {
+                            "key": "test_1",
+                            "name": "Test Variant",
+                            "rollout_percentage": 33,
+                        },
+                        {
+                            "key": "test_2",
+                            "name": "Test Variant",
+                            "rollout_percentage": 33,
+                        },
                     ]
                 },
                 "filters": {
-                    "events": [{"order": 0, "id": "$pageview"}, {"order": 1, "id": "$pageleave"}],
+                    "events": [
+                        {"order": 0, "id": "$pageview"},
+                        {"order": 1, "id": "$pageleave"},
+                    ],
                     "properties": [],
                 },
             },
         )
 
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-        self.assertEqual(response.json()["detail"], "Feature flag variants must contain a control variant")
+        self.assertEqual(
+            response.json()["detail"],
+            "Feature flag variants must contain a control variant",
+        )
 
     def test_deleting_experiment_soft_deletes_feature_flag(self):
         ff_key = "a-b-tests"
@@ -498,7 +586,10 @@ class TestExperimentCRUD(APILicensedTest):
             "feature_flag_key": ff_key,
             "parameters": None,
             "filters": {
-                "events": [{"order": 0, "id": "$pageview"}, {"order": 1, "id": "$pageleave"}],
+                "events": [
+                    {"order": 0, "id": "$pageview"},
+                    {"order": 1, "id": "$pageleave"},
+                ],
                 "properties": [],
             },
         }
@@ -539,7 +630,10 @@ class TestExperimentCRUD(APILicensedTest):
                 "feature_flag_key": ff_key,
                 "parameters": None,
                 "filters": {
-                    "events": [{"order": 0, "id": "$pageview"}, {"order": 1, "id": "$pageleave"}],
+                    "events": [
+                        {"order": 0, "id": "$pageview"},
+                        {"order": 1, "id": "$pageleave"},
+                    ],
                     "properties": [],
                 },
             },
@@ -554,7 +648,10 @@ class TestExperimentCRUD(APILicensedTest):
         id = response.json()["id"]
 
         # Now delete the feature flag
-        response = self.client.patch(f"/api/projects/{self.team.id}/feature_flags/{created_ff.pk}/", {"deleted": True})
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/feature_flags/{created_ff.pk}/",
+            {"deleted": True},
+        )
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
 
@@ -575,7 +672,10 @@ class TestExperimentCRUD(APILicensedTest):
                 "feature_flag_key": ff_key,
                 "parameters": None,
                 "filters": {
-                    "events": [{"order": 0, "id": "$pageview"}, {"order": 1, "id": "$pageleave"}],
+                    "events": [
+                        {"order": 0, "id": "$pageview"},
+                        {"order": 1, "id": "$pageleave"},
+                    ],
                     "properties": [
                         {
                             "key": "industry",
@@ -591,7 +691,10 @@ class TestExperimentCRUD(APILicensedTest):
         )
 
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-        self.assertEqual(response.json()["detail"], "Experiments do not support global filter properties")
+        self.assertEqual(
+            response.json()["detail"],
+            "Experiments do not support global filter properties",
+        )
 
     def test_creating_updating_experiment_with_group_aggregation(self):
         ff_key = "a-b-tests"
@@ -605,7 +708,10 @@ class TestExperimentCRUD(APILicensedTest):
                 "feature_flag_key": ff_key,
                 "parameters": None,
                 "filters": {
-                    "events": [{"order": 0, "id": "$pageview"}, {"order": 1, "id": "$pageleave"}],
+                    "events": [
+                        {"order": 0, "id": "$pageview"},
+                        {"order": 1, "id": "$pageleave"},
+                    ],
                     "properties": [],
                     "aggregation_group_type_index": 1,
                 },
@@ -632,7 +738,10 @@ class TestExperimentCRUD(APILicensedTest):
             {
                 "description": "Bazinga",
                 "filters": {
-                    "events": [{"order": 0, "id": "$pageview"}, {"order": 1, "id": "$pageleave"}],
+                    "events": [
+                        {"order": 0, "id": "$pageview"},
+                        {"order": 1, "id": "$pageleave"},
+                    ],
                     "properties": [],
                     "aggregation_group_type_index": 0,
                 },
@@ -658,7 +767,10 @@ class TestExperimentCRUD(APILicensedTest):
             {
                 "description": "Bazinga",
                 "filters": {
-                    "events": [{"order": 0, "id": "$pageview"}, {"order": 1, "id": "$pageleave"}],
+                    "events": [
+                        {"order": 0, "id": "$pageview"},
+                        {"order": 1, "id": "$pageleave"},
+                    ],
                     "properties": [],
                     # "aggregation_group_type_index": None, # removed key
                 },
@@ -692,7 +804,10 @@ class TestExperimentCRUD(APILicensedTest):
                     "aggregation_group_type_index": 0,
                 },
                 "filters": {
-                    "events": [{"order": 0, "id": "$pageview"}, {"order": 1, "id": "$pageleave"}],
+                    "events": [
+                        {"order": 0, "id": "$pageview"},
+                        {"order": 1, "id": "$pageleave"},
+                    ],
                     "properties": [],
                 },
             },
@@ -718,7 +833,10 @@ class TestExperimentCRUD(APILicensedTest):
             {
                 "description": "Bazinga",
                 "filters": {
-                    "events": [{"order": 0, "id": "$pageview"}, {"order": 1, "id": "$pageleave"}],
+                    "events": [
+                        {"order": 0, "id": "$pageview"},
+                        {"order": 1, "id": "$pageleave"},
+                    ],
                     "properties": [],
                     "aggregation_group_type_index": 1,
                 },
@@ -739,7 +857,6 @@ class TestExperimentCRUD(APILicensedTest):
         self.assertEqual(created_ff.filters["aggregation_group_type_index"], 0)
 
     def test_used_in_experiment_is_populated_correctly_for_feature_flag_list(self) -> None:
-
         ff_key = "a-b-test"
         response = self.client.post(
             f"/api/projects/{self.team.id}/experiments/",
@@ -751,13 +868,28 @@ class TestExperimentCRUD(APILicensedTest):
                 "feature_flag_key": ff_key,
                 "parameters": {
                     "feature_flag_variants": [
-                        {"key": "control", "name": "Control Group", "rollout_percentage": 33},
-                        {"key": "test_1", "name": "Test Variant", "rollout_percentage": 33},
-                        {"key": "test_2", "name": "Test Variant", "rollout_percentage": 34},
+                        {
+                            "key": "control",
+                            "name": "Control Group",
+                            "rollout_percentage": 33,
+                        },
+                        {
+                            "key": "test_1",
+                            "name": "Test Variant",
+                            "rollout_percentage": 33,
+                        },
+                        {
+                            "key": "test_2",
+                            "name": "Test Variant",
+                            "rollout_percentage": 34,
+                        },
                     ]
                 },
                 "filters": {
-                    "events": [{"order": 0, "id": "$pageview"}, {"order": 1, "id": "$pageleave"}],
+                    "events": [
+                        {"order": 0, "id": "$pageview"},
+                        {"order": 1, "id": "$pageleave"},
+                    ],
                     "properties": [],
                 },
             },
@@ -772,12 +904,16 @@ class TestExperimentCRUD(APILicensedTest):
         # add another random feature flag
         self.client.post(
             f"/api/projects/{self.team.id}/feature_flags/",
-            data={"name": f"flag", "key": f"flag_0", "filters": {"groups": [{"rollout_percentage": 5}]}},
+            data={
+                "name": f"flag",
+                "key": f"flag_0",
+                "filters": {"groups": [{"rollout_percentage": 5}]},
+            },
             format="json",
         ).json()
 
         # TODO: Make sure permission bool doesn't cause n + 1
-        with self.assertNumQueries(11):
+        with self.assertNumQueries(12):
             response = self.client.get(f"/api/projects/{self.team.id}/feature_flags")
             self.assertEqual(response.status_code, status.HTTP_200_OK)
             result = response.json()
@@ -806,13 +942,28 @@ class TestExperimentCRUD(APILicensedTest):
                 "feature_flag_key": ff_key,
                 "parameters": {
                     "feature_flag_variants": [
-                        {"key": "control", "name": "Control Group", "rollout_percentage": 33},
-                        {"key": "test_1", "name": "Test Variant", "rollout_percentage": 33},
-                        {"key": "test_2", "name": "Test Variant", "rollout_percentage": 34},
+                        {
+                            "key": "control",
+                            "name": "Control Group",
+                            "rollout_percentage": 33,
+                        },
+                        {
+                            "key": "test_1",
+                            "name": "Test Variant",
+                            "rollout_percentage": 33,
+                        },
+                        {
+                            "key": "test_2",
+                            "name": "Test Variant",
+                            "rollout_percentage": 34,
+                        },
                     ]
                 },
                 "filters": {
-                    "events": [{"order": 0, "id": "$pageview"}, {"order": 1, "id": "$pageleave"}],
+                    "events": [
+                        {"order": 0, "id": "$pageview"},
+                        {"order": 1, "id": "$pageleave"},
+                    ],
                     "properties": [],
                 },
             },
@@ -847,14 +998,26 @@ class TestExperimentCRUD(APILicensedTest):
                 "groups": [
                     {
                         "properties": [],
-                        "rollout_percentage": None,
+                        "rollout_percentage": 100,
                     }
                 ],
                 "multivariate": {
                     "variants": [
-                        {"key": "control", "name": "Control Group", "rollout_percentage": 33},
-                        {"key": "test_1", "name": "Test Variant", "rollout_percentage": 33},
-                        {"key": "test_2", "name": "Test Variant", "rollout_percentage": 34},
+                        {
+                            "key": "control",
+                            "name": "Control Group",
+                            "rollout_percentage": 33,
+                        },
+                        {
+                            "key": "test_1",
+                            "name": "Test Variant",
+                            "rollout_percentage": 33,
+                        },
+                        {
+                            "key": "test_2",
+                            "name": "Test Variant",
+                            "rollout_percentage": 34,
+                        },
                     ]
                 },
                 "aggregation_group_type_index": None,
@@ -870,7 +1033,10 @@ class TestExperimentCRUD(APILicensedTest):
             },
         )
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-        self.assertEqual(response.json()["detail"], "Can't update feature_flag_variants on Experiment")
+        self.assertEqual(
+            response.json()["detail"],
+            "Can't update feature_flag_variants on Experiment",
+        )
 
         # ensure cache doesn't change either
         cached_flags = get_feature_flags_for_team_in_cache(self.team.pk)
@@ -883,14 +1049,26 @@ class TestExperimentCRUD(APILicensedTest):
                 "groups": [
                     {
                         "properties": [],
-                        "rollout_percentage": None,
+                        "rollout_percentage": 100,
                     }
                 ],
                 "multivariate": {
                     "variants": [
-                        {"key": "control", "name": "Control Group", "rollout_percentage": 33},
-                        {"key": "test_1", "name": "Test Variant", "rollout_percentage": 33},
-                        {"key": "test_2", "name": "Test Variant", "rollout_percentage": 34},
+                        {
+                            "key": "control",
+                            "name": "Control Group",
+                            "rollout_percentage": 33,
+                        },
+                        {
+                            "key": "test_1",
+                            "name": "Test Variant",
+                            "rollout_percentage": 33,
+                        },
+                        {
+                            "key": "test_2",
+                            "name": "Test Variant",
+                            "rollout_percentage": 34,
+                        },
                     ]
                 },
                 "aggregation_group_type_index": None,
@@ -904,9 +1082,21 @@ class TestExperimentCRUD(APILicensedTest):
                 "description": "Bazinga",
                 "parameters": {
                     "feature_flag_variants": [
-                        {"key": "control", "name": "Control Group", "rollout_percentage": 34},
-                        {"key": "test_1", "name": "Test Variant", "rollout_percentage": 33},
-                        {"key": "test_2", "name": "Test Variant", "rollout_percentage": 32},
+                        {
+                            "key": "control",
+                            "name": "Control Group",
+                            "rollout_percentage": 34,
+                        },
+                        {
+                            "key": "test_1",
+                            "name": "Test Variant",
+                            "rollout_percentage": 33,
+                        },
+                        {
+                            "key": "test_2",
+                            "name": "Test Variant",
+                            "rollout_percentage": 32,
+                        },
                     ]
                 },
             },
@@ -926,14 +1116,26 @@ class TestExperimentCRUD(APILicensedTest):
                 "groups": [
                     {
                         "properties": [],
-                        "rollout_percentage": None,
+                        "rollout_percentage": 100,
                     }
                 ],
                 "multivariate": {
                     "variants": [
-                        {"key": "control", "name": "Control Group", "rollout_percentage": 33},
-                        {"key": "test_1", "name": "Test Variant", "rollout_percentage": 33},
-                        {"key": "test_2", "name": "Test Variant", "rollout_percentage": 34},
+                        {
+                            "key": "control",
+                            "name": "Control Group",
+                            "rollout_percentage": 33,
+                        },
+                        {
+                            "key": "test_1",
+                            "name": "Test Variant",
+                            "rollout_percentage": 33,
+                        },
+                        {
+                            "key": "test_2",
+                            "name": "Test Variant",
+                            "rollout_percentage": 34,
+                        },
                     ]
                 },
                 "aggregation_group_type_index": None,
@@ -945,20 +1147,43 @@ class TestExperimentCRUD(APILicensedTest):
 class ClickhouseTestFunnelExperimentResults(ClickhouseTestMixin, APILicensedTest):
     @snapshot_clickhouse_queries
     def test_experiment_flow_with_event_results(self):
-
         journeys_for(
             {
                 "person1": [
-                    {"event": "$pageview", "timestamp": "2020-01-02", "properties": {"$feature/a-b-test": "test"}},
-                    {"event": "$pageleave", "timestamp": "2020-01-04", "properties": {"$feature/a-b-test": "test"}},
+                    {
+                        "event": "$pageview",
+                        "timestamp": "2020-01-02",
+                        "properties": {"$feature/a-b-test": "test"},
+                    },
+                    {
+                        "event": "$pageleave",
+                        "timestamp": "2020-01-04",
+                        "properties": {"$feature/a-b-test": "test"},
+                    },
                 ],
                 "person2": [
-                    {"event": "$pageview", "timestamp": "2020-01-03", "properties": {"$feature/a-b-test": "control"}},
-                    {"event": "$pageleave", "timestamp": "2020-01-05", "properties": {"$feature/a-b-test": "control"}},
+                    {
+                        "event": "$pageview",
+                        "timestamp": "2020-01-03",
+                        "properties": {"$feature/a-b-test": "control"},
+                    },
+                    {
+                        "event": "$pageleave",
+                        "timestamp": "2020-01-05",
+                        "properties": {"$feature/a-b-test": "control"},
+                    },
                 ],
                 "person3": [
-                    {"event": "$pageview", "timestamp": "2020-01-04", "properties": {"$feature/a-b-test": "control"}},
-                    {"event": "$pageleave", "timestamp": "2020-01-05", "properties": {"$feature/a-b-test": "control"}},
+                    {
+                        "event": "$pageview",
+                        "timestamp": "2020-01-04",
+                        "properties": {"$feature/a-b-test": "control"},
+                    },
+                    {
+                        "event": "$pageleave",
+                        "timestamp": "2020-01-05",
+                        "properties": {"$feature/a-b-test": "control"},
+                    },
                 ],
                 # doesn't have feature set
                 "person_out_of_control": [
@@ -966,15 +1191,31 @@ class ClickhouseTestFunnelExperimentResults(ClickhouseTestMixin, APILicensedTest
                     {"event": "$pageleave", "timestamp": "2020-01-05"},
                 ],
                 "person_out_of_end_date": [
-                    {"event": "$pageview", "timestamp": "2020-08-03", "properties": {"$feature/a-b-test": "control"}},
-                    {"event": "$pageleave", "timestamp": "2020-08-05", "properties": {"$feature/a-b-test": "control"}},
+                    {
+                        "event": "$pageview",
+                        "timestamp": "2020-08-03",
+                        "properties": {"$feature/a-b-test": "control"},
+                    },
+                    {
+                        "event": "$pageleave",
+                        "timestamp": "2020-08-05",
+                        "properties": {"$feature/a-b-test": "control"},
+                    },
                 ],
                 # non-converters with FF
                 "person4": [
-                    {"event": "$pageview", "timestamp": "2020-01-03", "properties": {"$feature/a-b-test": "test"}}
+                    {
+                        "event": "$pageview",
+                        "timestamp": "2020-01-03",
+                        "properties": {"$feature/a-b-test": "test"},
+                    }
                 ],
                 "person5": [
-                    {"event": "$pageview", "timestamp": "2020-01-04", "properties": {"$feature/a-b-test": "test"}}
+                    {
+                        "event": "$pageview",
+                        "timestamp": "2020-01-04",
+                        "properties": {"$feature/a-b-test": "test"},
+                    }
                 ],
             },
             self.team,
@@ -993,7 +1234,10 @@ class ClickhouseTestFunnelExperimentResults(ClickhouseTestMixin, APILicensedTest
                 "parameters": None,
                 "filters": {
                     "insight": "funnels",
-                    "events": [{"order": 0, "id": "$pageview"}, {"order": 1, "id": "$pageleave"}],
+                    "events": [
+                        {"order": 0, "id": "$pageview"},
+                        {"order": 1, "id": "$pageleave"},
+                    ],
                     "properties": [],
                 },
             },
@@ -1026,44 +1270,64 @@ class ClickhouseTestFunnelExperimentResults(ClickhouseTestMixin, APILicensedTest
         # Variant with test: Beta(2, 3) and control: Beta(3, 1) distribution
         # The variant has very low probability of being better.
         self.assertAlmostEqual(response_data["probability"]["test"], 0.114, places=2)
-        self.assertEqual(response_data["significance_code"], ExperimentSignificanceCode.NOT_ENOUGH_EXPOSURE)
+        self.assertEqual(
+            response_data["significance_code"],
+            ExperimentSignificanceCode.NOT_ENOUGH_EXPOSURE,
+        )
         self.assertAlmostEqual(response_data["expected_loss"], 1, places=2)
 
     @snapshot_clickhouse_queries
     def test_experiment_flow_with_event_results_with_hogql_aggregation(self):
-
         journeys_for(
             {
                 "person1": [
                     {
                         "event": "$pageview",
                         "timestamp": "2020-01-02",
-                        "properties": {"$feature/a-b-test": "test", "$account_id": "person1"},
+                        "properties": {
+                            "$feature/a-b-test": "test",
+                            "$account_id": "person1",
+                        },
                     },
                     {
                         "event": "$pageleave",
                         "timestamp": "2020-01-04",
-                        "properties": {"$feature/a-b-test": "test", "$account_id": "person1"},
+                        "properties": {
+                            "$feature/a-b-test": "test",
+                            "$account_id": "person1",
+                        },
                     },
                     {
                         "event": "$pageview",
                         "timestamp": "2020-01-03",
-                        "properties": {"$feature/a-b-test": "control", "$account_id": "person2"},
+                        "properties": {
+                            "$feature/a-b-test": "control",
+                            "$account_id": "person2",
+                        },
                     },
                     {
                         "event": "$pageleave",
                         "timestamp": "2020-01-05",
-                        "properties": {"$feature/a-b-test": "control", "$account_id": "person2"},
+                        "properties": {
+                            "$feature/a-b-test": "control",
+                            "$account_id": "person2",
+                        },
                     },
                     {
                         "event": "$pageview",
                         "timestamp": "2020-01-04",
-                        "properties": {"$feature/a-b-test": "control", "$account_id": "person3"},
+                        "properties": {
+                            "$feature/a-b-test": "control",
+                            "$account_id": "person3",
+                        },
                     },
                     {
                         "event": "$pageleave",
                         "timestamp": "2020-01-05",
-                        "properties": {"$feature/a-b-test": "control", "$account_id": "person3"},
+                        "properties": {
+                            "$feature/a-b-test": "control",
+                            "$account_id": "person3",
+                        },
                     },
                     # doesn't have feature set
                     {
@@ -1080,20 +1344,34 @@ class ClickhouseTestFunnelExperimentResults(ClickhouseTestMixin, APILicensedTest
                     {
                         "event": "$pageview",
                         "timestamp": "2020-01-03",
-                        "properties": {"$feature/a-b-test": "test", "$account_id": "person4"},
+                        "properties": {
+                            "$feature/a-b-test": "test",
+                            "$account_id": "person4",
+                        },
                     },
                     {
                         "event": "$pageview",
                         "timestamp": "2020-01-04",
-                        "properties": {"$feature/a-b-test": "test", "$account_id": "person5"},
+                        "properties": {
+                            "$feature/a-b-test": "test",
+                            "$account_id": "person5",
+                        },
                     },
                     # doesn't have any properties
                     {"event": "$pageview", "timestamp": "2020-01-03"},
                     {"event": "$pageleave", "timestamp": "2020-01-05"},
                 ],
                 "person_out_of_end_date": [
-                    {"event": "$pageview", "timestamp": "2020-08-03", "properties": {"$feature/a-b-test": "control"}},
-                    {"event": "$pageleave", "timestamp": "2020-08-05", "properties": {"$feature/a-b-test": "control"}},
+                    {
+                        "event": "$pageview",
+                        "timestamp": "2020-08-03",
+                        "properties": {"$feature/a-b-test": "control"},
+                    },
+                    {
+                        "event": "$pageleave",
+                        "timestamp": "2020-08-05",
+                        "properties": {"$feature/a-b-test": "control"},
+                    },
                 ],
             },
             self.team,
@@ -1112,7 +1390,10 @@ class ClickhouseTestFunnelExperimentResults(ClickhouseTestMixin, APILicensedTest
                 "parameters": None,
                 "filters": {
                     "insight": "funnels",
-                    "events": [{"order": 0, "id": "$pageview"}, {"order": 1, "id": "$pageleave"}],
+                    "events": [
+                        {"order": 0, "id": "$pageview"},
+                        {"order": 1, "id": "$pageleave"},
+                    ],
                     "properties": [],
                     "funnel_aggregate_by_hogql": "properties.$account_id",
                 },
@@ -1146,24 +1427,50 @@ class ClickhouseTestFunnelExperimentResults(ClickhouseTestMixin, APILicensedTest
         # Variant with test: Beta(2, 3) and control: Beta(3, 1) distribution
         # The variant has very low probability of being better.
         self.assertAlmostEqual(response_data["probability"]["test"], 0.114, places=2)
-        self.assertEqual(response_data["significance_code"], ExperimentSignificanceCode.NOT_ENOUGH_EXPOSURE)
+        self.assertEqual(
+            response_data["significance_code"],
+            ExperimentSignificanceCode.NOT_ENOUGH_EXPOSURE,
+        )
         self.assertAlmostEqual(response_data["expected_loss"], 1, places=2)
 
     def test_experiment_flow_with_event_results_cached(self):
-
         journeys_for(
             {
                 "person1": [
-                    {"event": "$pageview", "timestamp": "2020-01-02", "properties": {"$feature/a-b-test": "test"}},
-                    {"event": "$pageleave", "timestamp": "2020-01-04", "properties": {"$feature/a-b-test": "test"}},
+                    {
+                        "event": "$pageview",
+                        "timestamp": "2020-01-02",
+                        "properties": {"$feature/a-b-test": "test"},
+                    },
+                    {
+                        "event": "$pageleave",
+                        "timestamp": "2020-01-04",
+                        "properties": {"$feature/a-b-test": "test"},
+                    },
                 ],
                 "person2": [
-                    {"event": "$pageview", "timestamp": "2020-01-03", "properties": {"$feature/a-b-test": "control"}},
-                    {"event": "$pageleave", "timestamp": "2020-01-05", "properties": {"$feature/a-b-test": "control"}},
+                    {
+                        "event": "$pageview",
+                        "timestamp": "2020-01-03",
+                        "properties": {"$feature/a-b-test": "control"},
+                    },
+                    {
+                        "event": "$pageleave",
+                        "timestamp": "2020-01-05",
+                        "properties": {"$feature/a-b-test": "control"},
+                    },
                 ],
                 "person3": [
-                    {"event": "$pageview", "timestamp": "2020-01-04", "properties": {"$feature/a-b-test": "control"}},
-                    {"event": "$pageleave", "timestamp": "2020-01-05", "properties": {"$feature/a-b-test": "control"}},
+                    {
+                        "event": "$pageview",
+                        "timestamp": "2020-01-04",
+                        "properties": {"$feature/a-b-test": "control"},
+                    },
+                    {
+                        "event": "$pageleave",
+                        "timestamp": "2020-01-05",
+                        "properties": {"$feature/a-b-test": "control"},
+                    },
                 ],
                 # doesn't have feature set
                 "person_out_of_control": [
@@ -1171,15 +1478,31 @@ class ClickhouseTestFunnelExperimentResults(ClickhouseTestMixin, APILicensedTest
                     {"event": "$pageleave", "timestamp": "2020-01-05"},
                 ],
                 "person_out_of_end_date": [
-                    {"event": "$pageview", "timestamp": "2020-08-03", "properties": {"$feature/a-b-test": "control"}},
-                    {"event": "$pageleave", "timestamp": "2020-08-05", "properties": {"$feature/a-b-test": "control"}},
+                    {
+                        "event": "$pageview",
+                        "timestamp": "2020-08-03",
+                        "properties": {"$feature/a-b-test": "control"},
+                    },
+                    {
+                        "event": "$pageleave",
+                        "timestamp": "2020-08-05",
+                        "properties": {"$feature/a-b-test": "control"},
+                    },
                 ],
                 # non-converters with FF
                 "person4": [
-                    {"event": "$pageview", "timestamp": "2020-01-03", "properties": {"$feature/a-b-test": "test"}}
+                    {
+                        "event": "$pageview",
+                        "timestamp": "2020-01-03",
+                        "properties": {"$feature/a-b-test": "test"},
+                    }
                 ],
                 "person5": [
-                    {"event": "$pageview", "timestamp": "2020-01-04", "properties": {"$feature/a-b-test": "test"}}
+                    {
+                        "event": "$pageview",
+                        "timestamp": "2020-01-04",
+                        "properties": {"$feature/a-b-test": "test"},
+                    }
                 ],
             },
             self.team,
@@ -1197,7 +1520,10 @@ class ClickhouseTestFunnelExperimentResults(ClickhouseTestMixin, APILicensedTest
             "parameters": None,
             "filters": {
                 "insight": "funnels",
-                "events": [{"order": 0, "id": "$pageview"}, {"order": 1, "id": "$pageleave"}],
+                "events": [
+                    {"order": 0, "id": "$pageview"},
+                    {"order": 1, "id": "$pageleave"},
+                ],
                 "properties": [],
             },
         }
@@ -1236,7 +1562,10 @@ class ClickhouseTestFunnelExperimentResults(ClickhouseTestMixin, APILicensedTest
         # Variant with test: Beta(2, 3) and control: Beta(3, 1) distribution
         # The variant has very low probability of being better.
         self.assertAlmostEqual(response_data["probability"]["test"], 0.114, places=2)
-        self.assertEqual(response_data["significance_code"], ExperimentSignificanceCode.NOT_ENOUGH_EXPOSURE)
+        self.assertEqual(
+            response_data["significance_code"],
+            ExperimentSignificanceCode.NOT_ENOUGH_EXPOSURE,
+        )
         self.assertAlmostEqual(response_data["expected_loss"], 1, places=2)
 
         response2 = self.client.get(f"/api/projects/{self.team.id}/experiments/{id}/results")
@@ -1248,7 +1577,6 @@ class ClickhouseTestFunnelExperimentResults(ClickhouseTestMixin, APILicensedTest
 
     @snapshot_clickhouse_queries
     def test_experiment_flow_with_event_results_and_events_out_of_time_range_timezones(self):
-
         journeys_for(
             {
                 "person1": [
@@ -1289,10 +1617,18 @@ class ClickhouseTestFunnelExperimentResults(ClickhouseTestMixin, APILicensedTest
                 ],
                 # non-converters with FF
                 "person4": [
-                    {"event": "$pageview", "timestamp": "2020-01-03", "properties": {"$feature/a-b-test": "test"}}
+                    {
+                        "event": "$pageview",
+                        "timestamp": "2020-01-03",
+                        "properties": {"$feature/a-b-test": "test"},
+                    }
                 ],
                 "person5": [
-                    {"event": "$pageview", "timestamp": "2020-01-04", "properties": {"$feature/a-b-test": "test"}}
+                    {
+                        "event": "$pageview",
+                        "timestamp": "2020-01-04",
+                        "properties": {"$feature/a-b-test": "test"},
+                    }
                 ],
                 # converted on the same day as end date, but offset by a few minutes.
                 # experiment ended at 10 AM, UTC+1, so this person should not be included.
@@ -1326,7 +1662,10 @@ class ClickhouseTestFunnelExperimentResults(ClickhouseTestMixin, APILicensedTest
                 "parameters": None,
                 "filters": {
                     "insight": "funnels",
-                    "events": [{"order": 0, "id": "$pageview"}, {"order": 1, "id": "$pageleave"}],
+                    "events": [
+                        {"order": 0, "id": "$pageview"},
+                        {"order": 1, "id": "$pageleave"},
+                    ],
                     "properties": [],
                 },
             },
@@ -1367,7 +1706,10 @@ class ClickhouseTestFunnelExperimentResults(ClickhouseTestMixin, APILicensedTest
         # Variant with test: Beta(2, 3) and control: Beta(3, 1) distribution
         # The variant has very low probability of being better.
         self.assertAlmostEqual(response_data["probability"]["test"], 0.114, places=2)
-        self.assertEqual(response_data["significance_code"], ExperimentSignificanceCode.NOT_ENOUGH_EXPOSURE)
+        self.assertEqual(
+            response_data["significance_code"],
+            ExperimentSignificanceCode.NOT_ENOUGH_EXPOSURE,
+        )
         self.assertAlmostEqual(response_data["expected_loss"], 1, places=2)
 
     @snapshot_clickhouse_queries
@@ -1377,27 +1719,67 @@ class ClickhouseTestFunnelExperimentResults(ClickhouseTestMixin, APILicensedTest
                 "person1_2": [
                     # one event having the property is sufficient, since first touch breakdown is the default
                     {"event": "$pageview", "timestamp": "2020-01-02", "properties": {}},
-                    {"event": "$pageleave", "timestamp": "2020-01-04", "properties": {"$feature/a-b-test": "test_2"}},
+                    {
+                        "event": "$pageleave",
+                        "timestamp": "2020-01-04",
+                        "properties": {"$feature/a-b-test": "test_2"},
+                    },
                 ],
                 "person1_1": [
-                    {"event": "$pageview", "timestamp": "2020-01-02", "properties": {"$feature/a-b-test": "test_1"}},
-                    {"event": "$pageleave", "timestamp": "2020-01-04", "properties": {}},
+                    {
+                        "event": "$pageview",
+                        "timestamp": "2020-01-02",
+                        "properties": {"$feature/a-b-test": "test_1"},
+                    },
+                    {
+                        "event": "$pageleave",
+                        "timestamp": "2020-01-04",
+                        "properties": {},
+                    },
                 ],
                 "person2_1": [
-                    {"event": "$pageview", "timestamp": "2020-01-02", "properties": {"$feature/a-b-test": "test_1"}},
-                    {"event": "$pageleave", "timestamp": "2020-01-04", "properties": {"$feature/a-b-test": "test_1"}},
+                    {
+                        "event": "$pageview",
+                        "timestamp": "2020-01-02",
+                        "properties": {"$feature/a-b-test": "test_1"},
+                    },
+                    {
+                        "event": "$pageleave",
+                        "timestamp": "2020-01-04",
+                        "properties": {"$feature/a-b-test": "test_1"},
+                    },
                 ],
                 "person1": [
-                    {"event": "$pageview", "timestamp": "2020-01-02", "properties": {"$feature/a-b-test": "test"}},
-                    {"event": "$pageleave", "timestamp": "2020-01-04", "properties": {}},
+                    {
+                        "event": "$pageview",
+                        "timestamp": "2020-01-02",
+                        "properties": {"$feature/a-b-test": "test"},
+                    },
+                    {
+                        "event": "$pageleave",
+                        "timestamp": "2020-01-04",
+                        "properties": {},
+                    },
                 ],
                 "person2": [
-                    {"event": "$pageview", "timestamp": "2020-01-03", "properties": {"$feature/a-b-test": "control"}},
-                    {"event": "$pageleave", "timestamp": "2020-01-05", "properties": {"$feature/a-b-test": "control"}},
+                    {
+                        "event": "$pageview",
+                        "timestamp": "2020-01-03",
+                        "properties": {"$feature/a-b-test": "control"},
+                    },
+                    {
+                        "event": "$pageleave",
+                        "timestamp": "2020-01-05",
+                        "properties": {"$feature/a-b-test": "control"},
+                    },
                 ],
                 "person3": [
                     {"event": "$pageview", "timestamp": "2020-01-04", "properties": {}},
-                    {"event": "$pageleave", "timestamp": "2020-01-05", "properties": {"$feature/a-b-test": "control"}},
+                    {
+                        "event": "$pageleave",
+                        "timestamp": "2020-01-05",
+                        "properties": {"$feature/a-b-test": "control"},
+                    },
                 ],
                 # doesn't have feature set
                 "person_out_of_control": [
@@ -1405,22 +1787,46 @@ class ClickhouseTestFunnelExperimentResults(ClickhouseTestMixin, APILicensedTest
                     {"event": "$pageleave", "timestamp": "2020-01-05"},
                 ],
                 "person_out_of_end_date": [
-                    {"event": "$pageview", "timestamp": "2020-08-03", "properties": {"$feature/a-b-test": "control"}},
-                    {"event": "$pageleave", "timestamp": "2020-08-05", "properties": {"$feature/a-b-test": "control"}},
+                    {
+                        "event": "$pageview",
+                        "timestamp": "2020-08-03",
+                        "properties": {"$feature/a-b-test": "control"},
+                    },
+                    {
+                        "event": "$pageleave",
+                        "timestamp": "2020-08-05",
+                        "properties": {"$feature/a-b-test": "control"},
+                    },
                 ],
                 # non-converters with FF
                 "person4": [
-                    {"event": "$pageview", "timestamp": "2020-01-03", "properties": {"$feature/a-b-test": "test"}}
+                    {
+                        "event": "$pageview",
+                        "timestamp": "2020-01-03",
+                        "properties": {"$feature/a-b-test": "test"},
+                    }
                 ],
                 "person5": [
-                    {"event": "$pageview", "timestamp": "2020-01-04", "properties": {"$feature/a-b-test": "test"}}
+                    {
+                        "event": "$pageview",
+                        "timestamp": "2020-01-04",
+                        "properties": {"$feature/a-b-test": "test"},
+                    }
                 ],
                 "person6_1": [
-                    {"event": "$pageview", "timestamp": "2020-01-02", "properties": {"$feature/a-b-test": "test_1"}}
+                    {
+                        "event": "$pageview",
+                        "timestamp": "2020-01-02",
+                        "properties": {"$feature/a-b-test": "test_1"},
+                    }
                 ],
                 # converters with unknown flag variant set
                 "person_unknown_1": [
-                    {"event": "$pageview", "timestamp": "2020-01-02", "properties": {"$feature/a-b-test": "unknown_1"}},
+                    {
+                        "event": "$pageview",
+                        "timestamp": "2020-01-02",
+                        "properties": {"$feature/a-b-test": "unknown_1"},
+                    },
                     {
                         "event": "$pageleave",
                         "timestamp": "2020-01-04",
@@ -1428,7 +1834,11 @@ class ClickhouseTestFunnelExperimentResults(ClickhouseTestMixin, APILicensedTest
                     },
                 ],
                 "person_unknown_2": [
-                    {"event": "$pageview", "timestamp": "2020-01-02", "properties": {"$feature/a-b-test": "unknown_2"}},
+                    {
+                        "event": "$pageview",
+                        "timestamp": "2020-01-02",
+                        "properties": {"$feature/a-b-test": "unknown_2"},
+                    },
                     {
                         "event": "$pageleave",
                         "timestamp": "2020-01-04",
@@ -1436,7 +1846,11 @@ class ClickhouseTestFunnelExperimentResults(ClickhouseTestMixin, APILicensedTest
                     },
                 ],
                 "person_unknown_3": [
-                    {"event": "$pageview", "timestamp": "2020-01-02", "properties": {"$feature/a-b-test": "unknown_3"}},
+                    {
+                        "event": "$pageview",
+                        "timestamp": "2020-01-02",
+                        "properties": {"$feature/a-b-test": "unknown_3"},
+                    },
                     {
                         "event": "$pageleave",
                         "timestamp": "2020-01-04",
@@ -1459,15 +1873,34 @@ class ClickhouseTestFunnelExperimentResults(ClickhouseTestMixin, APILicensedTest
                 "feature_flag_key": ff_key,
                 "parameters": {
                     "feature_flag_variants": [
-                        {"key": "control", "name": "Control Group", "rollout_percentage": 25},
-                        {"key": "test_1", "name": "Test Variant 1", "rollout_percentage": 25},
-                        {"key": "test_2", "name": "Test Variant 2", "rollout_percentage": 25},
-                        {"key": "test", "name": "Test Variant 3", "rollout_percentage": 25},
+                        {
+                            "key": "control",
+                            "name": "Control Group",
+                            "rollout_percentage": 25,
+                        },
+                        {
+                            "key": "test_1",
+                            "name": "Test Variant 1",
+                            "rollout_percentage": 25,
+                        },
+                        {
+                            "key": "test_2",
+                            "name": "Test Variant 2",
+                            "rollout_percentage": 25,
+                        },
+                        {
+                            "key": "test",
+                            "name": "Test Variant 3",
+                            "rollout_percentage": 25,
+                        },
                     ]
                 },
                 "filters": {
                     "insight": "funnels",
-                    "events": [{"order": 0, "id": "$pageview"}, {"order": 1, "id": "$pageleave"}],
+                    "events": [
+                        {"order": 0, "id": "$pageview"},
+                        {"order": 1, "id": "$pageleave"},
+                    ],
                     "properties": [],
                 },
             },
@@ -1501,7 +1934,10 @@ class ClickhouseTestFunnelExperimentResults(ClickhouseTestMixin, APILicensedTest
         self.assertAlmostEqual(response_data["probability"]["test_1"], 0.158, places=1)
         self.assertAlmostEqual(response_data["probability"]["test_2"], 0.324, places=1)
         self.assertAlmostEqual(response_data["probability"]["control"], 0.486, places=1)
-        self.assertEqual(response_data["significance_code"], ExperimentSignificanceCode.NOT_ENOUGH_EXPOSURE)
+        self.assertEqual(
+            response_data["significance_code"],
+            ExperimentSignificanceCode.NOT_ENOUGH_EXPOSURE,
+        )
         self.assertAlmostEqual(response_data["expected_loss"], 1, places=2)
 
 
@@ -1513,45 +1949,96 @@ class ClickhouseTestTrendExperimentResults(ClickhouseTestMixin, APILicensedTest)
             {
                 "person1": [
                     # 5 counts, single person
-                    {"event": "$pageview", "timestamp": "2020-01-02", "properties": {"$feature/a-b-test": "test"}},
-                    {"event": "$pageview", "timestamp": "2020-01-02", "properties": {"$feature/a-b-test": "test"}},
-                    {"event": "$pageview", "timestamp": "2020-01-02", "properties": {"$feature/a-b-test": "test"}},
-                    {"event": "$pageview", "timestamp": "2020-01-02", "properties": {"$feature/a-b-test": "test"}},
-                    {"event": "$pageview", "timestamp": "2020-01-02", "properties": {"$feature/a-b-test": "test"}},
+                    {
+                        "event": "$pageview",
+                        "timestamp": "2020-01-02",
+                        "properties": {"$feature/a-b-test": "test"},
+                    },
+                    {
+                        "event": "$pageview",
+                        "timestamp": "2020-01-02",
+                        "properties": {"$feature/a-b-test": "test"},
+                    },
+                    {
+                        "event": "$pageview",
+                        "timestamp": "2020-01-02",
+                        "properties": {"$feature/a-b-test": "test"},
+                    },
+                    {
+                        "event": "$pageview",
+                        "timestamp": "2020-01-02",
+                        "properties": {"$feature/a-b-test": "test"},
+                    },
+                    {
+                        "event": "$pageview",
+                        "timestamp": "2020-01-02",
+                        "properties": {"$feature/a-b-test": "test"},
+                    },
                     # exposure measured via $feature_flag_called events
                     {
                         "event": "$feature_flag_called",
                         "timestamp": "2020-01-02",
-                        "properties": {"$feature_flag": "a-b-test", "$feature_flag_response": "test"},
+                        "properties": {
+                            "$feature_flag": "a-b-test",
+                            "$feature_flag_response": "test",
+                        },
                     },
                     {
                         "event": "$feature_flag_called",
                         "timestamp": "2020-01-03",
-                        "properties": {"$feature_flag": "a-b-test", "$feature_flag_response": "test"},
+                        "properties": {
+                            "$feature_flag": "a-b-test",
+                            "$feature_flag_response": "test",
+                        },
                     },
                 ],
                 "person2": [
                     {
                         "event": "$feature_flag_called",
                         "timestamp": "2020-01-02",
-                        "properties": {"$feature_flag": "a-b-test", "$feature_flag_response": "control"},
+                        "properties": {
+                            "$feature_flag": "a-b-test",
+                            "$feature_flag_response": "control",
+                        },
                     },
                     # 1 exposure, but more absolute counts
-                    {"event": "$pageview", "timestamp": "2020-01-03", "properties": {"$feature/a-b-test": "control"}},
-                    {"event": "$pageview", "timestamp": "2020-01-04", "properties": {"$feature/a-b-test": "control"}},
-                    {"event": "$pageview", "timestamp": "2020-01-05", "properties": {"$feature/a-b-test": "control"}},
+                    {
+                        "event": "$pageview",
+                        "timestamp": "2020-01-03",
+                        "properties": {"$feature/a-b-test": "control"},
+                    },
+                    {
+                        "event": "$pageview",
+                        "timestamp": "2020-01-04",
+                        "properties": {"$feature/a-b-test": "control"},
+                    },
+                    {
+                        "event": "$pageview",
+                        "timestamp": "2020-01-05",
+                        "properties": {"$feature/a-b-test": "control"},
+                    },
                 ],
                 "person3": [
-                    {"event": "$pageview", "timestamp": "2020-01-04", "properties": {"$feature/a-b-test": "control"}},
+                    {
+                        "event": "$pageview",
+                        "timestamp": "2020-01-04",
+                        "properties": {"$feature/a-b-test": "control"},
+                    },
                     {
                         "event": "$feature_flag_called",
                         "timestamp": "2020-01-02",
-                        "properties": {"$feature_flag": "a-b-test", "$feature_flag_response": "control"},
+                        "properties": {
+                            "$feature_flag": "a-b-test",
+                            "$feature_flag_response": "control",
+                        },
                     },
                     {
                         "event": "$feature_flag_called",
                         "timestamp": "2020-01-03",
-                        "properties": {"$feature_flag": "a-b-test", "$feature_flag_response": "control"},
+                        "properties": {
+                            "$feature_flag": "a-b-test",
+                            "$feature_flag_response": "control",
+                        },
                     },
                 ],
                 # doesn't have feature set
@@ -1560,15 +2047,25 @@ class ClickhouseTestTrendExperimentResults(ClickhouseTestMixin, APILicensedTest)
                     {
                         "event": "$feature_flag_called",
                         "timestamp": "2020-01-02",
-                        "properties": {"$feature_flag": "a-b-test", "$feature_flag_response": "random"},
+                        "properties": {
+                            "$feature_flag": "a-b-test",
+                            "$feature_flag_response": "random",
+                        },
                     },
                 ],
                 "person_out_of_end_date": [
-                    {"event": "$pageview", "timestamp": "2020-08-03", "properties": {"$feature/a-b-test": "control"}},
+                    {
+                        "event": "$pageview",
+                        "timestamp": "2020-08-03",
+                        "properties": {"$feature/a-b-test": "control"},
+                    },
                     {
                         "event": "$feature_flag_called",
                         "timestamp": "2020-08-03",
-                        "properties": {"$feature_flag": "a-b-test", "$feature_flag_response": "control"},
+                        "properties": {
+                            "$feature_flag": "a-b-test",
+                            "$feature_flag_response": "control",
+                        },
                     },
                 ],
             },
@@ -1617,21 +2114,47 @@ class ClickhouseTestTrendExperimentResults(ClickhouseTestMixin, APILicensedTest)
             {
                 "person1": [
                     # 5 counts, single person
-                    {"event": "$pageview", "timestamp": "2020-01-02", "properties": {"$feature/a-b-test": "test"}},
-                    {"event": "$pageview", "timestamp": "2020-01-02", "properties": {"$feature/a-b-test": "test"}},
-                    {"event": "$pageview", "timestamp": "2020-01-02", "properties": {"$feature/a-b-test": "test"}},
-                    {"event": "$pageview", "timestamp": "2020-01-02", "properties": {"$feature/a-b-test": "test"}},
-                    {"event": "$pageview", "timestamp": "2020-01-02", "properties": {"$feature/a-b-test": "test"}},
+                    {
+                        "event": "$pageview",
+                        "timestamp": "2020-01-02",
+                        "properties": {"$feature/a-b-test": "test"},
+                    },
+                    {
+                        "event": "$pageview",
+                        "timestamp": "2020-01-02",
+                        "properties": {"$feature/a-b-test": "test"},
+                    },
+                    {
+                        "event": "$pageview",
+                        "timestamp": "2020-01-02",
+                        "properties": {"$feature/a-b-test": "test"},
+                    },
+                    {
+                        "event": "$pageview",
+                        "timestamp": "2020-01-02",
+                        "properties": {"$feature/a-b-test": "test"},
+                    },
+                    {
+                        "event": "$pageview",
+                        "timestamp": "2020-01-02",
+                        "properties": {"$feature/a-b-test": "test"},
+                    },
                     # exposure measured via $feature_flag_called events
                     {
                         "event": "$feature_flag_called",
                         "timestamp": "2020-01-02",
-                        "properties": {"$feature_flag": "a-b-test", "$feature_flag_response": "test"},
+                        "properties": {
+                            "$feature_flag": "a-b-test",
+                            "$feature_flag_response": "test",
+                        },
                     },
                     {
                         "event": "$feature_flag_called",
                         "timestamp": "2020-01-03",
-                        "properties": {"$feature_flag": "a-b-test", "$feature_flag_response": "test"},
+                        "properties": {
+                            "$feature_flag": "a-b-test",
+                            "$feature_flag_response": "test",
+                        },
                     },
                     {
                         "event": "custom_exposure_event",
@@ -1641,7 +2164,10 @@ class ClickhouseTestTrendExperimentResults(ClickhouseTestMixin, APILicensedTest)
                     {
                         "event": "custom_exposure_event",
                         "timestamp": "2020-01-03",
-                        "properties": {"$feature/a-b-test": "control", "bonk": "no-bonk"},
+                        "properties": {
+                            "$feature/a-b-test": "control",
+                            "bonk": "no-bonk",
+                        },
                     },
                 ],
                 "person2": [
@@ -1651,12 +2177,28 @@ class ClickhouseTestTrendExperimentResults(ClickhouseTestMixin, APILicensedTest)
                         "properties": {"$feature/a-b-test": "control", "bonk": "bonk"},
                     },
                     # 1 exposure, but more absolute counts
-                    {"event": "$pageview", "timestamp": "2020-01-03", "properties": {"$feature/a-b-test": "control"}},
-                    {"event": "$pageview", "timestamp": "2020-01-04", "properties": {"$feature/a-b-test": "control"}},
-                    {"event": "$pageview", "timestamp": "2020-01-05", "properties": {"$feature/a-b-test": "control"}},
+                    {
+                        "event": "$pageview",
+                        "timestamp": "2020-01-03",
+                        "properties": {"$feature/a-b-test": "control"},
+                    },
+                    {
+                        "event": "$pageview",
+                        "timestamp": "2020-01-04",
+                        "properties": {"$feature/a-b-test": "control"},
+                    },
+                    {
+                        "event": "$pageview",
+                        "timestamp": "2020-01-05",
+                        "properties": {"$feature/a-b-test": "control"},
+                    },
                 ],
                 "person3": [
-                    {"event": "$pageview", "timestamp": "2020-01-04", "properties": {"$feature/a-b-test": "control"}},
+                    {
+                        "event": "$pageview",
+                        "timestamp": "2020-01-04",
+                        "properties": {"$feature/a-b-test": "control"},
+                    },
                     {
                         "event": "custom_exposure_event",
                         "timestamp": "2020-01-03",
@@ -1683,11 +2225,18 @@ class ClickhouseTestTrendExperimentResults(ClickhouseTestMixin, APILicensedTest)
                     },
                 ],
                 "person_out_of_end_date": [
-                    {"event": "$pageview", "timestamp": "2020-08-03", "properties": {"$feature/a-b-test": "control"}},
+                    {
+                        "event": "$pageview",
+                        "timestamp": "2020-08-03",
+                        "properties": {"$feature/a-b-test": "control"},
+                    },
                     {
                         "event": "$feature_flag_called",
                         "timestamp": "2020-08-03",
-                        "properties": {"$feature_flag": "a-b-test", "$feature_flag_response": "control"},
+                        "properties": {
+                            "$feature_flag": "a-b-test",
+                            "$feature_flag_response": "control",
+                        },
                     },
                     {
                         "event": "custom_exposure_event",
@@ -1777,24 +2326,37 @@ class ClickhouseTestTrendExperimentResults(ClickhouseTestMixin, APILicensedTest)
                         "timestamp": "2020-01-02",
                         "properties": {"$feature/a-b-test": "test", "hogql": "true"},
                     },
-                    {"event": "$pageview", "timestamp": "2020-01-02", "properties": {"$feature/a-b-test": "test"}},
+                    {
+                        "event": "$pageview",
+                        "timestamp": "2020-01-02",
+                        "properties": {"$feature/a-b-test": "test"},
+                    },
                     # exposure measured via $feature_flag_called events
                     {
                         "event": "$feature_flag_called",
                         "timestamp": "2020-01-02",
-                        "properties": {"$feature_flag": "a-b-test", "$feature_flag_response": "test"},
+                        "properties": {
+                            "$feature_flag": "a-b-test",
+                            "$feature_flag_response": "test",
+                        },
                     },
                     {
                         "event": "$feature_flag_called",
                         "timestamp": "2020-01-03",
-                        "properties": {"$feature_flag": "a-b-test", "$feature_flag_response": "test"},
+                        "properties": {
+                            "$feature_flag": "a-b-test",
+                            "$feature_flag_response": "test",
+                        },
                     },
                 ],
                 "person2": [
                     {
                         "event": "$feature_flag_called",
                         "timestamp": "2020-01-02",
-                        "properties": {"$feature_flag": "a-b-test", "$feature_flag_response": "control"},
+                        "properties": {
+                            "$feature_flag": "a-b-test",
+                            "$feature_flag_response": "control",
+                        },
                     },
                     # 1 exposure, but more absolute counts
                     {
@@ -1822,12 +2384,18 @@ class ClickhouseTestTrendExperimentResults(ClickhouseTestMixin, APILicensedTest)
                     {
                         "event": "$feature_flag_called",
                         "timestamp": "2020-01-02",
-                        "properties": {"$feature_flag": "a-b-test", "$feature_flag_response": "control"},
+                        "properties": {
+                            "$feature_flag": "a-b-test",
+                            "$feature_flag_response": "control",
+                        },
                     },
                     {
                         "event": "$feature_flag_called",
                         "timestamp": "2020-01-03",
-                        "properties": {"$feature_flag": "a-b-test", "$feature_flag_response": "control"},
+                        "properties": {
+                            "$feature_flag": "a-b-test",
+                            "$feature_flag_response": "control",
+                        },
                     },
                 ],
                 # doesn't have feature set
@@ -1836,15 +2404,25 @@ class ClickhouseTestTrendExperimentResults(ClickhouseTestMixin, APILicensedTest)
                     {
                         "event": "$feature_flag_called",
                         "timestamp": "2020-01-02",
-                        "properties": {"$feature_flag": "a-b-test", "$feature_flag_response": "random"},
+                        "properties": {
+                            "$feature_flag": "a-b-test",
+                            "$feature_flag_response": "random",
+                        },
                     },
                 ],
                 "person_out_of_end_date": [
-                    {"event": "$pageview", "timestamp": "2020-08-03", "properties": {"$feature/a-b-test": "control"}},
+                    {
+                        "event": "$pageview",
+                        "timestamp": "2020-08-03",
+                        "properties": {"$feature/a-b-test": "control"},
+                    },
                     {
                         "event": "$feature_flag_called",
                         "timestamp": "2020-08-03",
-                        "properties": {"$feature_flag": "a-b-test", "$feature_flag_response": "control"},
+                        "properties": {
+                            "$feature_flag": "a-b-test",
+                            "$feature_flag_response": "control",
+                        },
                     },
                 ],
             },
@@ -1868,7 +2446,13 @@ class ClickhouseTestTrendExperimentResults(ClickhouseTestMixin, APILicensedTest)
                         {
                             "order": 0,
                             "id": "$pageview",
-                            "properties": [{"key": "properties.hogql ilike 'true'", "type": "hogql", "value": None}],
+                            "properties": [
+                                {
+                                    "key": "properties.hogql ilike 'true'",
+                                    "type": "hogql",
+                                    "value": None,
+                                }
+                            ],
                         }
                     ],
                 },
@@ -1900,45 +2484,96 @@ class ClickhouseTestTrendExperimentResults(ClickhouseTestMixin, APILicensedTest)
             {
                 "person1": [
                     # 5 counts, single person
-                    {"event": "$pageview", "timestamp": "2020-01-02", "properties": {"$feature/a-b-test": "test"}},
-                    {"event": "$pageview", "timestamp": "2020-01-02", "properties": {"$feature/a-b-test": "test"}},
-                    {"event": "$pageview", "timestamp": "2020-01-02", "properties": {"$feature/a-b-test": "test"}},
-                    {"event": "$pageview", "timestamp": "2020-01-02", "properties": {"$feature/a-b-test": "test"}},
-                    {"event": "$pageview", "timestamp": "2020-01-02", "properties": {"$feature/a-b-test": "test"}},
+                    {
+                        "event": "$pageview",
+                        "timestamp": "2020-01-02",
+                        "properties": {"$feature/a-b-test": "test"},
+                    },
+                    {
+                        "event": "$pageview",
+                        "timestamp": "2020-01-02",
+                        "properties": {"$feature/a-b-test": "test"},
+                    },
+                    {
+                        "event": "$pageview",
+                        "timestamp": "2020-01-02",
+                        "properties": {"$feature/a-b-test": "test"},
+                    },
+                    {
+                        "event": "$pageview",
+                        "timestamp": "2020-01-02",
+                        "properties": {"$feature/a-b-test": "test"},
+                    },
+                    {
+                        "event": "$pageview",
+                        "timestamp": "2020-01-02",
+                        "properties": {"$feature/a-b-test": "test"},
+                    },
                     # exposure measured via $feature_flag_called events
                     {
                         "event": "$feature_flag_called",
                         "timestamp": "2020-01-02",
-                        "properties": {"$feature_flag": "a-b-test", "$feature_flag_response": "test"},
+                        "properties": {
+                            "$feature_flag": "a-b-test",
+                            "$feature_flag_response": "test",
+                        },
                     },
                     {
                         "event": "$feature_flag_called",
                         "timestamp": "2020-01-03",
-                        "properties": {"$feature_flag": "a-b-test", "$feature_flag_response": "test"},
+                        "properties": {
+                            "$feature_flag": "a-b-test",
+                            "$feature_flag_response": "test",
+                        },
                     },
                 ],
                 "person2": [
                     {
                         "event": "$feature_flag_called",
                         "timestamp": "2020-01-02",
-                        "properties": {"$feature_flag": "a-b-test", "$feature_flag_response": "control"},
+                        "properties": {
+                            "$feature_flag": "a-b-test",
+                            "$feature_flag_response": "control",
+                        },
                     },
                     # 1 exposure, but more absolute counts
-                    {"event": "$pageview", "timestamp": "2020-01-03", "properties": {"$feature/a-b-test": "control"}},
-                    {"event": "$pageview", "timestamp": "2020-01-04", "properties": {"$feature/a-b-test": "control"}},
-                    {"event": "$pageview", "timestamp": "2020-01-05", "properties": {"$feature/a-b-test": "control"}},
+                    {
+                        "event": "$pageview",
+                        "timestamp": "2020-01-03",
+                        "properties": {"$feature/a-b-test": "control"},
+                    },
+                    {
+                        "event": "$pageview",
+                        "timestamp": "2020-01-04",
+                        "properties": {"$feature/a-b-test": "control"},
+                    },
+                    {
+                        "event": "$pageview",
+                        "timestamp": "2020-01-05",
+                        "properties": {"$feature/a-b-test": "control"},
+                    },
                 ],
                 "person3": [
-                    {"event": "$pageview", "timestamp": "2020-01-04", "properties": {"$feature/a-b-test": "control"}},
+                    {
+                        "event": "$pageview",
+                        "timestamp": "2020-01-04",
+                        "properties": {"$feature/a-b-test": "control"},
+                    },
                     {
                         "event": "$feature_flag_called",
                         "timestamp": "2020-01-02",
-                        "properties": {"$feature_flag": "a-b-test", "$feature_flag_response": "control"},
+                        "properties": {
+                            "$feature_flag": "a-b-test",
+                            "$feature_flag_response": "control",
+                        },
                     },
                     {
                         "event": "$feature_flag_called",
                         "timestamp": "2020-01-03",
-                        "properties": {"$feature_flag": "a-b-test", "$feature_flag_response": "control"},
+                        "properties": {
+                            "$feature_flag": "a-b-test",
+                            "$feature_flag_response": "control",
+                        },
                     },
                 ],
                 # doesn't have feature set
@@ -1947,15 +2582,25 @@ class ClickhouseTestTrendExperimentResults(ClickhouseTestMixin, APILicensedTest)
                     {
                         "event": "$feature_flag_called",
                         "timestamp": "2020-01-02",
-                        "properties": {"$feature_flag": "a-b-test", "$feature_flag_response": "random"},
+                        "properties": {
+                            "$feature_flag": "a-b-test",
+                            "$feature_flag_response": "random",
+                        },
                     },
                 ],
                 "person_out_of_end_date": [
-                    {"event": "$pageview", "timestamp": "2020-08-03", "properties": {"$feature/a-b-test": "control"}},
+                    {
+                        "event": "$pageview",
+                        "timestamp": "2020-08-03",
+                        "properties": {"$feature/a-b-test": "control"},
+                    },
                     {
                         "event": "$feature_flag_called",
                         "timestamp": "2020-08-03",
-                        "properties": {"$feature_flag": "a-b-test", "$feature_flag_response": "control"},
+                        "properties": {
+                            "$feature_flag": "a-b-test",
+                            "$feature_flag_response": "control",
+                        },
                     },
                 ],
                 # slightly out of time range
@@ -1983,12 +2628,18 @@ class ClickhouseTestTrendExperimentResults(ClickhouseTestMixin, APILicensedTest)
                     {
                         "event": "$feature_flag_called",
                         "timestamp": "2020-01-01 06:00:00",
-                        "properties": {"$feature_flag": "a-b-test", "$feature_flag_response": "test"},
+                        "properties": {
+                            "$feature_flag": "a-b-test",
+                            "$feature_flag_response": "test",
+                        },
                     },
                     {
                         "event": "$feature_flag_called",
                         "timestamp": "2020-01-01 08:00:00",
-                        "properties": {"$feature_flag": "a-b-test", "$feature_flag_response": "test"},
+                        "properties": {
+                            "$feature_flag": "a-b-test",
+                            "$feature_flag_response": "test",
+                        },
                     },
                 ],
                 "person_t2": [
@@ -2000,12 +2651,18 @@ class ClickhouseTestTrendExperimentResults(ClickhouseTestMixin, APILicensedTest)
                     {
                         "event": "$feature_flag_called",
                         "timestamp": "2020-01-06 15:02:00",
-                        "properties": {"$feature_flag": "a-b-test", "$feature_flag_response": "control"},
+                        "properties": {
+                            "$feature_flag": "a-b-test",
+                            "$feature_flag_response": "control",
+                        },
                     },
                     {
                         "event": "$feature_flag_called",
                         "timestamp": "2020-01-06 16:00:00",
-                        "properties": {"$feature_flag": "a-b-test", "$feature_flag_response": "control"},
+                        "properties": {
+                            "$feature_flag": "a-b-test",
+                            "$feature_flag_response": "control",
+                        },
                     },
                 ],
             },
@@ -2057,30 +2714,58 @@ class ClickhouseTestTrendExperimentResults(ClickhouseTestMixin, APILicensedTest)
         journeys_for(
             {
                 "person1_2": [
-                    {"event": "$pageview1", "timestamp": "2020-01-02", "properties": {"$feature/a-b-test": "test_2"}}
+                    {
+                        "event": "$pageview1",
+                        "timestamp": "2020-01-02",
+                        "properties": {"$feature/a-b-test": "test_2"},
+                    }
                 ],
                 "person1_1": [
-                    {"event": "$pageview1", "timestamp": "2020-01-02", "properties": {"$feature/a-b-test": "test_1"}}
+                    {
+                        "event": "$pageview1",
+                        "timestamp": "2020-01-02",
+                        "properties": {"$feature/a-b-test": "test_1"},
+                    }
                 ],
                 "person2_1": [
-                    {"event": "$pageview1", "timestamp": "2020-01-02", "properties": {"$feature/a-b-test": "test_1"}}
+                    {
+                        "event": "$pageview1",
+                        "timestamp": "2020-01-02",
+                        "properties": {"$feature/a-b-test": "test_1"},
+                    }
                 ],
                 # "person1": [
                 #     {"event": "$pageview1", "timestamp": "2020-01-02", "properties": {"$feature/a-b-test": "test"},},
                 # ],
                 "person2": [
-                    {"event": "$pageview1", "timestamp": "2020-01-03", "properties": {"$feature/a-b-test": "control"}}
+                    {
+                        "event": "$pageview1",
+                        "timestamp": "2020-01-03",
+                        "properties": {"$feature/a-b-test": "control"},
+                    }
                 ],
                 "person3": [
-                    {"event": "$pageview1", "timestamp": "2020-01-04", "properties": {"$feature/a-b-test": "control"}}
+                    {
+                        "event": "$pageview1",
+                        "timestamp": "2020-01-04",
+                        "properties": {"$feature/a-b-test": "control"},
+                    }
                 ],
                 "person4": [
-                    {"event": "$pageview1", "timestamp": "2020-01-04", "properties": {"$feature/a-b-test": "control"}}
+                    {
+                        "event": "$pageview1",
+                        "timestamp": "2020-01-04",
+                        "properties": {"$feature/a-b-test": "control"},
+                    }
                 ],
                 # doesn't have feature set
                 "person_out_of_control": [{"event": "$pageview1", "timestamp": "2020-01-03"}],
                 "person_out_of_end_date": [
-                    {"event": "$pageview1", "timestamp": "2020-08-03", "properties": {"$feature/a-b-test": "control"}}
+                    {
+                        "event": "$pageview1",
+                        "timestamp": "2020-08-03",
+                        "properties": {"$feature/a-b-test": "control"},
+                    }
                 ],
             },
             self.team,
@@ -2098,10 +2783,26 @@ class ClickhouseTestTrendExperimentResults(ClickhouseTestMixin, APILicensedTest)
                 "feature_flag_key": ff_key,
                 "parameters": {
                     "feature_flag_variants": [
-                        {"key": "control", "name": "Control Group", "rollout_percentage": 25},
-                        {"key": "test_1", "name": "Test Variant 1", "rollout_percentage": 25},
-                        {"key": "test_2", "name": "Test Variant 2", "rollout_percentage": 25},
-                        {"key": "test", "name": "Test Variant 3", "rollout_percentage": 25},
+                        {
+                            "key": "control",
+                            "name": "Control Group",
+                            "rollout_percentage": 25,
+                        },
+                        {
+                            "key": "test_1",
+                            "name": "Test Variant 1",
+                            "rollout_percentage": 25,
+                        },
+                        {
+                            "key": "test_2",
+                            "name": "Test Variant 2",
+                            "rollout_percentage": 25,
+                        },
+                        {
+                            "key": "test",
+                            "name": "Test Variant 3",
+                            "rollout_percentage": 25,
+                        },
                     ]
                 },
                 "filters": {
@@ -2139,66 +2840,127 @@ class ClickhouseTestTrendExperimentResults(ClickhouseTestMixin, APILicensedTest)
             {
                 "person1_2": [
                     # for count data
-                    {"event": "$pageview1", "timestamp": "2020-01-02", "properties": {"$feature/a-b-test": "test_2"}},
-                    {"event": "$pageview1", "timestamp": "2020-01-02", "properties": {"$feature/a-b-test": "test_2"}},
+                    {
+                        "event": "$pageview1",
+                        "timestamp": "2020-01-02",
+                        "properties": {"$feature/a-b-test": "test_2"},
+                    },
+                    {
+                        "event": "$pageview1",
+                        "timestamp": "2020-01-02",
+                        "properties": {"$feature/a-b-test": "test_2"},
+                    },
                     # for exposure counting (counted as 1 only)
                     {
                         "event": "$feature_flag_called",
                         "timestamp": "2020-01-02",
-                        "properties": {"$feature_flag": "a-b-test", "$feature_flag_response": "test_2"},
+                        "properties": {
+                            "$feature_flag": "a-b-test",
+                            "$feature_flag_response": "test_2",
+                        },
                     },
                     {
                         "event": "$feature_flag_called",
                         "timestamp": "2020-01-02",
-                        "properties": {"$feature_flag": "a-b-test", "$feature_flag_response": "test_2"},
+                        "properties": {
+                            "$feature_flag": "a-b-test",
+                            "$feature_flag_response": "test_2",
+                        },
                     },
                 ],
                 "person1_1": [
-                    {"event": "$pageview1", "timestamp": "2020-01-02", "properties": {"$feature/a-b-test": "test_1"}},
+                    {
+                        "event": "$pageview1",
+                        "timestamp": "2020-01-02",
+                        "properties": {"$feature/a-b-test": "test_1"},
+                    },
                     {
                         "event": "$feature_flag_called",
                         "timestamp": "2020-01-02",
-                        "properties": {"$feature_flag": "a-b-test", "$feature_flag_response": "test_1"},
+                        "properties": {
+                            "$feature_flag": "a-b-test",
+                            "$feature_flag_response": "test_1",
+                        },
                     },
                 ],
                 "person2_1": [
-                    {"event": "$pageview1", "timestamp": "2020-01-02", "properties": {"$feature/a-b-test": "test_1"}},
-                    {"event": "$pageview1", "timestamp": "2020-01-02", "properties": {"$feature/a-b-test": "test_1"}},
+                    {
+                        "event": "$pageview1",
+                        "timestamp": "2020-01-02",
+                        "properties": {"$feature/a-b-test": "test_1"},
+                    },
+                    {
+                        "event": "$pageview1",
+                        "timestamp": "2020-01-02",
+                        "properties": {"$feature/a-b-test": "test_1"},
+                    },
                     {
                         "event": "$feature_flag_called",
                         "timestamp": "2020-01-02",
-                        "properties": {"$feature_flag": "a-b-test", "$feature_flag_response": "test_1"},
+                        "properties": {
+                            "$feature_flag": "a-b-test",
+                            "$feature_flag_response": "test_1",
+                        },
                     },
                 ],
                 "person2": [
-                    {"event": "$pageview1", "timestamp": "2020-01-03", "properties": {"$feature/a-b-test": "control"}},
-                    {"event": "$pageview1", "timestamp": "2020-01-03", "properties": {"$feature/a-b-test": "control"}},
+                    {
+                        "event": "$pageview1",
+                        "timestamp": "2020-01-03",
+                        "properties": {"$feature/a-b-test": "control"},
+                    },
+                    {
+                        "event": "$pageview1",
+                        "timestamp": "2020-01-03",
+                        "properties": {"$feature/a-b-test": "control"},
+                    },
                     # 0 exposure shouldn't ideally happen, but it's possible
                 ],
                 "person3": [
-                    {"event": "$pageview1", "timestamp": "2020-01-04", "properties": {"$feature/a-b-test": "control"}},
+                    {
+                        "event": "$pageview1",
+                        "timestamp": "2020-01-04",
+                        "properties": {"$feature/a-b-test": "control"},
+                    },
                     {
                         "event": "$feature_flag_called",
                         "timestamp": "2020-01-02",
-                        "properties": {"$feature_flag": "a-b-test", "$feature_flag_response": "control"},
+                        "properties": {
+                            "$feature_flag": "a-b-test",
+                            "$feature_flag_response": "control",
+                        },
                     },
                 ],
                 "person4": [
-                    {"event": "$pageview1", "timestamp": "2020-01-04", "properties": {"$feature/a-b-test": "control"}},
+                    {
+                        "event": "$pageview1",
+                        "timestamp": "2020-01-04",
+                        "properties": {"$feature/a-b-test": "control"},
+                    },
                     {
                         "event": "$feature_flag_called",
                         "timestamp": "2020-01-02",
-                        "properties": {"$feature_flag": "a-b-test", "$feature_flag_response": "control"},
+                        "properties": {
+                            "$feature_flag": "a-b-test",
+                            "$feature_flag_response": "control",
+                        },
                     },
                 ],
                 # doesn't have feature set
                 "person_out_of_control": [{"event": "$pageview1", "timestamp": "2020-01-03"}],
                 "person_out_of_end_date": [
-                    {"event": "$pageview1", "timestamp": "2020-08-03", "properties": {"$feature/a-b-test": "control"}},
+                    {
+                        "event": "$pageview1",
+                        "timestamp": "2020-08-03",
+                        "properties": {"$feature/a-b-test": "control"},
+                    },
                     {
                         "event": "$feature_flag_called",
                         "timestamp": "2020-08-02",
-                        "properties": {"$feature_flag": "a-b-test", "$feature_flag_response": "control"},
+                        "properties": {
+                            "$feature_flag": "a-b-test",
+                            "$feature_flag_response": "control",
+                        },
                     },
                 ],
             },
@@ -2217,9 +2979,21 @@ class ClickhouseTestTrendExperimentResults(ClickhouseTestMixin, APILicensedTest)
                 "feature_flag_key": ff_key,
                 "parameters": {
                     "feature_flag_variants": [
-                        {"key": "control", "name": "Control Group", "rollout_percentage": 33},
-                        {"key": "test_1", "name": "Test Variant 1", "rollout_percentage": 33},
-                        {"key": "test_2", "name": "Test Variant 2", "rollout_percentage": 34},
+                        {
+                            "key": "control",
+                            "name": "Control Group",
+                            "rollout_percentage": 33,
+                        },
+                        {
+                            "key": "test_1",
+                            "name": "Test Variant 1",
+                            "rollout_percentage": 33,
+                        },
+                        {
+                            "key": "test_2",
+                            "name": "Test Variant 2",
+                            "rollout_percentage": 34,
+                        },
                     ]
                 },
                 "filters": {
@@ -2258,30 +3032,78 @@ class ClickhouseTestTrendExperimentResults(ClickhouseTestMixin, APILicensedTest)
             {
                 "person1": [
                     # 5 counts, single person
-                    {"event": "$pageview", "timestamp": "2020-01-02", "properties": {"$feature/a-b-test": "test"}},
-                    {"event": "$pageview", "timestamp": "2020-01-02", "properties": {"$feature/a-b-test": "test"}},
-                    {"event": "$pageview", "timestamp": "2020-01-02", "properties": {"$feature/a-b-test": "test"}},
-                    {"event": "$pageview", "timestamp": "2020-01-02", "properties": {"$feature/a-b-test": "test"}},
-                    {"event": "$pageview", "timestamp": "2020-01-02", "properties": {"$feature/a-b-test": "test"}},
+                    {
+                        "event": "$pageview",
+                        "timestamp": "2020-01-02",
+                        "properties": {"$feature/a-b-test": "test"},
+                    },
+                    {
+                        "event": "$pageview",
+                        "timestamp": "2020-01-02",
+                        "properties": {"$feature/a-b-test": "test"},
+                    },
+                    {
+                        "event": "$pageview",
+                        "timestamp": "2020-01-02",
+                        "properties": {"$feature/a-b-test": "test"},
+                    },
+                    {
+                        "event": "$pageview",
+                        "timestamp": "2020-01-02",
+                        "properties": {"$feature/a-b-test": "test"},
+                    },
+                    {
+                        "event": "$pageview",
+                        "timestamp": "2020-01-02",
+                        "properties": {"$feature/a-b-test": "test"},
+                    },
                 ],
                 "person2": [
-                    {"event": "$pageview", "timestamp": "2020-01-03", "properties": {"$feature/a-b-test": "control"}},
-                    {"event": "$pageview", "timestamp": "2020-01-04", "properties": {"$feature/a-b-test": "control"}},
-                    {"event": "$pageview", "timestamp": "2020-01-05", "properties": {"$feature/a-b-test": "control"}},
+                    {
+                        "event": "$pageview",
+                        "timestamp": "2020-01-03",
+                        "properties": {"$feature/a-b-test": "control"},
+                    },
+                    {
+                        "event": "$pageview",
+                        "timestamp": "2020-01-04",
+                        "properties": {"$feature/a-b-test": "control"},
+                    },
+                    {
+                        "event": "$pageview",
+                        "timestamp": "2020-01-05",
+                        "properties": {"$feature/a-b-test": "control"},
+                    },
                 ],
                 "person3": [
-                    {"event": "$pageview", "timestamp": "2020-01-04", "properties": {"$feature/a-b-test": "control"}},
+                    {
+                        "event": "$pageview",
+                        "timestamp": "2020-01-04",
+                        "properties": {"$feature/a-b-test": "control"},
+                    },
                 ],
                 "person4": [
-                    {"event": "$pageview", "timestamp": "2020-01-05", "properties": {"$feature/a-b-test": "test"}},
-                    {"event": "$pageview", "timestamp": "2020-01-05", "properties": {"$feature/a-b-test": "test"}},
+                    {
+                        "event": "$pageview",
+                        "timestamp": "2020-01-05",
+                        "properties": {"$feature/a-b-test": "test"},
+                    },
+                    {
+                        "event": "$pageview",
+                        "timestamp": "2020-01-05",
+                        "properties": {"$feature/a-b-test": "test"},
+                    },
                 ],
                 # doesn't have feature set
                 "person_out_of_control": [
                     {"event": "$pageview", "timestamp": "2020-01-03"},
                 ],
                 "person_out_of_end_date": [
-                    {"event": "$pageview", "timestamp": "2020-08-03", "properties": {"$feature/a-b-test": "control"}},
+                    {
+                        "event": "$pageview",
+                        "timestamp": "2020-08-03",
+                        "properties": {"$feature/a-b-test": "control"},
+                    },
                 ],
             },
             self.team,
@@ -2300,7 +3122,14 @@ class ClickhouseTestTrendExperimentResults(ClickhouseTestMixin, APILicensedTest)
                 "parameters": None,
                 "filters": {
                     "insight": "TRENDS",
-                    "events": [{"order": 0, "id": "$pageview", "math": "avg_count_per_actor", "name": "$pageview"}],
+                    "events": [
+                        {
+                            "order": 0,
+                            "id": "$pageview",
+                            "math": "avg_count_per_actor",
+                            "name": "$pageview",
+                        }
+                    ],
                     "properties": [],
                 },
             },
@@ -2323,4 +3152,267 @@ class ClickhouseTestTrendExperimentResults(ClickhouseTestMixin, APILicensedTest)
         # Variant with test: Gamma(7, 1) and control: Gamma(4, 1) distribution
         # The variant has high probability of being better. (effectively Gamma(10,1))
         self.assertAlmostEqual(response_data["probability"]["test"], 0.805, places=2)
+        self.assertFalse(response_data["significant"])
+
+    def test_experiment_flow_with_avg_count_per_property_value_results(self):
+        journeys_for(
+            {
+                "person1": [
+                    # 5 counts, single person
+                    {
+                        "event": "$pageview",
+                        "timestamp": "2020-01-02",
+                        "properties": {"$feature/a-b-test": "test", "mathable": 1},
+                    },
+                    {
+                        "event": "$pageview",
+                        "timestamp": "2020-01-02",
+                        "properties": {"$feature/a-b-test": "test", "mathable": 1},
+                    },
+                    {
+                        "event": "$pageview",
+                        "timestamp": "2020-01-02",
+                        "properties": {"$feature/a-b-test": "test", "mathable": 3},
+                    },
+                    {
+                        "event": "$pageview",
+                        "timestamp": "2020-01-02",
+                        "properties": {"$feature/a-b-test": "test", "mathable": 3},
+                    },
+                    {
+                        "event": "$pageview",
+                        "timestamp": "2020-01-02",
+                        "properties": {"$feature/a-b-test": "test", "mathable": 100},
+                    },
+                ],
+                "person2": [
+                    {
+                        "event": "$pageview",
+                        "timestamp": "2020-01-03",
+                        "properties": {"$feature/a-b-test": "control", "mathable": 1},
+                    },
+                    {
+                        "event": "$pageview",
+                        "timestamp": "2020-01-04",
+                        "properties": {"$feature/a-b-test": "control", "mathable": 1},
+                    },
+                    {
+                        "event": "$pageview",
+                        "timestamp": "2020-01-05",
+                        "properties": {"$feature/a-b-test": "control", "mathable": 1},
+                    },
+                ],
+                "person3": [
+                    {
+                        "event": "$pageview",
+                        "timestamp": "2020-01-04",
+                        "properties": {"$feature/a-b-test": "control", "mathable": 2},
+                    },
+                ],
+                "person4": [
+                    {
+                        "event": "$pageview",
+                        "timestamp": "2020-01-05",
+                        "properties": {"$feature/a-b-test": "test", "mathable": 1},
+                    },
+                    {
+                        "event": "$pageview",
+                        "timestamp": "2020-01-05",
+                        "properties": {"$feature/a-b-test": "test", "mathable": 1.5},
+                    },
+                ],
+                # doesn't have feature set
+                "person_out_of_control": [
+                    {"event": "$pageview", "timestamp": "2020-01-03"},
+                ],
+                "person_out_of_end_date": [
+                    {
+                        "event": "$pageview",
+                        "timestamp": "2020-08-03",
+                        "properties": {"$feature/a-b-test": "control"},
+                    },
+                ],
+            },
+            self.team,
+        )
+
+        ff_key = "a-b-test"
+        # generates the FF which should result in the above events^
+        creation_response = self.client.post(
+            f"/api/projects/{self.team.id}/experiments/",
+            {
+                "name": "Test Experiment",
+                "description": "",
+                "start_date": "2020-01-01T00:00",
+                "end_date": "2020-01-06T00:00",
+                "feature_flag_key": ff_key,
+                "parameters": None,
+                "filters": {
+                    "insight": "TRENDS",
+                    "events": [
+                        {
+                            "order": 0,
+                            "id": "$pageview",
+                            "math": "max",
+                            "math_property": "mathable",
+                        }
+                    ],
+                    "properties": [],
+                },
+            },
+        )
+
+        id = creation_response.json()["id"]
+
+        response = self.client.get(f"/api/projects/{self.team.id}/experiments/{id}/results")
+        self.assertEqual(200, response.status_code)
+
+        response_data = response.json()["result"]
+        result = sorted(response_data["insight"], key=lambda x: x["breakdown_value"])
+
+        self.assertEqual(result[0]["data"], [0.0, 0.0, 1.0, 2.0, 1.0, 0.0])
+        self.assertEqual("control", result[0]["breakdown_value"])
+
+        self.assertEqual(result[1]["data"], [0.0, 100.0, 0.0, 0.0, 1.5, 0.0])
+        self.assertEqual("test", result[1]["breakdown_value"])
+
+        # Variant with test: Gamma(7, 1) and control: Gamma(4, 1) distribution
+        # The variant has high probability of being better. (effectively Gamma(10,1))
+        self.assertAlmostEqual(response_data["probability"]["test"], 0.805, places=2)
+        self.assertFalse(response_data["significant"])
+
+    def test_experiment_flow_with_sum_count_per_property_value_results(self):
+        journeys_for(
+            {
+                "person1": [
+                    # 5 counts, single person
+                    {
+                        "event": "$pageview",
+                        "timestamp": "2020-01-02",
+                        "properties": {"$feature/a-b-test": "test", "mathable": 1},
+                    },
+                    {
+                        "event": "$pageview",
+                        "timestamp": "2020-01-02",
+                        "properties": {"$feature/a-b-test": "test", "mathable": 1},
+                    },
+                    {
+                        "event": "$pageview",
+                        "timestamp": "2020-01-02",
+                        "properties": {"$feature/a-b-test": "test", "mathable": 3},
+                    },
+                    {
+                        "event": "$pageview",
+                        "timestamp": "2020-01-02",
+                        "properties": {"$feature/a-b-test": "test", "mathable": 3},
+                    },
+                    {
+                        "event": "$pageview",
+                        "timestamp": "2020-01-02",
+                        "properties": {"$feature/a-b-test": "test", "mathable": 10},
+                    },
+                ],
+                "person2": [
+                    {
+                        "event": "$pageview",
+                        "timestamp": "2020-01-03",
+                        "properties": {"$feature/a-b-test": "control", "mathable": 1},
+                    },
+                    {
+                        "event": "$pageview",
+                        "timestamp": "2020-01-04",
+                        "properties": {"$feature/a-b-test": "control", "mathable": 1},
+                    },
+                    {
+                        "event": "$pageview",
+                        "timestamp": "2020-01-05",
+                        "properties": {"$feature/a-b-test": "control", "mathable": 1},
+                    },
+                ],
+                "person3": [
+                    {
+                        "event": "$pageview",
+                        "timestamp": "2020-01-04",
+                        "properties": {"$feature/a-b-test": "control", "mathable": 2},
+                    },
+                ],
+                "person4": [
+                    {
+                        "event": "$pageview",
+                        "timestamp": "2020-01-05",
+                        "properties": {"$feature/a-b-test": "test", "mathable": 1},
+                    },
+                    {
+                        "event": "$pageview",
+                        "timestamp": "2020-01-05",
+                        "properties": {"$feature/a-b-test": "test", "mathable": 1.5},
+                    },
+                ],
+                # doesn't have feature set
+                "person_out_of_control": [
+                    {"event": "$pageview", "timestamp": "2020-01-03"},
+                ],
+                "person_out_of_end_date": [
+                    {
+                        "event": "$pageview",
+                        "timestamp": "2020-08-03",
+                        "properties": {"$feature/a-b-test": "control"},
+                    },
+                ],
+            },
+            self.team,
+        )
+
+        ff_key = "a-b-test"
+        # generates the FF which should result in the above events^
+        creation_response = self.client.post(
+            f"/api/projects/{self.team.id}/experiments/",
+            {
+                "name": "Test Experiment",
+                "description": "",
+                "start_date": "2020-01-01T00:00",
+                "end_date": "2020-01-06T00:00",
+                "feature_flag_key": ff_key,
+                "parameters": {
+                    "custom_exposure_filter": {
+                        "events": [
+                            {
+                                "id": "$pageview",  # exposure is total pageviews
+                                "order": 0,
+                            }
+                        ],
+                    }
+                },
+                "filters": {
+                    "insight": "TRENDS",
+                    "events": [
+                        {
+                            "order": 0,
+                            "id": "$pageview",
+                            "math": "sum",
+                            "math_property": "mathable",
+                        }
+                    ],
+                    "properties": [],
+                },
+            },
+        )
+
+        id = creation_response.json()["id"]
+
+        response = self.client.get(f"/api/projects/{self.team.id}/experiments/{id}/results")
+        self.assertEqual(200, response.status_code)
+
+        response_data = response.json()["result"]
+        result = sorted(response_data["insight"], key=lambda x: x["breakdown_value"])
+
+        self.assertEqual(result[0]["data"], [0.0, 0.0, 1.0, 4.0, 5.0, 5.0])
+        self.assertEqual("control", result[0]["breakdown_value"])
+
+        self.assertEqual(result[1]["data"], [0.0, 18.0, 18.0, 18.0, 20.5, 20.5])
+        self.assertEqual("test", result[1]["breakdown_value"])
+
+        # Variant with test: Gamma(7, 1) and control: Gamma(4, 1) distribution
+        # The variant has high probability of being better. (effectively Gamma(10,1))
+        self.assertAlmostEqual(response_data["probability"]["test"], 0.9513, places=2)
         self.assertFalse(response_data["significant"])

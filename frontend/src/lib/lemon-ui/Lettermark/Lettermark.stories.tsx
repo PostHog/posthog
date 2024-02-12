@@ -1,8 +1,10 @@
-import { ComponentMeta, ComponentStory } from '@storybook/react'
-import { Lettermark, LettermarkColor, LettermarkProps } from './Lettermark'
+import { Meta, StoryFn, StoryObj } from '@storybook/react'
 import { range } from 'lib/utils'
 
-export default {
+import { Lettermark, LettermarkColor, LettermarkProps } from './Lettermark'
+
+type Story = StoryObj<typeof Lettermark>
+const meta: Meta<typeof Lettermark> = {
     title: 'Lemon UI/Lettermark',
     component: Lettermark,
     parameters: {
@@ -12,14 +14,19 @@ export default {
                     'Lettermarks are used as visual, icon-like representations of actors (project members, organizations, query steps, cohort criteria groups, etc) in the product. Lettermarks should vary between the 8 variants we have shown below. Ideally the same colour is not placed next to each other',
             },
         },
+        testOptions: {
+            waitForLoadersToDisappear: false,
+        },
     },
-} as ComponentMeta<typeof Lettermark>
+    tags: ['autodocs'],
+}
+export default meta
 
-const Template: ComponentStory<typeof Lettermark> = (props: LettermarkProps) => {
+const Template: StoryFn<typeof Lettermark> = (props: LettermarkProps) => {
     return <Lettermark {...props} />
 }
 
-export const Base = Template.bind({})
+export const Base: Story = Template.bind({})
 Base.args = { name: 'Athena' }
 
 export const Overview = (): JSX.Element => {
@@ -47,14 +54,14 @@ export const Overview = (): JSX.Element => {
     )
 }
 
-export const String = Template.bind({})
+export const String: Story = Template.bind({})
 String.args = { name: 'Athena' }
 
-export const Number = Template.bind({})
+export const Number: Story = Template.bind({})
 Number.args = { name: 42 }
 
-export const Unknown = Template.bind({})
+export const Unknown: Story = Template.bind({})
 Unknown.args = { name: null }
 
-export const Gray = Template.bind({})
+export const Gray: Story = Template.bind({})
 Gray.args = { name: 5, color: LettermarkColor.Gray }

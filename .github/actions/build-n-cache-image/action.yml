@@ -4,19 +4,25 @@ inputs:
     actions-id-token-request-url:
         required: true
         description: "ACTIONS_ID_TOKEN_REQUEST_URL, issued by GitHub when permission 'id-token' is set to 'write'"
-    load:
+    save:
         required: false
         default: 'false'
-        description: Whether to load the image into local Docker after building it
+        description: Whether to save the image in the Depot ephemeral registry after building it
 
 outputs:
     tag:
         description: The tag of the image that was built
         value: ${{ steps.emit.outputs.tag }}
+    build-id:
+        description: The ID of the build
+        value: ${{ steps.build.outputs.build-id }}
 
 runs:
     using: 'composite'
     steps:
+        - name: Checkout
+          uses: actions/checkout@v4
+
         - name: Set up Depot CLI
           uses: depot/setup-action@v1
 
@@ -29,9 +35,11 @@ runs:
           id: build
           uses: depot/build-push-action@v1
           with:
+              context: .
               buildx-fallback: false # buildx is so slow it's better to just fail
-              load: ${{ inputs.load }}
               tags: ${{ steps.emit.outputs.tag }}
               platforms: linux/amd64,linux/arm64
+              build-args: COMMIT_HASH=${{ github.sha }}
+              save: ${{ inputs.save }}
           env:
               ACTIONS_ID_TOKEN_REQUEST_URL: ${{ inputs.actions-id-token-request-url }}

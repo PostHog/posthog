@@ -1,14 +1,17 @@
-import { mswDecorator } from '~/mocks/browser'
 import { Meta } from '@storybook/react'
-import { useAvailableFeatures } from '~/mocks/features'
-import { AvailableFeature } from '~/types'
-import { useEffect } from 'react'
 import { router } from 'kea-router'
-import { urls } from 'scenes/urls'
-import { App } from 'scenes/App'
-import { DatabaseSchemaQueryResponse } from '~/queries/schema'
-import { ingestionWarningsResponse } from './ingestion-warnings/__mocks__/ingestion-warnings-response'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
+import { useEffect } from 'react'
+import { App } from 'scenes/App'
+import { urls } from 'scenes/urls'
+
+import { mswDecorator, setFeatureFlags } from '~/mocks/browser'
+import { useAvailableFeatures } from '~/mocks/features'
+import { DatabaseSchemaQueryResponse } from '~/queries/schema'
+import { AvailableFeature } from '~/types'
+
+import { ingestionWarningsResponse } from './ingestion-warnings/__mocks__/ingestion-warnings-response'
 
 const MOCK_DATABASE: DatabaseSchemaQueryResponse = {
     events: [
@@ -79,11 +82,10 @@ const MOCK_DATABASE: DatabaseSchemaQueryResponse = {
     ],
 }
 
-export default {
+const meta: Meta = {
     title: 'Scenes-App/Data Management',
     parameters: {
         layout: 'fullscreen',
-        options: { showPanel: false },
         testOptions: {
             excludeNavigationFromSnapshot: true,
         },
@@ -106,8 +108,8 @@ export default {
             },
         }),
     ],
-} as Meta
-
+}
+export default meta
 export function Database(): JSX.Element {
     useAvailableFeatures([AvailableFeature.EXPERIMENTATION])
     useEffect(() => {
@@ -117,6 +119,7 @@ export function Database(): JSX.Element {
 }
 
 export function IngestionWarnings(): JSX.Element {
+    setFeatureFlags([FEATURE_FLAGS.INGESTION_WARNINGS_ENABLED])
     useEffect(() => {
         router.actions.push(urls.ingestionWarnings())
     }, [])

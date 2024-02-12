@@ -1,11 +1,13 @@
 .NotebookScene {
     .Navigation3000 & {
         position: absolute;
-        left: 0;
-        top: 0;
-        bottom: 0;
-        right: 0;
-        overflow-y: auto;
+        inset: 0;
         padding: 0 1rem;
+        overflow-y: auto;
+    }
+
+    .ProseMirror > .react-renderer {
+        // TODO: this only works in the NotebookScene view. We need to find a better way to accommodate parent views.
+        scroll-margin-top: 65px;
     }
 }

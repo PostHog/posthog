@@ -1,0 +1,20 @@
+@import '../../styles/mixins';
+
+.SurveyTemplateContainer {
+    display: flex;
+    flex: 1;
+    align-items: center;
+    min-height: 300px;
+    background: var(--bg-light);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+
+    &:hover {
+        cursor: pointer;
+        border-color: var(--primary-3000-hover);
+    }
+
+    .SurveyTemplate {
+        transform: scale(0.8, 0.8);
+    }
+}

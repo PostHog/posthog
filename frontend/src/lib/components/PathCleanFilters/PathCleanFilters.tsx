@@ -1,6 +1,7 @@
 import { PathCleaningFilter } from '~/types'
-import { PathCleanFilterItem } from './PathCleanFilterItem'
+
 import { PathCleanFilterAddItemButton } from './PathCleanFilterAddItemButton'
+import { PathCleanFilterItem } from './PathCleanFilterItem'
 
 export interface PathCleanFiltersProps {
     filters?: PathCleaningFilter[]

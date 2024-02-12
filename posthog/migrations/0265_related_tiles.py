@@ -5,7 +5,6 @@ from django.db import migrations, models
 
 
 class Migration(migrations.Migration):
-
     dependencies = [
         ("posthog", "0264_user_partial_notification_settings"),
     ]
@@ -16,7 +15,9 @@ class Migration(migrations.Migration):
             model_name="dashboardtile",
             name="dashboard",
             field=models.ForeignKey(
-                on_delete=django.db.models.deletion.CASCADE, related_name="tiles", to="posthog.dashboard"
+                on_delete=django.db.models.deletion.CASCADE,
+                related_name="tiles",
+                to="posthog.dashboard",
             ),
         ),
     ]

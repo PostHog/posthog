@@ -1,5 +1,6 @@
+# serializer version: 1
 # name: TestDecide.test_decide_doesnt_error_out_when_database_is_down
-  '
+  '''
   SELECT "posthog_user"."id",
          "posthog_user"."password",
          "posthog_user"."last_login",
@@ -17,7 +18,9 @@
          "posthog_user"."distinct_id",
          "posthog_user"."is_email_verified",
          "posthog_user"."has_seen_product_intro_for",
+         "posthog_user"."strapi_id",
          "posthog_user"."email_opt_in",
+         "posthog_user"."theme_mode",
          "posthog_user"."partial_notification_settings",
          "posthog_user"."anonymize_data",
          "posthog_user"."toolbar_mode",
@@ -25,10 +28,10 @@
   FROM "posthog_user"
   WHERE "posthog_user"."id" = 2
   LIMIT 21 /**/
-  '
----
+  '''
+# ---
 # name: TestDecide.test_decide_doesnt_error_out_when_database_is_down.1
-  '
+  '''
   SELECT "posthog_team"."id",
          "posthog_team"."uuid",
          "posthog_team"."organization_id",
@@ -40,17 +43,25 @@
          "posthog_team"."updated_at",
          "posthog_team"."anonymize_ips",
          "posthog_team"."completed_snippet_onboarding",
+         "posthog_team"."has_completed_onboarding_for",
          "posthog_team"."ingested_event",
          "posthog_team"."autocapture_opt_out",
          "posthog_team"."autocapture_exceptions_opt_in",
          "posthog_team"."autocapture_exceptions_errors_to_ignore",
          "posthog_team"."session_recording_opt_in",
+         "posthog_team"."session_recording_sample_rate",
+         "posthog_team"."session_recording_minimum_duration_milliseconds",
+         "posthog_team"."session_recording_linked_flag",
+         "posthog_team"."session_recording_network_payload_capture_config",
+         "posthog_team"."session_replay_config",
          "posthog_team"."capture_console_log_opt_in",
          "posthog_team"."capture_performance_opt_in",
+         "posthog_team"."surveys_opt_in",
          "posthog_team"."session_recording_version",
          "posthog_team"."signup_token",
          "posthog_team"."is_demo",
          "posthog_team"."access_control",
+         "posthog_team"."week_start_day",
          "posthog_team"."inject_web_apps",
          "posthog_team"."test_account_filters",
          "posthog_team"."test_account_filters_default_checked",
@@ -70,30 +81,16 @@
          "posthog_team"."event_names_with_usage",
          "posthog_team"."event_properties",
          "posthog_team"."event_properties_with_usage",
-         "posthog_team"."event_properties_numerical"
+         "posthog_team"."event_properties_numerical",
+         "posthog_team"."external_data_workspace_id",
+         "posthog_team"."external_data_workspace_last_synced_at"
   FROM "posthog_team"
   WHERE "posthog_team"."id" = 2
   LIMIT 21 /*controller='team-detail',route='api/projects/%28%3FP%3Cid%3E%5B%5E/.%5D%2B%29/%3F%24'*/
-  '
----
-# name: TestDecide.test_decide_doesnt_error_out_when_database_is_down.10
-  '
-  SELECT "posthog_pluginconfig"."id",
-         "posthog_pluginconfig"."web_token",
-         "posthog_pluginsourcefile"."updated_at",
-         "posthog_plugin"."updated_at",
-         "posthog_pluginconfig"."updated_at"
-  FROM "posthog_pluginconfig"
-  INNER JOIN "posthog_plugin" ON ("posthog_pluginconfig"."plugin_id" = "posthog_plugin"."id")
-  INNER JOIN "posthog_pluginsourcefile" ON ("posthog_plugin"."id" = "posthog_pluginsourcefile"."plugin_id")
-  WHERE ("posthog_pluginconfig"."enabled"
-         AND "posthog_pluginsourcefile"."filename" = 'site.ts'
-         AND "posthog_pluginsourcefile"."status" = 'TRANSPILED'
-         AND "posthog_pluginconfig"."team_id" = 2)
-  '
----
+  '''
+# ---
 # name: TestDecide.test_decide_doesnt_error_out_when_database_is_down.2
-  '
+  '''
   SELECT "posthog_organizationmembership"."id",
          "posthog_organizationmembership"."organization_id",
          "posthog_organizationmembership"."user_id",
@@ -110,27 +107,28 @@
          "posthog_organization"."is_member_join_email_enabled",
          "posthog_organization"."enforce_2fa",
          "posthog_organization"."customer_id",
-         "posthog_organization"."available_features",
          "posthog_organization"."available_product_features",
          "posthog_organization"."usage",
+         "posthog_organization"."never_drop_data",
          "posthog_organization"."setup_section_2_completed",
          "posthog_organization"."personalization",
-         "posthog_organization"."domain_whitelist"
+         "posthog_organization"."domain_whitelist",
+         "posthog_organization"."available_features"
   FROM "posthog_organizationmembership"
   INNER JOIN "posthog_organization" ON ("posthog_organizationmembership"."organization_id" = "posthog_organization"."id")
   WHERE "posthog_organizationmembership"."user_id" = 2 /*controller='team-detail',route='api/projects/%28%3FP%3Cid%3E%5B%5E/.%5D%2B%29/%3F%24'*/
-  '
----
+  '''
+# ---
 # name: TestDecide.test_decide_doesnt_error_out_when_database_is_down.3
-  '
-  SELECT (1) AS "a"
+  '''
+  SELECT 1 AS "a"
   FROM "posthog_grouptypemapping"
   WHERE "posthog_grouptypemapping"."team_id" = 2
   LIMIT 1 /*controller='team-detail',route='api/projects/%28%3FP%3Cid%3E%5B%5E/.%5D%2B%29/%3F%24'*/
-  '
----
+  '''
+# ---
 # name: TestDecide.test_decide_doesnt_error_out_when_database_is_down.4
-  '
+  '''
   SELECT "posthog_instancesetting"."id",
          "posthog_instancesetting"."key",
          "posthog_instancesetting"."raw_value"
@@ -138,10 +136,10 @@
   WHERE "posthog_instancesetting"."key" = 'constance:posthog:PERSON_ON_EVENTS_V2_ENABLED'
   ORDER BY "posthog_instancesetting"."id" ASC
   LIMIT 1 /*controller='team-detail',route='api/projects/%28%3FP%3Cid%3E%5B%5E/.%5D%2B%29/%3F%24'*/
-  '
----
+  '''
+# ---
 # name: TestDecide.test_decide_doesnt_error_out_when_database_is_down.5
-  '
+  '''
   SELECT "posthog_instancesetting"."id",
          "posthog_instancesetting"."key",
          "posthog_instancesetting"."raw_value"
@@ -149,10 +147,10 @@
   WHERE "posthog_instancesetting"."key" = 'constance:posthog:PERSON_ON_EVENTS_ENABLED'
   ORDER BY "posthog_instancesetting"."id" ASC
   LIMIT 1 /*controller='team-detail',route='api/projects/%28%3FP%3Cid%3E%5B%5E/.%5D%2B%29/%3F%24'*/
-  '
----
+  '''
+# ---
 # name: TestDecide.test_decide_doesnt_error_out_when_database_is_down.6
-  '
+  '''
   SELECT "posthog_instancesetting"."id",
          "posthog_instancesetting"."key",
          "posthog_instancesetting"."raw_value"
@@ -160,10 +158,10 @@
   WHERE "posthog_instancesetting"."key" = 'constance:posthog:GROUPS_ON_EVENTS_ENABLED'
   ORDER BY "posthog_instancesetting"."id" ASC
   LIMIT 1 /*controller='team-detail',route='api/projects/%28%3FP%3Cid%3E%5B%5E/.%5D%2B%29/%3F%24'*/
-  '
----
+  '''
+# ---
 # name: TestDecide.test_decide_doesnt_error_out_when_database_is_down.7
-  '
+  '''
   SELECT "posthog_user"."id",
          "posthog_user"."password",
          "posthog_user"."last_login",
@@ -181,7 +179,9 @@
          "posthog_user"."distinct_id",
          "posthog_user"."is_email_verified",
          "posthog_user"."has_seen_product_intro_for",
+         "posthog_user"."strapi_id",
          "posthog_user"."email_opt_in",
+         "posthog_user"."theme_mode",
          "posthog_user"."partial_notification_settings",
          "posthog_user"."anonymize_data",
          "posthog_user"."toolbar_mode",
@@ -189,10 +189,10 @@
   FROM "posthog_user"
   WHERE "posthog_user"."id" = 2
   LIMIT 21
-  '
----
+  '''
+# ---
 # name: TestDecide.test_decide_doesnt_error_out_when_database_is_down.8
-  '
+  '''
   SELECT "posthog_featureflag"."id",
          "posthog_featureflag"."key",
          "posthog_featureflag"."name",
@@ -212,10 +212,10 @@
   WHERE ("posthog_featureflag"."active"
          AND NOT "posthog_featureflag"."deleted"
          AND "posthog_featureflag"."team_id" = 2)
-  '
----
+  '''
+# ---
 # name: TestDecide.test_decide_doesnt_error_out_when_database_is_down.9
-  '
+  '''
   SELECT "posthog_pluginconfig"."id",
          "posthog_pluginconfig"."web_token",
          "posthog_pluginsourcefile"."updated_at",
@@ -228,10 +228,10 @@
          AND "posthog_pluginsourcefile"."filename" = 'site.ts'
          AND "posthog_pluginsourcefile"."status" = 'TRANSPILED'
          AND "posthog_pluginconfig"."team_id" = 2)
-  '
----
+  '''
+# ---
 # name: TestDecide.test_flag_with_behavioural_cohorts
-  '
+  '''
   SELECT "posthog_user"."id",
          "posthog_user"."password",
          "posthog_user"."last_login",
@@ -249,7 +249,9 @@
          "posthog_user"."distinct_id",
          "posthog_user"."is_email_verified",
          "posthog_user"."has_seen_product_intro_for",
+         "posthog_user"."strapi_id",
          "posthog_user"."email_opt_in",
+         "posthog_user"."theme_mode",
          "posthog_user"."partial_notification_settings",
          "posthog_user"."anonymize_data",
          "posthog_user"."toolbar_mode",
@@ -257,10 +259,10 @@
   FROM "posthog_user"
   WHERE "posthog_user"."id" = 2
   LIMIT 21
-  '
----
+  '''
+# ---
 # name: TestDecide.test_flag_with_behavioural_cohorts.1
-  '
+  '''
   SELECT "posthog_team"."id",
          "posthog_team"."uuid",
          "posthog_team"."organization_id",
@@ -272,17 +274,25 @@
          "posthog_team"."updated_at",
          "posthog_team"."anonymize_ips",
          "posthog_team"."completed_snippet_onboarding",
+         "posthog_team"."has_completed_onboarding_for",
          "posthog_team"."ingested_event",
          "posthog_team"."autocapture_opt_out",
          "posthog_team"."autocapture_exceptions_opt_in",
          "posthog_team"."autocapture_exceptions_errors_to_ignore",
          "posthog_team"."session_recording_opt_in",
+         "posthog_team"."session_recording_sample_rate",
+         "posthog_team"."session_recording_minimum_duration_milliseconds",
+         "posthog_team"."session_recording_linked_flag",
+         "posthog_team"."session_recording_network_payload_capture_config",
+         "posthog_team"."session_replay_config",
          "posthog_team"."capture_console_log_opt_in",
          "posthog_team"."capture_performance_opt_in",
+         "posthog_team"."surveys_opt_in",
          "posthog_team"."session_recording_version",
          "posthog_team"."signup_token",
          "posthog_team"."is_demo",
          "posthog_team"."access_control",
+         "posthog_team"."week_start_day",
          "posthog_team"."inject_web_apps",
          "posthog_team"."test_account_filters",
          "posthog_team"."test_account_filters_default_checked",
@@ -302,14 +312,16 @@
          "posthog_team"."event_names_with_usage",
          "posthog_team"."event_properties",
          "posthog_team"."event_properties_with_usage",
-         "posthog_team"."event_properties_numerical"
+         "posthog_team"."event_properties_numerical",
+         "posthog_team"."external_data_workspace_id",
+         "posthog_team"."external_data_workspace_last_synced_at"
   FROM "posthog_team"
   WHERE "posthog_team"."id" = 2
   LIMIT 21
-  '
----
+  '''
+# ---
 # name: TestDecide.test_flag_with_behavioural_cohorts.2
-  '
+  '''
   SELECT "posthog_featureflag"."id",
          "posthog_featureflag"."key",
          "posthog_featureflag"."name",
@@ -329,16 +341,17 @@
   WHERE ("posthog_featureflag"."active"
          AND NOT "posthog_featureflag"."deleted"
          AND "posthog_featureflag"."team_id" = 2)
-  '
----
+  '''
+# ---
 # name: TestDecide.test_flag_with_behavioural_cohorts.3
-  '
+  '''
   SELECT "posthog_cohort"."id",
          "posthog_cohort"."name",
          "posthog_cohort"."description",
          "posthog_cohort"."team_id",
          "posthog_cohort"."deleted",
          "posthog_cohort"."filters",
+         "posthog_cohort"."query",
          "posthog_cohort"."version",
          "posthog_cohort"."pending_version",
          "posthog_cohort"."count",
@@ -350,18 +363,19 @@
          "posthog_cohort"."is_static",
          "posthog_cohort"."groups"
   FROM "posthog_cohort"
-  WHERE "posthog_cohort"."id" = 2
-  LIMIT 21
-  '
----
+  WHERE (NOT "posthog_cohort"."deleted"
+         AND "posthog_cohort"."team_id" = 2)
+  '''
+# ---
 # name: TestDecide.test_flag_with_behavioural_cohorts.4
-  '
+  '''
   SELECT "posthog_cohort"."id",
          "posthog_cohort"."name",
          "posthog_cohort"."description",
          "posthog_cohort"."team_id",
          "posthog_cohort"."deleted",
          "posthog_cohort"."filters",
+         "posthog_cohort"."query",
          "posthog_cohort"."version",
          "posthog_cohort"."pending_version",
          "posthog_cohort"."count",
@@ -373,12 +387,12 @@
          "posthog_cohort"."is_static",
          "posthog_cohort"."groups"
   FROM "posthog_cohort"
-  WHERE "posthog_cohort"."id" = 2
-  LIMIT 21
-  '
----
+  WHERE (NOT "posthog_cohort"."deleted"
+         AND "posthog_cohort"."team_id" = 2)
+  '''
+# ---
 # name: TestDecide.test_flag_with_regular_cohorts
-  '
+  '''
   SELECT "posthog_user"."id",
          "posthog_user"."password",
          "posthog_user"."last_login",
@@ -396,7 +410,9 @@
          "posthog_user"."distinct_id",
          "posthog_user"."is_email_verified",
          "posthog_user"."has_seen_product_intro_for",
+         "posthog_user"."strapi_id",
          "posthog_user"."email_opt_in",
+         "posthog_user"."theme_mode",
          "posthog_user"."partial_notification_settings",
          "posthog_user"."anonymize_data",
          "posthog_user"."toolbar_mode",
@@ -404,10 +420,10 @@
   FROM "posthog_user"
   WHERE "posthog_user"."id" = 2
   LIMIT 21
-  '
----
+  '''
+# ---
 # name: TestDecide.test_flag_with_regular_cohorts.1
-  '
+  '''
   SELECT "posthog_team"."id",
          "posthog_team"."uuid",
          "posthog_team"."organization_id",
@@ -419,17 +435,25 @@
          "posthog_team"."updated_at",
          "posthog_team"."anonymize_ips",
          "posthog_team"."completed_snippet_onboarding",
+         "posthog_team"."has_completed_onboarding_for",
          "posthog_team"."ingested_event",
          "posthog_team"."autocapture_opt_out",
          "posthog_team"."autocapture_exceptions_opt_in",
          "posthog_team"."autocapture_exceptions_errors_to_ignore",
          "posthog_team"."session_recording_opt_in",
+         "posthog_team"."session_recording_sample_rate",
+         "posthog_team"."session_recording_minimum_duration_milliseconds",
+         "posthog_team"."session_recording_linked_flag",
+         "posthog_team"."session_recording_network_payload_capture_config",
+         "posthog_team"."session_replay_config",
          "posthog_team"."capture_console_log_opt_in",
          "posthog_team"."capture_performance_opt_in",
+         "posthog_team"."surveys_opt_in",
          "posthog_team"."session_recording_version",
          "posthog_team"."signup_token",
          "posthog_team"."is_demo",
          "posthog_team"."access_control",
+         "posthog_team"."week_start_day",
          "posthog_team"."inject_web_apps",
          "posthog_team"."test_account_filters",
          "posthog_team"."test_account_filters_default_checked",
@@ -449,14 +473,16 @@
          "posthog_team"."event_names_with_usage",
          "posthog_team"."event_properties",
          "posthog_team"."event_properties_with_usage",
-         "posthog_team"."event_properties_numerical"
+         "posthog_team"."event_properties_numerical",
+         "posthog_team"."external_data_workspace_id",
+         "posthog_team"."external_data_workspace_last_synced_at"
   FROM "posthog_team"
   WHERE "posthog_team"."id" = 2
   LIMIT 21
-  '
----
+  '''
+# ---
 # name: TestDecide.test_flag_with_regular_cohorts.2
-  '
+  '''
   SELECT "posthog_featureflag"."id",
          "posthog_featureflag"."key",
          "posthog_featureflag"."name",
@@ -476,16 +502,17 @@
   WHERE ("posthog_featureflag"."active"
          AND NOT "posthog_featureflag"."deleted"
          AND "posthog_featureflag"."team_id" = 2)
-  '
----
+  '''
+# ---
 # name: TestDecide.test_flag_with_regular_cohorts.3
-  '
+  '''
   SELECT "posthog_cohort"."id",
          "posthog_cohort"."name",
          "posthog_cohort"."description",
          "posthog_cohort"."team_id",
          "posthog_cohort"."deleted",
          "posthog_cohort"."filters",
+         "posthog_cohort"."query",
          "posthog_cohort"."version",
          "posthog_cohort"."pending_version",
          "posthog_cohort"."count",
@@ -497,12 +524,12 @@
          "posthog_cohort"."is_static",
          "posthog_cohort"."groups"
   FROM "posthog_cohort"
-  WHERE "posthog_cohort"."id" = 2
-  LIMIT 21
-  '
----
+  WHERE (NOT "posthog_cohort"."deleted"
+         AND "posthog_cohort"."team_id" = 2)
+  '''
+# ---
 # name: TestDecide.test_flag_with_regular_cohorts.4
-  '
+  '''
   SELECT (("posthog_person"."properties" -> '$some_prop_1') = '"something_1"'
           AND "posthog_person"."properties" ? '$some_prop_1'
           AND NOT (("posthog_person"."properties" -> '$some_prop_1') = 'null')) AS "flag_X_condition_0"
@@ -511,16 +538,17 @@
   WHERE ("posthog_persondistinctid"."distinct_id" = 'example_id_1'
          AND "posthog_persondistinctid"."team_id" = 2
          AND "posthog_person"."team_id" = 2)
-  '
----
+  '''
+# ---
 # name: TestDecide.test_flag_with_regular_cohorts.5
-  '
+  '''
   SELECT "posthog_cohort"."id",
          "posthog_cohort"."name",
          "posthog_cohort"."description",
          "posthog_cohort"."team_id",
          "posthog_cohort"."deleted",
          "posthog_cohort"."filters",
+         "posthog_cohort"."query",
          "posthog_cohort"."version",
          "posthog_cohort"."pending_version",
          "posthog_cohort"."count",
@@ -532,12 +560,12 @@
          "posthog_cohort"."is_static",
          "posthog_cohort"."groups"
   FROM "posthog_cohort"
-  WHERE "posthog_cohort"."id" = 2
-  LIMIT 21
-  '
----
+  WHERE (NOT "posthog_cohort"."deleted"
+         AND "posthog_cohort"."team_id" = 2)
+  '''
+# ---
 # name: TestDecide.test_flag_with_regular_cohorts.6
-  '
+  '''
   SELECT (("posthog_person"."properties" -> '$some_prop_1') = '"something_1"'
           AND "posthog_person"."properties" ? '$some_prop_1'
           AND NOT (("posthog_person"."properties" -> '$some_prop_1') = 'null')) AS "flag_X_condition_0"
@@ -546,10 +574,10 @@
   WHERE ("posthog_persondistinctid"."distinct_id" = 'another_id'
          AND "posthog_persondistinctid"."team_id" = 2
          AND "posthog_person"."team_id" = 2)
-  '
----
+  '''
+# ---
 # name: TestDecide.test_web_app_queries
-  '
+  '''
   SELECT "posthog_team"."id",
          "posthog_team"."uuid",
          "posthog_team"."organization_id",
@@ -561,17 +589,25 @@
          "posthog_team"."updated_at",
          "posthog_team"."anonymize_ips",
          "posthog_team"."completed_snippet_onboarding",
+         "posthog_team"."has_completed_onboarding_for",
          "posthog_team"."ingested_event",
          "posthog_team"."autocapture_opt_out",
          "posthog_team"."autocapture_exceptions_opt_in",
          "posthog_team"."autocapture_exceptions_errors_to_ignore",
          "posthog_team"."session_recording_opt_in",
+         "posthog_team"."session_recording_sample_rate",
+         "posthog_team"."session_recording_minimum_duration_milliseconds",
+         "posthog_team"."session_recording_linked_flag",
+         "posthog_team"."session_recording_network_payload_capture_config",
+         "posthog_team"."session_replay_config",
          "posthog_team"."capture_console_log_opt_in",
          "posthog_team"."capture_performance_opt_in",
+         "posthog_team"."surveys_opt_in",
          "posthog_team"."session_recording_version",
          "posthog_team"."signup_token",
          "posthog_team"."is_demo",
          "posthog_team"."access_control",
+         "posthog_team"."week_start_day",
          "posthog_team"."inject_web_apps",
          "posthog_team"."test_account_filters",
          "posthog_team"."test_account_filters_default_checked",
@@ -584,14 +620,16 @@
          "posthog_team"."primary_dashboard_id",
          "posthog_team"."extra_settings",
          "posthog_team"."correlation_config",
-         "posthog_team"."session_recording_retention_period_days"
+         "posthog_team"."session_recording_retention_period_days",
+         "posthog_team"."external_data_workspace_id",
+         "posthog_team"."external_data_workspace_last_synced_at"
   FROM "posthog_team"
   WHERE "posthog_team"."api_token" = 'token123'
   LIMIT 21
-  '
----
+  '''
+# ---
 # name: TestDecide.test_web_app_queries.1
-  '
+  '''
   SELECT "posthog_featureflag"."id",
          "posthog_featureflag"."key",
          "posthog_featureflag"."name",
@@ -611,10 +649,10 @@
   WHERE ("posthog_featureflag"."active"
          AND NOT "posthog_featureflag"."deleted"
          AND "posthog_featureflag"."team_id" = 2)
-  '
----
+  '''
+# ---
 # name: TestDecide.test_web_app_queries.2
-  '
+  '''
   SELECT "posthog_pluginconfig"."id",
          "posthog_pluginconfig"."web_token",
          "posthog_pluginsourcefile"."updated_at",
@@ -627,10 +665,10 @@
          AND "posthog_pluginsourcefile"."filename" = 'site.ts'
          AND "posthog_pluginsourcefile"."status" = 'TRANSPILED'
          AND "posthog_pluginconfig"."team_id" = 2)
-  '
----
+  '''
+# ---
 # name: TestDecide.test_web_app_queries.3
-  '
+  '''
   SELECT "posthog_pluginconfig"."id",
          "posthog_pluginconfig"."web_token",
          "posthog_pluginsourcefile"."updated_at",
@@ -643,10 +681,10 @@
          AND "posthog_pluginsourcefile"."filename" = 'site.ts'
          AND "posthog_pluginsourcefile"."status" = 'TRANSPILED'
          AND "posthog_pluginconfig"."team_id" = 2)
-  '
----
+  '''
+# ---
 # name: TestDecide.test_web_app_queries.4
-  '
+  '''
   SELECT "posthog_pluginconfig"."id",
          "posthog_pluginconfig"."web_token",
          "posthog_pluginsourcefile"."updated_at",
@@ -659,5 +697,5 @@
          AND "posthog_pluginsourcefile"."filename" = 'site.ts'
          AND "posthog_pluginsourcefile"."status" = 'TRANSPILED'
          AND "posthog_pluginconfig"."team_id" = 2)
-  '
----
+  '''
+# ---

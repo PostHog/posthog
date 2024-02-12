@@ -4,7 +4,10 @@ from unittest.mock import patch
 import pytest
 
 from posthog.async_migrations.definition import AsyncMigrationOperationSQL
-from posthog.async_migrations.test.util import AsyncMigrationBaseTest, create_async_migration
+from posthog.async_migrations.test.util import (
+    AsyncMigrationBaseTest,
+    create_async_migration,
+)
 from posthog.async_migrations.utils import (
     complete_migration,
     execute_on_each_shard,

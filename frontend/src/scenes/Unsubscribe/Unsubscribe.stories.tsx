@@ -2,13 +2,12 @@ import { Meta } from '@storybook/react'
 
 import { Unsubscribe } from './Unsubscribe'
 
-export default {
+const meta: Meta = {
     title: 'Scenes-Other/Unsubscribe',
     parameters: {
         layout: 'fullscreen',
-        options: { showPanel: false },
         viewMode: 'story',
     },
-} as Meta
-
+}
+export default meta
 export const UnsubscribeScene = (): JSX.Element => <Unsubscribe />

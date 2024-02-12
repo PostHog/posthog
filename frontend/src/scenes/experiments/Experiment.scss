@@ -1,103 +1,27 @@
 .experiment-form {
     .metrics-selection {
-        border-top: 1px solid var(--border);
-        padding-top: 1rem;
-
         width: 100%;
+        padding-top: 1rem;
+        border-top: 1px solid var(--border);
     }
 
     .person-selection {
-        width: 100%;
-        border-top: 1px solid var(--border);
-        padding-top: 1rem;
         align-items: center;
         justify-content: space-between;
-    }
-
-    .insights-graph-container {
-        margin-bottom: 1rem;
-
-        .ant-card-head {
-            border-bottom: 1px solid var(--border);
-            min-height: unset;
-            background-color: var(--bg-light);
-            padding-left: 1rem;
-            padding-right: 1rem;
-
-            .ant-card-head-title {
-                padding: 0.5rem 0;
-
-                span.filter {
-                    font-size: 14px;
-
-                    &:not(:last-child) {
-                        margin-right: 0.5rem;
-                    }
-
-                    span.head-title-item {
-                        margin-right: 0.5rem;
-                    }
-                }
-            }
-        }
-        .display-config-inner {
-            display: flex;
-            align-items: center;
-            justify-content: space-between;
-            overflow-x: auto;
-        }
-
-        .ant-card-body {
-            padding: 0;
-        }
-
-        .insights-graph-container-row {
-            .insights-graph-container-row-left {
-                width: 100%;
-            }
-
-            .insights-graph-container-row-right {
-                width: 100%;
-                height: min(calc(90vh - 16rem), 36rem); // same as .trends-insights-container
-                max-width: 300px;
-                padding: 0 1rem 1rem 0;
-                display: flex;
-                align-items: center;
-            }
-        }
-
-        .LineGraph {
-            width: calc(100% - 2rem);
-            height: calc(100% - 3rem);
-        }
-    }
-
-    .insights-graph-header {
-        margin-top: 0 !important;
-        margin-bottom: 0 !important;
-        padding-left: 1rem;
-        padding-right: 1rem;
-        min-height: 48px;
+        width: 100%;
+        padding-top: 1rem;
+        border-top: 1px solid var(--border);
     }
 
     .experiment-preview {
         margin-bottom: 1rem;
         border-bottom: 1px solid var(--border);
-
-        .mde-slider {
-            .ant-slider-handle {
-                border: none;
-            }
-
-            .ant-slider-rail {
-                background-color: #e5ebff;
-            }
-        }
     }
 
     .variants {
-        margin-top: 0.5rem;
         padding-bottom: 1rem;
+        margin-top: 0.5rem;
+
         .ant-form-horizontal {
             min-height: 32px;
         }
@@ -108,20 +32,20 @@
         }
 
         .border-bottom {
-            border-bottom-left-radius: 4px;
             border-bottom-right-radius: 4px;
+            border-bottom-left-radius: 4px;
         }
 
         .feature-flag-variant {
             display: flex;
             align-items: center;
-            padding: 0.5rem 0.5rem;
+            padding: 0.5rem;
             background: var(--bg-light);
-            border-width: 1px;
             border-color: var(--border);
+            border-width: 1px;
             border-top-style: solid;
-            border-left-style: solid;
             border-right-style: solid;
+            border-left-style: solid;
 
             .extend-variant-fully {
                 flex: 1;
@@ -131,25 +55,25 @@
         .variant-label {
             display: flex;
             flex-direction: row;
-            justify-content: center;
             align-items: center;
-            border-radius: 4px;
-            color: #ffffff;
+            justify-content: center;
             min-width: 52px;
             padding: 2px 6px;
             margin-right: 8px;
             font-size: 12px;
             font-weight: 500;
+            color: #fff;
             letter-spacing: 0.01em;
+            border-radius: var(--radius);
         }
     }
 
     .secondary-metrics {
-        margin-top: 1rem;
-        padding-top: 1rem;
-        border-top: 1px solid var(--border);
-        margin-bottom: 1rem;
         width: 100%;
+        padding-top: 1rem;
+        margin-top: 1rem;
+        margin-bottom: 1rem;
+        border-top: 1px solid var(--border);
     }
 
     .ant-input-number-disabled {
@@ -169,11 +93,11 @@
 
     .exp-description {
         font-style: italic;
-        color: var(--muted);
     }
 
     .participants {
         background-color: white;
+
         .ant-collapse-header {
             padding-top: 0.5rem;
             padding-bottom: 0.5rem;
@@ -185,42 +109,18 @@
         li {
             display: inline;
         }
-        li:after {
+
+        li::after {
             content: ', ';
         }
-        li:last-child:after {
+
+        li:last-child::after {
             content: '';
         }
     }
 
     .experiment-result {
         padding-top: 1rem;
-    }
-
-    .significant-results {
-        padding: 0.5rem;
-        width: 100%;
-        background: rgba(119, 185, 108, 0.1);
-        border-radius: 4px;
-        text-align: center;
-        margin-bottom: 1rem;
-    }
-
-    .not-significant-results {
-        padding: 0.5rem;
-        width: 100%;
-        background: rgba(83, 117, 255, 0.1);
-        border-radius: 4px;
-        margin-bottom: 1rem;
-    }
-
-    .feature-flag-mods {
-        padding: 0.5rem;
-        width: 100%;
-        background: #f6ebf8;
-        color: var(--bg-charcoal);
-        border-radius: 4px;
-        margin-bottom: 1rem;
     }
 
     .ant-collapse-content-box {
@@ -232,90 +132,64 @@
         margin-top: 0.5rem;
 
         li::before {
-            content: '\2022';
             display: inline-block;
-            font-weight: 900;
             margin-right: 4px;
-        }
-
-        .ant-progress-inner {
-            border-radius: 4px;
-
-            .ant-progress-bg {
-                border-radius: 4px;
-            }
+            font-weight: 900;
+            content: '\2022';
         }
     }
 
     .no-experiment-results {
         display: flex;
-        justify-content: center;
         align-items: center;
-        margin-top: 1rem;
-        background-color: var(--side);
-        border: 1px solid var(--border);
+        justify-content: center;
         width: 100%;
         min-height: 320px;
+        margin-top: 1rem;
         font-size: 24px;
+        background-color: var(--side);
+        border: 1px solid var(--border);
     }
-}
 
-.view-experiment {
     .computation-time-and-sampling-notice {
         margin-top: 8px;
     }
 }
 
 .preview-conversion-goal-num {
-    height: 24px;
+    flex-shrink: 0;
     width: 24px;
+    height: 24px;
+    margin-right: 0.5rem;
+    font-weight: 700;
+    color: var(--primary-alt);
     text-align: center;
     background-color: var(--side);
-    color: var(--primary-alt);
-    font-weight: 700;
-    margin-right: 0.5rem;
 }
 
 .experiment-preview-row {
-    border-bottom: 1px solid var(--border);
     padding-bottom: 1rem;
     margin-bottom: 1rem;
+    border-bottom: 1px solid var(--border);
+
     &:last-child {
-        border-bottom: none;
         padding-bottom: 0;
         margin-bottom: 0;
+        border-bottom: none;
     }
 }
 
 .metric-name {
-    border: 1px solid var(--border);
-    border-radius: 4px;
+    flex: 1;
     padding: 8px 8px 8px 16px;
     margin-left: 0.5rem;
-    flex: 1;
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
 }
 
-.experiment-implementation-details,
-.experiment-workflow {
-    .ant-card-head {
-        padding-left: 1rem;
-        padding-right: 1rem;
-        border: none;
-    }
-
-    .ant-card-head-title {
-        border-bottom: 1px solid var(--border);
-    }
-    .exp-workflow-step {
-        margin-bottom: 0.5rem;
-        padding: 0.5rem;
-        border-radius: 4px;
-        &:hover {
-            cursor: pointer;
-        }
-    }
-
-    .step-completed {
-        background-color: #e5ebff;
-    }
+.exp-flag-copy-label {
+    font-size: 11px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
 }

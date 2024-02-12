@@ -1,43 +1,56 @@
-import { useRef } from 'react'
 import './ProjectHomepage.scss'
-import { PageHeader } from 'lib/components/PageHeader'
-import { Dashboard } from 'scenes/dashboard/Dashboard'
-import { useActions, useValues } from 'kea'
-import { teamLogic } from 'scenes/teamLogic'
-import { SceneExport } from 'scenes/sceneTypes'
-import { DashboardPlacement } from '~/types'
-import { inviteLogic } from 'scenes/organization/Settings/inviteLogic'
-import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
-import { PrimaryDashboardModal } from './PrimaryDashboardModal'
-import { primaryDashboardModalLogic } from './primaryDashboardModalLogic'
-import { IconCottage } from 'lib/lemon-ui/icons'
-import { projectHomepageLogic } from 'scenes/project-homepage/projectHomepageLogic'
-import { LemonButton } from 'lib/lemon-ui/LemonButton'
-import { RecentRecordings } from './RecentRecordings'
-import { RecentInsights } from './RecentInsights'
-import { NewlySeenPersons } from './NewlySeenPersons'
-import useSize from '@react-hook/size'
-import { NewInsightButton } from 'scenes/saved-insights/SavedInsights'
-import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
+
+import { IconHome } from '@posthog/icons'
 import { Link } from '@posthog/lemon-ui'
-import { urls } from 'scenes/urls'
-import { dashboardLogic } from 'scenes/dashboard/dashboardLogic'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { useActions, useValues } from 'kea'
+import { PageHeader } from 'lib/components/PageHeader'
+import { SceneDashboardChoiceModal } from 'lib/components/SceneDashboardChoice/SceneDashboardChoiceModal'
+import { sceneDashboardChoiceModalLogic } from 'lib/components/SceneDashboardChoice/sceneDashboardChoiceModalLogic'
+import { SceneDashboardChoiceRequired } from 'lib/components/SceneDashboardChoice/SceneDashboardChoiceRequired'
 import { FEATURE_FLAGS } from 'lib/constants'
+import { LemonButton } from 'lib/lemon-ui/LemonButton'
+import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
+import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { Dashboard } from 'scenes/dashboard/Dashboard'
+import { dashboardLogic } from 'scenes/dashboard/dashboardLogic'
+import { projectHomepageLogic } from 'scenes/project-homepage/projectHomepageLogic'
+import { Scene, SceneExport } from 'scenes/sceneTypes'
+import { AndroidRecordingsPromptBanner } from 'scenes/session-recordings/mobile-replay/AndroidRecordingPromptBanner'
+import { inviteLogic } from 'scenes/settings/organization/inviteLogic'
+import { teamLogic } from 'scenes/teamLogic'
+import { urls } from 'scenes/urls'
+
+import { YearInHogButton } from '~/layout/navigation/TopBar/YearInHogButton'
+import { DashboardPlacement } from '~/types'
+
+import { RecentInsights } from './RecentInsights'
+import { RecentPersons } from './RecentPersons'
+import { RecentRecordings } from './RecentRecordings'
 
 export function ProjectHomepage(): JSX.Element {
     const { dashboardLogicProps } = useValues(projectHomepageLogic)
     const { currentTeam } = useValues(teamLogic)
     const { dashboard } = useValues(dashboardLogic(dashboardLogicProps))
     const { showInviteModal } = useActions(inviteLogic)
-    const { showPrimaryDashboardModal } = useActions(primaryDashboardModalLogic)
+    const { showSceneDashboardChoiceModal } = useActions(
+        sceneDashboardChoiceModalLogic({ scene: Scene.ProjectHomepage })
+    )
     const { featureFlags } = useValues(featureFlagLogic)
-
-    const topListContainerRef = useRef<HTMLDivElement | null>(null)
-    const [topListContainerWidth] = useSize(topListContainerRef)
 
     const headerButtons = (
         <>
+            {!!featureFlags[FEATURE_FLAGS.YEAR_IN_HOG] && window.POSTHOG_APP_CONTEXT?.year_in_hog_url && (
+                <YearInHogButton url={`${window.location.origin}${window.POSTHOG_APP_CONTEXT.year_in_hog_url}`} />
+            )}
+            <LemonButton
+                type="secondary"
+                size="small"
+                data-attr="project-home-customize-homepage"
+                onClick={showSceneDashboardChoiceModal}
+            >
+                Customize homepage
+            </LemonButton>
             <LemonButton
                 data-attr="project-home-invite-team-members"
                 onClick={() => {
@@ -47,95 +60,51 @@ export function ProjectHomepage(): JSX.Element {
             >
                 Invite members
             </LemonButton>
-            <NewInsightButton dataAttr="project-home-new-insight" />
         </>
     )
 
     return (
-        <div className="project-homepage">
-            {!featureFlags[FEATURE_FLAGS.POSTHOG_3000] && (
-                <>
-                    <PageHeader title={currentTeam?.name || ''} delimited buttons={headerButtons} />
-                    <div
-                        ref={topListContainerRef}
-                        className={
-                            topListContainerWidth && topListContainerWidth < 600
-                                ? 'top-list-container-vertical'
-                                : 'top-list-container-horizontal'
-                        }
-                    >
-                        <div className="top-list">
-                            <RecentInsights />
-                        </div>
-                        <div className="spacer" />
-                        <div className="top-list">
-                            <NewlySeenPersons />
-                        </div>
-                        <div className="spacer" />
-                        <div className="top-list">
-                            <RecentRecordings />
-                        </div>
-                    </div>
-                </>
-            )}
+        <div className="ProjectHomepage">
+            <PageHeader delimited buttons={headerButtons} />
+            <AndroidRecordingsPromptBanner context="home" />
+            <div className="ProjectHomepage__lists">
+                <RecentInsights />
+                <RecentPersons />
+                <RecentRecordings />
+            </div>
             {currentTeam?.primary_dashboard ? (
                 <>
-                    {!featureFlags[FEATURE_FLAGS.POSTHOG_3000] && (
-                        <>
-                            <div className="homepage-dashboard-header">
-                                <div className="dashboard-title-container">
-                                    {!dashboard && <LemonSkeleton className="w-20" />}
-                                    {dashboard?.name && (
-                                        <>
-                                            <IconCottage className="mr-2 text-warning text-2xl" />
-                                            <Link
-                                                className="font-semibold text-xl text-default"
-                                                to={urls.dashboard(dashboard.id)}
-                                            >
-                                                {dashboard?.name}
-                                            </Link>
-                                        </>
-                                    )}
-                                </div>
-                                <div className="flex items-center gap-2">
-                                    <LemonButton
-                                        type="secondary"
-                                        data-attr="project-home-new-insight"
-                                        onClick={showPrimaryDashboardModal}
+                    <div className="ProjectHomepage__dashboardheader">
+                        <div className="ProjectHomepage__dashboardheader__title">
+                            {!dashboard && <LemonSkeleton className="w-20 h-4" />}
+                            {dashboard?.name && (
+                                <>
+                                    <IconHome className="mr-2 text-2xl opacity-50" />
+                                    <Link
+                                        className="font-semibold text-xl text-default"
+                                        to={urls.dashboard(dashboard.id)}
                                     >
-                                        Change dashboard
-                                    </LemonButton>
-                                    {featureFlags[FEATURE_FLAGS.POSTHOG_3000] && headerButtons}
-                                </div>
-                            </div>
-                            <LemonDivider className="my-4" />
-                        </>
-                    )}
+                                        {dashboard?.name}
+                                    </Link>
+                                </>
+                            )}
+                        </div>
+                    </div>
+                    <LemonDivider className="mt-3 mb-4" />
                     <Dashboard
                         id={currentTeam.primary_dashboard.toString()}
                         placement={DashboardPlacement.ProjectHomepage}
                     />
                 </>
             ) : (
-                <div className="empty-state-container">
-                    <IconCottage className="mb-2 text-warning" style={{ fontSize: '2rem' }} />
-                    <h1>There isn’t a default dashboard set for this project</h1>
-                    <p className="mb-4">
-                        Default dashboards are shown to everyone in the project. When you set a default, it’ll show up
-                        here.
-                    </p>
-                    <LemonButton
-                        type="primary"
-                        data-attr="project-home-new-insight"
-                        onClick={() => {
-                            showPrimaryDashboardModal()
-                        }}
-                    >
-                        Select a default dashboard
-                    </LemonButton>
-                </div>
+                <SceneDashboardChoiceRequired
+                    open={() => {
+                        showSceneDashboardChoiceModal()
+                    }}
+                    scene={Scene.ProjectHomepage}
+                />
             )}
-            <PrimaryDashboardModal />
+            <SceneDashboardChoiceModal scene={Scene.ProjectHomepage} />
         </div>
     )
 }

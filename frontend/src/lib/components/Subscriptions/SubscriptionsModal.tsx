@@ -1,14 +1,16 @@
-import { ManageSubscriptions } from './views/ManageSubscriptions'
-import { EditSubscription } from './views/EditSubscription'
+import { LemonButton, LemonButtonWithDropdown } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
-import { LemonButton, LemonButtonWithDropdown } from '@posthog/lemon-ui'
-import { SubscriptionBaseProps, urlForSubscription, urlForSubscriptions } from './utils'
-import { PayGatePage } from '../PayGatePage/PayGatePage'
-import { AvailableFeature } from '~/types'
-import { userLogic } from 'scenes/userLogic'
-import { Spinner } from 'lib/lemon-ui/Spinner/Spinner'
 import { LemonModal } from 'lib/lemon-ui/LemonModal'
+import { Spinner } from 'lib/lemon-ui/Spinner/Spinner'
+import { userLogic } from 'scenes/userLogic'
+
+import { AvailableFeature } from '~/types'
+
+import { PayGatePage } from '../PayGatePage/PayGatePage'
+import { SubscriptionBaseProps, urlForSubscription, urlForSubscriptions } from './utils'
+import { EditSubscription } from './views/EditSubscription'
+import { ManageSubscriptions } from './views/ManageSubscriptions'
 
 export interface SubscriptionsModalProps extends SubscriptionBaseProps {
     isOpen: boolean
@@ -67,7 +69,6 @@ export function SubscribeButton(props: SubscriptionBaseProps): JSX.Element {
 
     return (
         <LemonButtonWithDropdown
-            status="stealth"
             fullWidth
             dropdown={{
                 actionable: true,
@@ -75,10 +76,10 @@ export function SubscribeButton(props: SubscriptionBaseProps): JSX.Element {
                 placement: 'right-start',
                 overlay: (
                     <>
-                        <LemonButton onClick={() => push(urlForSubscription('new', props))} status="stealth" fullWidth>
+                        <LemonButton onClick={() => push(urlForSubscription('new', props))} fullWidth>
                             New subscription
                         </LemonButton>
-                        <LemonButton onClick={() => push(urlForSubscriptions(props))} status="stealth" fullWidth>
+                        <LemonButton onClick={() => push(urlForSubscriptions(props))} fullWidth>
                             Manage subscriptions
                         </LemonButton>
                     </>

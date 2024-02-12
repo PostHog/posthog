@@ -1,7 +1,7 @@
 import { kea, path, props, selectors } from 'kea'
-import { ExportedData } from './types'
 
 import type { exporterViewLogicType } from './exporterViewLogicType'
+import { ExportedData } from './types'
 
 // This is a simple logic that is mounted by the Exporter view and then can be found by any nested callers
 // This simplifies passing props everywhere.

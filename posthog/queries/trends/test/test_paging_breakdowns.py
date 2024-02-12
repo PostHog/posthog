@@ -41,7 +41,17 @@ class TestPagingBreakdowns(APIBaseTest):
         with freeze_time(run_at or "2020-01-04T13:01:01Z"):
             action_response = Trends().run(
                 Filter(
-                    data={"events": [{"id": "$pageview", "name": "$pageview", "type": "events", "order": 0}], **extra}
+                    data={
+                        "events": [
+                            {
+                                "id": "$pageview",
+                                "name": "$pageview",
+                                "type": "events",
+                                "order": 0,
+                            }
+                        ],
+                        **extra,
+                    }
                 ),
                 self.team,
             )
@@ -50,20 +60,28 @@ class TestPagingBreakdowns(APIBaseTest):
     def test_with_breakdown_loads_two_unqiue_pages_of_values(self):
         response = self._run({"breakdown": "wildcard_route", "breakdown_type": "event"})
 
-        self.assertEqual(len(response), 25)
-
-        page_labels = [r["label"] for r in response]
-        self.assertEqual(sorted(page_labels), sorted(list(set(page_labels))))  # all values are unique
+        assert len(response) == 26
+        page_labels = [r["label"] for r in response if r["label"] != "Other"]
+        assert len(page_labels) == 25
+        assert sorted(page_labels), sorted(list(set(page_labels)))  # all values are unique
 
         second_page_response = self._run({"breakdown": "wildcard_route", "breakdown_type": "event", "offset": 25})
-        second_page_labels = [r["label"] for r in second_page_response]
+        second_page_labels = [r["label"] for r in second_page_response if r["label"] != "Other"]
 
-        self.assertEqual(len(page_labels), len(second_page_labels))  # should be two pages of different results
+        assert len(page_labels) == len(second_page_labels)  # should be two pages of different results
 
-        self.assertEqual(sorted(second_page_labels), sorted(list(set(second_page_labels))))  # all values are unique
+        assert sorted(second_page_labels) == sorted(list(set(second_page_labels)))  # all values are unique
 
         # no values from page one should be in page two
-        self.assertEqual([value for value in second_page_labels if value in page_labels], [])
+        assert [value for value in second_page_labels if value in page_labels] == []
+
+        all_pages_response = self._run(
+            {"breakdown": "wildcard_route", "breakdown_type": "event", "offset": 0, "breakdown_limit": 50}
+        )
+        all_pages_labels = [r["label"] for r in all_pages_response]
+
+        assert len(all_pages_labels) == 50
+        assert set(all_pages_labels) == set(page_labels + second_page_labels)
 
     def test_without_breakdown(self):
         response = self._run({})

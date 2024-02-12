@@ -9,9 +9,12 @@ if (!window.ResizeObserver) {
 
 export const useResizeObserver = useResizeObserverImport
 
-export function useResizeBreakpoints<T>(
+export function useResizeBreakpoints<T extends string>(
     breakpoints: { [key: number]: T },
-    ref?: RefObject<HTMLDivElement> | null | undefined
+    options?: {
+        ref?: RefObject<HTMLDivElement> | null | undefined
+        initialSize?: T
+    }
 ): {
     ref?: RefCallback<HTMLDivElement> | RefObject<HTMLDivElement>
     size: T
@@ -23,11 +26,10 @@ export function useResizeBreakpoints<T>(
                 .sort((a, b) => a - b),
         [breakpoints]
     )
-    const initialSize = breakpoints[sortedKeys[0]]
-    const [size, setSize] = useState(initialSize)
+    const [size, setSize] = useState(options?.initialSize ?? breakpoints[sortedKeys[0]])
 
     const { ref: refCb } = useResizeObserver<HTMLDivElement>({
-        ref,
+        ref: options?.ref,
         onResize: ({ width = 1 }) => {
             let newSize = breakpoints[sortedKeys[0]]
 
@@ -40,7 +42,8 @@ export function useResizeBreakpoints<T>(
                 setSize(newSize)
             }
         },
+        box: 'border-box',
     })
 
-    return { ref: ref || refCb, size }
+    return { ref: options?.ref || refCb, size }
 }

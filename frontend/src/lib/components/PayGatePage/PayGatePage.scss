@@ -2,13 +2,13 @@
     display: flex;
     flex-direction: column;
     align-items: center;
-    text-align: center;
     margin-top: 1rem;
+    text-align: center;
 
     h2 {
+        margin-bottom: 8px;
         font-size: 32px;
         font-weight: 600;
-        margin-bottom: 8px;
 
         .highlight {
             font-weight: bold;
@@ -21,8 +21,8 @@
     }
 
     .pay-buttons {
-        margin-top: 1rem;
         width: 320px;
         max-width: 90%;
+        margin-top: 1rem;
     }
 }

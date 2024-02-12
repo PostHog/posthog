@@ -1,17 +1,21 @@
 import { useActions, useValues } from 'kea'
-import { FilterType } from '~/types'
-import { teamLogic } from 'scenes/teamLogic'
-import { LemonSwitch } from 'lib/lemon-ui/LemonSwitch/LemonSwitch'
-import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { IconSettings } from 'lib/lemon-ui/icons'
-import { filterTestAccountsDefaultsLogic } from 'scenes/project/Settings/filterTestAccountDefaultsLogic'
+import { LemonButton } from 'lib/lemon-ui/LemonButton'
+import { LemonSwitch } from 'lib/lemon-ui/LemonSwitch/LemonSwitch'
+import { filterTestAccountsDefaultsLogic } from 'scenes/settings/project/filterTestAccountDefaultsLogic'
+import { teamLogic } from 'scenes/teamLogic'
+import { urls } from 'scenes/urls'
+
+import { FilterType } from '~/types'
 
 export function TestAccountFilter({
     filters,
     onChange,
+    disabledReason,
 }: {
     filters: Partial<FilterType>
     onChange: (filters: Partial<FilterType>) => void
+    disabledReason?: string | null | false
 }): JSX.Element | null {
     const { currentTeam } = useValues(teamLogic)
     const hasFilters = (currentTeam?.test_account_filters || []).length > 0
@@ -31,8 +35,7 @@ export function TestAccountFilter({
                     <span>Filter out internal and test users</span>
                     <LemonButton
                         icon={<IconSettings />}
-                        to="/project/settings#internal-users-filtering"
-                        status="stealth"
+                        to={urls.settings('project-product-analytics', 'internal-user-filtering')}
                         size="small"
                         noPadding
                         className="ml-1"
@@ -40,7 +43,7 @@ export function TestAccountFilter({
                 </div>
             }
             fullWidth
-            disabled={!hasFilters}
+            disabledReason={!hasFilters ? "You haven't set any internal and test filters" : disabledReason}
         />
     )
 }

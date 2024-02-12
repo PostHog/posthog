@@ -4,7 +4,7 @@ import urllib.parse
 from datetime import datetime
 from typing import Any, Callable, Dict, List, Optional, Tuple, Union
 
-import pytz
+from zoneinfo import ZoneInfo
 from django.forms import ValidationError
 
 from posthog.constants import (
@@ -23,7 +23,11 @@ from posthog.models.event.sql import EVENT_JOIN_PERSON_SQL
 from posthog.models.filters import Filter
 from posthog.models.filters.mixins.utils import cached_property
 from posthog.models.property import PropertyGroup
-from posthog.models.property.util import get_property_string_expr, normalize_url_breakdown, parse_prop_grouped_clauses
+from posthog.models.property.util import (
+    get_property_string_expr,
+    normalize_url_breakdown,
+    parse_prop_grouped_clauses,
+)
 from posthog.models.team import Team
 from posthog.models.team.team import groups_on_events_querying_enabled
 from posthog.queries.breakdown_props import (
@@ -38,7 +42,7 @@ from posthog.queries.groups_join_query import GroupsJoinQuery
 from posthog.queries.person_distinct_id_query import get_team_distinct_ids_query
 from posthog.queries.person_query import PersonQuery
 from posthog.queries.query_date_range import TIME_IN_SECONDS, QueryDateRange
-from posthog.queries.session_query import SessionQuery
+from posthog.session_recordings.queries.session_query import SessionQuery
 from posthog.queries.trends.sql import (
     BREAKDOWN_ACTIVE_USER_AGGREGATE_SQL,
     BREAKDOWN_ACTIVE_USER_CONDITIONS_SQL,
@@ -54,6 +58,7 @@ from posthog.queries.trends.sql import (
     SESSION_DURATION_BREAKDOWN_INNER_SQL,
     VOLUME_PER_ACTOR_BREAKDOWN_AGGREGATE_SQL,
     VOLUME_PER_ACTOR_BREAKDOWN_INNER_SQL,
+    BREAKDOWN_PROP_JOIN_WITH_OTHER_SQL,
 )
 from posthog.queries.trends.util import (
     COUNT_PER_ACTOR_MATH_FUNCTIONS,
@@ -61,12 +66,26 @@ from posthog.queries.trends.util import (
     correct_result_for_sampling,
     enumerate_time_range,
     get_active_user_params,
+    offset_time_series_date_by_interval,
     parse_response,
     process_math,
 )
-from posthog.queries.util import get_person_properties_mode
-from posthog.utils import PersonOnEventsMode, encode_get_request_params, generate_short_id
+from posthog.queries.util import (
+    get_interval_func_ch,
+    get_person_properties_mode,
+    get_start_of_interval_sql,
+)
+from posthog.utils import (
+    PersonOnEventsMode,
+    encode_get_request_params,
+    generate_short_id,
+)
 from posthog.queries.person_on_events_v2_sql import PERSON_OVERRIDES_JOIN_SQL
+
+BREAKDOWN_OTHER_STRING_LABEL = "$$_posthog_breakdown_other_$$"
+BREAKDOWN_OTHER_NUMERIC_LABEL = 9007199254740991  # pow(2, 53) - 1, for JS compatibility
+BREAKDOWN_NULL_STRING_LABEL = "$$_posthog_breakdown_null_$$"
+BREAKDOWN_NULL_NUMERIC_LABEL = 9007199254740990  # pow(2, 53) - 2, for JS compatibility
 
 
 class TrendsBreakdown:
@@ -129,7 +148,6 @@ class TrendsBreakdown:
         parsed_date_to, date_to_params = query_date_range.date_to
         num_intervals = query_date_range.num_intervals
         seconds_in_interval = TIME_IN_SECONDS[self.filter.interval]
-        interval_annotation = query_date_range.interval_annotation
 
         date_params.update(date_from_params)
         date_params.update(date_to_params)
@@ -186,23 +204,35 @@ class TrendsBreakdown:
         _params, _breakdown_filter_params = {}, {}
 
         if self.filter.breakdown_type == "cohort":
-            _params, breakdown_filter, _breakdown_filter_params, breakdown_value = self._breakdown_cohort_params()
+            (
+                _params,
+                breakdown_filter,
+                _breakdown_filter_params,
+                breakdown_value,
+            ) = self._breakdown_cohort_params()
         else:
             aggregate_operation_for_breakdown_init = (
                 "count(*)"
                 if self.entity.math == "dau" or self.entity.math in COUNT_PER_ACTOR_MATH_FUNCTIONS
                 else aggregate_operation
             )
-            _params, breakdown_filter, _breakdown_filter_params, breakdown_value = self._breakdown_prop_params(
-                aggregate_operation_for_breakdown_init, math_params
-            )
+            (
+                _params,
+                breakdown_filter,
+                _breakdown_filter_params,
+                breakdown_value,
+            ) = self._breakdown_prop_params(aggregate_operation_for_breakdown_init, math_params)
 
         if len(_params["values"]) == 0:
             # If there are no breakdown values, we are sure that there's no relevant events, so instead of adjusting
             # a "real" SELECT for this, we only include the below dummy SELECT.
             # It's a drop-in replacement for a "real" one, simply always returning 0 rows.
             # See https://github.com/PostHog/posthog/pull/5674 for context.
-            return ("SELECT [now()] AS date, [0] AS total, '' AS breakdown_value LIMIT 0", {}, lambda _: [])
+            return (
+                "SELECT [now()] AS date, [0] AS total, '' AS breakdown_value LIMIT 0",
+                {},
+                lambda _: [],
+            )
 
         person_join_condition, person_join_params = self._person_join_condition()
         groups_join_condition, groups_join_params = self._groups_join_condition()
@@ -219,15 +249,20 @@ class TrendsBreakdown:
             **sessions_join_params,
             **sampling_params,
         }
-        breakdown_filter_params = {**breakdown_filter_params, **_breakdown_filter_params}
+        breakdown_filter_params = {
+            **breakdown_filter_params,
+            **_breakdown_filter_params,
+        }
 
         if self.filter.display in NON_TIME_SERIES_DISPLAY_TYPES:
             breakdown_filter = breakdown_filter.format(**breakdown_filter_params)
 
             if self.entity.math in [WEEKLY_ACTIVE, MONTHLY_ACTIVE]:
-                active_user_format_params, active_user_query_params = get_active_user_params(
-                    self.filter, self.entity, self.team_id
-                )
+                interval_func = get_interval_func_ch(self.filter.interval)
+                (
+                    active_user_format_params,
+                    active_user_query_params,
+                ) = get_active_user_params(self.filter, self.entity, self.team_id)
                 self.params.update(active_user_query_params)
                 conditions = BREAKDOWN_ACTIVE_USER_CONDITIONS_SQL.format(
                     **breakdown_filter_params, **active_user_format_params
@@ -238,7 +273,11 @@ class TrendsBreakdown:
                     groups_join=groups_join_condition,
                     sessions_join=sessions_join_condition,
                     aggregate_operation=aggregate_operation,
-                    interval_annotation=interval_annotation,
+                    timestamp_truncated=get_start_of_interval_sql(self.filter.interval, team=self.team),
+                    date_to_truncated=get_start_of_interval_sql(
+                        self.filter.interval, team=self.team, source="%(date_to)s"
+                    ),
+                    interval_func=interval_func,
                     breakdown_value=breakdown_value,
                     conditions=conditions,
                     GET_TEAM_PERSON_DISTINCT_IDS=get_team_distinct_ids_query(self.team_id),
@@ -289,13 +328,13 @@ class TrendsBreakdown:
             )
 
         else:
-
             breakdown_filter = breakdown_filter.format(**breakdown_filter_params)
 
             if self.entity.math in [WEEKLY_ACTIVE, MONTHLY_ACTIVE]:
-                active_user_format_params, active_user_query_params = get_active_user_params(
-                    self.filter, self.entity, self.team_id
-                )
+                (
+                    active_user_format_params,
+                    active_user_query_params,
+                ) = get_active_user_params(self.filter, self.entity, self.team_id)
                 self.params.update(active_user_query_params)
                 conditions = BREAKDOWN_ACTIVE_USER_CONDITIONS_SQL.format(
                     **breakdown_filter_params, **active_user_format_params
@@ -307,7 +346,7 @@ class TrendsBreakdown:
                     sessions_join=sessions_join_condition,
                     person_id_alias=self._person_id_alias,
                     aggregate_operation=aggregate_operation,
-                    interval_annotation=interval_annotation,
+                    timestamp_truncated=get_start_of_interval_sql(self.filter.interval, team=self.team),
                     breakdown_value=breakdown_value,
                     conditions=conditions,
                     GET_TEAM_PERSON_DISTINCT_IDS=get_team_distinct_ids_query(self.team_id),
@@ -327,7 +366,7 @@ class TrendsBreakdown:
                     sessions_join=sessions_join_condition,
                     person_id_alias=self._person_id_alias,
                     aggregate_operation=cummulative_aggregate_operation,
-                    interval_annotation=interval_annotation,
+                    timestamp_truncated=get_start_of_interval_sql(self.filter.interval, team=self.team),
                     breakdown_value=breakdown_value,
                     sample_clause=sample_clause,
                     **breakdown_filter_params,
@@ -341,7 +380,7 @@ class TrendsBreakdown:
                     groups_join=groups_join_condition,
                     sessions_join=sessions_join_condition,
                     aggregate_operation=aggregate_operation,
-                    interval_annotation=interval_annotation,
+                    timestamp_truncated=get_start_of_interval_sql(self.filter.interval, team=self.team),
                     breakdown_value=breakdown_value,
                     event_sessions_table_alias=SessionQuery.SESSION_TABLE_ALIAS,
                     sample_clause=sample_clause,
@@ -354,7 +393,7 @@ class TrendsBreakdown:
                     groups_join=groups_join_condition,
                     sessions_join=sessions_join_condition,
                     aggregate_operation=aggregate_operation,
-                    interval_annotation=interval_annotation,
+                    timestamp_truncated=get_start_of_interval_sql(self.filter.interval, team=self.team),
                     aggregator=self.actor_aggregator,
                     breakdown_value=breakdown_value,
                     sample_clause=sample_clause,
@@ -367,16 +406,27 @@ class TrendsBreakdown:
                     groups_join=groups_join_condition,
                     sessions_join=sessions_join_condition,
                     aggregate_operation=aggregate_operation,
-                    interval_annotation=interval_annotation,
+                    timestamp_truncated=get_start_of_interval_sql(self.filter.interval, team=self.team),
                     breakdown_value=breakdown_value,
                     sample_clause=sample_clause,
                     **breakdown_filter_params,
                 )
 
             breakdown_query = BREAKDOWN_QUERY_SQL.format(
-                interval=interval_annotation, num_intervals=num_intervals, inner_sql=inner_sql
+                num_intervals=num_intervals,
+                inner_sql=inner_sql,
+                date_from_truncated=get_start_of_interval_sql(
+                    self.filter.interval, team=self.team, source="%(date_from)s"
+                ),
+                date_to_truncated=get_start_of_interval_sql(self.filter.interval, team=self.team, source="%(date_to)s"),
+                interval_func=get_interval_func_ch(self.filter.interval),
             )
-            self.params.update({"seconds_in_interval": seconds_in_interval, "num_intervals": num_intervals})
+            self.params.update(
+                {
+                    "seconds_in_interval": seconds_in_interval,
+                    "num_intervals": num_intervals,
+                }
+            )
             return breakdown_query, self.params, self._parse_trend_result(self.filter, self.entity)
 
     def _breakdown_cohort_params(self):
@@ -390,7 +440,7 @@ class TrendsBreakdown:
         return params, breakdown_filter, breakdown_filter_params, "value"
 
     def _breakdown_prop_params(self, aggregate_operation: str, math_params: Dict):
-        values_arr = get_breakdown_prop_values(
+        values_arr, has_more_values = get_breakdown_prop_values(
             self.filter,
             self.entity,
             aggregate_operation,
@@ -404,15 +454,53 @@ class TrendsBreakdown:
         assert isinstance(self.filter.breakdown, str)
 
         breakdown_value = self._get_breakdown_value(self.filter.breakdown)
+        breakdown_other_value: str | int = BREAKDOWN_OTHER_STRING_LABEL
+        breakdown_null_value: str | int = BREAKDOWN_NULL_STRING_LABEL
         numeric_property_filter = ""
         if self.filter.using_histogram:
             numeric_property_filter = f"AND {breakdown_value} is not null"
             breakdown_value, values_arr = self._get_histogram_breakdown_values(breakdown_value, values_arr)
 
+        elif self.filter.breakdown_type == "session" and self.filter.breakdown == "$session_duration":
+            # Not adding "Other" for the custom session duration filter.
+            pass
+        else:
+            all_values_are_numeric_or_none = all(
+                isinstance(value, int) or isinstance(value, float) or value is None for value in values_arr
+            )
+            all_values_are_string_or_none = all(isinstance(value, str) or value is None for value in values_arr)
+
+            if all_values_are_numeric_or_none:
+                breakdown_other_value = BREAKDOWN_OTHER_NUMERIC_LABEL
+                breakdown_null_value = BREAKDOWN_NULL_NUMERIC_LABEL
+                values_arr = [BREAKDOWN_NULL_NUMERIC_LABEL if value is None else value for value in values_arr]
+            else:
+                if not all_values_are_string_or_none:
+                    breakdown_value = f"toString({breakdown_value})"
+                breakdown_value = f"nullIf({breakdown_value}, '')"
+                values_arr = [BREAKDOWN_NULL_STRING_LABEL if value in (None, "") else value for value in values_arr]
+            breakdown_value = f"transform(ifNull({breakdown_value}, %(breakdown_null_value)s), (%(values)s), (%(values)s), %(breakdown_other_value)s)"
+
+        if self.filter.using_histogram:
+            sql_query = BREAKDOWN_HISTOGRAM_PROP_JOIN_SQL
+        elif self.filter.breakdown_hide_other_aggregation:
+            sql_query = BREAKDOWN_PROP_JOIN_SQL
+        else:
+            sql_query = BREAKDOWN_PROP_JOIN_WITH_OTHER_SQL
+
         return (
-            {"values": values_arr},
-            BREAKDOWN_PROP_JOIN_SQL if not self.filter.using_histogram else BREAKDOWN_HISTOGRAM_PROP_JOIN_SQL,
-            {"breakdown_value_expr": breakdown_value, "numeric_property_filter": numeric_property_filter},
+            {
+                "values": [*values_arr, breakdown_other_value]
+                if has_more_values and not self.filter.breakdown_hide_other_aggregation
+                else values_arr,
+                "breakdown_other_value": breakdown_other_value,
+                "breakdown_null_value": breakdown_null_value,
+            },
+            sql_query,
+            {
+                "breakdown_value_expr": breakdown_value,
+                "numeric_property_filter": numeric_property_filter,
+            },
             breakdown_value,
         )
 
@@ -437,12 +525,20 @@ class TrendsBreakdown:
         ):
             properties_field = f"group{self.filter.breakdown_group_type_index}_properties"
             breakdown_value, _ = get_property_string_expr(
-                "events", breakdown, "%(key)s", properties_field, materialised_table_column=properties_field
+                "events",
+                breakdown,
+                "%(key)s",
+                properties_field,
+                materialised_table_column=properties_field,
             )
         elif self.person_on_events_mode != PersonOnEventsMode.DISABLED and self.filter.breakdown_type != "group":
             if self.filter.breakdown_type == "person":
                 breakdown_value, _ = get_property_string_expr(
-                    "events", breakdown, "%(key)s", "person_properties", materialised_table_column="person_properties"
+                    "events",
+                    breakdown,
+                    "%(key)s",
+                    "person_properties",
+                    materialised_table_column="person_properties",
                 )
             else:
                 breakdown_value, _ = get_property_string_expr("events", breakdown, "%(key)s", "properties")
@@ -452,7 +548,11 @@ class TrendsBreakdown:
             elif self.filter.breakdown_type == "group":
                 properties_field = f"group_properties_{self.filter.breakdown_group_type_index}"
                 breakdown_value, _ = get_property_string_expr(
-                    "groups", breakdown, "%(key)s", properties_field, materialised_table_column="group_properties"
+                    "groups",
+                    breakdown,
+                    "%(key)s",
+                    properties_field,
+                    materialised_table_column="group_properties",
                 )
             else:
                 breakdown_value, _ = get_property_string_expr("events", breakdown, "%(key)s", "properties")
@@ -465,7 +565,6 @@ class TrendsBreakdown:
         return breakdown_value
 
     def _get_histogram_breakdown_values(self, raw_breakdown_value: str, buckets: List[int]):
-
         multi_if_conditionals = []
         values_arr = []
 
@@ -556,7 +655,11 @@ class TrendsBreakdown:
                 parsed_result.update(
                     {
                         "persons_urls": self._get_persons_url(
-                            filter, entity, self.team_id, stats[0], result_descriptors["breakdown_value"]
+                            filter,
+                            entity,
+                            self.team,
+                            stats[0],
+                            result_descriptors["breakdown_value"],
                         )
                     }
                 )
@@ -571,27 +674,33 @@ class TrendsBreakdown:
         return _parse
 
     def _get_persons_url(
-        self, filter: Filter, entity: Entity, team_id: int, dates: List[datetime], breakdown_value: Union[str, int]
+        self,
+        filter: Filter,
+        entity: Entity,
+        team: Team,
+        point_dates: List[datetime],
+        breakdown_value: Union[str, int],
     ) -> List[Dict[str, Any]]:
         persons_url = []
         cache_invalidation_key = generate_short_id()
-        for date in dates:
-            date_in_utc = datetime(
-                date.year,
-                date.month,
-                date.day,
-                getattr(date, "hour", 0),
-                getattr(date, "minute", 0),
-                getattr(date, "second", 0),
-                tzinfo=getattr(date, "tzinfo", pytz.UTC),
-            ).astimezone(pytz.UTC)
+        for point_date in point_dates:
+            point_datetime = datetime(
+                point_date.year,
+                point_date.month,
+                point_date.day,
+                getattr(point_date, "hour", 0),
+                getattr(point_date, "minute", 0),
+                getattr(point_date, "second", 0),
+                tzinfo=getattr(point_date, "tzinfo", ZoneInfo("UTC")),
+            ).astimezone(ZoneInfo("UTC"))
+
             filter_params = filter.to_params()
             extra_params = {
                 "entity_id": entity.id,
                 "entity_type": entity.type,
                 "entity_math": entity.math,
-                "date_from": filter.date_from if filter.display == TRENDS_CUMULATIVE else date_in_utc,
-                "date_to": date_in_utc,
+                "date_from": filter.date_from if filter.display == TRENDS_CUMULATIVE else point_datetime,
+                "date_to": offset_time_series_date_by_interval(point_datetime, filter=filter, team=team),
                 "breakdown_value": breakdown_value,
                 "breakdown_type": filter.breakdown_type or "event",
             }
@@ -599,16 +708,18 @@ class TrendsBreakdown:
             persons_url.append(
                 {
                     "filter": extra_params,
-                    "url": f"api/projects/{team_id}/persons/trends/?{urllib.parse.urlencode(parsed_params)}&cache_invalidation_key={cache_invalidation_key}",
+                    "url": f"api/projects/{team.pk}/persons/trends/?{urllib.parse.urlencode(parsed_params)}&cache_invalidation_key={cache_invalidation_key}",
                 }
             )
         return persons_url
 
     def _breakdown_result_descriptors(self, breakdown_value, filter: Filter, entity: Entity):
-        extra_label = self._determine_breakdown_label(
-            breakdown_value, filter.breakdown_type, filter.breakdown, breakdown_value
-        )
-        label = "{} - {}".format(entity.name, extra_label)
+        extra_label = self._determine_breakdown_label(breakdown_value, filter.breakdown_type, breakdown_value)
+        if len(filter.entities) > 1:
+            # if there are multiple entities in the query, include the entity name in the labels
+            label = "{} - {}".format(entity.name, extra_label)
+        else:
+            label = extra_label
         additional_values = {"label": label}
         if filter.breakdown_type == "cohort":
             additional_values["breakdown_value"] = "all" if breakdown_value == ALL_USERS_COHORT_ID else breakdown_value
@@ -621,12 +732,14 @@ class TrendsBreakdown:
         self,
         breakdown_value: int,
         breakdown_type: Optional[str],
-        breakdown: Union[str, List[Union[str, int]], None],
         value: Union[str, int],
     ) -> str:
-        breakdown = breakdown if breakdown and isinstance(breakdown, list) else []
         if breakdown_type == "cohort":
             return get_breakdown_cohort_name(breakdown_value)
+        elif str(value) == BREAKDOWN_OTHER_STRING_LABEL or value == BREAKDOWN_OTHER_NUMERIC_LABEL:
+            return "Other"
+        elif str(value) == BREAKDOWN_NULL_STRING_LABEL or value == BREAKDOWN_NULL_NUMERIC_LABEL:
+            return "none"
         else:
             return str(value) or "none"
 
@@ -668,7 +781,10 @@ class TrendsBreakdown:
 
     def _groups_join_condition(self) -> Tuple[str, Dict]:
         return GroupsJoinQuery(
-            self.filter, self.team_id, self.column_optimizer, person_on_events_mode=self.person_on_events_mode
+            self.filter,
+            self.team_id,
+            self.column_optimizer,
+            person_on_events_mode=self.person_on_events_mode,
         ).get_join_query()
 
     def _sessions_join_condition(self) -> Tuple[str, Dict]:
@@ -678,7 +794,7 @@ class TrendsBreakdown:
             return (
                 f"""
                     INNER JOIN ({query}) {SessionQuery.SESSION_TABLE_ALIAS}
-                    ON {SessionQuery.SESSION_TABLE_ALIAS}.$session_id = e.$session_id
+                    ON {SessionQuery.SESSION_TABLE_ALIAS}."$session_id" = e."$session_id"
                 """,
                 session_params,
             )

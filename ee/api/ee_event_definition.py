@@ -4,7 +4,13 @@ from rest_framework import serializers
 from ee.models.event_definition import EnterpriseEventDefinition
 from posthog.api.shared import UserBasicSerializer
 from posthog.api.tagged_item import TaggedItemSerializerMixin
-from posthog.models.activity_logging.activity_log import dict_changes_between, log_activity, Detail
+from posthog.models.activity_logging.activity_log import (
+    dict_changes_between,
+    log_activity,
+    Detail,
+)
+
+from loginas.utils import is_impersonated_session
 
 
 class EnterpriseEventDefinitionSerializer(TaggedItemSerializerMixin, serializers.ModelSerializer):
@@ -94,6 +100,7 @@ class EnterpriseEventDefinitionSerializer(TaggedItemSerializerMixin, serializers
             item_id=str(event_definition.id),
             scope="EventDefinition",
             activity="changed",
+            was_impersonated=is_impersonated_session(self.context["request"]),
             detail=Detail(name=str(event_definition.name), changes=changes),
         )
 

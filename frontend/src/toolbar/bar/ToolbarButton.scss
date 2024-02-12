@@ -1,0 +1,46 @@
+.ToolbarButton {
+    display: flex;
+    flex-shrink: 0;
+    align-items: center;
+    justify-content: center;
+    width: 2.5rem;
+    height: 2.5rem;
+
+    button {
+        position: relative;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        width: 2rem;
+        height: 2rem;
+        min-height: var(--lemon-button-height);
+        color: var(--muted-alt);
+        appearance: none !important; // Important as this gets overridden by Ant styles...
+        cursor: pointer;
+        user-select: none;
+        background: none;
+        border: none;
+        border-radius: var(--radius);
+        transition: transform 100ms ease;
+
+        > svg {
+            font-size: 1.5rem;
+        }
+    }
+
+    &:not([aria-disabled='true']):hover,
+    &--active {
+        button {
+            color: var(--default);
+            background: var(--border);
+        }
+
+        .Toolbar--dragging & {
+            button {
+                color: var(--muted-alt);
+                background: none;
+            }
+        }
+    }
+}

@@ -1,8 +1,8 @@
 import { useActions, useValues } from 'kea'
+import { DatePicker } from 'lib/components/DatePicker'
+import { dayjs } from 'lib/dayjs'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { insightLogic } from 'scenes/insights/insightLogic'
-import { dayjs } from 'lib/dayjs'
-import { DatePicker } from 'lib/components/DatePicker'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 
 export function RetentionDatePicker(): JSX.Element {

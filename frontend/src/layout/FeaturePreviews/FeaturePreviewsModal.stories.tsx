@@ -1,32 +1,36 @@
-import { Meta, StoryFn } from '@storybook/react'
-import { FeaturePreviewsModal as FeaturePreviewsModalComponent } from './FeaturePreviewsModal'
-import { useFeatureFlags, useStorybookMocks } from '~/mocks/browser'
-import { EarlyAccessFeature } from 'posthog-js'
-import { CONSTRAINED_PREVIEWS } from './featurePreviewsLogic'
+import { Meta, StoryFn, StoryObj } from '@storybook/react'
 import { FeatureFlagKey } from 'lib/constants'
+import { EarlyAccessFeature } from 'posthog-js'
 
-export default {
+import { setFeatureFlags, useStorybookMocks } from '~/mocks/browser'
+
+import { CONSTRAINED_PREVIEWS } from './featurePreviewsLogic'
+import { FeaturePreviewsModal as FeaturePreviewsModalComponent } from './FeaturePreviewsModal'
+
+interface StoryProps {
+    earlyAccessFeatures: EarlyAccessFeature[]
+    enabledFeatureFlags: string[]
+}
+
+type Story = StoryObj<(props: StoryProps) => JSX.Element>
+const meta: Meta<(props: StoryProps) => JSX.Element> = {
     title: 'Layout/Feature Previews Modal',
     parameters: {
         layout: 'fullscreen',
-        options: { showPanel: false },
         viewMode: 'story',
     },
-} as Meta
-
+}
+export default meta
 CONSTRAINED_PREVIEWS.add('constrained-test-1' as FeatureFlagKey)
 CONSTRAINED_PREVIEWS.add('constrained-test-2' as FeatureFlagKey)
 
-const Template: StoryFn<{ earlyAccessFeatures: EarlyAccessFeature[]; enabledFeatureFlags: string[] }> = ({
-    earlyAccessFeatures,
-    enabledFeatureFlags,
-}) => {
+const Template: StoryFn<StoryProps> = ({ earlyAccessFeatures, enabledFeatureFlags }) => {
     useStorybookMocks({
         get: {
             'https://app.posthog.com/api/early_access_features/': { earlyAccessFeatures },
         },
     })
-    useFeatureFlags(enabledFeatureFlags)
+    setFeatureFlags(enabledFeatureFlags)
 
     return (
         <div className="bg-default p-2">
@@ -35,7 +39,7 @@ const Template: StoryFn<{ earlyAccessFeatures: EarlyAccessFeature[]; enabledFeat
     )
 }
 
-export const Basic = Template.bind({})
+export const Basic: Story = Template.bind({})
 Basic.args = {
     earlyAccessFeatures: [
         {
@@ -50,7 +54,7 @@ Basic.args = {
     enabledFeatureFlags: ['data-warehouse'],
 }
 
-export const WithConstrainedFeature = Template.bind({})
+export const WithConstrainedFeature: Story = Template.bind({})
 WithConstrainedFeature.args = {
     earlyAccessFeatures: [
         {
@@ -79,7 +83,7 @@ WithConstrainedFeature.args = {
     enabledFeatureFlags: ['constrained-test-1-preview', 'constrained-test-1', 'constrained-test-2'],
 }
 
-export const Empty = Template.bind({})
+export const Empty: Story = Template.bind({})
 Empty.args = {
     earlyAccessFeatures: [],
     enabledFeatureFlags: [],

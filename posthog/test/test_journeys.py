@@ -1,8 +1,10 @@
 import dataclasses
+from hashlib import md5
 import json
 from datetime import datetime
+import os
 from typing import Any, Dict, List
-from uuid import uuid4
+from uuid import UUID, uuid4
 
 from django.utils import timezone
 
@@ -13,7 +15,9 @@ from posthog.test.base import _create_event, flush_persons_and_events
 
 
 def journeys_for(
-    events_by_person: Dict[str, List[Dict[str, Any]]], team: Team, create_people: bool = True
+    events_by_person: Dict[str, List[Dict[str, Any]]],
+    team: Team,
+    create_people: bool = True,
 ) -> Dict[str, Person]:
     """
     Helper for creating specific events for a team.
@@ -36,30 +40,34 @@ def journeys_for(
     Writing tests in this way reduces duplication in test setup
     And clarifies the preconditions of the test
     """
-
-    def _create_event_from_args(**event):
-        return {**event}
-
     flush_persons_and_events()
     people = {}
     events_to_create = []
     for distinct_id, events in events_by_person.items():
         if create_people:
-            people[distinct_id] = update_or_create_person(distinct_ids=[distinct_id], team_id=team.pk)
+            # Create the person UUID from the distinct ID and test path, so that SQL snapshots are deterministic
+            derived_uuid = UUID(bytes=md5((os.environ["PYTEST_CURRENT_TEST"] + distinct_id).encode("utf-8")).digest())
+            people[distinct_id] = update_or_create_person(
+                distinct_ids=[distinct_id], team_id=team.pk, uuid=derived_uuid
+            )
         else:
             people[distinct_id] = Person.objects.get(
-                persondistinctid__distinct_id=distinct_id, persondistinctid__team_id=team.pk
+                persondistinctid__distinct_id=distinct_id,
+                persondistinctid__team_id=team.pk,
             )
 
         for event in events:
-
             # Populate group properties as well
             group_mapping = {}
             for property_key, value in (event.get("properties") or {}).items():
                 if property_key.startswith("$group_"):
                     group_type_index = property_key[-1]
                     try:
-                        group = Group.objects.get(team_id=team.pk, group_type_index=group_type_index, group_key=value)
+                        group = Group.objects.get(
+                            team_id=team.pk,
+                            group_type_index=group_type_index,
+                            group_key=value,
+                        )
                         group_mapping[f"group{group_type_index}"] = group
 
                     except Group.DoesNotExist:
@@ -69,7 +77,8 @@ def journeys_for(
                 event["timestamp"] = datetime.now().strftime("%Y-%m-%d %H:%M:%S.%f")
 
             events_to_create.append(
-                _create_event_from_args(
+                dict(
+                    event_uuid=UUID(event["event_uuid"]) if "event_uuid" in event else uuid4(),
                     team=team,
                     distinct_id=distinct_id,
                     event=event["event"],
@@ -142,7 +151,7 @@ def _create_all_events_raw(all_events: List[Dict]):
                 data[key] = timestamp
         in_memory_event = InMemoryEvent(**data)
         parsed += f"""
-        ('{str(uuid4())}', '{in_memory_event.event}', '{json.dumps(in_memory_event.properties)}', '{in_memory_event.timestamp}', {in_memory_event.team.pk}, '{in_memory_event.distinct_id}', '', '{in_memory_event.person_id}', '{json.dumps(in_memory_event.person_properties)}', '{in_memory_event.person_created_at.strftime("%Y-%m-%d %H:%M:%S.%f")}', '{json.dumps(in_memory_event.group0_properties)}', '{json.dumps(in_memory_event.group1_properties)}', '{json.dumps(in_memory_event.group2_properties)}', '{json.dumps(in_memory_event.group3_properties)}', '{json.dumps(in_memory_event.group4_properties)}', '{in_memory_event.group0_created_at.strftime("%Y-%m-%d %H:%M:%S.%f")}', '{in_memory_event.group1_created_at.strftime("%Y-%m-%d %H:%M:%S.%f")}', '{in_memory_event.group2_created_at.strftime("%Y-%m-%d %H:%M:%S.%f")}', '{in_memory_event.group3_created_at.strftime("%Y-%m-%d %H:%M:%S.%f")}', '{in_memory_event.group4_created_at.strftime("%Y-%m-%d %H:%M:%S.%f")}', '{timezone.now().strftime("%Y-%m-%d %H:%M:%S.%f")}', now(), 0)
+        ('{in_memory_event.event_uuid}', '{in_memory_event.event}', '{json.dumps(in_memory_event.properties)}', '{in_memory_event.timestamp}', {in_memory_event.team.pk}, '{in_memory_event.distinct_id}', '', '{in_memory_event.person_id}', '{json.dumps(in_memory_event.person_properties)}', '{in_memory_event.person_created_at.strftime("%Y-%m-%d %H:%M:%S.%f")}', '{json.dumps(in_memory_event.group0_properties)}', '{json.dumps(in_memory_event.group1_properties)}', '{json.dumps(in_memory_event.group2_properties)}', '{json.dumps(in_memory_event.group3_properties)}', '{json.dumps(in_memory_event.group4_properties)}', '{in_memory_event.group0_created_at.strftime("%Y-%m-%d %H:%M:%S.%f")}', '{in_memory_event.group1_created_at.strftime("%Y-%m-%d %H:%M:%S.%f")}', '{in_memory_event.group2_created_at.strftime("%Y-%m-%d %H:%M:%S.%f")}', '{in_memory_event.group3_created_at.strftime("%Y-%m-%d %H:%M:%S.%f")}', '{in_memory_event.group4_created_at.strftime("%Y-%m-%d %H:%M:%S.%f")}', '{timezone.now().strftime("%Y-%m-%d %H:%M:%S.%f")}', now(), 0)
         """
 
     sync_execute(
@@ -159,8 +168,9 @@ def create_all_events(all_events: List[dict]):
 
 
 # We collect all events per test into an array and batch create the events to reduce creation time
-@dataclasses.dataclass
+@dataclasses.dataclass(kw_only=True)
 class InMemoryEvent:
+    event_uuid: UUID = dataclasses.field(default_factory=uuid4)
     event: str
     distinct_id: str
     team: Team
@@ -191,6 +201,10 @@ def update_or_create_person(distinct_ids: List[str], team_id: int, **kwargs):
         PersonDistinctId.objects.update_or_create(
             distinct_id=distinct_id,
             team_id=person.team_id,
-            defaults={"person_id": person.id, "team_id": team_id, "distinct_id": distinct_id},
+            defaults={
+                "person_id": person.id,
+                "team_id": team_id,
+                "distinct_id": distinct_id,
+            },
         )
     return person

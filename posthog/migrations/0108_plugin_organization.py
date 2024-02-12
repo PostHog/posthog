@@ -11,7 +11,6 @@ def set_plugin_organization(apps, schema_editor):
 
 
 class Migration(migrations.Migration):
-
     dependencies = [
         ("posthog", "0107_plugin_source"),
     ]

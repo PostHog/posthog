@@ -99,7 +99,13 @@ class TestIngestionWarningsAPI(ClickhouseTestMixin, APIBaseTest):
                     {
                         "type": "another_type",
                         "lastSeen": "2021-11-15T00:00:00Z",
-                        "warnings": [{"type": "another_type", "timestamp": "2021-11-15T00:00:00Z", "details": {}}],
+                        "warnings": [
+                            {
+                                "type": "another_type",
+                                "timestamp": "2021-11-15T00:00:00Z",
+                                "details": {},
+                            }
+                        ],
                         "count": 1,
                     },
                 ]

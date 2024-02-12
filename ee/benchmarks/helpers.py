@@ -71,6 +71,9 @@ def benchmark_clickhouse(fn):
 @contextmanager
 def no_materialized_columns():
     "Allows running a function without any materialized columns being used in query"
-    get_materialized_columns._cache = {("events",): (now(), {}), ("person",): (now(), {})}
+    get_materialized_columns._cache = {
+        ("events",): (now(), {}),
+        ("person",): (now(), {}),
+    }
     yield
     get_materialized_columns._cache = {}

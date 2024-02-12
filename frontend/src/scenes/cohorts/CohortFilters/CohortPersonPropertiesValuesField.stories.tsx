@@ -1,18 +1,20 @@
+import { Meta, StoryFn, StoryObj } from '@storybook/react'
 import { useState } from 'react'
-import { ComponentMeta, ComponentStory } from '@storybook/react'
-import { CohortPersonPropertiesValuesField } from './CohortField'
 import { renderField } from 'scenes/cohorts/CohortFilters/constants'
 import { CohortPersonPropertiesValuesFieldProps, FilterType } from 'scenes/cohorts/CohortFilters/types'
+
 import { PropertyOperator } from '~/types'
 
-export default {
+import { CohortPersonPropertiesValuesField } from './CohortField'
+
+type Story = StoryObj<typeof CohortPersonPropertiesValuesField>
+const meta: Meta<typeof CohortPersonPropertiesValuesField> = {
     title: 'Filters/Cohort Filters/Fields/Person Properties',
     component: CohortPersonPropertiesValuesField,
-} as ComponentMeta<typeof CohortPersonPropertiesValuesField>
+}
+export default meta
 
-const Template: ComponentStory<typeof CohortPersonPropertiesValuesField> = (
-    props: CohortPersonPropertiesValuesFieldProps
-) => {
+const Template: StoryFn<typeof CohortPersonPropertiesValuesField> = (props: CohortPersonPropertiesValuesFieldProps) => {
     const [value, setValue] = useState<string | undefined>('Chrome')
     return renderField[FilterType.PersonPropertyValues]({
         ...props,
@@ -23,5 +25,5 @@ const Template: ComponentStory<typeof CohortPersonPropertiesValuesField> = (
     })
 }
 
-export const Basic = Template.bind({})
+export const Basic: Story = Template.bind({})
 Basic.args = {}

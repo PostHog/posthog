@@ -1,10 +1,9 @@
 import { expectLogic } from 'kea-test-utils'
-import { initKeaTests } from '~/test/init'
-
+import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { pathsDataLogic } from 'scenes/paths/pathsDataLogic'
 
+import { initKeaTests } from '~/test/init'
 import { InsightLogicProps, InsightType, PathType } from '~/types'
-import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 
 let logic: ReturnType<typeof pathsDataLogic.build>
 
@@ -32,7 +31,7 @@ describe('pathsDataLogic', () => {
     it('selects taxonomicGroupTypes from pathsFilter', async () => {
         await expectLogic(logic, () => {
             logic.actions.updateInsightFilter({
-                include_event_types: [PathType.PageView, PathType.Screen, PathType.CustomEvent],
+                includeEventTypes: [PathType.PageView, PathType.Screen, PathType.CustomEvent],
             })
         }).toMatchValues(logic, {
             taxonomicGroupTypes: [

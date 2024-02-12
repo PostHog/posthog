@@ -1,16 +1,17 @@
-import { AnyFilterType } from '~/types'
 import { objectCleanWithEmpty, objectsEqual } from 'lib/utils'
+
+import { AnyFilterType } from '~/types'
 
 import { cleanFilters } from './cleanFilters'
 
 /** clean filters so that we can check for semantic equality with a deep equality check */
-export const clean = (
+export const cleanFilter = (
     filters: Partial<AnyFilterType>,
     test_account_filters_default_checked: boolean | undefined
 ): Partial<AnyFilterType> => {
     const dupFilters = JSON.parse(JSON.stringify(filters))
 
-    // remove undefined values, empty array and empty objects
+    // remove undefined values, empty arrays and empty objects
     const cleanedFilters = objectCleanWithEmpty(cleanFilters(dupFilters, test_account_filters_default_checked))
 
     // do we need an order property on events or actions?
@@ -41,7 +42,7 @@ export const clean = (
     return cleanedFilters
 }
 
-/** compares to filter objects for semantical equality */
+/** compares two filter objects for semantical equality */
 export function compareFilters(
     a: Partial<AnyFilterType>,
     b: Partial<AnyFilterType>,
@@ -49,5 +50,8 @@ export function compareFilters(
 ): boolean {
     // this is not optimized for speed and does not work for many cases yet
     // e.g. falsy values are not treated the same as undefined values, unset filters are not handled, ordering of series isn't checked
-    return objectsEqual(clean(a, test_account_filters_default_checked), clean(b, test_account_filters_default_checked))
+    return objectsEqual(
+        cleanFilter(a, test_account_filters_default_checked),
+        cleanFilter(b, test_account_filters_default_checked)
+    )
 }

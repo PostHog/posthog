@@ -1,33 +1,15 @@
-import {
-    AnyFilterType,
-    ChartDisplayType,
-    Entity,
-    EntityTypes,
-    FilterType,
-    FunnelsFilterType,
-    FunnelVizType,
-    InsightType,
-    LifecycleFilterType,
-    PathsFilterType,
-    PathType,
-    RetentionFilterType,
-    RetentionPeriod,
-    StickinessFilterType,
-    TrendsFilterType,
-} from '~/types'
-import { deepCleanFunnelExclusionEvents, getClampedStepRangeFilter, isStepsUndefined } from 'scenes/funnels/funnelUtils'
-import { getDefaultEventName } from 'lib/utils/getAppContext'
+import { smoothingOptions } from 'lib/components/SmoothingFilter/smoothings'
 import {
     BIN_COUNT_AUTO,
+    NON_TIME_SERIES_DISPLAY_TYPES,
     NON_VALUES_ON_SERIES_DISPLAY_TYPES,
     PERCENT_STACK_VIEW_DISPLAY_TYPE,
     RETENTION_FIRST_TIME,
     ShownAsValue,
 } from 'lib/constants'
-import { autocorrectInterval } from 'lib/utils'
-import { DEFAULT_STEP_LIMIT } from 'scenes/paths/pathsDataLogic'
-import { smoothingOptions } from 'lib/components/SmoothingFilter/smoothings'
-import { LocalFilter, toLocalFilters } from '../filters/ActionFilter/entityFilterLogic'
+import { clamp } from 'lib/utils'
+import { getDefaultEventName } from 'lib/utils/getAppContext'
+import { isURLNormalizeable } from 'scenes/insights/filters/BreakdownFilter/taxonomicBreakdownFilterUtils'
 import {
     isFunnelsFilter,
     isLifecycleFilter,
@@ -36,7 +18,29 @@ import {
     isStickinessFilter,
     isTrendsFilter,
 } from 'scenes/insights/sharedUtils'
-import { isURLNormalizeable } from 'scenes/insights/filters/BreakdownFilter/taxonomicBreakdownFilterUtils'
+import { DEFAULT_STEP_LIMIT } from 'scenes/paths/pathsDataLogic'
+
+import {
+    AnyFilterType,
+    ChartDisplayType,
+    Entity,
+    EntityTypes,
+    FilterType,
+    FunnelExclusionLegacy,
+    FunnelsFilterType,
+    FunnelVizType,
+    InsightType,
+    IntervalType,
+    LifecycleFilterType,
+    PathsFilterType,
+    PathType,
+    RetentionFilterType,
+    RetentionPeriod,
+    StickinessFilterType,
+    TrendsFilterType,
+} from '~/types'
+
+import { LocalFilter, toLocalFilters } from '../filters/ActionFilter/entityFilterLogic'
 
 export function getDefaultEvent(): Entity {
     const event = getDefaultEventName()
@@ -46,6 +50,60 @@ export function getDefaultEvent(): Entity {
         type: EntityTypes.EVENTS,
         order: 0,
     }
+}
+
+export const isStepsUndefined = (filters: FunnelsFilterType): boolean =>
+    typeof filters.events === 'undefined' && (typeof filters.actions === 'undefined' || filters.actions.length === 0)
+
+const findFirstNumber = (candidates: (number | undefined)[]): number | undefined =>
+    candidates.find((s) => typeof s === 'number')
+
+export const getClampedStepRangeFilter = ({
+    stepRange,
+    filters,
+}: {
+    stepRange?: FunnelExclusionLegacy | { funnel_from_step?: number; funnel_to_step?: number }
+    filters: FunnelsFilterType
+}): FunnelExclusionLegacy | { funnel_from_step?: number; funnel_to_step?: number } => {
+    const maxStepIndex = Math.max((filters.events?.length || 0) + (filters.actions?.length || 0) - 1, 1)
+
+    let funnel_from_step = findFirstNumber([stepRange?.funnel_from_step, filters.funnel_from_step])
+    let funnel_to_step = findFirstNumber([stepRange?.funnel_to_step, filters.funnel_to_step])
+
+    const funnelFromStepIsSet = typeof funnel_from_step === 'number'
+    const funnelToStepIsSet = typeof funnel_to_step === 'number'
+
+    if (funnelFromStepIsSet && funnelToStepIsSet) {
+        funnel_from_step = clamp(funnel_from_step ?? 0, 0, maxStepIndex)
+        funnel_to_step = clamp(funnel_to_step ?? maxStepIndex, funnel_from_step + 1, maxStepIndex)
+    }
+
+    return {
+        ...(stepRange || {}),
+        funnel_from_step,
+        funnel_to_step,
+    }
+}
+
+export const deepCleanFunnelExclusionEvents = (filters: FunnelsFilterType): FunnelExclusionLegacy[] | undefined => {
+    if (!filters.exclusions) {
+        return undefined
+    }
+
+    const lastIndex = Math.max((filters.events?.length || 0) + (filters.actions?.length || 0) - 1, 1)
+    const exclusions = filters.exclusions.map((event) => {
+        const funnel_from_step = event.funnel_from_step ? clamp(event.funnel_from_step, 0, lastIndex - 1) : 0
+        return {
+            ...event,
+            ...{ funnel_from_step },
+            ...{
+                funnel_to_step: event.funnel_to_step
+                    ? clamp(event.funnel_to_step, funnel_from_step + 1, lastIndex)
+                    : lastIndex,
+            },
+        }
+    })
+    return exclusions.length > 0 ? exclusions : undefined
 }
 
 /** Take the first series from filters and, based on it, apply the most relevant breakdown type to cleanedParams. */
@@ -69,8 +127,9 @@ function cleanBreakdownNormalizeURL(
 
 const cleanBreakdownParams = (cleanedParams: Partial<FilterType>, filters: Partial<FilterType>): void => {
     const isStepsFunnel = isFunnelsFilter(filters) && filters.funnel_viz_type === FunnelVizType.Steps
+    const isTrendsFunnel = isFunnelsFilter(filters) && filters.funnel_viz_type === FunnelVizType.Trends
     const isTrends = isTrendsFilter(filters)
-    const canBreakdown = isStepsFunnel || isTrends
+    const canBreakdown = isStepsFunnel || isTrendsFunnel || isTrends
 
     const canMultiPropertyBreakdown = isStepsFunnel
 
@@ -165,6 +224,46 @@ export const setTestAccountFilterForNewInsight = (
     }
 }
 
+const disableHourFor: Record<string, boolean> = {
+    dStart: false,
+    '-1d': false,
+    '-7d': false,
+    '-14d': false,
+    '-30d': false,
+    '-90d': true,
+    mStart: false,
+    '-1mStart': false,
+    yStart: true,
+    all: true,
+    other: false,
+}
+
+export function autocorrectInterval(filters: Partial<AnyFilterType>): IntervalType | undefined {
+    if ('display' in filters && filters.display && NON_TIME_SERIES_DISPLAY_TYPES.includes(filters.display)) {
+        // Non-time-series insights should not have an interval
+        return undefined
+    }
+    if (isFunnelsFilter(filters) && filters.funnel_viz_type !== FunnelVizType.Trends) {
+        // Only trend funnels support intervals
+        return undefined
+    }
+    if (!filters.interval) {
+        return 'day'
+    }
+
+    // @ts-expect-error - Old legacy interval support
+    const minute_disabled = filters.interval === 'minute'
+    const hour_disabled = disableHourFor[filters.date_from || 'other'] && filters.interval === 'hour'
+
+    if (minute_disabled) {
+        return 'hour'
+    } else if (hour_disabled) {
+        return 'day'
+    } else {
+        return filters.interval
+    }
+}
+
 export function cleanFilters(
     filters: Partial<AnyFilterType>,
     test_account_filters_default_checked?: boolean
@@ -232,7 +331,6 @@ export function cleanFilters(
             ...(filters.funnel_window_interval ? { funnel_window_interval: filters.funnel_window_interval } : {}),
             ...(filters.funnel_order_type ? { funnel_order_type: filters.funnel_order_type } : {}),
             ...(filters.hidden_legend_keys ? { hidden_legend_keys: filters.hidden_legend_keys } : {}),
-            ...(filters.funnel_advanced ? { funnel_advanced: filters.funnel_advanced } : {}),
             ...(filters.funnel_aggregate_by_hogql
                 ? { funnel_aggregate_by_hogql: filters.funnel_aggregate_by_hogql }
                 : {}),
@@ -270,7 +368,7 @@ export function cleanFilters(
                     stepRange: e,
                     filters: funnelsFilter,
                 })
-            ),
+            ) as FunnelExclusionLegacy[],
         }
         return returnedParams
     } else if (isPathsFilter(filters)) {

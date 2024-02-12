@@ -12,11 +12,12 @@ from typing import (
     Tuple,
     cast,
 )
+from urllib.parse import urlencode, urlparse, urlunparse
+from zoneinfo import ZoneInfo
 
 import pytz
 
 from posthog.demo.matrix.models import Effect, SimPerson, SimSessionIntent
-
 from .taxonomy import *
 
 if TYPE_CHECKING:
@@ -278,9 +279,18 @@ class HedgeboxPerson(SimPerson):
             # The more files, the more likely to delete/download/share rather than upload
             possible_intents_with_weights.extend(
                 [
-                    (HedgeboxSessionIntent.DELETE_FILE_S, math.log10(file_count) / 8 if file_count else 0),
-                    (HedgeboxSessionIntent.DOWNLOAD_OWN_FILE_S, math.log10(file_count + 1) if file_count else 0),
-                    (HedgeboxSessionIntent.SHARE_FILE, math.log10(file_count) / 3 if file_count else 0),
+                    (
+                        HedgeboxSessionIntent.DELETE_FILE_S,
+                        math.log10(file_count) / 8 if file_count else 0,
+                    ),
+                    (
+                        HedgeboxSessionIntent.DOWNLOAD_OWN_FILE_S,
+                        math.log10(file_count + 1) if file_count else 0,
+                    ),
+                    (
+                        HedgeboxSessionIntent.SHARE_FILE,
+                        math.log10(file_count) / 3 if file_count else 0,
+                    ),
                 ]
             )
             if self.account.allocation_used_fraction < 0.99:
@@ -303,7 +313,8 @@ class HedgeboxPerson(SimPerson):
         if possible_intents_with_weights:
             possible_intents, weights = zip(*possible_intents_with_weights)
             return self.cluster.random.choices(
-                cast(Tuple[HedgeboxSessionIntent], possible_intents), cast(Tuple[float], weights)
+                cast(Tuple[HedgeboxSessionIntent], possible_intents),
+                cast(Tuple[float], weights),
             )[0]
         else:
             return None
@@ -312,13 +323,13 @@ class HedgeboxPerson(SimPerson):
         if self.active_session_intent == HedgeboxSessionIntent.CONSIDER_PRODUCT:
             entered_url_directly = self.cluster.random.random() < 0.18
             self.active_client.register({"$referrer": "$direct" if entered_url_directly else "https://www.google.com/"})
-            self.go_to_home()
+            self.go_to_home(None if entered_url_directly else {"utm_source": "google"})
         elif self.active_session_intent == HedgeboxSessionIntent.CHECK_MARIUS_TECH_TIPS_LINK:
             entered_url_directly = self.cluster.random.random() < 0.62
             self.active_client.register(
                 {"$referrer": "$direct" if entered_url_directly else "https://www.youtube.com/"}
             )
-            self.go_to_marius_tech_tips()
+            self.go_to_marius_tech_tips(None if entered_url_directly else {"utm_source": "youtube"})
         elif self.active_session_intent in (
             HedgeboxSessionIntent.UPLOAD_FILE_S,
             HedgeboxSessionIntent.DELETE_FILE_S,
@@ -331,6 +342,7 @@ class HedgeboxPerson(SimPerson):
         ):
             entered_url_directly = self.cluster.random.random() < 0.71
             self.active_client.register({"$referrer": "$direct" if entered_url_directly else "https://www.google.com/"})
+
             if entered_url_directly:
                 used_files_page_url = self.cluster.random.random() < 0.48
                 if used_files_page_url:
@@ -338,7 +350,7 @@ class HedgeboxPerson(SimPerson):
                 else:
                     self.go_to_home()
             else:
-                self.go_to_home()
+                self.go_to_home(None if entered_url_directly else {"utm_source": "google"})
         elif self.active_session_intent == HedgeboxSessionIntent.VIEW_SHARED_FILE:
             self.active_client.register({"$referrer": "$direct"})
             if not self.file_to_view:
@@ -356,8 +368,8 @@ class HedgeboxPerson(SimPerson):
 
     # Path directions
 
-    def go_to_home(self):
-        self.active_client.capture_pageview(URL_HOME)
+    def go_to_home(self, query_params=None):
+        self.active_client.capture_pageview(add_params_to_url(URL_HOME, query_params))
         self.advance_timer(1.8 + self.cluster.random.betavariate(1.5, 3) * 300)  # Viewing the page
         self.satisfaction += (self.cluster.random.betavariate(1.6, 1.2) - 0.5) * 0.1  # It's a somewhat nice page
         if self.active_session_intent in (
@@ -382,8 +394,8 @@ class HedgeboxPerson(SimPerson):
             elif self.need > 0.5 and self.satisfaction >= 0.8 and self.cluster.random.random() < 0.6:
                 self.go_to_sign_up()
 
-    def go_to_marius_tech_tips(self):
-        self.active_client.capture_pageview(URL_MARIUS_TECH_TIPS)
+    def go_to_marius_tech_tips(self, query_params=None):
+        self.active_client.capture_pageview(add_params_to_url(URL_MARIUS_TECH_TIPS, query_params))
         self.advance_timer(1.2 + self.cluster.random.betavariate(1.5, 2) * 150)  # Viewing the page
         self.satisfaction += (self.cluster.random.betavariate(1.6, 1.2) - 0.5) * 0.4  # The user may be in target or not
         self.need += self.cluster.random.uniform(-0.05, 0.15)
@@ -525,7 +537,10 @@ class HedgeboxPerson(SimPerson):
         self.active_client.capture_pageview(dyn_url_file(file.id))
         self.advance_timer(0.5 + self.cluster.random.betavariate(1.2, 1.6) * 20)
         if self.cluster.random.random() < 0.7:
-            self.active_client.capture(EVENT_DOWNLOADED_FILE, {"file_type": file.type, "file_size_b": file.size_b})
+            self.active_client.capture(
+                EVENT_DOWNLOADED_FILE,
+                {"file_type": file.type, "file_size_b": file.size_b},
+            )
         self.advance_timer(0.5 + self.cluster.random.betavariate(1.2, 2) * 80)
         self.need += (self.cluster.random.betavariate(1.2, 1) - 0.5) * 0.08
         if self.cluster.random.random() < 0.2:
@@ -536,13 +551,20 @@ class HedgeboxPerson(SimPerson):
         self.advance_timer(1 + self.cluster.random.betavariate(1.2, 1.2) * 5)
         random = self.cluster.random.random()
         if (
-            self.active_session_intent in (HedgeboxSessionIntent.UPGRADE_PLAN, HedgeboxSessionIntent.DOWNGRADE_PLAN)
+            self.active_session_intent
+            in (
+                HedgeboxSessionIntent.UPGRADE_PLAN,
+                HedgeboxSessionIntent.DOWNGRADE_PLAN,
+            )
             or random < 0.1
         ):
             self.go_to_account_billing()
         elif (
             self.active_session_intent
-            in (HedgeboxSessionIntent.INVITE_TEAM_MEMBER, HedgeboxSessionIntent.REMOVE_TEAM_MEMBER)
+            in (
+                HedgeboxSessionIntent.INVITE_TEAM_MEMBER,
+                HedgeboxSessionIntent.REMOVE_TEAM_MEMBER,
+            )
             or random < 0.1
         ):
             self.go_to_account_team()
@@ -608,7 +630,11 @@ class HedgeboxPerson(SimPerson):
             raise ValueError("Cannot join team without an account")
         self.active_client.capture(EVENT_SIGNED_UP, {"from_invite": True})
         self.advance_timer(self.cluster.random.uniform(0.1, 0.2))
-        self.active_client.group(GROUP_TYPE_ACCOUNT, self.account.id, {"team_size": len(self.account.team_members)})
+        self.active_client.group(
+            GROUP_TYPE_ACCOUNT,
+            self.account.id,
+            {"team_size": len(self.account.team_members)},
+        )
         self.account.team_members.add(self)
 
     def upload_file(self, file: HedgeboxFile):
@@ -617,12 +643,19 @@ class HedgeboxPerson(SimPerson):
         self.account.files.add(file)
         self.active_client.capture(
             EVENT_UPLOADED_FILE,
-            properties={"file_type": file.type, "file_size_b": file.size_b, "used_mb": self.account.current_used_mb},
+            properties={
+                "file_type": file.type,
+                "file_size_b": file.size_b,
+                "used_mb": self.account.current_used_mb,
+            },
         )
         self.active_client.group(
             GROUP_TYPE_ACCOUNT,
             self.account.id,
-            {"used_mb": self.account.current_used_mb, "file_count": len(self.account.files)},
+            {
+                "used_mb": self.account.current_used_mb,
+                "file_count": len(self.account.files),
+            },
         )
         self.satisfaction += self.cluster.random.uniform(-0.19, 0.2)
         if self.satisfaction > 0.9:
@@ -642,7 +675,10 @@ class HedgeboxPerson(SimPerson):
         self.active_client.group(
             GROUP_TYPE_ACCOUNT,
             self.account.id,
-            {"used_mb": self.account.current_used_mb, "file_count": len(self.account.files)},
+            {
+                "used_mb": self.account.current_used_mb,
+                "file_count": len(self.account.files),
+            },
         )
 
     def share_file(self, file: HedgeboxFile):
@@ -661,7 +697,8 @@ class HedgeboxPerson(SimPerson):
         if new_plan is None:
             raise ValueError("There's no successor plan")
         self.active_client.capture(
-            EVENT_UPGRADED_PLAN, {"previous_plan": str(previous_plan), "new_plan": str(new_plan)}
+            EVENT_UPGRADED_PLAN,
+            {"previous_plan": str(previous_plan), "new_plan": str(new_plan)},
         )
         self.advance_timer(self.cluster.random.betavariate(1.2, 1.2) * 2)
         self.schedule_effect(
@@ -673,11 +710,15 @@ class HedgeboxPerson(SimPerson):
         if not self.account.was_billing_scheduled:
             self.account.was_billing_scheduled = True
             future_months = math.ceil(
-                (self.cluster.end.astimezone(pytz.timezone(self.timezone)) - self.cluster.simulation_time).days / 30
+                (self.cluster.end.astimezone(ZoneInfo(self.timezone)) - self.cluster.simulation_time).days / 30
             )
             for i in range(future_months):
                 bill_timestamp = self.cluster.simulation_time + dt.timedelta(days=30 * i)
-                self.schedule_effect(bill_timestamp, lambda person: person.bill_account(), Effect.Target.SELF)
+                self.schedule_effect(
+                    bill_timestamp,
+                    lambda person: person.bill_account(),
+                    Effect.Target.SELF,
+                )
 
     def downgrade_plan(self):
         assert self.account is not None
@@ -686,7 +727,8 @@ class HedgeboxPerson(SimPerson):
         if new_plan is None:
             raise ValueError("There's no predecessor plan")
         self.active_client.capture(
-            EVENT_DOWNGRADED_PLAN, {"previous_plan": str(previous_plan), "new_plan": str(new_plan)}
+            EVENT_DOWNGRADED_PLAN,
+            {"previous_plan": str(previous_plan), "new_plan": str(new_plan)},
         )
         self.account.plan = new_plan
 
@@ -715,7 +757,10 @@ class HedgeboxPerson(SimPerson):
         if self.account and self.account.current_monthly_bill_usd:
             self.cluster.matrix.server_client.capture(
                 EVENT_PAID_BILL,
-                {"amount_usd": self.account.current_monthly_bill_usd, "plan": self.account.plan},
+                {
+                    "amount_usd": self.account.current_monthly_bill_usd,
+                    "plan": self.account.plan,
+                },
                 distinct_id=self.in_product_id,
             )
 
@@ -739,3 +784,14 @@ class HedgeboxPerson(SimPerson):
             for neighbor in cast(List[HedgeboxPerson], self.cluster.list_neighbors(self))
             if neighbor.is_invitable
         ]
+
+
+def add_params_to_url(url, query_params):
+    if not query_params:
+        return url
+    parsed_url = urlparse(url)
+    encoded_query = urlencode(query_params)
+    new_query = f"{parsed_url.query}&{encoded_query}" if parsed_url.query else encoded_query
+    return urlunparse(
+        (parsed_url.scheme, parsed_url.netloc, parsed_url.path, parsed_url.params, new_query, parsed_url.fragment)
+    )

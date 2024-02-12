@@ -2,9 +2,9 @@ from datetime import datetime
 from typing import Any, Dict, List
 from unittest.mock import MagicMock, patch
 from uuid import uuid4
+from zoneinfo import ZoneInfo
 
 import jwt
-import pytz
 from dateutil.relativedelta import relativedelta
 from django.utils.timezone import now
 from freezegun import freeze_time
@@ -13,6 +13,10 @@ from rest_framework import status
 from ee.api.test.base import APILicensedTest
 from ee.billing.billing_types import BillingPeriod, CustomerInfo, CustomerProduct
 from ee.models.license import License
+from posthog.cloud_utils import (
+    TEST_clear_instance_license_cache,
+    get_cached_instance_license,
+)
 from posthog.models.organization import OrganizationMembership
 from posthog.models.team import Team
 from posthog.test.base import APIBaseTest, _create_event, flush_persons_and_events
@@ -33,9 +37,14 @@ def create_missing_billing_customer(**kwargs) -> CustomerInfo:
         current_total_amount_usd="0.00",
         products=None,
         billing_period=BillingPeriod(
-            current_period_start="2022-10-07T11:12:48", current_period_end="2022-11-07T11:12:48"
+            current_period_start="2022-10-07T11:12:48",
+            current_period_end="2022-11-07T11:12:48",
         ),
-        usage_summary={"events": {"limit": None, "usage": 0}, "recordings": {"limit": None, "usage": 0}},
+        usage_summary={
+            "events": {"limit": None, "usage": 0},
+            "recordings": {"limit": None, "usage": 0},
+            "rows_synced": {"limit": None, "usage": 0},
+        },
         free_trial_until=None,
         available_features=[],
     )
@@ -59,8 +68,16 @@ def create_billing_customer(**kwargs) -> CustomerInfo:
                 image_url="https://posthog.com/static/images/product-os.png",
                 free_allocation=10000,
                 tiers=[
-                    {"unit_amount_usd": "0.00", "up_to": 1000000, "current_amount_usd": "0.00"},
-                    {"unit_amount_usd": "0.00045", "up_to": 2000000, "current_amount_usd": None},
+                    {
+                        "unit_amount_usd": "0.00",
+                        "up_to": 1000000,
+                        "current_amount_usd": "0.00",
+                    },
+                    {
+                        "unit_amount_usd": "0.00045",
+                        "up_to": 2000000,
+                        "current_amount_usd": None,
+                    },
                 ],
                 tiered=True,
                 unit_amount_usd="0.00",
@@ -74,9 +91,14 @@ def create_billing_customer(**kwargs) -> CustomerInfo:
             )
         ],
         billing_period=BillingPeriod(
-            current_period_start="2022-10-07T11:12:48", current_period_end="2022-11-07T11:12:48"
+            current_period_start="2022-10-07T11:12:48",
+            current_period_end="2022-11-07T11:12:48",
         ),
-        usage_summary={"events": {"limit": None, "usage": 0}, "recordings": {"limit": None, "usage": 0}},
+        usage_summary={
+            "events": {"limit": None, "usage": 0},
+            "recordings": {"limit": None, "usage": 0},
+            "rows_synced": {"limit": None, "usage": 0},
+        },
         free_trial_until=None,
     )
     data.update(kwargs)
@@ -94,8 +116,16 @@ def create_billing_products_response(**kwargs) -> Dict[str, List[CustomerProduct
                 image_url="https://posthog.com/static/images/product-os.png",
                 free_allocation=10000,
                 tiers=[
-                    {"unit_amount_usd": "0.00", "up_to": 1000000, "current_amount_usd": "0.00"},
-                    {"unit_amount_usd": "0.00045", "up_to": 2000000, "current_amount_usd": None},
+                    {
+                        "unit_amount_usd": "0.00",
+                        "up_to": 1000000,
+                        "current_amount_usd": "0.00",
+                    },
+                    {
+                        "unit_amount_usd": "0.00045",
+                        "up_to": 2000000,
+                        "current_amount_usd": None,
+                    },
                 ],
                 tiered=True,
                 unit_amount_usd="0.00",
@@ -135,6 +165,7 @@ class TestUnlicensedBillingAPI(APIBaseTest):
 
         mock_request.side_effect = mock_implementation
 
+        TEST_clear_instance_license_cache()
         res = self.client.get("/api/billing-v2")
         assert res.status_code == 200
         assert res.json() == {
@@ -147,6 +178,7 @@ class TestBillingAPI(APILicensedTest):
     def test_billing_v2_fails_for_old_license_type(self):
         self.license.key = "test_key"
         self.license.save()
+        TEST_clear_instance_license_cache()
 
         res = self.client.get("/api/billing-v2")
         assert res.status_code == 404
@@ -170,6 +202,8 @@ class TestBillingAPI(APILicensedTest):
 
         mock_request.side_effect = mock_implementation
 
+        TEST_clear_instance_license_cache()
+
         self.client.get("/api/billing-v2")
         assert mock_request.call_args_list[0].args[0].endswith("/api/billing")
         token = mock_request.call_args_list[0].kwargs["headers"]["Authorization"].split(" ")[1]
@@ -177,7 +211,11 @@ class TestBillingAPI(APILicensedTest):
         secret = self.license.key.split("::")[1]
 
         decoded_token = jwt.decode(
-            token, secret, algorithms=["HS256"], audience="posthog:license-key", options={"verify_aud": True}
+            token,
+            secret,
+            algorithms=["HS256"],
+            audience="posthog:license-key",
+            options={"verify_aud": True},
         )
 
         assert decoded_token == {
@@ -205,6 +243,7 @@ class TestBillingAPI(APILicensedTest):
 
         mock_request.side_effect = mock_implementation
 
+        TEST_clear_instance_license_cache()
         response = self.client.get("/api/billing-v2")
         assert response.status_code == status.HTTP_200_OK
 
@@ -226,8 +265,16 @@ class TestBillingAPI(APILicensedTest):
                     "image_url": "https://posthog.com/static/images/product-os.png",
                     "free_allocation": 10000,
                     "tiers": [
-                        {"unit_amount_usd": "0.00", "up_to": 1000000, "current_amount_usd": "0.00"},
-                        {"unit_amount_usd": "0.00045", "up_to": 2000000, "current_amount_usd": None},
+                        {
+                            "unit_amount_usd": "0.00",
+                            "up_to": 1000000,
+                            "current_amount_usd": "0.00",
+                        },
+                        {
+                            "unit_amount_usd": "0.00045",
+                            "up_to": 2000000,
+                            "current_amount_usd": None,
+                        },
                     ],
                     "tiered": True,
                     "current_amount_usd": "0.00",
@@ -244,7 +291,11 @@ class TestBillingAPI(APILicensedTest):
                 "current_period_start": "2022-10-07T11:12:48",
                 "current_period_end": "2022-11-07T11:12:48",
             },
-            "usage_summary": {"events": {"limit": None, "usage": 0}, "recordings": {"limit": None, "usage": 0}},
+            "usage_summary": {
+                "events": {"limit": None, "usage": 0},
+                "recordings": {"limit": None, "usage": 0},
+                "rows_synced": {"limit": None, "usage": 0},
+            },
             "free_trial_until": None,
         }
 
@@ -284,8 +335,16 @@ class TestBillingAPI(APILicensedTest):
                     "type": "events",
                     "free_allocation": 10000,
                     "tiers": [
-                        {"unit_amount_usd": "0.00", "up_to": 1000000, "current_amount_usd": "0.00"},
-                        {"unit_amount_usd": "0.00045", "up_to": 2000000, "current_amount_usd": None},
+                        {
+                            "unit_amount_usd": "0.00",
+                            "up_to": 1000000,
+                            "current_amount_usd": "0.00",
+                        },
+                        {
+                            "unit_amount_usd": "0.00045",
+                            "up_to": 2000000,
+                            "current_amount_usd": None,
+                        },
                     ],
                     "current_usage": 0,
                     "percentage_usage": 0.0,
@@ -304,7 +363,11 @@ class TestBillingAPI(APILicensedTest):
                 "current_period_start": "2022-10-07T11:12:48",
                 "current_period_end": "2022-11-07T11:12:48",
             },
-            "usage_summary": {"events": {"limit": None, "usage": 0}, "recordings": {"limit": None, "usage": 0}},
+            "usage_summary": {
+                "events": {"limit": None, "usage": 0},
+                "recordings": {"limit": None, "usage": 0},
+                "rows_synced": {"limit": None, "usage": 0},
+            },
             "free_trial_until": None,
             "current_total_amount_usd": "0.00",
             "deactivated": False,
@@ -371,9 +434,13 @@ class TestBillingAPI(APILicensedTest):
         self.client.get("/api/billing-v2")
         self.license.refresh_from_db()
 
-        self.license.valid_until = datetime(2022, 1, 2, 0, 0, 0, tzinfo=pytz.UTC)
+        self.license.valid_until = datetime(2022, 1, 2, 0, 0, 0, tzinfo=ZoneInfo("UTC"))
         self.license.save()
         assert self.license.plan == "scale"
+        TEST_clear_instance_license_cache()
+        license = get_cached_instance_license()
+        assert license.plan == "scale"
+        assert license.valid_until == datetime(2022, 1, 2, 0, 0, 0, tzinfo=ZoneInfo("UTC"))
 
         mock_request.return_value.json.return_value = {
             "license": {
@@ -383,10 +450,10 @@ class TestBillingAPI(APILicensedTest):
         }
 
         self.client.get("/api/billing-v2")
-        self.license.refresh_from_db()
-        assert self.license.plan == "enterprise"
+        license = get_cached_instance_license()
+        assert license.plan == "enterprise"
         # Should be extended by 30 days
-        assert self.license.valid_until == datetime(2022, 1, 31, 12, 0, 0, tzinfo=pytz.UTC)
+        assert license.valid_until == datetime(2022, 1, 31, 12, 0, 0, tzinfo=ZoneInfo("UTC"))
 
     @patch("ee.api.billing.requests.get")
     def test_organization_available_features_updated_if_different(self, mock_request):
@@ -458,6 +525,11 @@ class TestBillingAPI(APILicensedTest):
                 "todays_usage": 0,
                 "usage": 0,
             },
+            "rows_synced": {
+                "limit": None,
+                "todays_usage": 0,
+                "usage": 0,
+            },
             "period": ["2022-10-07T11:12:48", "2022-11-07T11:12:48"],
         }
 
@@ -489,6 +561,11 @@ class TestBillingAPI(APILicensedTest):
                 "usage": 0,
             },
             "recordings": {
+                "limit": None,
+                "todays_usage": 0,
+                "usage": 0,
+            },
+            "rows_synced": {
                 "limit": None,
                 "todays_usage": 0,
                 "usage": 0,
@@ -550,5 +627,6 @@ class TestBillingAPI(APILicensedTest):
         assert self.organization.usage == {
             "events": {"limit": None, "usage": 0, "todays_usage": 0},
             "recordings": {"limit": None, "usage": 0, "todays_usage": 0},
+            "rows_synced": {"limit": None, "usage": 0, "todays_usage": 0},
             "period": ["2022-10-07T11:12:48", "2022-11-07T11:12:48"],
         }

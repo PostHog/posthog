@@ -1,26 +1,27 @@
 import { Meta } from '@storybook/react'
 import { useActions, useValues } from 'kea'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { useEffect } from 'react'
 import { Scene } from 'scenes/sceneTypes'
-import { useStorybookMocks } from '~/mocks/browser'
-import { navigation3000Logic } from '../navigationLogic'
-import { Sidebar } from './Sidebar'
-import featureFlagsJson from '../../../scenes/feature-flags/__mocks__/feature_flags.json'
-import dashboardsJson from '../../../scenes/dashboard/__mocks__/dashboards.json'
-import { with3000 } from 'storybook/decorators/with3000'
-import { SidebarNavbarItem } from '../types'
 
-export default {
+import { useStorybookMocks } from '~/mocks/browser'
+
+import dashboardsJson from '../../../scenes/dashboard/__mocks__/dashboards.json'
+import featureFlagsJson from '../../../scenes/feature-flags/__mocks__/feature_flags.json'
+import { navigation3000Logic } from '../navigationLogic'
+import { SidebarNavbarItem } from '../types'
+import { Sidebar } from './Sidebar'
+
+const meta: Meta = {
     title: 'PostHog 3000/Sidebar',
     parameters: {
         mockDate: '2023-02-01',
         layout: 'fullscreen',
-        options: { showPanel: false },
         viewMode: 'story',
+        featureFlags: [FEATURE_FLAGS.POSTHOG_3000_NAV],
     },
-    decorators: [with3000],
-} as Meta
-
+}
+export default meta
 /** featureFlagsJson * 6 to fill the sidebar up more. */
 const multipliedFeatureFlagsJson = {
     ...featureFlagsJson,

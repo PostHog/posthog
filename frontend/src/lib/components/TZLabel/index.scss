@@ -1,38 +1,27 @@
-.tz-label {
-    white-space: nowrap;
+.TZLabelPopover {
+    .TZLabelPopover__row {
+        display: flex;
+        margin-top: 0.5rem;
 
-    &.tz-label--hoverable {
-        border-bottom: 1px dotted var(--border-bold);
-        cursor: default;
-    }
-}
+        > :nth-child(1) {
+            margin-right: 6px;
+            font-weight: bold;
+            color: var(--primary-alt);
+        }
 
-.tz-label-popover {
-    .divider {
-        margin-right: -4px;
-        margin-left: -4px;
-        border-bottom: 1px solid var(--border-light);
-    }
-    .timezones {
-        .timezone {
-            display: flex;
-            margin-top: 8px;
-            .name {
-                font-weight: bold;
-                color: var(--primary-alt);
-                margin-right: 6px;
-            }
+        > :nth-child(2) {
+            flex-grow: 1;
+            margin-right: 16px;
+            font-style: italic;
+            color: var(--muted);
+        }
 
-            .scope {
-                color: var(--muted);
-                margin-right: 16px;
-                flex-grow: 1;
-                font-style: italic;
-            }
+        > :nth-child(3) {
+            min-width: 10rem;
+            text-align: right;
 
-            .time {
-                min-width: 170px;
-                text-align: right;
+            .TZLabelPopover--seconds & {
+                min-width: 12rem;
             }
         }
     }

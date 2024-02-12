@@ -32,7 +32,9 @@ class Command(BaseCommand):
     def add_arguments(self, parser):
         parser.add_argument("--seed", type=str, help="Simulation seed for deterministic output")
         parser.add_argument(
-            "--now", type=dt.datetime.fromisoformat, help="Simulation 'now' datetime in ISO format (default: now)"
+            "--now",
+            type=dt.datetime.fromisoformat,
+            help="Simulation 'now' datetime in ISO format (default: now)",
         )
         parser.add_argument(
             "--days-past",
@@ -46,9 +48,17 @@ class Command(BaseCommand):
             default=30,
             help="At how many days after 'now' should the simulation end (default: 30)",
         )
-        parser.add_argument("--n-clusters", type=int, default=500, help="Number of clusters (default: 500)")
         parser.add_argument(
-            "--team-id", type=str, default="1", help="The team to which the events should be associated."
+            "--n-clusters",
+            type=int,
+            default=500,
+            help="Number of clusters (default: 500)",
+        )
+        parser.add_argument(
+            "--team-id",
+            type=str,
+            default="1",
+            help="The team to which the events should be associated.",
         )
 
     def handle(self, *args, **options):
@@ -83,7 +93,8 @@ class Command(BaseCommand):
         # Make sure events are ordered by time to simulate how they would be
         # ingested in real life.
         ordered_events = sorted(
-            chain.from_iterable(person.all_events for person in matrix.people), key=lambda e: e.timestamp
+            chain.from_iterable(person.all_events for person in matrix.people),
+            key=lambda e: e.timestamp,
         )
 
         start_time = time.monotonic()
@@ -107,7 +118,11 @@ class Command(BaseCommand):
             offsets = admin.list_consumer_group_offsets(group_id="clickhouse-ingestion")
             end_offsets = consumer.end_offsets([TopicPartition(topic=KAFKA_EVENTS_PLUGIN_INGESTION_TOPIC, partition=0)])
             if end_offsets is None:
-                logger.error("no_end_offsets", topic=KAFKA_EVENTS_PLUGIN_INGESTION_TOPIC, partition=0)
+                logger.error(
+                    "no_end_offsets",
+                    topic=KAFKA_EVENTS_PLUGIN_INGESTION_TOPIC,
+                    partition=0,
+                )
                 sys.exit(1)
 
             end_offset = end_offsets[TopicPartition(topic=KAFKA_EVENTS_PLUGIN_INGESTION_TOPIC, partition=0)]

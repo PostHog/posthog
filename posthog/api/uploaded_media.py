@@ -7,7 +7,11 @@ from django.views.decorators.csrf import csrf_exempt
 from drf_spectacular.utils import extend_schema
 from PIL import Image
 from rest_framework import status, viewsets
-from rest_framework.exceptions import APIException, UnsupportedMediaType, ValidationError
+from rest_framework.exceptions import (
+    APIException,
+    UnsupportedMediaType,
+    ValidationError,
+)
 from rest_framework.parsers import FormParser, MultiPartParser
 from rest_framework.permissions import IsAuthenticatedOrReadOnly
 from rest_framework.response import Response
@@ -16,7 +20,7 @@ from statshog.defaults.django import statsd
 from posthog.api.routing import StructuredViewSetMixin
 from posthog.models import UploadedMedia
 from posthog.models.uploaded_media import ObjectStorageUnavailable
-from posthog.permissions import ProjectMembershipNecessaryPermissions, TeamMemberAccessPermission
+from posthog.permissions import TeamMemberAccessPermission
 from posthog.storage import object_storage
 
 FOUR_MEGABYTES = 4 * 1024 * 1024
@@ -43,7 +47,12 @@ def validate_image_file(file: Optional[bytes], user: int) -> bool:
         im.close()
         return True
     except Exception as e:
-        logger.error("uploaded_media.image_verification_error", user=user, exception=e, exc_info=True)
+        logger.error(
+            "uploaded_media.image_verification_error",
+            user=user,
+            exception=e,
+            exc_info=True,
+        )
         return False
 
 
@@ -61,7 +70,10 @@ def download(request, *args, **kwargs) -> HttpResponse:
 
     file_bytes = object_storage.read_bytes(instance.media_location)
 
-    statsd.incr("uploaded_media.served", tags={"team_id": instance.team_id, "uuid": kwargs["image_uuid"]})
+    statsd.incr(
+        "uploaded_media.served",
+        tags={"team_id": instance.team_id, "uuid": kwargs["image_uuid"]},
+    )
 
     return HttpResponse(
         file_bytes,
@@ -73,11 +85,7 @@ def download(request, *args, **kwargs) -> HttpResponse:
 class MediaViewSet(StructuredViewSetMixin, viewsets.GenericViewSet):
     queryset = UploadedMedia.objects.all()
     parser_classes = (MultiPartParser, FormParser)
-    permission_classes = [
-        IsAuthenticatedOrReadOnly,
-        ProjectMembershipNecessaryPermissions,
-        TeamMemberAccessPermission,
-    ]
+    permission_classes = [IsAuthenticatedOrReadOnly, TeamMemberAccessPermission]
 
     @extend_schema(
         description="""
@@ -109,15 +117,20 @@ class MediaViewSet(StructuredViewSetMixin, viewsets.GenericViewSet):
                 bytes_to_verify = object_storage.read_bytes(uploaded_media.media_location)
                 if not validate_image_file(bytes_to_verify, user=request.user.id):
                     statsd.incr(
-                        "uploaded_media.image_failed_validation", tags={"file_name": file.name, "team": self.team_id}
+                        "uploaded_media.image_failed_validation",
+                        tags={"file_name": file.name, "team": self.team_id},
                     )
                     # TODO a batch process can delete media with no records in the DB or for deleted teams
                     uploaded_media.delete()
-                    raise ValidationError(code="invalid_image", detail="Uploaded media must be a valid image")
+                    raise ValidationError(
+                        code="invalid_image",
+                        detail="Uploaded media must be a valid image",
+                    )
 
                 headers = self.get_success_headers(uploaded_media.get_absolute_url())
                 statsd.incr(
-                    "uploaded_media.uploaded", tags={"team_id": self.team.pk, "content_type": file.content_type}
+                    "uploaded_media.uploaded",
+                    tags={"team_id": self.team.pk, "content_type": file.content_type},
                 )
                 return Response(
                     {
@@ -134,7 +147,8 @@ class MediaViewSet(StructuredViewSetMixin, viewsets.GenericViewSet):
             raise ValidationError(code="no-image-provided", detail="An image file must be provided")
         except ObjectStorageUnavailable:
             raise ValidationError(
-                code="object_storage_required", detail="Object storage must be available to allow media uploads."
+                code="object_storage_required",
+                detail="Object storage must be available to allow media uploads.",
             )
 
     def get_success_headers(self, location: str) -> Dict:

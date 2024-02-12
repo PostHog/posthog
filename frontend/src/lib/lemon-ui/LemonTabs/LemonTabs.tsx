@@ -1,10 +1,12 @@
+import './LemonTabs.scss'
+
 import clsx from 'clsx'
 import { AlignType } from 'rc-trigger/lib/interface'
+
 import { useSliderPositioning } from '../hooks'
 import { IconInfo } from '../icons'
-import { Tooltip } from '../Tooltip'
-import './LemonTabs.scss'
 import { Link } from '../Link'
+import { Tooltip } from '../Tooltip'
 
 /** A tab that represents one of the options, but doesn't have any content. Render tab-dependent UI yourself. */
 export interface AbstractLemonTab<T extends string | number> {

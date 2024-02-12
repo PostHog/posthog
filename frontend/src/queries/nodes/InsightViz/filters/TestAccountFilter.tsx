@@ -1,10 +1,11 @@
-import { useActions, useValues } from 'kea'
-
-import { teamLogic } from 'scenes/teamLogic'
 import { LemonButton, LemonSwitch } from '@posthog/lemon-ui'
+import { useActions, useValues } from 'kea'
 import { IconSettings } from 'lib/lemon-ui/icons'
+import { filterTestAccountsDefaultsLogic } from 'scenes/settings/project/filterTestAccountDefaultsLogic'
+import { teamLogic } from 'scenes/teamLogic'
+import { urls } from 'scenes/urls'
+
 import { InsightQueryNode } from '~/queries/schema'
-import { filterTestAccountsDefaultsLogic } from 'scenes/project/Settings/filterTestAccountDefaultsLogic'
 
 type TestAccountFilterProps = {
     query: InsightQueryNode
@@ -29,8 +30,7 @@ export function TestAccountFilter({ query, setQuery }: TestAccountFilterProps): 
                     <span>Filter out internal and test users</span>
                     <LemonButton
                         icon={<IconSettings />}
-                        to="/project/settings#internal-users-filtering"
-                        status="stealth"
+                        to={urls.settings('project', 'internal-user-filtering')}
                         size="small"
                         noPadding
                         className="ml-1"

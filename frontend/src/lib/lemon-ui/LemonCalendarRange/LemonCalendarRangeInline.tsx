@@ -1,7 +1,8 @@
+import clsx from 'clsx'
+import { dayjs } from 'lib/dayjs'
 import { LemonCalendar } from 'lib/lemon-ui/LemonCalendar/LemonCalendar'
 import { useEffect, useState } from 'react'
-import { dayjs } from 'lib/dayjs'
-import clsx from 'clsx'
+
 import { LemonCalendarRangeProps } from './LemonCalendarRange'
 
 /** Used to calculate how many calendars fit on the screen */
@@ -24,16 +25,16 @@ export function LemonCalendarRangeInline({
     ])
 
     function setRange([rangeStart, rangeEnd, lastChanged]: RangeState): void {
-        _setRange([rangeStart, rangeEnd, lastChanged])
+        _setRange([rangeStart, rangeEnd ? rangeEnd.endOf('day') : null, lastChanged])
         if (rangeStart && rangeEnd) {
-            onChange([rangeStart, rangeEnd])
+            onChange([rangeStart, rangeEnd.endOf('day')])
         }
     }
 
     // How many months fit on the screen, capped between 1..2
     function getMonthCount(): number {
         const width =
-            typeof window === undefined ? WIDTH_OF_ONE_CALENDAR_MONTH * CALENDARS_IF_NO_WINDOW : window.innerWidth
+            typeof window === 'undefined' ? WIDTH_OF_ONE_CALENDAR_MONTH * CALENDARS_IF_NO_WINDOW : window.innerWidth
         return Math.min(Math.max(1, Math.floor(width / WIDTH_OF_ONE_CALENDAR_MONTH)), 2)
     }
     const [autoMonthCount, setAutoMonthCount] = useState(getMonthCount())
@@ -101,11 +102,14 @@ export function LemonCalendarRangeInline({
                         className:
                             date.isSame(rangeStart, 'd') && date.isSame(rangeEnd, 'd')
                                 ? props.className
-                                : clsx(props.className, {
-                                      'rounded-r-none': date.isSame(rangeStart, 'd') && dayIndex < 6,
-                                      'rounded-l-none': date.isSame(rangeEnd, 'd') && dayIndex > 0,
-                                  }),
-                        status: 'primary',
+                                : clsx(
+                                      props.className,
+                                      {
+                                          'rounded-r-none': date.isSame(rangeStart, 'd') && dayIndex < 6,
+                                          'rounded-l-none': date.isSame(rangeEnd, 'd') && dayIndex > 0,
+                                      },
+                                      'LemonCalendar__range--boundary'
+                                  ),
                         type: 'primary',
                     }
                 } else if (rangeStart && rangeEnd && date > rangeStart && date < rangeEnd) {

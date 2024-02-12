@@ -1,15 +1,16 @@
-import { useEffect, useState } from 'react'
-import { useActions, useValues } from 'kea'
-import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
-import { signupLogic } from './signupLogic'
-import { userLogic } from '../../../userLogic'
-import { SceneExport } from 'scenes/sceneTypes'
 import { LemonButton } from '@posthog/lemon-ui'
-import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
+import { useActions, useValues } from 'kea'
 import { IconArrowLeft } from 'lib/lemon-ui/icons'
+import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { SpinnerOverlay } from 'lib/lemon-ui/Spinner/Spinner'
+import { useEffect, useState } from 'react'
+import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
+import { SceneExport } from 'scenes/sceneTypes'
+
+import { userLogic } from '../../../userLogic'
 import { SignupPanel1 } from './panels/SignupPanel1'
 import { SignupPanel2 } from './panels/SignupPanel2'
+import { signupLogic } from './signupLogic'
 
 export const scene: SceneExport = {
     component: SignupForm,
@@ -51,14 +52,7 @@ export function SignupForm(): JSX.Element | null {
                 <>
                     <SignupPanel2 />
                     <div className="flex justify-center">
-                        <LemonButton
-                            type="tertiary"
-                            status="muted"
-                            icon={<IconArrowLeft />}
-                            onClick={() => setPanel(panel - 1)}
-                            size="small"
-                            center
-                        >
+                        <LemonButton icon={<IconArrowLeft />} onClick={() => setPanel(panel - 1)} size="small" center>
                             or go back
                         </LemonButton>
                     </div>

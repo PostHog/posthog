@@ -24,7 +24,10 @@ def migrate_playlist_item_recording_relations(apps, _) -> None:
 
         Recording.objects.bulk_create(
             [
-                Recording(session_id=playlist_item_object.session_id, team=playlist_item_object.playlist.team)
+                Recording(
+                    session_id=playlist_item_object.session_id,
+                    team=playlist_item_object.playlist.team,
+                )
                 for playlist_item_object in playlist_items
             ],
             ignore_conflicts=True,
@@ -44,7 +47,6 @@ def reverse(apps, _) -> None:
 
 
 class Migration(migrations.Migration):
-
     dependencies = [
         ("posthog", "0286_index_insightcachingstate_lookup"),
     ]
@@ -72,12 +74,18 @@ class Migration(migrations.Migration):
                 (
                     "id",
                     models.UUIDField(
-                        default=posthog.models.utils.UUIDT, editable=False, primary_key=True, serialize=False
+                        default=posthog.models.utils.UUIDT,
+                        editable=False,
+                        primary_key=True,
+                        serialize=False,
                     ),
                 ),
                 ("session_id", models.CharField(max_length=200, unique=True)),
                 ("created_at", models.DateTimeField(auto_now_add=True, null=True)),
-                ("team", models.ForeignKey(on_delete=django.db.models.deletion.CASCADE, to="posthog.team")),
+                (
+                    "team",
+                    models.ForeignKey(on_delete=django.db.models.deletion.CASCADE, to="posthog.team"),
+                ),
             ],
             options={
                 "unique_together": {("team", "session_id")},

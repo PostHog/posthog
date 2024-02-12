@@ -1,5 +1,6 @@
+# serializer version: 1
 # name: TestCohort.test_cohortpeople_basic
-  '
+  '''
   
   INSERT INTO cohortpeople
   SELECT id,
@@ -20,7 +21,7 @@
      GROUP BY id
      HAVING max(is_deleted) = 0
      AND ((((has(['something'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, version), '$some_prop'), '^"|"$', ''))))
-           AND ((has(['something'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, version), '$another_prop'), '^"|"$', ''))))))) as person
+           AND ((has(['something'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, version), '$another_prop'), '^"|"$', '')))))) SETTINGS optimize_aggregation_in_order = 1) as person
   UNION ALL
   SELECT person_id,
          cohort_id,
@@ -32,10 +33,10 @@
     AND cohort_id = 2
     AND version < 0
     AND sign = 1
-  '
----
+  '''
+# ---
 # name: TestCohort.test_cohortpeople_with_not_in_cohort_operator
-  '
+  '''
   
   INSERT INTO cohortpeople
   SELECT id,
@@ -54,7 +55,7 @@
             AND ((has(['something1'], replaceRegexpAll(JSONExtractRaw(properties, '$some_prop'), '^"|"$', '')))) )
      GROUP BY id
      HAVING max(is_deleted) = 0
-     AND ((has(['something1'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, version), '$some_prop'), '^"|"$', ''))))) as person
+     AND ((has(['something1'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, version), '$some_prop'), '^"|"$', '')))) SETTINGS optimize_aggregation_in_order = 1) as person
   UNION ALL
   SELECT person_id,
          cohort_id,
@@ -66,10 +67,10 @@
     AND cohort_id = 2
     AND version < 0
     AND sign = 1
-  '
----
+  '''
+# ---
 # name: TestCohort.test_cohortpeople_with_not_in_cohort_operator.1
-  '
+  '''
   
   INSERT INTO cohortpeople
   SELECT id,
@@ -111,7 +112,7 @@
                   AND (((((NOT has(['something1'], replaceRegexpAll(JSONExtractRaw(properties, '$some_prop'), '^"|"$', ''))))))) )
            GROUP BY id
            HAVING max(is_deleted) = 0
-           AND (((((NOT has(['something1'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, version), '$some_prop'), '^"|"$', ''))))))))) person ON person.person_id = behavior_query.person_id
+           AND (((((NOT has(['something1'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, version), '$some_prop'), '^"|"$', ''))))))) SETTINGS optimize_aggregation_in_order = 1)) person ON person.person_id = behavior_query.person_id
      WHERE 1 = 1
        AND ((((performed_event_condition_15_level_level_0_level_0_level_0_0)))) ) as person
   UNION ALL
@@ -125,10 +126,10 @@
     AND cohort_id = 2
     AND version < 0
     AND sign = 1
-  '
----
+  '''
+# ---
 # name: TestCohort.test_cohortpeople_with_not_in_cohort_operator_and_no_precalculation
-  '
+  '''
   SELECT uuid,
          distinct_id
   FROM events
@@ -176,13 +177,13 @@
                               AND (((((NOT has(['something1'], replaceRegexpAll(JSONExtractRaw(properties, '$some_prop'), '^"|"$', ''))))))) )
                        GROUP BY id
                        HAVING max(is_deleted) = 0
-                       AND (((((NOT has(['something1'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, version), '$some_prop'), '^"|"$', ''))))))))) person ON person.person_id = behavior_query.person_id
+                       AND (((((NOT has(['something1'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, version), '$some_prop'), '^"|"$', ''))))))) SETTINGS optimize_aggregation_in_order = 1)) person ON person.person_id = behavior_query.person_id
                  WHERE 1 = 1
                    AND ((((performed_event_condition_17_level_level_0_level_0_level_0_0)))) ) ))
-  '
----
+  '''
+# ---
 # name: TestCohort.test_cohortpeople_with_not_in_cohort_operator_for_behavioural_cohorts
-  '
+  '''
   
   INSERT INTO cohortpeople
   SELECT id,
@@ -220,10 +221,10 @@
     AND cohort_id = 2
     AND version < 0
     AND sign = 1
-  '
----
+  '''
+# ---
 # name: TestCohort.test_cohortpeople_with_not_in_cohort_operator_for_behavioural_cohorts.1
-  '
+  '''
   
   INSERT INTO cohortpeople
   SELECT id,
@@ -265,17 +266,17 @@
     AND cohort_id = 2
     AND version < 0
     AND sign = 1
-  '
----
+  '''
+# ---
 # name: TestCohort.test_static_cohort_precalculated
-  '
+  '''
   
   SELECT distinct_id
   FROM
     (SELECT distinct_id,
             argMax(person_id, version) as person_id
      FROM person_distinct_id2
-     WHERE team_id = 2
+     WHERE team_id = %(team_id)s
      GROUP BY distinct_id
      HAVING argMax(is_deleted, version) = 0)
   WHERE person_id IN
@@ -283,5 +284,5 @@
        FROM person_static_cohort
        WHERE cohort_id = %(_cohort_id_0)s
          AND team_id = %(team_id)s)
-  '
----
+  '''
+# ---

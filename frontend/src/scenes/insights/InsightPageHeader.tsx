@@ -1,48 +1,43 @@
+import { useActions, useMountedLogic, useValues } from 'kea'
+import { router } from 'kea-router'
+import { AddToDashboard } from 'lib/components/AddToDashboard/AddToDashboard'
+import { AddToDashboardModal } from 'lib/components/AddToDashboard/AddToDashboardModal'
 import { EditableField } from 'lib/components/EditableField/EditableField'
+import { ExportButton } from 'lib/components/ExportButton/ExportButton'
+import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
+import { PageHeader } from 'lib/components/PageHeader'
+import { SharingModal } from 'lib/components/Sharing/SharingModal'
+import { SubscribeButton, SubscriptionsModal } from 'lib/components/Subscriptions/SubscriptionsModal'
+import { UserActivityIndicator } from 'lib/components/UserActivityIndicator/UserActivityIndicator'
+import { LemonButton } from 'lib/lemon-ui/LemonButton'
+import { More } from 'lib/lemon-ui/LemonButton/More'
+import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
+import { LemonSwitch } from 'lib/lemon-ui/LemonSwitch'
+import { deleteWithUndo } from 'lib/utils/deleteWithUndo'
+import { useState } from 'react'
+import { NewDashboardModal } from 'scenes/dashboard/NewDashboardModal'
+import { insightCommandLogic } from 'scenes/insights/insightCommandLogic'
+import { insightDataLogic } from 'scenes/insights/insightDataLogic'
+import { insightLogic } from 'scenes/insights/insightLogic'
+import { InsightSaveButton } from 'scenes/insights/InsightSaveButton'
+import { insightSceneLogic } from 'scenes/insights/insightSceneLogic'
+import { NotebookSelectButton } from 'scenes/notebooks/NotebookSelectButton/NotebookSelectButton'
+import { savedInsightsLogic } from 'scenes/saved-insights/savedInsightsLogic'
+import { teamLogic } from 'scenes/teamLogic'
+import { urls } from 'scenes/urls'
+import { userLogic } from 'scenes/userLogic'
 
+import { tagsModel } from '~/models/tagsModel'
+import { DataTableNode, NodeKind } from '~/queries/schema'
 import {
     AvailableFeature,
     ExporterFormat,
-    FilterType,
     InsightLogicProps,
     InsightModel,
     InsightShortId,
     ItemMode,
+    NotebookNodeType,
 } from '~/types'
-import { IconDataObject, IconLock } from 'lib/lemon-ui/icons'
-import { More } from 'lib/lemon-ui/LemonButton/More'
-import { LemonButton } from 'lib/lemon-ui/LemonButton'
-import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
-import { urls } from 'scenes/urls'
-import { SubscribeButton, SubscriptionsModal } from 'lib/components/Subscriptions/SubscriptionsModal'
-import { ExportButton } from 'lib/components/ExportButton/ExportButton'
-import { deleteWithUndo } from 'lib/utils'
-import { AddToDashboard } from 'lib/components/AddToDashboard/AddToDashboard'
-import { InsightSaveButton } from 'scenes/insights/InsightSaveButton'
-import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
-import { UserActivityIndicator } from 'lib/components/UserActivityIndicator/UserActivityIndicator'
-import { PageHeader } from 'lib/components/PageHeader'
-import { insightSceneLogic } from 'scenes/insights/insightSceneLogic'
-import { insightLogic } from 'scenes/insights/insightLogic'
-import { savedInsightsLogic } from 'scenes/saved-insights/savedInsightsLogic'
-import { insightDataLogic } from 'scenes/insights/insightDataLogic'
-import { insightCommandLogic } from 'scenes/insights/insightCommandLogic'
-import { userLogic } from 'scenes/userLogic'
-import { groupsModel } from '~/models/groupsModel'
-import { cohortsModel } from '~/models/cohortsModel'
-import { mathsLogic } from 'scenes/trends/mathsLogic'
-import { tagsModel } from '~/models/tagsModel'
-import { teamLogic } from 'scenes/teamLogic'
-import { useActions, useMountedLogic, useValues } from 'kea'
-import { router } from 'kea-router'
-import { SharingModal } from 'lib/components/Sharing/SharingModal'
-import { Tooltip } from 'antd'
-import { LemonSwitch, LemonTag } from '@posthog/lemon-ui'
-import { ThunderboltFilled } from '@ant-design/icons'
-import { globalInsightLogic } from './globalInsightLogic'
-import { isInsightVizNode } from '~/queries/utils'
-import { posthog } from 'posthog-js'
-import { summarizeInsight } from 'scenes/insights/summarizeInsight'
 
 export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: InsightLogicProps }): JSX.Element {
     // insightSceneLogic
@@ -53,7 +48,6 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
     const logic = insightLogic(insightLogicProps)
     const {
         insightProps,
-        filters,
         canEditInsight,
         insight,
         insightChanged,
@@ -61,26 +55,23 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
         hasDashboardItemId,
         exporterResourceParams,
     } = useValues(logic)
-    const { setInsightMetadata, saveAs } = useActions(logic)
+    const { setInsightMetadata } = useActions(logic)
 
     // savedInsightsLogic
     const { duplicateInsight, loadInsights } = useActions(savedInsightsLogic)
 
     // insightDataLogic
-    const { query, queryChanged, showQueryEditor } = useValues(insightDataLogic(insightProps))
-    const { saveInsight: saveQueryBasedInsight, toggleQueryEditorPanel } = useActions(insightDataLogic(insightProps))
+    const { queryChanged, showQueryEditor, hogQL } = useValues(insightDataLogic(insightProps))
+    const { saveInsight, saveAs, toggleQueryEditorPanel } = useActions(insightDataLogic(insightProps))
 
     // other logics
     useMountedLogic(insightCommandLogic(insightProps))
     const { hasAvailableFeature } = useValues(userLogic)
-    const { aggregationLabel } = useValues(groupsModel)
-    const { cohortsById } = useValues(cohortsModel)
-    const { mathDefinitions } = useValues(mathsLogic)
     const { tags } = useValues(tagsModel)
     const { currentTeamId } = useValues(teamLogic)
     const { push } = useActions(router)
-    const { globalInsightFilters } = useValues(globalInsightLogic)
-    const { setGlobalInsightFilters } = useActions(globalInsightLogic)
+
+    const [addToDashboardModalOpen, setAddToDashboardModalOpenModal] = useState<boolean>(false)
 
     return (
         <>
@@ -100,43 +91,24 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
                         insight={insight}
                         previewIframe
                     />
+                    <AddToDashboardModal
+                        isOpen={addToDashboardModalOpen}
+                        closeModal={() => setAddToDashboardModalOpenModal(false)}
+                        insight={insight}
+                        canEditInsight={canEditInsight}
+                    />
+                    <NewDashboardModal />
                 </>
             )}
             <PageHeader
-                title={
-                    <EditableField
-                        name="name"
-                        value={insight.name || ''}
-                        placeholder={summarizeInsight(query, filters, {
-                            aggregationLabel,
-                            cohortsById,
-                            mathDefinitions,
-                        })}
-                        onSave={(value) => setInsightMetadata({ name: value })}
-                        saveOnBlur={true}
-                        maxLength={400} // Sync with Insight model
-                        mode={!canEditInsight ? 'view' : undefined}
-                        data-attr="insight-name"
-                        notice={
-                            !canEditInsight
-                                ? {
-                                      icon: <IconLock />,
-                                      tooltip:
-                                          "You don't have edit permissions on any of the dashboards this insight belongs to. Ask a dashboard collaborator with edit access to add you.",
-                                  }
-                                : undefined
-                        }
-                    />
-                }
                 buttons={
                     <div className="flex justify-between items-center gap-2">
-                        {hasDashboardItemId && (
-                            <>
-                                <More
-                                    overlay={
+                        <More
+                            overlay={
+                                <>
+                                    {hasDashboardItemId && (
                                         <>
                                             <LemonButton
-                                                status="stealth"
                                                 onClick={() => duplicateInsight(insight as InsightModel, true)}
                                                 fullWidth
                                                 data-attr="duplicate-insight-from-insight-view"
@@ -144,7 +116,6 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
                                                 Duplicate
                                             </LemonButton>
                                             <LemonButton
-                                                status="stealth"
                                                 onClick={() =>
                                                     setInsightMetadata({
                                                         favorited: !insight.favorited,
@@ -154,10 +125,15 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
                                             >
                                                 {insight.favorited ? 'Remove from favorites' : 'Add to favorites'}
                                             </LemonButton>
+                                            <LemonButton
+                                                onClick={() => setAddToDashboardModalOpenModal(true)}
+                                                fullWidth
+                                            >
+                                                Add to dashboard
+                                            </LemonButton>
                                             <LemonDivider />
 
                                             <LemonButton
-                                                status="stealth"
                                                 onClick={() =>
                                                     insight.short_id
                                                         ? push(urls.insightSharing(insight.short_id))
@@ -167,32 +143,79 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
                                             >
                                                 Share or embed
                                             </LemonButton>
-                                            {insight.short_id && (
-                                                <>
-                                                    <SubscribeButton insightShortId={insight.short_id} />
-                                                    {exporterResourceParams ? (
-                                                        <ExportButton
-                                                            fullWidth
-                                                            items={[
-                                                                {
-                                                                    export_format: ExporterFormat.PNG,
-                                                                    insight: insight.id,
-                                                                },
-                                                                {
-                                                                    export_format: ExporterFormat.CSV,
-                                                                    export_context: exporterResourceParams,
-                                                                },
-                                                            ]}
-                                                        />
-                                                    ) : null}
-                                                    <LemonDivider />
-                                                </>
-                                            )}
+                                            <SubscribeButton insightShortId={insight.short_id} />
+                                            {exporterResourceParams ? (
+                                                <ExportButton
+                                                    fullWidth
+                                                    items={[
+                                                        {
+                                                            export_format: ExporterFormat.PNG,
+                                                            insight: insight.id,
+                                                        },
+                                                        {
+                                                            export_format: ExporterFormat.CSV,
+                                                            export_context: exporterResourceParams,
+                                                        },
+                                                    ]}
+                                                />
+                                            ) : null}
+                                            <LemonDivider />
+                                        </>
+                                    )}
+                                    <LemonSwitch
+                                        data-attr={`${showQueryEditor ? 'hide' : 'show'}-insight-source`}
+                                        className="px-2 py-1"
+                                        checked={showQueryEditor}
+                                        onChange={() => {
+                                            // for an existing insight in view mode
+                                            if (hasDashboardItemId && insightMode !== ItemMode.Edit) {
+                                                // enter edit mode
+                                                setInsightMode(ItemMode.Edit, null)
 
+                                                // exit early if query editor doesn't need to be toggled
+                                                if (showQueryEditor) {
+                                                    return
+                                                }
+                                            }
+                                            toggleQueryEditorPanel()
+                                        }}
+                                        fullWidth
+                                        label="View source"
+                                    />
+                                    {hogQL && (
+                                        <>
+                                            <LemonDivider />
+                                            <LemonButton
+                                                data-attr="edit-insight-sql"
+                                                onClick={() => {
+                                                    router.actions.push(
+                                                        urls.insightNew(
+                                                            undefined,
+                                                            undefined,
+                                                            JSON.stringify({
+                                                                kind: NodeKind.DataTableNode,
+                                                                source: {
+                                                                    kind: NodeKind.HogQLQuery,
+                                                                    query: hogQL,
+                                                                },
+                                                                full: true,
+                                                            } as DataTableNode)
+                                                        )
+                                                    )
+                                                }}
+                                                fullWidth
+                                            >
+                                                Edit SQL directly
+                                            </LemonButton>
+                                        </>
+                                    )}
+                                    {hasDashboardItemId && (
+                                        <>
+                                            <LemonDivider />
                                             <LemonButton
                                                 status="danger"
                                                 onClick={() =>
-                                                    deleteWithUndo({
+                                                    void deleteWithUndo({
                                                         object: insight,
                                                         endpoint: `projects/${currentTeamId}/insights`,
                                                         callback: () => {
@@ -206,46 +229,11 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
                                                 Delete insight
                                             </LemonButton>
                                         </>
-                                    }
-                                />
-                                <LemonDivider vertical />
-                            </>
-                        )}
-
-                        <>
-                            <Tooltip
-                                title="Turning on fast mode will automatically enable 10% sampling for all insights you refresh, speeding up the calculation of results"
-                                placement="bottom"
-                            >
-                                <div>
-                                    <LemonSwitch
-                                        onChange={(checked) => {
-                                            let samplingFilter: { sampling_factor: FilterType['sampling_factor'] } = {
-                                                sampling_factor: null,
-                                            }
-                                            if (checked) {
-                                                samplingFilter = { sampling_factor: 0.1 }
-                                                posthog.capture('sampling_fast_mode_enabled')
-                                            } else {
-                                                posthog.capture('sampling_fast_mode_disabled')
-                                            }
-                                            setGlobalInsightFilters({ ...globalInsightFilters, ...samplingFilter })
-                                        }}
-                                        checked={!!globalInsightFilters.sampling_factor}
-                                        icon={
-                                            <ThunderboltFilled
-                                                style={
-                                                    !!globalInsightFilters.sampling_factor
-                                                        ? { color: 'var(--primary)' }
-                                                        : {}
-                                                }
-                                            />
-                                        }
-                                    />
-                                </div>
-                            </Tooltip>
-                            <LemonDivider vertical />
-                        </>
+                                    )}
+                                </>
+                            }
+                        />
+                        <LemonDivider vertical />
 
                         {insightMode === ItemMode.Edit && hasDashboardItemId && (
                             <LemonButton type="secondary" onClick={() => setInsightMode(ItemMode.View, null)}>
@@ -253,7 +241,21 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
                             </LemonButton>
                         )}
                         {insightMode !== ItemMode.Edit && hasDashboardItemId && (
-                            <AddToDashboard insight={insight} canEditInsight={canEditInsight} />
+                            <>
+                                <NotebookSelectButton
+                                    resource={{
+                                        type: NotebookNodeType.Query,
+                                        attrs: {
+                                            query: {
+                                                kind: NodeKind.SavedInsightNode,
+                                                shortId: insight.short_id,
+                                            },
+                                        },
+                                    }}
+                                    type="secondary"
+                                />
+                                <AddToDashboard insight={insight} setOpenModal={setAddToDashboardModalOpenModal} />
+                            </>
                         )}
 
                         {insightMode !== ItemMode.Edit ? (
@@ -269,51 +271,13 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
                         ) : (
                             <InsightSaveButton
                                 saveAs={saveAs}
-                                saveInsight={saveQueryBasedInsight}
+                                saveInsight={saveInsight}
                                 isSaved={hasDashboardItemId}
                                 addingToDashboard={!!insight.dashboards?.length && !insight.id}
                                 insightSaving={insightSaving}
                                 insightChanged={insightChanged || queryChanged}
                             />
                         )}
-                        {isInsightVizNode(query) ? (
-                            <LemonButton
-                                tooltip={
-                                    showQueryEditor ? (
-                                        <>
-                                            Hide source
-                                            <LemonTag className="ml-2" type="warning">
-                                                BETA
-                                            </LemonTag>
-                                        </>
-                                    ) : (
-                                        <>
-                                            View source
-                                            <LemonTag className="ml-2" type="warning">
-                                                BETA
-                                            </LemonTag>
-                                        </>
-                                    )
-                                }
-                                aria-label={showQueryEditor ? 'Hide source (BETA)' : 'View source (BETA)'}
-                                tooltipPlacement="bottomRight"
-                                type={'secondary'}
-                                onClick={() => {
-                                    // for an existing insight in view mode
-                                    if (hasDashboardItemId && insightMode !== ItemMode.Edit) {
-                                        // enter edit mode
-                                        setInsightMode(ItemMode.Edit, null)
-
-                                        // exit early if query editor doesn't need to be toggled
-                                        if (showQueryEditor !== false) {
-                                            return
-                                        }
-                                    }
-                                    toggleQueryEditorPanel()
-                                }}
-                                icon={<IconDataObject fontSize="18" />}
-                            />
-                        ) : null}
                     </div>
                 }
                 caption={
@@ -321,6 +285,7 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
                         {!!(canEditInsight || insight.description) && (
                             <EditableField
                                 multiline
+                                markdown
                                 name="description"
                                 value={insight.description || ''}
                                 placeholder="Description (optional)"
@@ -339,14 +304,14 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
                                 saving={insightSaving}
                                 onChange={(_, tags) => setInsightMetadata({ tags: tags ?? [] })}
                                 tagsAvailable={tags}
-                                className="insight-metadata-tags"
+                                className="mt-2"
                                 data-attr="insight-tags"
                             />
                         ) : insight.tags?.length ? (
                             <ObjectTags
                                 tags={insight.tags}
                                 saving={insightSaving}
-                                className="insight-metadata-tags"
+                                className="mt-2"
                                 data-attr="insight-tags"
                                 staticOnly
                             />

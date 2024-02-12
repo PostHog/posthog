@@ -22,7 +22,6 @@ class PathEventQuery(EventQuery):
     _filter: PathFilter
 
     def get_query(self) -> Tuple[str, Dict[str, Any]]:
-
         funnel_paths_timestamp = ""
         funnel_paths_join = ""
         funnel_paths_filter = ""
@@ -55,7 +54,13 @@ class PathEventQuery(EventQuery):
         ]
         _fields += [f"{self.EVENT_TABLE_ALIAS}.{field} AS {field}" for field in self._extra_fields]
         _fields += [
-            get_property_string_expr("events", field, f"'{field}'", "properties", table_alias=self.EVENT_TABLE_ALIAS)[0]
+            get_property_string_expr(
+                "events",
+                field,
+                f"'{field}'",
+                "properties",
+                table_alias=self.EVENT_TABLE_ALIAS,
+            )[0]
             + f" as {field}"
             for field in self._extra_event_properties
         ]
@@ -100,7 +105,7 @@ class PathEventQuery(EventQuery):
 
         self.params.update(prop_params)
 
-        event_query, event_params = self._get_event_query()
+        event_query, event_params = self._get_event_query(deep_filtering=False)
         self.params.update(event_params)
 
         person_query, person_params = self._get_person_query()
@@ -121,7 +126,7 @@ class PathEventQuery(EventQuery):
         query = f"""
             SELECT {','.join(_fields)} FROM events {self.EVENT_TABLE_ALIAS}
             {sample_clause}
-            {self._get_person_ids_query()}
+            {self._get_person_ids_query(relevant_events_conditions=f"{self._get_event_query(deep_filtering=True)[0]} {date_query}")}
             {person_query}
             {groups_query}
             {funnel_paths_join}
@@ -183,7 +188,7 @@ class PathEventQuery(EventQuery):
 
         return _fields, params
 
-    def _get_event_query(self) -> Tuple[str, Dict[str, Any]]:
+    def _get_event_query(self, deep_filtering: bool) -> Tuple[str, Dict[str, Any]]:
         params: Dict[str, Any] = {}
 
         conditions = []
@@ -207,7 +212,7 @@ class PathEventQuery(EventQuery):
         if or_conditions:
             conditions.append(f"({' OR '.join(or_conditions)})")
 
-        if self._filter.exclude_events:
+        if not deep_filtering and self._filter.exclude_events:  # We don't have path_item in deep filtering
             conditions.append(f"NOT path_item IN %(exclude_events)s")
             params["exclude_events"] = self._filter.exclude_events
 

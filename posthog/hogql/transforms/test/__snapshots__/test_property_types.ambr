@@ -1,0 +1,77 @@
+# serializer version: 1
+# name: TestPropertyTypes.test_resolve_property_types_combined
+  '''
+  
+  SELECT multiply(toFloat64OrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, %(hogql_val_1)s), ''), 'null'), '^"|"$', '')), toFloat64OrNull(events__pdi__person.properties___tickets)) 
+  FROM events INNER JOIN (
+  SELECT argMax(person_distinct_id2.person_id, person_distinct_id2.version) AS person_id, person_distinct_id2.distinct_id AS distinct_id 
+  FROM person_distinct_id2 
+  WHERE equals(person_distinct_id2.team_id, 420) 
+  GROUP BY person_distinct_id2.distinct_id 
+  HAVING ifNull(equals(argMax(person_distinct_id2.is_deleted, person_distinct_id2.version), 0), 0)) AS events__pdi ON equals(events.distinct_id, events__pdi.distinct_id) INNER JOIN (
+  SELECT argMax(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, %(hogql_val_0)s), ''), 'null'), '^"|"$', ''), person.version) AS properties___tickets, person.id AS id 
+  FROM person 
+  WHERE equals(person.team_id, 420) 
+  GROUP BY person.id 
+  HAVING ifNull(equals(argMax(person.is_deleted, person.version), 0), 0) 
+  SETTINGS optimize_aggregation_in_order=1) AS events__pdi__person ON equals(events__pdi.person_id, events__pdi__person.id) 
+  WHERE equals(events.team_id, 420) 
+  LIMIT 10000
+  '''
+# ---
+# name: TestPropertyTypes.test_resolve_property_types_event
+  '''
+  
+  SELECT multiply(toFloat64OrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, %(hogql_val_0)s), ''), 'null'), '^"|"$', '')), toFloat64OrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, %(hogql_val_1)s), ''), 'null'), '^"|"$', ''))), transform(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, %(hogql_val_2)s), ''), 'null'), '^"|"$', ''), %(hogql_val_3)s, %(hogql_val_4)s, NULL) AS bool 
+  FROM events 
+  WHERE equals(events.team_id, 420) 
+  LIMIT 10000
+  '''
+# ---
+# name: TestPropertyTypes.test_resolve_property_types_event_person_poe_off
+  '''
+  
+  SELECT parseDateTime64BestEffortOrNull(events__pdi__person.properties___provided_timestamp, 6, %(hogql_val_1)s) AS provided_timestamp 
+  FROM events INNER JOIN (
+  SELECT argMax(person_distinct_id2.person_id, person_distinct_id2.version) AS person_id, person_distinct_id2.distinct_id AS distinct_id 
+  FROM person_distinct_id2 
+  WHERE equals(person_distinct_id2.team_id, 420) 
+  GROUP BY person_distinct_id2.distinct_id 
+  HAVING ifNull(equals(argMax(person_distinct_id2.is_deleted, person_distinct_id2.version), 0), 0)) AS events__pdi ON equals(events.distinct_id, events__pdi.distinct_id) INNER JOIN (
+  SELECT argMax(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, %(hogql_val_0)s), ''), 'null'), '^"|"$', ''), person.version) AS properties___provided_timestamp, person.id AS id 
+  FROM person 
+  WHERE equals(person.team_id, 420) 
+  GROUP BY person.id 
+  HAVING ifNull(equals(argMax(person.is_deleted, person.version), 0), 0) 
+  SETTINGS optimize_aggregation_in_order=1) AS events__pdi__person ON equals(events__pdi.person_id, events__pdi__person.id) 
+  WHERE equals(events.team_id, 420) 
+  LIMIT 10000
+  '''
+# ---
+# name: TestPropertyTypes.test_resolve_property_types_event_person_poe_on
+  '''
+  
+  SELECT parseDateTime64BestEffortOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.person_properties, %(hogql_val_0)s), ''), 'null'), '^"|"$', ''), 6, %(hogql_val_1)s) AS provided_timestamp 
+  FROM events 
+  WHERE equals(events.team_id, 420) 
+  LIMIT 10000
+  '''
+# ---
+# name: TestPropertyTypes.test_resolve_property_types_person
+  '''
+  
+  SELECT toFloat64OrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, %(hogql_val_0)s), ''), 'null'), '^"|"$', '')) AS tickets, parseDateTime64BestEffortOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, %(hogql_val_1)s), ''), 'null'), '^"|"$', ''), 6, %(hogql_val_2)s) AS provided_timestamp, replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, %(hogql_val_3)s), ''), 'null'), '^"|"$', '') AS `$initial_browser` 
+  FROM person 
+  WHERE equals(person.team_id, 420) 
+  LIMIT 10000
+  '''
+# ---
+# name: TestPropertyTypes.test_resolve_property_types_person_raw
+  '''
+  
+  SELECT toFloat64OrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, %(hogql_val_0)s), ''), 'null'), '^"|"$', '')) AS tickets, parseDateTime64BestEffortOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, %(hogql_val_1)s), ''), 'null'), '^"|"$', ''), 6, %(hogql_val_2)s) AS provided_timestamp, replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, %(hogql_val_3)s), ''), 'null'), '^"|"$', '') AS `$initial_browser` 
+  FROM person 
+  WHERE equals(person.team_id, 420) 
+  LIMIT 10000
+  '''
+# ---

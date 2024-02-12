@@ -1,18 +1,18 @@
-import { captureException, captureMessage } from '@sentry/node'
+import { captureException } from '@sentry/node'
 import { randomUUID } from 'crypto'
 import { DateTime } from 'luxon'
-import { HighLevelProducer as RdKafkaProducer, NumberNullUndefined } from 'node-rdkafka-acosom'
+import { HighLevelProducer as RdKafkaProducer, NumberNullUndefined } from 'node-rdkafka'
 import { Counter } from 'prom-client'
 
 import { KAFKA_CLICKHOUSE_SESSION_REPLAY_EVENTS } from '../../../../config/kafka-topics'
-import { createRdConnectionConfigFromEnvVars } from '../../../../kafka/config'
+import { createRdConnectionConfigFromEnvVars, createRdProducerConfigFromEnvVars } from '../../../../kafka/config'
 import { findOffsetsToCommit } from '../../../../kafka/consumer'
 import { retryOnDependencyUnavailableError } from '../../../../kafka/error-handling'
 import { createKafkaProducer, disconnectProducer, flushProducer, produce } from '../../../../kafka/producer'
 import { PluginsServerConfig } from '../../../../types'
 import { status } from '../../../../utils/status'
-import { createSessionReplayEvent } from '../../../../worker/ingestion/process-event'
 import { eventDroppedCounter } from '../../metrics'
+import { createSessionReplayEvent } from '../process-event'
 import { IncomingRecordingMessage } from '../types'
 import { OffsetHighWaterMarker } from './offset-high-water-marker'
 
@@ -28,7 +28,7 @@ export class ReplayEventsIngester {
 
     constructor(
         private readonly serverConfig: PluginsServerConfig,
-        private readonly offsetHighWaterMarker: OffsetHighWaterMarker
+        private readonly persistentHighWaterMarker: OffsetHighWaterMarker
     ) {}
 
     public async consumeBatch(messages: IncomingRecordingMessage[]) {
@@ -75,48 +75,26 @@ export class ReplayEventsIngester {
 
         const topicPartitionOffsets = findOffsetsToCommit(messages.map((message) => message.metadata))
         await Promise.all(
-            topicPartitionOffsets.map((tpo) => this.offsetHighWaterMarker.add(tpo, HIGH_WATERMARK_KEY, tpo.offset))
+            topicPartitionOffsets.map((tpo) => this.persistentHighWaterMarker.add(tpo, HIGH_WATERMARK_KEY, tpo.offset))
         )
     }
 
     public async consume(event: IncomingRecordingMessage): Promise<Promise<number | null | undefined>[] | void> {
-        const warn = (text: string, labels: Record<string, any> = {}) =>
-            status.warn('⚠️', `[replay-events] ${text}`, {
-                offset: event.metadata.offset,
-                partition: event.metadata.partition,
-                ...labels,
-            })
-
-        const drop = (reason: string, labels: Record<string, any> = {}) => {
+        const drop = (reason: string) => {
             eventDroppedCounter
                 .labels({
                     event_type: 'session_recordings_replay_events',
                     drop_cause: reason,
                 })
                 .inc()
-
-            warn(reason, {
-                reason,
-                ...labels,
-            })
         }
 
         if (!this.producer) {
             return drop('producer_not_ready')
         }
 
-        if (event.replayIngestionConsumer !== 'v2') {
-            eventDroppedCounter
-                .labels({
-                    event_type: 'session_recordings_replay_events',
-                    drop_cause: 'not_target_consumer',
-                })
-                .inc()
-            return
-        }
-
         if (
-            await this.offsetHighWaterMarker.isBelowHighWaterMark(
+            await this.persistentHighWaterMarker.isBelowHighWaterMark(
                 event.metadata,
                 HIGH_WATERMARK_KEY,
                 event.metadata.offset
@@ -131,7 +109,8 @@ export class ReplayEventsIngester {
                 event.team_id,
                 event.distinct_id,
                 event.session_id,
-                event.events
+                event.events,
+                event.snapshot_source
             )
 
             try {
@@ -139,18 +118,6 @@ export class ReplayEventsIngester {
                 if (replayRecord !== null) {
                     const asDate = DateTime.fromSQL(replayRecord.first_timestamp)
                     if (!asDate.isValid || Math.abs(asDate.diffNow('months').months) >= 0.99) {
-                        captureMessage(`Invalid replay record timestamp: ${replayRecord.first_timestamp} for event`, {
-                            extra: {
-                                replayRecord,
-                                uuid: replayRecord.uuid,
-                                timestamp: replayRecord.first_timestamp,
-                            },
-                            tags: {
-                                team: event.team_id,
-                                session_id: replayRecord.session_id,
-                            },
-                        })
-
                         return drop('invalid_timestamp')
                     }
                 }
@@ -186,7 +153,8 @@ export class ReplayEventsIngester {
     }
     public async start(): Promise<void> {
         const connectionConfig = createRdConnectionConfigFromEnvVars(this.serverConfig)
-        this.producer = await createKafkaProducer(connectionConfig)
+        const producerConfig = createRdProducerConfigFromEnvVars(this.serverConfig)
+        this.producer = await createKafkaProducer(connectionConfig, producerConfig)
         this.producer.connect()
     }
 

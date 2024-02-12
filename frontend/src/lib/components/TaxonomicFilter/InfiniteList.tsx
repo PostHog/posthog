@@ -1,27 +1,35 @@
 import './InfiniteList.scss'
 import '../../lemon-ui/Popover/Popover.scss'
-import { Empty, Tag } from 'antd'
-import { AutoSizer } from 'react-virtualized/dist/es/AutoSizer'
-import { List, ListRowProps, ListRowRenderer } from 'react-virtualized/dist/es/List'
-import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
+
+import { LemonTag } from '@posthog/lemon-ui'
+import { Empty } from 'antd'
+import clsx from 'clsx'
 import { BindLogic, useActions, useValues } from 'kea'
-import { infiniteListLogic, NO_ITEM_SELECTED } from './infiniteListLogic'
+import { ControlledDefinitionPopover } from 'lib/components/DefinitionPopover/DefinitionPopoverContents'
+import { definitionPopoverLogic } from 'lib/components/DefinitionPopover/definitionPopoverLogic'
+import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
 import { taxonomicFilterLogic } from 'lib/components/TaxonomicFilter/taxonomicFilterLogic'
 import {
     TaxonomicDefinitionTypes,
     TaxonomicFilterGroup,
     TaxonomicFilterGroupType,
 } from 'lib/components/TaxonomicFilter/types'
-import { EventDefinition, PropertyDefinition } from '~/types'
-import { dayjs } from 'lib/dayjs'
 import { STALE_EVENT_SECONDS } from 'lib/constants'
-import { Tooltip } from 'lib/lemon-ui/Tooltip'
-import clsx from 'clsx'
-import { definitionPopoverLogic } from 'lib/components/DefinitionPopover/definitionPopoverLogic'
-import { ControlledDefinitionPopover } from 'lib/components/DefinitionPopover/DefinitionPopoverContents'
-import { pluralize } from 'lib/utils'
+import { dayjs } from 'lib/dayjs'
 import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
+import { Tooltip } from 'lib/lemon-ui/Tooltip'
+import { pluralize } from 'lib/utils'
 import { useState } from 'react'
+import { AutoSizer } from 'react-virtualized/dist/es/AutoSizer'
+import { List, ListRowProps, ListRowRenderer } from 'react-virtualized/dist/es/List'
+
+import { EventDefinition, PropertyDefinition } from '~/types'
+
+import { infiniteListLogic, NO_ITEM_SELECTED } from './infiniteListLogic'
+
+export interface InfiniteListProps {
+    popupAnchorElement: HTMLDivElement | null
+}
 
 const staleIndicator = (parsedLastSeen: dayjs.Dayjs | null): JSX.Element => {
     return (
@@ -32,7 +40,7 @@ const staleIndicator = (parsedLastSeen: dayjs.Dayjs | null): JSX.Element => {
                 </>
             }
         >
-            <Tag className="lemonade-tag">Stale</Tag>
+            <LemonTag>Stale</LemonTag>
         </Tooltip>
     )
 }
@@ -60,7 +68,7 @@ const unusedIndicator = (eventNames: string[]): JSX.Element => {
                 </>
             }
         >
-            <Tag className="lemonade-tag">Not seen</Tag>
+            <LemonTag>Not seen</LemonTag>
         </Tooltip>
     )
 }
@@ -97,11 +105,18 @@ const renderItemContents = ({
         listGroupType === TaxonomicFilterGroupType.PersonProperties ||
         listGroupType === TaxonomicFilterGroupType.Events ||
         listGroupType === TaxonomicFilterGroupType.CustomEvents ||
+        listGroupType === TaxonomicFilterGroupType.Metadata ||
         listGroupType.startsWith(TaxonomicFilterGroupType.GroupsPrefix) ? (
         <>
             <div className={clsx('taxonomic-list-row-contents', isStale && 'text-muted')}>
                 {icon}
-                <PropertyKeyInfo value={item.name ?? ''} disablePopover disableIcon className="w-full" />
+                <PropertyKeyInfo
+                    value={item.name ?? ''}
+                    disablePopover
+                    disableIcon
+                    className="w-full"
+                    type={listGroupType}
+                />
             </div>
             {isStale && staleIndicator(parsedLastSeen)}
             {isUnusedEventProperty && unusedIndicator(eventNames)}
@@ -109,7 +124,7 @@ const renderItemContents = ({
     ) : (
         <div className="taxonomic-list-row-contents">
             {listGroupType === TaxonomicFilterGroupType.Elements ? (
-                <PropertyKeyInfo type="element" value={item.name ?? ''} disablePopover className="w-full" />
+                <PropertyKeyInfo value={item.name ?? ''} disablePopover className="w-full" type={listGroupType} />
             ) : (
                 <>
                     {group.getIcon ? icon : null}
@@ -128,7 +143,7 @@ const selectedItemHasPopover = (
     group?: TaxonomicFilterGroup
 ): boolean => {
     return (
-        // NB: also update "renderItemPopover" above
+        // NB: also update "renderItemContents" above
         !!item &&
         !!group?.getValue?.(item) &&
         !!listGroupType &&
@@ -143,12 +158,13 @@ const selectedItemHasPopover = (
             TaxonomicFilterGroupType.PersonProperties,
             TaxonomicFilterGroupType.Cohorts,
             TaxonomicFilterGroupType.CohortsWithAllUsers,
+            TaxonomicFilterGroupType.Metadata,
         ].includes(listGroupType) ||
             listGroupType.startsWith(TaxonomicFilterGroupType.GroupsPrefix))
     )
 }
 
-export function InfiniteList(): JSX.Element {
+export function InfiniteList({ popupAnchorElement }: InfiniteListProps): JSX.Element {
     const { mouseInteractionsEnabled, activeTab, searchQuery, value, groupType, eventNames } =
         useValues(taxonomicFilterLogic)
     const { selectItem } = useActions(taxonomicFilterLogic)
@@ -191,7 +207,11 @@ export function InfiniteList(): JSX.Element {
             // if the popover is not enabled then don't leave the row selected when the mouse leaves it
             onMouseLeave: () => (mouseInteractionsEnabled && !showPopover ? setIndex(NO_ITEM_SELECTED) : null),
             style: style,
-            ref: isHighlighted ? (element) => setHighlightedItemElement(element) : null,
+            ref: isHighlighted
+                ? (element) => {
+                      setHighlightedItemElement(element && popupAnchorElement ? popupAnchorElement : element)
+                  }
+                : null,
         }
 
         return item && group ? (

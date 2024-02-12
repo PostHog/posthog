@@ -1,3 +1,16 @@
+import equal from 'fast-deep-equal'
+import { DeepPartialMap, ValidationErrorType } from 'kea-forms'
+import { ENTITY_MATCH_TYPE, PROPERTY_MATCH_TYPE } from 'lib/constants'
+import { areObjectValuesEmpty, calculateDays, isNumeric } from 'lib/utils'
+import { BEHAVIORAL_TYPE_TO_LABEL, CRITERIA_VALIDATIONS, ROWS } from 'scenes/cohorts/CohortFilters/constants'
+import {
+    BehavioralFilterKey,
+    BehavioralFilterType,
+    CohortClientErrors,
+    FieldWithFieldKey,
+    FilterType,
+} from 'scenes/cohorts/CohortFilters/types'
+
 import {
     ActionType,
     AnyCohortCriteriaType,
@@ -12,18 +25,6 @@ import {
     PropertyOperator,
     TimeUnitType,
 } from '~/types'
-import { ENTITY_MATCH_TYPE, PROPERTY_MATCH_TYPE } from 'lib/constants'
-import {
-    BehavioralFilterKey,
-    BehavioralFilterType,
-    CohortClientErrors,
-    FieldWithFieldKey,
-    FilterType,
-} from 'scenes/cohorts/CohortFilters/types'
-import { areObjectValuesEmpty, calculateDays, isNumeric } from 'lib/utils'
-import { DeepPartialMap, ValidationErrorType } from 'kea-forms'
-import equal from 'fast-deep-equal'
-import { BEHAVIORAL_TYPE_TO_LABEL, CRITERIA_VALIDATIONS, ROWS } from 'scenes/cohorts/CohortFilters/constants'
 
 export function cleanBehavioralTypeCriteria(criteria: AnyCohortCriteriaType): AnyCohortCriteriaType {
     let type = undefined
@@ -89,7 +90,7 @@ export function isValidCohortGroup(criteria: AnyCohortGroupType): boolean {
 export function createCohortFormData(cohort: CohortType): FormData {
     const rawCohort = {
         ...(cohort.name ? { name: cohort.name } : {}),
-        ...(cohort.description ? { description: cohort.description } : {}),
+        ...{ description: cohort.description ?? '' },
         ...(cohort.csv ? { csv: cohort.csv } : {}),
         ...(cohort.is_static ? { is_static: cohort.is_static } : {}),
         filters: JSON.stringify(
@@ -240,8 +241,8 @@ export function validateGroup(
                     BehavioralLifecycleType.StopPerformEvent,
                     BehavioralEventType.PerformSequenceEvents,
                 ].includes(c.value as BehavioralLifecycleType | BehavioralEventType)
-                    ? calculateDays(Number(c.seq_time_value) ?? 0, c.seq_time_interval ?? TimeUnitType.Day) >
-                      calculateDays(Number(c.time_value) ?? 0, c.time_interval ?? TimeUnitType.Day)
+                    ? calculateDays(Number(c.seq_time_value ?? 0), c.seq_time_interval ?? TimeUnitType.Day) >
+                      calculateDays(Number(c.time_value ?? 0), c.time_interval ?? TimeUnitType.Day)
                         ? {
                               id: CohortClientErrors.SequentialTimeMismatch,
                               seq_time_value: CohortClientErrors.SequentialTimeMismatch,

@@ -1,8 +1,10 @@
-import { LemonCalendar } from './LemonCalendar'
 import { render, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import { getAllByDataAttr, getByDataAttr } from '~/test/byDataAttr'
 import { dayjs } from 'lib/dayjs'
+
+import { getAllByDataAttr, getByDataAttr } from '~/test/byDataAttr'
+
+import { LemonCalendar } from './LemonCalendar'
 
 describe('LemonCalendar', () => {
     test('click and move between months with one month showing', async () => {
@@ -141,6 +143,7 @@ describe('LemonCalendar', () => {
         )
         expect(calls.length).toBe(35)
         expect(calls).toEqual([
+            [dayjs('2020-01-26'), { className: 'flex-col opacity-25' }],
             [dayjs('2020-01-27'), { className: 'flex-col opacity-25' }],
             [dayjs('2020-01-28'), { className: 'flex-col opacity-25' }],
             [dayjs('2020-01-29'), { className: 'flex-col opacity-25' }],
@@ -175,7 +178,6 @@ describe('LemonCalendar', () => {
             [dayjs('2020-02-27'), { className: 'flex-col' }],
             [dayjs('2020-02-28'), { className: 'flex-col' }],
             [dayjs('2020-02-29'), { className: 'flex-col' }],
-            [dayjs('2020-03-01'), { className: 'flex-col opacity-25' }],
         ])
         const fourteen = getByDataAttr(container, 's6brap2ev')
         expect(fourteen).toBeDefined()

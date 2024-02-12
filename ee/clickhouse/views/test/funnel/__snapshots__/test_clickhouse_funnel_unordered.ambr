@@ -1,5 +1,6 @@
+# serializer version: 1
 # name: ClickhouseTestUnorderedFunnelGroups.test_unordered_funnel_with_groups
-  '
+  '''
   /* user_id:0 request:_snapshot_ */
   SELECT countIf(steps = 1) step_1,
          countIf(steps = 2) step_2,
@@ -30,7 +31,7 @@
                                                                         ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) latest_1
               FROM
                 (SELECT e.timestamp as timestamp,
-                        e."$group_0" as aggregation_target ,
+                        e."$group_0" as aggregation_target,
                         if(event = 'user signed up', 1, 0) as step_0,
                         if(step_0 = 1, timestamp, null) as latest_0,
                         if(event = 'paid', 1, 0) as step_1,
@@ -58,7 +59,7 @@
                                                                         ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) latest_1
               FROM
                 (SELECT e.timestamp as timestamp,
-                        e."$group_0" as aggregation_target ,
+                        e."$group_0" as aggregation_target,
                         if(event = 'paid', 1, 0) as step_0,
                         if(step_0 = 1, timestamp, null) as latest_0,
                         if(event = 'user signed up', 1, 0) as step_1,
@@ -75,10 +76,10 @@
      GROUP BY aggregation_target,
               steps
      HAVING steps = max_steps)
-  '
----
+  '''
+# ---
 # name: ClickhouseTestUnorderedFunnelGroups.test_unordered_funnel_with_groups.1
-  '
+  '''
   /* user_id:0 request:_snapshot_ */
   SELECT aggregation_target AS actor_id
   FROM
@@ -106,7 +107,7 @@
                                                                         ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) latest_1
               FROM
                 (SELECT e.timestamp as timestamp,
-                        e."$group_0" as aggregation_target ,
+                        e."$group_0" as aggregation_target,
                         if(event = 'user signed up', 1, 0) as step_0,
                         if(step_0 = 1, timestamp, null) as latest_0,
                         if(event = 'paid', 1, 0) as step_1,
@@ -135,7 +136,7 @@
                                                                         ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) latest_1
               FROM
                 (SELECT e.timestamp as timestamp,
-                        e."$group_0" as aggregation_target ,
+                        e."$group_0" as aggregation_target,
                         if(event = 'paid', 1, 0) as step_0,
                         if(step_0 = 1, timestamp, null) as latest_0,
                         if(event = 'user signed up', 1, 0) as step_1,
@@ -156,6 +157,7 @@
   WHERE steps IN [1, 2]
   ORDER BY aggregation_target
   LIMIT 100
-  OFFSET 0
-  '
----
+  OFFSET 0 SETTINGS max_ast_elements=1000000,
+                    max_expanded_ast_elements=1000000
+  '''
+# ---

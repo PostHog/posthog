@@ -1,20 +1,27 @@
-import { useMemo, useState } from 'react'
-
-import { keyMappingKeys } from 'lib/taxonomy'
-import { PropertyKeyInfo } from '../PropertyKeyInfo'
-import { Dropdown, Input, Menu, Popconfirm } from 'antd'
-import { isURL } from 'lib/utils'
-import { IconDeleteForever, IconOpenInNew } from 'lib/lemon-ui/icons'
 import './PropertiesTable.scss'
-import { LemonTable, LemonTableColumns, LemonTableProps } from 'lib/lemon-ui/LemonTable'
-import { CopyToClipboardInline } from '../CopyToClipboard'
-import { useValues } from 'kea'
-import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
-import { LemonButton } from 'lib/lemon-ui/LemonButton'
-import { NewPropertyComponent } from 'scenes/persons/NewPropertyComponent'
-import { LemonCheckbox, LemonInput } from '@posthog/lemon-ui'
+
+import { IconPencil, IconWarning } from '@posthog/icons'
+import { LemonCheckbox, LemonInput, LemonTag, Link, Tooltip } from '@posthog/lemon-ui'
+import { Dropdown, Input, Menu, Popconfirm } from 'antd'
 import clsx from 'clsx'
-import { PropertyDefinitionType } from '~/types'
+import { useActions, useValues } from 'kea'
+import { combineUrl } from 'kea-router'
+import { IconDeleteForever } from 'lib/lemon-ui/icons'
+import { LemonButton } from 'lib/lemon-ui/LemonButton'
+import { LemonTable, LemonTableColumns, LemonTableProps } from 'lib/lemon-ui/LemonTable'
+import { userPreferencesLogic } from 'lib/logic/userPreferencesLogic'
+import { CORE_FILTER_DEFINITIONS_BY_GROUP, PROPERTY_KEYS } from 'lib/taxonomy'
+import { isURL } from 'lib/utils'
+import { useMemo, useState } from 'react'
+import { NewProperty } from 'scenes/persons/NewProperty'
+import { urls } from 'scenes/urls'
+
+import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
+import { PropertyDefinitionType, PropertyType } from '~/types'
+
+import { CopyToClipboardInline } from '../CopyToClipboard'
+import { PROPERTY_FILTER_TYPE_TO_TAXONOMIC_FILTER_GROUP_TYPE } from '../PropertyFilters/utils'
+import { PropertyKeyInfo } from '../PropertyKeyInfo'
 
 type HandledType = 'string' | 'number' | 'bigint' | 'boolean' | 'undefined' | 'null'
 type Type = HandledType | 'symbol' | 'object' | 'function'
@@ -62,7 +69,7 @@ function ValueDisplay({
 
     const [editing, setEditing] = useState(false)
     // Can edit if a key and edit callback is set, the property is custom (i.e. not PostHog), and the value is in the root of the object (i.e. no nested objects)
-    const canEdit = rootKey && !keyMappingKeys.includes(rootKey) && (!nestingLevel || nestingLevel <= 1) && onEdit
+    const canEdit = rootKey && !PROPERTY_KEYS.includes(rootKey) && (!nestingLevel || nestingLevel <= 1) && onEdit
 
     const textBasedTypes = ['string', 'number', 'bigint'] // Values that are edited with a text box
     const boolNullTypes = ['boolean', 'null'] // Values that are edited with the boolNullSelect dropdown
@@ -85,21 +92,25 @@ function ValueDisplay({
     const valueComponent = (
         <span
             className={clsx(
-                'relative inline-flex items-center flex flex-row flex-nowrap w-fit break-all',
+                'relative inline-flex gap-1 items-center flex flex-row flex-nowrap w-fit break-all',
                 canEdit ? 'editable ph-no-capture' : 'ph-no-capture'
             )}
             onClick={() => canEdit && textBasedTypes.includes(valueType) && setEditing(true)}
         >
             {!isURL(value) ? (
-                valueString
+                <span>{valueString}</span>
             ) : (
-                <a href={value} target="_blank" rel="noopener noreferrer" className="value-link">
-                    <span>{valueString}</span>
-                    <IconOpenInNew />
-                </a>
+                <Link to={value} target="_blank" className="value-link" targetBlankIcon>
+                    {valueString}
+                </Link>
             )}
+            {canEdit && <IconPencil />}
         </span>
     )
+
+    const isTypeMismatched =
+        (propertyType === PropertyType.String && valueType === 'number') ||
+        (propertyType === PropertyType.Numeric && valueType === 'string')
 
     return (
         <div className="properties-table-value">
@@ -132,7 +143,31 @@ function ValueDisplay({
                     ) : (
                         valueComponent
                     )}
-                    <div className="property-value-type">{propertyType || valueType}</div>
+                    <Tooltip
+                        title={
+                            isTypeMismatched
+                                ? `This value is of type "${valueType}", which is incompatible with the property's defined type "${propertyType}". Click to update the property definition.`
+                                : null
+                        }
+                        delayMs={0}
+                    >
+                        <Link
+                            to={
+                                isTypeMismatched
+                                    ? combineUrl(urls.propertyDefinitions(), { property: rootKey }).url
+                                    : undefined
+                            }
+                        >
+                            <LemonTag
+                                className="font-mono uppercase ml-1"
+                                type={isTypeMismatched ? 'danger' : 'muted'}
+                                icon={isTypeMismatched ? <IconWarning /> : undefined}
+                            >
+                                {valueType}
+                                {isTypeMismatched && ' (mismatched)'}
+                            </LemonTag>
+                        </Link>
+                    </Tooltip>
                 </>
             ) : (
                 <EditTextValueComponent value={value} onChange={handleValueChange} />
@@ -141,7 +176,7 @@ function ValueDisplay({
     )
 }
 interface PropertiesTableType extends BasePropertyType {
-    properties: any
+    properties?: Record<string, any>
     sortProperties?: boolean
     searchable?: boolean
     filterable?: boolean
@@ -173,7 +208,8 @@ export function PropertiesTable({
     type,
 }: PropertiesTableType): JSX.Element {
     const [searchTerm, setSearchTerm] = useState('')
-    const [filtered, setFiltered] = useState(false)
+    const { hidePostHogPropertiesInTable } = useValues(userPreferencesLogic)
+    const { setHidePostHogPropertiesInTable } = useActions(userPreferencesLogic)
 
     if (Array.isArray(properties)) {
         return (
@@ -191,28 +227,33 @@ export function PropertiesTable({
                         />
                     ))
                 ) : (
-                    <div className="property-value-type">ARRAY (EMPTY)</div>
+                    <LemonTag type="muted" className="font-mono uppercase">
+                        Array (empty)
+                    </LemonTag>
                 )}
             </div>
         )
     }
 
     const objectProperties = useMemo(() => {
-        if (!(properties instanceof Object)) {
+        if (!properties || !(properties instanceof Object)) {
             return []
         }
         let entries = Object.entries(properties)
         if (searchTerm) {
             const normalizedSearchTerm = searchTerm.toLowerCase()
-            entries = entries.filter(
-                ([key, value]) =>
+            entries = entries.filter(([key, value]) => {
+                const label = CORE_FILTER_DEFINITIONS_BY_GROUP.event_properties[key]?.label?.toLowerCase()
+                return (
                     key.toLowerCase().includes(normalizedSearchTerm) ||
+                    (label && label.includes(normalizedSearchTerm)) ||
                     JSON.stringify(value).toLowerCase().includes(normalizedSearchTerm)
-            )
+                )
+            })
         }
 
-        if (filterable && filtered) {
-            entries = entries.filter(([key]) => !key.startsWith('$') && !keyMappingKeys.includes(key))
+        if (filterable && hidePostHogPropertiesInTable) {
+            entries = entries.filter(([key]) => !key.startsWith('$') && !PROPERTY_KEYS.includes(key))
         }
 
         if (sortProperties) {
@@ -240,7 +281,7 @@ export function PropertiesTable({
             })
         }
         return entries
-    }, [properties, sortProperties, searchTerm, filtered])
+    }, [properties, sortProperties, searchTerm, hidePostHogPropertiesInTable])
 
     if (properties instanceof Object) {
         const columns: LemonTableColumns<Record<string, any>> = [
@@ -250,7 +291,10 @@ export function PropertiesTable({
                 render: function Key(_, item: any): JSX.Element {
                     return (
                         <div className="properties-table-key">
-                            <PropertyKeyInfo value={item[0]} />
+                            <PropertyKeyInfo
+                                value={item[0]}
+                                type={PROPERTY_FILTER_TYPE_TO_TAXONOMIC_FILTER_GROUP_TYPE[type]}
+                            />
                         </div>
                     )
                 },
@@ -281,13 +325,10 @@ export function PropertiesTable({
             title: '',
             width: 0,
             render: function Copy(_, item: any): JSX.Element | false {
-                if (Array.isArray(item[1]) || item[1] instanceof Object) {
-                    return false
-                }
                 return (
                     <CopyToClipboardInline
                         description="property value"
-                        explicitValue={item[1]}
+                        explicitValue={typeof item[1] === 'object' ? JSON.stringify(item[1]) : String(item[1])}
                         selectable
                         isValueSensitive
                         style={{ verticalAlign: 'middle' }}
@@ -303,7 +344,7 @@ export function PropertiesTable({
                 width: 0,
                 render: function Delete(_, item: any): JSX.Element | false {
                     return (
-                        !keyMappingKeys.includes(item[0]) &&
+                        !PROPERTY_KEYS.includes(item[0]) &&
                         !String(item[0]).startsWith('$initial_') && (
                             <Popconfirm
                                 onConfirm={() => onDelete(item[0])}
@@ -341,15 +382,15 @@ export function PropertiesTable({
 
                             {filterable && (
                                 <LemonCheckbox
-                                    checked={filtered}
+                                    checked={hidePostHogPropertiesInTable}
                                     label="Hide PostHog properties"
                                     bordered
-                                    onChange={setFiltered}
+                                    onChange={setHidePostHogPropertiesInTable}
                                 />
                             )}
                         </span>
 
-                        {onEdit && <NewPropertyComponent editProperty={onEdit} />}
+                        {onEdit && <NewProperty onSave={onEdit} />}
                     </div>
                 )}
 
@@ -363,14 +404,14 @@ export function PropertiesTable({
                     className={className}
                     emptyState={
                         <>
-                            {filtered || searchTerm ? (
+                            {hidePostHogPropertiesInTable || searchTerm ? (
                                 <span className="flex gap-2">
                                     <span>No properties found</span>
                                     <LemonButton
                                         noPadding
                                         onClick={() => {
                                             setSearchTerm('')
-                                            setFiltered(false)
+                                            setHidePostHogPropertiesInTable(false)
                                         }}
                                     >
                                         Clear filters

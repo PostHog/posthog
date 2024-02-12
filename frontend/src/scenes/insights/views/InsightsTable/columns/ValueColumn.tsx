@@ -1,11 +1,12 @@
 import { useValues } from 'kea'
-import { IndexedTrendResult } from 'scenes/trends/types'
 import { DateDisplay } from 'lib/components/DateDisplay'
-import { IntervalType, TrendsFilterType } from '~/types'
-import { formatAggregationValue } from 'scenes/insights/utils'
 import { formatAggregationAxisValue } from 'scenes/insights/aggregationAxisFormat'
+import { formatAggregationValue } from 'scenes/insights/utils'
+import { IndexedTrendResult } from 'scenes/trends/types'
+
 import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
 import { TrendsFilter } from '~/queries/schema'
+import { IntervalType, TrendsFilterType } from '~/types'
 
 type ValueColumnTitleProps = {
     index: number
@@ -21,7 +22,7 @@ export function ValueColumnTitle({ index, indexedResults, compare, interval }: V
         <DateDisplay
             interval={interval || 'day'}
             date={(indexedResults[0].dates || indexedResults[0].days)[index]} // current
-            secondaryDate={!!previousResult ? (previousResult.dates || previousResult.days)[index] : undefined} // previous
+            secondaryDate={previousResult ? (previousResult.dates || previousResult.days)[index] : undefined} // previous
             hideWeekRange
         />
     )

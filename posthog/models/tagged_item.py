@@ -6,7 +6,14 @@ from django.db.models import Q, UniqueConstraint
 
 from posthog.models.utils import UUIDModel
 
-RELATED_OBJECTS = ("dashboard", "insight", "event_definition", "property_definition", "action", "feature_flag")
+RELATED_OBJECTS = (
+    "dashboard",
+    "insight",
+    "event_definition",
+    "property_definition",
+    "action",
+    "feature_flag",
+)
 
 
 # Checks that exactly one object field is populated
@@ -14,7 +21,10 @@ def build_check(related_objects: Iterable[str]):
     built_check_list: List[Union[Q, Q]] = []
     for field in related_objects:
         built_check_list.append(
-            Q(*[(f"{other_field}__isnull", other_field != field) for other_field in related_objects], _connector="AND")
+            Q(
+                *[(f"{other_field}__isnull", other_field != field) for other_field in related_objects],
+                _connector="AND",
+            )
         )
     return Q(*built_check_list, _connector="OR")
 
@@ -23,7 +33,9 @@ def build_check(related_objects: Iterable[str]):
 # uniqueness across null columns.
 def build_partial_uniqueness_constraint(field: str):
     return UniqueConstraint(
-        fields=["tag", field], name=f"unique_{field}_tagged_item", condition=Q((f"{field}__isnull", False))
+        fields=["tag", field],
+        name=f"unique_{field}_tagged_item",
+        condition=Q((f"{field}__isnull", False)),
     )
 
 
@@ -47,22 +59,46 @@ class TaggedItem(UUIDModel):
     # When adding a new taggeditem-model relationship, make sure to add the foreign key field and append field name to
     # the `RELATED_OBJECTS` tuple above.
     dashboard: models.ForeignKey = models.ForeignKey(
-        "Dashboard", on_delete=models.CASCADE, null=True, blank=True, related_name="tagged_items"
+        "Dashboard",
+        on_delete=models.CASCADE,
+        null=True,
+        blank=True,
+        related_name="tagged_items",
     )
     insight: models.ForeignKey = models.ForeignKey(
-        "Insight", on_delete=models.CASCADE, null=True, blank=True, related_name="tagged_items"
+        "Insight",
+        on_delete=models.CASCADE,
+        null=True,
+        blank=True,
+        related_name="tagged_items",
     )
     event_definition: models.ForeignKey = models.ForeignKey(
-        "EventDefinition", on_delete=models.CASCADE, null=True, blank=True, related_name="tagged_items"
+        "EventDefinition",
+        on_delete=models.CASCADE,
+        null=True,
+        blank=True,
+        related_name="tagged_items",
     )
     property_definition: models.ForeignKey = models.ForeignKey(
-        "PropertyDefinition", on_delete=models.CASCADE, null=True, blank=True, related_name="tagged_items"
+        "PropertyDefinition",
+        on_delete=models.CASCADE,
+        null=True,
+        blank=True,
+        related_name="tagged_items",
     )
     action: models.ForeignKey = models.ForeignKey(
-        "Action", on_delete=models.CASCADE, null=True, blank=True, related_name="tagged_items"
+        "Action",
+        on_delete=models.CASCADE,
+        null=True,
+        blank=True,
+        related_name="tagged_items",
     )
     feature_flag: models.ForeignKey = models.ForeignKey(
-        "FeatureFlag", on_delete=models.CASCADE, null=True, blank=True, related_name="tagged_items"
+        "FeatureFlag",
+        on_delete=models.CASCADE,
+        null=True,
+        blank=True,
+        related_name="tagged_items",
     )
 
     class Meta:

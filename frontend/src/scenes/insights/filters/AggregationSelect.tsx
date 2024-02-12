@@ -1,13 +1,14 @@
-import { useActions, useValues } from 'kea'
-import { groupsModel } from '~/models/groupsModel'
 import { LemonSelect, LemonSelectSection } from '@posthog/lemon-ui'
+import { useActions, useValues } from 'kea'
+import { HogQLEditor } from 'lib/components/HogQLEditor/HogQLEditor'
 import { groupsAccessLogic } from 'lib/introductions/groupsAccessLogic'
 import { GroupIntroductionFooter } from 'scenes/groups/GroupsIntroduction'
-import { InsightLogicProps } from '~/types'
-import { isFunnelsQuery, isInsightQueryNode } from '~/queries/utils'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
+
+import { groupsModel } from '~/models/groupsModel'
 import { FunnelsQuery } from '~/queries/schema'
-import { HogQLEditor } from 'lib/components/HogQLEditor/HogQLEditor'
+import { isFunnelsQuery, isInsightQueryNode, isLifecycleQuery, isStickinessQuery } from '~/queries/utils'
+import { InsightLogicProps } from '~/types'
 
 function getHogQLValue(groupIndex?: number, aggregationQuery?: string): string {
     if (groupIndex !== undefined) {
@@ -51,15 +52,17 @@ export function AggregationSelect({
     }
 
     const value = getHogQLValue(
-        querySource.aggregation_group_type_index,
-        isFunnelsQuery(querySource) ? querySource.funnelsFilter?.funnel_aggregate_by_hogql : undefined
+        isLifecycleQuery(querySource) || isStickinessQuery(querySource)
+            ? undefined
+            : querySource.aggregation_group_type_index,
+        isFunnelsQuery(querySource) ? querySource.funnelsFilter?.funnelAggregateByHogQL : undefined
     )
     const onChange = (value: string): void => {
         const { aggregationQuery, groupIndex } = hogQLToFilterValue(value)
         if (isFunnelsQuery(querySource)) {
             updateQuerySource({
                 aggregation_group_type_index: groupIndex,
-                funnelsFilter: { ...querySource.funnelsFilter, funnel_aggregate_by_hogql: aggregationQuery },
+                funnelsFilter: { ...querySource.funnelsFilter, funnelAggregateByHogQL: aggregationQuery },
             } as FunnelsQuery)
         } else {
             updateQuerySource({ aggregation_group_type_index: groupIndex } as FunnelsQuery)
@@ -84,7 +87,7 @@ export function AggregationSelect({
     if (needsUpgradeForGroups || canStartUsingGroups) {
         optionSections[0].footer = <GroupIntroductionFooter needsUpgrade={needsUpgradeForGroups} />
     } else {
-        groupTypes.forEach((groupType) => {
+        Array.from(groupTypes.values()).forEach((groupType) => {
             baseValues.push(`$group_${groupType.group_type_index}`)
             optionSections[0].options.push({
                 value: `$group_${groupType.group_type_index}`,
@@ -99,33 +102,33 @@ export function AggregationSelect({
             value: 'properties.$session_id',
             label: `Unique sessions`,
         })
-    }
-    optionSections[0].options.push({
-        label: 'Custom HogQL expression',
-        options: [
-            {
-                // This is a bit of a hack so that the HogQL option is only highlighted as active when the user has
-                // set a custom value (because actually _all_ the options are HogQL)
-                value: !value || baseValues.includes(value) ? '' : value,
-                label: <span className="font-mono">{value}</span>,
-                labelInMenu: function CustomHogQLOptionWrapped({ onSelect }) {
-                    return (
-                        // eslint-disable-next-line react/forbid-dom-props
-                        <div className="w-120" style={{ maxWidth: 'max(60vw, 20rem)' }}>
-                            <HogQLEditor
-                                onChange={onSelect}
-                                value={value}
-                                disablePersonProperties
-                                placeholder={
-                                    "Enter HogQL expression, such as:\n- distinct_id\n- properties.$session_id\n- concat(distinct_id, ' ', properties.$session_id)\n- if(1 < 2, 'one', 'two')"
-                                }
-                            />
-                        </div>
-                    )
+        optionSections[0].options.push({
+            label: 'Custom HogQL expression',
+            options: [
+                {
+                    // This is a bit of a hack so that the HogQL option is only highlighted as active when the user has
+                    // set a custom value (because actually _all_ the options are HogQL)
+                    value: !value || baseValues.includes(value) ? '' : value,
+                    label: <span className="font-mono">{value}</span>,
+                    labelInMenu: function CustomHogQLOptionWrapped({ onSelect }) {
+                        return (
+                            // eslint-disable-next-line react/forbid-dom-props
+                            <div className="w-120" style={{ maxWidth: 'max(60vw, 20rem)' }}>
+                                <HogQLEditor
+                                    onChange={onSelect}
+                                    value={value}
+                                    disablePersonProperties
+                                    placeholder={
+                                        "Enter HogQL expression, such as:\n- distinct_id\n- properties.$session_id\n- concat(distinct_id, ' ', properties.$session_id)\n- if(1 < 2, 'one', 'two')"
+                                    }
+                                />
+                            </div>
+                        )
+                    },
                 },
-            },
-        ],
-    })
+            ],
+        })
+    }
 
     return (
         <LemonSelect

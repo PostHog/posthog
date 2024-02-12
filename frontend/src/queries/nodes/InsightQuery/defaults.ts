@@ -10,9 +10,8 @@ import {
     TrendsQuery,
 } from '~/queries/schema'
 import { BaseMathType, FunnelVizType, InsightType, PathType, RetentionPeriod } from '~/types'
-import { ShownAsValue } from 'lib/constants'
 
-const trendsQueryDefault: TrendsQuery = {
+export const trendsQueryDefault: TrendsQuery = {
     kind: NodeKind.TrendsQuery,
     series: [
         {
@@ -25,7 +24,7 @@ const trendsQueryDefault: TrendsQuery = {
     trendsFilter: {},
 }
 
-const funnelsQueryDefault: FunnelsQuery = {
+export const funnelsQueryDefault: FunnelsQuery = {
     kind: NodeKind.FunnelsQuery,
     series: [
         {
@@ -35,7 +34,7 @@ const funnelsQueryDefault: FunnelsQuery = {
         },
     ],
     funnelsFilter: {
-        funnel_viz_type: FunnelVizType.Steps,
+        funnelVizType: FunnelVizType.Steps,
     },
 }
 
@@ -43,25 +42,25 @@ const retentionQueryDefault: RetentionQuery = {
     kind: NodeKind.RetentionQuery,
     retentionFilter: {
         period: RetentionPeriod.Day,
-        total_intervals: 11,
-        target_entity: {
+        totalIntervals: 11,
+        targetEntity: {
             id: '$pageview',
             name: '$pageview',
             type: 'events',
         },
-        returning_entity: {
+        returningEntity: {
             id: '$pageview',
             name: '$pageview',
             type: 'events',
         },
-        retention_type: 'retention_first_time',
+        retentionType: 'retention_first_time',
     },
 }
 
 const pathsQueryDefault: PathsQuery = {
     kind: NodeKind.PathsQuery,
     pathsFilter: {
-        include_event_types: [PathType.PageView],
+        includeEventTypes: [PathType.PageView],
     },
 }
 
@@ -72,7 +71,7 @@ const stickinessQueryDefault: StickinessQuery = {
             kind: NodeKind.EventsNode,
             name: '$pageview',
             event: '$pageview',
-            math: BaseMathType.TotalCount,
+            math: BaseMathType.UniqueUsers,
         },
     ],
     stickinessFilter: {},
@@ -85,10 +84,8 @@ const lifecycleQueryDefault: LifecycleQuery = {
             kind: NodeKind.EventsNode,
             name: '$pageview',
             event: '$pageview',
-            math: BaseMathType.TotalCount,
         },
     ],
-    lifecycleFilter: { shown_as: ShownAsValue.LIFECYCLE },
 }
 
 export const nodeKindToDefaultQuery: Record<InsightNodeKind, InsightQueryNode> = {

@@ -1,7 +1,11 @@
 from unittest.mock import patch
 
 from posthog.async_migrations.definition import AsyncMigrationDefinition
-from posthog.models.async_migration import AsyncMigration, AsyncMigrationError, MigrationStatus
+from posthog.models.async_migration import (
+    AsyncMigration,
+    AsyncMigrationError,
+    MigrationStatus,
+)
 from posthog.test.base import APIBaseTest
 
 
@@ -28,7 +32,6 @@ class TestAsyncMigration(APIBaseTest):
         return super().setUp()
 
     def test_get_async_migrations_without_staff_status(self):
-
         response = self.client.get(f"/api/async_migrations/").json()
         self.assertEqual(response["count"], 0)
 
@@ -55,7 +58,8 @@ class TestAsyncMigration(APIBaseTest):
         sm1 = create_async_migration()
 
         response = self.client.post(
-            f"/api/async_migrations/{sm1.id}/trigger", {"parameters": {"SOME_KEY": 1234}}
+            f"/api/async_migrations/{sm1.id}/trigger",
+            {"parameters": {"SOME_KEY": 1234}},
         ).json()
         sm1.refresh_from_db()
 
@@ -118,4 +122,7 @@ class TestAsyncMigration(APIBaseTest):
         response = self.client.post(f"/api/async_migrations/{sm1.id}/force_rollback").json()
 
         self.assertEqual(response["success"], False)
-        self.assertEqual(response["error"], "Can't force rollback a migration that did not complete successfully.")
+        self.assertEqual(
+            response["error"],
+            "Can't force rollback a migration that did not complete successfully.",
+        )

@@ -1,4 +1,5 @@
 from dataclasses import dataclass
+from itertools import chain
 from typing import List, Optional, Dict, Tuple, Type
 from posthog.hogql import ast
 from posthog.hogql.base import ConstantType
@@ -46,6 +47,21 @@ class HogQLFunctionMeta:
     tz_aware: bool = False
     """Whether the function is timezone-aware. This means the project timezone will be appended as the last arg."""
 
+
+HOGQL_COMPARISON_MAPPING: Dict[str, ast.CompareOperationOp] = {
+    "equals": ast.CompareOperationOp.Eq,
+    "notEquals": ast.CompareOperationOp.NotEq,
+    "less": ast.CompareOperationOp.Lt,
+    "greater": ast.CompareOperationOp.Gt,
+    "lessOrEquals": ast.CompareOperationOp.LtEq,
+    "greaterOrEquals": ast.CompareOperationOp.GtEq,
+    "like": ast.CompareOperationOp.Like,
+    "ilike": ast.CompareOperationOp.ILike,
+    "notLike": ast.CompareOperationOp.NotLike,
+    "notILike": ast.CompareOperationOp.NotILike,
+    "in": ast.CompareOperationOp.In,
+    "notIn": ast.CompareOperationOp.NotIn,
+}
 
 HOGQL_CLICKHOUSE_FUNCTIONS: Dict[str, HogQLFunctionMeta] = {
     # arithmetic
@@ -139,10 +155,15 @@ HOGQL_CLICKHOUSE_FUNCTIONS: Dict[str, HogQLFunctionMeta] = {
     "not": HogQLFunctionMeta("not", 1, 1),
     # type conversions
     "toInt": HogQLFunctionMeta("toInt64OrNull", 1, 1),
+    "_toInt64": HogQLFunctionMeta("toInt64", 1, 1),
     "toFloat": HogQLFunctionMeta("toFloat64OrNull", 1, 1),
     "toDecimal": HogQLFunctionMeta("toDecimal64OrNull", 1, 1),
     "toDate": HogQLFunctionMeta(
-        "toDateOrNull", 1, 1, overloads=[((ast.DateTimeType, ast.DateType), "toDate")], tz_aware=True
+        "toDateOrNull",
+        1,
+        1,
+        overloads=[((ast.DateTimeType, ast.DateType), "toDate")],
+        tz_aware=True,
     ),
     "toDateTime": HogQLFunctionMeta(
         "parseDateTime64BestEffortOrNull",
@@ -170,13 +191,14 @@ HOGQL_CLICKHOUSE_FUNCTIONS: Dict[str, HogQLFunctionMeta] = {
     "toMinute": HogQLFunctionMeta("toMinute", 1, 1),
     "toSecond": HogQLFunctionMeta("toSecond", 1, 1),
     "toUnixTimestamp": HogQLFunctionMeta("toUnixTimestamp", 1, 2),
+    "toUnixTimestamp64Milli": HogQLFunctionMeta("toUnixTimestamp64Milli", 1, 1),
     "toStartOfYear": HogQLFunctionMeta("toStartOfYear", 1, 1),
     "toStartOfISOYear": HogQLFunctionMeta("toStartOfISOYear", 1, 1),
     "toStartOfQuarter": HogQLFunctionMeta("toStartOfQuarter", 1, 1),
     "toStartOfMonth": HogQLFunctionMeta("toStartOfMonth", 1, 1),
     "toLastDayOfMonth": HogQLFunctionMeta("toLastDayOfMonth", 1, 1),
     "toMonday": HogQLFunctionMeta("toMonday", 1, 1),
-    "toStartOfWeek": HogQLFunctionMeta("toStartOfWeek", 1, 1),
+    "toStartOfWeek": HogQLFunctionMeta("toStartOfWeek", 1, 2),
     "toStartOfDay": HogQLFunctionMeta("toStartOfDay", 1, 2),
     "toLastDayOfWeek": HogQLFunctionMeta("toLastDayOfWeek", 1, 2),
     "toStartOfHour": HogQLFunctionMeta("toStartOfHour", 1, 1),
@@ -674,7 +696,7 @@ HOGQL_AGGREGATIONS: Dict[str, HogQLFunctionMeta] = {
     "medianBFloat16If": HogQLFunctionMeta("medianBFloat16If", 2, 2, aggregate=True),
     "quantile": HogQLFunctionMeta("quantile", 1, 1, min_params=1, max_params=1, aggregate=True),
     "quantileIf": HogQLFunctionMeta("quantileIf", 2, 2, min_params=1, max_params=1, aggregate=True),
-    "quantiles": HogQLFunctionMeta("quantiles", 1, 1, min_params=1, max_params=1, aggregate=True),
+    "quantiles": HogQLFunctionMeta("quantiles", 1, None, aggregate=True),
     "quantilesIf": HogQLFunctionMeta("quantilesIf", 2, 2, min_params=1, max_params=1, aggregate=True),
     # "quantileExact": HogQLFunctionMeta("quantileExact", 1, 1, aggregate=True),
     # "quantileExactIf": HogQLFunctionMeta("quantileExactIf", 2, 2, aggregate=True),
@@ -721,10 +743,32 @@ HOGQL_AGGREGATIONS: Dict[str, HogQLFunctionMeta] = {
 }
 HOGQL_POSTHOG_FUNCTIONS: Dict[str, HogQLFunctionMeta] = {
     "sparkline": HogQLFunctionMeta("sparkline", 1, 1),
+    "hogql_lookupDomainType": HogQLFunctionMeta("hogql_lookupDomainType", 1, 1),
+    "hogql_lookupPaidDomainType": HogQLFunctionMeta("hogql_lookupPaidDomainType", 1, 1),
+    "hogql_lookupPaidSourceType": HogQLFunctionMeta("hogql_lookupPaidSourceType", 1, 1),
+    "hogql_lookupPaidMediumType": HogQLFunctionMeta("hogql_lookupPaidMediumType", 1, 1),
+    "hogql_lookupOrganicDomainType": HogQLFunctionMeta("hogql_lookupOrganicDomainType", 1, 1),
+    "hogql_lookupOrganicSourceType": HogQLFunctionMeta("hogql_lookupOrganicSourceType", 1, 1),
+    "hogql_lookupOrganicMediumType": HogQLFunctionMeta("hogql_lookupOrganicMediumType", 1, 1),
 }
+
+ALL_EXPOSED_FUNCTION_NAMES = [
+    name for name in chain(HOGQL_CLICKHOUSE_FUNCTIONS.keys(), HOGQL_AGGREGATIONS.keys()) if not name.startswith("_")
+]
 
 # TODO: Make the below details part of function meta
 # Functions where we use a -OrNull variant by default
-ADD_OR_NULL_DATETIME_FUNCTIONS = ("toDateTime", "parseDateTime", "parseDateTimeBestEffort")
+ADD_OR_NULL_DATETIME_FUNCTIONS = (
+    "toDateTime",
+    "parseDateTime",
+    "parseDateTimeBestEffort",
+)
 # Functions where the first argument needs to be DateTime and not DateTime64
-FIRST_ARG_DATETIME_FUNCTIONS = ("tumble", "tumbleStart", "tumbleEnd", "hop", "hopStart", "hopEnd")
+FIRST_ARG_DATETIME_FUNCTIONS = (
+    "tumble",
+    "tumbleStart",
+    "tumbleEnd",
+    "hop",
+    "hopStart",
+    "hopEnd",
+)

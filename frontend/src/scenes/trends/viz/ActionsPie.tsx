@@ -1,32 +1,66 @@
 import './ActionsPie.scss'
-import { useState, useEffect } from 'react'
-import { getSeriesColor } from 'lib/colors'
+
 import { useValues } from 'kea'
-import { ChartParams, GraphType, GraphDataset } from '~/types'
-import { insightLogic } from 'scenes/insights/insightLogic'
-import { formatAggregationAxisValue } from 'scenes/insights/aggregationAxisFormat'
-import { openPersonsModal } from '../persons-modal/PersonsModal'
-import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
-import { urlsForDatasets } from '../persons-modal/persons-modal-utils'
-import { PieChart } from 'scenes/insights/views/LineGraph/PieChart'
+import { getSeriesColor } from 'lib/colors'
 import { InsightLegend } from 'lib/components/InsightLegend/InsightLegend'
-import clsx from 'clsx'
+import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
+import { FEATURE_FLAGS } from 'lib/constants'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { useEffect, useState } from 'react'
+import { formatAggregationAxisValue } from 'scenes/insights/aggregationAxisFormat'
+import { insightLogic } from 'scenes/insights/insightLogic'
+import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
+import { formatBreakdownLabel } from 'scenes/insights/utils'
+import { PieChart } from 'scenes/insights/views/LineGraph/PieChart'
+
 import { cohortsModel } from '~/models/cohortsModel'
 import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
-import { formatBreakdownLabel } from 'scenes/insights/utils'
+import { NodeKind } from '~/queries/schema'
+import { isInsightVizNode, isTrendsQuery } from '~/queries/utils'
+import { ChartDisplayType, ChartParams, GraphDataset, GraphType } from '~/types'
+
+import { urlsForDatasets } from '../persons-modal/persons-modal-utils'
+import { openPersonsModal } from '../persons-modal/PersonsModal'
 import { trendsDataLogic } from '../trendsDataLogic'
 
-export function ActionsPie({ inSharedMode, inCardView, showPersonsModal = true }: ChartParams): JSX.Element | null {
+export function ActionsPie({
+    inSharedMode,
+    inCardView,
+    showPersonsModal = true,
+    context,
+}: ChartParams): JSX.Element | null {
     const [data, setData] = useState<GraphDataset[] | null>(null)
     const [total, setTotal] = useState(0)
 
     const { cohorts } = useValues(cohortsModel)
     const { formatPropertyValueForDisplay } = useValues(propertyDefinitionsModel)
+    const { featureFlags } = useValues(featureFlagLogic)
 
     const { insightProps, hiddenLegendKeys } = useValues(insightLogic)
-    const { indexedResults, labelGroupType, trendsFilter, formula, showValueOnSeries } = useValues(
-        trendsDataLogic(insightProps)
-    )
+    const {
+        indexedResults,
+        labelGroupType,
+        trendsFilter,
+        formula,
+        showValueOnSeries,
+        showLabelOnSeries,
+        supportsPercentStackView,
+        showPercentStackView,
+        pieChartVizOptions,
+    } = useValues(trendsDataLogic(insightProps))
+
+    const { isTrends, query } = useValues(insightVizDataLogic(insightProps))
+
+    const renderingMetadata = context?.chartRenderingMetadata?.[ChartDisplayType.ActionsPie]
+
+    const showAggregation = !pieChartVizOptions?.hideAggregation
+
+    const isTrendsQueryWithFeatureFlagOn =
+        featureFlags[FEATURE_FLAGS.HOGQL_INSIGHTS_TRENDS] &&
+        isTrends &&
+        query &&
+        isInsightVizNode(query) &&
+        isTrendsQuery(query.source)
 
     function updateData(): void {
         const _data = [...indexedResults].sort((a, b) => b.aggregated_value - a.aggregated_value)
@@ -64,17 +98,40 @@ export function ActionsPie({ inSharedMode, inCardView, showPersonsModal = true }
         }
     }, [indexedResults, hiddenLegendKeys])
 
+    const onClick =
+        renderingMetadata?.onSegmentClick ||
+        (!showPersonsModal || formula
+            ? undefined
+            : (payload) => {
+                  const { points, index, crossDataset } = payload
+                  const dataset = points.referencePoint.dataset
+                  const label = dataset.labels?.[index]
+
+                  const urls = urlsForDatasets(crossDataset, index, cohorts, formatPropertyValueForDisplay)
+                  const selectedUrl = urls[index]?.value
+
+                  if (isTrendsQueryWithFeatureFlagOn) {
+                      openPersonsModal({
+                          title: label || '',
+                          query: {
+                              kind: NodeKind.InsightActorsQuery,
+                              source: query.source,
+                          },
+                      })
+                  } else if (selectedUrl) {
+                      openPersonsModal({
+                          urls,
+                          urlsIndex: index,
+                          title: <PropertyKeyInfo value={label || ''} disablePopover />,
+                      })
+                  }
+              })
+
     return data ? (
         data[0] && data[0].labels ? (
-            <div
-                className={clsx(
-                    'ActionsPie w-full',
-                    inCardView && 'flex flex-row h-full items-center',
-                    trendsFilter?.show_legend && 'pr-4'
-                )}
-            >
-                <div className={clsx('actions-pie-component', inCardView && 'grow')}>
-                    <div className="pie-chart">
+            <div className="ActionsPie">
+                <div className="ActionsPie__component">
+                    <div className="ActionsPie__chart">
                         <PieChart
                             data-attr="trend-pie-graph"
                             hiddenLegendKeys={hiddenLegendKeys}
@@ -87,33 +144,20 @@ export function ActionsPie({ inSharedMode, inCardView, showPersonsModal = true }
                             trendsFilter={trendsFilter}
                             formula={formula}
                             showValueOnSeries={showValueOnSeries}
-                            onClick={
-                                !showPersonsModal || formula
-                                    ? undefined
-                                    : (payload) => {
-                                          const { points, index, crossDataset } = payload
-                                          const dataset = points.referencePoint.dataset
-                                          const label = dataset.labels?.[index]
-
-                                          const urls = urlsForDatasets(crossDataset, index)
-                                          const selectedUrl = urls[index]?.value
-
-                                          if (selectedUrl) {
-                                              openPersonsModal({
-                                                  urls,
-                                                  urlsIndex: index,
-                                                  title: <PropertyKeyInfo value={label || ''} disablePopover />,
-                                              })
-                                          }
-                                      }
-                            }
+                            showLabelOnSeries={showLabelOnSeries}
+                            supportsPercentStackView={supportsPercentStackView}
+                            showPercentStackView={showPercentStackView}
+                            onClick={onClick}
+                            disableHoverOffset={pieChartVizOptions?.disableHoverOffset}
                         />
                     </div>
-                    <h3 className="text-7xl text-center font-bold m-0">
-                        {formatAggregationAxisValue(trendsFilter, total)}
-                    </h3>
+                    {showAggregation && (
+                        <div className="text-7xl text-center font-bold m-0">
+                            {formatAggregationAxisValue(trendsFilter, total)}
+                        </div>
+                    )}
                 </div>
-                {inCardView && trendsFilter?.show_legend && <InsightLegend inCardView />}
+                {inCardView && trendsFilter?.showLegend && <InsightLegend inCardView />}
             </div>
         ) : (
             <p className="text-center mt-16">We couldn't find any matching actions.</p>

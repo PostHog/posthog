@@ -18,18 +18,25 @@ jobs:
             deployments: write
 
         steps:
-            - name: Checkout chart
-              uses: actions/checkout@v3
-              with:
-                  repository: posthog/charts-clickhouse
-                  path: charts-clickhouse
-
             - name: Checkout
               uses: actions/checkout@v3
-              with:
-                  path: posthog
 
-            - uses: aws-actions/configure-aws-credentials@v1
+            - name: Set up Docker Buildx
+              uses: docker/setup-buildx-action@v2
+
+            - name: Set up QEMU
+              uses: docker/setup-qemu-action@v2
+
+            - name: Set up Depot CLI
+              uses: depot/setup-action@v1
+
+            - name: Login to DockerHub
+              uses: docker/login-action@v3
+              with:
+                  username: ${{ secrets.DOCKERHUB_USERNAME }}
+                  password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+            - uses: aws-actions/configure-aws-credentials@v4
               with:
                   aws-region: us-east-1
                   role-to-assume: arn:aws:iam::169684386827:role/github-terraform-infra-role
@@ -44,6 +51,21 @@ jobs:
                   authkey: ${{ secrets.TAILSCALE_OAUTH_SECRET }}
                   args: --advertise-tags tag:github-runner
 
+            - name: Login to Amazon ECR
+              id: aws-ecr
+              uses: aws-actions/amazon-ecr-login@v2
+
+            - name: Build and push PR test image
+              id: build
+              uses: depot/build-push-action@v1
+              with:
+                  context: .
+                  buildx-fallback: false # the fallback is so slow it's better to just fail
+                  push: true
+                  tags: ${{ steps.aws-ecr.outputs.registry }}/pr-test:${{ github.event.pull_request.head.sha }}
+                  platforms: linux/arm64,linux/amd64
+                  build-args: COMMIT_HASH=${{ github.event.pull_request.head.sha }}
+
             - name: start deployment
               uses: bobheadxi/deployments@v1.4.0
               id: deployment
@@ -52,45 +74,29 @@ jobs:
                   env: pr-${{ github.head_ref }}
                   ref: ${{ github.head_ref }}
 
-            - name: Install PostHog using the Helm chart
-              id: helm_install
+            - name: Deploy hobby
+              id: deploy_hobby
               run: |
                   aws eks update-kubeconfig --name "posthog-dev"
                   kubectl config set-cluster arn:aws:eks:us-east-1:169684386827:cluster/posthog-dev --server=https://eks-posthog-dev --tls-server-name 8BD6E1D2FEBDE47C8177E29CAC9E6C61.gr7.us-east-1.eks.amazonaws.com
 
-                  export COMMIT_SHA=${{ github.sha }}
                   export PR_NUM=${{ github.event.number }}
                   export BRANCH_NAME=${{ github.head_ref }}
-                  export RELEASE_NAME=posthog
-                  export NAMESPACE=pr-$PR_NUM-${BRANCH_NAME//\//-}
-                  export NAMESPACE=${NAMESPACE:0:38}
-                  export NAMESPACE=${NAMESPACE%%-}
-                  export HOSTNAME=$NAMESPACE
-                  export TAILNET_NAME=hedgehog-kitefin
-                  export TS_AUTHKEY=${{ secrets.TAILSCALE_SERVICE_AUTHKEY }}
+                  export BRANCH_NAME_HASH=$(echo -n ${{ github.head_ref }} | md5sum | cut -c 1-8)
+                  export HOSTNAME=pr-$PR_NUM-${BRANCH_NAME_HASH}
+                  export HOSTNAME=${HOSTNAME:0:38}
+                  export HOSTNAME=${HOSTNAME%%-}
+                  export NAMESPACE="hobby"
+                  export REGISTRY_URL=${{ steps.aws-ecr.outputs.registry }}/pr-test
+                  export DOCKER_TAG=${{ github.event.pull_request.head.sha }}
 
-                  export POSTHOG_WEB_SERVICE_NAME=POSTHOG_WEB
-                  export POSTHOG_WEB_SERVICE_PORT=8000
-                  envsubst < posthog/.github/pr-deploy/tailscale.yaml.tmpl > posthog/.github/pr-deploy/tailscale.yaml
-                  envsubst < posthog/.github/pr-deploy/values.yaml.tmpl > posthog/.github/pr-deploy/values.yaml
+                  envsubst < .github/pr-deploy/hobby.yaml.tmpl > .github/pr-deploy/hobby.yaml
 
-                  helm upgrade --install \
-                  -f posthog/.github/pr-deploy/values.yaml \
-                  --set image.tag=pr-$PR_NUM \
-                  --timeout 30m \
-                  --create-namespace \
-                  --namespace $NAMESPACE \
-                  $RELEASE_NAME charts-clickhouse/charts/posthog \
-                  --wait \
-                  --wait-for-jobs
+                  #Clean and deploy
+                  kubectl -n $NAMESPACE delete -f .github/pr-deploy/hobby.yaml || true
+                  kubectl -n $NAMESPACE apply -f .github/pr-deploy/hobby.yaml
 
-                  POD_NAME=$(kubectl -n $NAMESPACE get pod | grep web | cut -d' ' -f1)
-                  kubectl -n $NAMESPACE exec $POD_NAME -- python manage.py shell -c "import sys;from posthog.models import Team; sys.exit(not Team.objects.exists())" \
-                  || kubectl -n $NAMESPACE exec $POD_NAME -- python manage.py generate_demo_data \
-                  && kubectl -n $NAMESPACE exec $POD_NAME -- python manage.py shell -c "from posthog.models import Team; t = Team.objects.first(); t.is_demo = False; t.save()"
-
-                  kubectl -n $NAMESPACE apply -f posthog/.github/pr-deploy/tailscale.yaml
-                  echo "url=$NAMESPACE.hedgehog-kitefin.ts.net" >> $GITHUB_OUTPUT
+                  echo "url=$HOSTNAME.dev.posthog.dev" >> $GITHUB_OUTPUT
 
             - name: update deployment status
               uses: bobheadxi/deployments@v1
@@ -99,5 +105,5 @@ jobs:
                   status: ${{ job.status }}
                   env: ${{ steps.deployment.outputs.env }}
                   ref: ${{ github.head_ref }}
-                  env_url: https://${{ steps.helm_install.outputs.url }}
+                  env_url: https://${{ steps.deploy_hobby.outputs.url }}
                   deployment_id: ${{ steps.deployment.outputs.deployment_id }}

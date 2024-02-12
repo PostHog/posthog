@@ -16,9 +16,15 @@ class AST:
     start: Optional[int] = field(default=None)
     end: Optional[int] = field(default=None)
 
+    # This is part of the visitor pattern from visitor.py.
     def accept(self, visitor):
-        camel_case_name = camel_case_pattern.sub("_", self.__class__.__name__).lower()
-        method_name = f"visit_{camel_case_name}"
+        name = camel_case_pattern.sub("_", self.__class__.__name__).lower()
+
+        # NOTE: Sync with ./test/test_visitor.py#test_hogql_visitor_naming_exceptions
+        replacements = {"hog_qlxtag": "hogqlx_tag", "hog_qlxattribute": "hogqlx_attribute", "uuidtype": "uuid_type"}
+        for old, new in replacements.items():
+            name = name.replace(old, new)
+        method_name = f"visit_{name}"
         if hasattr(visitor, method_name):
             visit = getattr(visitor, method_name)
             return visit(self)

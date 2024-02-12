@@ -9,9 +9,16 @@ from posthog.async_migrations.runner import (
     run_async_migration_next_op,
     start_async_migration,
 )
-from posthog.async_migrations.test.util import AsyncMigrationBaseTest, create_async_migration
+from posthog.async_migrations.test.util import (
+    AsyncMigrationBaseTest,
+    create_async_migration,
+)
 from posthog.async_migrations.utils import update_async_migration
-from posthog.models.async_migration import AsyncMigration, AsyncMigrationError, MigrationStatus
+from posthog.models.async_migration import (
+    AsyncMigration,
+    AsyncMigrationError,
+    MigrationStatus,
+)
 from posthog.models.utils import UUIDT
 
 pytestmark = pytest.mark.async_migrations
@@ -52,7 +59,6 @@ class TestRunner(AsyncMigrationBaseTest):
         self.assertEqual(self.migration.sec.side_effect_rollback_count, 0)
 
     def test_rollback_migration(self):
-
         self.migration.sec.reset_count()
 
         migration_successful = start_async_migration("test_migration")

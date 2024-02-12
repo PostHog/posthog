@@ -1,13 +1,15 @@
-import { ComponentMeta, ComponentStory } from '@storybook/react'
+import { Meta, StoryFn, StoryObj } from '@storybook/react'
+
+import { Splotch, SplotchColor } from '../Splotch'
 import {
+    LemonMenuItems,
     LemonMenuOverlay as LemonMenuOverlayComponent,
     LemonMenuOverlayProps,
-    LemonMenuItems,
     LemonMenuSection,
 } from './LemonMenu'
-import { Splotch, SplotchColor } from '../Splotch'
 
-export default {
+type Story = StoryObj<typeof LemonMenuOverlayComponent>
+const meta: Meta<typeof LemonMenuOverlayComponent> = {
     title: 'Lemon UI/Lemon Menu',
     component: LemonMenuOverlayComponent,
     parameters: {
@@ -21,38 +23,29 @@ This enables intuitive preview of the component, along with snapshotting, but in
             },
         },
     },
-    argTypes: {
-        items: {
-            defaultValue: [
-                { label: 'Alert', onClick: () => alert('Hello there.') },
-                { label: 'Do nothing' },
-                { label: 'Do nothing, with a highlight', active: true },
-            ] as LemonMenuItems,
-        },
+    args: {
+        items: [
+            { label: 'Alert', onClick: () => alert('Hello there.') },
+            { label: 'Do nothing' },
+            { label: 'Do nothing, with a highlight', active: true },
+        ] as LemonMenuItems,
     },
-} as ComponentMeta<typeof LemonMenuOverlayComponent>
+    tags: ['autodocs'],
+}
+export default meta
 
-const Template: ComponentStory<typeof LemonMenuOverlayComponent> = (props: LemonMenuOverlayProps) => {
+const Template: StoryFn<typeof LemonMenuOverlayComponent> = (props: LemonMenuOverlayProps) => {
     return (
-        <div className="Popover">
-            <div
-                className="Popover__box"
-                // eslint-disable-next-line react/forbid-dom-props
-                style={{
-                    opacity: 1,
-                    width: 'fit-content',
-                }}
-            >
-                <LemonMenuOverlayComponent {...props} />
-            </div>
+        <div className="rounded border p-1 bg-bg-light">
+            <LemonMenuOverlayComponent {...props} />
         </div>
     )
 }
 
-export const Flat = Template.bind({})
+export const Flat: Story = Template.bind({})
 Flat.args = {}
 
-export const SectionedItems = Template.bind({})
+export const SectionedItems: Story = Template.bind({})
 SectionedItems.args = {
     items: [
         {
@@ -79,7 +72,7 @@ SectionedItems.args = {
     ] as LemonMenuSection[],
 }
 
-export const NestedMenu = Template.bind({})
+export const NestedMenu: Story = Template.bind({})
 NestedMenu.args = {
     items: [
         {

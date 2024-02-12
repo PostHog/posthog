@@ -1,6 +1,9 @@
-import { LifecycleQuery } from '~/queries/schema'
-import { LifecycleToggle } from '~/types'
 import { LemonCheckbox, LemonLabel } from '@posthog/lemon-ui'
+import { useActions, useValues } from 'kea'
+import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
+
+import { LifecycleFilter } from '~/queries/schema'
+import { EditorFilterProps, LifecycleToggle } from '~/types'
 
 const lifecycles: { name: LifecycleToggle; tooltip: string; color: string }[] = [
     {
@@ -27,30 +30,18 @@ const lifecycles: { name: LifecycleToggle; tooltip: string; color: string }[] = 
     },
 ]
 
-type LifecycleTogglesProps = {
-    query: LifecycleQuery
-    setQuery: (node: LifecycleQuery) => void
-}
-
 const DEFAULT_LIFECYCLE_TOGGLES: LifecycleToggle[] = ['new', 'returning', 'resurrecting', 'dormant']
 
-export function LifecycleToggles({ query, setQuery }: LifecycleTogglesProps): JSX.Element {
-    const toggledLifecycles = query.lifecycleFilter?.toggledLifecycles || DEFAULT_LIFECYCLE_TOGGLES
-    const setToggledLifecycles = (lifecycles: LifecycleToggle[]): void => {
-        setQuery({
-            ...query,
-            lifecycleFilter: {
-                ...query.lifecycleFilter,
-                toggledLifecycles: lifecycles,
-            },
-        })
-    }
+export function LifecycleToggles({ insightProps }: EditorFilterProps): JSX.Element {
+    const { insightFilter } = useValues(insightVizDataLogic(insightProps))
+    const { updateInsightFilter } = useActions(insightVizDataLogic(insightProps))
 
+    const toggledLifecycles = (insightFilter as LifecycleFilter)?.toggledLifecycles || DEFAULT_LIFECYCLE_TOGGLES
     const toggleLifecycle = (name: LifecycleToggle): void => {
         if (toggledLifecycles.includes(name)) {
-            setToggledLifecycles(toggledLifecycles.filter((n) => n !== name))
+            updateInsightFilter({ toggledLifecycles: toggledLifecycles.filter((n) => n !== name) })
         } else {
-            setToggledLifecycles([...toggledLifecycles, name])
+            updateInsightFilter({ toggledLifecycles: [...toggledLifecycles, name] })
         }
     }
 

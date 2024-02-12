@@ -1,13 +1,9 @@
 .taxonomic-filter {
+    display: flex;
+    flex-direction: column;
     width: 550px;
     max-width: calc(100vw - 40px);
     background: var(--bg-light);
-    display: flex;
-    flex-direction: column;
-
-    .posthog-3000 & {
-        background: var(--bg-3000);
-    }
 
     &.force-minimum-width {
         min-width: 300px;
@@ -21,42 +17,24 @@
 
     .taxonomic-group-title {
         display: flex;
-        width: 100%;
         align-items: stretch;
-        color: var(--muted);
-        text-transform: uppercase;
-        font-size: 12px;
-        line-height: 12px;
+        width: 100%;
         padding-top: 10px;
         padding-left: 10px;
+        font-size: 12px;
         font-weight: 600;
+        line-height: 12px;
+        color: var(--muted);
+        text-transform: uppercase;
+
         &.with-border {
             border-top: 1px solid var(--border-light);
         }
     }
 
     .taxonomic-pills {
+        padding-left: 10px;
         margin-top: 8px;
         margin-bottom: 8px;
-        padding-left: 10px;
-
-        .ant-tag {
-            transition: none;
-            margin-right: 2px;
-            margin-bottom: 2px;
-            cursor: pointer;
-            color: var(--primary);
-            background: var(--side);
-            border-color: var(--side);
-            &.taxonomic-count-zero {
-                color: var(--muted);
-                cursor: not-allowed;
-            }
-            &.taxonomic-pill-active {
-                color: #fff;
-                background: var(--primary);
-                border-color: var(--primary);
-            }
-        }
     }
 }

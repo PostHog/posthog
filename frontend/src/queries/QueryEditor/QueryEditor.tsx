@@ -1,13 +1,15 @@
-import { useActions, useValues } from 'kea'
-import MonacoEditor, { useMonaco } from '@monaco-editor/react'
-import { useEffect, useState } from 'react'
-import schema from '~/queries/schema.json'
-import { LemonButton } from 'lib/lemon-ui/LemonButton'
-import { queryEditorLogic } from '~/queries/QueryEditor/queryEditorLogic'
-import { AutoSizer } from 'react-virtualized/dist/es/AutoSizer'
+import { useMonaco } from '@monaco-editor/react'
 import clsx from 'clsx'
-import { Spinner } from 'lib/lemon-ui/Spinner'
-import { QueryContext } from '~/queries/schema'
+import { useActions, useValues } from 'kea'
+import { CodeEditor } from 'lib/components/CodeEditors'
+import { LemonButton } from 'lib/lemon-ui/LemonButton'
+import { useEffect, useState } from 'react'
+import { AutoSizer } from 'react-virtualized/dist/es/AutoSizer'
+
+import { queryEditorLogic } from '~/queries/QueryEditor/queryEditorLogic'
+import schema from '~/queries/schema.json'
+import { QueryContext } from '~/queries/types'
+
 export interface QueryEditorProps {
     query: string
     setQuery?: (query: string) => void
@@ -48,19 +50,20 @@ export function QueryEditor(props: QueryEditorProps): JSX.Element {
             ) : null}
             <div
                 data-attr="query-editor"
-                className={clsx('flex flex-col p-2 bg-border space-y-2 resize-y overflow-auto h-80', props.className)}
+                className={clsx(
+                    'flex flex-col p-2 bg-mid space-y-2 resize-y overflow-auto h-80 rounded',
+                    props.className
+                )}
             >
                 <div className="flex-1">
                     <AutoSizer disableWidth>
                         {({ height }) => (
-                            <MonacoEditor
-                                theme="vs-light"
+                            <CodeEditor
                                 className="border"
                                 language="json"
                                 value={queryInput}
                                 onChange={(v) => setQueryInput(v ?? '')}
                                 height={height}
-                                loading={<Spinner />}
                             />
                         )}
                     </AutoSizer>
@@ -73,13 +76,13 @@ export function QueryEditor(props: QueryEditorProps): JSX.Element {
                 <LemonButton
                     onClick={saveQuery}
                     type="primary"
-                    status={error ? 'danger' : 'muted-alt'}
+                    status={error ? 'danger' : 'default'}
                     disabled={!props.setQuery || !!error || !inputChanged}
                     fullWidth
                     center
                     data-attr="query-editor-save"
                 >
-                    {!props.setQuery ? 'No permission to update' : 'Update'}
+                    {!props.setQuery ? 'No permission to update' : 'Update and run'}
                 </LemonButton>
             </div>
         </>

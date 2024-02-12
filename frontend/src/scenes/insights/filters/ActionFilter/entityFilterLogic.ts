@@ -1,11 +1,15 @@
-import { kea, props, key, path, connect, actions, reducers, selectors, listeners, events } from 'kea'
-import { EntityTypes, FilterType, Entity, EntityType, ActionFilter, EntityFilter, AnyPropertyFilter } from '~/types'
-import type { entityFilterLogicType } from './entityFilterLogicType'
+import { actions, connect, events, kea, key, listeners, path, props, reducers, selectors } from 'kea'
+import { convertPropertyGroupToProperties } from 'lib/components/PropertyFilters/utils'
+import { uuid } from 'lib/utils'
 import { eventUsageLogic, GraphSeriesAddedSource } from 'lib/utils/eventUsageLogic'
-import { convertPropertyGroupToProperties } from 'lib/utils'
+
+import { ActionFilter, AnyPropertyFilter, Entity, EntityFilter, EntityType, EntityTypes, FilterType } from '~/types'
+
+import type { entityFilterLogicType } from './entityFilterLogicType'
 
 export type LocalFilter = ActionFilter & {
     order: number
+    uuid: string
 }
 export type BareEntity = Pick<Entity, 'id' | 'name'>
 
@@ -17,9 +21,10 @@ export function toLocalFilters(filters: Partial<FilterType>): LocalFilter[] {
         filter.properties && Array.isArray(filter.properties)
             ? {
                   ...filter,
+                  uuid: uuid(),
                   properties: convertPropertyGroupToProperties(filter.properties),
               }
-            : filter
+            : { ...filter, uuid: uuid() }
     )
 }
 
@@ -111,7 +116,7 @@ export const entityFilterLogic = kea<entityFilterLogicType>([
             },
         ],
         localFilters: [
-            toLocalFilters(props.filters ?? {}) as LocalFilter[],
+            toLocalFilters(props.filters ?? {}),
             {
                 setLocalFilters: (_, { filters }) => toLocalFilters(filters),
             },
@@ -174,9 +179,7 @@ export const entityFilterLogic = kea<entityFilterLogicType>([
         },
         updateFilterProperty: async ({ properties, index }) => {
             actions.setFilters(
-                values.localFilters.map(
-                    (filter, i) => (i === index ? { ...filter, properties } : filter) as LocalFilter
-                )
+                values.localFilters.map((filter, i) => (i === index ? { ...filter, properties } : filter))
             )
         },
         updateFilterMath: async ({ index, ...mathProperties }) => {
@@ -197,6 +200,7 @@ export const entityFilterLogic = kea<entityFilterLogicType>([
             const order = precedingEntity ? precedingEntity.order + 1 : 0
             const newFilter = {
                 id: null,
+                uuid: uuid(),
                 type: EntityTypes.EVENTS,
                 order: order,
                 ...props.addFilterDefaultOptions,
@@ -218,6 +222,7 @@ export const entityFilterLogic = kea<entityFilterLogicType>([
             }
             newFilters.splice(order, 0, {
                 ...filter,
+                uuid: uuid(),
                 custom_name: undefined,
                 order: order + 1,
             } as LocalFilter)

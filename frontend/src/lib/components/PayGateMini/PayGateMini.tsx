@@ -1,13 +1,16 @@
+import './PayGateMini.scss'
+
+import { Link } from '@posthog/lemon-ui'
+import clsx from 'clsx'
 import { useValues } from 'kea'
-import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
-import { AvailableFeature } from '~/types'
-import { userLogic } from 'scenes/userLogic'
+import { FEATURE_MINIMUM_PLAN, POSTHOG_CLOUD_STANDARD_PLAN } from 'lib/constants'
 import { IconEmojiPeople, IconLightBulb, IconLock, IconPremium } from 'lib/lemon-ui/icons'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
-import './PayGateMini.scss'
-import { FEATURE_MINIMUM_PLAN, POSTHOG_CLOUD_STANDARD_PLAN } from 'lib/constants'
 import { capitalizeFirstLetter } from 'lib/utils'
-import clsx from 'clsx'
+import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
+import { userLogic } from 'scenes/userLogic'
+
+import { AvailableFeature } from '~/types'
 
 type PayGateSupportedFeatures =
     | AvailableFeature.DASHBOARD_PERMISSIONING
@@ -16,6 +19,9 @@ type PayGateSupportedFeatures =
     | AvailableFeature.ROLE_BASED_ACCESS
     | AvailableFeature.CORRELATION_ANALYSIS
     | AvailableFeature.PATHS_ADVANCED
+    | AvailableFeature.SURVEYS_STYLING
+    | AvailableFeature.SURVEYS_TEXT_HTML
+    | AvailableFeature.DATA_PIPELINES
 
 export interface PayGateMiniProps {
     feature: PayGateSupportedFeatures
@@ -69,6 +75,21 @@ const FEATURE_SUMMARIES: Record<
         umbrella: 'advanced analysis capabilities',
         docsHref: 'https://posthog.com/manual/paths',
     },
+    [AvailableFeature.SURVEYS_STYLING]: {
+        description: 'Customize the look and feel of your surveys with custom colors and positions.',
+        umbrella: 'surveys customization',
+        docsHref: 'https://posthog.com/docs/surveys',
+    },
+    [AvailableFeature.SURVEYS_TEXT_HTML]: {
+        description: 'Use HTML to customize the content of your surveys.',
+        umbrella: 'surveys customization',
+        docsHref: 'https://posthog.com/docs/surveys',
+    },
+    [AvailableFeature.DATA_PIPELINES]: {
+        description: 'Create export workflows to send your data to a destination of your choice.',
+        umbrella: 'data pipelines',
+        docsHref: 'https://posthog.com/docs/cdp',
+    },
 }
 
 /** A sort of paywall for premium features.
@@ -82,21 +103,22 @@ export function PayGateMini({
     children,
     overrideShouldShowGate,
 }: PayGateMiniProps): JSX.Element | null {
-    const { preflight } = useValues(preflightLogic)
+    const { preflight, isCloudOrDev } = useValues(preflightLogic)
     const { hasAvailableFeature } = useValues(userLogic)
 
     const featureSummary = FEATURE_SUMMARIES[feature]
     const planRequired = FEATURE_MINIMUM_PLAN[feature]
-    let gateVariant: 'add-card' | 'contact-sales' | 'check-licensing' | null = null
+
+    let gateVariant: 'add-card' | 'contact-sales' | 'move-to-cloud' | null = null
     if (!overrideShouldShowGate && !hasAvailableFeature(feature)) {
-        if (preflight?.cloud) {
+        if (isCloudOrDev) {
             if (planRequired === POSTHOG_CLOUD_STANDARD_PLAN) {
                 gateVariant = 'add-card'
             } else {
                 gateVariant = 'contact-sales'
             }
         } else {
-            gateVariant = 'check-licensing'
+            gateVariant = 'move-to-cloud'
         }
     }
 
@@ -109,14 +131,17 @@ export function PayGateMini({
             <div className="PayGateMini__icon">{featureSummary.icon || <IconPremium />}</div>
             <div className="PayGateMini__description">{featureSummary.description}</div>
             <div className="PayGateMini__cta">
-                Upgrade to {gateVariant === 'add-card' ? 'a premium' : `the ${capitalizeFirstLetter(planRequired)}`}{' '}
-                plan to gain {featureSummary.umbrella}.
+                {gateVariant === 'move-to-cloud' ? (
+                    <>{capitalizeFirstLetter(featureSummary.umbrella)} is available on PostHog Cloud.</>
+                ) : (
+                    <>Subscribe to gain {featureSummary.umbrella}.</>
+                )}
                 {featureSummary.docsHref && (
                     <>
                         {' '}
-                        <a href={featureSummary.docsHref} target="_blank" rel="noopener noreferrer">
-                            Learn more in PostHog Docs.
-                        </a>
+                        <Link to={featureSummary.docsHref} target="_blank">
+                            Learn more in PostHog Docs.
+                        </Link>
                     </>
                 )}
             </div>
@@ -126,19 +151,18 @@ export function PayGateMini({
                         ? '/organization/billing'
                         : gateVariant === 'contact-sales'
                         ? `mailto:sales@posthog.com?subject=Inquiring about ${featureSummary.umbrella}`
-                        : gateVariant === 'check-licensing'
-                        ? 'https://posthog.com/pricing'
+                        : gateVariant === 'move-to-cloud'
+                        ? 'https://us.posthog.com/signup?utm_medium=in-product&utm_campaign=move-to-cloud'
                         : undefined
                 }
-                type="secondary"
-                fullWidth
+                type="primary"
                 center
             >
                 {gateVariant === 'add-card'
-                    ? 'Upgrade now'
+                    ? 'Subscribe now'
                     : gateVariant === 'contact-sales'
                     ? 'Contact sales'
-                    : 'Explore license options'}
+                    : 'Move to PostHog Cloud'}
             </LemonButton>
         </div>
     ) : (

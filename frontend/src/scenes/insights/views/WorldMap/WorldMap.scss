@@ -1,14 +1,16 @@
 .WorldMap {
-    padding: 1rem 0;
     width: 100%;
+    padding: 1rem 0;
     color: var(--border);
+
     .landxx {
         fill: currentColor;
+        fill-rule: evenodd;
         stroke: var(--bg-light);
         stroke-width: 0.125rem;
-        fill-rule: evenodd;
+
         &:hover {
-            color: var(--primary-dark) !important;
+            color: var(--data-color-1-hover) !important;
         }
     }
 }

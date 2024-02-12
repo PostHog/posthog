@@ -7,7 +7,12 @@ from posthog.models import Cohort, Person
 from posthog.models.filters.filter import Filter
 from posthog.models.group.util import create_group
 from posthog.queries.trends.trends import Trends
-from posthog.test.base import APIBaseTest, ClickhouseTestMixin, _create_event, snapshot_clickhouse_queries
+from posthog.test.base import (
+    APIBaseTest,
+    ClickhouseTestMixin,
+    _create_event,
+    snapshot_clickhouse_queries,
+)
 
 
 class TestFormula(ClickhouseTestMixin, APIBaseTest):
@@ -17,10 +22,17 @@ class TestFormula(ClickhouseTestMixin, APIBaseTest):
         super().setUp()
 
         Person.objects.create(
-            team_id=self.team.pk, distinct_ids=["blabla", "anonymous_id"], properties={"$some_prop": "some_val"}
+            team_id=self.team.pk,
+            distinct_ids=["blabla", "anonymous_id"],
+            properties={"$some_prop": "some_val"},
         )
 
-        create_group(team_id=self.team.pk, group_type_index=0, group_key="org:5", properties={"industry": "finance"})
+        create_group(
+            team_id=self.team.pk,
+            group_type_index=0,
+            group_key="org:5",
+            properties={"industry": "finance"},
+        )
 
         with freeze_time("2020-01-02T13:01:01Z"):
             _create_event(
@@ -39,33 +51,58 @@ class TestFormula(ClickhouseTestMixin, APIBaseTest):
                 team=self.team,
                 event="session start",
                 distinct_id="blabla",
-                properties={"session duration": 300, "location": "Paris", "$session_id": "1", "$group_0": "org:5"},
+                properties={
+                    "session duration": 300,
+                    "location": "Paris",
+                    "$session_id": "1",
+                    "$group_0": "org:5",
+                },
             )
             _create_event(
                 team=self.team,
                 event="session start",
                 distinct_id="blabla",
-                properties={"session duration": 400, "location": "London", "$session_id": "1", "$group_0": "org:5"},
+                properties={
+                    "session duration": 400,
+                    "location": "London",
+                    "$session_id": "1",
+                    "$group_0": "org:5",
+                },
             )
         with freeze_time("2020-01-03T13:01:01Z"):
             _create_event(
                 team=self.team,
                 event="session start",
                 distinct_id="blabla",
-                properties={"session duration": 400, "location": "London", "$session_id": "1", "$group_0": "org:5"},
+                properties={
+                    "session duration": 400,
+                    "location": "London",
+                    "$session_id": "1",
+                    "$group_0": "org:5",
+                },
             )
         with freeze_time("2020-01-03T13:04:01Z"):
             _create_event(
                 team=self.team,
                 event="session start",
                 distinct_id="blabla",
-                properties={"session duration": 500, "location": "London", "$session_id": "1", "$group_0": "org:5"},
+                properties={
+                    "session duration": 500,
+                    "location": "London",
+                    "$session_id": "1",
+                    "$group_0": "org:5",
+                },
             )
             _create_event(
                 team=self.team,
                 event="session end",
                 distinct_id="blabla",
-                properties={"session duration": 500, "location": "London", "$session_id": "1", "$group_0": "org:5"},
+                properties={
+                    "session duration": 500,
+                    "location": "London",
+                    "$session_id": "1",
+                    "$group_0": "org:5",
+                },
             )
 
             _create_event(
@@ -98,8 +135,16 @@ class TestFormula(ClickhouseTestMixin, APIBaseTest):
                 Filter(
                     data={
                         "events": [
-                            {"id": "session start", "math": "sum", "math_property": "session duration"},
-                            {"id": "session start", "math": "avg", "math_property": "session duration"},
+                            {
+                                "id": "session start",
+                                "math": "sum",
+                                "math_property": "session duration",
+                            },
+                            {
+                                "id": "session start",
+                                "math": "avg",
+                                "math_property": "session duration",
+                            },
                         ],
                         "formula": "A + B",
                         **extra,
@@ -110,12 +155,47 @@ class TestFormula(ClickhouseTestMixin, APIBaseTest):
             )
         return action_response
 
-    def test_hour_interval(self):
+    @snapshot_clickhouse_queries
+    def test_hour_interval_hour_level_relative(self):
+        data = self._run({"date_from": "-24h", "interval": "hour"}, run_at="2020-01-03T13:05:01Z")[0]["data"]
+        self.assertEqual(
+            data,
+            [
+                1200.0,  # starting at 2020-01-02 13:00 - 24 h before run_at (rounded to start of interval, i.e. hour)
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                1350.0,
+            ],
+        )
+
+    @snapshot_clickhouse_queries
+    def test_hour_interval_day_level_relative(self):
         data = self._run({"date_from": "-1d", "interval": "hour"}, run_at="2020-01-03T13:05:01Z")[0]["data"]
         self.assertEqual(
             data,
             [
-                1200.0,
+                1200.0,  # starting at 2020-01-02 13:00 - 24 h before run_at (rounded to start of interval, i.e. hour)
                 0.0,
                 0.0,
                 0.0,
@@ -156,13 +236,28 @@ class TestFormula(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(data, [0.0, 0.0, 2160.0])
 
     def test_formula(self):
-        self.assertEqual(self._run({"formula": "A - B"})[0]["data"], [0.0, 0.0, 0.0, 0.0, 0.0, 600.0, 450.0, 0.0])
-        self.assertEqual(self._run({"formula": "A * B"})[0]["data"], [0.0, 0.0, 0.0, 0.0, 0.0, 270000.0, 405000.0, 0.0])
-        self.assertEqual(self._run({"formula": "A / B"})[0]["data"], [0.0, 0.0, 0.0, 0.0, 0.0, 3.0, 2.0, 0.0])
-        self.assertEqual(self._run({"formula": "(A/3600)/B"})[0]["data"], [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0])
-        self.assertEqual(self._run({"formula": "(A/3600)/B"})[0]["count"], 0)
+        self.assertEqual(
+            self._run({"formula": "A - B"})[0]["data"],
+            [0.0, 0.0, 0.0, 0.0, 0.0, 600.0, 450.0, 0.0],
+        )
+        self.assertEqual(
+            self._run({"formula": "A * B"})[0]["data"],
+            [0.0, 0.0, 0.0, 0.0, 0.0, 270000.0, 405000.0, 0.0],
+        )
+        self.assertEqual(
+            self._run({"formula": "A / B"})[0]["data"],
+            [0.0, 0.0, 0.0, 0.0, 0.0, 3.0, 2.0, 0.0],
+        )
+        self.assertEqual(
+            self._run({"formula": "(A/3600)/B"})[0]["data"],
+            [0.0, 0.0, 0.0, 0.0, 0.0, 1 / 1200, 1 / 1800, 0.0],
+        )
+        self.assertEqual(self._run({"formula": "(A/3600)/B"})[0]["count"], 1 / 720)
 
-        self.assertEqual(self._run({"formula": "A/0"})[0]["data"], [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0])
+        self.assertEqual(
+            self._run({"formula": "A/0"})[0]["data"],
+            [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0],
+        )
         self.assertEqual(self._run({"formula": "A/0"})[0]["count"], 0)
 
     @snapshot_clickhouse_queries
@@ -193,12 +288,57 @@ class TestFormula(ClickhouseTestMixin, APIBaseTest):
                                 "id": "session start",
                                 "math": "unique_session",
                                 "properties": [
-                                    {"key": "$session_duration", "value": 12, "operator": "gt", "type": "session"}
+                                    {
+                                        "key": "$session_duration",
+                                        "value": 12,
+                                        "operator": "gt",
+                                        "type": "session",
+                                    }
                                 ],
                             },
                             {"id": "session start", "math": "unique_session"},
                         ],
                         "formula": "A / B",
+                    }
+                ),
+                self.team,
+            )
+
+            self.assertEqual(action_response[0]["data"], [0.0, 0.0, 0.0, 0.0, 0.0, 1.0, 1.0, 0.0])
+
+    @snapshot_clickhouse_queries
+    def test_regression_formula_with_unique_sessions_2x_and_duration_filter_2x(self):
+        with freeze_time("2020-01-04T13:01:01Z"):
+            action_response = Trends().run(
+                Filter(
+                    data={
+                        "events": [
+                            {
+                                "id": "$autocapture",
+                                "math": "unique_session",
+                                "properties": [
+                                    {
+                                        "key": "$session_duration",
+                                        "type": "session",
+                                        "value": 30,
+                                        "operator": "lt",
+                                    }
+                                ],
+                            },
+                            {
+                                "id": "session start",
+                                "math": "unique_session",
+                                "properties": [
+                                    {
+                                        "key": "$session_duration",
+                                        "type": "session",
+                                        "value": 500,
+                                        "operator": "gt",
+                                    }
+                                ],
+                            },
+                        ],
+                        "formula": "B",
                     }
                 ),
                 self.team,
@@ -221,7 +361,13 @@ class TestFormula(ClickhouseTestMixin, APIBaseTest):
                                 "math": "avg",
                                 "math_property": "$session_duration",
                             },
-                            {"type": "events", "id": "session end", "order": 1, "name": "$pageview", "math": "total"},
+                            {
+                                "type": "events",
+                                "id": "session end",
+                                "order": 1,
+                                "name": "$pageview",
+                                "math": "total",
+                            },
                         ],
                         "formula": "A / B",
                     }
@@ -284,32 +430,40 @@ class TestFormula(ClickhouseTestMixin, APIBaseTest):
 
     @snapshot_clickhouse_queries
     def test_breakdown_with_different_breakdown_values_per_series(self):
-
         response = self._run(
             {
                 "events": [
-                    {"id": "session start", "math": "sum", "math_property": "session duration"},
-                    {"id": "session end", "math": "sum", "math_property": "session duration"},
+                    {
+                        "id": "session start",
+                        "math": "sum",
+                        "math_property": "session duration",
+                    },
+                    {
+                        "id": "session end",
+                        "math": "sum",
+                        "math_property": "session duration",
+                    },
                 ],
                 "formula": "A + B",
                 "breakdown": "location",
             }
         )
 
-        self.assertEqual(response[0]["data"], [0.0, 0.0, 0.0, 0.0, 0.0, 400.0, 1400.0, 0.0])
         self.assertEqual(response[0]["label"], "London")
-        self.assertEqual(response[1]["data"], [0.0, 0.0, 0.0, 0.0, 0.0, 500.0, 0.0, 0.0])
-        self.assertEqual(response[1]["label"], "Paris")
+        self.assertEqual(response[0]["data"], [0.0, 0.0, 0.0, 0.0, 0.0, 400.0, 1400.0, 0.0])
 
-        # regression test for empty string values
-        self.assertEqual(response[2]["data"], [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 400.0, 0.0])
-        self.assertEqual(response[2]["label"], "")
+        self.assertEqual(response[1]["label"], "Paris")
+        self.assertEqual(response[1]["data"], [0.0, 0.0, 0.0, 0.0, 0.0, 500.0, 0.0, 0.0])
 
         # Regression test to ensure we actually get data for "Belo Horizonte" below
         # We previously had a bug where if series B,C,D, etc. had a value not present
         # in series A, we'd just default to an empty string
-        self.assertEqual(response[3]["data"], [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 500.0, 0.0])
-        self.assertEqual(response[3]["label"], "Belo Horizonte")
+        self.assertEqual(response[2]["label"], "Belo Horizonte")
+        self.assertEqual(response[2]["data"], [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 500.0, 0.0])
+
+        # empty string values are considered "None"
+        self.assertEqual(response[3]["label"], "$$_posthog_breakdown_null_$$")
+        self.assertEqual(response[3]["data"], [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 400.0, 0.0])
 
     def test_breakdown_counts_of_different_events_one_without_events(self):
         with freeze_time("2020-01-04T13:01:01Z"):
@@ -322,8 +476,18 @@ class TestFormula(ClickhouseTestMixin, APIBaseTest):
                         "breakdown": "location",
                         "breakdown_type": "event",
                         "events": [
-                            {"id": "session start", "name": "session start", "type": "events", "order": 0},
-                            {"id": "session error", "name": "session error", "type": "events", "order": 1},
+                            {
+                                "id": "session start",
+                                "name": "session start",
+                                "type": "events",
+                                "order": 0,
+                            },
+                            {
+                                "id": "session error",
+                                "name": "session error",
+                                "type": "events",
+                                "order": 1,
+                            },
                         ],
                     }
                 ),
@@ -403,9 +567,15 @@ class TestFormula(ClickhouseTestMixin, APIBaseTest):
     @snapshot_clickhouse_queries
     def test_breakdown_hogql(self):
         response = self._run(
-            {"breakdown": "concat(person.properties.$some_prop, ' : ', properties.location)", "breakdown_type": "hogql"}
+            {
+                "breakdown": "concat(person.properties.$some_prop, ' : ', properties.location)",
+                "breakdown_type": "hogql",
+            }
         )
-        self.assertEqual([series["label"] for series in response], ["some_val : London", "some_val : Paris"])
+        self.assertEqual(
+            [series["label"] for series in response],
+            ["some_val : London", "some_val : Paris"],
+        )
         self.assertEqual(
             [
                 [0.0, 0.0, 0.0, 0.0, 0.0, 800.0, 1350.0, 0.0],
@@ -416,7 +586,11 @@ class TestFormula(ClickhouseTestMixin, APIBaseTest):
 
     def test_breakdown_mismatching_sizes(self):
         response = self._run(
-            {"events": [{"id": "session start"}, {"id": "session end"}], "breakdown": "location", "formula": "A + B"}
+            {
+                "events": [{"id": "session start"}, {"id": "session end"}],
+                "breakdown": "location",
+                "formula": "A + B",
+            }
         )
 
         self.assertEqual(response[0]["label"], "London")
@@ -457,7 +631,11 @@ class TestFormula(ClickhouseTestMixin, APIBaseTest):
                             "math_property": "session duration",
                             "properties": [{"key": "$current_url", "value": "http://example.org"}],
                         },
-                        {"id": "session start", "math": "avg", "math_property": "session duration"},
+                        {
+                            "id": "session start",
+                            "math": "avg",
+                            "math_property": "session duration",
+                        },
                     ]
                 }
             )[0]["data"],
@@ -476,7 +654,8 @@ class TestFormula(ClickhouseTestMixin, APIBaseTest):
 
     def test_cumulative(self):
         self.assertEqual(
-            self._run({"display": TRENDS_CUMULATIVE})[0]["data"], [0.0, 0.0, 0.0, 0.0, 0.0, 1200.0, 2550.0, 2550.0]
+            self._run({"display": TRENDS_CUMULATIVE})[0]["data"],
+            [0.0, 0.0, 0.0, 0.0, 0.0, 1200.0, 2550.0, 2550.0],
         )
 
     def test_multiple_events(self):
@@ -485,9 +664,21 @@ class TestFormula(ClickhouseTestMixin, APIBaseTest):
             self._run(
                 {
                     "events": [
-                        {"id": "session start", "math": "sum", "math_property": "session duration"},
-                        {"id": "session start", "math": "avg", "math_property": "session duration"},
-                        {"id": "session start", "math": "avg", "math_property": "session duration"},
+                        {
+                            "id": "session start",
+                            "math": "sum",
+                            "math_property": "session duration",
+                        },
+                        {
+                            "id": "session start",
+                            "math": "avg",
+                            "math_property": "session duration",
+                        },
+                        {
+                            "id": "session start",
+                            "math": "avg",
+                            "math_property": "session duration",
+                        },
                     ]
                 }
             )[0]["data"],
@@ -508,13 +699,20 @@ class TestFormula(ClickhouseTestMixin, APIBaseTest):
         )
 
     def test_group_formulas(self):
-
         self.assertEqual(
             self._run(
                 {
                     "events": [
-                        {"id": "session start", "math": "unique_group", "math_group_type_index": 0},
-                        {"id": "session start", "math": "unique_group", "math_group_type_index": 0},
+                        {
+                            "id": "session start",
+                            "math": "unique_group",
+                            "math_group_type_index": 0,
+                        },
+                        {
+                            "id": "session start",
+                            "math": "unique_group",
+                            "math_group_type_index": 0,
+                        },
                     ]
                 }
             )[0]["data"],

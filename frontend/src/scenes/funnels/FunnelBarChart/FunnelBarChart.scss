@@ -2,24 +2,31 @@
 
 .FunnelBarChart {
     position: relative;
+    flex: 1;
     width: 100%;
-    height: 26rem;
+    height: 100%;
     overflow: hidden;
-    .InsightCard & {
-        height: 100%;
-    }
+
     table {
         --bar-width: 0.5rem; // This should be overriden from React
         --bar-row-height: 18rem;
+        --bar-padding-top: 1rem;
+        --bar-padding-bottom: 1.5rem;
+
         width: 100%;
+        height: 100%;
+
         > tbody {
             > tr {
                 &:first-child {
                     border-bottom: 1px solid var(--border);
+
                     > td {
-                        padding: 1.5rem 0;
+                        padding-top: var(--bar-padding-top);
+                        padding-bottom: var(--bar-padding-bottom);
                     }
                 }
+
                 > td {
                     // Sneaky hack to make height: 100% work in .StepLegend. The wonders of CSS - there's NO other way!
                     height: 1px;
@@ -35,15 +42,16 @@
 }
 
 .StepBarLabels {
-    height: calc(var(--bar-row-height) - 3rem);
     display: flex;
     flex-direction: column-reverse;
     align-items: flex-end;
+    height: calc(var(--bar-row-height) - var(--bar-padding-top) - var(--bar-padding-bottom));
 }
 
 .StepBarLabels__segment {
     flex-grow: 1;
     padding: 0 0.5rem;
+
     &:first-child {
         flex-grow: 0;
         height: 0;
@@ -51,20 +59,20 @@
 }
 
 .StepBarLabels__label {
-    transform: translateY(-50%);
-    color: var(--primary-alt);
     font-size: 0.75rem;
     font-weight: 500;
+    transform: translateY(-50%);
 }
 
 .StepBars {
     position: relative;
     display: flex;
-    align-items: flex-end;
     gap: 0.125rem;
-    border-bottom: 1px solid var(--border);
-    height: calc(var(--bar-row-height) - 3rem);
+    align-items: flex-end;
+    height: calc(var(--bar-row-height) - var(--bar-padding-top) - var(--bar-padding-bottom));
     padding: 0 1rem;
+    border-bottom: 1px solid var(--border);
+
     &:not(.StepBars--first) {
         border-left: 1px dashed var(--border);
     }
@@ -72,8 +80,8 @@
 
 .StepBars__grid {
     position: absolute;
-    left: 0;
     bottom: 0;
+    left: 0;
     display: flex;
     flex-direction: column;
     align-items: stretch;
@@ -83,6 +91,7 @@
 
 .StepBars__gridline {
     flex-grow: 1;
+
     &.StepBars__gridline--horizontal {
         border-top: 1px dashed var(--border);
     }
@@ -91,16 +100,19 @@
 .StepBar {
     --series-color: #000; // This should be overriden from React
     --conversion-rate: 100%; // This should be overriden from React
+
     position: relative;
-    border-radius: var(--radius);
-    width: calc(var(--bar-width) / 2); // We need to conserve space in narrow viewports
     flex-shrink: 0;
+    width: calc(var(--bar-width) / 2); // We need to conserve space in narrow viewports
     height: 100%;
-    @include screen($lg) {
-        width: var(--bar-width);
-    }
+    border-radius: var(--radius);
+
     .InsightCard & {
         width: calc(var(--bar-width) / 2) !important; // Also need to conserve space in cards
+    }
+
+    @include screen($lg) {
+        width: var(--bar-width);
     }
 }
 
@@ -110,12 +122,14 @@
     bottom: 0;
     left: 0;
     width: 100%;
-    border-radius: var(--radius);
     cursor: pointer;
+    border-radius: var(--radius);
+
     .InsightCard & {
         cursor: default;
     }
 }
+
 .StepBar__unclickable {
     .StepBar__backdrop,
     .StepBar__fill {
@@ -124,77 +138,89 @@
 }
 
 .StepBar__backdrop {
-    transition: opacity 200ms ease;
     height: 100%;
     background: repeating-linear-gradient(
             -22.5deg,
             transparent,
             transparent 0.5rem,
-            rgba(255, 255, 255, 0.5) 0.5rem,
-            rgba(255, 255, 255, 0.5) 1rem
+            rgb(255 255 255 / 50%) 0.5rem,
+            rgb(255 255 255 / 50%) 1rem
         ),
         var(--series-color);
     opacity: 0.125;
+    transition: opacity 200ms ease;
+
     &:hover {
         opacity: 0.2;
     }
+
     &:active {
         opacity: 0.25;
     }
 }
 
 .StepBar__fill {
-    transition: filter 200ms ease;
-    background: var(--series-color);
     height: var(--conversion-rate);
+    background: var(--series-color);
+    transition: filter 200ms ease;
+
     &:hover {
         filter: brightness(0.9);
     }
+
     &:active {
         filter: brightness(0.85);
     }
 }
 
 .StepLegend {
-    border-left: 1px solid var(--border);
-    white-space: nowrap;
     height: 100%;
+    white-space: nowrap;
+    border-left: 1px solid var(--border);
+
     > .LemonRow {
         min-height: 1.5rem;
         padding: 0 0.5rem;
-        font-weight: 500;
         margin-top: 0.25rem;
+        font-weight: 500;
+
         &:first-child {
             width: fit-content;
-            font-weight: 600;
             margin-top: 0;
+            font-weight: 600;
         }
     }
+
     .funnel-inspect-button {
-        line-height: 1.5rem;
         font-weight: inherit;
+        line-height: 1.5rem;
     }
 }
 
 .FunnelTooltip {
     width: 20rem;
+
     table {
         width: 100%;
-        border-collapse: collapse;
         border-spacing: 0;
+        border-collapse: collapse;
     }
+
     tr {
         height: 1.75rem;
     }
+
     td:first-child {
         padding: 0 0.5rem;
         font-weight: 500;
     }
+
     td:last-child {
         padding-right: 0.5rem;
         font-weight: 600;
         text-align: right;
     }
+
     .table-subtext {
         padding-bottom: 0.25rem;
     }

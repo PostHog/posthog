@@ -1,18 +1,22 @@
-import { BillingProductV2AddonType, BillingProductV2Type, BillingV2TierType } from '~/types'
-import { billingLogic } from './billingLogic'
-import { convertAmountToUsage } from './billing-utils'
+import { LemonButton, LemonInput } from '@posthog/lemon-ui'
+import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
-import { billingProductLogic } from './billingProductLogic'
-import { LemonButton, LemonInput } from '@posthog/lemon-ui'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
-import clsx from 'clsx'
+import { useRef } from 'react'
+
+import { BillingProductV2AddonType, BillingProductV2Type, BillingV2TierType } from '~/types'
+
+import { convertAmountToUsage } from './billing-utils'
+import { billingLogic } from './billingLogic'
+import { billingProductLogic } from './billingProductLogic'
 
 export const BillingLimitInput = ({ product }: { product: BillingProductV2Type }): JSX.Element | null => {
+    const limitInputRef = useRef<HTMLInputElement | null>(null)
     const { billing, billingLoading } = useValues(billingLogic)
     const { updateBillingLimits } = useActions(billingLogic)
     const { isEditingBillingLimit, showBillingLimitInput, billingLimitInput, customLimitUsd } = useValues(
-        billingProductLogic({ product })
+        billingProductLogic({ product, billingLimitInputRef: limitInputRef })
     )
     const { setIsEditingBillingLimit, setBillingLimitInput } = useActions(billingProductLogic({ product }))
 
@@ -25,12 +29,14 @@ export const BillingLimitInput = ({ product }: { product: BillingProductV2Type }
         if (value === undefined) {
             return actuallyUpdateLimit()
         }
-        const productAndAddonTiers: BillingV2TierType[][] = [
-            product.tiers,
-            ...product.addons
-                ?.filter((addon: BillingProductV2AddonType) => addon.subscribed)
-                ?.map((addon: BillingProductV2AddonType) => addon.tiers),
-        ].filter(Boolean) as BillingV2TierType[][]
+
+        const addonTiers = product.addons
+            ?.filter((addon: BillingProductV2AddonType) => addon.subscribed)
+            ?.map((addon: BillingProductV2AddonType) => addon.tiers)
+
+        const productAndAddonTiers: BillingV2TierType[][] = [product.tiers, ...addonTiers].filter(
+            Boolean
+        ) as BillingV2TierType[][]
 
         const newAmountAsUsage = product.tiers
             ? convertAmountToUsage(`${value}`, productAndAddonTiers, billing?.discount_percent)
@@ -76,13 +82,13 @@ export const BillingLimitInput = ({ product }: { product: BillingProductV2Type }
         return null
     }
     return (
-        <div className="border-t border-border p-8">
+        <div className="border-t border-border p-8" data-attr={`billing-limit-input-${product.type}`}>
             <div className="flex">
                 <div className="flex items-center gap-1">
                     {!isEditingBillingLimit ? (
                         <>
                             <div
-                                className={clsx('cursor-pointer', customLimitUsd && 'text-primary')}
+                                className={clsx('cursor-pointer', customLimitUsd && 'text-link')}
                                 onClick={() => setIsEditingBillingLimit(true)}
                             >
                                 ${customLimitUsd}
@@ -102,6 +108,7 @@ export const BillingLimitInput = ({ product }: { product: BillingProductV2Type }
                         <>
                             <div className="max-w-40">
                                 <LemonInput
+                                    ref={limitInputRef}
                                     type="number"
                                     fullWidth={false}
                                     value={billingLimitInput}
@@ -133,7 +140,6 @@ export const BillingLimitInput = ({ product }: { product: BillingProductV2Type }
                             </LemonButton>
                             {customLimitUsd ? (
                                 <LemonButton
-                                    // icon={<IconDelete />}
                                     status="danger"
                                     size="small"
                                     tooltip="Remove billing limit"

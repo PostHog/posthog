@@ -1,5 +1,6 @@
+# serializer version: 1
 # name: TestLifecycle.test_sampling
-  '
+  '''
   WITH 'day' AS selected_period,
        periods AS
     (SELECT dateSub(day, number, dateTrunc(selected_period, toDateTime('2020-01-19 23:59:59', 'UTC'))) AS start_of_period
@@ -55,7 +56,7 @@
               FROM person
               WHERE team_id = 2
               GROUP BY id
-              HAVING max(is_deleted) = 0) person ON person.id = pdi.person_id
+              HAVING max(is_deleted) = 0 SETTINGS optimize_aggregation_in_order = 1) person ON person.id = pdi.person_id
            WHERE team_id = 2
              AND event = '$pageview'
              AND timestamp >= toDateTime(dateTrunc('day', toDateTime('2020-01-12 00:00:00', 'UTC'))) - INTERVAL 1 day
@@ -69,10 +70,10 @@
               status
      ORDER BY start_of_period ASC)
   GROUP BY status
-  '
----
+  '''
+# ---
 # name: TestLifecycle.test_timezones
-  '
+  '''
   WITH 'day' AS selected_period,
        periods AS
     (SELECT dateSub(day, number, dateTrunc(selected_period, toDateTime('2020-01-19 23:59:59', 'UTC'))) AS start_of_period
@@ -128,7 +129,7 @@
               FROM person
               WHERE team_id = 2
               GROUP BY id
-              HAVING max(is_deleted) = 0) person ON person.id = pdi.person_id
+              HAVING max(is_deleted) = 0 SETTINGS optimize_aggregation_in_order = 1) person ON person.id = pdi.person_id
            WHERE team_id = 2
              AND event = '$pageview'
              AND timestamp >= toDateTime(dateTrunc('day', toDateTime('2020-01-12 00:00:00', 'UTC'))) - INTERVAL 1 day
@@ -142,10 +143,10 @@
               status
      ORDER BY start_of_period ASC)
   GROUP BY status
-  '
----
+  '''
+# ---
 # name: TestLifecycle.test_timezones.1
-  '
+  '''
   WITH 'day' AS selected_period,
        periods AS
     (SELECT dateSub(day, number, dateTrunc(selected_period, toDateTime('2020-01-19 23:59:59', 'US/Pacific'))) AS start_of_period
@@ -201,7 +202,7 @@
               FROM person
               WHERE team_id = 2
               GROUP BY id
-              HAVING max(is_deleted) = 0) person ON person.id = pdi.person_id
+              HAVING max(is_deleted) = 0 SETTINGS optimize_aggregation_in_order = 1) person ON person.id = pdi.person_id
            WHERE team_id = 2
              AND event = '$pageview'
              AND timestamp >= toDateTime(dateTrunc('day', toDateTime('2020-01-12 00:00:00', 'US/Pacific'))) - INTERVAL 1 day
@@ -215,5 +216,5 @@
               status
      ORDER BY start_of_period ASC)
   GROUP BY status
-  '
----
+  '''
+# ---

@@ -1,20 +1,43 @@
-import { kea, connect, path, key, props, reducers, actions, selectors, listeners, afterMount } from 'kea'
-import api from 'lib/api'
-import { ActorType, BreakdownType, ChartDisplayType, IntervalType, PropertiesTimelineFilterType } from '~/types'
-import { loaders } from 'kea-loaders'
-import { cohortsModel } from '~/models/cohortsModel'
 import { lemonToast } from '@posthog/lemon-ui'
+import { actions, afterMount, connect, kea, listeners, path, props, propsChanged, reducers, selectors } from 'kea'
+import { loaders } from 'kea-loaders'
 import { router, urlToAction } from 'kea-router'
+import api from 'lib/api'
+import { fromParamsGivenUrl, isGroupType } from 'lib/utils'
+import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
+import { cleanFilters } from 'scenes/insights/utils/cleanFilters'
 import { urls } from 'scenes/urls'
 
-import type { personsModalLogicType } from './personsModalLogicType'
-import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
-import { fromParamsGivenUrl, isGroupType } from 'lib/utils'
+import { cohortsModel } from '~/models/cohortsModel'
 import { groupsModel } from '~/models/groupsModel'
-import { cleanFilters } from 'scenes/insights/utils/cleanFilters'
+import { query as performQuery } from '~/queries/query'
+import {
+    ActorsQuery,
+    DataTableNode,
+    InsightActorsQuery,
+    InsightActorsQueryOptions,
+    InsightActorsQueryOptionsResponse,
+    NodeKind,
+} from '~/queries/schema'
+import {
+    ActorType,
+    BreakdownType,
+    ChartDisplayType,
+    CommonActorType,
+    IntervalType,
+    PersonActorType,
+    PropertiesTimelineFilterType,
+} from '~/types'
+
+import type { personsModalLogicType } from './personsModalLogicType'
+
+const RESULTS_PER_PAGE = 100
 
 export interface PersonModalLogicProps {
-    url: string
+    query?: InsightActorsQuery | null
+    url?: string | null
+    additionalSelect?: Partial<Record<keyof CommonActorType, string>>
+    orderBy?: string[]
 }
 
 export interface ListActorsResponse {
@@ -24,47 +47,134 @@ export interface ListActorsResponse {
     }[]
     missing_persons?: number
     next?: string
+    offset?: number // Offset for HogQL queries
 }
 
 export const personsModalLogic = kea<personsModalLogicType>([
     path(['scenes', 'trends', 'personsModalLogic']),
     props({} as PersonModalLogicProps),
-    key((props) => props.url),
     actions({
         setSearchTerm: (search: string) => ({ search }),
-        saveCohortWithUrl: (cohortName: string) => ({ cohortName }),
+        saveAsCohort: (cohortName: string) => ({ cohortName }),
         resetActors: () => true,
         closeModal: () => true,
         setIsCohortModalOpen: (isOpen: boolean) => ({ isOpen }),
+        loadActors: ({ url, clear, offset }: { url?: string | null; clear?: boolean; offset?: number }) => ({
+            url,
+            clear,
+            offset,
+        }),
+        loadNextActors: true,
+        updateQuery: (query: InsightActorsQuery) => ({ query }),
+        updateActorsQuery: (query: Partial<InsightActorsQuery>) => ({ query }),
+        loadActorsQueryOptions: (query: InsightActorsQuery) => ({ query }),
     }),
     connect({
         values: [groupsModel, ['groupTypes', 'aggregationLabel']],
         actions: [eventUsageLogic, ['reportCohortCreatedFromPersonsModal', 'reportPersonsModalViewed']],
     }),
 
-    loaders(({ values, actions }) => ({
+    loaders(({ values, actions, props }) => ({
         actorsResponse: [
             null as ListActorsResponse | null,
             {
-                loadActors: async ({ url, clear }: { url: string; clear?: boolean }) => {
-                    url += '&include_recordings=true'
+                loadActors: async ({ url, clear, offset }, breakpoint) => {
+                    if (url) {
+                        url += '&include_recordings=true'
 
-                    if (values.searchTerm) {
-                        url += `&search=${values.searchTerm}`
+                        if (values.searchTerm) {
+                            url += `&search=${values.searchTerm}`
+                        }
                     }
+                    if (url && !values.actorsQuery) {
+                        const res = await api.get(url)
+                        breakpoint()
 
-                    const res = await api.get(url)
-
-                    if (clear) {
-                        actions.resetActors()
+                        if (clear) {
+                            actions.resetActors()
+                        }
+                        return res
                     }
-                    return res
+                    if (values.actorsQuery) {
+                        const response = await performQuery(
+                            {
+                                ...values.actorsQuery,
+                                limit: offset ? offset * 2 : RESULTS_PER_PAGE,
+                                offset,
+                            } as ActorsQuery,
+                            undefined,
+                            undefined,
+                            undefined,
+                            url ?? undefined
+                        )
+                        breakpoint()
+
+                        const assembledSelectFields = values.selectFields
+                        const additionalFieldIndices = Object.values(props.additionalSelect || {}).map((field) =>
+                            assembledSelectFields.indexOf(field)
+                        )
+                        const newResponse: ListActorsResponse = {
+                            results: [
+                                {
+                                    count: response.results.length,
+                                    people: response.results.map((result): PersonActorType => {
+                                        const person: PersonActorType = {
+                                            type: 'person',
+                                            id: result[0].id,
+                                            uuid: result[0].id,
+                                            distinct_ids: result[0].distinct_ids,
+                                            is_identified: result[0].is_identified,
+                                            properties: result[0].properties,
+                                            created_at: result[0].created_at,
+                                            matched_recordings: [],
+                                            value_at_data_point: null,
+                                        }
+
+                                        Object.keys(props.additionalSelect || {}).forEach((field, index) => {
+                                            person[field] = result[additionalFieldIndices[index]]
+                                        })
+
+                                        return person
+                                    }),
+                                },
+                            ],
+                        }
+                        newResponse.offset = response.hasMore ? response.offset + response.limit : undefined
+                        newResponse.missing_persons = response.missing_actors_count
+                        if (clear) {
+                            actions.resetActors()
+                        }
+                        return newResponse
+                    }
+                    return null
+                },
+            },
+        ],
+        insightActorsQueryOptions: [
+            null as InsightActorsQueryOptionsResponse | null,
+            {
+                loadActorsQueryOptions: async ({ query }) => {
+                    if (!query) {
+                        return values.insightActorsQueryOptions || null
+                    }
+                    const optionsQuery: InsightActorsQueryOptions = {
+                        kind: NodeKind.InsightActorsQueryOptions,
+                        source: query,
+                    }
+                    const response = await performQuery(optionsQuery)
+                    return response
                 },
             },
         ],
     })),
 
-    reducers(() => ({
+    reducers(({ props }) => ({
+        query: [
+            props.query as InsightActorsQuery | null,
+            {
+                updateQuery: (_, { query }) => query,
+            },
+        ],
         actors: [
             [] as ActorType[],
             {
@@ -73,6 +183,14 @@ export const personsModalLogic = kea<personsModalLogicType>([
                     ...(actorsResponse?.results?.[0]?.people || []),
                 ],
                 resetActors: () => [],
+            },
+        ],
+        errorObject: [
+            null as Record<string, any> | null,
+            {
+                loadActors: () => null,
+                loadActorsFailure: (_, { errorObject }) => errorObject,
+                loadActorsSuccess: () => null,
             },
         ],
         missingActorsCount: [
@@ -103,31 +221,62 @@ export const personsModalLogic = kea<personsModalLogicType>([
         ],
     })),
 
-    listeners(({ actions, props }) => ({
-        setSearchTerm: async ({}, breakpoint) => {
+    listeners(({ actions, values, props }) => ({
+        setSearchTerm: async (_, breakpoint) => {
             await breakpoint(500)
             actions.loadActors({ url: props.url, clear: true })
         },
-        saveCohortWithUrl: async ({ cohortName }) => {
+        saveAsCohort: async ({ cohortName }) => {
             const cohortParams = {
                 is_static: true,
                 name: cohortName,
             }
+            if (values.actorsQuery) {
+                const cohort = await api.create('api/cohort', { ...cohortParams, query: values.actorsQuery })
+                cohortsModel.actions.cohortCreated(cohort)
+                lemonToast.success('Cohort saved', {
+                    toastId: `cohort-saved-${cohort.id}`,
+                    button: {
+                        label: 'View cohort',
+                        action: () => router.actions.push(urls.cohort(cohort.id)),
+                    },
+                })
+                actions.setIsCohortModalOpen(false)
+            } else {
+                const qs = props.url?.split('?').pop() || ''
+                const cohort = await api.create('api/cohort?' + qs, cohortParams)
+                cohortsModel.actions.cohortCreated(cohort)
+                lemonToast.success('Cohort saved', {
+                    toastId: `cohort-saved-${cohort.id}`,
+                    button: {
+                        label: 'View cohort',
+                        action: () => router.actions.push(urls.cohort(cohort.id)),
+                    },
+                })
 
-            const qs = props.url.split('?').pop() || ''
-            const cohort = await api.create('api/cohort?' + qs, cohortParams)
-            cohortsModel.actions.cohortCreated(cohort)
-            lemonToast.success('Cohort saved', {
-                toastId: `cohort-saved-${cohort.id}`,
-                button: {
-                    label: 'View cohort',
-                    action: () => router.actions.push(urls.cohort(cohort.id)),
-                },
-            })
-
-            const filters = fromParamsGivenUrl('?' + qs)
-            actions.setIsCohortModalOpen(false)
-            actions.reportCohortCreatedFromPersonsModal(filters)
+                const filters = fromParamsGivenUrl('?' + qs)
+                actions.setIsCohortModalOpen(false)
+                actions.reportCohortCreatedFromPersonsModal(filters)
+            }
+        },
+        loadNextActors: () => {
+            if (values.actorsResponse?.next) {
+                actions.loadActors({ url: values.actorsResponse.next })
+            }
+            if (values.actorsResponse?.offset) {
+                actions.loadActors({ offset: values.actorsResponse.offset })
+            }
+        },
+        loadActors: () => {
+            if (values.query && !values.insightActorsQueryOptions) {
+                actions.loadActorsQueryOptions(values.query)
+            }
+        },
+        updateActorsQuery: ({ query: q }) => {
+            if (q && values.query) {
+                actions.updateQuery({ ...values.query, ...q })
+                actions.loadActors({ offset: 0, clear: true })
+            }
         },
     })),
 
@@ -143,8 +292,15 @@ export const personsModalLogic = kea<personsModalLogicType>([
                 return aggregationLabel(isGroupType(firstResult) ? firstResult.group_type_index : undefined)
             },
         ],
+        validationError: [
+            (s) => [s.errorObject],
+            (errorObject): string | null => {
+                // We use 512 for query timeouts
+                return errorObject?.status === 400 || errorObject?.status === 512 ? errorObject.detail : null
+            },
+        ],
         propertiesTimelineFilterFromUrl: [
-            (_, p) => [p.url],
+            () => [(_, p) => p.url],
             (url): PropertiesTimelineFilterType => {
                 // PersonsModal only gets an persons URL and not its underlying filters, so we need to extract those
                 const params = new URLSearchParams(url.split('?')[1])
@@ -169,6 +325,43 @@ export const personsModalLogic = kea<personsModalLogicType>([
                 return cleanFilters(filter)
             },
         ],
+        selectFields: [
+            () => [(_, p) => p.additionalSelect],
+            (additionalSelect: PersonModalLogicProps['additionalSelect']): string[] => {
+                const extra = Object.values(additionalSelect || {})
+                return ['person', 'created_at', ...extra]
+            },
+        ],
+        actorsQuery: [
+            (s) => [(_, p) => p.orderBy, s.query, s.searchTerm, s.selectFields],
+            (orderBy, query, searchTerm, selectFields): ActorsQuery | null => {
+                if (!query) {
+                    return null
+                }
+                return {
+                    kind: NodeKind.ActorsQuery,
+                    source: query,
+                    select: selectFields,
+                    orderBy: orderBy || ['created_at DESC'],
+                    search: searchTerm,
+                }
+            },
+        ],
+        exploreUrl: [
+            (s) => [s.actorsQuery],
+            (actorsQuery): string | null => {
+                if (!actorsQuery) {
+                    return null
+                }
+                const { select: _select, ...source } = actorsQuery
+                const query: DataTableNode = {
+                    kind: NodeKind.DataTableNode,
+                    source,
+                    full: true,
+                }
+                return urls.insightNew(undefined, undefined, JSON.stringify(query))
+            },
+        ],
     }),
 
     afterMount(({ actions, props }) => {
@@ -176,7 +369,7 @@ export const personsModalLogic = kea<personsModalLogicType>([
 
         actions.reportPersonsModalViewed({
             url: props.url,
-            // TODO: parse qs
+            query: props.query,
         })
     }),
 
@@ -193,4 +386,10 @@ export const personsModalLogic = kea<personsModalLogicType>([
             }
         },
     })),
+
+    propsChanged(({ props, actions }, oldProps) => {
+        if (props.url !== oldProps.url) {
+            actions.loadActors({ url: props.url, clear: true })
+        }
+    }),
 ])

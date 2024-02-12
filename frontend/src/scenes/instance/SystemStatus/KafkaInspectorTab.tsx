@@ -1,51 +1,49 @@
-import { Button, Col, Divider, Row } from 'antd'
+import { LemonButton, LemonDivider } from '@posthog/lemon-ui'
 import { useValues } from 'kea'
-import { CodeSnippet, Language } from 'lib/components/CodeSnippet'
-import { kafkaInspectorLogic } from './kafkaInspectorLogic'
 import { Field, Form } from 'kea-forms'
+import { CodeSnippet, Language } from 'lib/components/CodeSnippet'
 import { LemonInput } from 'lib/lemon-ui/LemonInput/LemonInput'
+
+import { kafkaInspectorLogic } from './kafkaInspectorLogic'
 
 export function KafkaInspectorTab(): JSX.Element {
     const { kafkaMessage } = useValues(kafkaInspectorLogic)
 
     return (
         <div>
-            <h3 className="l3" style={{ marginTop: 16 }}>
-                Kafka Inspector
-            </h3>
+            <h3 className="l3 mt-4">Kafka Inspector</h3>
             <div className="mb-4">Debug Kafka messages using the inspector tool.</div>
-            <Divider style={{ margin: 0, marginBottom: 16 }} />
+            <LemonDivider className="my-4" />
             <section>
-                <div style={{ display: 'flex', marginBottom: '0.75rem' }}>
+                <div className="flex mb-3">
                     <Form
                         logic={kafkaInspectorLogic}
                         formKey="fetchKafkaMessage"
                         className="ant-form-horizontal ant-form-hide-required-mark"
                         enableFormOnSubmit
                     >
-                        <Row gutter={[24, 24]}>
-                            <Col span={8}>
+                        <div className="grid grid-cols-12 gap-4">
+                            <div className="col-span-4">
                                 <Field name="topic">
-                                    <LemonInput placeholder="Topic" />
+                                    <LemonInput size="small" placeholder="Topic" />
                                 </Field>
-                            </Col>
-                            <Col span={4}>
+                            </div>
+                            <div className="col-span-2">
                                 <Field name="partition">
-                                    <LemonInput placeholder="Partition" type="number" />
-                                </Field>{' '}
-                            </Col>
-                            <Col span={4}>
+                                    <LemonInput size="small" placeholder="Partition" type="number" />
+                                </Field>
+                            </div>
+                            <div className="col-span-2">
                                 <Field name="offset">
-                                    <LemonInput placeholder="Offset" type="number" />
-                                </Field>{' '}
-                            </Col>
-
-                            <Col span={6}>
-                                <Button htmlType="submit" type="primary" data-attr="fetch-kafka-message-submit-button">
-                                    Fetch message{' '}
-                                </Button>
-                            </Col>
-                        </Row>
+                                    <LemonInput size="small" placeholder="Offset" type="number" />
+                                </Field>
+                            </div>
+                            <div className="col-span-3">
+                                <LemonButton data-attr="fetch-kafka-message-submit-button" type="primary">
+                                    Fetch Message
+                                </LemonButton>
+                            </div>
+                        </div>
                     </Form>
                 </div>
             </section>

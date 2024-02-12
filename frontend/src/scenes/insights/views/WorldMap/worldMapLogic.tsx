@@ -1,6 +1,8 @@
-import { kea, props, key, path, connect, actions, reducers, selectors } from 'kea'
+import { actions, connect, kea, key, path, props, reducers, selectors } from 'kea'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
+
 import { InsightLogicProps, TrendResult } from '~/types'
+
 import { keyForInsightLogicProps } from '../../sharedUtils'
 import type { worldMapLogicType } from './worldMapLogicType'
 

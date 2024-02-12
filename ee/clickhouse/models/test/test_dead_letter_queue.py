@@ -4,7 +4,9 @@ from uuid import uuid4
 
 from kafka import KafkaProducer
 
-from ee.clickhouse.models.test.utils.util import delay_until_clickhouse_consumes_from_kafka
+from ee.clickhouse.models.test.utils.util import (
+    delay_until_clickhouse_consumes_from_kafka,
+)
 from posthog.clickhouse.dead_letter_queue import (
     DEAD_LETTER_QUEUE_TABLE,
     DEAD_LETTER_QUEUE_TABLE_MV_SQL,
@@ -98,7 +100,10 @@ class TestDeadLetterQueue(ClickhouseTestMixin, BaseTest):
 
         kafka_producer = KafkaProducer(bootstrap_servers=KAFKA_HOSTS)
 
-        kafka_producer.send(topic=KAFKA_DEAD_LETTER_QUEUE, value=json.dumps(inserted_dlq_event).encode("utf-8"))
+        kafka_producer.send(
+            topic=KAFKA_DEAD_LETTER_QUEUE,
+            value=json.dumps(inserted_dlq_event).encode("utf-8"),
+        )
 
         delay_until_clickhouse_consumes_from_kafka(DEAD_LETTER_QUEUE_TABLE, row_count_before_insert + 1)
 

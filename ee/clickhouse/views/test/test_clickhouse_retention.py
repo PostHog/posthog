@@ -7,7 +7,10 @@ from ee.clickhouse.views.test.funnel.util import EventPattern
 from posthog.api.test.test_organization import create_organization
 from posthog.api.test.test_team import create_team
 from posthog.api.test.test_user import create_user
-from posthog.models.instance_setting import get_instance_setting, override_instance_config
+from posthog.models.instance_setting import (
+    get_instance_setting,
+    override_instance_config,
+)
 from posthog.models.person import Person as PersonModel
 from posthog.test.base import (
     APIBaseTest,
@@ -22,7 +25,6 @@ from posthog.utils import encode_get_request_params
 class RetentionTests(APIBaseTest, ClickhouseTestMixin):
     @snapshot_clickhouse_queries
     def test_retention_test_account_filters(self):
-
         organization = create_organization(name="test")
         team = create_team(organization=organization)
         user = create_user(email="test@posthog.com", password="1234", organization=organization)
@@ -30,19 +32,37 @@ class RetentionTests(APIBaseTest, ClickhouseTestMixin):
         self.client.force_login(user)
 
         team.test_account_filters = [
-            {"key": "email", "type": "person", "value": "posthog.com", "operator": "not_icontains"}
+            {
+                "key": "email",
+                "type": "person",
+                "value": "posthog.com",
+                "operator": "not_icontains",
+            }
         ]
         team.save()
 
-        update_or_create_person(distinct_ids=["person 1"], team_id=team.pk, properties={"email": "posthog.com"})
+        update_or_create_person(
+            distinct_ids=["person 1"],
+            team_id=team.pk,
+            properties={"email": "posthog.com"},
+        )
         update_or_create_person(distinct_ids=["person 2"], team_id=team.pk)
         update_or_create_person(distinct_ids=["person 3"], team_id=team.pk)
 
         setup_user_activity_by_day(
             daily_activity={
-                "2020-01-01": {"person 1": [{"event": "target event"}], "person 2": [{"event": "target event"}]},
-                "2020-01-02": {"person 1": [{"event": "target event"}], "person 3": [{"event": "target event"}]},
-                "2020-01-03": {"person 1": [{"event": "target event"}], "person 3": [{"event": "target event"}]},
+                "2020-01-01": {
+                    "person 1": [{"event": "target event"}],
+                    "person 2": [{"event": "target event"}],
+                },
+                "2020-01-02": {
+                    "person 1": [{"event": "target event"}],
+                    "person 3": [{"event": "target event"}],
+                },
+                "2020-01-03": {
+                    "person 1": [{"event": "target event"}],
+                    "person 3": [{"event": "target event"}],
+                },
             },
             team=team,
         )
@@ -64,7 +84,10 @@ class RetentionTests(APIBaseTest, ClickhouseTestMixin):
 
         retention_by_cohort_by_period = get_by_cohort_by_period_for_response(client=self.client, response=retention)
 
-        assert retention_by_cohort_by_period == {"Day 0": {"1": ["person 2"], "2": []}, "Day 1": {"1": ["person 3"]}}
+        assert retention_by_cohort_by_period == {
+            "Day 0": {"1": ["person 2"], "2": []},
+            "Day 1": {"1": ["person 3"]},
+        }
 
     @snapshot_clickhouse_queries
     def test_retention_aggregation_by_distinct_id_and_retrieve_people(self):
@@ -79,8 +102,14 @@ class RetentionTests(APIBaseTest, ClickhouseTestMixin):
 
         setup_user_activity_by_day(
             daily_activity={
-                "2020-01-01": {"person 1": [{"event": "target event"}], "another one": [{"event": "target event"}]},
-                "2020-01-02": {"person 1": [{"event": "target event"}], "person 2": [{"event": "target event"}]},
+                "2020-01-01": {
+                    "person 1": [{"event": "target event"}],
+                    "another one": [{"event": "target event"}],
+                },
+                "2020-01-02": {
+                    "person 1": [{"event": "target event"}],
+                    "person 2": [{"event": "target event"}],
+                },
                 "2020-01-03": {"another one": [{"event": "target event"}]},
             },
             team=team,
@@ -182,7 +211,14 @@ class RetentionTests(APIBaseTest, ClickhouseTestMixin):
         # but we can assert that all 3 count distinct IDs should be in this list.
         self.assertTrue(
             distinct_id in distinct_ids
-            for distinct_id in ["person 4", "person 3", "person 1", "person 2", "person 0", "person 5"]
+            for distinct_id in [
+                "person 4",
+                "person 3",
+                "person 1",
+                "person 2",
+                "person 0",
+                "person 5",
+            ]
         )
 
         people_url = response_json["next"]
@@ -283,9 +319,18 @@ class BreakdownTests(APIBaseTest, ClickhouseTestMixin):
 
         setup_user_activity_by_day(
             daily_activity={
-                "2020-01-01": {"person 1": [{"event": "target event"}], "person 2": [{"event": "target event"}]},
-                "2020-01-02": {"person 1": [{"event": "target event"}], "person 3": [{"event": "target event"}]},
-                "2020-01-03": {"person 1": [{"event": "target event"}], "person 3": [{"event": "target event"}]},
+                "2020-01-01": {
+                    "person 1": [{"event": "target event"}],
+                    "person 2": [{"event": "target event"}],
+                },
+                "2020-01-02": {
+                    "person 1": [{"event": "target event"}],
+                    "person 3": [{"event": "target event"}],
+                },
+                "2020-01-03": {
+                    "person 1": [{"event": "target event"}],
+                    "person 3": [{"event": "target event"}],
+                },
             },
             team=team,
         )
@@ -324,9 +369,18 @@ class BreakdownTests(APIBaseTest, ClickhouseTestMixin):
 
         setup_user_activity_by_day(
             daily_activity={
-                "2020-01-01": {"person 1": [{"event": "target event"}], "person 2": [{"event": "target event"}]},
-                "2020-01-02": {"person 1": [{"event": "target event"}], "person 3": [{"event": "target event"}]},
-                "2020-01-03": {"person 1": [{"event": "target event"}], "person 3": [{"event": "target event"}]},
+                "2020-01-01": {
+                    "person 1": [{"event": "target event"}],
+                    "person 2": [{"event": "target event"}],
+                },
+                "2020-01-02": {
+                    "person 1": [{"event": "target event"}],
+                    "person 3": [{"event": "target event"}],
+                },
+                "2020-01-03": {
+                    "person 1": [{"event": "target event"}],
+                    "person 3": [{"event": "target event"}],
+                },
             },
             team=team,
         )
@@ -373,14 +427,20 @@ class BreakdownTests(APIBaseTest, ClickhouseTestMixin):
         setup_user_activity_by_day(
             daily_activity={
                 "2020-01-01": {"person 1": [{"event": "target event"}]},
-                "2020-01-02": {"person 1": [{"event": "target event"}], "person 2": [{"event": "target event"}]},
+                "2020-01-02": {
+                    "person 1": [{"event": "target event"}],
+                    "person 2": [{"event": "target event"}],
+                },
                 # IMPORTANT: we include data past the end of the requested
                 # window, as we want to ensure that we pick up all retention
                 # periods for a user. e.g. for "person 2" we do not want to miss
                 # the count from 2020-01-03 e.g. the second period, otherwise we
                 # will skew results for users that didn't perform their target
                 # event right at the beginning of the requested range.
-                "2020-01-03": {"person 1": [{"event": "target event"}], "person 2": [{"event": "target event"}]},
+                "2020-01-03": {
+                    "person 1": [{"event": "target event"}],
+                    "person 2": [{"event": "target event"}],
+                },
             },
             team=team,
         )
@@ -443,7 +503,10 @@ class BreakdownTests(APIBaseTest, ClickhouseTestMixin):
                 # the count from 2020-01-03 e.g. the second period, otherwise we
                 # will skew results for users that didn't perform their target
                 # event right at the beginning of the requested range.
-                "2020-01-03": {"person 1": [{"event": "target event"}], "person 2": [{"event": "target event"}]},
+                "2020-01-03": {
+                    "person 1": [{"event": "target event"}],
+                    "person 2": [{"event": "target event"}],
+                },
             },
             team=team,
         )
@@ -502,7 +565,10 @@ class BreakdownTests(APIBaseTest, ClickhouseTestMixin):
                     "person 1": [{"event": "target event", "properties": {"os": "Chrome"}}],
                     "person 2": [{"event": "target event", "properties": {"os": "Safari"}}],
                 },
-                "2020-01-02": {"person 1": [{"event": "target event"}], "person 2": [{"event": "target event"}]},
+                "2020-01-02": {
+                    "person 1": [{"event": "target event"}],
+                    "person 2": [{"event": "target event"}],
+                },
             },
             team=team,
         )
@@ -570,7 +636,10 @@ class IntervalTests(APIBaseTest, ClickhouseTestMixin):
 
         retention_by_cohort_by_period = get_by_cohort_by_period_for_response(client=self.client, response=retention)
 
-        assert retention_by_cohort_by_period == {"Week 0": {"1": ["person 1"], "2": []}, "Week 1": {"1": ["person 2"]}}
+        assert retention_by_cohort_by_period == {
+            "Week 0": {"1": ["person 1"], "2": []},
+            "Week 1": {"1": ["person 2"]},
+        }
 
 
 class RegressionTests(APIBaseTest, ClickhouseTestMixin):
@@ -602,7 +671,14 @@ class RegressionTests(APIBaseTest, ClickhouseTestMixin):
                 date_to="2020-01-08",
                 period="Week",
                 retention_type="retention_first_time",
-                properties=[{"key": "email", "value": "posthog.com", "operator": "not_icontains", "type": "person"}],
+                properties=[
+                    {
+                        "key": "email",
+                        "value": "posthog.com",
+                        "operator": "not_icontains",
+                        "type": "person",
+                    }
+                ],
             ),
         )
 

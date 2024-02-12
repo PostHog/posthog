@@ -15,17 +15,22 @@ from posthog.api.dashboards.dashboard import DashboardSerializer
 from posthog.api.exports import ExportedAssetSerializer
 from posthog.api.insight import InsightSerializer
 from posthog.api.routing import StructuredViewSetMixin
-from posthog.api.session_recording import SessionRecordingSerializer
 from posthog.models import SharingConfiguration, Team
 from posthog.models.activity_logging.activity_log import log_activity, Detail, Change
 from posthog.models.dashboard import Dashboard
-from posthog.models.exported_asset import ExportedAsset, asset_for_token, get_content_response
+from posthog.models.exported_asset import (
+    ExportedAsset,
+    asset_for_token,
+    get_content_response,
+)
 from posthog.models.insight import Insight
-from posthog.models.session_recording import SessionRecording
+from posthog.models import SessionRecording
 from posthog.models.user import User
-from posthog.permissions import ProjectMembershipNecessaryPermissions, TeamMemberAccessPermission
+from posthog.permissions import TeamMemberAccessPermission
+from posthog.session_recordings.session_recording_api import SessionRecordingSerializer
 from posthog.user_permissions import UserPermissions
 from posthog.utils import render_template
+from loginas.utils import is_impersonated_session
 
 
 def shared_url_as_png(url: str = "") -> str:
@@ -76,7 +81,10 @@ class SharingConfigurationSerializer(serializers.ModelSerializer):
 
 
 class SharingConfigurationViewSet(StructuredViewSetMixin, mixins.ListModelMixin, viewsets.GenericViewSet):
-    permission_classes = [IsAuthenticated, ProjectMembershipNecessaryPermissions, TeamMemberAccessPermission]
+    permission_classes = [
+        IsAuthenticated,
+        TeamMemberAccessPermission,
+    ]
     pagination_class = None
     queryset = SharingConfiguration.objects.select_related("dashboard", "insight", "recording")
     serializer_class = SharingConfigurationSerializer
@@ -119,7 +127,12 @@ class SharingConfigurationViewSet(StructuredViewSetMixin, mixins.ListModelMixin,
         insight = context.get("insight")
         recording = context.get("recording")
 
-        config_kwargs = dict(team_id=self.team_id, insight=insight, dashboard=dashboard, recording=recording)
+        config_kwargs = dict(
+            team_id=self.team_id,
+            insight=insight,
+            dashboard=dashboard,
+            recording=recording,
+        )
 
         try:
             instance = SharingConfiguration.objects.get(**config_kwargs)
@@ -165,6 +178,7 @@ class SharingConfigurationViewSet(StructuredViewSetMixin, mixins.ListModelMixin,
                 organization_id=None,
                 team_id=self.team_id,
                 user=cast(User, self.request.user),
+                was_impersonated=is_impersonated_session(self.request),
                 item_id=instance.insight.pk,
                 scope="Insight",
                 activity="sharing " + ("enabled" if serializer.data.get("enabled") else "disabled"),
@@ -197,8 +211,8 @@ class SharingViewerPageViewSet(mixins.RetrieveModelMixin, StructuredViewSetMixin
     4. Export downloading - used to download the actual content of an export if requested with the correct extension
     """
 
-    authentication_classes = []  # type: ignore
-    permission_classes = []  # type: ignore
+    authentication_classes = []
+    permission_classes = []
     include_in_docs = False
 
     def get_object(self) -> Optional[SharingConfiguration | ExportedAsset]:

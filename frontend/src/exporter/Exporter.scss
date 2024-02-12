@@ -1,39 +1,26 @@
 @import '../styles/mixins';
 
-html.export-type-image {
-    // We don't want scrollbars to show in image captures
-    ::-webkit-scrollbar {
-        display: none;
-    }
-
-    body {
-        // We put Inter first so that rendered images are the same no matter which platform it is rendered on.
-        font-family: 'Inter', 'Segoe UI', 'Roboto', Helvetica, Arial, sans-serif, 'Apple Color Emoji', 'Segoe UI Emoji',
-            'Segoe UI Symbol';
-    }
-}
-
-html.export-type-embed {
-    overflow: hidden;
-    overflow-y: auto;
-
-    .Exporter {
-        padding: 0;
-
-        // Insights can resize to fit any height, whereas dashboards cannot
-        &--insight {
-            height: 100vh;
-            max-height: 100vh;
-        }
+body.ExporterBody {
+    &.posthog-3000 {
+        overflow: initial;
     }
 }
 
 .Exporter {
+    display: flex;
+    flex-direction: column;
+    min-height: 100vh;
     padding: 1rem;
 
     &--recording {
         height: 100vh;
         max-height: 100vh;
+    }
+
+    &--dashboard {
+        height: 100vh;
+        max-height: 100vh;
+        overflow: auto;
     }
 
     .SharedDashboard-header {
@@ -43,9 +30,9 @@ html.export-type-embed {
 
         @include screen($md) {
             display: flex;
-            justify-content: space-between;
-            align-items: center;
             gap: 1rem;
+            align-items: center;
+            justify-content: space-between;
 
             .SharedDashboard-header-title {
                 max-width: 50%;
@@ -56,5 +43,28 @@ html.export-type-embed {
                 display: block;
             }
         }
+    }
+}
+
+html.export-type-image {
+    // We don't want scrollbars to show in image captures
+    ::-webkit-scrollbar {
+        display: none;
+    }
+
+    body {
+        // We put Inter first so that rendered images are the same no matter which platform it is rendered on.
+        font-family: Inter, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif, 'Apple Color Emoji', 'Segoe UI Emoji',
+            'Segoe UI Symbol';
+    }
+}
+
+html.export-type-embed {
+    overflow: hidden;
+    overflow-y: auto;
+
+    .Exporter {
+        min-height: 100vh;
+        padding: 0;
     }
 }

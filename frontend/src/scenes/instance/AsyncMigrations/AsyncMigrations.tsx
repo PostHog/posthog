@@ -1,29 +1,30 @@
-import { useEffect } from 'react'
-import { PageHeader } from 'lib/components/PageHeader'
-import { SceneExport } from 'scenes/sceneTypes'
-import { Button, Progress, Space } from 'antd'
+import { Link } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
-import { PlayCircleOutlined } from '@ant-design/icons'
+import { PageHeader } from 'lib/components/PageHeader'
+import { IconPlayCircle, IconRefresh, IconReplay } from 'lib/lemon-ui/icons'
+import { LemonButton } from 'lib/lemon-ui/LemonButton'
+import { More } from 'lib/lemon-ui/LemonButton/More'
+import { LemonProgress } from 'lib/lemon-ui/LemonProgress'
+import { LemonTable, LemonTableColumn } from 'lib/lemon-ui/LemonTable'
+import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
+import { LemonTag, LemonTagType } from 'lib/lemon-ui/LemonTag/LemonTag'
+import { Spinner } from 'lib/lemon-ui/Spinner/Spinner'
+import { Tooltip } from 'lib/lemon-ui/Tooltip'
+import { humanFriendlyDetailedTime } from 'lib/utils'
+import { useEffect } from 'react'
+import { AsyncMigrationParametersModal } from 'scenes/instance/AsyncMigrations/AsyncMigrationParametersModal'
+import { SceneExport } from 'scenes/sceneTypes'
+import { userLogic } from 'scenes/userLogic'
+
+import { AsyncMigrationDetails } from './AsyncMigrationDetails'
 import {
     AsyncMigration,
-    migrationStatusNumberToMessage,
     asyncMigrationsLogic,
     AsyncMigrationsTab,
     AsyncMigrationStatus,
+    migrationStatusNumberToMessage,
 } from './asyncMigrationsLogic'
-import { Tooltip } from 'lib/lemon-ui/Tooltip'
-import { Spinner } from 'lib/lemon-ui/Spinner/Spinner'
-import { userLogic } from 'scenes/userLogic'
 import { SettingUpdateField } from './SettingUpdateField'
-import { LemonTable, LemonTableColumn } from 'lib/lemon-ui/LemonTable'
-import { AsyncMigrationDetails } from './AsyncMigrationDetails'
-import { humanFriendlyDetailedTime } from 'lib/utils'
-import { More } from 'lib/lemon-ui/LemonButton/More'
-import { LemonButton } from 'lib/lemon-ui/LemonButton'
-import { LemonTag, LemonTagType } from 'lib/lemon-ui/LemonTag/LemonTag'
-import { IconRefresh, IconReplay } from 'lib/lemon-ui/icons'
-import { AsyncMigrationParametersModal } from 'scenes/instance/AsyncMigrations/AsyncMigrationParametersModal'
-import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
 
 export const scene: SceneExport = {
     component: AsyncMigrations,
@@ -73,7 +74,7 @@ export function AsyncMigrations(): JSX.Element {
             return (
                 <>
                     <div className="row-name">
-                        <a href={link}>{asyncMigration.name}</a>
+                        <Link to={link}>{asyncMigration.name}</Link>
                     </div>
                     <div className="row-description">{asyncMigration.description}</div>
                 </>
@@ -86,7 +87,7 @@ export function AsyncMigrations(): JSX.Element {
             const progress = asyncMigration.progress
             return (
                 <div>
-                    <Progress percent={progress} />
+                    <LemonProgress percent={progress} />
                 </div>
             )
         },
@@ -150,27 +151,22 @@ export function AsyncMigrations(): JSX.Element {
                 <div>
                     {status === AsyncMigrationStatus.NotStarted || status === AsyncMigrationStatus.FailedAtStartup ? (
                         <Tooltip title="Start">
-                            <Button
-                                type="link"
-                                icon={<PlayCircleOutlined />}
+                            <LemonButton
+                                size="small"
+                                icon={<IconPlayCircle />}
                                 onClick={() => triggerMigration(asyncMigration)}
                             >
                                 Run
-                            </Button>
+                            </LemonButton>
                         </Tooltip>
                     ) : status === AsyncMigrationStatus.Starting || status === AsyncMigrationStatus.Running ? (
                         <More
                             overlay={
                                 <>
-                                    <LemonButton
-                                        status="stealth"
-                                        onClick={() => forceStopMigration(asyncMigration)}
-                                        fullWidth
-                                    >
+                                    <LemonButton onClick={() => forceStopMigration(asyncMigration)} fullWidth>
                                         Stop and rollback
                                     </LemonButton>
                                     <LemonButton
-                                        status="stealth"
                                         onClick={() => forceStopMigrationWithoutRollback(asyncMigration)}
                                         fullWidth
                                     >
@@ -185,18 +181,10 @@ export function AsyncMigrations(): JSX.Element {
                         <More
                             overlay={
                                 <>
-                                    <LemonButton
-                                        status="stealth"
-                                        onClick={() => resumeMigration(asyncMigration)}
-                                        fullWidth
-                                    >
+                                    <LemonButton onClick={() => resumeMigration(asyncMigration)} fullWidth>
                                         Resume
                                     </LemonButton>
-                                    <LemonButton
-                                        status="stealth"
-                                        onClick={() => rollbackMigration(asyncMigration)}
-                                        fullWidth
-                                    >
+                                    <LemonButton onClick={() => rollbackMigration(asyncMigration)} fullWidth>
                                         Rollback
                                     </LemonButton>
                                 </>
@@ -205,7 +193,6 @@ export function AsyncMigrations(): JSX.Element {
                     ) : status === AsyncMigrationStatus.RolledBack ? (
                         <Tooltip title="Restart">
                             <LemonButton
-                                status="stealth"
                                 icon={<IconReplay />}
                                 onClick={() => triggerMigration(asyncMigration)}
                                 fullWidth
@@ -279,15 +266,14 @@ export function AsyncMigrations(): JSX.Element {
             {user?.is_staff ? (
                 <>
                     <PageHeader
-                        title="Async Migrations"
                         caption={
                             <>
                                 <p>Manage async migrations in your instance.</p>
                                 <p>
                                     Read about async migrations on our{' '}
-                                    <a href="https://posthog.com/docs/self-host/configure/async-migrations/overview">
+                                    <Link to="https://posthog.com/docs/self-host/configure/async-migrations/overview">
                                         dedicated docs page
-                                    </a>
+                                    </Link>
                                     .
                                 </p>
                             </>
@@ -308,7 +294,6 @@ export function AsyncMigrations(): JSX.Element {
                                     Refresh
                                 </LemonButton>
                             </div>
-                            <Space />
                             <LemonTable
                                 pagination={{ pageSize: 10 }}
                                 loading={asyncMigrationsLoading}
@@ -335,7 +320,6 @@ export function AsyncMigrations(): JSX.Element {
                 </>
             ) : (
                 <PageHeader
-                    title="Async Migrations"
                     caption={
                         <>
                             <p>

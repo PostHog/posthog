@@ -1,10 +1,12 @@
 import './InsightLegend.scss'
+
+import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { insightLogic } from 'scenes/insights/insightLogic'
-import clsx from 'clsx'
+import { trendsDataLogic } from 'scenes/trends/trendsDataLogic'
+
 import { InsightLegendRow } from './InsightLegendRow'
 import { shouldHighlightThisRow } from './utils'
-import { trendsDataLogic } from 'scenes/trends/trendsDataLogic'
 
 export interface InsightLegendProps {
     readOnly?: boolean

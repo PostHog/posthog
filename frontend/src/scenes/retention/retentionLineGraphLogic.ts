@@ -1,35 +1,35 @@
+import { connect, kea, key, path, props, selectors } from 'kea'
 import { dayjs, QUnitType } from 'lib/dayjs'
-import { kea } from 'kea'
+import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
 import { RetentionTrendPayload } from 'scenes/retention/types'
+
+import { isLifecycleQuery, isStickinessQuery } from '~/queries/utils'
 import { InsightLogicProps, RetentionPeriod } from '~/types'
+
 import { dateOptionToTimeIntervalMap } from './constants'
-
-import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
-import { retentionLogic } from './retentionLogic'
-
 import type { retentionLineGraphLogicType } from './retentionLineGraphLogicType'
+import { retentionLogic } from './retentionLogic'
 
 const DEFAULT_RETENTION_LOGIC_KEY = 'default_retention_key'
 
-export const retentionLineGraphLogic = kea<retentionLineGraphLogicType>({
-    props: {} as InsightLogicProps,
-    key: keyForInsightLogicProps(DEFAULT_RETENTION_LOGIC_KEY),
-    path: (key) => ['scenes', 'retention', 'retentionLineGraphLogic', key],
-    connect: (props: InsightLogicProps) => ({
+export const retentionLineGraphLogic = kea<retentionLineGraphLogicType>([
+    props({} as InsightLogicProps),
+    key(keyForInsightLogicProps(DEFAULT_RETENTION_LOGIC_KEY)),
+    path((key) => ['scenes', 'retention', 'retentionLineGraphLogic', key]),
+    connect((props: InsightLogicProps) => ({
         values: [
             insightVizDataLogic(props),
             ['querySource', 'dateRange', 'retentionFilter'],
             retentionLogic(props),
             ['results'],
         ],
-    }),
-
-    selectors: {
+    })),
+    selectors({
         trendSeries: [
             (s) => [s.results, s.retentionFilter],
             (results, retentionFilter): RetentionTrendPayload[] => {
-                const { period, retention_reference } = retentionFilter || {}
+                const { period, retentionReference } = retentionFilter || {}
                 // If the retention reference option is specified as previous,
                 // then translate retention rates to relative to previous,
                 // otherwise, just use what the result was originally.
@@ -39,7 +39,7 @@ export const retentionLineGraphLogic = kea<retentionLineGraphLogicType>({
                 //   Cohort 1 | 1000 | 120 | 190 | 170 | 140
                 //   Cohort 2 | 6003 | 300 | 100 | 120 | 50
                 //
-                // If `retentionFilter.retention_reference` is not "previous"
+                // If `retentionFilter.retentionReference` is not "previous"
                 // we want to calculate the percentages of the sizes compared
                 // to the first value. If we have "previous" we want to go
                 // further and translate these numbers into percentage of the
@@ -71,10 +71,10 @@ export const retentionLineGraphLogic = kea<retentionLineGraphLogicType>({
                         label: cohortRetention.date
                             ? period === 'Hour'
                                 ? dayjs(cohortRetention.date).format('MMM D, h A')
-                                : dayjs.utc(cohortRetention.date).format('MMM D')
+                                : dayjs(cohortRetention.date).format('MMM D')
                             : cohortRetention.label,
                         data:
-                            retention_reference === 'previous'
+                            retentionReference === 'previous'
                                 ? retentionPercentages
                                       // Zip together the current a previous values, filling
                                       // in with 100 for the first index
@@ -118,8 +118,12 @@ export const retentionLineGraphLogic = kea<retentionLineGraphLogicType>({
         aggregationGroupTypeIndex: [
             (s) => [s.querySource],
             (querySource) => {
-                return querySource?.aggregation_group_type_index ?? 'people'
+                return (
+                    (isLifecycleQuery(querySource) || isStickinessQuery(querySource)
+                        ? null
+                        : querySource?.aggregation_group_type_index) ?? 'people'
+                )
             },
         ],
-    },
-})
+    }),
+])

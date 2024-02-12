@@ -1,12 +1,33 @@
-import { kea, props, key, path, connect, selectors, actions, reducers, listeners } from 'kea'
-import { ChartDisplayType, InsightLogicProps, LifecycleToggle, TrendAPIResponse, TrendResult } from '~/types'
-import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
+import { actions, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import api from 'lib/api'
+import { dayjs } from 'lib/dayjs'
+import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
+import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
+import { isOtherBreakdown } from 'scenes/insights/utils'
+
+import { EntityNode } from '~/queries/schema'
+import {
+    ChartDisplayType,
+    CountPerActorMathType,
+    HogQLMathType,
+    InsightLogicProps,
+    LifecycleToggle,
+    PropertyMathType,
+    TrendAPIResponse,
+    TrendResult,
+} from '~/types'
 
 import type { trendsDataLogicType } from './trendsDataLogicType'
 import { IndexedTrendResult } from './types'
-import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
-import { dayjs } from 'lib/dayjs'
+
+type MathType = Required<EntityNode>['math']
+
+/** All math types that can result in non-whole numbers. */
+const POSSIBLY_FRACTIONAL_MATH_TYPES: Set<MathType> = new Set(
+    [CountPerActorMathType.Average as MathType]
+        .concat(Object.values(HogQLMathType))
+        .concat(Object.values(PropertyMathType))
+)
 
 export const trendsDataLogic = kea<trendsDataLogicType>([
     props({} as InsightLogicProps),
@@ -24,9 +45,9 @@ export const trendsDataLogic = kea<trendsDataLogicType>([
                 'display',
                 'compare',
                 'interval',
-                'breakdown',
-                'shownAs',
+                'breakdownFilter',
                 'showValueOnSeries',
+                'showLabelOnSeries',
                 'showPercentStackView',
                 'supportsPercentStackView',
                 'trendsFilter',
@@ -37,9 +58,10 @@ export const trendsDataLogic = kea<trendsDataLogicType>([
                 'isNonTimeSeriesDisplay',
                 'isSingleSeries',
                 'hasLegend',
+                'vizSpecificOptions',
             ],
         ],
-        actions: [insightVizDataLogic(props), ['setInsightData', 'updateInsightFilter']],
+        actions: [insightVizDataLogic(props), ['setInsightData', 'updateInsightFilter', 'updateBreakdownFilter']],
     })),
 
     actions({
@@ -56,7 +78,7 @@ export const trendsDataLogic = kea<trendsDataLogicType>([
         ],
     }),
 
-    selectors({
+    selectors(({ values }) => ({
         results: [
             (s) => [s.insightData],
             (insightData: TrendAPIResponse | null): TrendResult[] => {
@@ -75,6 +97,17 @@ export const trendsDataLogic = kea<trendsDataLogicType>([
             },
         ],
 
+        hasBreakdownOther: [
+            (s) => [s.insightData, s.isTrends],
+            (insightData, isTrends) => {
+                if (!isTrends) {
+                    return false
+                }
+                const results = insightData.result ?? insightData.results
+                return !!(Array.isArray(results) && results.find((r) => isOtherBreakdown(r.breakdown_value)))
+            },
+        ],
+
         indexedResults: [
             (s) => [s.results, s.display, s.lifecycleFilter],
             (results, display, lifecycleFilter): IndexedTrendResult[] => {
@@ -88,7 +121,6 @@ export const trendsDataLogic = kea<trendsDataLogicType>([
                 } else if (lifecycleFilter) {
                     if (lifecycleFilter.toggledLifecycles) {
                         indexedResults = indexedResults.filter((result) =>
-                            // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
                             lifecycleFilter.toggledLifecycles!.includes(String(result.status) as LifecycleToggle)
                         )
                     }
@@ -121,8 +153,12 @@ export const trendsDataLogic = kea<trendsDataLogicType>([
                 if (results[0]?.days === undefined) {
                     return 0
                 }
-                const startDate = dayjs().startOf(interval ?? 'd')
-                const startIndex = results[0].days.findIndex((day: string) => dayjs(day) >= startDate)
+                const startDate = dayjs()
+                    .tz('utc', true)
+                    .startOf(interval ?? 'd')
+                const startIndex = results[0].days.findIndex((day: string) => {
+                    return dayjs(day).tz('utc', true) >= startDate
+                })
 
                 if (startIndex !== undefined && startIndex !== -1) {
                     return startIndex - results[0].days.length
@@ -131,7 +167,27 @@ export const trendsDataLogic = kea<trendsDataLogicType>([
                 }
             },
         ],
-    }),
+
+        pieChartVizOptions: [
+            () => [() => values.vizSpecificOptions],
+            (vizSpecificOptions) => vizSpecificOptions?.[ChartDisplayType.ActionsPie],
+        ],
+
+        mightContainFractionalNumbers: [
+            (s) => [s.formula, s.series],
+            (formula, series): boolean => {
+                // Whether data points might contain fractional numbers, which involve extra display considerations,
+                // such as rounding
+                if (formula) {
+                    return true
+                }
+                if (series) {
+                    return series.some((s) => s.math && POSSIBLY_FRACTIONAL_MATH_TYPES.has(s.math))
+                }
+                return false
+            },
+        ],
+    })),
 
     listeners(({ actions, values }) => ({
         loadMoreBreakdownValues: async () => {
@@ -144,7 +200,7 @@ export const trendsDataLogic = kea<trendsDataLogicType>([
 
             actions.setInsightData({
                 ...values.insightData,
-                result: [...values.insightData?.result, ...(response.result ? response.result : [])],
+                result: [...values.insightData.result, ...(response.result ? response.result : [])],
                 next: response.next,
             })
 

@@ -160,9 +160,14 @@ class Migration(AsyncMigrationDefinition):
                     ON CLUSTER '{settings.CLICKHOUSE_CLUSTER}'
                 """,
             ),
-            AsyncMigrationOperationSQL(database=AnalyticsDBMS.CLICKHOUSE, sql=PERSONS_TABLE_MV_SQL, rollback=None),
+            AsyncMigrationOperationSQL(
+                database=AnalyticsDBMS.CLICKHOUSE,
+                sql=PERSONS_TABLE_MV_SQL,
+                rollback=None,
+            ),
             AsyncMigrationOperation(
-                fn=self.copy_persons_from_postgres, rollback_fn=lambda _: self.unset_highwatermark()
+                fn=self.copy_persons_from_postgres,
+                rollback_fn=lambda _: self.unset_highwatermark(),
             ),
         ]
 
@@ -195,10 +200,16 @@ class Migration(AsyncMigrationDefinition):
                 should_continue = self._copy_batch_from_postgres(query_id)
             self.unset_highwatermark()
             run_optimize_table(
-                unique_name="0005_person_replacing_by_version", query_id=query_id, table_name=PERSON_TABLE, final=True
+                unique_name="0005_person_replacing_by_version",
+                query_id=query_id,
+                table_name=PERSON_TABLE,
+                final=True,
             )
         except Exception as err:
-            logger.warn("Re-copying persons from postgres failed. Marking async migration as complete.", error=err)
+            logger.warn(
+                "Re-copying persons from postgres failed. Marking async migration as complete.",
+                error=err,
+            )
             capture_exception(err)
 
     def _copy_batch_from_postgres(self, query_id: str) -> bool:

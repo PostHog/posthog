@@ -1,12 +1,14 @@
-import { CSSTransition } from 'react-transition-group'
 import './LemonTableLoader.scss'
+
 import React from 'react'
+import { CSSTransition } from 'react-transition-group'
 
 export function LemonTableLoader({
     loading = false,
     tag = 'div',
 }: {
     loading?: boolean
+    /** @default 'div' */
     tag?: 'div' | 'th'
 }): JSX.Element {
     return (

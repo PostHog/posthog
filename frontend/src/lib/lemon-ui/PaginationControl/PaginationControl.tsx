@@ -1,8 +1,10 @@
+import './PaginationControl.scss'
+
+import clsx from 'clsx'
 import { IconChevronLeft, IconChevronRight } from 'lib/lemon-ui/icons'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
-import './PaginationControl.scss'
+
 import { PaginationState } from './types'
-import clsx from 'clsx'
 
 export interface PaginationControlProps<T> extends PaginationState<T> {
     nouns?: [string, string]
@@ -46,7 +48,6 @@ export function PaginationControl<T>({
             </span>
             <LemonButton
                 icon={<IconChevronLeft />}
-                status="stealth"
                 disabledReason={!isPreviousAvailable ? 'No previous page' : undefined}
                 size="small"
                 onClick={() => {
@@ -58,7 +59,6 @@ export function PaginationControl<T>({
             />
             <LemonButton
                 icon={<IconChevronRight />}
-                status="stealth"
                 disabledReason={!isNextAvailable ? 'No next page' : undefined}
                 size="small"
                 onClick={() => {

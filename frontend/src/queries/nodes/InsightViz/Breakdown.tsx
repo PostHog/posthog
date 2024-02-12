@@ -1,20 +1,21 @@
 import { useActions, useValues } from 'kea'
-import { EditorFilterProps } from '~/types'
-import { TaxonomicBreakdownFilterComponent } from 'scenes/insights/filters/BreakdownFilter/TaxonomicBreakdownFilter'
+import { TaxonomicBreakdownFilter } from 'scenes/insights/filters/BreakdownFilter/TaxonomicBreakdownFilter'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 
+import { EditorFilterProps } from '~/types'
+
 export function Breakdown({ insightProps }: EditorFilterProps): JSX.Element {
-    const { breakdown, display, isTrends } = useValues(insightVizDataLogic(insightProps))
-    const { updateBreakdown, updateDisplay } = useActions(insightVizDataLogic(insightProps))
+    const { breakdownFilter, display, isTrends } = useValues(insightVizDataLogic(insightProps))
+    const { updateBreakdownFilter, updateDisplay } = useActions(insightVizDataLogic(insightProps))
 
     return (
-        <TaxonomicBreakdownFilterComponent
-            breakdownFilter={breakdown}
+        <TaxonomicBreakdownFilter
+            insightProps={insightProps}
+            breakdownFilter={breakdownFilter}
             display={display}
             isTrends={isTrends}
-            updateBreakdown={updateBreakdown}
+            updateBreakdownFilter={updateBreakdownFilter}
             updateDisplay={updateDisplay}
-            isDataExploration
         />
     )
 }

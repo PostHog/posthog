@@ -1,18 +1,18 @@
 import { actions, connect, kea, listeners, path, reducers, selectors } from 'kea'
-import api from 'lib/api'
-import { AnnotationScope, AnnotationType, InsightModel, ProductKey } from '~/types'
 import { forms } from 'kea-forms'
-import { dayjs, Dayjs } from 'lib/dayjs'
-import { annotationsModel, deserializeAnnotation } from '~/models/annotationsModel'
-import type { annotationModalLogicType } from './annotationModalLogicType'
-import { teamLogic } from 'scenes/teamLogic'
+import { urlToAction } from 'kea-router'
+import api from 'lib/api'
 import { FEATURE_FLAGS } from 'lib/constants'
-import { userLogic } from 'scenes/userLogic'
+import { Dayjs, dayjs } from 'lib/dayjs'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { actionToUrl, urlToAction } from 'kea-router'
-import { sceneLogic } from 'scenes/sceneLogic'
-import { urls } from '@posthog/apps-common'
-import { Scene } from 'scenes/sceneTypes'
+import { teamLogic } from 'scenes/teamLogic'
+import { urls } from 'scenes/urls'
+import { userLogic } from 'scenes/userLogic'
+
+import { annotationsModel, deserializeAnnotation } from '~/models/annotationsModel'
+import { AnnotationScope, AnnotationType, InsightModel, ProductKey } from '~/types'
+
+import type { annotationModalLogicType } from './annotationModalLogicType'
 
 export const ANNOTATION_DAYJS_FORMAT = 'MMMM DD, YYYY h:mm A'
 
@@ -122,7 +122,7 @@ export const annotationModalLogic = kea<annotationModalLogicType>([
             }
         },
     })),
-    selectors(({}) => ({
+    selectors(() => ({
         shouldShowEmptyState: [
             (s) => [s.annotations, s.annotationsLoading],
             (annotations, annotationsLoading): boolean => {
@@ -176,7 +176,7 @@ export const annotationModalLogic = kea<annotationModalLogicType>([
         },
     })),
     urlToAction(({ values, actions, cache }) => ({
-        '/annotations/:id': ({ id }) => {
+        [urls.annotation(':id')]: ({ id }) => {
             cache.annotationToShowId = parseInt(id as string)
             const annotation = values.annotations.find((a) => a.id === cache.annotationToShowId)
             if (!annotation) {
@@ -184,8 +184,5 @@ export const annotationModalLogic = kea<annotationModalLogicType>([
             }
             actions.openModalToEditAnnotation(annotation)
         },
-    })),
-    actionToUrl(() => ({
-        closeModal: () => (sceneLogic.values.scene === Scene.Annotations ? urls.annotations() : undefined),
     })),
 ])

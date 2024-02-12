@@ -1,10 +1,11 @@
-import { StatsD } from 'hot-shots'
 import { Consumer, Kafka } from 'kafkajs'
 import * as schedule from 'node-schedule'
-import { Pool } from 'pg'
+import { AppMetrics } from 'worker/ingestion/app-metrics'
+import { RustyHook } from 'worker/rusty-hook'
 
 import { KAFKA_EVENTS_JSON, prefix as KAFKA_PREFIX } from '../../config/kafka-topics'
 import { Hub, PluginsServerConfig } from '../../types'
+import { PostgresRouter } from '../../utils/db/postgres'
 import { PubSub } from '../../utils/pubsub'
 import { status } from '../../utils/status'
 import { ActionManager } from '../../worker/ingestion/action-manager'
@@ -12,35 +13,27 @@ import { ActionMatcher } from '../../worker/ingestion/action-matcher'
 import { HookCommander } from '../../worker/ingestion/hooks'
 import { OrganizationManager } from '../../worker/ingestion/organization-manager'
 import { TeamManager } from '../../worker/ingestion/team-manager'
-import Piscina from '../../worker/piscina'
-import { eachBatchAppsOnEventHandlers, eachBatchWebhooksHandlers } from './batch-processing/each-batch-async-handlers'
+import { eachBatchAppsOnEventHandlers } from './batch-processing/each-batch-onevent'
+import { eachBatchWebhooksHandlers } from './batch-processing/each-batch-webhooks'
 import { KafkaJSIngestionConsumer, setupEventHandlers } from './kafka-queue'
 
 export const startAsyncOnEventHandlerConsumer = async ({
     hub, // TODO: remove needing to pass in the whole hub and be more selective on dependency injection.
-    piscina,
 }: {
     hub: Hub
-    piscina: Piscina
 }) => {
     /*
         Consumes analytics events from the Kafka topic `clickhouse_events_json`
-        and processes any onEvent plugin handlers configured for the team. This
-        also includes `exportEvents` handlers defined in plugins as these are
-        also handled via modifying `onEvent` to call `exportEvents`.
+        and processes any onEvent plugin handlers configured for the team.
 
         At the moment this is just a wrapper around `IngestionConsumer`. We may
         want to further remove that abstraction in the future.
     */
     status.info('🔁', `Starting onEvent handler consumer`)
 
-    const queue = buildOnEventIngestionConsumer({ hub, piscina })
+    const queue = buildOnEventIngestionConsumer({ hub })
 
     await queue.start()
-
-    schedule.scheduleJob('0 * * * * *', async () => {
-        await queue.emitConsumerGroupMetrics()
-    })
 
     const isHealthy = makeHealthCheck(queue.consumer, queue.sessionTimeout)
 
@@ -52,21 +45,21 @@ export const startAsyncWebhooksHandlerConsumer = async ({
     postgres,
     teamManager,
     organizationManager,
-    statsd,
     serverConfig,
+    rustyHook,
+    appMetrics,
 }: {
     kafka: Kafka
-    postgres: Pool
+    postgres: PostgresRouter
     teamManager: TeamManager
     organizationManager: OrganizationManager
-    statsd: StatsD | undefined
     serverConfig: PluginsServerConfig
+    rustyHook: RustyHook
+    appMetrics: AppMetrics
 }) => {
     /*
         Consumes analytics events from the Kafka topic `clickhouse_events_json`
-        and processes any onEvent plugin handlers configured for the team. This
-        also includes `exportEvents` handlers defined in plugins as these are
-        also handled via modifying `onEvent` to call `exportEvents`.
+        and processes any onEvent plugin handlers configured for the team.
 
         At the moment this is just a wrapper around `IngestionConsumer`. We may
         want to further remove that abstraction in the future.
@@ -77,14 +70,22 @@ export const startAsyncWebhooksHandlerConsumer = async ({
         // NOTE: This should never clash with the group ID specified for the kafka engine posthog/ee/clickhouse/sql/clickhouse.py
         groupId: `${KAFKA_PREFIX}clickhouse-plugin-server-async-webhooks`,
         sessionTimeout: serverConfig.KAFKA_CONSUMPTION_SESSION_TIMEOUT_MS,
+        rebalanceTimeout: serverConfig.KAFKA_CONSUMPTION_REBALANCE_TIMEOUT_MS ?? undefined,
         readUncommitted: false,
     })
     setupEventHandlers(consumer)
 
     const actionManager = new ActionManager(postgres)
     await actionManager.prepare()
-    const actionMatcher = new ActionMatcher(postgres, actionManager, statsd)
-    const hookCannon = new HookCommander(postgres, teamManager, organizationManager, statsd)
+    const actionMatcher = new ActionMatcher(postgres, actionManager)
+    const hookCannon = new HookCommander(
+        postgres,
+        teamManager,
+        organizationManager,
+        rustyHook,
+        appMetrics,
+        serverConfig.EXTERNAL_REQUEST_TIMEOUT_MS
+    )
     const concurrency = serverConfig.TASKS_PER_WORKER || 20
 
     const pubSub = new PubSub(serverConfig, {
@@ -107,7 +108,7 @@ export const startAsyncWebhooksHandlerConsumer = async ({
 
     await consumer.subscribe({ topic: KAFKA_EVENTS_JSON, fromBeginning: false })
     await consumer.run({
-        eachBatch: (payload) => eachBatchWebhooksHandlers(payload, actionMatcher, hookCannon, statsd, concurrency),
+        eachBatch: (payload) => eachBatchWebhooksHandlers(payload, actionMatcher, hookCannon, concurrency),
     })
 
     const isHealthy = makeHealthCheck(consumer, serverConfig.KAFKA_CONSUMPTION_SESSION_TIMEOUT_MS)
@@ -129,10 +130,9 @@ export const startAsyncWebhooksHandlerConsumer = async ({
     }
 }
 
-export const buildOnEventIngestionConsumer = ({ hub, piscina }: { hub: Hub; piscina: Piscina }) => {
+export const buildOnEventIngestionConsumer = ({ hub }: { hub: Hub }) => {
     return new KafkaJSIngestionConsumer(
         hub,
-        piscina,
         KAFKA_EVENTS_JSON,
         `${KAFKA_PREFIX}clickhouse-plugin-server-async-onevent`,
         eachBatchAppsOnEventHandlers

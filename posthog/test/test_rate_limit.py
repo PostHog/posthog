@@ -28,7 +28,11 @@ class TestUserAPI(APIBaseTest):
         cache.clear()
 
         self.personal_api_key = generate_random_token_personal()
-        PersonalAPIKey.objects.create(label="X", user=self.user, secure_value=hash_key_value(self.personal_api_key))
+        PersonalAPIKey.objects.create(
+            label="X",
+            user=self.user,
+            secure_value=hash_key_value(self.personal_api_key),
+        )
 
     def tearDown(self):
         super().tearDown()
@@ -42,18 +46,23 @@ class TestUserAPI(APIBaseTest):
     def test_default_burst_rate_limit(self, rate_limit_enabled_mock, incr_mock):
         for _ in range(5):
             response = self.client.get(
-                f"/api/projects/{self.team.pk}/feature_flags", HTTP_AUTHORIZATION=f"Bearer {self.personal_api_key}"
+                f"/api/projects/{self.team.pk}/feature_flags",
+                HTTP_AUTHORIZATION=f"Bearer {self.personal_api_key}",
             )
             self.assertEqual(response.status_code, status.HTTP_200_OK)
 
         response = self.client.get(
-            f"/api/projects/{self.team.pk}/feature_flags", HTTP_AUTHORIZATION=f"Bearer {self.personal_api_key}"
+            f"/api/projects/{self.team.pk}/feature_flags",
+            HTTP_AUTHORIZATION=f"Bearer {self.personal_api_key}",
         )
         self.assertEqual(response.status_code, status.HTTP_429_TOO_MANY_REQUESTS)
 
         # mock_calls call object is a tuple of (function, args, kwargs)
         # so the incremented metric is args[0]
-        self.assertEqual(len([1 for name, args, kwargs in incr_mock.mock_calls if args[0] == "rate_limit_exceeded"]), 1)
+        self.assertEqual(
+            len([1 for name, args, kwargs in incr_mock.mock_calls if args[0] == "rate_limit_exceeded"]),
+            1,
+        )
         incr_mock.assert_any_call(
             "rate_limit_exceeded",
             tags={
@@ -72,7 +81,8 @@ class TestUserAPI(APIBaseTest):
         for _ in range(5):
             with freeze_time(base_time):
                 response = self.client.get(
-                    f"/api/projects/{self.team.pk}/feature_flags", HTTP_AUTHORIZATION=f"Bearer {self.personal_api_key}"
+                    f"/api/projects/{self.team.pk}/feature_flags",
+                    HTTP_AUTHORIZATION=f"Bearer {self.personal_api_key}",
                 )
                 base_time += timedelta(seconds=61)
         self.assertEqual(response.status_code, status.HTTP_200_OK)
@@ -80,11 +90,13 @@ class TestUserAPI(APIBaseTest):
         with freeze_time(base_time):
             for _ in range(2):
                 response = self.client.get(
-                    f"/api/projects/{self.team.pk}/feature_flags", HTTP_AUTHORIZATION=f"Bearer {self.personal_api_key}"
+                    f"/api/projects/{self.team.pk}/feature_flags",
+                    HTTP_AUTHORIZATION=f"Bearer {self.personal_api_key}",
                 )
                 self.assertEqual(response.status_code, status.HTTP_429_TOO_MANY_REQUESTS)
             self.assertEqual(
-                len([1 for name, args, kwargs in incr_mock.mock_calls if args[0] == "rate_limit_exceeded"]), 2
+                len([1 for name, args, kwargs in incr_mock.mock_calls if args[0] == "rate_limit_exceeded"]),
+                2,
             )
             incr_mock.assert_any_call(
                 "rate_limit_exceeded",
@@ -103,24 +115,30 @@ class TestUserAPI(APIBaseTest):
         # Does nothing on /feature_flags endpoint
         for _ in range(10):
             response = self.client.get(
-                f"/api/projects/{self.team.pk}/feature_flags", HTTP_AUTHORIZATION=f"Bearer {self.personal_api_key}"
+                f"/api/projects/{self.team.pk}/feature_flags",
+                HTTP_AUTHORIZATION=f"Bearer {self.personal_api_key}",
             )
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         assert call("rate_limit_exceeded", tags=ANY) not in incr_mock.mock_calls
 
         for _ in range(5):
             response = self.client.get(
-                f"/api/projects/{self.team.pk}/events", HTTP_AUTHORIZATION=f"Bearer {self.personal_api_key}"
+                f"/api/projects/{self.team.pk}/events",
+                HTTP_AUTHORIZATION=f"Bearer {self.personal_api_key}",
             )
         self.assertEqual(response.status_code, status.HTTP_200_OK)
 
         # Does not actually block the request, but increments the counter
         response = self.client.get(
-            f"/api/projects/{self.team.pk}/events", HTTP_AUTHORIZATION=f"Bearer {self.personal_api_key}"
+            f"/api/projects/{self.team.pk}/events",
+            HTTP_AUTHORIZATION=f"Bearer {self.personal_api_key}",
         )
         self.assertEqual(response.status_code, status.HTTP_429_TOO_MANY_REQUESTS)
 
-        self.assertEqual(len([1 for name, args, kwargs in incr_mock.mock_calls if args[0] == "rate_limit_exceeded"]), 1)
+        self.assertEqual(
+            len([1 for name, args, kwargs in incr_mock.mock_calls if args[0] == "rate_limit_exceeded"]),
+            1,
+        )
         incr_mock.assert_any_call(
             "rate_limit_exceeded",
             tags={
@@ -138,16 +156,21 @@ class TestUserAPI(APIBaseTest):
         self.client.logout()
         for _ in range(5):
             response = self.client.get(
-                f"/api/projects/{self.team.pk}/feature_flags", HTTP_AUTHORIZATION=f"Bearer {self.personal_api_key}"
+                f"/api/projects/{self.team.pk}/feature_flags",
+                HTTP_AUTHORIZATION=f"Bearer {self.personal_api_key}",
             )
         self.assertEqual(response.status_code, status.HTTP_200_OK)
 
         # First user gets rate limited
         response = self.client.get(
-            f"/api/projects/{self.team.pk}/feature_flags", HTTP_AUTHORIZATION=f"Bearer {self.personal_api_key}"
+            f"/api/projects/{self.team.pk}/feature_flags",
+            HTTP_AUTHORIZATION=f"Bearer {self.personal_api_key}",
         )
         self.assertEqual(response.status_code, status.HTTP_429_TOO_MANY_REQUESTS)
-        self.assertEqual(len([1 for name, args, kwargs in incr_mock.mock_calls if args[0] == "rate_limit_exceeded"]), 1)
+        self.assertEqual(
+            len([1 for name, args, kwargs in incr_mock.mock_calls if args[0] == "rate_limit_exceeded"]),
+            1,
+        )
         incr_mock.assert_any_call(
             "rate_limit_exceeded",
             tags={
@@ -168,11 +191,15 @@ class TestUserAPI(APIBaseTest):
 
         # Second user gets rate limited after a single request
         response = self.client.get(
-            f"/api/projects/{self.team.pk}/feature_flags", HTTP_AUTHORIZATION=f"Bearer {new_personal_api_key}"
+            f"/api/projects/{self.team.pk}/feature_flags",
+            HTTP_AUTHORIZATION=f"Bearer {new_personal_api_key}",
         )
         self.assertEqual(response.status_code, status.HTTP_429_TOO_MANY_REQUESTS)
 
-        self.assertEqual(len([1 for name, args, kwargs in incr_mock.mock_calls if args[0] == "rate_limit_exceeded"]), 1)
+        self.assertEqual(
+            len([1 for name, args, kwargs in incr_mock.mock_calls if args[0] == "rate_limit_exceeded"]),
+            1,
+        )
         incr_mock.assert_any_call(
             "rate_limit_exceeded",
             tags={
@@ -193,18 +220,26 @@ class TestUserAPI(APIBaseTest):
 
         # Requests to the new team are not rate limited
         response = self.client.get(
-            f"/api/projects/{new_team.pk}/feature_flags", HTTP_AUTHORIZATION=f"Bearer {new_personal_api_key}"
+            f"/api/projects/{new_team.pk}/feature_flags",
+            HTTP_AUTHORIZATION=f"Bearer {new_personal_api_key}",
         )
         self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(len([1 for name, args, kwargs in incr_mock.mock_calls if args[0] == "rate_limit_exceeded"]), 0)
+        self.assertEqual(
+            len([1 for name, args, kwargs in incr_mock.mock_calls if args[0] == "rate_limit_exceeded"]),
+            0,
+        )
 
         # until it hits their specific limit
         for _ in range(5):
             response = self.client.get(
-                f"/api/projects/{new_team.pk}/feature_flags", HTTP_AUTHORIZATION=f"Bearer {new_personal_api_key}"
+                f"/api/projects/{new_team.pk}/feature_flags",
+                HTTP_AUTHORIZATION=f"Bearer {new_personal_api_key}",
             )
         self.assertEqual(response.status_code, status.HTTP_429_TOO_MANY_REQUESTS)
-        self.assertEqual(len([1 for name, args, kwargs in incr_mock.mock_calls if args[0] == "rate_limit_exceeded"]), 1)
+        self.assertEqual(
+            len([1 for name, args, kwargs in incr_mock.mock_calls if args[0] == "rate_limit_exceeded"]),
+            1,
+        )
 
     @patch("posthog.rate_limit.BurstRateThrottle.rate", new="5/minute")
     @patch("posthog.rate_limit.statsd.incr")
@@ -219,11 +254,15 @@ class TestUserAPI(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
 
         response = self.client.get(
-            f"/api/organizations/{self.organization.pk}/plugins", HTTP_AUTHORIZATION=f"Bearer {self.personal_api_key}"
+            f"/api/organizations/{self.organization.pk}/plugins",
+            HTTP_AUTHORIZATION=f"Bearer {self.personal_api_key}",
         )
         self.assertEqual(response.status_code, status.HTTP_429_TOO_MANY_REQUESTS)
 
-        self.assertEqual(len([1 for name, args, kwargs in incr_mock.mock_calls if args[0] == "rate_limit_exceeded"]), 1)
+        self.assertEqual(
+            len([1 for name, args, kwargs in incr_mock.mock_calls if args[0] == "rate_limit_exceeded"]),
+            1,
+        )
         incr_mock.assert_any_call(
             "rate_limit_exceeded",
             tags={
@@ -247,7 +286,10 @@ class TestUserAPI(APIBaseTest):
             )
         self.assertEqual(response.status_code, status.HTTP_429_TOO_MANY_REQUESTS)
         # got rate limited with personal API key
-        self.assertEqual(len([1 for name, args, kwargs in incr_mock.mock_calls if args[0] == "rate_limit_exceeded"]), 1)
+        self.assertEqual(
+            len([1 for name, args, kwargs in incr_mock.mock_calls if args[0] == "rate_limit_exceeded"]),
+            1,
+        )
         incr_mock.reset_mock()
 
         # if not logged in, we 401
@@ -259,7 +301,10 @@ class TestUserAPI(APIBaseTest):
         # but no rate limits when logged in and not using personal API key
         response = self.client.get(f"/api/organizations/{self.organization.pk}/plugins")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(len([1 for name, args, kwargs in incr_mock.mock_calls if args[0] == "rate_limit_exceeded"]), 0)
+        self.assertEqual(
+            len([1 for name, args, kwargs in incr_mock.mock_calls if args[0] == "rate_limit_exceeded"]),
+            0,
+        )
 
     @patch("posthog.rate_limit.BurstRateThrottle.rate", new="5/minute")
     @patch("posthog.rate_limit.statsd.incr")
@@ -274,7 +319,10 @@ class TestUserAPI(APIBaseTest):
         response = self.client.post(f"/api/login")
         self.assertEqual(response.status_code, status.HTTP_429_TOO_MANY_REQUESTS)
 
-        self.assertEqual(len([1 for name, args, kwargs in incr_mock.mock_calls if args[0] == "rate_limit_exceeded"]), 1)
+        self.assertEqual(
+            len([1 for name, args, kwargs in incr_mock.mock_calls if args[0] == "rate_limit_exceeded"]),
+            1,
+        )
         incr_mock.assert_any_call(
             "rate_limit_exceeded",
             tags={
@@ -290,7 +338,10 @@ class TestUserAPI(APIBaseTest):
     @patch("posthog.rate_limit.is_rate_limit_enabled", return_value=True)
     @patch("posthog.kafka_client.client._KafkaProducer.produce")
     def test_does_not_rate_limit_capture_endpoints(self, kafka_mock, rate_limit_enabled_mock, incr_mock):
-        data = {"event": "$autocapture", "properties": {"distinct_id": 2, "token": self.team.api_token}}
+        data = {
+            "event": "$autocapture",
+            "properties": {"distinct_id": 2, "token": self.team.api_token},
+        }
         for _ in range(6):
             response = self.client.get("/e/?data=%s" % quote(json.dumps(data)), HTTP_ORIGIN="https://localhost")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
@@ -331,7 +382,9 @@ class TestUserAPI(APIBaseTest):
         with freeze_time("2022-04-01 12:34:45") as frozen_time:
             with override_instance_config("RATE_LIMITING_ALLOW_LIST_TEAMS", f"{self.team.pk}"):
                 with patch.object(
-                    rate_limit, "get_instance_setting", wraps=models.instance_setting.get_instance_setting
+                    rate_limit,
+                    "get_instance_setting",
+                    wraps=models.instance_setting.get_instance_setting,
                 ) as wrapped_get_instance_setting:
                     for _ in range(10):
                         self.client.get(

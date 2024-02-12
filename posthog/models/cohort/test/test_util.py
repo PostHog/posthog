@@ -1,5 +1,8 @@
 from posthog.models.cohort import Cohort
-from posthog.models.cohort.util import get_dependent_cohorts, simplified_cohort_filter_properties
+from posthog.models.cohort.util import (
+    get_dependent_cohorts,
+    simplified_cohort_filter_properties,
+)
 from posthog.test.base import BaseTest, _create_person, flush_persons_and_events
 
 
@@ -14,8 +17,11 @@ def _create_cohort(**kwargs):
 
 class TestCohortUtils(BaseTest):
     def test_simplified_cohort_filter_properties_static_cohort(self):
-
-        _create_person(team_id=self.team.pk, distinct_ids=["p1"], properties={"name": "test", "name": "test"})
+        _create_person(
+            team_id=self.team.pk,
+            distinct_ids=["p1"],
+            properties={"name": "test", "name": "test"},
+        )
         cohort = _create_cohort(team=self.team, name="cohort1", groups=[], is_static=True)
         flush_persons_and_events()
         cohort.insert_users_by_list(["p1"])
@@ -24,12 +30,25 @@ class TestCohortUtils(BaseTest):
 
         self.assertEqual(
             result.to_dict(),
-            {"type": "AND", "values": [{"key": "id", "negation": False, "type": "static-cohort", "value": cohort.pk}]},
+            {
+                "type": "AND",
+                "values": [
+                    {
+                        "key": "id",
+                        "negation": False,
+                        "type": "static-cohort",
+                        "value": cohort.pk,
+                    }
+                ],
+            },
         )
 
     def test_simplified_cohort_filter_properties_static_cohort_with_negation(self):
-
-        _create_person(team_id=self.team.pk, distinct_ids=["p1"], properties={"name": "test", "name": "test"})
+        _create_person(
+            team_id=self.team.pk,
+            distinct_ids=["p1"],
+            properties={"name": "test", "name": "test"},
+        )
         cohort = _create_cohort(team=self.team, name="cohort1", groups=[], is_static=True)
         flush_persons_and_events()
         cohort.insert_users_by_list(["p1"])
@@ -38,7 +57,17 @@ class TestCohortUtils(BaseTest):
 
         self.assertEqual(
             result.to_dict(),
-            {"type": "AND", "values": [{"key": "id", "negation": True, "type": "static-cohort", "value": cohort.pk}]},
+            {
+                "type": "AND",
+                "values": [
+                    {
+                        "key": "id",
+                        "negation": True,
+                        "type": "static-cohort",
+                        "value": cohort.pk,
+                    }
+                ],
+            },
         )
 
     def test_simplified_cohort_filter_properties_precalculated_cohort(self):
@@ -57,7 +86,14 @@ class TestCohortUtils(BaseTest):
             result.to_dict(),
             {
                 "type": "AND",
-                "values": [{"key": "id", "negation": False, "type": "precalculated-cohort", "value": cohort.pk}],
+                "values": [
+                    {
+                        "key": "id",
+                        "negation": False,
+                        "type": "precalculated-cohort",
+                        "value": cohort.pk,
+                    }
+                ],
             },
         )
 
@@ -77,7 +113,14 @@ class TestCohortUtils(BaseTest):
             result.to_dict(),
             {
                 "type": "AND",
-                "values": [{"key": "id", "negation": True, "type": "precalculated-cohort", "value": cohort.pk}],
+                "values": [
+                    {
+                        "key": "id",
+                        "negation": True,
+                        "type": "precalculated-cohort",
+                        "value": cohort.pk,
+                    }
+                ],
             },
         )
 
@@ -113,7 +156,17 @@ class TestCohortUtils(BaseTest):
 
         self.assertEqual(
             result.to_dict(),
-            {"type": "AND", "values": [{"key": "id", "negation": False, "type": "cohort", "value": cohort.pk}]},
+            {
+                "type": "AND",
+                "values": [
+                    {
+                        "key": "id",
+                        "negation": False,
+                        "type": "cohort",
+                        "value": cohort.pk,
+                    }
+                ],
+            },
         )
 
         # with negation
@@ -122,7 +175,17 @@ class TestCohortUtils(BaseTest):
 
         self.assertEqual(
             result.to_dict(),
-            {"type": "AND", "values": [{"key": "id", "negation": True, "type": "cohort", "value": cohort.pk}]},
+            {
+                "type": "AND",
+                "values": [
+                    {
+                        "key": "id",
+                        "negation": True,
+                        "type": "cohort",
+                        "value": cohort.pk,
+                    }
+                ],
+            },
         )
 
     def test_simplified_cohort_filter_properties_non_precalculated_cohort_with_cohort_filter(self):
@@ -139,7 +202,12 @@ class TestCohortUtils(BaseTest):
                     "type": "AND",
                     "values": [
                         {"key": "name", "value": "test", "type": "person"},
-                        {"key": "id", "value": cohort1.pk, "type": "cohort", "negation": True},
+                        {
+                            "key": "id",
+                            "value": cohort1.pk,
+                            "type": "cohort",
+                            "negation": True,
+                        },
                     ],
                 }
             },
@@ -154,11 +222,19 @@ class TestCohortUtils(BaseTest):
             {
                 "type": "AND",
                 "values": [
-                    {"type": "AND", "values": [{"key": "name", "value": "test", "type": "person"}]},
+                    {
+                        "type": "AND",
+                        "values": [{"key": "name", "value": "test", "type": "person"}],
+                    },
                     {
                         "type": "AND",
                         "values": [
-                            {"key": "id", "value": cohort1.pk, "type": "cohort", "negation": True},
+                            {
+                                "key": "id",
+                                "value": cohort1.pk,
+                                "type": "cohort",
+                                "negation": True,
+                            },
                         ],
                     },
                 ],
@@ -171,7 +247,17 @@ class TestCohortUtils(BaseTest):
 
         self.assertEqual(
             result.to_dict(),
-            {"type": "AND", "values": [{"key": "id", "negation": True, "type": "cohort", "value": cohort.pk}]},
+            {
+                "type": "AND",
+                "values": [
+                    {
+                        "key": "id",
+                        "negation": True,
+                        "type": "cohort",
+                        "value": cohort.pk,
+                    }
+                ],
+            },
         )
 
     def test_simplified_cohort_filter_properties_non_precalculated_cohort_with_only_person_property_filters(self):
@@ -182,7 +268,10 @@ class TestCohortUtils(BaseTest):
                 "properties": {
                     "type": "OR",
                     "values": [
-                        {"type": "AND", "values": [{"key": "name", "value": "test", "type": "person"}]},
+                        {
+                            "type": "AND",
+                            "values": [{"key": "name", "value": "test", "type": "person"}],
+                        },
                         {
                             "type": "OR",
                             "values": [
@@ -204,7 +293,10 @@ class TestCohortUtils(BaseTest):
             {
                 "type": "OR",
                 "values": [
-                    {"type": "AND", "values": [{"key": "name", "value": "test", "type": "person"}]},
+                    {
+                        "type": "AND",
+                        "values": [{"key": "name", "value": "test", "type": "person"}],
+                    },
                     {
                         "type": "OR",
                         "values": [
@@ -222,7 +314,17 @@ class TestCohortUtils(BaseTest):
 
         self.assertEqual(
             result.to_dict(),
-            {"type": "AND", "values": [{"key": "id", "negation": True, "type": "cohort", "value": cohort.pk}]},
+            {
+                "type": "AND",
+                "values": [
+                    {
+                        "key": "id",
+                        "negation": True,
+                        "type": "cohort",
+                        "value": cohort.pk,
+                    }
+                ],
+            },
         )
 
 
@@ -268,7 +370,18 @@ class TestDependentCohorts(BaseTest):
         cohort3 = _create_cohort(
             team=self.team,
             name="cohort3",
-            groups=[{"properties": [{"key": "id", "value": cohort2.pk, "type": "cohort", "negation": True}]}],
+            groups=[
+                {
+                    "properties": [
+                        {
+                            "key": "id",
+                            "value": cohort2.pk,
+                            "type": "cohort",
+                            "negation": True,
+                        }
+                    ]
+                }
+            ],
         )
 
         self.assertEqual(get_dependent_cohorts(cohort1), [])
@@ -291,7 +404,18 @@ class TestDependentCohorts(BaseTest):
         cohort3 = _create_cohort(
             team=self.team,
             name="cohort1",
-            groups=[{"properties": [{"key": "id", "value": cohort2.pk, "type": "cohort", "negation": True}]}],
+            groups=[
+                {
+                    "properties": [
+                        {
+                            "key": "id",
+                            "value": cohort2.pk,
+                            "type": "cohort",
+                            "negation": True,
+                        }
+                    ]
+                }
+            ],
         )
 
         cohort1.groups = [{"properties": [{"key": "id", "value": cohort3.pk, "type": "cohort"}]}]
@@ -328,7 +452,12 @@ class TestDependentCohorts(BaseTest):
                 {
                     "properties": [
                         {"key": "name", "value": "test3", "type": "person"},
-                        {"key": "id", "value": cohort2.pk, "type": "cohort", "negation": True},
+                        {
+                            "key": "id",
+                            "value": cohort2.pk,
+                            "type": "cohort",
+                            "negation": True,
+                        },
                     ]
                 }
             ],
@@ -337,7 +466,18 @@ class TestDependentCohorts(BaseTest):
         cohort4 = _create_cohort(
             team=self.team,
             name="cohort1",
-            groups=[{"properties": [{"key": "id", "value": cohort1.pk, "type": "cohort", "negation": True}]}],
+            groups=[
+                {
+                    "properties": [
+                        {
+                            "key": "id",
+                            "value": cohort1.pk,
+                            "type": "cohort",
+                            "negation": True,
+                        }
+                    ]
+                }
+            ],
         )
 
         cohort5 = _create_cohort(
@@ -346,8 +486,18 @@ class TestDependentCohorts(BaseTest):
             groups=[
                 {
                     "properties": [
-                        {"key": "id", "value": cohort2.pk, "type": "cohort", "negation": True},
-                        {"key": "id", "value": cohort4.pk, "type": "cohort", "negation": True},
+                        {
+                            "key": "id",
+                            "value": cohort2.pk,
+                            "type": "cohort",
+                            "negation": True,
+                        },
+                        {
+                            "key": "id",
+                            "value": cohort4.pk,
+                            "type": "cohort",
+                            "negation": True,
+                        },
                     ]
                 }
             ],
@@ -358,3 +508,39 @@ class TestDependentCohorts(BaseTest):
         self.assertEqual(get_dependent_cohorts(cohort3), [cohort2, cohort1])
         self.assertEqual(get_dependent_cohorts(cohort4), [cohort1])
         self.assertEqual(get_dependent_cohorts(cohort5), [cohort4, cohort1, cohort2])
+
+    def test_dependent_cohorts_ignore_invalid_ids(self):
+        cohort1 = _create_cohort(
+            team=self.team,
+            name="cohort1",
+            groups=[{"properties": [{"key": "name", "value": "test", "type": "person"}]}],
+        )
+
+        cohort2 = _create_cohort(
+            team=self.team,
+            name="cohort2",
+            groups=[
+                {
+                    "properties": [
+                        {"key": "id", "value": cohort1.pk, "type": "cohort"},
+                        {"key": "id", "value": "invalid-key", "type": "cohort"},
+                    ]
+                }
+            ],
+        )
+
+        cohort3 = _create_cohort(
+            team=self.team,
+            name="cohorte",
+            groups=[
+                {
+                    "properties": [
+                        {"key": "id", "value": cohort2.pk, "type": "cohort"},
+                        {"key": "id", "value": "invalid-key", "type": "cohort"},
+                    ]
+                }
+            ],
+        )
+
+        self.assertEqual(get_dependent_cohorts(cohort2), [cohort1])
+        self.assertEqual(get_dependent_cohorts(cohort3), [cohort2, cohort1])

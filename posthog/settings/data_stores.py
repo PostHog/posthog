@@ -62,7 +62,10 @@ if TEST or DEBUG:
     PG_PASSWORD = os.getenv("PGPASSWORD", "posthog")
     PG_PORT = os.getenv("PGPORT", "5432")
     PG_DATABASE = os.getenv("PGDATABASE", "posthog")
-    DATABASE_URL = os.getenv("DATABASE_URL", f"postgres://{PG_USER}:{PG_PASSWORD}@{PG_HOST}:{PG_PORT}/{PG_DATABASE}")
+    DATABASE_URL = os.getenv(
+        "DATABASE_URL",
+        f"postgres://{PG_USER}:{PG_PASSWORD}@{PG_HOST}:{PG_PORT}/{PG_DATABASE}",
+    )
 else:
     DATABASE_URL = os.getenv("DATABASE_URL", "")
 
@@ -276,6 +279,12 @@ USE_REDIS_COMPRESSION = get_from_env("USE_REDIS_COMPRESSION", False, type_cast=s
 # ElastiCache manages updating which nodes are used if a replica is failed-over to primary
 # so that we don't have to worry about changing config.
 REDIS_READER_URL = os.getenv("REDIS_READER_URL", None)
+
+# Ingestion is now using a separate Redis cluster for better resource isolation.
+# Django and plugin-server currently communicate via the reload-plugins Redis
+# pubsub channel, pushed to when plugin configs change.
+# We should move away to a different communication channel and remove this.
+PLUGINS_RELOAD_REDIS_URL = os.getenv("PLUGINS_RELOAD_REDIS_URL", REDIS_URL)
 
 CACHES = {
     "default": {

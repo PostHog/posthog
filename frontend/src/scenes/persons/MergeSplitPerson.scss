@@ -1,14 +1,14 @@
 .merge-split-person {
     .activity-header {
+        display: flex;
+        justify-content: center;
+        padding: 8px 0;
+        margin-right: -24px;
+        margin-bottom: 1rem;
+        margin-left: -24px;
         background-color: var(--mid);
         border-top: 1px solid var(--border);
         border-bottom: 1px solid var(--border);
-        margin-left: -24px;
-        margin-right: -24px;
-        padding: 8px 0;
-        display: flex;
-        justify-content: center;
-        margin-bottom: 1rem;
     }
 
     .ant-modal-header {
@@ -29,9 +29,9 @@
 
     // TODO: consider moving this style globally
     code {
-        background-color: var(--mid);
-        color: var(--primary-alt);
         padding: 4px 8px;
+        color: var(--primary-alt);
+        background-color: var(--mid);
         border-radius: var(--radius);
     }
 }

@@ -1,35 +1,36 @@
-import { useEffect, useRef } from 'react'
+import 'chartjs-adapter-dayjs-3'
+
+import ChartDataLabels, { Context } from 'chartjs-plugin-datalabels'
+import { useActions, useValues } from 'kea'
 import {
     ActiveElement,
     Chart,
+    ChartDataset,
     ChartEvent,
     ChartItem,
-    ChartType,
-    TooltipModel,
     ChartOptions,
-    ChartDataset,
+    ChartType,
     Plugin,
+    TooltipModel,
 } from 'lib/Chart'
-import 'chartjs-adapter-dayjs-3'
-import { areObjectValuesEmpty } from '~/lib/utils'
-import { GraphType } from '~/types'
+import { SeriesLetter } from 'lib/components/SeriesGlyph'
+import { useEffect, useRef } from 'react'
 import { formatAggregationAxisValue } from 'scenes/insights/aggregationAxisFormat'
+import { insightLogic } from 'scenes/insights/insightLogic'
+import { InsightTooltip } from 'scenes/insights/InsightTooltip/InsightTooltip'
+import { SeriesDatum } from 'scenes/insights/InsightTooltip/insightTooltipUtils'
 import {
-    ensureTooltipElement,
+    ensureTooltip,
     filterNestedDataset,
     LineGraphProps,
     onChartClick,
     onChartHover,
 } from 'scenes/insights/views/LineGraph/LineGraph'
-import ReactDOM from 'react-dom'
-import { InsightTooltip } from 'scenes/insights/InsightTooltip/InsightTooltip'
-import { useActions, useValues } from 'kea'
+import { createTooltipData } from 'scenes/insights/views/LineGraph/tooltip-data'
+
+import { areObjectValuesEmpty } from '~/lib/utils'
 import { groupsModel } from '~/models/groupsModel'
-import { lineGraphLogic } from 'scenes/insights/views/LineGraph/lineGraphLogic'
-import { insightLogic } from 'scenes/insights/insightLogic'
-import { SeriesDatum } from 'scenes/insights/InsightTooltip/insightTooltipUtils'
-import { SeriesLetter } from 'lib/components/SeriesGlyph'
-import ChartDataLabels from 'chartjs-plugin-datalabels'
+import { GraphType } from '~/types'
 
 let timer: NodeJS.Timeout | null = null
 
@@ -46,6 +47,16 @@ function setTooltipPosition(chart: Chart, tooltipEl: HTMLElement): void {
     }, 25)
 }
 
+function getPercentageForDataPoint(context: Context): number {
+    const total = context.dataset.data.reduce((a, b) => (a as number) + (b as number), 0) as number
+    return ((context.dataset.data[context.dataIndex] as number) / total) * 100
+}
+
+export interface PieChartProps extends LineGraphProps {
+    showLabelOnSeries?: boolean | null
+    disableHoverOffset?: boolean | null
+}
+
 export function PieChart({
     datasets: _datasets,
     hiddenLegendKeys,
@@ -56,11 +67,16 @@ export function PieChart({
     trendsFilter,
     formula,
     showValueOnSeries,
+    showLabelOnSeries,
+    supportsPercentStackView,
+    showPercentStackView,
     tooltip: tooltipConfig,
     showPersonsModal = true,
     labelGroupType,
-}: LineGraphProps): JSX.Element {
+    disableHoverOffset,
+}: PieChartProps): JSX.Element {
     const isPie = type === GraphType.Pie
+    const isPercentStackView = !!supportsPercentStackView && !!showPercentStackView
 
     if (!isPie) {
         throw new Error('PieChart must be a pie chart')
@@ -68,7 +84,6 @@ export function PieChart({
 
     let datasets = _datasets
 
-    const { createTooltipData } = useValues(lineGraphLogic)
     const { aggregationLabel } = useValues(groupsModel)
     const { highlightSeries } = useActions(insightLogic)
     const canvasRef = useRef<HTMLCanvasElement | null>(null)
@@ -107,12 +122,14 @@ export function PieChart({
                 layout: {
                     padding: {
                         top: 12, // 12 px so that the label isn't cropped
+                        left: 20,
+                        right: 20,
                         bottom: 20, // 12 px so that the label isn't cropped + 8 px of padding against the number below
                     },
                 },
                 borderWidth: 0,
                 borderRadius: 0,
-                hoverOffset: onlyOneValue ? 0 : 16, // don't offset hovered segment if it is 100%
+                hoverOffset: onlyOneValue || disableHoverOffset ? 0 : 16, // don't offset hovered segment if it is 100%
                 onHover(event: ChartEvent, _: ActiveElement[], chart: Chart) {
                     onChartHover(event, chart, onClick)
                 },
@@ -127,16 +144,9 @@ export function PieChart({
                             return context.dataset.backgroundColor?.[context.dataIndex] || 'black'
                         },
                         display: (context) => {
-                            const total = context.dataset.data.reduce(
-                                (a, b) => (a as number) + (b as number),
-                                0
-                            ) as number
-                            const percentage = ((context.dataset.data[context.dataIndex] as number) / total) * 100
-                            return showValueOnSeries !== false && // show if true or unset
-                                context.dataset.data.length > 1 &&
-                                percentage > 5
-                                ? 'auto'
-                                : false
+                            const percentage = getPercentageForDataPoint(context)
+                            const showValueForSeries = showValueOnSeries !== false && context.dataset.data.length > 1 // show if true or unset
+                            return (showValueForSeries || showLabelOnSeries) && percentage > 5 ? 'auto' : false
                         },
                         padding: (context) => {
                             // in order to make numbers below 10 look circular we need a little padding
@@ -145,7 +155,18 @@ export function PieChart({
                             const paddingX = value < 10 ? 5 : 4
                             return { top: paddingY, bottom: paddingY, left: paddingX, right: paddingX }
                         },
-                        formatter: (value: number) => formatAggregationAxisValue(trendsFilter, value),
+                        formatter: (value: number, context) => {
+                            if (showLabelOnSeries) {
+                                // cast to any as it seems like TypeScript types are wrong
+                                return (context.dataset as any).labels?.[context.dataIndex]
+                            }
+                            if (isPercentStackView) {
+                                const percentage = getPercentageForDataPoint(context)
+                                return `${percentage.toFixed(1)}%`
+                            }
+
+                            return formatAggregationAxisValue(trendsFilter, value)
+                        },
                         font: {
                             weight: 500,
                         },
@@ -166,10 +187,10 @@ export function PieChart({
                                 return
                             }
 
-                            const tooltipEl = ensureTooltipElement()
+                            const [tooltipRoot, tooltipEl] = ensureTooltip()
                             if (tooltip.opacity === 0) {
                                 // remove highlight from the legend
-                                if (trendsFilter?.show_legend) {
+                                if (trendsFilter?.showLegend) {
                                     highlightSeries(null)
                                 }
                                 tooltipEl.style.opacity = '0'
@@ -192,7 +213,7 @@ export function PieChart({
 
                                 highlightSeries(seriesData[0].dataIndex)
 
-                                ReactDOM.render(
+                                tooltipRoot.render(
                                     <InsightTooltip
                                         seriesData={seriesData}
                                         hideColorCol={!!tooltipConfig?.hideColorCol}
@@ -238,8 +259,7 @@ export function PieChart({
                                                 : aggregationLabel(labelGroupType).plural
                                         }
                                         {...tooltipConfig}
-                                    />,
-                                    tooltipEl
+                                    />
                                 )
                             }
 

@@ -1,10 +1,12 @@
 .metrics-drawer {
     z-index: var(--z-drawer);
+
     .metrics-chart-wrapper {
         canvas {
             max-width: 90%;
             max-height: 80%;
         }
+
         canvas:hover {
             cursor: default !important;
         }

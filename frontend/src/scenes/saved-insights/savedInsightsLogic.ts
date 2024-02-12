@@ -1,21 +1,24 @@
-import { kea } from 'kea'
-import { router } from 'kea-router'
+import { actions, connect, kea, listeners, path, reducers, selectors } from 'kea'
+import { loaders } from 'kea-loaders'
+import { actionToUrl, router, urlToAction } from 'kea-router'
 import api from 'lib/api'
-import { objectDiffShallow, objectsEqual, toParams } from 'lib/utils'
-import { InsightModel, LayoutView, SavedInsightsTabs } from '~/types'
-import type { savedInsightsLogicType } from './savedInsightsLogicType'
 import { dayjs } from 'lib/dayjs'
-import { insightsModel } from '~/models/insightsModel'
-import { teamLogic } from '../teamLogic'
-import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { Sorting } from 'lib/lemon-ui/LemonTable'
-import { urls } from 'scenes/urls'
-import { lemonToast } from 'lib/lemon-ui/lemonToast'
+import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { PaginationManual } from 'lib/lemon-ui/PaginationControl'
-import { dashboardsModel } from '~/models/dashboardsModel'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { objectDiffShallow, objectsEqual, toParams } from 'lib/utils'
+import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { deleteDashboardLogic } from 'scenes/dashboard/deleteDashboardLogic'
 import { duplicateDashboardLogic } from 'scenes/dashboard/duplicateDashboardLogic'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { urls } from 'scenes/urls'
+
+import { dashboardsModel } from '~/models/dashboardsModel'
+import { insightsModel } from '~/models/insightsModel'
+import { InsightModel, LayoutView, SavedInsightsTabs } from '~/types'
+
+import { teamLogic } from '../teamLogic'
+import type { savedInsightsLogicType } from './savedInsightsLogicType'
 
 export const INSIGHTS_PER_PAGE = 30
 
@@ -37,7 +40,7 @@ export interface SavedInsightFilters {
     search: string
     insightType: string
     createdBy: number | 'All users'
-    dateFrom: string | dayjs.Dayjs | undefined | 'all' | null
+    dateFrom: string | dayjs.Dayjs | undefined | null
     dateTo: string | dayjs.Dayjs | undefined | null
     page: number
     dashboardId: number | undefined | null
@@ -58,13 +61,13 @@ function cleanFilters(values: Partial<SavedInsightFilters>): SavedInsightFilters
     }
 }
 
-export const savedInsightsLogic = kea<savedInsightsLogicType>({
-    path: ['scenes', 'saved-insights', 'savedInsightsLogic'],
-    connect: {
+export const savedInsightsLogic = kea<savedInsightsLogicType>([
+    path(['scenes', 'saved-insights', 'savedInsightsLogic']),
+    connect({
         values: [teamLogic, ['currentTeamId'], featureFlagLogic, ['featureFlags']],
         logic: [eventUsageLogic],
-    },
-    actions: {
+    }),
+    actions({
         setSavedInsightsFilters: (
             filters: Partial<SavedInsightFilters>,
             merge: boolean = true,
@@ -79,8 +82,8 @@ export const savedInsightsLogic = kea<savedInsightsLogicType>({
         loadInsights: (debounce: boolean = true) => ({ debounce }),
         setInsight: (insight: InsightModel) => ({ insight }),
         addInsight: (insight: InsightModel) => ({ insight }),
-    },
-    loaders: ({ values }) => ({
+    }),
+    loaders(({ values }) => ({
         insights: {
             __default: { results: [], count: 0, filters: null, offset: 0 } as InsightsResult,
             loadInsights: async ({ debounce }, breakpoint) => {
@@ -139,8 +142,8 @@ export const savedInsightsLogic = kea<savedInsightsLogicType>({
                 return { ...values.insights, results: updatedInsights }
             },
         },
-    }),
-    reducers: {
+    })),
+    reducers({
         insights: {
             setInsight: (state, { insight }) => ({
                 ...state,
@@ -164,8 +167,8 @@ export const savedInsightsLogic = kea<savedInsightsLogicType>({
                     }),
             },
         ],
-    },
-    selectors: ({ actions }) => ({
+    }),
+    selectors(({ actions }) => ({
         filters: [(s) => [s.rawFilters], (rawFilters): SavedInsightFilters => cleanFilters(rawFilters || {})],
         count: [(s) => [s.insights], (insights) => insights.count],
         usingFilters: [
@@ -236,8 +239,8 @@ export const savedInsightsLogic = kea<savedInsightsLogicType>({
                 }
             },
         ],
-    }),
-    listeners: ({ actions, asyncActions, values, selectors }) => ({
+    })),
+    listeners(({ actions, asyncActions, values, selectors }) => ({
         setSavedInsightsFilters: async ({ merge, debounce }, breakpoint, __, previousState) => {
             const oldFilters = selectors.filters(previousState)
             const firstLoad = selectors.rawFilters(previousState) === null
@@ -307,8 +310,8 @@ export const savedInsightsLogic = kea<savedInsightsLogicType>({
                 actions.loadInsights()
             }
         },
-    }),
-    actionToUrl: ({ values }) => {
+    })),
+    actionToUrl(({ values }) => {
         const changeUrl = ():
             | [
                   string,
@@ -336,8 +339,8 @@ export const savedInsightsLogic = kea<savedInsightsLogicType>({
             loadInsights: changeUrl,
             setLayoutView: changeUrl,
         }
-    },
-    urlToAction: ({ actions, values }) => ({
+    }),
+    urlToAction(({ actions, values }) => ({
         [urls.savedInsights()]: async (_, searchParams, hashParams) => {
             if (hashParams.fromItem && String(hashParams.fromItem).match(/^[0-9]+$/)) {
                 // `fromItem` for legacy /insights url redirect support
@@ -367,5 +370,5 @@ export const savedInsightsLogic = kea<savedInsightsLogicType>({
                 actions.setSavedInsightsFilters(nextFilters, false)
             }
         },
-    }),
-})
+    })),
+])

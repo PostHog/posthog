@@ -1,12 +1,21 @@
-import { FEATURE_FLAGS } from 'lib/constants'
+import { Meta, StoryFn } from '@storybook/react'
+import { router } from 'kea-router'
 import { useEffect } from 'react'
 import { App } from 'scenes/App'
 import { urls } from 'scenes/urls'
-import { mswDecorator, useFeatureFlags } from '~/mocks/browser'
+
+import { mswDecorator } from '~/mocks/browser'
 import { toPaginatedResponse } from '~/mocks/handlers'
-import { PropertyFilterType, PropertyOperator, Survey, SurveyQuestionType, SurveyType } from '~/types'
-import { Meta } from '@storybook/react'
-import { router } from 'kea-router'
+import {
+    FeatureFlagBasicType,
+    PropertyFilterType,
+    PropertyOperator,
+    Survey,
+    SurveyQuestionType,
+    SurveyType,
+} from '~/types'
+
+import { SurveyEditSection, surveyLogic } from './surveyLogic'
 
 const MOCK_BASIC_SURVEY: Survey = {
     id: '0187c279-bcae-0000-34f5-4f121921f005',
@@ -27,7 +36,7 @@ const MOCK_BASIC_SURVEY: Survey = {
     linked_flag_id: null,
     targeting_flag: null,
     targeting_flag_filters: undefined,
-    appearance: { backgroundColor: 'white', textColor: 'black', submitButtonColor: '#2C2C2C' },
+    appearance: { backgroundColor: 'white', submitButtonColor: '#2C2C2C' },
     start_date: null,
     end_date: null,
     archived: false,
@@ -47,7 +56,7 @@ const MOCK_SURVEY_WITH_RELEASE_CONS: Survey = {
         email: 'test2@posthog.com',
     },
     questions: [{ question: 'question 2?', type: SurveyQuestionType.Open }],
-    appearance: { backgroundColor: 'white', textColor: 'black', submitButtonColor: '#2C2C2C' },
+    appearance: { backgroundColor: 'white', submitButtonColor: '#2C2C2C' },
     conditions: { url: 'posthog', selector: '' },
     linked_flag: {
         id: 7,
@@ -59,7 +68,7 @@ const MOCK_SURVEY_WITH_RELEASE_CONS: Survey = {
                 {
                     variant: null,
                     properties: [],
-                    rollout_percentage: null,
+                    rollout_percentage: undefined,
                 },
             ],
             payloads: {},
@@ -103,26 +112,6 @@ const MOCK_SURVEY_WITH_RELEASE_CONS: Survey = {
     archived: false,
 }
 
-// const MOCK_SURVEY_DISMISSED = {
-//     "clickhouse": "SELECT count() AS `survey dismissed` FROM events WHERE and(equals(events.team_id, 1), equals(events.event, %(hogql_val_0)s), equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, %(hogql_val_1)s), ''), 'null'), '^\"|\"$', ''), %(hogql_val_2)s)) LIMIT 100 SETTINGS readonly=2, max_execution_time=60",
-//     "columns": [
-//         "survey dismissed"
-//     ],
-//     "hogql": "SELECT count() AS `survey dismissed` FROM events WHERE and(equals(event, 'survey dismissed'), equals(properties.$survey_id, '0188e637-3b72-0000-f407-07a338652af9')) LIMIT 100",
-//     "query": "select count() as 'survey dismissed' from events where event == 'survey dismissed' and properties.$survey_id == '0188e637-3b72-0000-f407-07a338652af9'",
-//     "results": [
-//         [
-//             0
-//         ]
-//     ],
-//     "types": [
-//         [
-//             "survey dismissed",
-//             "UInt64"
-//         ]
-//     ]
-// }
-
 const MOCK_SURVEY_SHOWN = {
     clickhouse:
         "SELECT count() AS `survey shown` FROM events WHERE and(equals(events.team_id, 1), equals(events.event, %(hogql_val_0)s), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, %(hogql_val_1)s), ''), 'null'), '^\"|\"$', ''), %(hogql_val_2)s), 0)) LIMIT 100 SETTINGS readonly=2, max_execution_time=60",
@@ -145,11 +134,15 @@ const MOCK_SURVEY_RESULTS = {
     ],
 }
 
-export default {
+const MOCK_RESPONSES_COUNT = {
+    '0187c279-bcae-0000-34f5-4f121921f005': 17,
+    '0187c279-bcae-0000-34f5-4f121921f006': 25,
+}
+
+const meta: Meta = {
     title: 'Scenes-App/Surveys',
     parameters: {
         layout: 'fullscreen',
-        options: { showPanel: false },
         testOptions: {
             excludeNavigationFromSnapshot: true,
         },
@@ -165,39 +158,105 @@ export default {
                 ]),
                 '/api/projects/:team_id/surveys/0187c279-bcae-0000-34f5-4f121921f005/': MOCK_BASIC_SURVEY,
                 '/api/projects/:team_id/surveys/0187c279-bcae-0000-34f5-4f121921f006/': MOCK_SURVEY_WITH_RELEASE_CONS,
+                '/api/projects/:team_id/surveys/responses_count/': MOCK_RESPONSES_COUNT,
+                [`/api/projects/:team_id/feature_flags/${
+                    (MOCK_SURVEY_WITH_RELEASE_CONS.linked_flag as FeatureFlagBasicType).id
+                }`]: toPaginatedResponse([MOCK_SURVEY_WITH_RELEASE_CONS.linked_flag]),
+                [`/api/projects/:team_id/feature_flags/${
+                    (MOCK_SURVEY_WITH_RELEASE_CONS.targeting_flag as FeatureFlagBasicType).id
+                }`]: toPaginatedResponse([MOCK_SURVEY_WITH_RELEASE_CONS.targeting_flag]),
             },
             post: {
-                '/api/projects/:team_id/query/': (req) => {
-                    if ((req.body as any).kind == 'EventsQuery') {
-                        return MOCK_SURVEY_RESULTS
+                '/api/projects/:team_id/query/': async (req, res, ctx) => {
+                    const body = await req.json()
+                    if (body.kind == 'EventsQuery') {
+                        return res(ctx.json(MOCK_SURVEY_RESULTS))
+                    } else {
+                        return res(ctx.json(MOCK_SURVEY_SHOWN))
                     }
-                    return MOCK_SURVEY_SHOWN
                 },
             },
         }),
     ],
-} as Meta
-
-export function SurveysList(): JSX.Element {
-    useFeatureFlags([FEATURE_FLAGS.SURVEYS])
+}
+export default meta
+export const SurveysList: StoryFn = () => {
     useEffect(() => {
         router.actions.push(urls.surveys())
     }, [])
     return <App />
 }
 
-export function NewSurvey(): JSX.Element {
-    useFeatureFlags([FEATURE_FLAGS.SURVEYS])
+export const NewSurvey: StoryFn = () => {
     useEffect(() => {
         router.actions.push(urls.survey('new'))
     }, [])
     return <App />
 }
 
-export function SurveyView(): JSX.Element {
-    useFeatureFlags([FEATURE_FLAGS.SURVEYS])
+export const NewSurveyCustomisationSection: StoryFn = () => {
+    useEffect(() => {
+        router.actions.push(urls.survey('new'))
+        surveyLogic({ id: 'new' }).mount()
+        surveyLogic({ id: 'new' }).actions.setSelectedSection(SurveyEditSection.Customization)
+    }, [])
+    return <App />
+}
+
+export const NewSurveyPresentationSection: StoryFn = () => {
+    useEffect(() => {
+        router.actions.push(urls.survey('new'))
+        surveyLogic({ id: 'new' }).mount()
+        surveyLogic({ id: 'new' }).actions.setSelectedSection(SurveyEditSection.Presentation)
+    }, [])
+    return <App />
+}
+
+export const NewSurveyTargetingSection: StoryFn = () => {
+    useEffect(() => {
+        router.actions.push(urls.survey('new'))
+        surveyLogic({ id: 'new' }).mount()
+        surveyLogic({ id: 'new' }).actions.setSelectedSection(SurveyEditSection.Targeting)
+        surveyLogic({ id: 'new' }).actions.setSurveyValue('conditions', { url: 'kiki' })
+        surveyLogic({ id: 'new' }).actions.setSurveyValue('targeting_flag_filters', {
+            groups: [
+                {
+                    properties: [{ key: '$browser', value: ['Chrome'], operator: 'exact', type: 'person' }],
+                    rollout_percentage: 20,
+                },
+            ],
+        })
+    }, [])
+    return <App />
+}
+
+export const NewSurveyAppearanceSection: StoryFn = () => {
+    useEffect(() => {
+        router.actions.push(urls.survey('new'))
+        surveyLogic({ id: 'new' }).mount()
+        surveyLogic({ id: 'new' }).actions.setSelectedSection(SurveyEditSection.Appearance)
+    }, [])
+    return <App />
+}
+
+export const SurveyView: StoryFn = () => {
     useEffect(() => {
         router.actions.push(urls.survey(MOCK_SURVEY_WITH_RELEASE_CONS.id))
+    }, [])
+    return <App />
+}
+SurveyView.tags = ['test-skip'] // FIXME: Fix the mocked data so that survey results can actually load
+
+export const SurveyTemplates: StoryFn = () => {
+    useEffect(() => {
+        router.actions.push(urls.surveyTemplates())
+    }, [])
+    return <App />
+}
+
+export const SurveyNotFound: StoryFn = () => {
+    useEffect(() => {
+        router.actions.push(urls.survey('1234566789'))
     }, [])
     return <App />
 }

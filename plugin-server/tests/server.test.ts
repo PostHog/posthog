@@ -10,7 +10,7 @@ import { resetTestDatabase } from './helpers/sql'
 jest.mock('../src/utils/kill')
 jest.mock('../src/main/graphile-worker/schedule')
 jest.mock('../src/main/graphile-worker/worker-setup')
-jest.setTimeout(60000) // 60 sec timeout
+jest.setTimeout(20000) // 20 sec timeout - longer indicates an issue
 
 function numberOfScheduledJobs() {
     return Object.keys(nodeSchedule.scheduledJobs).length
@@ -36,15 +36,11 @@ describe('server', () => {
 
     beforeEach(() => {
         jest.spyOn(Sentry, 'captureMessage')
-
-        jest.useFakeTimers({ advanceTimers: true })
     })
 
     afterEach(async () => {
         await pluginsServer?.stop?.()
         pluginsServer = null
-        jest.runOnlyPendingTimers()
-        jest.useRealTimers()
     })
 
     test('startPluginsServer does not error', async () => {

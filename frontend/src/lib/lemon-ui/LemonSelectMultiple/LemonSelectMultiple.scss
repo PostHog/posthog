@@ -1,17 +1,21 @@
 .LemonSelectMultiple {
     .ant-select {
         width: 100%;
+
         .ant-select-selector,
         &.ant-select-single .ant-select-selector {
-            min-height: 40px;
+            min-height: 2.5rem;
             padding: 0.25rem;
-            border-radius: var(--radius);
             font-size: 0.875rem;
-            text-align: left;
             line-height: 1.25rem;
-
-            border: 1px solid var(--border);
+            text-align: left;
             background: var(--bg-light);
+            border: 1px solid var(--border);
+            border-radius: var(--radius);
+
+            .posthog-3000 & {
+                min-height: 2.125rem;
+            }
 
             .ant-select-selection-overflow {
                 gap: 0.25rem;
@@ -23,10 +27,11 @@
         &:not(.ant-select-disabled):active {
             .ant-select-selector {
                 background: var(--bg-light);
-                border-color: var(--primary);
+                border-color: var(--border-bold);
                 box-shadow: none;
             }
         }
+
         &:not(.ant-select-disabled):active {
             .ant-select-selector {
                 color: var(--primary-active);
@@ -39,8 +44,8 @@
 
         &.ant-select-single {
             .ant-select-selector {
-                height: 40px;
                 box-sizing: border-box;
+                height: 40px;
 
                 .ant-select-selection-search-input {
                     height: 38px;
@@ -63,21 +68,26 @@
 }
 
 .LemonSelectMultipleDropdown {
-    background: var(--bg-light);
     padding: 0.5rem;
-    border-radius: var(--radius);
+    margin: -4px 0; // Counteract antd wrapper
+    background: var(--bg-light);
     border: 1px solid var(--primary);
-    margin: -4px 0px; // Counteract antd wrapper
+    border-radius: var(--radius);
+
+    .posthog-3000 & {
+        border: 1px solid var(--primary-3000);
+    }
 
     .ant-select-item {
-        padding: 0px;
-        background: none;
+        padding: 0;
         padding-bottom: 0.2rem;
+        background: none;
+
         .ant-select-item-option-content {
             height: 40px;
+            padding: 0.25rem 0.5rem;
             cursor: pointer;
             border-radius: var(--radius);
-            padding: 0.25rem 0.5rem;
         }
 
         &.ant-select-item-option-active {
@@ -91,13 +101,14 @@
                 background: var(--primary-bg-active);
             }
         }
+
         .ant-select-item-option-state {
             display: none;
         }
     }
 
     .ant-select-item-empty {
-        padding: 0px;
+        padding: 0;
     }
 
     .ant-select-item-option-content {
@@ -107,9 +118,9 @@
 
     .LemonSelectMultipleDropdown__skeleton {
         display: flex;
-        align-items: center;
         gap: 0.5rem;
+        align-items: center;
         height: 40px;
-        padding: 0px 0.25rem;
+        padding: 0 0.25rem;
     }
 }

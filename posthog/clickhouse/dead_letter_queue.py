@@ -86,7 +86,9 @@ _timestamp,
 _offset
 FROM {database}.kafka_{table_name}
 """.format(
-    table_name=DEAD_LETTER_QUEUE_TABLE, cluster=CLICKHOUSE_CLUSTER, database=CLICKHOUSE_DATABASE
+    table_name=DEAD_LETTER_QUEUE_TABLE,
+    cluster=CLICKHOUSE_CLUSTER,
+    database=CLICKHOUSE_DATABASE,
 )
 
 

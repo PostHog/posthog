@@ -1,5 +1,6 @@
-import { LemonTagType } from '@posthog/lemon-ui'
+import { LemonTagType, SideAction } from '@posthog/lemon-ui'
 import { Logic, LogicWrapper } from 'kea'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { Dayjs } from 'lib/dayjs'
 import { LemonMenuItems } from 'lib/lemon-ui/LemonMenu'
 import React from 'react'
@@ -27,15 +28,19 @@ interface NavbarItemBase {
     identifier: string
     label: string
     icon: JSX.Element
+    featureFlag?: (typeof FEATURE_FLAGS)[keyof typeof FEATURE_FLAGS]
+    tag?: 'alpha' | 'beta' | 'new'
+    sideAction?: Pick<SideAction, 'icon' | 'to' | 'onClick' | 'tooltip' | 'dropdown'> & { identifier: string }
 }
 export interface SceneNavbarItem extends NavbarItemBase {
     to: string
+    logic?: undefined
 }
 export interface SidebarNavbarItem extends NavbarItemBase {
+    to?: undefined
     logic: LogicWrapper<SidebarLogic>
 }
 /** A navbar item either points to a sidebar (via a sidebar logic) or directly to a scene (via a URL). */
-// TODO: Remove NavbarItemBase from NavbarItem once all 3000 navbar items are interactive
 export type NavbarItem = NavbarItemBase | SceneNavbarItem | SidebarNavbarItem
 
 export type ListItemSaveHandler = (newName: string) => Promise<void>

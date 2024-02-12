@@ -1,3 +1,4 @@
+import asyncio
 import base64
 import dataclasses
 import datetime
@@ -9,7 +10,6 @@ import os
 import re
 import secrets
 import string
-import subprocess
 import time
 import uuid
 import zlib
@@ -28,11 +28,14 @@ from typing import (
     cast,
 )
 from urllib.parse import urljoin, urlparse
+from zoneinfo import ZoneInfo
 
 import lzstring
 import posthoganalytics
 import pytz
 import structlog
+from asgiref.sync import async_to_sync
+from celery.result import AsyncResult
 from celery.schedules import crontab
 from dateutil import parser
 from dateutil.relativedelta import relativedelta
@@ -46,14 +49,17 @@ from rest_framework.request import Request
 from sentry_sdk import configure_scope
 from sentry_sdk.api import capture_exception
 
-from posthog.cloud_utils import is_cloud
+from posthog.cloud_utils import get_cached_instance_license, is_cloud
 from posthog.constants import AvailableFeature
 from posthog.exceptions import RequestParsingError
+from posthog.git import get_git_branch, get_git_commit
+from posthog.metrics import KLUDGES_COUNTER
 from posthog.redis import get_client
 
 if TYPE_CHECKING:
     from django.contrib.auth.models import AbstractBaseUser, AnonymousUser
-    from posthog.models import User, Team
+
+    from posthog.models import Team, User
 
 DATERANGE_MAP = {
     "minute": datetime.timedelta(minutes=1),
@@ -73,10 +79,13 @@ logger = structlog.get_logger(__name__)
 __location__ = os.path.realpath(os.path.join(os.getcwd(), os.path.dirname(__file__)))
 
 
-def format_label_date(date: datetime.datetime, interval: str) -> str:
-    labels_format = "%-d-%b-%Y"
-    if interval == "hour":
-        labels_format += " %H:%M"
+def format_label_date(date: datetime.datetime, interval: str = "default") -> str:
+    date_formats = {
+        "default": "%-d-%b-%Y",
+        "hour": "%-d-%b-%Y %H:%M",
+        "month": "%b %Y",
+    }
+    labels_format = date_formats.get(interval, date_formats["default"])
     return date.strftime(labels_format)
 
 
@@ -114,30 +123,6 @@ def absolute_uri(url: Optional[str] = None) -> str:
     return urljoin(settings.SITE_URL.rstrip("/") + "/", url.lstrip("/"))
 
 
-def get_previous_week(at: Optional[datetime.datetime] = None) -> Tuple[datetime.datetime, datetime.datetime]:
-    """
-    Returns a pair of datetimes, representing the start and end of the week preceding to the passed date's week.
-    `at` is the datetime to use as a reference point.
-    """
-
-    if not at:
-        at = timezone.now()
-
-    period_end: datetime.datetime = datetime.datetime.combine(
-        at - datetime.timedelta(timezone.now().weekday() + 1),
-        datetime.time.max,
-        tzinfo=pytz.UTC,
-    )  # very end of the previous Sunday
-
-    period_start: datetime.datetime = datetime.datetime.combine(
-        period_end - datetime.timedelta(6),
-        datetime.time.min,
-        tzinfo=pytz.UTC,
-    )  # very start of the previous Monday
-
-    return (period_start, period_end)
-
-
 def get_previous_day(at: Optional[datetime.datetime] = None) -> Tuple[datetime.datetime, datetime.datetime]:
     """
     Returns a pair of datetimes, representing the start and end of the preceding day.
@@ -150,13 +135,13 @@ def get_previous_day(at: Optional[datetime.datetime] = None) -> Tuple[datetime.d
     period_end: datetime.datetime = datetime.datetime.combine(
         at - datetime.timedelta(days=1),
         datetime.time.max,
-        tzinfo=pytz.UTC,
+        tzinfo=ZoneInfo("UTC"),
     )  # very end of the previous day
 
     period_start: datetime.datetime = datetime.datetime.combine(
         period_end,
         datetime.time.min,
-        tzinfo=pytz.UTC,
+        tzinfo=ZoneInfo("UTC"),
     )  # very start of the previous day
 
     return (period_start, period_end)
@@ -174,43 +159,65 @@ def get_current_day(at: Optional[datetime.datetime] = None) -> Tuple[datetime.da
     period_end: datetime.datetime = datetime.datetime.combine(
         at,
         datetime.time.max,
-        tzinfo=pytz.UTC,
+        tzinfo=ZoneInfo("UTC"),
     )  # very end of the reference day
 
     period_start: datetime.datetime = datetime.datetime.combine(
         period_end,
         datetime.time.min,
-        tzinfo=pytz.UTC,
+        tzinfo=ZoneInfo("UTC"),
     )  # very start of the reference day
 
     return (period_start, period_end)
 
 
-def relative_date_parse_with_delta_mapping(input: str) -> Tuple[datetime.datetime, Optional[Dict[str, int]]]:
+def relative_date_parse_with_delta_mapping(
+    input: str,
+    timezone_info: ZoneInfo,
+    *,
+    always_truncate: bool = False,
+    now: Optional[datetime.datetime] = None,
+) -> Tuple[datetime.datetime, Optional[Dict[str, int]], str | None]:
     """Returns the parsed datetime, along with the period mapping - if the input was a relative datetime string."""
     try:
-        return datetime.datetime.strptime(input, "%Y-%m-%d").replace(tzinfo=pytz.UTC), None
+        try:
+            # This supports a few formats, but we primarily care about:
+            # YYYY-MM-DD, YYYY-MM-DD[T]hh:mm, YYYY-MM-DD[T]hh:mm:ss, YYYY-MM-DD[T]hh:mm:ss.ssssss
+            # (if a timezone offset is specified, we use it, otherwise we assume project timezone)
+            parsed_dt = parser.isoparse(input)
+        except ValueError:
+            # Fallback to also parse dates without zero-padding, e.g. 2021-1-1 - parser.isoparse doesn't support this
+            parsed_dt = datetime.datetime.strptime(input, "%Y-%m-%d")
     except ValueError:
         pass
-
-    # when input also contains the time for intervals "hour" and "minute"
-    # the above try fails. Try one more time from isoformat.
-    try:
-        return parser.isoparse(input).replace(tzinfo=pytz.UTC), None
-    except ValueError:
-        pass
+    else:
+        if parsed_dt.tzinfo is None:
+            parsed_dt = parsed_dt.replace(tzinfo=timezone_info)
+        else:
+            parsed_dt = parsed_dt.astimezone(timezone_info)
+        return parsed_dt, None, None
 
     regex = r"\-?(?P<number>[0-9]+)?(?P<type>[a-z])(?P<position>Start|End)?"
     match = re.search(regex, input)
-    date = timezone.now()
+    parsed_dt = (now or dt.datetime.now()).astimezone(timezone_info)
     delta_mapping: Dict[str, int] = {}
     if not match:
-        return date, delta_mapping
+        return parsed_dt, delta_mapping, None
     if match.group("type") == "h":
         delta_mapping["hours"] = int(match.group("number"))
     elif match.group("type") == "d":
         if match.group("number"):
             delta_mapping["days"] = int(match.group("number"))
+        if match.group("position") == "Start":
+            delta_mapping["hour"] = 0
+            delta_mapping["minute"] = 0
+            delta_mapping["second"] = 0
+            delta_mapping["microsecond"] = 0
+        elif match.group("position") == "End":
+            delta_mapping["hour"] = 23
+            delta_mapping["minute"] = 59
+            delta_mapping["second"] = 59
+            delta_mapping["microsecond"] = 999999
     elif match.group("type") == "w":
         if match.group("number"):
             delta_mapping["weeks"] = int(match.group("number"))
@@ -219,7 +226,7 @@ def relative_date_parse_with_delta_mapping(input: str) -> Tuple[datetime.datetim
             delta_mapping["months"] = int(match.group("number"))
         if match.group("position") == "Start":
             delta_mapping["day"] = 1
-        if match.group("position") == "End":
+        elif match.group("position") == "End":
             delta_mapping["day"] = 31
     elif match.group("type") == "q":
         if match.group("number"):
@@ -230,72 +237,28 @@ def relative_date_parse_with_delta_mapping(input: str) -> Tuple[datetime.datetim
         if match.group("position") == "Start":
             delta_mapping["month"] = 1
             delta_mapping["day"] = 1
-        if match.group("position") == "End":
+        elif match.group("position") == "End":
             delta_mapping["month"] = 12
             delta_mapping["day"] = 31
-    date -= relativedelta(**delta_mapping)  # type: ignore
-    # Truncate to the start of the hour for hour-precision datetimes, to the start of the day for larger intervals
-    if "hours" in delta_mapping:
-        date = date.replace(minute=0, second=0, microsecond=0)
-    else:
-        date = date.replace(hour=0, minute=0, second=0, microsecond=0)
-    return date, delta_mapping
+    parsed_dt -= relativedelta(**delta_mapping)  # type: ignore
+    if always_truncate:
+        # Truncate to the start of the hour for hour-precision datetimes, to the start of the day for larger intervals
+        # TODO: Remove this from this function, this should not be the responsibility of it
+        if "hours" in delta_mapping:
+            parsed_dt = parsed_dt.replace(minute=0, second=0, microsecond=0)
+        else:
+            parsed_dt = parsed_dt.replace(hour=0, minute=0, second=0, microsecond=0)
+    return parsed_dt, delta_mapping, match.group("position") or None
 
 
-def relative_date_parse(input: str) -> datetime.datetime:
-    return relative_date_parse_with_delta_mapping(input)[0]
-
-
-def request_to_date_query(filters: Dict[str, Any], exact: Optional[bool]) -> Dict[str, datetime.datetime]:
-    if filters.get("date_from"):
-        date_from: Optional[datetime.datetime] = relative_date_parse(filters["date_from"])
-        if filters["date_from"] == "all":
-            date_from = None
-    else:
-        date_from = datetime.datetime.today() - relativedelta(days=DEFAULT_DATE_FROM_DAYS)
-        date_from = date_from.replace(hour=0, minute=0, second=0, microsecond=0)
-
-    date_to = None
-    if filters.get("date_to"):
-        date_to = relative_date_parse(filters["date_to"])
-
-    resp = {}
-    if date_from:
-        resp["timestamp__gte"] = date_from.replace(tzinfo=pytz.UTC)
-    if date_to:
-        days = 1 if not exact else 0
-        resp["timestamp__lte"] = (date_to + relativedelta(days=days)).replace(tzinfo=pytz.UTC)
-    return resp
-
-
-def get_git_branch() -> Optional[str]:
-    """
-    Returns the symbolic name of the current active branch. Will return None in case of failure.
-    Example: get_git_branch()
-        => "master"
-    """
-
-    try:
-        return (
-            subprocess.check_output(["git", "rev-parse", "--symbolic-full-name", "--abbrev-ref", "HEAD"])
-            .decode("utf-8")
-            .strip()
-        )
-    except Exception:
-        return None
-
-
-def get_git_commit() -> Optional[str]:
-    """
-    Returns the short hash of the last commit.
-    Example: get_git_commit()
-        => "4ff54c8d"
-    """
-
-    try:
-        return subprocess.check_output(["git", "rev-parse", "--short", "HEAD"]).decode("utf-8").strip()
-    except Exception:
-        return None
+def relative_date_parse(
+    input: str,
+    timezone_info: ZoneInfo,
+    *,
+    always_truncate: bool = False,
+    now: Optional[datetime.datetime] = None,
+) -> datetime.datetime:
+    return relative_date_parse_with_delta_mapping(input, timezone_info, always_truncate=always_truncate, now=now)[0]
 
 
 def get_js_url(request: HttpRequest) -> str:
@@ -309,28 +272,31 @@ def get_js_url(request: HttpRequest) -> str:
 
 
 def render_template(
-    template_name: str, request: HttpRequest, context: Dict = {}, *, team_for_public_context: Optional["Team"] = None
+    template_name: str,
+    request: HttpRequest,
+    context: Dict = {},
+    *,
+    team_for_public_context: Optional["Team"] = None,
 ) -> HttpResponse:
     """Render Django template.
 
     If team_for_public_context is provided, this means this is a public page such as a shared dashboard.
     """
-    from loginas.utils import is_impersonated_session
 
     template = get_template(template_name)
 
     context["opt_out_capture"] = settings.OPT_OUT_CAPTURE
-    context["impersonated_session"] = is_impersonated_session(request)
     context["self_capture"] = settings.SELF_CAPTURE
+    context["region"] = get_instance_region()
 
     if sentry_dsn := os.environ.get("SENTRY_DSN"):
         context["sentry_dsn"] = sentry_dsn
     if sentry_environment := os.environ.get("SENTRY_ENVIRONMENT"):
         context["sentry_environment"] = sentry_environment
 
+    context["git_rev"] = get_git_commit()  # Include commit in prod for the `console.info()` message
     if settings.DEBUG and not settings.TEST:
         context["debug"] = True
-        context["git_rev"] = get_git_commit()
         context["git_branch"] = get_git_branch()
 
     if settings.E2E_TESTING:
@@ -351,27 +317,25 @@ def render_template(
     context["js_kea_verbose_logging"] = settings.KEA_VERBOSE_LOGGING
     context["js_url"] = get_js_url(request)
 
+    try:
+        year_in_hog_url = f"/year_in_posthog/2023/{str(request.user.uuid)}"  # type: ignore
+    except:
+        year_in_hog_url = None
+
     posthog_app_context: Dict[str, Any] = {
         "persisted_feature_flags": settings.PERSISTED_FEATURE_FLAGS,
         "anonymous": not request.user or not request.user.is_authenticated,
-        "week_start": 1,  # Monday
+        "year_in_hog_url": year_in_hog_url,
     }
-
-    from posthog.api.geoip import get_geoip_properties  # avoids circular import
-
-    geoip_properties = get_geoip_properties(get_ip_address(request))
-    country_code = geoip_properties.get("$geoip_country_code", None)
-    if country_code:
-        posthog_app_context["week_start"] = get_week_start_for_country_code(country_code)
 
     posthog_bootstrap: Dict[str, Any] = {}
     posthog_distinct_id: Optional[str] = None
 
     # Set the frontend app context
     if not request.GET.get("no-preloaded-app-context"):
+        from posthog.api.shared import TeamPublicSerializer
         from posthog.api.team import TeamSerializer
         from posthog.api.user import UserSerializer
-        from posthog.api.shared import TeamPublicSerializer
         from posthog.user_permissions import UserPermissions
         from posthog.views import preflight_check
 
@@ -379,7 +343,7 @@ def render_template(
             "current_user": None,
             "current_team": None,
             "preflight": json.loads(preflight_check(request).getvalue()),
-            "default_event_name": get_default_event_name(),
+            "default_event_name": "$pageview",
             "switched_team": getattr(request, "switched_team", None),
             **posthog_app_context,
         }
@@ -393,16 +357,21 @@ def render_template(
             user = cast("User", request.user)
             user_permissions = UserPermissions(user=user, team=user.team)
             user_serialized = UserSerializer(
-                request.user, context={"request": request, "user_permissions": user_permissions}, many=False
+                request.user,
+                context={"request": request, "user_permissions": user_permissions},
+                many=False,
             )
             posthog_app_context["current_user"] = user_serialized.data
             posthog_distinct_id = user_serialized.data.get("distinct_id")
             if user.team:
                 team_serialized = TeamSerializer(
-                    user.team, context={"request": request, "user_permissions": user_permissions}, many=False
+                    user.team,
+                    context={"request": request, "user_permissions": user_permissions},
+                    many=False,
                 )
                 posthog_app_context["current_team"] = team_serialized.data
                 posthog_app_context["frontend_apps"] = get_frontend_apps(user.team.pk)
+                posthog_app_context["default_event_name"] = get_default_event_name(user.team)
 
     context["posthog_app_context"] = json.dumps(posthog_app_context, default=json_uuid_convert)
 
@@ -460,12 +429,12 @@ def get_self_capture_api_token(request: Optional[HttpRequest]) -> Optional[str]:
     return None
 
 
-def get_default_event_name():
+def get_default_event_name(team: "Team"):
     from posthog.models import EventDefinition
 
-    if EventDefinition.objects.filter(name="$pageview").exists():
+    if EventDefinition.objects.filter(team=team, name="$pageview").exists():
         return "$pageview"
-    elif EventDefinition.objects.filter(name="$screen").exists():
+    elif EventDefinition.objects.filter(team=team, name="$screen").exists():
         return "$screen"
     return "$pageview"
 
@@ -475,8 +444,18 @@ def get_frontend_apps(team_id: int) -> Dict[int, Dict[str, Any]]:
 
     plugin_configs = (
         Plugin.objects.filter(pluginconfig__team_id=team_id, pluginconfig__enabled=True)
-        .filter(pluginsourcefile__status=PluginSourceFile.Status.TRANSPILED, pluginsourcefile__filename="frontend.tsx")
-        .values("pluginconfig__id", "pluginconfig__config", "config_schema", "id", "plugin_type", "name")
+        .filter(
+            pluginsourcefile__status=PluginSourceFile.Status.TRANSPILED,
+            pluginsourcefile__filename="frontend.tsx",
+        )
+        .values(
+            "pluginconfig__id",
+            "pluginconfig__config",
+            "config_schema",
+            "id",
+            "plugin_type",
+            "name",
+        )
         .all()
     )
 
@@ -551,6 +530,7 @@ def get_compare_period_dates(
     date_from_delta_mapping: Optional[Dict[str, int]],
     date_to_delta_mapping: Optional[Dict[str, int]],
     interval: str,
+    ignore_date_from_alignment: bool = False,  # New HogQL trends no longer requires the adjustment
 ) -> Tuple[datetime.datetime, datetime.datetime]:
     diff = date_to - date_from
     new_date_from = date_from - diff
@@ -569,6 +549,7 @@ def get_compare_period_dates(
             and date_from_delta_mapping.get("days", None)
             and date_from_delta_mapping["days"] % 7 == 0
             and not date_to_delta_mapping
+            and not ignore_date_from_alignment
         ):
             # KLUDGE: Unfortunately common relative date ranges such as "Last 7 days" (-7d) or "Last 14 days" (-14d)
             # are wrong because they treat the current ongoing day as an _extra_ one. This means that those ranges
@@ -581,26 +562,6 @@ def get_compare_period_dates(
             new_date_from += datetime.timedelta(days=1)
         new_date_to = (new_date_from + diff).replace(hour=23, minute=59, second=59, microsecond=999999)
     return new_date_from, new_date_to
-
-
-def cors_response(request, response):
-    if not request.META.get("HTTP_ORIGIN"):
-        return response
-    url = urlparse(request.META["HTTP_ORIGIN"])
-    response["Access-Control-Allow-Origin"] = f"{url.scheme}://{url.netloc}"
-    response["Access-Control-Allow-Credentials"] = "true"
-    response["Access-Control-Allow-Methods"] = "GET, POST, OPTIONS"
-
-    # Handle headers that sentry randomly sends for every request.
-    # Would cause a CORS failure otherwise.
-    # specified here to override the default added by the cors headers package in web.py
-    allow_headers = request.META.get("HTTP_ACCESS_CONTROL_REQUEST_HEADERS", "").split(",")
-    allow_headers = [header for header in allow_headers if header in ["traceparent", "request-id", "request-context"]]
-
-    response["Access-Control-Allow-Headers"] = "X-Requested-With,Content-Type" + (
-        "," + ",".join(allow_headers) if len(allow_headers) > 0 else ""
-    )
-    return response
 
 
 def generate_cache_key(stringified: str) -> str:
@@ -644,6 +605,7 @@ def decompress(data: Any, compression: str):
             raise RequestParsingError("Failed to decompress data. %s" % (str(error)))
 
     if compression == "lz64":
+        KLUDGES_COUNTER.labels(kludge="lz64_compression").inc()
         if not isinstance(data, str):
             data = data.decode()
         data = data.replace(" ", "+")
@@ -658,6 +620,7 @@ def decompress(data: Any, compression: str):
     base64_decoded = None
     try:
         base64_decoded = base64_decode(data)
+        KLUDGES_COUNTER.labels(kludge="base64_after_decompression_" + compression).inc()
     except Exception:
         pass
 
@@ -672,7 +635,9 @@ def decompress(data: Any, compression: str):
     except (json.JSONDecodeError, UnicodeDecodeError) as error_main:
         if compression == "":
             try:
-                return decompress(data, "gzip")
+                fallback = decompress(data, "gzip")
+                KLUDGES_COUNTER.labels(kludge="unspecified_gzip_fallback").inc()
+                return fallback
             except Exception as inner:
                 # re-trying with compression set didn't succeed, throw original error
                 raise RequestParsingError("Invalid JSON: %s" % (str(error_main))) from inner
@@ -692,12 +657,17 @@ def load_data_from_request(request):
             data = request.POST.get("data")
     else:
         data = request.GET.get("data")
+        if data:
+            KLUDGES_COUNTER.labels(kludge="data_in_get_param").inc()
 
     # add the data in sentry's scope in case there's an exception
     with configure_scope() as scope:
         if isinstance(data, dict):
             scope.set_context("data", data)
-        scope.set_tag("origin", request.headers.get("origin", request.headers.get("remote_host", "unknown")))
+        scope.set_tag(
+            "origin",
+            request.headers.get("origin", request.headers.get("remote_host", "unknown")),
+        )
         scope.set_tag("referer", request.headers.get("referer", "unknown"))
         # since version 1.20.0 posthog-js adds its version to the `ver` query parameter as a debug signal here
         scope.set_tag("library.version", request.GET.get("ver", "unknown"))
@@ -872,16 +842,11 @@ def get_can_create_org(user: Union["AbstractBaseUser", "AnonymousUser"]) -> bool
         return True
 
     if settings.MULTI_ORG_ENABLED:
-        try:
-            from ee.models.license import License
-        except ImportError:
-            pass
+        license = get_cached_instance_license()
+        if license is not None and AvailableFeature.ZAPIER in license.available_features:
+            return True
         else:
-            license = License.objects.first_valid()
-            if license is not None and AvailableFeature.ZAPIER in license.available_features:
-                return True
-            else:
-                logger.warning("You have configured MULTI_ORG_ENABLED, but not the required premium PostHog plan!")
+            logger.warning("You have configured MULTI_ORG_ENABLED, but not the required premium PostHog plan!")
 
     return False
 
@@ -914,7 +879,7 @@ def get_instance_available_sso_providers() -> Dict[str, bool]:
         "SOCIAL_AUTH_GOOGLE_OAUTH2_SECRET",
         None,
     ):
-        if bypass_license or (license is not None and AvailableFeature.GOOGLE_LOGIN in license.available_features):
+        if bypass_license or (license is not None and AvailableFeature.SOCIAL_SSO in license.available_features):
             output["google-oauth2"] = True
         else:
             logger.warning("You have Google login set up, but not the required license!")
@@ -931,7 +896,9 @@ def flatten(i: Union[List, Tuple], max_depth=10) -> Generator:
 
 
 def get_daterange(
-    start_date: Optional[datetime.datetime], end_date: Optional[datetime.datetime], frequency: str
+    start_date: Optional[datetime.datetime],
+    end_date: Optional[datetime.datetime],
+    frequency: str,
 ) -> List[Any]:
     """
     Returns list of a fixed frequency Datetime objects between given bounds.
@@ -1023,8 +990,6 @@ def get_available_timezones_with_offsets() -> Dict[str, float]:
             offset = pytz.timezone(tz).utcoffset(now)
         except Exception:
             offset = pytz.timezone(tz).utcoffset(now + dt.timedelta(hours=2))
-        if offset is None:
-            continue
         offset_hours = int(offset.total_seconds()) / 3600
         result[tz] = offset_hours
     return result
@@ -1042,7 +1007,7 @@ def _request_has_key_set(key: str, request: Request) -> bool:
 
 
 def str_to_bool(value: Any) -> bool:
-    """Return whether the provided string (or any value really) represents true. Otherwise false.
+    """Return whether the provided string (or any value really) represents true. Otherwise, false.
     Just like plugin server stringToBoolean.
     """
     if not value:
@@ -1142,7 +1107,7 @@ def cast_timestamp_or_now(timestamp: Optional[Union[timezone.datetime, str]]) ->
     if isinstance(timestamp, str):
         timestamp = parser.isoparse(timestamp)
     else:
-        timestamp = timestamp.astimezone(pytz.utc)
+        timestamp = timestamp.astimezone(ZoneInfo("UTC"))
 
     return timestamp.strftime("%Y-%m-%d %H:%M:%S.%f")
 
@@ -1232,25 +1197,86 @@ def get_week_start_for_country_code(country_code: str) -> int:
         "ZW",
     ]:
         return 0  # Sunday
-    if country_code in ["AE", "AF", "BH", "DJ", "DZ", "EG", "IQ", "IR", "JO", "KW", "LY", "OM", "QA", "SD", "SY"]:
+    if country_code in [
+        "AE",
+        "AF",
+        "BH",
+        "DJ",
+        "DZ",
+        "EG",
+        "IQ",
+        "IR",
+        "JO",
+        "KW",
+        "LY",
+        "OM",
+        "QA",
+        "SD",
+        "SY",
+    ]:
         return 6  # Saturday
     return 1  # Monday
 
 
-def wait_for_parallel_celery_group(task: Any, max_timeout: Optional[datetime.timedelta] = None) -> Any:
+def sleep_time_generator() -> Generator[float, None, None]:
+    # a generator that yield an exponential back off between 0.1 and 3 seconds
+    for _ in range(10):
+        yield 0.1  # 1 second in total
+    for _ in range(5):
+        yield 0.2  # 1 second in total
+    for _ in range(5):
+        yield 0.4  # 2 seconds in total
+    for _ in range(5):
+        yield 0.8  # 4 seconds in total
+    for _ in range(10):
+        yield 1.5  # 15 seconds in total
+    while True:
+        yield 3.0
+
+
+@async_to_sync
+async def wait_for_parallel_celery_group(task: Any, expires: Optional[datetime.datetime] = None) -> Any:
     """
     Wait for a group of celery tasks to finish, but don't wait longer than max_timeout.
     For parallel tasks, this is the only way to await the entire group.
     """
-    if not max_timeout:
-        max_timeout = datetime.timedelta(minutes=5)
+    default_expires = datetime.timedelta(minutes=5)
 
-    start_time = timezone.now()
+    if not expires:
+        expires = datetime.datetime.now(tz=datetime.timezone.utc) + default_expires
+
+    sleep_generator = sleep_time_generator()
 
     while not task.ready():
-        if timezone.now() - start_time > max_timeout:
+        if datetime.datetime.now(tz=datetime.timezone.utc) > expires:
+            child_states = []
+            child: AsyncResult
+            children = task.children or []
+            for child in children:
+                child_states.append(child.state)
+                # this child should not be retried...
+                if child.state in ["PENDING", "STARTED"]:
+                    # terminating here terminates the process not the task
+                    # but if the task is in PENDING or STARTED after 10 minutes
+                    # we have to assume the celery process isn't processing another task
+                    # see: https://docs.celeryq.dev/en/stable/userguide/workers.html#revoke-revoking-tasks
+                    # and: https://docs.celeryq.dev/en/latest/reference/celery.result.html
+                    # we terminate the process to avoid leaking an instance of Chrome
+                    child.revoke(terminate=True)
+
+            logger.error(
+                "Timed out waiting for celery task to finish",
+                task_id=task.id,
+                ready=task.ready(),
+                successful=task.successful(),
+                failed=task.failed(),
+                task_state=task.state,
+                child_states=child_states,
+                timeout=expires,
+            )
             raise TimeoutError("Timed out waiting for celery task to finish")
-        time.sleep(0.1)
+
+        await asyncio.sleep(next(sleep_generator))
     return task
 
 

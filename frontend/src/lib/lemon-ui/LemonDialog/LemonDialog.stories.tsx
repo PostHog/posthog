@@ -1,9 +1,11 @@
-import { ComponentMeta, ComponentStory } from '@storybook/react'
-import { LemonDialog, LemonDialogProps } from './LemonDialog'
-import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { Link } from '@posthog/lemon-ui'
+import { Meta, StoryFn, StoryObj } from '@storybook/react'
+import { LemonButton } from 'lib/lemon-ui/LemonButton'
 
-export default {
+import { LemonDialog, LemonDialogProps } from './LemonDialog'
+
+type Story = StoryObj<typeof LemonDialog>
+const meta: Meta<typeof LemonDialog> = {
     title: 'Lemon UI/Lemon Dialog',
     component: LemonDialog,
     args: {
@@ -40,9 +42,11 @@ Dialogs are opened imperatively (i.e. calling \`LemonDialog.open()\`) whereas Mo
             },
         },
     },
-} as ComponentMeta<typeof LemonDialog>
+    tags: ['autodocs'],
+}
+export default meta
 
-export const Template: ComponentStory<typeof LemonDialog> = (props: LemonDialogProps) => {
+export const Template: StoryFn<typeof LemonDialog> = (props: LemonDialogProps) => {
     const onClick = (): void => {
         LemonDialog.open(props)
     }
@@ -58,7 +62,7 @@ export const Template: ComponentStory<typeof LemonDialog> = (props: LemonDialogP
     )
 }
 
-export const Minimal = Template.bind({})
+export const Minimal: Story = Template.bind({})
 Minimal.args = {
     title: 'Notice',
     description: undefined,
@@ -67,7 +71,7 @@ Minimal.args = {
     tertiaryButton: undefined,
 }
 
-export const Customised = Template.bind({})
+export const Customised: Story = Template.bind({})
 Customised.args = {
     title: 'Are you sure you want to delete “FakeOrganization”?',
     description: (

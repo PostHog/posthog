@@ -17,12 +17,12 @@ import { status } from '../../../../utils/status'
 import { asyncTimeoutGuard } from '../../../../utils/timing'
 import { ObjectStorage } from '../../../services/object_storage'
 import { IncomingRecordingMessage } from '../types'
-import { bufferFileDir, convertToPersistedMessage, maxDefined, minDefined, now } from '../utils'
+import { bufferFileDir, convertToPersistedMessage, getLagMultiplier, maxDefined, minDefined, now } from '../utils'
 import { OffsetHighWaterMarker } from './offset-high-water-marker'
 import { RealtimeManager } from './realtime-manager'
 
 const BUCKETS_LINES_WRITTEN = [0, 10, 50, 100, 500, 1000, 2000, 5000, 10000, Infinity]
-const BUCKETS_KB_WRITTEN = [0, 128, 512, 1024, 5120, 10240, 20480, 51200, 102400, 204800, Infinity]
+export const BUCKETS_KB_WRITTEN = [0, 128, 512, 1024, 5120, 10240, 20480, 51200, 102400, 204800, Infinity]
 const S3_UPLOAD_WARN_TIME_SECONDS = 2 * 60 * 1000
 
 const counterS3FilesWritten = new Counter({
@@ -102,6 +102,7 @@ const MAX_FLUSH_TIME_MS = 60 * 1000
 export class SessionManager {
     buffer: SessionBuffer
     flushBuffer?: SessionBuffer
+    flushPromise?: Promise<void>
     destroying = false
     inProgressUpload: Upload | null = null
     unsubscribe: () => void
@@ -116,7 +117,8 @@ export class SessionManager {
         public readonly teamId: number,
         public readonly sessionId: string,
         public readonly partition: number,
-        public readonly topic: string
+        public readonly topic: string,
+        public readonly debug: boolean = false
     ) {
         this.buffer = this.createBuffer()
 
@@ -135,20 +137,6 @@ export class SessionManager {
             topic,
             sessionId,
         })
-    }
-
-    private logContext = () => {
-        return {
-            sessionId: this.sessionId,
-            partition: this.partition,
-            teamId: this.teamId,
-            topic: this.topic,
-            oldestKafkaTimestamp: this.buffer.oldestKafkaTimestamp,
-            oldestKafkaTimestampHumanReadable: this.buffer.oldestKafkaTimestamp
-                ? DateTime.fromMillis(this.buffer.oldestKafkaTimestamp).toISO()
-                : undefined,
-            bufferCount: this.buffer.count,
-        }
     }
 
     private captureException(error: Error, extra: Record<string, any> = {}): void {
@@ -201,7 +189,7 @@ export class SessionManager {
             throw error
         }
 
-        // NOTE: This is uncompressed size estimate but thats okay as we currently want to over-flush to see if we can shake out a bug
+        // NOTE: This is uncompressed size estimate but that's okay as we currently want to over-flush to see if we can shake out a bug
         if (this.buffer.sizeEstimate >= this.serverConfig.SESSION_RECORDING_MAX_BUFFER_SIZE_KB * 1024) {
             await this.flush('buffer_size')
         }
@@ -211,15 +199,18 @@ export class SessionManager {
         return !this.buffer.count && !this.flushBuffer?.count
     }
 
-    public async flushIfSessionBufferIsOld(referenceNow: number): Promise<void> {
+    public async flushIfSessionBufferIsOld(referenceNow: number, partitionLag = 0): Promise<void> {
         if (this.destroying) {
             return
         }
 
+        const lagMultiplier = getLagMultiplier(partitionLag)
+
         const flushThresholdMs = this.serverConfig.SESSION_RECORDING_MAX_BUFFER_AGE_SECONDS * 1000
         const flushThresholdJitteredMs = flushThresholdMs * this.flushJitterMultiplier
         const flushThresholdMemoryMs =
-            flushThresholdJitteredMs * this.serverConfig.SESSION_RECORDING_BUFFER_AGE_IN_MEMORY_MULTIPLIER
+            flushThresholdJitteredMs *
+            (lagMultiplier < 1 ? lagMultiplier : this.serverConfig.SESSION_RECORDING_BUFFER_AGE_IN_MEMORY_MULTIPLIER)
 
         const logContext: Record<string, any> = {
             ...this.logContext(),
@@ -228,6 +219,10 @@ export class SessionManager {
             flushThresholdMs,
             flushThresholdJitteredMs,
             flushThresholdMemoryMs,
+        }
+
+        if (this.debug) {
+            status.info('🚽', `[session-manager]  - [PARTITION DEBUG] - flushIfSessionBufferIsOld?`, { logContext })
         }
 
         if (this.buffer.oldestKafkaTimestamp === null) {
@@ -257,16 +252,7 @@ export class SessionManager {
         histogramSessionSizeKb.observe(this.buffer.sizeEstimate / 1024)
 
         if (isBufferAgeOverThreshold || isSessionAgeOverThreshold) {
-            status.debug('🚽', `[session-manager] attempting to flushing buffer due to age`, {
-                ...logContext,
-            })
-
-            // return the promise and let the caller decide whether to await
             return this.flush(isBufferAgeOverThreshold ? 'buffer_age' : 'buffer_age_realtime')
-        } else {
-            status.debug('🚽', `[session-manager] not flushing buffer due to age`, {
-                ...logContext,
-            })
         }
     }
 
@@ -274,7 +260,21 @@ export class SessionManager {
      * Flushing takes the current buffered file and moves it to the flush buffer
      * We then attempt to write the events to S3 and if successful, we clear the flush buffer
      */
-    public async flush(reason: 'buffer_size' | 'buffer_age' | 'buffer_age_realtime'): Promise<void> {
+
+    public async flush(
+        reason: 'buffer_size' | 'buffer_age' | 'buffer_age_realtime' | 'partition_shutdown'
+    ): Promise<void> {
+        if (!this.flushPromise) {
+            this.flushPromise = this._flush(reason).finally(() => {
+                this.flushPromise = undefined
+            })
+        }
+
+        return this.flushPromise
+    }
+    private async _flush(
+        reason: 'buffer_size' | 'buffer_age' | 'buffer_age_realtime' | 'partition_shutdown'
+    ): Promise<void> {
         // NOTE: The below checks don't need to throw really but we do so to help debug what might be blocking things
         if (this.flushBuffer) {
             status.warn('🚽', '[session-manager] flush called but we already have a flush buffer', {
@@ -365,6 +365,7 @@ export class SessionManager {
             counterS3FilesWritten.labels(reason).inc(1)
             histogramS3LinesWritten.observe(count)
             histogramS3KbWritten.observe(sizeEstimate / 1024)
+            this.endFlush()
         } catch (error: any) {
             // TRICKY: error can for some reason sometimes be undefined...
             error = error || new Error('Unknown Error')
@@ -385,10 +386,11 @@ export class SessionManager {
             })
             this.captureException(error)
             counterS3WriteErrored.inc()
+
+            throw error
         } finally {
             clearTimeout(flushTimeout)
             endFlushTimer()
-            this.endFlush()
         }
     }
 
@@ -431,21 +433,15 @@ export class SessionManager {
             const writeStream = new PassThrough()
 
             // The compressed file
-            pipeline(writeStream, zlib.createGzip(), createWriteStream(file('gz')))
-                .then(() => {
-                    status.debug('🥳', '[session-manager] writestream finished', {
-                        ...this.logContext(),
-                    })
+            pipeline(writeStream, zlib.createGzip(), createWriteStream(file('gz'))).catch((error) => {
+                // TODO: If this actually happens we probably want to destroy the buffer as we will be stuck...
+                status.error('🧨', '[session-manager] writestream errored', {
+                    ...this.logContext(),
+                    error,
                 })
-                .catch((error) => {
-                    // TODO: If this actually happens we probably want to destroy the buffer as we will be stuck...
-                    status.error('🧨', '[session-manager] writestream errored', {
-                        ...this.logContext(),
-                        error,
-                    })
 
-                    this.captureException(error)
-                })
+                this.captureException(error)
+            })
 
             // The uncompressed file which we need for realtime playback
             pipeline(writeStream, createWriteStream(file('jsonl'))).catch((error) => {
@@ -511,10 +507,6 @@ export class SessionManager {
         })
 
         this.realtimeTail.on('line', async (data: string) => {
-            status.info('⚡️', '[session-manager][realtime] writing to redis', {
-                sessionId: this.sessionId,
-                teamId: this.teamId,
-            })
             await this.realtimeManager.addMessagesFromBuffer(this.teamId, this.sessionId, data, Date.now())
         })
 
@@ -572,5 +564,51 @@ export class SessionManager {
                 resolve()
             })
         })
+    }
+
+    private logContext = () => {
+        return {
+            sessionId: this.sessionId,
+            partition: this.partition,
+            teamId: this.teamId,
+            topic: this.topic,
+            oldestKafkaTimestamp: this.buffer.oldestKafkaTimestamp,
+            oldestKafkaTimestampHumanReadable: this.buffer.oldestKafkaTimestamp
+                ? DateTime.fromMillis(this.buffer.oldestKafkaTimestamp).toISO()
+                : undefined,
+            bufferCount: this.buffer.count,
+            ...(this.debug ? this.toJSON() : {}),
+        }
+    }
+
+    public toJSON(): Record<string, any> {
+        return {
+            isEmpty: this.isEmpty,
+            lowestOffset: this.getLowestOffset(),
+            buffer: {
+                id: this.buffer.id,
+                oldestKafkaTimestamp: this.buffer.oldestKafkaTimestamp,
+                newestKafkaTimestamp: this.buffer.newestKafkaTimestamp,
+                sizeEstimate: this.buffer.sizeEstimate,
+                count: this.buffer.count,
+                file: this.buffer.file('jsonl'),
+                offsets: this.buffer.offsets,
+                eventsRange: this.buffer.eventsRange,
+                createdAt: this.buffer.createdAt,
+            },
+            flushBuffer: this.flushBuffer
+                ? {
+                      id: this.flushBuffer.id,
+                      oldestKafkaTimestamp: this.flushBuffer.oldestKafkaTimestamp,
+                      newestKafkaTimestamp: this.flushBuffer.newestKafkaTimestamp,
+                      sizeEstimate: this.flushBuffer.sizeEstimate,
+                      count: this.flushBuffer.count,
+                      file: this.flushBuffer.file('jsonl'),
+                      offsets: this.flushBuffer.offsets,
+                      eventsRange: this.flushBuffer.eventsRange,
+                      createdAt: this.flushBuffer.createdAt,
+                  }
+                : null,
+        }
     }
 }

@@ -1,48 +1,59 @@
-import { LemonSelectOptions, LemonButton, LemonTable, LemonTag, Link } from '@posthog/lemon-ui'
+import { LemonButton, LemonSelectOptions, LemonTable, LemonTag, Link } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { useResizeBreakpoints } from 'lib/hooks/useResizeObserver'
-import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import {
-    IconChevronRight,
-    IconCheckmark,
-    IconExpandMore,
-    IconPlus,
     IconArticle,
     IconCheckCircleOutline,
+    IconCheckmark,
+    IconChevronRight,
+    IconExpandMore,
     IconInfo,
+    IconPlus,
 } from 'lib/lemon-ui/icons'
+import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { More } from 'lib/lemon-ui/LemonButton/More'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
-import { BillingProductV2AddonType, BillingProductV2Type, BillingV2TierType } from '~/types'
-import { convertLargeNumberToWords, getUpgradeAllProductsLink, summarizeUsage } from './billing-utils'
-import { BillingGauge } from './BillingGauge'
-import { billingLogic } from './billingLogic'
-import { BillingLimitInput } from './BillingLimitInput'
-import { billingProductLogic } from './billingProductLogic'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { capitalizeFirstLetter, compactNumber } from 'lib/utils'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
+import posthog from 'posthog-js'
+import { getProductIcon } from 'scenes/products/Products'
+
+import { BillingProductV2AddonType, BillingProductV2Type, BillingV2TierType } from '~/types'
+
+import { convertLargeNumberToWords, getUpgradeProductLink, summarizeUsage } from './billing-utils'
+import { BillingGauge } from './BillingGauge'
+import { BillingLimitInput } from './BillingLimitInput'
+import { billingLogic } from './billingLogic'
+import { billingProductLogic } from './billingProductLogic'
+import { PlanComparisonModal } from './PlanComparison'
 import { ProductPricingModal } from './ProductPricingModal'
-import { PlanComparisonModal } from './PlanComparisonModal'
+import { UnsubscribeSurveyModal } from './UnsubscribeSurveyModal'
+
+const UNSUBSCRIBE_SURVEY_ID = '018b6e13-590c-0000-decb-c727a2b3f462'
 
 export const getTierDescription = (
-    tier: BillingV2TierType,
+    tiers: BillingV2TierType[],
     i: number,
     product: BillingProductV2Type | BillingProductV2AddonType,
     interval: string
 ): string => {
     return i === 0
-        ? `First ${summarizeUsage(tier.up_to)} ${product.unit}s / ${interval}`
-        : tier.up_to
-        ? `${summarizeUsage(product.tiers?.[i - 1].up_to || null)} - ${summarizeUsage(tier.up_to)}`
-        : `> ${summarizeUsage(product.tiers?.[i - 1].up_to || null)}`
+        ? `First ${summarizeUsage(tiers[i].up_to)} ${product.unit}s / ${interval}`
+        : tiers[i].up_to
+        ? `${summarizeUsage(tiers?.[i - 1].up_to || null)} - ${summarizeUsage(tiers[i].up_to)}`
+        : `> ${summarizeUsage(tiers?.[i - 1].up_to || null)}`
 }
 
 export const BillingProductAddon = ({ addon }: { addon: BillingProductV2AddonType }): JSX.Element => {
     const { billing, redirectPath } = useValues(billingLogic)
-    const { deactivateProduct } = useActions(billingLogic)
-    const { isPricingModalOpen, currentAndUpgradePlans } = useValues(billingProductLogic({ product: addon }))
-    const { toggleIsPricingModalOpen } = useActions(billingProductLogic({ product: addon }))
+    const { isPricingModalOpen, currentAndUpgradePlans, surveyID } = useValues(billingProductLogic({ product: addon }))
+    const { toggleIsPricingModalOpen, reportSurveyShown, setSurveyResponse } = useActions(
+        billingProductLogic({ product: addon })
+    )
+    const { featureFlags } = useValues(featureFlagLogic)
+    const { setProductSpecificAlert } = useActions(billingLogic)
 
     const productType = { plural: `${addon.unit}s`, singular: addon.unit }
     const tierDisplayOptions: LemonSelectOptions<string> = [
@@ -53,13 +64,47 @@ export const BillingProductAddon = ({ addon }: { addon: BillingProductV2AddonTyp
         tierDisplayOptions.push({ label: `Current bill`, value: 'total' })
     }
 
+    const showPipelineAddonNotice =
+        addon.type === 'data_pipelines' &&
+        addon.subscribed &&
+        featureFlags['data-pipelines-notice'] &&
+        addon.plans?.[0]?.plan_key === 'addon-20240111-og-customers'
+
+    if (showPipelineAddonNotice) {
+        setProductSpecificAlert({
+            status: 'info',
+            title: 'Welcome to the data pipelines addon!',
+            message: `We've moved data export features (and cost) here to better reflect user needs. Your overall
+                    price hasn't changed.`,
+            action: {
+                onClick: () => {
+                    posthog.capture('data pipelines notice clicked')
+                    // if they don't dismiss it now, we won't show it next time they come back
+                    posthog.capture('data pipelines notice dismissed', {
+                        $set: {
+                            dismissedDataPipelinesNotice: true,
+                        },
+                    })
+                },
+                children: 'Learn more',
+                to: 'https://posthog.com/changelog/2024#data-pipeline-add-on-launched',
+                targetBlank: true,
+            },
+            dismissKey: 'data-pipelines-notice',
+            onClose: () => {
+                posthog.capture('data pipelines notice dismissed', {
+                    $set: {
+                        dismissedDataPipelinesNotice: true,
+                    },
+                })
+            },
+        })
+    }
     return (
         <div className="bg-side rounded p-6 flex flex-col">
             <div className="flex justify-between gap-x-4">
                 <div className="flex gap-x-4">
-                    {addon.image_url ? (
-                        <img className="w-10 h-10" alt={`Logo for PostHog ${addon.name}`} src={addon.image_url} />
-                    ) : null}
+                    <div className="w-8">{getProductIcon(addon.icon_key, 'text-2xl')}</div>
                     <div>
                         <div className="flex gap-x-2 items-center mt-0 mb-2 ">
                             <h4 className="leading-5 mb-1 font-bold">{addon.name}</h4>
@@ -77,7 +122,7 @@ export const BillingProductAddon = ({ addon }: { addon: BillingProductV2AddonTyp
                 <div className="ml-4 mr-4 mt-2 self-center flex gap-x-2 whitespace-nowrap">
                     {addon.docs_url && (
                         <Tooltip title="Read the docs">
-                            <LemonButton icon={<IconArticle />} status="stealth" size="small" to={addon.docs_url} />
+                            <LemonButton icon={<IconArticle />} size="small" to={addon.docs_url} />
                         </Tooltip>
                     )}
                     {addon.subscribed ? (
@@ -86,9 +131,11 @@ export const BillingProductAddon = ({ addon }: { addon: BillingProductV2AddonTyp
                                 overlay={
                                     <>
                                         <LemonButton
-                                            status="stealth"
                                             fullWidth
-                                            onClick={() => deactivateProduct(addon.type)}
+                                            onClick={() => {
+                                                setSurveyResponse(addon.type, '$survey_response_1')
+                                                reportSurveyShown(UNSUBSCRIBE_SURVEY_ID, addon.type)
+                                            }}
                                         >
                                             Remove addon
                                         </LemonButton>
@@ -136,13 +183,13 @@ export const BillingProductAddon = ({ addon }: { addon: BillingProductV2AddonTyp
                         : currentAndUpgradePlans?.upgradePlan?.plan_key
                 }
             />
+            {surveyID && <UnsubscribeSurveyModal product={addon} />}
         </div>
     )
 }
 
 export const BillingProduct = ({ product }: { product: BillingProductV2Type }): JSX.Element => {
     const { billing, redirectPath, isOnboarding, isUnlicensedDebug } = useValues(billingLogic)
-    const { deactivateProduct } = useActions(billingLogic)
     const {
         customLimitUsd,
         showTierBreakdown,
@@ -150,12 +197,15 @@ export const BillingProduct = ({ product }: { product: BillingProductV2Type }): 
         isPricingModalOpen,
         isPlanComparisonModalOpen,
         currentAndUpgradePlans,
+        surveyID,
     } = useValues(billingProductLogic({ product }))
     const {
         setIsEditingBillingLimit,
         setShowTierBreakdown,
         toggleIsPricingModalOpen,
         toggleIsPlanComparisonModalOpen,
+        reportSurveyShown,
+        setSurveyResponse,
     } = useActions(billingProductLogic({ product }))
     const { reportBillingUpgradeClicked } = useActions(eventUsageLogic)
 
@@ -209,49 +259,56 @@ export const BillingProduct = ({ product }: { product: BillingProductV2Type }): 
 
     // TODO: SUPPORT NON-TIERED PRODUCT TYPES
     // still use the table, but the data will be different
-    const tableTierData: TableTierDatum[] | undefined = product.tiers
-        ?.map((tier, i) => {
-            const addonPricesForTier = product.addons?.map((addon) => ({
-                [`${addon.type}-price`]: `${
-                    addon.tiers?.[i]?.unit_amount_usd !== '0' ? '$' + addon.tiers?.[i]?.unit_amount_usd : 'Free'
-                }`,
-            }))
-            // take the tier.current_amount_usd and add it to the same tier level for all the addons
-            const totalForTier =
-                parseFloat(tier.current_amount_usd || '') +
-                (product.addons?.reduce(
-                    (acc, addon) => acc + parseFloat(addon.tiers?.[i]?.current_amount_usd || ''),
-                    0
-                    // if there aren't any addons we get NaN from the above, so we need to default to 0
-                ) || 0)
-            const projectedTotalForTier =
-                (parseFloat(tier.projected_amount_usd || '') || 0) +
-                product.addons?.reduce(
-                    (acc, addon) => acc + (parseFloat(addon.tiers?.[i]?.projected_amount_usd || '') || 0),
-                    0
-                )
+    const tableTierData: TableTierDatum[] | undefined =
+        product.tiers && product.tiers.length > 0
+            ? product.tiers
+                  ?.map((tier, i) => {
+                      const addonPricesForTier = product.addons?.map((addon) => ({
+                          [`${addon.type}-price`]: `${
+                              addon.tiers?.[i]?.unit_amount_usd !== '0'
+                                  ? '$' + addon.tiers?.[i]?.unit_amount_usd
+                                  : 'Free'
+                          }`,
+                      }))
+                      // take the tier.current_amount_usd and add it to the same tier level for all the addons
+                      const totalForTier =
+                          parseFloat(tier.current_amount_usd || '') +
+                          (product.addons?.reduce(
+                              (acc, addon) => acc + parseFloat(addon.tiers?.[i]?.current_amount_usd || ''),
+                              0
+                              // if there aren't any addons we get NaN from the above, so we need to default to 0
+                          ) || 0)
+                      const projectedTotalForTier =
+                          (parseFloat(tier.projected_amount_usd || '') || 0) +
+                          product.addons?.reduce(
+                              (acc, addon) => acc + (parseFloat(addon.tiers?.[i]?.projected_amount_usd || '') || 0),
+                              0
+                          )
 
-            const tierData = {
-                volume: getTierDescription(tier, i, product, billing?.billing_period?.interval || ''),
-                basePrice: tier.unit_amount_usd !== '0' ? `$${tier.unit_amount_usd}` : 'Free',
-                usage: compactNumber(tier.current_usage),
-                total: `$${totalForTier.toFixed(2) || '0.00'}`,
-                projectedTotal: `$${projectedTotalForTier.toFixed(2) || '0.00'}`,
-            }
-            // if there are any addon prices we need to include, put them in the table
-            addonPricesForTier?.map((addonPrice) => {
-                Object.assign(tierData, addonPrice)
-            })
-            return tierData
-        })
-        // Add a row at the end for the total
-        .concat({
-            volume: 'Total',
-            basePrice: '',
-            usage: '',
-            total: `$${product.current_amount_usd || '0.00'}`,
-            projectedTotal: `$${product.projected_amount_usd || '0.00'}`,
-        })
+                      const tierData = {
+                          volume: product.tiers // this is silly because we know there are tiers since we check above, but typescript doesn't
+                              ? getTierDescription(product.tiers, i, product, billing?.billing_period?.interval || '')
+                              : '',
+                          basePrice: tier.unit_amount_usd !== '0' ? `$${tier.unit_amount_usd}` : 'Free',
+                          usage: compactNumber(tier.current_usage),
+                          total: `$${totalForTier.toFixed(2) || '0.00'}`,
+                          projectedTotal: `$${projectedTotalForTier.toFixed(2) || '0.00'}`,
+                      }
+                      // if there are any addon prices we need to include, put them in the table
+                      addonPricesForTier?.map((addonPrice) => {
+                          Object.assign(tierData, addonPrice)
+                      })
+                      return tierData
+                  })
+                  // Add a row at the end for the total
+                  .concat({
+                      volume: 'Total',
+                      basePrice: '',
+                      usage: '',
+                      total: `$${product.current_amount_usd || '0.00'}`,
+                      projectedTotal: `$${product.projected_amount_usd || '0.00'}`,
+                  })
+            : undefined
 
     if (billing?.discount_percent && parseFloat(product.projected_amount_usd || '')) {
         // If there is a discount, add a row for the total after discount if there is also a projected amount
@@ -274,7 +331,7 @@ export const BillingProduct = ({ product }: { product: BillingProductV2Type }): 
 
     return (
         <div
-            className={clsx('flex flex-wrap max-w-xl pb-12', {
+            className={clsx('flex flex-wrap max-w-300 pb-12', {
                 'flex-col pb-4': size === 'small',
             })}
             ref={ref}
@@ -282,13 +339,7 @@ export const BillingProduct = ({ product }: { product: BillingProductV2Type }): 
             <div className="border border-border rounded w-full bg-bg-light">
                 <div className="border-b border-border bg-mid p-4">
                     <div className="flex gap-4 items-center justify-between">
-                        {product.image_url ? (
-                            <img
-                                className="w-10 h-10"
-                                alt={`Logo for PostHog ${product.name}`}
-                                src={product.image_url}
-                            />
-                        ) : null}
+                        {getProductIcon(product.icon_key, 'text-2xl')}
                         <div>
                             <h3 className="font-bold mb-0">{product.name}</h3>
                             <div>{product.description}</div>
@@ -298,7 +349,6 @@ export const BillingProduct = ({ product }: { product: BillingProductV2Type }): 
                                 <Tooltip title="Read the docs">
                                     <LemonButton
                                         icon={<IconArticle />}
-                                        status="stealth"
                                         size="small"
                                         to={product.docs_url}
                                         className="justify-end"
@@ -320,30 +370,36 @@ export const BillingProduct = ({ product }: { product: BillingProductV2Type }): 
                                     <More
                                         overlay={
                                             <>
+                                                {billing?.billing_period?.interval == 'month' && (
+                                                    <LemonButton
+                                                        fullWidth
+                                                        onClick={() => setIsEditingBillingLimit(true)}
+                                                    >
+                                                        Set billing limit
+                                                    </LemonButton>
+                                                )}
+                                                <LemonButton
+                                                    fullWidth
+                                                    to="https://posthog.com/docs/billing/estimating-usage-costs#how-to-reduce-your-posthog-costs"
+                                                >
+                                                    Learn how to reduce your bill
+                                                </LemonButton>
                                                 {product.plans?.length > 0 ? (
                                                     <LemonButton
-                                                        status="stealth"
                                                         fullWidth
-                                                        onClick={() => deactivateProduct(product.type)}
+                                                        onClick={() => {
+                                                            setSurveyResponse(product.type, '$survey_response_1')
+                                                            reportSurveyShown(UNSUBSCRIBE_SURVEY_ID, product.type)
+                                                        }}
                                                     >
                                                         Unsubscribe
                                                     </LemonButton>
                                                 ) : (
                                                     <LemonButton
-                                                        status="stealth"
                                                         fullWidth
                                                         to="mailto:sales@posthog.com?subject=Custom%20plan%20unsubscribe%20request"
                                                     >
                                                         Contact support to unsubscribe
-                                                    </LemonButton>
-                                                )}
-                                                {billing?.billing_period?.interval == 'month' && (
-                                                    <LemonButton
-                                                        fullWidth
-                                                        status="stealth"
-                                                        onClick={() => setIsEditingBillingLimit(true)}
-                                                    >
-                                                        Set billing limit
                                                     </LemonButton>
                                                 )}
                                             </>
@@ -351,12 +407,13 @@ export const BillingProduct = ({ product }: { product: BillingProductV2Type }): 
                                     />
                                 )
                             )}
+                            {surveyID && <UnsubscribeSurveyModal product={product} />}
                         </div>
                     </div>
                 </div>
                 <div className="px-8">
                     {product.percentage_usage > 1 ? (
-                        <LemonBanner type={'error'}>
+                        <LemonBanner type="error">
                             You have exceeded the {customLimitUsd ? 'billing limit' : 'free tier limit'} for this
                             product.
                         </LemonBanner>
@@ -389,12 +446,11 @@ export const BillingProduct = ({ product }: { product: BillingProductV2Type }): 
                                             {product.subscribed && (
                                                 <LemonButton
                                                     icon={showTierBreakdown ? <IconExpandMore /> : <IconChevronRight />}
-                                                    status="stealth"
                                                     onClick={() => setShowTierBreakdown(!showTierBreakdown)}
                                                 />
                                             )}
                                             <div className="grow">
-                                                <BillingGauge items={billingGaugeItems} />
+                                                <BillingGauge items={billingGaugeItems} product={product} />
                                             </div>
                                             {product.current_amount_usd ? (
                                                 <div className="flex justify-end gap-8 flex-wrap items-end">
@@ -478,10 +534,10 @@ export const BillingProduct = ({ product }: { product: BillingProductV2Type }): 
                             {product.tiered && tableTierData ? (
                                 <>
                                     <LemonTable
-                                        borderedRows={false}
+                                        stealth
+                                        embedded
                                         size="xs"
                                         uppercaseHeader={false}
-                                        display="stealth"
                                         columns={tableColumns}
                                         dataSource={tableTierData}
                                     />
@@ -501,9 +557,9 @@ export const BillingProduct = ({ product }: { product: BillingProductV2Type }): 
                                 </>
                             ) : (
                                 <LemonTable
-                                    borderedRows={false}
+                                    stealth
+                                    embedded
                                     size="xs"
-                                    display="stealth"
                                     uppercaseHeader={false}
                                     columns={[
                                         { title: '', dataIndex: 'name' },
@@ -521,7 +577,7 @@ export const BillingProduct = ({ product }: { product: BillingProductV2Type }): 
                     )}
                     {!isOnboarding && product.addons?.length > 0 && (
                         <div className="pb-8">
-                            <h4 className="mb-4">Addons</h4>
+                            <h4 className="my-4">Addons</h4>
                             <div className="gap-y-4 flex flex-col">
                                 {product.addons.map((addon, i) => {
                                     return <BillingProductAddon key={i} addon={addon} />
@@ -532,6 +588,7 @@ export const BillingProduct = ({ product }: { product: BillingProductV2Type }): 
                 </div>
                 {(showUpgradeCTA || (isOnboarding && !product.contact_support)) && (
                     <div
+                        data-attr={`upgrade-card-${product.type}`}
                         className={`border-t border-border p-8 flex justify-between ${
                             product.subscribed ? 'bg-success-highlight' : 'bg-warning-highlight'
                         }`}
@@ -564,11 +621,7 @@ export const BillingProduct = ({ product }: { product: BillingProductV2Type }): 
                                         {!billing?.has_active_subscription && (
                                             <div className="flex gap-x-2 items-center mb-2">
                                                 <IconCheckCircleOutline className="text-success" />
-                                                <Tooltip
-                                                    title={
-                                                        'Multiple projects, Feature flags, Experiments, Integrations, Apps, and more'
-                                                    }
-                                                >
+                                                <Tooltip title="Multiple projects, Feature flags, Experiments, Integrations, Apps, and more">
                                                     <b>Upgraded platform features</b>
                                                 </Tooltip>
                                             </div>
@@ -597,7 +650,7 @@ export const BillingProduct = ({ product }: { product: BillingProductV2Type }): 
                                             First {convertLargeNumberToWords(upgradePlan?.tiers?.[0].up_to, null)}{' '}
                                             {product.unit}s free
                                         </b>
-                                        , then ${upgradePlan?.tiers?.[1].unit_amount_usd}/{product.unit} with volume
+                                        , then ${upgradePlan?.tiers?.[1]?.unit_amount_usd}/{product.unit} with volume
                                         discounts.
                                     </p>
                                 )}
@@ -614,21 +667,12 @@ export const BillingProduct = ({ product }: { product: BillingProductV2Type }): 
                                         Compare plans
                                     </LemonButton>
                                     <LemonButton
-                                        to={
-                                            // if we're in onboarding we want to upgrade them to the product and the addons at once
-                                            isOnboarding
-                                                ? getUpgradeAllProductsLink(
-                                                      product,
-                                                      upgradeToPlanKey || '',
-                                                      redirectPath
-                                                  )
-                                                : // otherwise we just want to upgrade them to the product
-                                                  `/api/billing-v2/activation?products=${
-                                                      product.type
-                                                  }:${upgradeToPlanKey}${
-                                                      redirectPath && `&redirect_path=${redirectPath}`
-                                                  }`
-                                        }
+                                        to={getUpgradeProductLink(
+                                            product,
+                                            upgradeToPlanKey || '',
+                                            redirectPath,
+                                            isOnboarding // if in onboarding, we want to include addons, otherwise don't
+                                        )}
                                         type="primary"
                                         icon={<IconPlus />}
                                         disableClientSideRouting

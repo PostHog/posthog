@@ -13,14 +13,20 @@ from rest_framework_csv import renderers as csvrenderers
 from posthog.api.routing import StructuredViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 from posthog.api.utils import get_target_entity
-from posthog.auth import JwtAuthentication, PersonalAPIKeyAuthentication, TemporaryTokenAuthentication
+from posthog.auth import (
+    JwtAuthentication,
+    PersonalAPIKeyAuthentication,
+    TemporaryTokenAuthentication,
+)
 from posthog.client import sync_execute
 from posthog.constants import LIMIT, TREND_FILTER_TYPE_EVENTS
 from posthog.event_usage import report_user_action
 from posthog.hogql.hogql import HogQLContext
 from posthog.models import Action, ActionStep, Filter, Person
 from posthog.models.action.util import format_action_filter
-from posthog.permissions import ProjectMembershipNecessaryPermissions, TeamMemberAccessPermission
+from posthog.permissions import (
+    TeamMemberAccessPermission,
+)
 from posthog.queries.trends.trends_actors import TrendsActors
 
 from .forbid_destroy_model import ForbidDestroyModel
@@ -79,6 +85,11 @@ class ActionSerializer(TaggedItemSerializerMixin, serializers.HyperlinkedModelSe
             "last_calculated_at",
             "team_id",
             "is_action",
+            "bytecode_error",
+        ]
+        read_only_fields = [
+            "team_id",
+            "bytecode_error",
         ]
         extra_kwargs = {"team_id": {"read_only": True}}
 
@@ -119,12 +130,15 @@ class ActionSerializer(TaggedItemSerializerMixin, serializers.HyperlinkedModelSe
                 **{key: value for key, value in step.items() if key not in ("isNew", "selection")},
             )
 
-        report_user_action(validated_data["created_by"], "action created", instance.get_analytics_metadata())
+        report_user_action(
+            validated_data["created_by"],
+            "action created",
+            instance.get_analytics_metadata(),
+        )
 
         return instance
 
     def update(self, instance: Any, validated_data: Dict[str, Any]) -> Any:
-
         steps = validated_data.pop("steps", None)
         # If there's no steps property at all we just ignore it
         # If there is a step property but it's an empty array [], we'll delete all the steps
@@ -144,6 +158,8 @@ class ActionSerializer(TaggedItemSerializerMixin, serializers.HyperlinkedModelSe
                         **{key: value for key, value in step.items() if key not in ("isNew", "selection")},
                     )
 
+        # bytecode might have been altered in the action steps
+        instance.refresh_from_db(fields=["bytecode", "bytecode_error"])
         instance = super().update(instance, validated_data)
         instance.refresh_from_db()
         report_user_action(
@@ -157,7 +173,12 @@ class ActionSerializer(TaggedItemSerializerMixin, serializers.HyperlinkedModelSe
         return instance
 
 
-class ActionViewSet(TaggedItemViewSetMixin, StructuredViewSetMixin, ForbidDestroyModel, viewsets.ModelViewSet):
+class ActionViewSet(
+    TaggedItemViewSetMixin,
+    StructuredViewSetMixin,
+    ForbidDestroyModel,
+    viewsets.ModelViewSet,
+):
     renderer_classes = tuple(api_settings.DEFAULT_RENDERER_CLASSES) + (csvrenderers.PaginatedCSVRenderer,)
     queryset = Action.objects.all()
     serializer_class = ActionSerializer
@@ -168,7 +189,7 @@ class ActionViewSet(TaggedItemViewSetMixin, StructuredViewSetMixin, ForbidDestro
         authentication.SessionAuthentication,
         authentication.BasicAuthentication,
     ]
-    permission_classes = [IsAuthenticated, ProjectMembershipNecessaryPermissions, TeamMemberAccessPermission]
+    permission_classes = [IsAuthenticated, TeamMemberAccessPermission]
     ordering = ["-last_calculated_at", "name"]
 
     def get_queryset(self):
@@ -182,7 +203,9 @@ class ActionViewSet(TaggedItemViewSetMixin, StructuredViewSetMixin, ForbidDestro
 
     def list(self, request: request.Request, *args: Any, **kwargs: Any) -> Response:
         actions = self.get_queryset()
-        actions_list: List[Dict[Any, Any]] = self.serializer_class(actions, many=True, context={"request": request}).data  # type: ignore
+        actions_list: List[Dict[Any, Any]] = self.serializer_class(
+            actions, many=True, context={"request": request}
+        ).data  # type: ignore
         return Response({"results": actions_list})
 
     # NOTE: Deprecated in favour of `persons/trends` endpoint
@@ -256,7 +279,3 @@ class ActionViewSet(TaggedItemViewSetMixin, StructuredViewSetMixin, ForbidDestro
             },
         )
         return Response({"count": results[0][0]})
-
-
-class LegacyActionViewSet(ActionViewSet):
-    legacy_team_compatibility = True

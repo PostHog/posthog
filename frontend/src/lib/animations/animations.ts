@@ -33,7 +33,7 @@ async function fetchJson(url: string): Promise<Record<string, any>> {
 
 export async function getAnimationSource(animation: AnimationType): Promise<Record<string, any>> {
     if (!animationCache[animation]) {
-        if (!fetchCache[animation]) {
+        if (!(animation in fetchCache)) {
             fetchCache[animation] = fetchJson(animations[animation].url)
         }
         animationCache[animation] = await fetchCache[animation]

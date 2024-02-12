@@ -1,6 +1,9 @@
 from functools import cached_property
 
-from posthog.async_migrations.definition import AsyncMigrationDefinition, AsyncMigrationOperationSQL
+from posthog.async_migrations.definition import (
+    AsyncMigrationDefinition,
+    AsyncMigrationOperationSQL,
+)
 from posthog.client import sync_execute
 from posthog.constants import AnalyticsDBMS
 from posthog.settings import CLICKHOUSE_DATABASE
@@ -29,7 +32,6 @@ The migration strategy:
 
 
 class Migration(AsyncMigrationDefinition):
-
     description = "Set up person_distinct_id2 table, speeding up person-related queries."
 
     depends_on = "0002_events_sample_by"

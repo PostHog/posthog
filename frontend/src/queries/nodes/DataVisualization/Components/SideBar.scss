@@ -1,0 +1,26 @@
+@import '../../../../styles/mixins';
+
+.DataVisualization {
+    .LemonTabs .LemonTabs__bar {
+        margin-bottom: 0;
+    }
+
+    .SideBar {
+        min-width: 18rem;
+        min-height: var(--viz-min-height);
+        border-radius: var(--radius);
+
+        .LemonInput.LemonInput--medium {
+            display: flex;
+
+            .LemonInput__input {
+                flex: 1;
+                width: 0;
+            }
+        }
+
+        .grow-2 {
+            flex-grow: 2;
+        }
+    }
+}

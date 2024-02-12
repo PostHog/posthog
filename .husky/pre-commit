@@ -1,16 +1,4 @@
 #!/bin/sh
 . "$(dirname "$0")/_/husky.sh"
 
-# Check if staged files contain any added or modified PNGs - skip when merging
-if \
-  git rev-parse -q --verify MERGE_HEAD \
-  && git diff --cached --name-status | grep '^[AM]' | grep -q '.png$'
-then
-  # Error if OptiPNG is not installed
-    if ! command -v optipng >/dev/null; then
-        echo "PNG files must be optimized before being committed, but OptiPNG is not installed! Fix this with \`brew/apt install optipng\`."
-        exit 1
-    fi
-fi
-
 pnpm lint-staged

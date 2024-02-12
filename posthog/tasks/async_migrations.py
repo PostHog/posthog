@@ -1,4 +1,4 @@
-from celery import states
+from celery import shared_task, states
 from celery.result import AsyncResult
 
 from posthog.async_migrations.runner import (
@@ -7,8 +7,11 @@ from posthog.async_migrations.runner import (
     start_async_migration,
     update_migration_progress,
 )
-from posthog.async_migrations.utils import force_stop_migration, process_error, trigger_migration
-from posthog.celery import app
+from posthog.async_migrations.utils import (
+    force_stop_migration,
+    process_error,
+    trigger_migration,
+)
 from posthog.models.instance_setting import get_instance_setting
 
 
@@ -16,7 +19,7 @@ from posthog.models.instance_setting import get_instance_setting
 # 1. spawning a thread within the worker
 # 2. suggesting users scale celery when running async migrations
 # 3. ...
-@app.task(track_started=True, ignore_result=False, max_retries=0)
+@shared_task(track_started=True, ignore_result=False, max_retries=0)
 def run_async_migration(migration_name: str, fresh_start: bool = True) -> None:
     if fresh_start:
         start_async_migration(migration_name)
@@ -31,6 +34,7 @@ def run_async_migration(migration_name: str, fresh_start: bool = True) -> None:
 # 2. Does a periodic healthcheck to make sure it's safe to continue running the migration
 # 3. Updates migration progress
 def check_async_migration_health() -> None:
+    from posthog.celery import app
     from posthog.models.async_migration import AsyncMigration, MigrationStatus
 
     try:
@@ -44,7 +48,11 @@ def check_async_migration_health() -> None:
     # failures and successes are handled elsewhere
     # pending means we haven't picked up the task yet
     # retry is not possible as max_retries == 0
-    if migration_task_celery_state not in (states.STARTED, states.PENDING, states.FAILURE):
+    if migration_task_celery_state not in (
+        states.STARTED,
+        states.PENDING,
+        states.FAILURE,
+    ):
         return
 
     inspector = app.control.inspect()

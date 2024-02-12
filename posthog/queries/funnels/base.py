@@ -76,7 +76,10 @@ class ClickhouseFunnelBase(ABC):
 
         if self._filter.funnel_window_days:
             self._filter = self._filter.shallow_clone(
-                {FUNNEL_WINDOW_INTERVAL: self._filter.funnel_window_days, FUNNEL_WINDOW_INTERVAL_UNIT: "day"}
+                {
+                    FUNNEL_WINDOW_INTERVAL: self._filter.funnel_window_days,
+                    FUNNEL_WINDOW_INTERVAL_UNIT: "day",
+                }
             )
 
         if not self._filter.limit:
@@ -133,7 +136,7 @@ class ClickhouseFunnelBase(ABC):
         # format default dates
         data: Dict[str, Any] = {}
         if not self._filter._date_from:
-            data.update({"date_from": relative_date_parse("-7d")})
+            data.update({"date_from": relative_date_parse("-7d", self._team.timezone_info)})
 
         if self._filter.breakdown and not self._filter.breakdown_type:
             data.update({"breakdown_type": "event"})
@@ -183,7 +186,7 @@ class ClickhouseFunnelBase(ABC):
 
             for entity in self._filter.entities[exclusion.funnel_from_step : exclusion.funnel_to_step + 1]:
                 if entity.equals(exclusion) or exclusion.is_superset(entity):
-                    raise ValidationError("Exclusion event can't be the same as funnel step")
+                    raise ValidationError("Exclusion steps cannot contain an event that's part of funnel steps.")
 
         self._filter = self._filter.shallow_clone(data)
 
@@ -267,6 +270,7 @@ class ClickhouseFunnelBase(ABC):
             return self._format_single_funnel(results[0])
 
     def _exec_query(self) -> List[Tuple]:
+        self._filter.team = self._team
         query = self.get_query()
         return insight_sync_execute(
             query,
@@ -307,7 +311,6 @@ class ClickhouseFunnelBase(ABC):
             target_step -= 1
 
         if self._include_preceding_timestamp:
-
             if target_step == 0:
                 raise ValueError("Cannot request preceding step timestamp if target funnel step is the first step")
 
@@ -390,7 +393,6 @@ class ClickhouseFunnelBase(ABC):
             return ""
 
     def _get_sorting_condition(self, curr_index: int, max_steps: int):
-
         if curr_index == 1:
             return "1"
 
@@ -413,7 +415,11 @@ class ClickhouseFunnelBase(ABC):
         return f"if({' AND '.join(conditions)}, {curr_index}, {self._get_sorting_condition(curr_index - 1, max_steps)})"
 
     def _get_inner_event_query(
-        self, entities=None, entity_name="events", skip_entity_filter=False, skip_step_filter=False
+        self,
+        entities=None,
+        entity_name="events",
+        skip_entity_filter=False,
+        skip_step_filter=False,
     ) -> str:
         entities_to_use = entities or self._filter.entities
 
@@ -443,12 +449,18 @@ class ClickhouseFunnelBase(ABC):
             all_step_cols.extend(step_cols)
 
         for exclusion_id, entity in enumerate(self._filter.exclusions):
-            step_cols = self._get_step_col(entity, entity.funnel_from_step, entity_name, f"exclusion_{exclusion_id}_")
+            step_cols = self._get_step_col(
+                entity,
+                entity.funnel_from_step,
+                entity_name,
+                f"exclusion_{exclusion_id}_",
+            )
             # every exclusion entity has the form: exclusion_<id>_step_i & timestamp exclusion_<id>_latest_i
             # where i is the starting step for exclusion on that entity
             all_step_cols.extend(step_cols)
 
-        breakdown_select_prop = self._get_breakdown_select_prop()
+        breakdown_select_prop, breakdown_select_prop_params = self._get_breakdown_select_prop()
+        self.params.update(breakdown_select_prop_params)
 
         if breakdown_select_prop:
             all_step_cols.append(breakdown_select_prop)
@@ -532,7 +544,7 @@ class ClickhouseFunnelBase(ABC):
         return step_cols
 
     def _build_step_query(self, entity: Entity, index: int, entity_name: str, step_prefix: str) -> str:
-        filters = self._build_filters(entity, index)
+        filters = self._build_filters(entity, index, entity_name)
         if entity.type == TREND_FILTER_TYPE_ACTIONS:
             action = entity.get_action()
             for action_step_event in action.get_step_events():
@@ -564,11 +576,11 @@ class ClickhouseFunnelBase(ABC):
             content_sql = f"event = %({event_param_key})s {filters}"
         return content_sql
 
-    def _build_filters(self, entity: Entity, index: int) -> str:
+    def _build_filters(self, entity: Entity, index: int, entity_name: str) -> str:
         prop_filters, prop_filter_params = parse_prop_grouped_clauses(
             team_id=self._team.pk,
             property_group=entity.property_groups,
-            prepend=str(index),
+            prepend=f"_{entity_name}_{index}",
             person_properties_mode=get_person_properties_mode(self._team),
             person_id_joined_alias="person_id",
             hogql_context=self._filter.hogql_context,
@@ -707,16 +719,16 @@ class ClickhouseFunnelBase(ABC):
     def get_step_counts_without_aggregation_query(self) -> str:
         raise NotImplementedError()
 
-    def _get_breakdown_select_prop(self) -> str:
+    def _get_breakdown_select_prop(self) -> Tuple[str, Dict[str, Any]]:
         basic_prop_selector = ""
+        basic_prop_params: Dict[str, Any] = {}
         if not self._filter.breakdown:
-            return basic_prop_selector
+            return basic_prop_selector, basic_prop_params
 
         self.params.update({"breakdown": self._filter.breakdown})
         if self._filter.breakdown_type == "person":
-
             if self._team.person_on_events_mode != PersonOnEventsMode.DISABLED:
-                basic_prop_selector = get_single_or_multi_property_string_expr(
+                basic_prop_selector, basic_prop_params = get_single_or_multi_property_string_expr(
                     self._filter.breakdown,
                     table="events",
                     query_alias="prop_basic",
@@ -725,11 +737,14 @@ class ClickhouseFunnelBase(ABC):
                     materialised_table_column="person_properties",
                 )
             else:
-                basic_prop_selector = get_single_or_multi_property_string_expr(
-                    self._filter.breakdown, table="person", query_alias="prop_basic", column="person_props"
+                basic_prop_selector, basic_prop_params = get_single_or_multi_property_string_expr(
+                    self._filter.breakdown,
+                    table="person",
+                    query_alias="prop_basic",
+                    column="person_props",
                 )
         elif self._filter.breakdown_type == "event":
-            basic_prop_selector = get_single_or_multi_property_string_expr(
+            basic_prop_selector, basic_prop_params = get_single_or_multi_property_string_expr(
                 self._filter.breakdown,
                 table="events",
                 query_alias="prop_basic",
@@ -755,7 +770,10 @@ class ClickhouseFunnelBase(ABC):
             else:
                 properties_field = f"group_properties_{self._filter.breakdown_group_type_index}"
                 expression, _ = get_property_string_expr(
-                    table="groups", property_name=self._filter.breakdown, var="%(breakdown)s", column=properties_field
+                    table="groups",
+                    property_name=self._filter.breakdown,
+                    var="%(breakdown)s",
+                    column=properties_field,
                 )
             basic_prop_selector = f"{expression} AS prop_basic"
         elif self._filter.breakdown_type == "hogql":
@@ -783,12 +801,11 @@ class ClickhouseFunnelBase(ABC):
 
             prop_window = "groupUniqArray(prop) over (PARTITION by aggregation_target) as prop_vals"
 
-            return ",".join([basic_prop_selector, *select_columns, final_select, prop_window])
+            return ",".join([basic_prop_selector, *select_columns, final_select, prop_window]), basic_prop_params
         elif self._filter.breakdown_attribution_type in [
             BreakdownAttributionType.FIRST_TOUCH,
             BreakdownAttributionType.LAST_TOUCH,
         ]:
-
             prop_conditional = (
                 "notEmpty(arrayFilter(x -> notEmpty(x), prop))"
                 if self._query_has_array_breakdown()
@@ -803,10 +820,10 @@ class ClickhouseFunnelBase(ABC):
 
             breakdown_window_selector = f"{aggregate_operation}(prop, timestamp, {prop_conditional})"
             prop_window = f"{breakdown_window_selector} over (PARTITION by aggregation_target) as prop_vals"
-            return ",".join([basic_prop_selector, "prop_basic as prop", prop_window])
+            return ",".join([basic_prop_selector, "prop_basic as prop", prop_window]), basic_prop_params
         else:
             # ALL_EVENTS
-            return ",".join([basic_prop_selector, "prop_basic as prop"])
+            return ",".join([basic_prop_selector, "prop_basic as prop"]), basic_prop_params
 
     def _get_cohort_breakdown_join(self) -> str:
         cohort_queries, ids, cohort_params = format_breakdown_cohort_join_query(self._team, self._filter)
@@ -819,7 +836,7 @@ class ClickhouseFunnelBase(ABC):
             ON events.distinct_id = cohort_join.distinct_id
         """
 
-    def _get_breakdown_conditions(self) -> Optional[str]:
+    def _get_breakdown_conditions(self) -> Optional[List[str]]:
         """
         For people, pagination sets the offset param, which is common across filters
         and gives us the wrong breakdown values here, so we override it.
@@ -832,7 +849,10 @@ class ClickhouseFunnelBase(ABC):
         if self._filter.breakdown:
             use_all_funnel_entities = (
                 self._filter.breakdown_attribution_type
-                in [BreakdownAttributionType.FIRST_TOUCH, BreakdownAttributionType.LAST_TOUCH]
+                in [
+                    BreakdownAttributionType.FIRST_TOUCH,
+                    BreakdownAttributionType.LAST_TOUCH,
+                ]
                 or self._filter.funnel_order_type == FunnelOrderType.UNORDERED
             )
             first_entity = self._filter.entities[0]
@@ -844,7 +864,7 @@ class ClickhouseFunnelBase(ABC):
             ):
                 target_entity = self._filter.entities[self._filter.breakdown_attribution_value]
 
-            return get_breakdown_prop_values(
+            values, has_more_values = get_breakdown_prop_values(
                 self._filter,
                 target_entity,
                 "count(*)",
@@ -853,13 +873,18 @@ class ClickhouseFunnelBase(ABC):
                 use_all_funnel_entities=use_all_funnel_entities,
                 person_properties_mode=get_person_properties_mode(self._team),
             )
+            return values
 
         return None
 
     def _get_breakdown_prop(self, group_remaining=False) -> str:
         if self._filter.breakdown:
             other_aggregation = "['Other']" if self._query_has_array_breakdown() else "'Other'"
-            if group_remaining and self._filter.breakdown_type in ["person", "event", "group"]:
+            if group_remaining and self._filter.breakdown_type in [
+                "person",
+                "event",
+                "group",
+            ]:
                 return f", if(has(%(breakdown_values)s, prop), prop, {other_aggregation}) as prop"
             else:
                 # Cohorts don't have "Other" aggregation

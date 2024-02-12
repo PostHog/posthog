@@ -27,7 +27,8 @@ from posthog.test.base import BaseTest, QueryMatchingTest, snapshot_postgres_que
 class TestPlugin(BaseTest):
     def test_default_config_list(self):
         some_plugin: Plugin = Plugin.objects.create(
-            organization=self.organization, config_schema=[{"key": "a", "default": 2}, {"key": "b"}]
+            organization=self.organization,
+            config_schema=[{"key": "a", "default": 2}, {"key": "b"}],
         )
 
         default_config = some_plugin.get_default_config()
@@ -36,7 +37,8 @@ class TestPlugin(BaseTest):
 
     def test_default_config_dict(self):
         some_plugin: Plugin = Plugin.objects.create(
-            organization=self.organization, config_schema={"x": {"default": "z"}, "y": {"default": None}}
+            organization=self.organization,
+            config_schema={"x": {"default": "z"}, "y": {"default": None}},
         )
 
         default_config = some_plugin.get_default_config()
@@ -50,9 +52,17 @@ class TestPlugin(BaseTest):
             validate_plugin_job_payload(Plugin(public_jobs={}), "unknown_job", {}, is_staff=False)
 
         validate_plugin_job_payload(Plugin(public_jobs={"foo_job": {}}), "foo_job", {}, is_staff=False)
-        validate_plugin_job_payload(Plugin(public_jobs={"foo_job": {"payload": {}}}), "foo_job", {}, is_staff=False)
         validate_plugin_job_payload(
-            Plugin(public_jobs={"foo_job": {"payload": {"param": {"type": "number"}}}}), "foo_job", {}, is_staff=False
+            Plugin(public_jobs={"foo_job": {"payload": {}}}),
+            "foo_job",
+            {},
+            is_staff=False,
+        )
+        validate_plugin_job_payload(
+            Plugin(public_jobs={"foo_job": {"payload": {"param": {"type": "number"}}}}),
+            "foo_job",
+            {},
+            is_staff=False,
         )
         validate_plugin_job_payload(
             Plugin(public_jobs={"foo_job": {"payload": {"param": {"type": "number", "required": False}}}}),
@@ -77,7 +87,17 @@ class TestPlugin(BaseTest):
             )
         validate_plugin_job_payload(
             Plugin(
-                public_jobs={"foo_job": {"payload": {"param": {"type": "number", "staff_only": True, "default": 5}}}}
+                public_jobs={
+                    "foo_job": {
+                        "payload": {
+                            "param": {
+                                "type": "number",
+                                "staff_only": True,
+                                "default": 5,
+                            }
+                        }
+                    }
+                }
             ),
             "foo_job",
             {"param": 5},
@@ -88,7 +108,15 @@ class TestPlugin(BaseTest):
             validate_plugin_job_payload(
                 Plugin(
                     public_jobs={
-                        "foo_job": {"payload": {"param": {"type": "number", "staff_only": True, "default": 1}}}
+                        "foo_job": {
+                            "payload": {
+                                "param": {
+                                    "type": "number",
+                                    "staff_only": True,
+                                    "default": 1,
+                                }
+                            }
+                        }
                     }
                 ),
                 "foo_job",
@@ -120,7 +148,10 @@ class TestPluginSourceFile(BaseTest, QueryMatchingTest):
         with self.assertRaises(exceptions.ValidationError) as cm:
             PluginSourceFile.objects.sync_from_plugin_archive(test_plugin)
 
-        self.assertEqual(cm.exception.message, f"There is no archive to extract code from in plugin Contoso")
+        self.assertEqual(
+            cm.exception.message,
+            f"There is no archive to extract code from in plugin Contoso",
+        )
 
     @snapshot_postgres_queries
     def test_sync_from_plugin_archive_from_zip_without_plugin_js_fails(self):
@@ -138,7 +169,9 @@ class TestPluginSourceFile(BaseTest, QueryMatchingTest):
     @snapshot_postgres_queries
     def test_sync_from_plugin_archive_from_zip_with_explicit_index_js_works(self):
         test_plugin: Plugin = Plugin.objects.create(
-            organization=self.organization, name="Contoso", archive=base64.b64decode(HELLO_WORLD_PLUGIN_GITHUB_ZIP[1])
+            organization=self.organization,
+            name="Contoso",
+            archive=base64.b64decode(HELLO_WORLD_PLUGIN_GITHUB_ZIP[1]),
         )
 
         (
@@ -158,7 +191,9 @@ class TestPluginSourceFile(BaseTest, QueryMatchingTest):
     @snapshot_postgres_queries
     def test_sync_from_plugin_archive_from_tgz_with_explicit_index_js_works(self):
         test_plugin: Plugin = Plugin.objects.create(
-            organization=self.organization, name="Contoso", archive=base64.b64decode(HELLO_WORLD_PLUGIN_NPM_TGZ[1])
+            organization=self.organization,
+            name="Contoso",
+            archive=base64.b64decode(HELLO_WORLD_PLUGIN_NPM_TGZ[1]),
         )
 
         # First time - create
@@ -273,7 +308,10 @@ class TestPluginSourceFile(BaseTest, QueryMatchingTest):
         with self.assertRaises(exceptions.ValidationError) as cm:
             PluginSourceFile.objects.sync_from_plugin_archive(test_plugin)
 
-        self.assertEqual(cm.exception.message, f"Could not find main file index.js or index.ts in plugin Contoso")
+        self.assertEqual(
+            cm.exception.message,
+            f"Could not find main file index.js or index.ts in plugin Contoso",
+        )
 
     @snapshot_postgres_queries
     def test_sync_from_plugin_archive_twice_from_zip_with_index_ts_replaced_by_frontend_tsx_works(self):

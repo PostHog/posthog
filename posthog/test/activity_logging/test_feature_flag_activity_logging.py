@@ -18,7 +18,15 @@ class TestChangesBetweenFeatureFlags(APIBaseTest):
             previous=self._a_feature_flag_with(name="a"),
             current=self._a_feature_flag_with(name="b"),
         )
-        expected = [Change(type="FeatureFlag", field="name", action="changed", before="a", after="b")]
+        expected = [
+            Change(
+                type="FeatureFlag",
+                field="name",
+                action="changed",
+                before="a",
+                after="b",
+            )
+        ]
         assert actual == expected
 
     def test_a_change_of_key_can_be_logged(self) -> None:
@@ -27,7 +35,15 @@ class TestChangesBetweenFeatureFlags(APIBaseTest):
             previous=self._a_feature_flag_with(key="the-key"),
             current=self._a_feature_flag_with(key="the-new-key"),
         )
-        expected = [Change(type="FeatureFlag", field="key", action="changed", before="the-key", after="the-new-key")]
+        expected = [
+            Change(
+                type="FeatureFlag",
+                field="key",
+                action="changed",
+                before="the-key",
+                after="the-new-key",
+            )
+        ]
         assert actual == expected
 
     def test_a_change_of_flag_active_status_can_be_logged(self) -> None:
@@ -36,7 +52,15 @@ class TestChangesBetweenFeatureFlags(APIBaseTest):
             previous=self._a_feature_flag_with(active=False),
             current=self._a_feature_flag_with(active=True),
         )
-        expected = [Change(type="FeatureFlag", field="active", action="changed", before=False, after=True)]
+        expected = [
+            Change(
+                type="FeatureFlag",
+                field="active",
+                action="changed",
+                before=False,
+                after=True,
+            )
+        ]
         assert actual == expected
 
     def test_adding_a_rollout_percentage_can_be_logged(self) -> None:
@@ -45,7 +69,14 @@ class TestChangesBetweenFeatureFlags(APIBaseTest):
             previous=self._a_feature_flag_with(),
             current=self._a_feature_flag_with(rollout_percentage=23),
         )
-        expected = [Change(type="FeatureFlag", field="rollout_percentage", action="created", after=23)]
+        expected = [
+            Change(
+                type="FeatureFlag",
+                field="rollout_percentage",
+                action="created",
+                after=23,
+            )
+        ]
         assert actual == expected
 
     def test_a_change_of_rollout_percentage_can_be_logged(self) -> None:
@@ -54,7 +85,15 @@ class TestChangesBetweenFeatureFlags(APIBaseTest):
             previous=self._a_feature_flag_with(rollout_percentage=12),
             current=self._a_feature_flag_with(rollout_percentage=23),
         )
-        expected = [Change(type="FeatureFlag", field="rollout_percentage", action="changed", before=12, after=23)]
+        expected = [
+            Change(
+                type="FeatureFlag",
+                field="rollout_percentage",
+                action="changed",
+                before=12,
+                after=23,
+            )
+        ]
         assert actual == expected
 
     def test_a_change_of_soft_delete_can_be_logged(self) -> None:
@@ -63,7 +102,15 @@ class TestChangesBetweenFeatureFlags(APIBaseTest):
             previous=self._a_feature_flag_with(deleted=False),
             current=self._a_feature_flag_with(deleted=True),
         )
-        expected = [Change(type="FeatureFlag", field="deleted", action="changed", before=False, after=True)]
+        expected = [
+            Change(
+                type="FeatureFlag",
+                field="deleted",
+                action="changed",
+                before=False,
+                after=True,
+            )
+        ]
         assert actual == expected
 
     def test_a_change_of_filters_can_be_logged(self) -> None:

@@ -11,9 +11,14 @@ from ee.clickhouse.materialized_columns.analyze import (
 from ee.clickhouse.queries.stickiness import ClickhouseStickiness
 from ee.clickhouse.queries.funnels.funnel_correlation import FunnelCorrelation
 from posthog.queries.funnels import ClickhouseFunnel
-from posthog.queries.property_values import get_property_values_for_key, get_person_property_values_for_key
+from posthog.queries.property_values import (
+    get_property_values_for_key,
+    get_person_property_values_for_key,
+)
 from posthog.queries.trends.trends import Trends
-from posthog.queries.session_recordings.session_recording_list import SessionRecordingList
+from posthog.queries.session_recordings.session_recording_list import (
+    SessionRecordingList,
+)
 from ee.clickhouse.queries.retention import ClickhouseRetention
 from posthog.queries.util import get_earliest_timestamp
 from posthog.models import Action, ActionStep, Cohort, Team, Organization
@@ -33,7 +38,11 @@ MATERIALIZED_PROPERTIES: List[Tuple[TableWithProperties, PropertyName]] = [
 ]
 
 DATE_RANGE = {"date_from": "2021-01-01", "date_to": "2021-10-01", "interval": "week"}
-SHORT_DATE_RANGE = {"date_from": "2021-07-01", "date_to": "2021-10-01", "interval": "week"}
+SHORT_DATE_RANGE = {
+    "date_from": "2021-07-01",
+    "date_to": "2021-10-01",
+    "interval": "week",
+}
 SESSIONS_DATE_RANGE = {"date_from": "2021-11-17", "date_to": "2021-11-22"}
 
 
@@ -102,7 +111,14 @@ class QuerySuite:
         filter = Filter(
             data={
                 "events": [{"id": "$pageview"}],
-                "properties": [{"key": "email", "operator": "icontains", "value": ".com", "type": "person"}],
+                "properties": [
+                    {
+                        "key": "email",
+                        "operator": "icontains",
+                        "value": ".com",
+                        "type": "person",
+                    }
+                ],
                 **DATE_RANGE,
             }
         )
@@ -115,7 +131,14 @@ class QuerySuite:
         filter = Filter(
             data={
                 "events": [{"id": "$pageview"}],
-                "properties": [{"key": "email", "operator": "icontains", "value": ".com", "type": "person"}],
+                "properties": [
+                    {
+                        "key": "email",
+                        "operator": "icontains",
+                        "value": ".com",
+                        "type": "person",
+                    }
+                ],
                 **DATE_RANGE,
             }
         )
@@ -138,7 +161,12 @@ class QuerySuite:
     @benchmark_clickhouse
     def track_trends_person_property_breakdown(self):
         filter = Filter(
-            data={"events": [{"id": "$pageview"}], "breakdown": "$browser", "breakdown_type": "person", **DATE_RANGE}
+            data={
+                "events": [{"id": "$pageview"}],
+                "breakdown": "$browser",
+                "breakdown_type": "person",
+                **DATE_RANGE,
+            }
         )
 
         with no_materialized_columns():
@@ -147,7 +175,12 @@ class QuerySuite:
     @benchmark_clickhouse
     def track_trends_person_property_breakdown_materialized(self):
         filter = Filter(
-            data={"events": [{"id": "$pageview"}], "breakdown": "$browser", "breakdown_type": "person", **DATE_RANGE}
+            data={
+                "events": [{"id": "$pageview"}],
+                "breakdown": "$browser",
+                "breakdown_type": "person",
+                **DATE_RANGE,
+            }
         )
 
         Trends().run(filter, self.team)
@@ -162,7 +195,14 @@ class QuerySuite:
         filter = Filter(
             data={
                 "events": [{"id": "$pageview", "math": "dau"}],
-                "properties": [{"key": "email", "operator": "icontains", "value": ".com", "type": "person"}],
+                "properties": [
+                    {
+                        "key": "email",
+                        "operator": "icontains",
+                        "value": ".com",
+                        "type": "person",
+                    }
+                ],
                 **DATE_RANGE,
             }
         )
@@ -175,7 +215,14 @@ class QuerySuite:
         filter = Filter(
             data={
                 "events": [{"id": "$pageview", "math": "dau"}],
-                "properties": [{"key": "email", "operator": "icontains", "value": ".com", "type": "person"}],
+                "properties": [
+                    {
+                        "key": "email",
+                        "operator": "icontains",
+                        "value": ".com",
+                        "type": "person",
+                    }
+                ],
                 **DATE_RANGE,
             }
         )
@@ -253,7 +300,14 @@ class QuerySuite:
         ActionStep.objects.create(
             action=action,
             event="$pageview",
-            properties=[{"key": "email", "operator": "icontains", "value": ".com", "type": "person"}],
+            properties=[
+                {
+                    "key": "email",
+                    "operator": "icontains",
+                    "value": ".com",
+                    "type": "person",
+                }
+            ],
         )
 
         filter = Filter(data={"actions": [{"id": action.id}], **DATE_RANGE}, team=self.team)
@@ -265,7 +319,14 @@ class QuerySuite:
         ActionStep.objects.create(
             action=action,
             event="$pageview",
-            properties=[{"key": "email", "operator": "icontains", "value": ".com", "type": "person"}],
+            properties=[
+                {
+                    "key": "email",
+                    "operator": "icontains",
+                    "value": ".com",
+                    "type": "person",
+                }
+            ],
         )
 
         filter = Filter(data={"actions": [{"id": action.id}], **DATE_RANGE}, team=self.team)
@@ -277,7 +338,10 @@ class QuerySuite:
         filter = Filter(
             data={
                 "insight": "FUNNELS",
-                "events": [{"id": "user signed up", "order": 0}, {"id": "insight analyzed", "order": 1}],
+                "events": [
+                    {"id": "user signed up", "order": 0},
+                    {"id": "insight analyzed", "order": 1},
+                ],
                 **DATE_RANGE,
             },
             team=self.team,
@@ -287,7 +351,11 @@ class QuerySuite:
     @benchmark_clickhouse
     def track_correlations_by_events(self):
         filter = Filter(
-            data={"events": [{"id": "user signed up"}, {"id": "insight analyzed"}], **SHORT_DATE_RANGE}, team=self.team
+            data={
+                "events": [{"id": "user signed up"}, {"id": "insight analyzed"}],
+                **SHORT_DATE_RANGE,
+            },
+            team=self.team,
         )
 
         FunnelCorrelation(filter, self.team).run()
@@ -369,7 +437,14 @@ class QuerySuite:
                 "events": [{"id": "$pageview"}],
                 "shown_as": "Stickiness",
                 "display": "ActionsLineGraph",
-                "properties": [{"key": "email", "operator": "icontains", "value": ".com", "type": "person"}],
+                "properties": [
+                    {
+                        "key": "email",
+                        "operator": "icontains",
+                        "value": ".com",
+                        "type": "person",
+                    }
+                ],
                 **DATE_RANGE,
             },
             team=self.team,
@@ -386,7 +461,14 @@ class QuerySuite:
                 "events": [{"id": "$pageview"}],
                 "shown_as": "Stickiness",
                 "display": "ActionsLineGraph",
-                "properties": [{"key": "email", "operator": "icontains", "value": ".com", "type": "person"}],
+                "properties": [
+                    {
+                        "key": "email",
+                        "operator": "icontains",
+                        "value": ".com",
+                        "type": "person",
+                    }
+                ],
                 **DATE_RANGE,
             },
             team=self.team,
@@ -402,7 +484,10 @@ class QuerySuite:
 
     @benchmark_clickhouse
     def track_session_recordings_list_event_filter(self):
-        filter = SessionRecordingsFilter(data={"events": [{"id": "$pageview"}], **SESSIONS_DATE_RANGE}, team=self.team)
+        filter = SessionRecordingsFilter(
+            data={"events": [{"id": "$pageview"}], **SESSIONS_DATE_RANGE},
+            team=self.team,
+        )
 
         SessionRecordingList(filter, self.team).run()
 
@@ -413,7 +498,14 @@ class QuerySuite:
                 "events": [
                     {
                         "id": "$pageview",
-                        "properties": [{"key": "email", "operator": "icontains", "value": ".com", "type": "person"}],
+                        "properties": [
+                            {
+                                "key": "email",
+                                "operator": "icontains",
+                                "value": ".com",
+                                "type": "person",
+                            }
+                        ],
                     }
                 ],
                 **SESSIONS_DATE_RANGE,
@@ -473,7 +565,14 @@ class QuerySuite:
                 "total_intervals": 14,
                 "retention_type": "retention_first_time",
                 "period": "Week",
-                "properties": [{"key": "email", "operator": "icontains", "value": ".com", "type": "person"}],
+                "properties": [
+                    {
+                        "key": "email",
+                        "operator": "icontains",
+                        "value": ".com",
+                        "type": "person",
+                    }
+                ],
                 **DATE_RANGE,
             },
             team=self.team,
@@ -492,7 +591,14 @@ class QuerySuite:
                 "total_intervals": 14,
                 "retention_type": "retention_first_time",
                 "period": "Week",
-                "properties": [{"key": "email", "operator": "icontains", "value": ".com", "type": "person"}],
+                "properties": [
+                    {
+                        "key": "email",
+                        "operator": "icontains",
+                        "value": ".com",
+                        "type": "person",
+                    }
+                ],
                 **DATE_RANGE,
             },
             team=self.team,
@@ -584,7 +690,14 @@ class QuerySuite:
                 "interval": "week",
                 "shown_as": "Lifecycle",
                 "date_from": "-14d",
-                "properties": [{"key": "email", "operator": "icontains", "value": ".com", "type": "person"}],
+                "properties": [
+                    {
+                        "key": "email",
+                        "operator": "icontains",
+                        "value": ".com",
+                        "type": "person",
+                    }
+                ],
                 **DATE_RANGE,
             },
             team=self.team,
@@ -602,7 +715,14 @@ class QuerySuite:
                 "interval": "week",
                 "shown_as": "Lifecycle",
                 "date_from": "-14d",
-                "properties": [{"key": "email", "operator": "icontains", "value": ".com", "type": "person"}],
+                "properties": [
+                    {
+                        "key": "email",
+                        "operator": "icontains",
+                        "value": ".com",
+                        "type": "person",
+                    }
+                ],
                 **DATE_RANGE,
             },
             team=self.team,
@@ -636,7 +756,11 @@ class QuerySuite:
         for table, property in MATERIALIZED_PROPERTIES:
             if (property, "properties") not in get_materialized_columns(table):
                 materialize(table, property)
-                backfill_materialized_columns(table, [(property, "properties")], backfill_period=timedelta(days=1_000))
+                backfill_materialized_columns(
+                    table,
+                    [(property, "properties")],
+                    backfill_period=timedelta(days=1_000),
+                )
 
         # :TRICKY: Data in benchmark servers has ID=2
         team = Team.objects.filter(id=2).first()
@@ -650,7 +774,18 @@ class QuerySuite:
             cohort = Cohort.objects.create(
                 team_id=2,
                 name="benchmarking cohort",
-                groups=[{"properties": [{"key": "email", "operator": "icontains", "value": ".com", "type": "person"}]}],
+                groups=[
+                    {
+                        "properties": [
+                            {
+                                "key": "email",
+                                "operator": "icontains",
+                                "value": ".com",
+                                "type": "person",
+                            }
+                        ]
+                    }
+                ],
             )
             cohort.calculate_people_ch(pending_version=0)
         self.cohort = cohort

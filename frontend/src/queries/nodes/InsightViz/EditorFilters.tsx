@@ -1,66 +1,82 @@
-import { CSSTransition } from 'react-transition-group'
+import './EditorFilters.scss'
+
+import { LemonBanner, Link } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { useValues } from 'kea'
-
-import {
-    InsightEditorFilterGroup,
-    InsightEditorFilter,
-    EditorFilterProps,
-    ChartDisplayType,
-    AvailableFeature,
-    PathType,
-} from '~/types'
-import { insightLogic } from 'scenes/insights/insightLogic'
-import { userLogic } from 'scenes/userLogic'
 import { NON_BREAKDOWN_DISPLAY_TYPES } from 'lib/constants'
-
-import { InsightQueryNode } from '~/queries/schema'
-import { EditorFilterGroup } from './EditorFilterGroup'
-import { LifecycleToggles } from './LifecycleToggles'
-import { GlobalAndOrFilters } from './GlobalAndOrFilters'
-import { TrendsSeries } from './TrendsSeries'
-import { TrendsSeriesLabel } from './TrendsSeriesLabel'
-import { TrendsFormulaLabel } from './TrendsFormulaLabel'
-import { TrendsFormula } from './TrendsFormula'
-import { Breakdown } from './Breakdown'
-import { PathsEventsTypes } from 'scenes/insights/EditorFilters/PathsEventTypes'
-import { PathsTargetEnd, PathsTargetStart } from 'scenes/insights/EditorFilters/PathsTarget'
-import { PathsExclusions } from 'scenes/insights/EditorFilters/PathsExclusions'
-import { PathsWildcardGroups } from 'scenes/insights/EditorFilters/PathsWildcardGroups'
-import { PathsAdvanced } from 'scenes/insights/EditorFilters/PathsAdvanced'
-import { FunnelsQuerySteps } from 'scenes/insights/EditorFilters/FunnelsQuerySteps'
+import { CSSTransition } from 'react-transition-group'
+import { funnelDataLogic } from 'scenes/funnels/funnelDataLogic'
 import { Attribution } from 'scenes/insights/EditorFilters/AttributionFilter'
 import { FunnelsAdvanced } from 'scenes/insights/EditorFilters/FunnelsAdvanced'
+import { FunnelsQuerySteps } from 'scenes/insights/EditorFilters/FunnelsQuerySteps'
+import { PathsAdvanced } from 'scenes/insights/EditorFilters/PathsAdvanced'
+import { PathsEventsTypes } from 'scenes/insights/EditorFilters/PathsEventTypes'
+import { PathsExclusions } from 'scenes/insights/EditorFilters/PathsExclusions'
+import { PathsHogQL } from 'scenes/insights/EditorFilters/PathsHogQL'
+import { PathsTargetEnd, PathsTargetStart } from 'scenes/insights/EditorFilters/PathsTarget'
+import { PathsWildcardGroups } from 'scenes/insights/EditorFilters/PathsWildcardGroups'
 import { RetentionSummary } from 'scenes/insights/EditorFilters/RetentionSummary'
 import { SamplingFilter } from 'scenes/insights/EditorFilters/SamplingFilter'
-
-import { funnelDataLogic } from 'scenes/funnels/funnelDataLogic'
+import { insightLogic } from 'scenes/insights/insightLogic'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
+import { userLogic } from 'scenes/userLogic'
 
-import './EditorFilters.scss'
-import { PathsHogQL } from 'scenes/insights/EditorFilters/PathsHogQL'
+import { InsightQueryNode } from '~/queries/schema'
+import {
+    AvailableFeature,
+    ChartDisplayType,
+    EditorFilterProps,
+    InsightEditorFilter,
+    InsightEditorFilterGroup,
+    PathType,
+} from '~/types'
+
+import { Breakdown } from './Breakdown'
+import { EditorFilterGroup } from './EditorFilterGroup'
+import { GlobalAndOrFilters } from './GlobalAndOrFilters'
+import { LifecycleToggles } from './LifecycleToggles'
+import { TrendsFormula } from './TrendsFormula'
+import { TrendsSeries } from './TrendsSeries'
+import { TrendsSeriesLabel } from './TrendsSeriesLabel'
 
 export interface EditorFiltersProps {
     query: InsightQueryNode
-    setQuery: (node: InsightQueryNode) => void
     showing: boolean
+    embedded: boolean
 }
 
-export function EditorFilters({ query, setQuery, showing }: EditorFiltersProps): JSX.Element {
+export function EditorFilters({ query, showing, embedded }: EditorFiltersProps): JSX.Element | null {
     const { user } = useValues(userLogic)
     const availableFeatures = user?.organization?.available_features || []
 
     const { insight, insightProps } = useValues(insightLogic)
-    const { isTrends, isFunnels, isRetention, isPaths, isLifecycle, isTrendsLike, display, breakdown, pathsFilter } =
-        useValues(insightVizDataLogic(insightProps))
-    const { isStepsFunnel } = useValues(funnelDataLogic(insightProps))
+    const {
+        isTrends,
+        isFunnels,
+        isRetention,
+        isPaths,
+        isLifecycle,
+        isTrendsLike,
+        display,
+        breakdownFilter,
+        pathsFilter,
+        querySource,
+        shouldShowSessionAnalysisWarning,
+        hasFormula,
+    } = useValues(insightVizDataLogic(insightProps))
+    const { isStepsFunnel, isTrendsFunnel } = useValues(funnelDataLogic(insightProps))
+
+    if (!querySource) {
+        return null
+    }
 
     const hasBreakdown =
         (isTrends && !NON_BREAKDOWN_DISPLAY_TYPES.includes(display || ChartDisplayType.ActionsLineGraph)) ||
-        isStepsFunnel
+        isStepsFunnel ||
+        isTrendsFunnel
     const hasPathsAdvanced = availableFeatures.includes(AvailableFeature.PATHS_ADVANCED)
     const hasAttribution = isStepsFunnel
-    const hasPathsHogQL = isPaths && pathsFilter?.include_event_types?.includes(PathType.HogQL)
+    const hasPathsHogQL = isPaths && pathsFilter?.includeEventTypes?.includes(PathType.HogQL)
 
     const editorFilters: InsightEditorFilterGroup[] = [
         {
@@ -127,10 +143,10 @@ export function EditorFilters({ query, setQuery, showing }: EditorFiltersProps):
                     label: isTrends ? TrendsSeriesLabel : undefined,
                     component: TrendsSeries,
                 },
-                isTrends
+                isTrends && hasFormula
                     ? {
                           key: 'formula',
-                          label: TrendsFormulaLabel,
+                          label: 'Formula',
                           component: TrendsFormula,
                       }
                     : null,
@@ -157,7 +173,7 @@ export function EditorFilters({ query, setQuery, showing }: EditorFiltersProps):
         },
         {
             title: 'Breakdown',
-            count: breakdown?.breakdowns?.length || (breakdown?.breakdown ? 1 : 0),
+            count: breakdownFilter?.breakdowns?.length || (breakdownFilter?.breakdown ? 1 : 0),
             editorFilters: filterFalsy([
                 hasBreakdown
                     ? {
@@ -267,21 +283,28 @@ export function EditorFilters({ query, setQuery, showing }: EditorFiltersProps):
         <CSSTransition in={showing} timeout={250} classNames="anim-" mountOnEnter unmountOnExit>
             <div
                 className={clsx('EditorFiltersWrapper', {
-                    'EditorFiltersWrapper--singlecolumn': isFunnels,
+                    'EditorFiltersWrapper--embedded': embedded,
                 })}
             >
                 <div className="EditorFilters">
-                    {(isFunnels ? editorFilters : editorFilterGroups).map((editorFilterGroup) => (
+                    {editorFilterGroups.map((editorFilterGroup) => (
                         <EditorFilterGroup
                             key={editorFilterGroup.title}
                             editorFilterGroup={editorFilterGroup}
                             insight={insight}
                             insightProps={insightProps}
                             query={query}
-                            setQuery={setQuery}
                         />
                     ))}
                 </div>
+
+                {shouldShowSessionAnalysisWarning ? (
+                    <LemonBanner type="info">
+                        When using sessions and session properties, events without session IDs will be excluded from the
+                        set of results.{' '}
+                        <Link to="https://posthog.com/docs/user-guides/sessions">Learn more about sessions.</Link>
+                    </LemonBanner>
+                ) : null}
             </div>
         </CSSTransition>
     )

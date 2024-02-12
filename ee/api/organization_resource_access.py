@@ -10,7 +10,15 @@ from posthog.permissions import OrganizationMemberPermissions
 class OrganizationResourceAccessSerializer(serializers.ModelSerializer):
     class Meta:
         model = OrganizationResourceAccess
-        fields = ["id", "resource", "access_level", "organization", "created_at", "updated_at", "created_by"]
+        fields = [
+            "id",
+            "resource",
+            "access_level",
+            "organization",
+            "created_at",
+            "updated_at",
+            "created_by",
+        ]
         read_only_fields = ["id", "created_at", "created_by", "organization"]
 
     def validate_resource(self, resource):

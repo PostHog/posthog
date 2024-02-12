@@ -2,6 +2,8 @@ from typing import Any, Dict, List, Union
 
 from django.conf import settings
 from django.db import connection
+from django.utils.decorators import method_decorator
+from django.views.decorators.cache import cache_page
 from rest_framework import viewsets
 from rest_framework.decorators import action
 from rest_framework.permissions import IsAuthenticated
@@ -9,9 +11,8 @@ from rest_framework.request import Request
 from rest_framework.response import Response
 
 from posthog.async_migrations.status import async_migrations_ok
-from posthog.clickhouse.system_status import dead_letter_queue_ratio_ok_cached
 from posthog.cloud_utils import is_cloud
-from posthog.gitsha import GIT_SHA
+from posthog.git import get_git_commit
 from posthog.permissions import SingleTenancyOrAdmin
 from posthog.storage import object_storage
 from posthog.utils import (
@@ -34,13 +35,14 @@ class InstanceStatusViewSet(viewsets.ViewSet):
 
     permission_classes = [IsAuthenticated, SingleTenancyOrAdmin]
 
+    @method_decorator(cache_page(60))
     def list(self, request: Request) -> Response:
         redis_alive = is_redis_alive()
         postgres_alive = is_postgres_alive()
 
         metrics: List[Dict[str, Union[str, bool, int, float, Dict[str, Any]]]] = []
 
-        metrics.append({"key": "posthog_git_sha", "metric": "PostHog Git SHA", "value": GIT_SHA})
+        metrics.append({"key": "posthog_git_sha", "metric": "PostHog Git SHA", "value": get_git_commit() or "unknown"})
 
         helm_info = get_helm_info_env()
         if len(helm_info) > 0:
@@ -49,12 +51,19 @@ class InstanceStatusViewSet(viewsets.ViewSet):
                     "key": "helm",
                     "metric": "Helm Info",
                     "value": "",
-                    "subrows": {"columns": ["key", "value"], "rows": list(helm_info.items())},
+                    "subrows": {
+                        "columns": ["key", "value"],
+                        "rows": list(helm_info.items()),
+                    },
                 }
             )
 
         metrics.append(
-            {"key": "plugin_sever_alive", "metric": "Plugin server alive", "value": is_plugin_server_alive()}
+            {
+                "key": "plugin_sever_alive",
+                "metric": "Plugin server alive",
+                "value": is_plugin_server_alive(),
+            }
         )
         metrics.append(
             {
@@ -75,7 +84,13 @@ class InstanceStatusViewSet(viewsets.ViewSet):
             }
         )
 
-        metrics.append({"key": "db_alive", "metric": "Postgres database alive", "value": postgres_alive})
+        metrics.append(
+            {
+                "key": "db_alive",
+                "metric": "Postgres database alive",
+                "value": postgres_alive,
+            }
+        )
         if postgres_alive:
             postgres_version = connection.cursor().connection.server_version
             metrics.append(
@@ -86,7 +101,11 @@ class InstanceStatusViewSet(viewsets.ViewSet):
                 }
             )
             metrics.append(
-                {"key": "async_migrations_ok", "metric": "Async migrations up-to-date", "value": async_migrations_ok()}
+                {
+                    "key": "async_migrations_ok",
+                    "metric": "Async migrations up-to-date",
+                    "value": async_migrations_ok(),
+                }
             )
 
         from posthog.clickhouse.system_status import system_status
@@ -100,14 +119,35 @@ class InstanceStatusViewSet(viewsets.ViewSet):
             try:
                 redis_info = get_redis_info()
                 redis_queue_depth = get_redis_queue_depth()
-                metrics.append({"metric": "Redis version", "value": f"{redis_info.get('redis_version')}"})
-                metrics.append({"metric": "Redis current queue depth", "value": f"{redis_queue_depth}"})
                 metrics.append(
-                    {"metric": "Redis connected client count", "value": f"{redis_info.get('connected_clients')}"}
+                    {
+                        "metric": "Redis version",
+                        "value": f"{redis_info.get('redis_version')}",
+                    }
                 )
-                metrics.append({"metric": "Redis memory used", "value": f"{redis_info.get('used_memory_human', '?')}B"})
                 metrics.append(
-                    {"metric": "Redis memory peak", "value": f"{redis_info.get('used_memory_peak_human', '?')}B"}
+                    {
+                        "metric": "Redis current queue depth",
+                        "value": f"{redis_queue_depth}",
+                    }
+                )
+                metrics.append(
+                    {
+                        "metric": "Redis connected client count",
+                        "value": f"{redis_info.get('connected_clients')}",
+                    }
+                )
+                metrics.append(
+                    {
+                        "metric": "Redis memory used",
+                        "value": f"{redis_info.get('used_memory_human', '?')}B",
+                    }
+                )
+                metrics.append(
+                    {
+                        "metric": "Redis memory peak",
+                        "value": f"{redis_info.get('used_memory_peak_human', '?')}B",
+                    }
                 )
                 metrics.append(
                     {
@@ -116,7 +156,10 @@ class InstanceStatusViewSet(viewsets.ViewSet):
                     }
                 )
                 metrics.append(
-                    {"metric": "Redis 'maxmemory' setting", "value": f"{redis_info.get('maxmemory_human', '?')}B"}
+                    {
+                        "metric": "Redis 'maxmemory' setting",
+                        "value": f"{redis_info.get('maxmemory_human', '?')}B",
+                    }
                 )
                 metrics.append(
                     {
@@ -126,21 +169,35 @@ class InstanceStatusViewSet(viewsets.ViewSet):
                 )
             except redis.exceptions.ConnectionError as e:
                 metrics.append(
-                    {"metric": "Redis metrics", "value": f"Redis connected but then failed to return metrics: {e}"}
+                    {
+                        "metric": "Redis metrics",
+                        "value": f"Redis connected but then failed to return metrics: {e}",
+                    }
                 )
 
         metrics.append(
-            {"key": "object_storage", "metric": "Object Storage enabled", "value": settings.OBJECT_STORAGE_ENABLED}
+            {
+                "key": "object_storage",
+                "metric": "Object Storage enabled",
+                "value": settings.OBJECT_STORAGE_ENABLED,
+            }
         )
         if settings.OBJECT_STORAGE_ENABLED:
             metrics.append(
-                {"key": "object_storage", "metric": "Object Storage healthy", "value": object_storage.health_check()}
+                {
+                    "key": "object_storage",
+                    "metric": "Object Storage healthy",
+                    "value": object_storage.health_check(),
+                }
             )
 
         return Response({"results": {"overview": metrics}})
 
     @action(methods=["GET"], detail=False)
     def navigation(self, request: Request) -> Response:
+        # Import here to avoid circular import
+        from posthog.clickhouse.system_status import dead_letter_queue_ratio_ok_cached
+
         return Response(
             {
                 "system_status_ok": (
@@ -161,7 +218,10 @@ class InstanceStatusViewSet(viewsets.ViewSet):
     def queries(self, request: Request) -> Response:
         queries = {"postgres_running": self.get_postgres_running_queries()}
 
-        from posthog.clickhouse.system_status import get_clickhouse_running_queries, get_clickhouse_slow_log
+        from posthog.clickhouse.system_status import (
+            get_clickhouse_running_queries,
+            get_clickhouse_slow_log,
+        )
 
         queries["clickhouse_running"] = get_clickhouse_running_queries()
         queries["clickhouse_slow_log"] = get_clickhouse_slow_log()

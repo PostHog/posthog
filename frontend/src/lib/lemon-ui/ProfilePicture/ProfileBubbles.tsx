@@ -1,6 +1,7 @@
 import clsx from 'clsx'
-import { ProfilePicture } from '.'
+
 import { Tooltip } from '../Tooltip'
+import { ProfilePicture } from '.'
 
 export interface ProfileBubblesProps extends React.HTMLProps<HTMLDivElement> {
     people: { email: string; name?: string; title?: string }[]
@@ -28,8 +29,10 @@ export function ProfileBubbles({ people, tooltip, limit = 6, ...divProps }: Prof
                 {shownPeople.map(({ email, name, title }, index) => (
                     <ProfilePicture
                         key={email}
-                        name={name}
-                        email={email}
+                        user={{
+                            email,
+                            first_name: name,
+                        }}
                         title={title || name || email}
                         size="md"
                         index={index}

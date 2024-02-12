@@ -1,6 +1,6 @@
 from antlr4 import ParserRuleContext
 
-from posthog.hogql.errors import HogQLException
+from posthog.hogql.errors import SyntaxException
 
 
 def parse_string(text: str) -> str:
@@ -22,7 +22,7 @@ def parse_string(text: str) -> str:
         text = text.replace("{{", "{")
         text = text.replace("\\{", "{")
     else:
-        raise HogQLException(f"Invalid string literal, must start and end with the same quote type: {text}")
+        raise SyntaxException(f"Invalid string literal, must start and end with the same quote type: {text}")
 
     # copied from clickhouse_driver/util/escape.py
     text = text.replace("\\b", "\b")
@@ -30,7 +30,7 @@ def parse_string(text: str) -> str:
     text = text.replace("\\r", "\r")
     text = text.replace("\\n", "\n")
     text = text.replace("\\t", "\t")
-    text = text.replace("\\0", "\0")
+    text = text.replace("\\0", "")  # NUL characters are ignored
     text = text.replace("\\a", "\a")
     text = text.replace("\\v", "\v")
     text = text.replace("\\\\", "\\")

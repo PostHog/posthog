@@ -104,7 +104,6 @@ class Paths:
         )
 
     def get_query(self) -> str:
-
         path_query = self.get_path_query()
         funnel_cte = ""
 
@@ -198,7 +197,6 @@ class Paths:
         return False
 
     def get_path_query(self) -> str:
-
         paths_per_person_query = self.get_paths_per_person_query()
 
         self.params["edge_limit"] = self._filter.edge_limit
@@ -243,7 +241,10 @@ class Paths:
 
     # Implemented in /ee
     def get_target_clause(self) -> Tuple[str, Dict]:
-        params: Dict[str, Union[str, None]] = {"target_point": None, "secondary_target_point": None}
+        params: Dict[str, Union[str, None]] = {
+            "target_point": None,
+            "secondary_target_point": None,
+        }
 
         filtered_path_ordering_clause = self.get_filtered_path_ordering()
         compacting_function = self.get_array_compacting_function()

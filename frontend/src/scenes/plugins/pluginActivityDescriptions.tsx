@@ -1,9 +1,17 @@
-import { dayjs } from 'lib/dayjs'
-import { ActivityLogItem, ActivityScope, HumanizedChange } from 'lib/components/ActivityLog/humanizeActivity'
+import {
+    ActivityLogItem,
+    defaultDescriber,
+    HumanizedChange,
+    userNameForLogItem,
+} from 'lib/components/ActivityLog/humanizeActivity'
 import { SentenceList } from 'lib/components/ActivityLog/SentenceList'
-import { SECRET_FIELD_VALUE } from './utils'
+import { dayjs } from 'lib/dayjs'
 
-export function pluginActivityDescriber(logItem: ActivityLogItem): HumanizedChange {
+import { ActivityScope } from '~/types'
+
+import { SECRET_FIELD_VALUE } from '../pipeline/configUtils'
+
+export function pluginActivityDescriber(logItem: ActivityLogItem, asNotification?: boolean): HumanizedChange {
     if (logItem.scope !== ActivityScope.PLUGIN && logItem.scope !== ActivityScope.PLUGIN_CONFIG) {
         console.error('plugin describer received a non-plugin activity')
         return { description: null }
@@ -13,7 +21,7 @@ export function pluginActivityDescriber(logItem: ActivityLogItem): HumanizedChan
         return {
             description: (
                 <>
-                    <strong>{logItem.user.first_name}</strong> installed the app: <b>{logItem.detail.name}</b>
+                    <strong>{userNameForLogItem(logItem)}</strong> installed the app: <b>{logItem.detail.name}</b>
                 </>
             ),
         }
@@ -23,7 +31,7 @@ export function pluginActivityDescriber(logItem: ActivityLogItem): HumanizedChan
         return {
             description: (
                 <>
-                    <strong>{logItem.user.first_name}</strong> uninstalled the app: <b>{logItem.detail.name}</b>
+                    <strong>{userNameForLogItem(logItem)}</strong> uninstalled the app: <b>{logItem.detail.name}</b>
                 </>
             ),
         }
@@ -35,7 +43,7 @@ export function pluginActivityDescriber(logItem: ActivityLogItem): HumanizedChan
             const newValue = change.after === SECRET_FIELD_VALUE ? '<secret_value>' : change.after
             changes.push(
                 <>
-                    field <code>{change.field}</code> set to <code>{newValue}</code>
+                    field <code>{change.field}</code> set to <code>{newValue as string}</code>
                 </>
             )
         }
@@ -45,7 +53,7 @@ export function pluginActivityDescriber(logItem: ActivityLogItem): HumanizedChan
                     listParts={changes}
                     prefix={
                         <>
-                            <strong>{logItem.user.first_name}</strong> enabled the app: <b>{logItem.detail.name}</b>{' '}
+                            <strong>{userNameForLogItem(logItem)}</strong> enabled the app: <b>{logItem.detail.name}</b>{' '}
                             with config ID {logItem.item_id}
                             {changes.length > 0 ? ', with' : '.'}
                         </>
@@ -59,7 +67,7 @@ export function pluginActivityDescriber(logItem: ActivityLogItem): HumanizedChan
         return {
             description: (
                 <>
-                    <strong>{logItem.user.first_name}</strong> disabled the app: <b>{logItem.detail.name}</b> with
+                    <strong>{userNameForLogItem(logItem)}</strong> disabled the app: <b>{logItem.detail.name}</b> with
                     config ID {logItem.item_id}.
                 </>
             ),
@@ -71,8 +79,8 @@ export function pluginActivityDescriber(logItem: ActivityLogItem): HumanizedChan
         return {
             description: (
                 <>
-                    <strong>{logItem.user.first_name}</strong> started exporting historical events between {startDate}{' '}
-                    and {endDate} (inclusive).
+                    <strong>{userNameForLogItem(logItem)}</strong> started exporting historical events between{' '}
+                    {startDate} and {endDate} (inclusive).
                 </>
             ),
         }
@@ -82,7 +90,7 @@ export function pluginActivityDescriber(logItem: ActivityLogItem): HumanizedChan
         return {
             description: (
                 <>
-                    <strong>{logItem.user.first_name}</strong> triggered job:{' '}
+                    <strong>{userNameForLogItem(logItem)}</strong> triggered job:{' '}
                     <code>{logItem.detail.trigger.job_type}</code> with config ID {logItem.item_id}.
                 </>
             ),
@@ -134,20 +142,20 @@ export function pluginActivityDescriber(logItem: ActivityLogItem): HumanizedChan
             if (change.action === 'created') {
                 changeWording = (
                     <>
-                        added new field <code>{change.field}</code>" with value <code>{changeAfter}</code>
+                        added new field <code>{change.field}</code>" with value <code>{changeAfter as string}</code>
                     </>
                 )
             } else if (change.action === 'deleted') {
                 changeWording = (
                     <>
-                        removed field <code>{change.field}</code>, which had value <code>{changeBefore}</code>
+                        removed field <code>{change.field}</code>, which had value <code>{changeBefore as string}</code>
                     </>
                 )
             } else if (change.action === 'changed') {
                 changeWording = (
                     <>
-                        updated field <code>{change.field}</code> from value <code>{changeBefore}</code> to value{' '}
-                        <code>{changeAfter}</code>{' '}
+                        updated field <code>{change.field}</code> from value <code>{changeBefore as string}</code> to
+                        value <code>{changeAfter as string}</code>{' '}
                     </>
                 )
             }
@@ -156,7 +164,7 @@ export function pluginActivityDescriber(logItem: ActivityLogItem): HumanizedChan
         return {
             description: (
                 <SentenceList
-                    prefix={<strong>{logItem.user.first_name}</strong>}
+                    prefix={<strong>{userNameForLogItem(logItem)}</strong>}
                     listParts={changes}
                     suffix={
                         <>
@@ -175,27 +183,28 @@ export function pluginActivityDescriber(logItem: ActivityLogItem): HumanizedChan
             if (logItem.activity === 'attachment_created') {
                 changeWording = (
                     <>
-                        attached a file <code>{change.after}</code>
+                        attached a file <code>{change.after as string}</code>
                     </>
                 )
             } else if (logItem.activity == 'attachment_updated') {
                 if (change.after === change.before) {
                     changeWording = (
                         <>
-                            updated attached file <code>{change.after}</code>
+                            updated attached file <code>{change.after as string}</code>
                         </>
                     )
                 } else {
                     changeWording = (
                         <>
-                            updated attached file from <code>{change.before}</code> to <code>{change.after}</code>
+                            updated attached file from <code>{change.before as string}</code> to{' '}
+                            <code>{change.after as string}</code>
                         </>
                     )
                 }
             } else if (logItem.activity === 'attachment_deleted') {
                 changeWording = (
                     <>
-                        deleted attached file <code>{change.before}</code>
+                        deleted attached file <code>{change.before as string}</code>
                     </>
                 )
             }
@@ -203,13 +212,13 @@ export function pluginActivityDescriber(logItem: ActivityLogItem): HumanizedChan
             return {
                 description: (
                     <>
-                        <strong>{logItem.user.first_name}</strong> {changeWording} on app: <b>{logItem.detail.name}</b>{' '}
-                        with config ID {logItem.item_id}
+                        <strong>{userNameForLogItem(logItem)}</strong> {changeWording} on app:{' '}
+                        <b>{logItem.detail.name}</b> with config ID {logItem.item_id}
                     </>
                 ),
             }
         }
     }
 
-    return { description: null }
+    return defaultDescriber(logItem, asNotification)
 }

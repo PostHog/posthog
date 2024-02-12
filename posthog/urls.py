@@ -1,13 +1,24 @@
 from typing import Any, Callable, List, Optional, cast
+from posthog.models.instance_setting import get_instance_setting
 from urllib.parse import urlparse
 
 from django.conf import settings
-from django.http import HttpRequest, HttpResponse, HttpResponseServerError
+from django.http import HttpRequest, HttpResponse, HttpResponseServerError, HttpResponseRedirect
 from django.template import loader
 from django.urls import URLPattern, include, path, re_path
-from django.views.decorators.csrf import csrf_exempt, ensure_csrf_cookie, requires_csrf_token
+from django.views.decorators.csrf import (
+    csrf_exempt,
+    ensure_csrf_cookie,
+    requires_csrf_token,
+)
 from django_prometheus.exports import ExportToDjangoView
-from drf_spectacular.views import SpectacularAPIView, SpectacularRedocView, SpectacularSwaggerView
+from drf_spectacular.views import (
+    SpectacularAPIView,
+    SpectacularRedocView,
+    SpectacularSwaggerView,
+)
+from revproxy.views import ProxyView
+from django.utils.http import url_has_allowed_host_and_scheme
 from sentry_sdk import last_event_id
 from two_factor.urls import urlpatterns as tf_urls
 
@@ -30,20 +41,32 @@ from posthog.api import (
 )
 from posthog.api.decide import hostname_in_allowed_url_list
 from posthog.api.early_access_feature import early_access_features
-from posthog.api.prompt import prompt_webhook
 from posthog.api.survey import surveys
 from posthog.demo.legacy import demo_route
 from posthog.models import User
-
 from .utils import render_template
-from .views import health, login_required, preflight_check, robots_txt, security_txt, stats
+from .views import (
+    health,
+    login_required,
+    preflight_check,
+    robots_txt,
+    security_txt,
+    stats,
+)
 from .year_in_posthog import year_in_posthog
+from posthog.constants import PERMITTED_FORUM_DOMAINS
+
+import structlog
+
+logger = structlog.get_logger(__name__)
 
 ee_urlpatterns: List[Any] = []
 try:
     from ee.urls import extend_api_router
     from ee.urls import urlpatterns as ee_urlpatterns
 except ImportError:
+    if settings.DEBUG:
+        logger.warn(f"Could not import ee.urls", exc_info=True)
     pass
 else:
     extend_api_router(
@@ -69,6 +92,10 @@ def handler500(request):
 
 @ensure_csrf_cookie
 def home(request, *args, **kwargs):
+    if request.get_host().split(":")[0] == "app.posthog.com" and get_instance_setting("REDIRECT_APP_TO_US"):
+        url = "https://us.posthog.com{}".format(request.get_full_path())
+        if url_has_allowed_host_and_scheme(url, "us.posthog.com", True):
+            return HttpResponseRedirect(url)
     return render_template("index.html", request)
 
 
@@ -81,25 +108,41 @@ def authorize_and_redirect(request: HttpRequest) -> HttpResponse:
     current_team = cast(User, request.user).team
     referer_url = urlparse(request.META["HTTP_REFERER"])
     redirect_url = urlparse(request.GET["redirect"])
+    is_forum_login = request.GET.get("forum_login", "").lower() == "true"
 
-    if not current_team or not hostname_in_allowed_url_list(current_team.app_urls, redirect_url.hostname):
+    if (
+        not current_team
+        or (redirect_url.hostname not in PERMITTED_FORUM_DOMAINS and is_forum_login)
+        or (not is_forum_login and not hostname_in_allowed_url_list(current_team.app_urls, redirect_url.hostname))
+    ):
         return HttpResponse(f"Can only redirect to a permitted domain.", status=403)
 
     if referer_url.hostname != redirect_url.hostname:
-        return HttpResponse(f"Can only redirect to the same domain as the referer: {referer_url.hostname}", status=403)
+        return HttpResponse(
+            f"Can only redirect to the same domain as the referer: {referer_url.hostname}",
+            status=403,
+        )
 
     if referer_url.scheme != redirect_url.scheme:
-        return HttpResponse(f"Can only redirect to the same scheme as the referer: {referer_url.scheme}", status=403)
+        return HttpResponse(
+            f"Can only redirect to the same scheme as the referer: {referer_url.scheme}",
+            status=403,
+        )
 
     if referer_url.port != redirect_url.port:
         return HttpResponse(
-            f"Can only redirect to the same port as the referer: {referer_url.port or 'no port in URL'}", status=403
+            f"Can only redirect to the same port as the referer: {referer_url.port or 'no port in URL'}",
+            status=403,
         )
 
     return render_template(
-        "authorize_and_redirect.html",
+        "authorize_and_link.html" if is_forum_login else "authorize_and_redirect.html",
         request=request,
-        context={"domain": redirect_url.hostname, "redirect_url": request.GET["redirect"]},
+        context={
+            "email": request.user,
+            "domain": redirect_url.hostname,
+            "redirect_url": request.GET["redirect"],
+        },
     )
 
 
@@ -112,8 +155,16 @@ def opt_slash_path(route: str, view: Callable, name: Optional[str] = None) -> UR
 urlpatterns = [
     path("api/schema/", SpectacularAPIView.as_view(), name="schema"),
     # Optional UI:
-    path("api/schema/swagger-ui/", SpectacularSwaggerView.as_view(url_name="schema"), name="swagger-ui"),
-    path("api/schema/redoc/", SpectacularRedocView.as_view(url_name="schema"), name="redoc"),
+    path(
+        "api/schema/swagger-ui/",
+        SpectacularSwaggerView.as_view(url_name="schema"),
+        name="swagger-ui",
+    ),
+    path(
+        "api/schema/redoc/",
+        SpectacularRedocView.as_view(url_name="schema"),
+        name="redoc",
+    ),
     # Health check probe endpoints for K8s
     # NOTE: We have _health, livez, and _readyz. _health is deprecated and
     # is only included for compatability with old installations. For new
@@ -128,8 +179,8 @@ urlpatterns = [
     path("api/", include(router.urls)),
     path("", include(tf_urls)),
     opt_slash_path("api/user/redirect_to_site", user.redirect_to_site),
+    opt_slash_path("api/user/redirect_to_website", user.redirect_to_website),
     opt_slash_path("api/user/test_slack_webhook", user.test_slack_webhook),
-    opt_slash_path("api/prompts/webhook", prompt_webhook),
     opt_slash_path("api/early_access_features", early_access_features),
     opt_slash_path("api/surveys", surveys),
     opt_slash_path("api/signup", signup.SignupViewset.as_view()),
@@ -141,11 +192,23 @@ urlpatterns = [
     ),
     re_path(r"^api.+", api_not_found),
     path("authorize_and_redirect/", login_required(authorize_and_redirect)),
-    path("shared_dashboard/<str:access_token>", sharing.SharingViewerPageViewSet.as_view({"get": "retrieve"})),
-    path("shared/<str:access_token>", sharing.SharingViewerPageViewSet.as_view({"get": "retrieve"})),
-    path("embedded/<str:access_token>", sharing.SharingViewerPageViewSet.as_view({"get": "retrieve"})),
+    path(
+        "shared_dashboard/<str:access_token>",
+        sharing.SharingViewerPageViewSet.as_view({"get": "retrieve"}),
+    ),
+    path(
+        "shared/<str:access_token>",
+        sharing.SharingViewerPageViewSet.as_view({"get": "retrieve"}),
+    ),
+    path(
+        "embedded/<str:access_token>",
+        sharing.SharingViewerPageViewSet.as_view({"get": "retrieve"}),
+    ),
     path("exporter", sharing.SharingViewerPageViewSet.as_view({"get": "retrieve"})),
-    path("exporter/<str:access_token>", sharing.SharingViewerPageViewSet.as_view({"get": "retrieve"})),
+    path(
+        "exporter/<str:access_token>",
+        sharing.SharingViewerPageViewSet.as_view({"get": "retrieve"}),
+    ),
     path("site_app/<int:id>/<str:token>/<str:hash>/", site_app.get_site_app),
     re_path(r"^demo.*", login_required(demo_route)),
     # ingestion
@@ -168,6 +231,8 @@ urlpatterns = [
     path("uploaded_media/<str:image_uuid>", uploaded_media.download),
     path("year_in_posthog/2022/<str:user_uuid>", year_in_posthog.render_2022),
     path("year_in_posthog/2022/<str:user_uuid>/", year_in_posthog.render_2022),
+    path("year_in_posthog/2023/<str:user_uuid>", year_in_posthog.render_2023),
+    path("year_in_posthog/2023/<str:user_uuid>/", year_in_posthog.render_2023),
 ]
 
 if settings.DEBUG:
@@ -177,8 +242,11 @@ if settings.DEBUG:
     # what we do.
     urlpatterns.append(path("_metrics", ExportToDjangoView))
 
-if settings.TEST:
+    # Reverse-proxy all of /i/* to capture-rs on port 3000 when running the local devenv
+    urlpatterns.append(re_path(r"(?P<path>^i/.*)", ProxyView.as_view(upstream="http://localhost:3000")))
 
+
+if settings.TEST:
     # Used in posthog-js e2e tests
     @csrf_exempt
     def delete_events(request):

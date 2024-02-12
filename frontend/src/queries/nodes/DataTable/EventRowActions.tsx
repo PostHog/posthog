@@ -1,15 +1,17 @@
-import { EventType } from '~/types'
-import { More } from 'lib/lemon-ui/LemonButton/More'
-import { LemonButton } from 'lib/lemon-ui/LemonButton'
-import { createActionFromEvent } from 'scenes/events/createActionFromEvent'
-import { urls } from 'scenes/urls'
-import { getCurrentTeamId } from 'lib/utils/logics'
-import { teamLogic } from 'scenes/teamLogic'
-import { IconLink, IconPlayCircle } from 'lib/lemon-ui/icons'
 import { useActions } from 'kea'
-import { sessionPlayerModalLogic } from 'scenes/session-recordings/player/modal/sessionPlayerModalLogic'
-import { copyToClipboard, insightUrlForEvent } from 'lib/utils'
 import { dayjs } from 'lib/dayjs'
+import { IconLink, IconPlayCircle } from 'lib/lemon-ui/icons'
+import { LemonButton } from 'lib/lemon-ui/LemonButton'
+import { More } from 'lib/lemon-ui/LemonButton/More'
+import { copyToClipboard } from 'lib/utils/copyToClipboard'
+import { getCurrentTeamId } from 'lib/utils/getAppContext'
+import { createActionFromEvent } from 'scenes/events/createActionFromEvent'
+import { insightUrlForEvent } from 'scenes/insights/utils'
+import { sessionPlayerModalLogic } from 'scenes/session-recordings/player/modal/sessionPlayerModalLogic'
+import { teamLogic } from 'scenes/teamLogic'
+import { urls } from 'scenes/urls'
+
+import { EventType } from '~/types'
 
 interface EventActionProps {
     event: EventType
@@ -25,9 +27,8 @@ export function EventRowActions({ event }: EventActionProps): JSX.Element {
                 <>
                     {getCurrentTeamId() && (
                         <LemonButton
-                            status="stealth"
                             onClick={() =>
-                                createActionFromEvent(
+                                void createActionFromEvent(
                                     getCurrentTeamId(),
                                     event,
                                     0,
@@ -42,12 +43,11 @@ export function EventRowActions({ event }: EventActionProps): JSX.Element {
                     )}
                     {event.uuid && event.timestamp && (
                         <LemonButton
-                            status="stealth"
                             fullWidth
                             sideIcon={<IconLink />}
                             data-attr="events-table-event-link"
-                            onClick={async () =>
-                                await copyToClipboard(
+                            onClick={() =>
+                                void copyToClipboard(
                                     `${window.location.origin}${urls.event(String(event.uuid), event.timestamp)}`,
                                     'link to event'
                                 )
@@ -58,7 +58,6 @@ export function EventRowActions({ event }: EventActionProps): JSX.Element {
                     )}
                     {!!event.properties?.$session_id && (
                         <LemonButton
-                            status="stealth"
                             to={urls.replaySingle(event.properties.$session_id)}
                             disableClientSideRouting
                             onClick={(e) => {
@@ -78,7 +77,7 @@ export function EventRowActions({ event }: EventActionProps): JSX.Element {
                         </LemonButton>
                     )}
                     {insightUrl && (
-                        <LemonButton to={insightUrl} status="stealth" fullWidth data-attr="events-table-usage">
+                        <LemonButton to={insightUrl} fullWidth data-attr="events-table-usage">
                             Try out in Insights
                         </LemonButton>
                     )}

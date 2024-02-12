@@ -1,8 +1,10 @@
-import { kea, props, key, path, connect, actions, reducers } from 'kea'
-import type { renameModalLogicType } from './renameModalLogicType'
-import { EntityFilterTypes } from '~/types'
-import { getDisplayNameFromEntityFilter } from 'scenes/insights/utils'
+import { actions, connect, kea, key, path, props, reducers } from 'kea'
 import { entityFilterLogic } from 'scenes/insights/filters/ActionFilter/entityFilterLogic'
+import { getDisplayNameFromEntityFilter } from 'scenes/insights/utils'
+
+import { EntityFilterTypes } from '~/types'
+
+import type { renameModalLogicType } from './renameModalLogicType'
 
 export interface RenameModalProps {
     filter: EntityFilterTypes

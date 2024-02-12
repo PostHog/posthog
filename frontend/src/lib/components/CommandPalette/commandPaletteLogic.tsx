@@ -1,51 +1,74 @@
-import { kea } from 'kea'
-import { router } from 'kea-router'
-import type { commandPaletteLogicType } from './commandPaletteLogicType'
-import Fuse from 'fuse.js'
-import { dashboardsModel } from '~/models/dashboardsModel'
-import { Parser } from 'expr-eval'
-import { DashboardType, InsightType } from '~/types'
-import api from 'lib/api'
-import { copyToClipboard, isMobile, isURL, sample, uniqueBy } from 'lib/utils'
-import { userLogic } from 'scenes/userLogic'
-import { personalAPIKeysLogic } from '../PersonalAPIKeys/personalAPIKeysLogic'
-import { teamLogic } from 'scenes/teamLogic'
-import posthog from 'posthog-js'
-import { debugCHQueries } from './DebugCHQueries'
-import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
-import { urls } from 'scenes/urls'
-import { newDashboardLogic } from 'scenes/dashboard/newDashboardLogic'
 import {
-    IconAction,
     IconApps,
-    IconBarChart,
-    IconCalculate,
-    IconCheckmark,
-    IconCohort,
-    IconComment,
-    IconCorporate,
-    IconCottage,
-    IconEmojiPeople,
-    IconFlag,
-    IconFunnelHorizontal,
-    IconGauge,
+    IconCalculator,
+    IconChat,
+    IconCheck,
+    IconCursor,
+    IconDashboard,
+    IconDatabase,
+    IconDay,
+    IconExternal,
+    IconEye,
+    IconFunnels,
+    IconGear,
     IconGithub,
+    IconGraph,
+    IconHogQL,
+    IconHome,
     IconKeyboard,
+    IconLaptop,
+    IconLeave,
+    IconLifecycle,
+    IconList,
     IconLive,
-    IconLockOpen,
-    IconLogout,
-    IconOpenInNew,
-    IconPerson,
-    IconPersonFilled,
-    IconRecording,
+    IconNight,
+    IconNotebook,
+    IconPeople,
+    IconPeopleFilled,
+    IconPieChart,
+    IconRetention,
+    IconRewindPlay,
+    IconRocket,
     IconServer,
-    IconSettings,
-    IconTableChart,
-    IconTools,
-    IconTrendingFlat,
-    IconTrendingUp,
-} from 'lib/lemon-ui/icons'
+    IconStickiness,
+    IconTestTube,
+    IconThoughtBubble,
+    IconToggle,
+    IconToolbar,
+    IconTrends,
+    IconUnlock,
+    IconUserPaths,
+} from '@posthog/icons'
+import { Parser } from 'expr-eval'
+import Fuse from 'fuse.js'
+import { actions, connect, events, kea, listeners, path, reducers, selectors } from 'kea'
+import { router } from 'kea-router'
+import api from 'lib/api'
+import { FEATURE_FLAGS } from 'lib/constants'
+import { IconClose, IconFlare } from 'lib/lemon-ui/icons'
 import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { isMobile, isURL, uniqueBy } from 'lib/utils'
+import { copyToClipboard } from 'lib/utils/copyToClipboard'
+import posthog from 'posthog-js'
+import { newDashboardLogic } from 'scenes/dashboard/newDashboardLogic'
+import { insightTypeURL } from 'scenes/insights/utils'
+import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
+import { teamLogic } from 'scenes/teamLogic'
+import { urls } from 'scenes/urls'
+import { userLogic } from 'scenes/userLogic'
+
+import { SIDE_PANEL_TABS } from '~/layout/navigation-3000/sidepanel/SidePanel'
+import { sidePanelLogic } from '~/layout/navigation-3000/sidepanel/sidePanelLogic'
+import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
+import { InsightType } from '~/types'
+
+import { personalAPIKeysLogic } from '../../../scenes/settings/user/personalAPIKeysLogic'
+import { commandBarLogic } from '../CommandBar/commandBarLogic'
+import { BarStatus } from '../CommandBar/types'
+import { hedgehogBuddyLogic } from '../HedgehogBuddy/hedgehogBuddyLogic'
+import type { commandPaletteLogicType } from './commandPaletteLogicType'
+import { openCHQueriesDebugModal } from './DebugCHQueries'
 
 // If CommandExecutor returns CommandFlow, flow will be entered
 export type CommandExecutor = () => CommandFlow | void
@@ -112,14 +135,40 @@ function resolveCommand(source: Command | CommandFlow, argument?: string, prefix
     return resultsWithCommand
 }
 
-export const commandPaletteLogic = kea<commandPaletteLogicType>({
-    path: ['lib', 'components', 'CommandPalette', 'commandPaletteLogic'],
-    connect: {
-        actions: [personalAPIKeysLogic, ['createKey'], router, ['push']],
-        values: [teamLogic, ['currentTeam'], userLogic, ['user']],
+export const commandPaletteLogic = kea<commandPaletteLogicType>([
+    path(['lib', 'components', 'CommandPalette', 'commandPaletteLogic']),
+    connect({
+        actions: [
+            personalAPIKeysLogic,
+            ['createKey'],
+            router,
+            ['push'],
+            userLogic,
+            ['updateUser'],
+            hedgehogBuddyLogic,
+            ['setHedgehogModeEnabled'],
+            commandBarLogic,
+            ['setCommandBar'],
+            sidePanelStateLogic,
+            ['openSidePanel', 'closeSidePanel'],
+        ],
+        values: [
+            teamLogic,
+            ['currentTeam'],
+            userLogic,
+            ['user'],
+            featureFlagLogic,
+            ['featureFlags'],
+            hedgehogBuddyLogic,
+            ['hedgehogModeEnabled'],
+            sidePanelLogic,
+            ['enabledTabs'],
+            sidePanelStateLogic,
+            ['sidePanelOpen'],
+        ],
         logic: [preflightLogic],
-    },
-    actions: {
+    }),
+    actions({
         hidePalette: true,
         showPalette: true,
         togglePalette: true,
@@ -135,8 +184,8 @@ export const commandPaletteLogic = kea<commandPaletteLogicType>({
         deregisterCommand: (commandKey: string) => ({ commandKey }),
         setCustomCommand: (commandKey: string) => ({ commandKey }),
         deregisterScope: (scope: string) => ({ scope }),
-    },
-    reducers: {
+    }),
+    reducers({
         isPaletteShown: [
             false,
             {
@@ -184,7 +233,7 @@ export const commandPaletteLogic = kea<commandPaletteLogicType>({
                 backFlow: (currentFlow) => currentFlow?.previousFlow ?? null,
             },
         ],
-        rawCommandRegistrations: [
+        commandRegistrations: [
             {} as CommandRegistrations,
             {
                 registerCommand: (commands, { command }) => {
@@ -196,67 +245,8 @@ export const commandPaletteLogic = kea<commandPaletteLogicType>({
                 },
             },
         ],
-    },
-
-    listeners: ({ actions, values }) => ({
-        showPalette: () => {
-            posthog.capture('palette shown', { isMobile: isMobile() })
-        },
-        togglePalette: () => {
-            if (values.isPaletteShown) {
-                posthog.capture('palette shown', { isMobile: isMobile() })
-            }
-        },
-        executeResult: ({ result }: { result: CommandResult }) => {
-            if (result.executor === true) {
-                actions.activateFlow(null)
-                actions.hidePalette()
-            } else {
-                const possibleFlow = result.executor?.() || null
-                actions.activateFlow(possibleFlow)
-                if (!possibleFlow) {
-                    actions.hidePalette()
-                }
-            }
-            // Capture command execution, without useless data
-            const { icon, index, ...cleanedResult }: Record<string, any> = result
-            const { resolver, ...cleanedCommand } = cleanedResult.source
-            cleanedResult.source = cleanedCommand
-            cleanedResult.isMobile = isMobile()
-            posthog.capture('palette command executed', cleanedResult)
-        },
-        deregisterScope: ({ scope }) => {
-            for (const command of Object.values(values.commandRegistrations)) {
-                if (command.scope === scope) {
-                    actions.deregisterCommand(command.key)
-                }
-            }
-        },
-        setInput: async ({ input }, breakpoint) => {
-            await breakpoint(300)
-            if (input.length > 8) {
-                const response = await api.persons.list({ search: input })
-                const person = response.results[0]
-                if (person) {
-                    actions.registerCommand({
-                        key: `person-${person.distinct_ids[0]}`,
-                        resolver: [
-                            {
-                                icon: IconPersonFilled,
-                                display: `View person ${input}`,
-                                executor: () => {
-                                    const { push } = router.actions
-                                    push(urls.person(person.distinct_ids[0]))
-                                },
-                            },
-                        ],
-                        scope: GLOBAL_COMMAND_SCOPE,
-                    })
-                }
-            }
-        },
     }),
-    selectors: {
+    selectors({
         isSqueak: [
             (selectors) => [selectors.input],
             (input: string) => {
@@ -268,29 +258,6 @@ export const commandPaletteLogic = kea<commandPaletteLogicType>({
             (keyboardResultIndex: number, hoverResultIndex: number | null) => {
                 return hoverResultIndex ?? keyboardResultIndex
             },
-        ],
-        commandRegistrations: [
-            (selectors) => [
-                selectors.rawCommandRegistrations,
-                dashboardsModel.selectors.nameSortedDashboards,
-                teamLogic.selectors.currentTeam,
-            ],
-            (rawCommandRegistrations: CommandRegistrations, dashboards: DashboardType[]): CommandRegistrations => ({
-                ...rawCommandRegistrations,
-                custom_dashboards: {
-                    key: 'custom_dashboards',
-                    resolver: dashboards.map((dashboard: DashboardType) => ({
-                        key: `dashboard_${dashboard.id}`,
-                        icon: IconTableChart,
-                        display: `Go to dashboard: ${dashboard.name}`,
-                        executor: () => {
-                            const { push } = router.actions
-                            push(urls.dashboard(dashboard.id))
-                        },
-                    })),
-                    scope: GLOBAL_COMMAND_SCOPE,
-                },
-            }),
         ],
         regexpCommandPairs: [
             (selectors) => [selectors.commandRegistrations],
@@ -357,7 +324,7 @@ export const commandPaletteLogic = kea<commandPaletteLogicType>({
                           .search(argument)
                           .slice(0, RESULTS_MAX)
                           .map((result) => result.item)
-                    : sample(fusableResults, RESULTS_MAX - guaranteedResults.length)
+                    : fusableResults.slice(0, RESULTS_MAX)
                 return guaranteedResults.concat(fusedResults)
             },
         ],
@@ -390,9 +357,66 @@ export const commandPaletteLogic = kea<commandPaletteLogicType>({
                 return resultsGroupedInOrder
             },
         ],
-    },
-
-    events: ({ actions, values }) => ({
+    }),
+    listeners(({ actions, values }) => ({
+        showPalette: () => {
+            posthog.capture('palette shown', { isMobile: isMobile() })
+        },
+        togglePalette: () => {
+            if (values.isPaletteShown) {
+                posthog.capture('palette shown', { isMobile: isMobile() })
+            }
+        },
+        executeResult: ({ result }: { result: CommandResult }) => {
+            if (result.executor === true) {
+                actions.activateFlow(null)
+                actions.hidePalette()
+            } else {
+                const possibleFlow = result.executor?.() || null
+                actions.activateFlow(possibleFlow)
+                if (!possibleFlow) {
+                    actions.hidePalette()
+                }
+            }
+            // Capture command execution, without useless data
+            const { icon, index, ...cleanedResult }: Record<string, any> = result
+            const { resolver, ...cleanedCommand } = cleanedResult.source
+            cleanedResult.source = cleanedCommand
+            cleanedResult.isMobile = isMobile()
+            posthog.capture('palette command executed', cleanedResult)
+        },
+        deregisterScope: ({ scope }) => {
+            for (const command of Object.values(values.commandRegistrations)) {
+                if (command.scope === scope) {
+                    actions.deregisterCommand(command.key)
+                }
+            }
+        },
+        setInput: async ({ input }, breakpoint) => {
+            await breakpoint(300)
+            if (input.length > 8) {
+                const response = await api.persons.list({ search: input })
+                const person = response.results[0]
+                if (person) {
+                    actions.registerCommand({
+                        key: `person-${person.distinct_ids[0]}`,
+                        resolver: [
+                            {
+                                icon: IconPeopleFilled,
+                                display: `View person ${input}`,
+                                executor: () => {
+                                    const { push } = router.actions
+                                    push(urls.personByDistinctId(person.distinct_ids[0]))
+                                },
+                            },
+                        ],
+                        scope: GLOBAL_COMMAND_SCOPE,
+                    })
+                }
+            }
+        },
+    })),
+    events(({ actions, values }) => ({
         afterMount: () => {
             const { push } = actions
 
@@ -402,67 +426,128 @@ export const commandPaletteLogic = kea<commandPaletteLogicType>({
                 prefixes: ['open', 'visit'],
                 resolver: [
                     {
-                        icon: IconGauge,
+                        icon: IconDashboard,
                         display: 'Go to Dashboards',
                         executor: () => {
                             push(urls.dashboards())
                         },
                     },
                     {
-                        icon: IconBarChart,
+                        icon: IconHome,
+                        display: 'Go to Project homepage',
+                        executor: () => {
+                            push(urls.projectHomepage())
+                        },
+                    },
+                    {
+                        icon: IconGraph,
                         display: 'Go to Insights',
                         executor: () => {
                             push(urls.savedInsights())
                         },
                     },
                     {
-                        icon: IconTrendingUp,
-                        display: 'Go to Trends',
+                        icon: IconTrends,
+                        display: 'Create a new Trend insight',
                         executor: () => {
                             // TODO: Don't reset insight on change
                             push(urls.insightNew({ insight: InsightType.TRENDS }))
                         },
                     },
                     {
-                        icon: IconFunnelHorizontal,
-                        display: 'Go to Funnels',
+                        icon: IconFunnels,
+                        display: 'Create a new Funnel insight',
                         executor: () => {
                             // TODO: Don't reset insight on change
                             push(urls.insightNew({ insight: InsightType.FUNNELS }))
                         },
                     },
                     {
-                        icon: IconTrendingFlat,
-                        display: 'Go to Retention',
+                        icon: IconRetention,
+                        display: 'Create a new Retention insight',
                         executor: () => {
                             // TODO: Don't reset insight on change
                             push(urls.insightNew({ insight: InsightType.RETENTION }))
                         },
                     },
                     {
-                        icon: IconEmojiPeople,
-                        display: 'Go to Paths',
+                        icon: IconUserPaths,
+                        display: 'Create a new Paths insight',
                         executor: () => {
                             // TODO: Don't reset insight on change
                             push(urls.insightNew({ insight: InsightType.PATHS }))
                         },
                     },
                     {
+                        icon: IconStickiness,
+                        display: 'Create a new Stickiness insight',
+                        executor: () => {
+                            // TODO: Don't reset insight on change
+                            push(urls.insightNew({ insight: InsightType.STICKINESS }))
+                        },
+                    },
+                    {
+                        icon: IconLifecycle,
+                        display: 'Create a new Lifecycle insight',
+                        executor: () => {
+                            // TODO: Don't reset insight on change
+                            push(urls.insightNew({ insight: InsightType.LIFECYCLE }))
+                        },
+                    },
+                    {
+                        icon: IconHogQL,
+                        display: 'Create a new HogQL insight',
+                        synonyms: ['hogql', 'sql'],
+                        executor: () => {
+                            // TODO: Don't reset insight on change
+                            push(insightTypeURL(Boolean(values.featureFlags[FEATURE_FLAGS.BI_VIZ]))[InsightType.SQL])
+                        },
+                    },
+                    {
+                        icon: IconNotebook,
+                        display: 'Go to Notebooks',
+                        executor: () => {
+                            push(urls.notebooks())
+                        },
+                    },
+                    {
                         icon: IconLive,
-                        display: 'Go to Events',
+                        display: 'Go to Events explorer',
                         executor: () => {
                             push(urls.events())
                         },
                     },
                     {
-                        icon: IconAction,
+                        icon: IconDatabase,
+                        display: 'Go to Data management',
+                        synonyms: ['events'],
+                        executor: () => {
+                            push(urls.eventDefinitions())
+                        },
+                    },
+                    {
+                        icon: IconCursor,
                         display: 'Go to Actions',
                         executor: () => {
                             push(urls.actions())
                         },
                     },
                     {
-                        icon: IconPerson,
+                        icon: IconList,
+                        display: 'Go to Properties',
+                        executor: () => {
+                            push(urls.propertyDefinitions())
+                        },
+                    },
+                    {
+                        icon: IconThoughtBubble,
+                        display: 'Go to Annotations',
+                        executor: () => {
+                            push(urls.annotations())
+                        },
+                    },
+                    {
+                        icon: IconPeople,
                         display: 'Go to Persons',
                         synonyms: ['people'],
                         executor: () => {
@@ -470,57 +555,67 @@ export const commandPaletteLogic = kea<commandPaletteLogicType>({
                         },
                     },
                     {
-                        icon: IconCohort,
+                        icon: IconPeople,
                         display: 'Go to Cohorts',
                         executor: () => {
                             push(urls.cohorts())
                         },
                     },
+                    ...(values.featureFlags[FEATURE_FLAGS.WEB_ANALYTICS]
+                        ? [
+                              {
+                                  icon: IconPieChart,
+                                  display: 'Go to Web analytics',
+                                  executor: () => {
+                                      push(urls.webAnalytics())
+                                  },
+                              },
+                          ]
+                        : []),
+                    ...(values.featureFlags[FEATURE_FLAGS.DATA_WAREHOUSE]
+                        ? [
+                              {
+                                  icon: IconServer,
+                                  display: 'Go to Data warehouse',
+                                  executor: () => {
+                                      push(urls.dataWarehouse())
+                                  },
+                              },
+                          ]
+                        : []),
                     {
-                        icon: IconFlag,
-                        display: 'Go to Feature Flags',
-                        synonyms: ['feature flags', 'a/b tests'],
+                        display: 'Go to Session replay',
+                        icon: IconRewindPlay,
+                        executor: () => {
+                            push(urls.replay())
+                        },
+                    },
+                    {
+                        display: 'Go to Surveys',
+                        icon: IconChat,
+                        executor: () => {
+                            push(urls.surveys())
+                        },
+                    },
+                    {
+                        icon: IconToggle,
+                        display: 'Go to Feature flags',
                         executor: () => {
                             push(urls.featureFlags())
                         },
                     },
                     {
-                        icon: IconComment,
-                        display: 'Go to Annotations',
+                        icon: IconTestTube,
+                        display: 'Go to A/B testing',
                         executor: () => {
-                            push(urls.annotations())
+                            push(urls.experiments())
                         },
                     },
                     {
-                        icon: IconCorporate,
-                        display: 'Go to Team members',
-                        synonyms: ['organization', 'members', 'invites', 'teammates'],
+                        icon: IconRocket,
+                        display: 'Go to Early access features',
                         executor: () => {
-                            push(urls.organizationSettings())
-                        },
-                    },
-                    {
-                        icon: IconCottage,
-                        display: 'Go to project homepage',
-                        executor: () => {
-                            push(urls.projectHomepage())
-                        },
-                    },
-                    {
-                        icon: IconSettings,
-                        display: 'Go to Project settings',
-                        executor: () => {
-                            push(urls.projectSettings())
-                        },
-                    },
-                    {
-                        icon: () => (
-                            <ProfilePicture name={values.user?.first_name} email={values.user?.email} size="xs" />
-                        ),
-                        display: 'Go to My settings',
-                        synonyms: ['account'],
-                        executor: () => {
-                            push(urls.mySettings())
+                            push(urls.earlyAccessFeatures())
                         },
                     },
                     {
@@ -532,15 +627,36 @@ export const commandPaletteLogic = kea<commandPaletteLogicType>({
                         },
                     },
                     {
-                        icon: IconServer,
-                        display: 'Go to Instance status & settings',
-                        synonyms: ['redis', 'celery', 'django', 'postgres', 'backend', 'service', 'online'],
+                        icon: IconToolbar,
+                        display: 'Go to Toolbar',
                         executor: () => {
-                            push(urls.instanceStatus())
+                            push(urls.toolbarLaunch())
                         },
                     },
                     {
-                        icon: IconLogout,
+                        icon: IconGear,
+                        display: 'Go to Project settings',
+                        executor: () => {
+                            push(urls.settings('project'))
+                        },
+                    },
+                    {
+                        icon: IconGear,
+                        display: 'Go to Organization settings',
+                        executor: () => {
+                            push(urls.settings('organization'))
+                        },
+                    },
+                    {
+                        icon: () => <ProfilePicture user={values.user} size="xs" />,
+                        display: 'Go to User settings',
+                        synonyms: ['account', 'profile'],
+                        executor: () => {
+                            push(urls.settings('user'))
+                        },
+                    },
+                    {
+                        icon: IconLeave,
                         display: 'Log out',
                         executor: () => {
                             userLogic.actions.logout()
@@ -558,11 +674,9 @@ export const commandPaletteLogic = kea<commandPaletteLogicType>({
                     preflightLogic.values.preflight?.is_debug ||
                     preflightLogic.values.preflight?.instance_preferences?.debug_queries
                         ? {
-                              icon: IconTools,
+                              icon: IconDatabase,
                               display: 'Debug ClickHouse Queries',
-                              executor: () => {
-                                  debugCHQueries()
-                              },
+                              executor: () => openCHQueriesDebugModal(),
                           }
                         : [],
             }
@@ -571,7 +685,7 @@ export const commandPaletteLogic = kea<commandPaletteLogicType>({
                 key: 'debug-copy-session-recording-url',
                 scope: GLOBAL_COMMAND_SCOPE,
                 resolver: {
-                    icon: IconRecording,
+                    icon: IconRewindPlay,
                     display: 'Debug: Copy the session recording link to clipboard',
                     executor: () => {
                         const url = posthog.get_session_replay_url({ withTimestamp: true, timestampLookBack: 30 })
@@ -593,7 +707,7 @@ export const commandPaletteLogic = kea<commandPaletteLogicType>({
                         return isNaN(result)
                             ? null
                             : {
-                                  icon: IconCalculate,
+                                  icon: IconCalculator,
                                   display: `= ${result}`,
                                   guarantee: true,
                                   executor: () => {
@@ -613,7 +727,7 @@ export const commandPaletteLogic = kea<commandPaletteLogicType>({
                 resolver: (argument) => {
                     const results: CommandResultTemplate[] = (teamLogic.values.currentTeam?.app_urls ?? []).map(
                         (url: string) => ({
-                            icon: IconOpenInNew,
+                            icon: IconExternal,
                             display: `Open ${url}`,
                             synonyms: [`Visit ${url}`],
                             executor: () => {
@@ -623,7 +737,7 @@ export const commandPaletteLogic = kea<commandPaletteLogicType>({
                     )
                     if (argument && isURL(argument)) {
                         results.push({
-                            icon: IconOpenInNew,
+                            icon: IconExternal,
                             display: `Open ${argument}`,
                             synonyms: [`Visit ${argument}`],
                             executor: () => {
@@ -632,7 +746,7 @@ export const commandPaletteLogic = kea<commandPaletteLogicType>({
                         })
                     }
                     results.push({
-                        icon: IconOpenInNew,
+                        icon: IconExternal,
                         display: 'Open PostHog Docs',
                         synonyms: ['technical documentation'],
                         executor: () => {
@@ -647,7 +761,7 @@ export const commandPaletteLogic = kea<commandPaletteLogicType>({
                 key: 'create-personal-api-key',
                 scope: GLOBAL_COMMAND_SCOPE,
                 resolver: {
-                    icon: IconLockOpen,
+                    icon: IconUnlock,
                     display: 'Create Personal API Key',
                     executor: () => ({
                         instruction: 'Give your key a label',
@@ -656,11 +770,11 @@ export const commandPaletteLogic = kea<commandPaletteLogicType>({
                         resolver: (argument) => {
                             if (argument?.length) {
                                 return {
-                                    icon: IconLockOpen,
+                                    icon: IconUnlock,
                                     display: `Create Key "${argument}"`,
                                     executor: () => {
                                         personalAPIKeysLogic.actions.createKey(argument)
-                                        push(urls.mySettings(), {}, 'personal-api-keys')
+                                        push(urls.settings('user'), {}, 'personal-api-keys')
                                     },
                                 }
                             }
@@ -674,7 +788,7 @@ export const commandPaletteLogic = kea<commandPaletteLogicType>({
                 key: 'create-dashboard',
                 scope: GLOBAL_COMMAND_SCOPE,
                 resolver: {
-                    icon: IconGauge,
+                    icon: IconDashboard,
                     display: 'Create Dashboard',
                     executor: () => ({
                         instruction: 'Name your new dashboard',
@@ -683,7 +797,7 @@ export const commandPaletteLogic = kea<commandPaletteLogicType>({
                         resolver: (argument) => {
                             if (argument?.length) {
                                 return {
-                                    icon: IconGauge,
+                                    icon: IconDashboard,
                                     display: `Create Dashboard "${argument}"`,
                                     executor: () => {
                                         newDashboardLogic.actions.addDashboard({ name: argument })
@@ -700,7 +814,7 @@ export const commandPaletteLogic = kea<commandPaletteLogicType>({
                 key: 'share-feedback',
                 scope: GLOBAL_COMMAND_SCOPE,
                 resolver: {
-                    icon: IconComment,
+                    icon: IconThoughtBubble,
                     display: 'Share Feedback',
                     synonyms: ['send opinion', 'ask question', 'message posthog', 'github issue'],
                     executor: () => ({
@@ -708,12 +822,12 @@ export const commandPaletteLogic = kea<commandPaletteLogicType>({
                         resolver: [
                             {
                                 display: 'Send Message Directly to PostHog',
-                                icon: IconComment,
+                                icon: IconThoughtBubble,
                                 executor: () => ({
                                     instruction: "What's on your mind?",
-                                    icon: IconComment,
+                                    icon: IconThoughtBubble,
                                     resolver: (argument) => ({
-                                        icon: IconComment,
+                                        icon: IconThoughtBubble,
                                         display: 'Send',
                                         executor: !argument?.length
                                             ? undefined
@@ -721,7 +835,7 @@ export const commandPaletteLogic = kea<commandPaletteLogicType>({
                                                   posthog.capture('palette feedback', { message: argument })
                                                   return {
                                                       resolver: {
-                                                          icon: IconCheckmark,
+                                                          icon: IconCheck,
                                                           display: 'Message Sent!',
                                                           executor: true,
                                                       },
@@ -729,13 +843,6 @@ export const commandPaletteLogic = kea<commandPaletteLogicType>({
                                               },
                                     }),
                                 }),
-                            },
-                            {
-                                icon: IconRecording,
-                                display: 'Schedule Quick Call',
-                                executor: () => {
-                                    open('https://calendly.com/posthog-feedback')
-                                },
                             },
                             {
                                 icon: IconGithub,
@@ -749,6 +856,107 @@ export const commandPaletteLogic = kea<commandPaletteLogicType>({
                 },
             }
 
+            const toggleTheme: Command = {
+                key: 'toggle-theme',
+                scope: GLOBAL_COMMAND_SCOPE,
+                resolver: {
+                    icon: IconEye,
+                    display: 'Switch theme',
+                    synonyms: ['toggle theme', 'dark mode', 'light mode'],
+                    executor: () => ({
+                        scope: 'Switch theme',
+                        resolver: [
+                            {
+                                icon: IconDay,
+                                display: 'Light mode',
+                                executor: () => {
+                                    actions.updateUser({ theme_mode: 'light' })
+                                },
+                            },
+                            {
+                                icon: IconNight,
+                                display: 'Dark mode',
+                                executor: () => {
+                                    actions.updateUser({ theme_mode: 'dark' })
+                                },
+                            },
+                            {
+                                icon: IconLaptop,
+                                display: 'Sync with system preferences',
+                                executor: () => {
+                                    actions.updateUser({ theme_mode: 'system' })
+                                },
+                            },
+                        ],
+                    }),
+                },
+            }
+
+            const toggleHedgehogMode: Command = {
+                key: 'toggle-hedgehog-mode',
+                scope: GLOBAL_COMMAND_SCOPE,
+                resolver: {
+                    icon: IconFlare,
+                    display: `${values.hedgehogModeEnabled ? 'Disable' : 'Enable'} hedgehog mode`,
+                    synonyms: ['buddy', 'toggle', 'max'],
+                    executor: () => {
+                        actions.setHedgehogModeEnabled(!values.hedgehogModeEnabled)
+                    },
+                },
+            }
+
+            const shortcuts: Command = {
+                key: 'shortcuts',
+                scope: GLOBAL_COMMAND_SCOPE,
+                resolver: {
+                    icon: IconKeyboard,
+                    display: 'Open keyboard shortcut overview',
+                    executor: () => {
+                        actions.setCommandBar(BarStatus.SHOW_SHORTCUTS)
+
+                        // :HACKY: we need to return a dummy flow here, as otherwise
+                        // the executor will hide the command bar, which also displays
+                        // the shortcut overview
+                        const dummyFlow: CommandFlow = {
+                            resolver: () => ({
+                                icon: <></>,
+                                display: '',
+                                executor: true,
+                            }),
+                        }
+                        return dummyFlow
+                    },
+                },
+            }
+
+            const sidepanel: Command = {
+                key: 'sidepanel',
+                scope: GLOBAL_COMMAND_SCOPE,
+                resolver: [
+                    ...values.enabledTabs.map((tab) => {
+                        const { Icon, label } = SIDE_PANEL_TABS[tab]
+                        return {
+                            icon: Icon,
+                            display: `Open ${label} side panel`,
+                            executor: () => {
+                                actions.openSidePanel(tab)
+                            },
+                        }
+                    }),
+                    ...(values.sidePanelOpen
+                        ? [
+                              {
+                                  icon: IconClose,
+                                  display: 'Close side panel',
+                                  executor: () => {
+                                      actions.closeSidePanel()
+                                  },
+                              },
+                          ]
+                        : []),
+                ],
+            }
+
             actions.registerCommand(goTo)
             actions.registerCommand(openUrls)
             actions.registerCommand(debugClickhouseQueries)
@@ -757,6 +965,10 @@ export const commandPaletteLogic = kea<commandPaletteLogicType>({
             actions.registerCommand(createDashboard)
             actions.registerCommand(shareFeedback)
             actions.registerCommand(debugCopySessionRecordingURL)
+            actions.registerCommand(toggleTheme)
+            actions.registerCommand(toggleHedgehogMode)
+            actions.registerCommand(shortcuts)
+            actions.registerCommand(sidepanel)
         },
         beforeUnmount: () => {
             actions.deregisterCommand('go-to')
@@ -767,6 +979,10 @@ export const commandPaletteLogic = kea<commandPaletteLogicType>({
             actions.deregisterCommand('create-dashboard')
             actions.deregisterCommand('share-feedback')
             actions.deregisterCommand('debug-copy-session-recording-url')
+            actions.deregisterCommand('toggle-theme')
+            actions.deregisterCommand('toggle-hedgehog-mode')
+            actions.deregisterCommand('shortcuts')
+            actions.deregisterCommand('sidepanel')
         },
-    }),
-})
+    })),
+])

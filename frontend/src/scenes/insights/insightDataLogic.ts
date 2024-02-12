@@ -1,23 +1,25 @@
 import { actions, connect, kea, key, listeners, path, props, propsChanged, reducers, selectors } from 'kea'
-import { FilterType, InsightLogicProps, InsightType } from '~/types'
+import { promptLogic } from 'lib/logic/promptLogic'
+import { objectsEqual } from 'lib/utils'
 import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
-import { InsightNodeKind, InsightVizNode, Node, NodeKind } from '~/queries/schema'
+import { filterTestAccountsDefaultsLogic } from 'scenes/settings/project/filterTestAccountDefaultsLogic'
+import { teamLogic } from 'scenes/teamLogic'
 
-import type { insightDataLogicType } from './insightDataLogicType'
-import { insightLogic } from './insightLogic'
-import { queryNodeToFilter } from '~/queries/nodes/InsightQuery/utils/queryNodeToFilter'
-import { filtersToQueryNode } from '~/queries/nodes/InsightQuery/utils/filtersToQueryNode'
-import { isInsightVizNode } from '~/queries/utils'
-import { cleanFilters, setTestAccountFilterForNewInsight } from './utils/cleanFilters'
-import { insightTypeToDefaultQuery, nodeKindToDefaultQuery } from '~/queries/nodes/InsightQuery/defaults'
 import { dataNodeLogic, DataNodeLogicProps } from '~/queries/nodes/DataNode/dataNodeLogic'
+import { insightTypeToDefaultQuery, nodeKindToDefaultQuery } from '~/queries/nodes/InsightQuery/defaults'
+import { filtersToQueryNode } from '~/queries/nodes/InsightQuery/utils/filtersToQueryNode'
+import { queryNodeToFilter } from '~/queries/nodes/InsightQuery/utils/queryNodeToFilter'
 import { insightVizDataNodeKey } from '~/queries/nodes/InsightViz/InsightViz'
 import { queryExportContext } from '~/queries/query'
-import { objectsEqual } from 'lib/utils'
-import { compareFilters } from './utils/compareFilters'
-import { filterTestAccountsDefaultsLogic } from 'scenes/project/Settings/filterTestAccountDefaultsLogic'
+import { InsightNodeKind, InsightVizNode, Node, NodeKind } from '~/queries/schema'
+import { isInsightVizNode } from '~/queries/utils'
+import { FilterType, InsightLogicProps, InsightType } from '~/types'
+
+import type { insightDataLogicType } from './insightDataLogicType'
 import { insightDataTimingLogic } from './insightDataTimingLogic'
-import { teamLogic } from 'scenes/teamLogic'
+import { insightLogic } from './insightLogic'
+import { cleanFilters, setTestAccountFilterForNewInsight } from './utils/cleanFilters'
+import { compareFilters } from './utils/compareFilters'
 
 const queryFromFilters = (filters: Partial<FilterType>): InsightVizNode => ({
     kind: NodeKind.InsightVizNode,
@@ -38,10 +40,13 @@ export const insightDataLogic = kea<insightDataLogicType>([
         values: [
             insightLogic,
             ['filters', 'insight', 'savedInsight'],
-            dataNodeLogic({ key: insightVizDataNodeKey(props) } as DataNodeLogicProps),
+            dataNodeLogic({
+                key: insightVizDataNodeKey(props),
+                loadPriority: props.loadPriority,
+            } as DataNodeLogicProps),
             [
                 'query as insightQuery',
-                'response as insightData',
+                'response as insightDataRaw',
                 'dataLoading as insightDataLoading',
                 'responseErrorObject as insightDataError',
                 'getInsightRefreshButtonDisabledReason',
@@ -53,15 +58,22 @@ export const insightDataLogic = kea<insightDataLogicType>([
         ],
         actions: [
             insightLogic,
-            ['setInsight', 'loadInsightSuccess', 'saveInsight as insightLogicSaveInsight'],
+            [
+                'setInsight',
+                'loadInsightSuccess',
+                'saveInsight as insightLogicSaveInsight',
+                'saveAsNamingSuccess as insightLogicSaveAsNamingSuccess',
+            ],
             dataNodeLogic({ key: insightVizDataNodeKey(props) } as DataNodeLogicProps),
             ['loadData', 'loadDataSuccess', 'loadDataFailure', 'setResponse as setInsightData'],
         ],
-        logic: [insightDataTimingLogic(props)],
+        logic: [insightDataTimingLogic(props), promptLogic({ key: `save-as-insight` })],
     })),
 
     actions({
         setQuery: (query: Node | null) => ({ query }),
+        saveAs: true,
+        saveAsNamingSuccess: (name: string) => ({ name }),
         saveInsight: (redirectToViewMode = true) => ({ redirectToViewMode }),
         toggleQueryEditorPanel: true,
         cancelChanges: true,
@@ -84,12 +96,19 @@ export const insightDataLogic = kea<insightDataLogicType>([
 
     selectors({
         query: [
-            (s) => [s.filters, s.insight, s.internalQuery, s.filterTestAccountsDefault],
-            (filters, insight, internalQuery, filterTestAccountsDefault) =>
+            (s) => [s.propsQuery, s.filters, s.insight, s.internalQuery, s.filterTestAccountsDefault],
+            (propsQuery, filters, insight, internalQuery, filterTestAccountsDefault) =>
+                propsQuery ||
                 internalQuery ||
                 insight.query ||
                 (filters && filters.insight ? queryFromFilters(filters) : undefined) ||
                 queryFromKind(NodeKind.TrendsQuery, filterTestAccountsDefault),
+        ],
+
+        propsQuery: [
+            () => [(_, props) => props],
+            // overwrite query from props for standalone InsightVizNode queries
+            (props: InsightLogicProps) => (props.dashboardItemId?.startsWith('new-AdHoc.') ? props.query : null),
         ],
 
         isQueryBasedInsight: [
@@ -140,6 +159,24 @@ export const insightDataLogic = kea<insightDataLogicType>([
                 }
             },
         ],
+
+        insightData: [
+            (s) => [s.insightDataRaw],
+            (insightDataRaw): Record<string, any> => {
+                // :TRICKY: The queries return results as `results`, but insights expect `result`
+                return { ...insightDataRaw, result: insightDataRaw?.results ?? insightDataRaw?.result }
+            },
+        ],
+
+        hogQL: [
+            (s) => [s.insightData],
+            (insightData): string | null => {
+                if (insightData && 'hogql' in insightData && insightData.hogql !== '') {
+                    return insightData.hogql
+                }
+                return null
+            },
+        ],
     }),
 
     listeners(({ actions, values }) => ({
@@ -155,7 +192,7 @@ export const insightDataLogic = kea<insightDataLogicType>([
             }
         },
         loadInsightSuccess: ({ insight }) => {
-            if (!!insight.query) {
+            if (insight.query) {
                 actions.setQuery(insight.query)
             } else if (!!insight.filters && !!Object.keys(insight.filters).length) {
                 const query = queryFromFilters(insight.filters)
@@ -186,6 +223,40 @@ export const insightDataLogic = kea<insightDataLogicType>([
             )
 
             actions.insightLogicSaveInsight(redirectToViewMode)
+        },
+        saveAs: async () => {
+            promptLogic({ key: `save-as-insight` }).actions.prompt({
+                title: 'Save as new insight',
+                placeholder: 'Please enter the new name',
+                value: `${values.insight.name || values.insight.derived_name} (copy)`,
+                error: 'You must enter a name',
+                success: actions.saveAsNamingSuccess,
+            })
+        },
+        saveAsNamingSuccess: ({ name }) => {
+            let filters = values.insight.filters
+            if (isInsightVizNode(values.query)) {
+                const querySource = values.query.source
+                filters = queryNodeToFilter(querySource)
+            } else if (values.isQueryBasedInsight) {
+                filters = {}
+            }
+
+            let query = undefined
+            if (values.isQueryBasedInsight) {
+                query = values.query
+            }
+
+            actions.setInsight(
+                {
+                    ...values.insight,
+                    filters: filters,
+                    query: query ?? undefined,
+                },
+                { overrideFilter: true, fromPersistentApi: false }
+            )
+
+            actions.insightLogicSaveAsNamingSuccess(name)
         },
         cancelChanges: () => {
             const savedFilters = values.savedInsight.filters

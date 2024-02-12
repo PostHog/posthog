@@ -4,10 +4,9 @@ from django.db import migrations
 
 
 class Migration(migrations.Migration):
-
     dependencies = [
         ("posthog", "0147_plugin_logs"),
         ("posthog", "0147_fix_stickiness_dashboard_items"),
     ]
 
-    operations = []  # type: ignore
+    operations = []

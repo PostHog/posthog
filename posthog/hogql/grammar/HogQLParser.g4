@@ -4,11 +4,13 @@ options {
     tokenVocab = HogQLLexer;
 }
 
+
 // SELECT statement
-select: (selectUnionStmt | selectStmt) EOF;
+select: (selectUnionStmt | selectStmt | hogqlxTagElement) EOF;
 
 selectUnionStmt: selectStmtWithParens (UNION ALL selectStmtWithParens)*;
-selectStmtWithParens: selectStmt | LPAREN selectUnionStmt RPAREN;
+selectStmtWithParens: selectStmt | LPAREN selectUnionStmt RPAREN | placeholder;
+
 selectStmt:
     with=withClause?
     SELECT DISTINCT? topClause?
@@ -70,7 +72,7 @@ joinConstraintClause
 sampleClause: SAMPLE ratioExpr (OFFSET ratioExpr)?;
 orderExprList: orderExpr (COMMA orderExpr)*;
 orderExpr: columnExpr (ASCENDING | DESCENDING | DESC)? (NULLS (FIRST | LAST))? (COLLATE STRING_LITERAL)?;
-ratioExpr: numberLiteral (SLASH numberLiteral)?;
+ratioExpr: placeholder | numberLiteral (SLASH numberLiteral)?;
 settingExprList: settingExpr (COMMA settingExpr)*;
 settingExpr: identifier EQ_SINGLE literal;
 
@@ -109,6 +111,7 @@ columnExpr
     | identifier (LPAREN columnExprList? RPAREN) OVER LPAREN windowExpr RPAREN            # ColumnExprWinFunction
     | identifier (LPAREN columnExprList? RPAREN) OVER identifier                          # ColumnExprWinFunctionTarget
     | identifier (LPAREN columnExprList? RPAREN)? LPAREN DISTINCT? columnArgList? RPAREN  # ColumnExprFunction
+    | hogqlxTagElement                                                                    # ColumnExprTagElement
     | literal                                                                             # ColumnExprLiteral
 
     // FIXME(ilezhankin): this part looks very ugly, maybe there is another way to express it
@@ -167,6 +170,17 @@ columnLambdaExpr:
     ARROW columnExpr
     ;
 
+
+hogqlxTagElement
+    : LT identifier hogqlxTagAttribute* SLASH GT                                        # HogqlxTagElementClosed
+    | LT identifier hogqlxTagAttribute* GT hogqlxTagElement? LT SLASH identifier GT     # HogqlxTagElementNested
+    ;
+hogqlxTagAttribute
+    :   identifier '=' STRING_LITERAL
+    |   identifier '=' LBRACE columnExpr RBRACE
+    |   identifier
+    ;
+
 withExprList: withExpr (COMMA withExpr)*;
 withExpr
     : identifier AS LPAREN selectUnionStmt RPAREN    # WithExprSubquery
@@ -179,22 +193,19 @@ withExpr
 // HogQL allows unlimited ("*") nestedIdentifier-s "properties.b.a.a.w.a.s".
 // We parse and convert "databaseIdentifier.tableIdentifier.columnIdentifier.nestedIdentifier.*"
 // to just one ast.Field(chain=['a','b','columnIdentifier','on','and','on']).
-columnIdentifier: PLACEHOLDER | ((tableIdentifier DOT)? nestedIdentifier);
+columnIdentifier: placeholder | ((tableIdentifier DOT)? nestedIdentifier);
 nestedIdentifier: identifier (DOT identifier)*;
 tableExpr
     : tableIdentifier                    # TableExprIdentifier
     | tableFunctionExpr                  # TableExprFunction
     | LPAREN selectUnionStmt RPAREN      # TableExprSubquery
     | tableExpr (alias | AS identifier)  # TableExprAlias
+    | hogqlxTagElement                   # TableExprTag
+    | placeholder                        # TableExprPlaceholder
     ;
 tableFunctionExpr: identifier LPAREN tableArgList? RPAREN;
 tableIdentifier: (databaseIdentifier DOT)? identifier;
-tableArgList: tableArgExpr (COMMA tableArgExpr)*;
-tableArgExpr
-    : nestedIdentifier
-    | tableFunctionExpr
-    | literal
-    ;
+tableArgList: columnExpr (COMMA columnExpr)*;
 
 // Databases
 
@@ -235,3 +246,4 @@ keywordForAlias
 alias: IDENTIFIER | keywordForAlias;  // |interval| can't be an alias, otherwise 'INTERVAL 1 SOMETHING' becomes ambiguous.
 identifier: IDENTIFIER | interval | keyword;
 enumValue: STRING_LITERAL EQ_SINGLE numberLiteral;
+placeholder: LBRACE identifier RBRACE;

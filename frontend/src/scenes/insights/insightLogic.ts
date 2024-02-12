@@ -1,22 +1,16 @@
-import { actions, connect, events, kea, key, listeners, path, props, reducers, selectors } from 'kea'
-import { promptLogic } from 'lib/logic/promptLogic'
-import { getEventNamesForAction, objectsEqual, sum, toParams } from 'lib/utils'
-import { eventUsageLogic, InsightEventSource } from 'lib/utils/eventUsageLogic'
-import type { insightLogicType } from './insightLogicType'
 import { captureException } from '@sentry/react'
-import {
-    ActionType,
-    FilterType,
-    InsightLogicProps,
-    InsightModel,
-    InsightShortId,
-    ItemMode,
-    SetInsightOptions,
-    TrendsFilterType,
-} from '~/types'
+import { actions, connect, events, kea, key, listeners, path, props, reducers, selectors } from 'kea'
+import { loaders } from 'kea-loaders'
 import { router } from 'kea-router'
 import api from 'lib/api'
-import { lemonToast } from 'lib/lemon-ui/lemonToast'
+import { TriggerExportProps } from 'lib/components/ExportButton/exporter'
+import { parseProperties } from 'lib/components/PropertyFilters/utils'
+import { DashboardPrivilegeLevel } from 'lib/constants'
+import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
+import { getEventNamesForAction, objectsEqual, sum, toParams } from 'lib/utils'
+import { eventUsageLogic, InsightEventSource } from 'lib/utils/eventUsageLogic'
+import { transformLegacyHiddenLegendKeys } from 'scenes/funnels/funnelUtils'
+import { insightSceneLogic } from 'scenes/insights/insightSceneLogic'
 import {
     filterTrendsClientSideParams,
     isFilterWithHiddenLegendKeys,
@@ -28,30 +22,37 @@ import {
     isTrendsFilter,
     keyForInsightLogicProps,
 } from 'scenes/insights/sharedUtils'
-import { cleanFilters } from 'scenes/insights/utils/cleanFilters'
-import { dashboardsModel } from '~/models/dashboardsModel'
-import { extractObjectDiffKeys, findInsightFromMountedLogic, getInsightId } from './utils'
-import { teamLogic } from '../teamLogic'
-import { savedInsightsLogic } from 'scenes/saved-insights/savedInsightsLogic'
-import { urls } from 'scenes/urls'
-import { actionsModel } from '~/models/actionsModel'
-import { DashboardPrivilegeLevel } from 'lib/constants'
-import { groupsModel } from '~/models/groupsModel'
-import { cohortsModel } from '~/models/cohortsModel'
-import { mathsLogic } from 'scenes/trends/mathsLogic'
-import { insightSceneLogic } from 'scenes/insights/insightSceneLogic'
-import { TriggerExportProps } from 'lib/components/ExportButton/exporter'
-import { parseProperties } from 'lib/components/PropertyFilters/utils'
-import { insightsModel } from '~/models/insightsModel'
-import { toLocalFilters } from './filters/ActionFilter/entityFilterLogic'
-import { loaders } from 'kea-loaders'
-import { queryExportContext } from '~/queries/query'
-import { tagsModel } from '~/models/tagsModel'
-import { isInsightVizNode } from '~/queries/utils'
-import { userLogic } from 'scenes/userLogic'
-import { globalInsightLogic } from './globalInsightLogic'
-import { transformLegacyHiddenLegendKeys } from 'scenes/funnels/funnelUtils'
 import { summarizeInsight } from 'scenes/insights/summarizeInsight'
+import { cleanFilters } from 'scenes/insights/utils/cleanFilters'
+import { savedInsightsLogic } from 'scenes/saved-insights/savedInsightsLogic'
+import { mathsLogic } from 'scenes/trends/mathsLogic'
+import { urls } from 'scenes/urls'
+import { userLogic } from 'scenes/userLogic'
+
+import { actionsModel } from '~/models/actionsModel'
+import { cohortsModel } from '~/models/cohortsModel'
+import { dashboardsModel } from '~/models/dashboardsModel'
+import { groupsModel } from '~/models/groupsModel'
+import { insightsModel } from '~/models/insightsModel'
+import { tagsModel } from '~/models/tagsModel'
+import { queryExportContext } from '~/queries/query'
+import { InsightVizNode } from '~/queries/schema'
+import { isInsightVizNode } from '~/queries/utils'
+import {
+    ActionType,
+    FilterType,
+    InsightLogicProps,
+    InsightModel,
+    InsightShortId,
+    ItemMode,
+    SetInsightOptions,
+    TrendsFilterType,
+} from '~/types'
+
+import { teamLogic } from '../teamLogic'
+import { toLocalFilters } from './filters/ActionFilter/entityFilterLogic'
+import type { insightLogicType } from './insightLogicType'
+import { extractObjectDiffKeys, findInsightFromMountedLogic, getInsightId } from './utils'
 
 const IS_TEST_MODE = process.env.NODE_ENV === 'test'
 export const UNSAVED_INSIGHT_MIN_REFRESH_INTERVAL_MINUTES = 3
@@ -79,7 +80,7 @@ export const insightLogic = kea<insightLogicType>([
     props({} as InsightLogicProps),
     key(keyForInsightLogicProps('new')),
     path((key) => ['scenes', 'insights', 'insightLogic', key]),
-    connect({
+    connect(() => ({
         values: [
             teamLogic,
             ['currentTeamId', 'currentTeam'],
@@ -91,12 +92,10 @@ export const insightLogic = kea<insightLogicType>([
             ['mathDefinitions'],
             userLogic,
             ['user'],
-            globalInsightLogic,
-            ['globalInsightFilters'],
         ],
-        actions: [tagsModel, ['loadTags'], globalInsightLogic, ['setGlobalInsightFilters']],
-        logic: [eventUsageLogic, dashboardsModel, promptLogic({ key: `save-as-insight` })],
-    }),
+        actions: [tagsModel, ['loadTags']],
+        logic: [eventUsageLogic, dashboardsModel],
+    })),
 
     actions({
         setFilters: (filters: Partial<FilterType>, insightMode?: ItemMode, clearInsightQuery?: boolean) => ({
@@ -121,7 +120,6 @@ export const insightLogic = kea<insightLogicType>([
             insight,
             options,
         }),
-        saveAs: true,
         saveAsNamingSuccess: (name: string) => ({ name }),
         cancelChanges: true,
         setInsightDescription: (description: string) => ({ description }),
@@ -136,7 +134,6 @@ export const insightLogic = kea<insightLogicType>([
             callback,
         }),
         setInsightMetadata: (metadata: Partial<InsightModel>) => ({ metadata }),
-        toggleInsightLegend: true,
         toggleVisibility: (index: number) => ({ index }),
         highlightSeries: (seriesIndex: number | null) => ({ seriesIndex }),
     }),
@@ -149,11 +146,7 @@ export const insightLogic = kea<insightLogicType>([
                 ),
             {
                 loadInsight: async ({ shortId }) => {
-                    const response = await api.get(
-                        `api/projects/${teamLogic.values.currentTeamId}/insights/?short_id=${encodeURIComponent(
-                            shortId
-                        )}&include_query_insights=true`
-                    )
+                    const response = await api.insights.loadInsight(shortId)
                     if (response?.results?.[0]) {
                         return response.results[0]
                     }
@@ -380,10 +373,15 @@ export const insightLogic = kea<insightLogicType>([
         /** filters for data that's being displayed, might not be same as `savedInsight.filters` or filters */
         loadedFilters: [(s) => [s.insight], (insight) => insight.filters],
         insightProps: [() => [(_, props) => props], (props): InsightLogicProps => props],
+        isInDashboardContext: [() => [(_, props) => props], ({ dashboardId }) => !!dashboardId],
         hasDashboardItemId: [
             () => [(_, props) => props],
             (props: InsightLogicProps) =>
                 !!props.dashboardItemId && props.dashboardItemId !== 'new' && !props.dashboardItemId.startsWith('new-'),
+        ],
+        isInExperimentContext: [
+            () => [router.selectors.location],
+            ({ pathname }) => /^.*\/experiments\/\d+$/.test(pathname),
         ],
         derivedName: [
             (s) => [s.insight, s.aggregationLabel, s.cohortsById, s.mathDefinitions],
@@ -417,13 +415,6 @@ export const insightLogic = kea<insightLogicType>([
                     !objectsEqual(insight.tags || [], savedInsight.tags || [])
                 )
             },
-        ],
-        isInDashboardContext: [
-            () => [router.selectors.location],
-            ({ pathname }) =>
-                pathname.startsWith('/dashboard') ||
-                pathname.startsWith('/home') ||
-                pathname.startsWith('/shared-dashboard'),
         ],
         allEventNames: [
             (s) => [s.filters, actionsModel.selectors.actions],
@@ -487,7 +478,7 @@ export const insightLogic = kea<insightLogicType>([
 
                 const filename = ['export', insight.name || insight.derived_name].join('-')
 
-                if (!!insight.query) {
+                if (insight.query) {
                     return { ...queryExportContext(insight.query), filename }
                 } else {
                     if (isTrendsFilter(filters) || isStickinessFilter(filters) || isLifecycleFilter(filters)) {
@@ -547,13 +538,11 @@ export const insightLogic = kea<insightLogicType>([
                 )
             },
         ],
+        showPersonsModal: [() => [(_, p) => p.query], (query?: InsightVizNode) => !query || !query.hidePersonsModal],
     }),
     listeners(({ actions, selectors, values }) => ({
         setFiltersMerge: ({ filters }) => {
             actions.setFilters({ ...values.filters, ...filters })
-        },
-        setGlobalInsightFilters: ({ globalInsightFilters }) => {
-            actions.setFilters({ ...values.filters, ...globalInsightFilters })
         },
         setFilters: async ({ filters }, _, __, previousState) => {
             const previousFilters = selectors.filters(previousState)
@@ -639,7 +628,7 @@ export const insightLogic = kea<insightLogicType>([
                     description,
                     favorited,
                     filters,
-                    query: !!query ? query : null,
+                    query: query ? query : null,
                     deleted,
                     saved: true,
                     dashboards,
@@ -661,7 +650,7 @@ export const insightLogic = kea<insightLogicType>([
 
             // the backend can't return the result for a query based insight,
             // and so we shouldn't copy the result from `values.insight` as it might be stale
-            const result = savedInsight.result || (!!query ? values.insight.result : null)
+            const result = savedInsight.result || (query ? values.insight.result : null)
             actions.setInsight({ ...savedInsight, result: result }, { fromPersistentApi: true, overrideFilter: true })
             eventUsageLogic.actions.reportInsightSaved(filters || {}, insightNumericId === undefined)
             lemonToast.success(`Insight saved${dashboards?.length === 1 ? ' & added to dashboard' : ''}`, {
@@ -689,19 +678,11 @@ export const insightLogic = kea<insightLogicType>([
                 router.actions.push(urls.insightEdit(savedInsight.short_id))
             }
         },
-        saveAs: async () => {
-            promptLogic({ key: `save-as-insight` }).actions.prompt({
-                title: 'Save as new insight',
-                placeholder: 'Please enter the new name',
-                value: `${values.insight.name || values.insight.derived_name} (copy)`,
-                error: 'You must enter a name',
-                success: actions.saveAsNamingSuccess,
-            })
-        },
         saveAsNamingSuccess: async ({ name }) => {
             const insight: InsightModel = await api.create(`api/projects/${teamLogic.values.currentTeamId}/insights/`, {
                 name,
                 filters: values.filters,
+                query: values.insight.query,
                 saved: true,
             })
             lemonToast.info(`You're now working on a copy of ${values.insight.name ?? values.insight.derived_name}`)
@@ -711,13 +692,6 @@ export const insightLogic = kea<insightLogicType>([
         },
         loadInsightSuccess: async ({ insight }) => {
             actions.reportInsightViewed(insight, insight?.filters || {})
-        },
-        toggleInsightLegend: () => {
-            const newFilters: Partial<TrendsFilterType> = {
-                ...values.filters,
-                show_legend: !(values.filters as Partial<TrendsFilterType>).show_legend,
-            }
-            actions.setFilters(newFilters)
         },
         toggleVisibility: ({ index }) => {
             const currentIsHidden = !!values.hiddenLegendKeys?.[index]

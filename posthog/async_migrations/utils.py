@@ -15,7 +15,11 @@ from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.client.connection import make_ch_pool
 from posthog.clickhouse.query_tagging import reset_query_tags, tag_queries
 from posthog.email import is_email_available
-from posthog.models.async_migration import AsyncMigration, AsyncMigrationError, MigrationStatus
+from posthog.models.async_migration import (
+    AsyncMigration,
+    AsyncMigrationError,
+    MigrationStatus,
+)
 from posthog.models.instance_setting import get_instance_setting
 from posthog.models.user import User
 from posthog.settings import (
@@ -154,7 +158,13 @@ def sleep_until_finished(name, is_running: Callable[[], bool]) -> None:
 
 
 def run_optimize_table(
-    *, unique_name: str, query_id: str, table_name: str, deduplicate=False, final=False, per_shard=False
+    *,
+    unique_name: str,
+    query_id: str,
+    table_name: str,
+    deduplicate=False,
+    final=False,
+    per_shard=False,
 ):
     """
     Runs the passed OPTIMIZE TABLE query.
@@ -163,7 +173,10 @@ def run_optimize_table(
     we'll wait for that to complete first.
     """
     if not TEST and _get_number_running_on_cluster(f"%%optimize:{unique_name}%%") > 0:
-        sleep_until_finished(unique_name, lambda: _get_number_running_on_cluster(f"%%optimize:{unique_name}%%") > 0)
+        sleep_until_finished(
+            unique_name,
+            lambda: _get_number_running_on_cluster(f"%%optimize:{unique_name}%%") > 0,
+        )
     else:
         final_clause = "FINAL" if final else ""
         deduplicate_clause = "DEDUPLICATE" if deduplicate else ""
@@ -175,7 +188,10 @@ def run_optimize_table(
         execute_op_clickhouse(
             sql,
             query_id=f"optimize:{unique_name}/{query_id}",
-            settings={"max_execution_time": ASYNC_MIGRATIONS_DEFAULT_TIMEOUT_SECONDS, "mutations_sync": 2},
+            settings={
+                "max_execution_time": ASYNC_MIGRATIONS_DEFAULT_TIMEOUT_SECONDS,
+                "mutations_sync": 2,
+            },
             per_shard=per_shard,
         )
 
@@ -213,7 +229,9 @@ def process_error(
             from posthog.tasks.email import send_async_migration_errored_email
 
             send_async_migration_errored_email.delay(
-                migration_key=migration_instance.name, time=now().isoformat(), error=error
+                migration_key=migration_instance.name,
+                time=now().isoformat(),
+                error=error,
             )
 
     if (
@@ -237,7 +255,9 @@ def trigger_migration(migration_instance: AsyncMigration, fresh_start: bool = Tr
 
 
 def force_stop_migration(
-    migration_instance: AsyncMigration, error: str = "Force stopped by user", rollback: bool = True
+    migration_instance: AsyncMigration,
+    error: str = "Force stopped by user",
+    rollback: bool = True,
 ):
     """
     In theory this is dangerous, as it can cause another task to be lost
@@ -299,7 +319,10 @@ def mark_async_migration_as_running(migration_instance: AsyncMigration) -> bool:
     # update to running iff the state was Starting (ui triggered) or NotStarted (api triggered)
     with transaction.atomic():
         instance = AsyncMigration.objects.select_for_update().get(pk=migration_instance.pk)
-        if instance.status not in [MigrationStatus.Starting, MigrationStatus.NotStarted]:
+        if instance.status not in [
+            MigrationStatus.Starting,
+            MigrationStatus.NotStarted,
+        ]:
             return False
         instance.status = MigrationStatus.Running
         instance.current_query_id = ""

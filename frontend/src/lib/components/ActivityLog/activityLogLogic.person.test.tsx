@@ -1,8 +1,10 @@
-import { ActivityScope } from 'lib/components/ActivityLog/humanizeActivity'
-import { render } from '@testing-library/react'
 import '@testing-library/jest-dom'
-import { makeTestSetup } from 'lib/components/ActivityLog/activityLogLogic.test.setup'
+
+import { render } from '@testing-library/react'
 import { MOCK_TEAM_ID } from 'lib/api.mock'
+import { makeTestSetup } from 'lib/components/ActivityLog/activityLogLogic.test.setup'
+
+import { ActivityScope } from '~/types'
 
 describe('the activity log logic', () => {
     describe('humanizing persons', () => {
@@ -10,7 +12,7 @@ describe('the activity log logic', () => {
         it('can handle addition of a property', async () => {
             const logic = await personTestSetup('test person', 'updated', [
                 {
-                    type: 'Person',
+                    type: ActivityScope.PERSON,
                     action: 'changed',
                     field: 'properties',
                 },
@@ -22,7 +24,7 @@ describe('the activity log logic', () => {
 
         it('can handle merging people', async () => {
             const logic = await personTestSetup('test person', 'people_merged_into', null, {
-                type: 'Person',
+                type: ActivityScope.PERSON,
                 source: [
                     { distinct_ids: ['a'], properties: {} },
                     { distinct_ids: ['c'], properties: {} },
@@ -39,7 +41,7 @@ describe('the activity log logic', () => {
         it('can handle splitting people', async () => {
             const logic = await personTestSetup('test_person', 'split_person', [
                 {
-                    type: 'Person',
+                    type: ActivityScope.PERSON,
                     action: 'changed',
                     field: undefined,
                     before: {},

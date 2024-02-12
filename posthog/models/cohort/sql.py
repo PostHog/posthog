@@ -7,7 +7,8 @@ SELECT {id_column} FROM ({GET_TEAM_PERSON_DISTINCT_IDS}) WHERE {query}
 """
 
 COHORTPEOPLE_TABLE_ENGINE = lambda: CollapsingMergeTree("cohortpeople", ver="sign")
-CREATE_COHORTPEOPLE_TABLE_SQL = lambda: """
+CREATE_COHORTPEOPLE_TABLE_SQL = (
+    lambda: """
 CREATE TABLE IF NOT EXISTS cohortpeople ON CLUSTER '{cluster}'
 (
     person_id UUID,
@@ -19,7 +20,10 @@ CREATE TABLE IF NOT EXISTS cohortpeople ON CLUSTER '{cluster}'
 Order By (team_id, cohort_id, person_id, version)
 {storage_policy}
 """.format(
-    cluster=CLICKHOUSE_CLUSTER, engine=COHORTPEOPLE_TABLE_ENGINE(), storage_policy=""
+        cluster=CLICKHOUSE_CLUSTER,
+        engine=COHORTPEOPLE_TABLE_ENGINE(),
+        storage_policy="",
+    )
 )
 
 TRUNCATE_COHORTPEOPLE_TABLE_SQL = f"TRUNCATE TABLE IF EXISTS cohortpeople ON CLUSTER '{CLICKHOUSE_CLUSTER}'"

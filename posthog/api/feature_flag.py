@@ -1,14 +1,23 @@
 import json
 from typing import Any, Dict, List, Optional, cast
+from datetime import datetime
 
-from django.db.models import QuerySet
+from django.db.models import QuerySet, Q, deletion
 from django.conf import settings
-from django.db.models.query_utils import Q
-from rest_framework import authentication, exceptions, request, serializers, status, viewsets
+from rest_framework import (
+    authentication,
+    exceptions,
+    request,
+    serializers,
+    status,
+    viewsets,
+)
 from rest_framework.decorators import action
 from rest_framework.permissions import SAFE_METHODS, BasePermission, IsAuthenticated
 from rest_framework.request import Request
 from rest_framework.response import Response
+from sentry_sdk import capture_exception
+from posthog.api.cohort import CohortSerializer
 
 from posthog.api.forbid_destroy_model import ForbidDestroyModel
 from posthog.api.routing import StructuredViewSetMixin
@@ -18,13 +27,20 @@ from posthog.api.dashboards.dashboard import Dashboard
 from posthog.auth import PersonalAPIKeyAuthentication, TemporaryTokenAuthentication
 from posthog.constants import FlagRequestType
 from posthog.event_usage import report_user_action
+from posthog.helpers.dashboard_templates import (
+    add_enriched_insights_to_feature_flag_dashboard,
+)
 from posthog.models import FeatureFlag
-from posthog.models.activity_logging.activity_log import Detail, changes_between, load_activity, log_activity
+from posthog.models.activity_logging.activity_log import (
+    Detail,
+    changes_between,
+    load_activity,
+    log_activity,
+)
 from posthog.models.activity_logging.activity_page import activity_page_response
-from posthog.models.cohort import Cohort
+from posthog.models.cohort import Cohort, CohortOrEmpty
 from posthog.models.cohort.util import get_dependent_cohorts
 from posthog.models.feature_flag import (
-    FeatureFlagMatcher,
     FeatureFlagDashboards,
     can_user_edit_feature_flag,
     get_all_feature_flags,
@@ -34,8 +50,14 @@ from posthog.models.feature_flag.flag_analytics import increment_request_count
 from posthog.models.feedback.survey import Survey
 from posthog.models.group_type_mapping import GroupTypeMapping
 from posthog.models.property import Property
-from posthog.permissions import ProjectMembershipNecessaryPermissions, TeamMemberAccessPermission
+from posthog.permissions import (
+    TeamMemberAccessPermission,
+)
+from posthog.queries.base import (
+    determine_parsed_date_for_property_matching,
+)
 from posthog.rate_limit import BurstRateThrottle
+from loginas.utils import is_impersonated_session
 
 DATABASE_FOR_LOCAL_EVALUATION = (
     "default"
@@ -48,6 +70,7 @@ class FeatureFlagThrottle(BurstRateThrottle):
     # Throttle class that's scoped just to the local evaluation endpoint.
     # This makes the rate limit independent of other endpoints.
     scope = "feature_flag_evaluations"
+    rate = "600/minute"
 
 
 class CanEditFeatureFlag(BasePermission):
@@ -68,6 +91,7 @@ class FeatureFlagSerializer(TaggedItemSerializerMixin, serializers.HyperlinkedMo
     rollout_percentage = serializers.SerializerMethodField()
 
     experiment_set: serializers.PrimaryKeyRelatedField = serializers.PrimaryKeyRelatedField(many=True, read_only=True)
+    surveys: serializers.SerializerMethodField = serializers.SerializerMethodField()
     features: serializers.SerializerMethodField = serializers.SerializerMethodField()
     usage_dashboard: serializers.PrimaryKeyRelatedField = serializers.PrimaryKeyRelatedField(read_only=True)
     analytics_dashboards = serializers.PrimaryKeyRelatedField(
@@ -98,6 +122,7 @@ class FeatureFlagSerializer(TaggedItemSerializerMixin, serializers.HyperlinkedMo
             "rollout_percentage",
             "ensure_experience_continuity",
             "experiment_set",
+            "surveys",
             "features",
             "rollback_conditions",
             "performed_rollback",
@@ -127,6 +152,12 @@ class FeatureFlagSerializer(TaggedItemSerializerMixin, serializers.HyperlinkedMo
 
         return MinimalEarlyAccessFeatureSerializer(feature_flag.features, many=True).data
 
+    def get_surveys(self, feature_flag: FeatureFlag) -> Dict:
+        from posthog.api.survey import SurveyAPISerializer
+
+        return SurveyAPISerializer(feature_flag.surveys_linked_flag, many=True).data
+        # ignoring type because mypy doesn't know about the surveys_linked_flag `related_name` relationship
+
     def get_rollout_percentage(self, feature_flag: FeatureFlag) -> Optional[int]:
         if self.get_is_simple_flag(feature_flag):
             return feature_flag.conditions[0].get("rollout_percentage")
@@ -152,7 +183,7 @@ class FeatureFlagSerializer(TaggedItemSerializerMixin, serializers.HyperlinkedMo
         # If we see this, just return the current filters
         if "groups" not in filters and self.context["request"].method == "PATCH":
             # mypy cannot tell that self.instance is a FeatureFlag
-            return self.instance.filters  # type: ignore
+            return self.instance.filters
 
         aggregation_group_type_index = filters.get("aggregation_group_type_index", None)
 
@@ -167,6 +198,11 @@ class FeatureFlagSerializer(TaggedItemSerializerMixin, serializers.HyperlinkedMo
             is_valid = properties_all_match(lambda prop: prop.type in ["person", "cohort"])
             if not is_valid:
                 raise serializers.ValidationError("Filters are not valid (can only use person and cohort properties)")
+        elif self.instance is not None and hasattr(self.instance, "features") and self.instance.features.count() > 0:
+            raise serializers.ValidationError(
+                "Cannot change this flag to a group-based when linked to an Early Access Feature."
+            )
+
         else:
             is_valid = properties_all_match(
                 lambda prop: prop.type == "group" and prop.group_type_index == aggregation_group_type_index
@@ -195,7 +231,16 @@ class FeatureFlagSerializer(TaggedItemSerializerMixin, serializers.HyperlinkedMo
                                 )
                     except Cohort.DoesNotExist:
                         raise serializers.ValidationError(
-                            detail=f"Cohort with id {prop.value} does not exist", code="cohort_does_not_exist"
+                            detail=f"Cohort with id {prop.value} does not exist",
+                            code="cohort_does_not_exist",
+                        )
+
+                if prop.operator in ("is_date_before", "is_date_after"):
+                    parsed_date = determine_parsed_date_for_property_matching(prop.value)
+
+                    if not parsed_date:
+                        raise serializers.ValidationError(
+                            detail=f"Invalid date value: {prop.value}", code="invalid_date"
                         )
 
         payloads = filters.get("payloads", {})
@@ -213,7 +258,6 @@ class FeatureFlagSerializer(TaggedItemSerializerMixin, serializers.HyperlinkedMo
         return filters
 
     def create(self, validated_data: Dict, *args: Any, **kwargs: Any) -> FeatureFlag:
-
         request = self.context["request"]
         validated_data["created_by"] = request.user
         validated_data["team_id"] = self.context["team_id"]
@@ -231,24 +275,30 @@ class FeatureFlagSerializer(TaggedItemSerializerMixin, serializers.HyperlinkedMo
                 "Invalid variant definitions: Variant rollout percentages must sum to 100."
             )
 
-        FeatureFlag.objects.filter(key=validated_data["key"], team_id=self.context["team_id"], deleted=True).delete()
+        try:
+            FeatureFlag.objects.filter(
+                key=validated_data["key"], team_id=self.context["team_id"], deleted=True
+            ).delete()
+        except deletion.RestrictedError:
+            raise exceptions.ValidationError(
+                "Feature flag with this key already exists and is used in an experiment. Please delete the experiment before deleting the flag."
+            )
         instance: FeatureFlag = super().create(validated_data)
 
         self._attempt_set_tags(tags, instance)
 
-        instance.usage_dashboard = _create_usage_dashboard(instance, request.user)
-        instance.save()
+        _create_usage_dashboard(instance, request.user)
 
         report_user_action(request.user, "feature flag created", instance.get_analytics_metadata())
 
         return instance
 
     def update(self, instance: FeatureFlag, validated_data: Dict, *args: Any, **kwargs: Any) -> FeatureFlag:
-
         if "deleted" in validated_data and validated_data["deleted"] is True and instance.features.count() > 0:
             raise exceptions.ValidationError(
                 "Cannot delete a feature flag that is in use with early access features. Please delete the early access feature before deleting the flag."
             )
+
         request = self.context["request"]
         validated_key = validated_data.get("key", None)
         if validated_key:
@@ -288,6 +338,9 @@ def _create_usage_dashboard(feature_flag: FeatureFlag, user):
     )
     create_feature_flag_dashboard(feature_flag, usage_dashboard)
 
+    feature_flag.usage_dashboard = usage_dashboard
+    feature_flag.save()
+
     return usage_dashboard
 
 
@@ -308,7 +361,12 @@ class MinimalFeatureFlagSerializer(serializers.ModelSerializer):
         ]
 
 
-class FeatureFlagViewSet(TaggedItemViewSetMixin, StructuredViewSetMixin, ForbidDestroyModel, viewsets.ModelViewSet):
+class FeatureFlagViewSet(
+    TaggedItemViewSetMixin,
+    StructuredViewSetMixin,
+    ForbidDestroyModel,
+    viewsets.ModelViewSet,
+):
     """
     Create, read, update and delete feature flags. [See docs](https://posthog.com/docs/user-guides/feature-flags) for more information on feature flags.
 
@@ -319,7 +377,6 @@ class FeatureFlagViewSet(TaggedItemViewSetMixin, StructuredViewSetMixin, ForbidD
     serializer_class = FeatureFlagSerializer
     permission_classes = [
         IsAuthenticated,
-        ProjectMembershipNecessaryPermissions,
         TeamMemberAccessPermission,
         CanEditFeatureFlag,
     ]
@@ -339,7 +396,9 @@ class FeatureFlagViewSet(TaggedItemViewSetMixin, StructuredViewSetMixin, ForbidD
                 .prefetch_related("experiment_set")
                 .prefetch_related("features")
                 .prefetch_related("analytics_dashboards")
+                .prefetch_related("surveys_linked_flag")
             )
+
             survey_targeting_flags = Survey.objects.filter(team=self.team, targeting_flag__isnull=False).values_list(
                 "targeting_flag_id", flat=True
             )
@@ -347,18 +406,73 @@ class FeatureFlagViewSet(TaggedItemViewSetMixin, StructuredViewSetMixin, ForbidD
 
         return queryset.select_related("created_by").order_by("-created_at")
 
+    def list(self, request, *args, **kwargs):
+        if getattr(request, "using_personal_api_key", False):
+            # Add request for analytics only if request coming with personal API key authentication
+            increment_request_count(self.team.pk, 1, FlagRequestType.LOCAL_EVALUATION)
+
+        return super().list(request, args, kwargs)
+
     @action(methods=["POST"], detail=True)
     def dashboard(self, request: request.Request, **kwargs):
         feature_flag: FeatureFlag = self.get_object()
         try:
             usage_dashboard = _create_usage_dashboard(feature_flag, request.user)
-            feature_flag.usage_dashboard = usage_dashboard
-            feature_flag.save()
-        except:
+
+            if feature_flag.has_enriched_analytics and not feature_flag.usage_dashboard_has_enriched_insights:
+                add_enriched_insights_to_feature_flag_dashboard(feature_flag, usage_dashboard)
+
+        except Exception as e:
+            capture_exception(e)
             return Response(
                 {
                     "success": False,
                     "error": f"Unable to generate usage dashboard",
+                },
+                status=400,
+            )
+
+        return Response({"success": True}, status=200)
+
+    @action(methods=["POST"], detail=True)
+    def enrich_usage_dashboard(self, request: request.Request, **kwargs):
+        feature_flag: FeatureFlag = self.get_object()
+        usage_dashboard = feature_flag.usage_dashboard
+
+        if not usage_dashboard:
+            return Response(
+                {
+                    "success": False,
+                    "error": f"Usage dashboard not found",
+                },
+                status=400,
+            )
+
+        if feature_flag.usage_dashboard_has_enriched_insights:
+            return Response(
+                {
+                    "success": False,
+                    "error": f"Usage dashboard already has enriched data",
+                },
+                status=400,
+            )
+
+        if not feature_flag.has_enriched_analytics:
+            return Response(
+                {
+                    "success": False,
+                    "error": f"No enriched analytics available for this feature flag",
+                },
+                status=400,
+            )
+        try:
+            add_enriched_insights_to_feature_flag_dashboard(feature_flag, usage_dashboard)
+        except Exception as e:
+            capture_exception(e)
+            return Response(
+                {
+                    "success": False,
+                    "error": f"Unable to enrich usage dashboard",
                 },
                 status=400,
             )
@@ -371,10 +485,11 @@ class FeatureFlagViewSet(TaggedItemViewSetMixin, StructuredViewSetMixin, ForbidD
             raise exceptions.NotAuthenticated()
 
         feature_flags = (
-            FeatureFlag.objects.filter(team=self.team, active=True, deleted=False)
+            FeatureFlag.objects.filter(team=self.team, deleted=False)
             .prefetch_related("experiment_set")
             .prefetch_related("features")
             .prefetch_related("analytics_dashboards")
+            .prefetch_related("surveys_linked_flag")
             .select_related("created_by")
             .order_by("-created_at")
         )
@@ -386,7 +501,7 @@ class FeatureFlagViewSet(TaggedItemViewSetMixin, StructuredViewSetMixin, ForbidD
         if not feature_flag_list:
             return Response(flags)
 
-        matches, _, _, _ = FeatureFlagMatcher(feature_flag_list, request.user.distinct_id, groups).get_matches()
+        matches, _, _, _ = get_all_feature_flags(self.team_id, request.user.distinct_id, groups)
         for feature_flag in feature_flags:
             flags.append(
                 {
@@ -399,21 +514,32 @@ class FeatureFlagViewSet(TaggedItemViewSetMixin, StructuredViewSetMixin, ForbidD
 
     @action(methods=["GET"], detail=False, throttle_classes=[FeatureFlagThrottle])
     def local_evaluation(self, request: request.Request, **kwargs):
-
         feature_flags: QuerySet[FeatureFlag] = FeatureFlag.objects.using(DATABASE_FOR_LOCAL_EVALUATION).filter(
-            team_id=self.team_id, deleted=False
+            team_id=self.team_id, deleted=False, active=True
         )
+
+        should_send_cohorts = "send_cohorts" in request.GET
+
         cohorts = {}
-        seen_cohorts_cache: Dict[str, Cohort] = {}
+        seen_cohorts_cache: Dict[int, CohortOrEmpty] = {}
+
+        if should_send_cohorts:
+            seen_cohorts_cache = {
+                cohort.pk: cohort
+                for cohort in Cohort.objects.using(DATABASE_FOR_LOCAL_EVALUATION).filter(
+                    team_id=self.team_id, deleted=False
+                )
+            }
 
         parsed_flags = []
         for feature_flag in feature_flags:
             filters = feature_flag.get_filters()
-            # transform cohort filters to be evaluated locally
-            if (
+            # transform cohort filters to be evaluated locally, but only if send_cohorts is false
+            if not should_send_cohorts and (
                 len(
                     feature_flag.get_cohort_ids(
-                        using_database=DATABASE_FOR_LOCAL_EVALUATION, seen_cohorts_cache=seen_cohorts_cache
+                        using_database=DATABASE_FOR_LOCAL_EVALUATION,
+                        seen_cohorts_cache=seen_cohorts_cache,
                     )
                 )
                 == 1
@@ -421,7 +547,8 @@ class FeatureFlagViewSet(TaggedItemViewSetMixin, StructuredViewSetMixin, ForbidD
                 feature_flag.filters = {
                     **filters,
                     "groups": feature_flag.transform_cohort_filters_for_easy_evaluation(
-                        using_database=DATABASE_FOR_LOCAL_EVALUATION, seen_cohorts_cache=seen_cohorts_cache
+                        using_database=DATABASE_FOR_LOCAL_EVALUATION,
+                        seen_cohorts_cache=seen_cohorts_cache,
                     ),
                 }
             else:
@@ -431,20 +558,24 @@ class FeatureFlagViewSet(TaggedItemViewSetMixin, StructuredViewSetMixin, ForbidD
 
             # when param set, send cohorts, for libraries that can handle evaluating them locally
             # irrespective of complexity
-            if "send_cohorts" in request.GET:
+            if should_send_cohorts:
                 for id in feature_flag.get_cohort_ids(
-                    using_database=DATABASE_FOR_LOCAL_EVALUATION, seen_cohorts_cache=seen_cohorts_cache
+                    using_database=DATABASE_FOR_LOCAL_EVALUATION,
+                    seen_cohorts_cache=seen_cohorts_cache,
                 ):
                     # don't duplicate queries for already added cohorts
                     if id not in cohorts:
-                        parsed_cohort_id = str(id)
-                        if parsed_cohort_id in seen_cohorts_cache:
-                            cohort = seen_cohorts_cache[parsed_cohort_id]
+                        if id in seen_cohorts_cache:
+                            cohort = seen_cohorts_cache[id]
                         else:
-                            cohort = Cohort.objects.using(DATABASE_FOR_LOCAL_EVALUATION).get(id=id)
-                            seen_cohorts_cache[parsed_cohort_id] = cohort
+                            cohort = (
+                                Cohort.objects.using(DATABASE_FOR_LOCAL_EVALUATION)
+                                .filter(id=id, team_id=self.team_id, deleted=False)
+                                .first()
+                            )
+                            seen_cohorts_cache[id] = cohort or ""
 
-                        if not cohort.is_static:
+                        if cohort and not cohort.is_static:
                             cohorts[cohort.pk] = cohort.properties.to_dict()
 
         # Add request for analytics
@@ -468,7 +599,6 @@ class FeatureFlagViewSet(TaggedItemViewSetMixin, StructuredViewSetMixin, ForbidD
 
     @action(methods=["GET"], detail=False)
     def evaluation_reasons(self, request: request.Request, **kwargs):
-
         distinct_id = request.query_params.get("distinct_id", None)
         groups = json.loads(request.query_params.get("groups", "{}"))
 
@@ -502,13 +632,13 @@ class FeatureFlagViewSet(TaggedItemViewSetMixin, StructuredViewSetMixin, ForbidD
 
     @action(methods=["POST"], detail=False)
     def user_blast_radius(self, request: request.Request, **kwargs):
-
         if "condition" not in request.data:
             raise exceptions.ValidationError("Missing condition for which to get blast radius")
 
         condition = request.data.get("condition") or {}
         group_type_index = request.data.get("group_type_index", None)
 
+        # TODO: Handle distinct_id and $group_key properties, which are not currently supported
         users_affected, total_users = get_user_blast_radius(self.team, condition, group_type_index)
 
         return Response(
@@ -517,6 +647,29 @@ class FeatureFlagViewSet(TaggedItemViewSetMixin, StructuredViewSetMixin, ForbidD
                 "total_users": total_users,
             }
         )
+
+    @action(methods=["POST"], detail=True)
+    def create_static_cohort_for_flag(self, request: request.Request, **kwargs):
+        feature_flag = self.get_object()
+        feature_flag_key = feature_flag.key
+        cohort_serializer = CohortSerializer(
+            data={
+                "is_static": True,
+                "key": feature_flag_key,
+                "name": f'Users with feature flag {feature_flag_key} enabled at {datetime.now().strftime("%Y-%m-%d %H:%M:%S")}',
+                "is_calculating": True,
+            },
+            context={
+                "request": request,
+                "team": self.team,
+                "team_id": self.team_id,
+                "from_feature_flag_key": feature_flag_key,
+            },
+        )
+
+        cohort_serializer.is_valid(raise_exception=True)
+        cohort_serializer.save()
+        return Response({"cohort": cohort_serializer.data}, status=201)
 
     @action(methods=["GET"], url_path="activity", detail=False)
     def all_activity(self, request: request.Request, **kwargs):
@@ -537,7 +690,11 @@ class FeatureFlagViewSet(TaggedItemViewSetMixin, StructuredViewSetMixin, ForbidD
             return Response("", status=status.HTTP_404_NOT_FOUND)
 
         activity_page = load_activity(
-            scope="FeatureFlag", team_id=self.team_id, item_id=item_id, limit=limit, page=page
+            scope="FeatureFlag",
+            team_id=self.team_id,
+            item_ids=[str(item_id)],
+            limit=limit,
+            page=page,
         )
         return activity_page_response(activity_page, limit, page, request)
 
@@ -547,6 +704,7 @@ class FeatureFlagViewSet(TaggedItemViewSetMixin, StructuredViewSetMixin, ForbidD
             organization_id=self.organization.id,
             team_id=self.team_id,
             user=serializer.context["request"].user,
+            was_impersonated=is_impersonated_session(serializer.context["request"]),
             item_id=serializer.instance.id,
             scope="FeatureFlag",
             activity="created",
@@ -569,6 +727,7 @@ class FeatureFlagViewSet(TaggedItemViewSetMixin, StructuredViewSetMixin, ForbidD
             organization_id=self.organization.id,
             team_id=self.team_id,
             user=serializer.context["request"].user,
+            was_impersonated=is_impersonated_session(serializer.context["request"]),
             item_id=instance_id,
             scope="FeatureFlag",
             activity="updated",

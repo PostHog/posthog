@@ -7,13 +7,16 @@ Only 400 (`normal`), 500 (`var(--font-medium)`), 600 (`var(--font-semibold)`), o
 
 */
 
+@use 'sass:map';
+
 // Global components
 @import '../../../node_modules/react-toastify/dist/ReactToastify';
 @import 'fonts';
 @import 'functions';
 @import 'mixins';
-@import 'utility-legacy';
+@import 'tailwindcss/components'; // NOTE: The components layer must be before utilities for correct specificity
 @import 'utilities';
+@import 'utilities-legacy'; // TODO: Remove all legacy utilities
 
 :root {
     @include root-variables;
@@ -26,35 +29,31 @@ body strong {
     font-weight: 600;
 }
 
-.main-app-content {
-    background-color: var(--bg-light);
-}
-
 // Disable default styling for ul
 ul {
+    padding-left: 0;
     margin-bottom: 0;
     list-style: none;
-    padding-left: 0;
 }
 
 // This may look odd but sets up our utility classes
 * {
+    border-color: var(--border);
     border-style: solid;
     border-width: 0;
-    border-color: var(--border);
+}
+
+input[type='radio'] {
+    accent-color: var(--primary);
 }
 
 .page-title-row {
     display: flex;
     flex-wrap: wrap;
+    gap: 0.5rem 1rem;
     align-items: center;
     min-height: 2.5rem;
-    gap: 0.5rem 1rem;
     margin: 1.25rem 0 0.25rem;
-
-    @include screen($md) {
-        flex-wrap: nowrap;
-    }
 
     .ant-form-item {
         margin-bottom: 0 !important;
@@ -63,55 +62,56 @@ ul {
     .posthog-3000 & {
         margin-top: 1rem;
     }
+
+    @include screen($md) {
+        flex-wrap: nowrap;
+    }
 }
 
 .page-title {
     min-width: 0;
-    font-size: 28px;
-    line-height: 34px;
     margin: 0;
+    font-size: 28px;
     font-weight: 600;
+    line-height: 34px;
 }
 
 .page-caption {
-    @extend .text-sm;
     max-width: 48rem;
     margin-bottom: 1rem;
+    font-size: 0.875rem;
+    line-height: 1.25rem;
+
     &.tabbed {
         margin-bottom: 0.5rem;
     }
 }
 
-.page-description {
-    font-style: italic;
-    color: var(--muted);
-}
-
 .page-buttons {
-    flex-shrink: 0;
-    flex-grow: 1;
     display: flex;
+    flex-grow: 1;
+    flex-shrink: 0;
+    gap: 0.5rem;
     align-items: center;
     justify-content: right;
-    gap: 0.5rem;
 }
 
 .secondary {
     font-size: 0.9em;
-    letter-spacing: 1px;
-    color: var(--primary-alt);
     font-weight: var(--font-medium);
+    color: var(--primary-alt);
     text-transform: uppercase;
-    border: 0;
+    letter-spacing: 1px;
     background: none;
+    border: 0;
 }
 
 .card-secondary {
     font-size: 11px;
-    color: var(--muted);
-    letter-spacing: 0.5px;
-    text-transform: uppercase;
     font-weight: 600;
+    color: var(--muted);
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
 }
 
 mark {
@@ -121,14 +121,14 @@ mark {
 
 // Supplement text, such as email under user name
 .supplement {
-    text-overflow: ellipsis;
     overflow: hidden;
-    color: var(--muted-alt);
     font-size: 0.8125rem;
+    color: var(--muted-alt);
+    text-overflow: ellipsis;
 
     &--danger {
-        color: var(--danger);
         font-weight: 600;
+        color: var(--danger);
     }
 }
 
@@ -144,6 +144,7 @@ input::-ms-clear {
 
 // Highlight background blink
 
+/* stylelint-disable-next-line keyframes-name-pattern */
 @keyframes highlight {
     0% {
         background-color: var(--mark);
@@ -156,6 +157,7 @@ input::-ms-clear {
 
 // Generic 360 spin
 
+/* stylelint-disable-next-line keyframes-name-pattern */
 @keyframes spin {
     0% {
         transform: rotateZ(0deg);
@@ -170,15 +172,19 @@ input::-ms-clear {
 
 .Toastify__toast {
     align-items: center;
-    opacity: 1 !important;
     padding: 0.75rem;
     margin-bottom: 0.5rem;
-    border-radius: var(--radius);
     font-family: var(--font-sans);
-    border: 1px solid var(--border);
-    box-shadow: var(--shadow-elevation);
     font-size: 1rem;
     cursor: unset;
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    box-shadow: var(--shadow-elevation);
+    opacity: 1 !important;
+
+    .posthog-3000 & {
+        border-color: var(--secondary-3000-button-border);
+    }
 }
 
 .Toastify__toast-container {
@@ -186,10 +192,11 @@ input::-ms-clear {
 }
 
 .Toastify__toast-body {
-    @extend .text-sm;
-    @extend .text-default;
-    font-weight: 500;
     padding: 0;
+    font-size: 0.875rem;
+    font-weight: 500;
+    line-height: 1.25rem;
+    color: var(--default);
 
     b,
     strong {
@@ -202,11 +209,11 @@ input::-ms-clear {
 }
 
 .Toastify__toast-icon {
-    color: var(--muted-alt);
     width: 1.5rem;
     height: 1.5rem;
     margin-right: 0.75rem;
     font-size: 1.5rem;
+    color: var(--muted-alt);
 
     .Toastify__toast--success & {
         color: var(--toastify-color-success);
@@ -225,43 +232,6 @@ input::-ms-clear {
     height: var(--radius);
 }
 
-// Horizontal scrollability indication
-
-.scrollable {
-    &::before,
-    &::after {
-        z-index: 1;
-        transition: opacity 200ms ease;
-        opacity: 0;
-        content: '';
-        position: absolute;
-        top: 0;
-        left: 0;
-        width: 100%;
-        height: 100%;
-        pointer-events: none;
-    }
-
-    &::before {
-        box-shadow: 16px 0 16px -16px rgba(0, 0, 0, 0.25) inset;
-    }
-
-    &::after {
-        box-shadow: -16px 0 16px -16px rgba(0, 0, 0, 0.25) inset;
-    }
-
-    &.scrollable--right::after,
-    &.scrollable--left::before {
-        opacity: 1;
-    }
-}
-
-.scrollable__inner {
-    width: 100%;
-    height: 100%;
-    overflow: auto;
-}
-
 // Form & input styles
 
 .input-set {
@@ -269,13 +239,15 @@ input::-ms-clear {
     color: var(--default);
 
     label {
+        font-size: 0.875rem;
         font-weight: bold;
-        @extend .text-sm;
+        line-height: 1.25rem;
     }
 
     .caption {
+        font-size: 0.875rem;
+        line-height: 1.25rem;
         color: var(--muted);
-        @extend .text-sm;
     }
 
     .ant-radio-button-wrapper {
@@ -309,13 +281,13 @@ input::-ms-clear {
 }
 
 .info-indicator {
+    margin-left: 4px;
     color: var(--primary-alt) !important;
     cursor: pointer;
-    margin-left: 4px;
 
     &.left {
-        margin-left: 0;
         margin-right: 4px;
+        margin-left: 0;
     }
 }
 
@@ -338,47 +310,47 @@ input::-ms-clear {
 // Graph series glyph
 
 .graph-series-glyph {
-    border-radius: 50%;
-    border: 2px solid var(--default);
-    font-weight: bold;
-    font-size: 12px;
-    height: 22px;
-    width: 22px;
     display: flex;
+    flex-shrink: 0;
     align-items: center;
     justify-content: center;
+    width: 22px;
+    height: 22px;
+    font-size: 12px;
+    font-weight: bold;
     pointer-events: none;
-    flex-shrink: 0;
+    border: 2px solid var(--default);
+    border-radius: 50%;
 
     // variants
     &.funnel-step-glyph {
-        border-color: var(--border);
-        background-color: white;
-        color: var(--primary-alt);
-        height: 23px;
         width: 23px;
+        height: 23px;
         font-size: unset;
+        color: var(--primary-alt);
+        background-color: var(--bg-light);
+        border-color: var(--border);
     }
 }
 
 // Bottom notice (DEBUG=1 mode)
 
 #bottom-notice {
+    position: fixed;
+    bottom: 0;
+    left: 0;
     z-index: var(--z-bottom-notice);
     display: flex !important;
     flex-direction: row;
-    position: fixed;
     width: 100%;
-    bottom: 0;
-    left: 0;
-    background: #000;
-    color: #fff;
     font-size: 0.75rem;
     line-height: 1.5rem;
+    color: #fff;
+    background: #000;
 
     code {
-        color: inherit;
         font-size: inherit;
+        color: inherit;
     }
 
     &.warning div {
@@ -390,15 +362,15 @@ input::-ms-clear {
         cursor: pointer;
 
         div:nth-child(1) {
-            background: var(--primary);
+            background: var(--brand-blue);
         }
 
         div:nth-child(2) {
-            background: var(--danger);
+            background: var(--brand-red);
         }
 
         div:nth-child(3) {
-            background: var(--warning);
+            background: var(--brand-yellow);
         }
 
         span {
@@ -418,15 +390,15 @@ input::-ms-clear {
     }
 
     button {
-        border: none;
-        background: transparent;
-        color: inherit;
         width: 1.5rem;
         height: 1.5rem;
         padding: 0;
         font-size: 1rem;
         font-weight: bold;
+        color: inherit;
         cursor: pointer;
+        background: transparent;
+        border: none;
     }
 
     @media screen and (min-width: 750px) {
@@ -456,101 +428,32 @@ input::-ms-clear {
 }
 
 .overlay__child {
-    transition: opacity 0.25s ease;
     position: absolute;
-    width: 100%;
-    height: 100%;
     top: 0;
     left: 0;
+    width: 100%;
+    height: 100%;
+    transition: opacity 0.25s ease;
 
     .overlay--danger & {
         background: repeating-linear-gradient(
             -45deg,
-            rgba(255, 255, 255, 0.5),
-            rgba(255, 255, 255, 0.5) 0.75rem,
+            rgb(255 255 255 / 50%),
+            rgb(255 255 255 / 50%) 0.75rem,
             var(--danger) 0.5rem,
             var(--danger) 20px
         );
     }
 }
 
-// Stateful badges
-
-.stateful-badge {
-    padding: 2px 8px;
-    border-radius: 2px;
-    font-weight: bold;
-
-    &.or {
-        background-color: #d2dbff;
-        text-align: center;
-        max-width: 50px;
-    }
-
-    &.or-light-grey {
-        font-family: var(--font-sans);
-        background-color: var(--mid);
-        text-align: center;
-        max-width: 50px;
-    }
-
-    &.width-locked {
-        width: 40px;
-        text-align: center;
-    }
-
-    &.and {
-        background-color: var(--mark);
-        color: var(--primary-alt);
-    }
-
-    &.pos-center-end {
-        position: absolute;
-        top: 50%;
-        left: -30px;
-    }
-}
-
 // Tags
 
 .simple-tag {
-    border-radius: var(--radius);
     padding: 2px 6px;
+    border-radius: var(--radius);
 
     &.tag-light-blue {
         background-color: var(--primary-highlight);
-    }
-}
-
-.lemonade-tag {
-    color: var(--primary-alt) !important;
-    background-color: var(--mid) !important;
-    border-color: var(--border) !important;
-}
-
-// Main app/body styles
-
-.fullscreen-scroll {
-    overflow-y: auto;
-}
-
-.main-app-content {
-    position: relative; // So that scene-level <SpinnerOverlay /> is positioned correctly.
-    min-width: 0;
-    width: 100%;
-    padding: 0 1rem 1rem;
-    flex: 1;
-
-    @include screen($sm) {
-        padding: 0 1rem 2rem;
-    }
-
-    @include screen($lg) {
-        padding: 0 2rem 4rem;
-    }
-
-    &.main-app-content--plain {
-        padding: 0;
     }
 }
 
@@ -558,10 +461,13 @@ input::-ms-clear {
 body {
     // Until we have 3000 rolled out we fallback to standard colors
     --text-3000: var(--default);
+    --text-secondary-3000: var(--text-secondary);
     --muted-3000: var(--muted);
     --trace-3000: var(--trace-3000-light);
     --primary-3000: var(--primary);
+    --primary-3000-highlight: var(--primary-highlight);
     --primary-3000-hover: var(--primary-light);
+    --primary-3000-active: var(--primary-dark);
     --secondary-3000: var(--secondary);
     --secondary-3000-hover: var(--secondary-light);
     --accent-3000: var(--side);
@@ -571,70 +477,88 @@ body {
     --glass-bg-3000: var(--bg-light);
     --glass-border-3000: var(--border);
     --bg-light: #fff;
+    --bg-table: var(--bg-light);
+    --link: var(--primary-3000);
+    --tooltip-bg: var(--bg-charcoal);
+    --data-color-1-hover: #1d4affe5;
+
+    // Remove below once we're using Tailwind's base
+    --tw-ring-offset-width: 0px;
+    --tw-ring-offset-color: var(--bg-light);
+    --tw-ring-color: var(--primary-3000);
+    --tw-ring-inset: ;
+    --tw-translate-x: 0;
+    --tw-translate-y: 0;
+    --tw-rotate: 0;
+    --tw-skew-x: 0;
+    --tw-skew-y: 0;
+    --tw-scale-x: 1;
+    --tw-scale-y: 1;
+
+    touch-action: manipulation; // Disable double-tap-to-zoom on mobile, making taps slightly snappier
 
     &.posthog-3000[theme='light'] {
-        --text-3000: var(--text-3000-light);
-        --muted-3000: var(--muted-3000-light);
-        --trace-3000: var(--trace-3000-light);
-        --primary-3000: var(--primary-3000-light);
-        --primary-3000-hover: var(--primary-3000-hover-light);
-        --secondary-3000: var(--secondary-3000-light);
-        --secondary-3000-hover: var(--secondary-3000-hover-light);
-        --accent-3000: var(--accent-3000-light);
-        --bg-3000: var(--bg-3000-light);
-        --border-3000: var(--border-3000-light);
-        --border-bold-3000: var(--border-bold-3000-light);
-        --glass-bg-3000: var(--glass-bg-3000-light);
-        --glass-border-3000: var(--glass-border-3000-light);
-        --bg-light: #fff;
+        @include light-mode-3000-variables;
     }
 
     &.posthog-3000[theme='dark'] {
-        --text-3000: var(--text-3000-dark);
-        --muted-3000: var(--muted-3000-dark);
-        --trace-3000: var(--trace-3000-dark);
-        --primary-3000: var(--primary-3000-dark);
-        --primary-3000-hover: var(--primary-3000-hover-dark);
-        --secondary-3000: var(--secondary-3000-dark);
-        --secondary-3000-hover: var(--secondary-3000-hover-dark);
-        --accent-3000: var(--accent-3000-dark);
-        --bg-3000: var(--bg-3000-dark);
-        --border-3000: var(--border-3000-dark);
-        --border-bold-3000: var(--border-bold-3000-dark);
-        --glass-bg-3000: var(--glass-bg-3000-dark);
-        --glass-border-3000: var(--glass-border-3000-dark);
-        --bg-light: var(--accent-3000);
-        --brand-key: #fff; // In dark mode the black in PostHog's logo is replaced with white for proper contrast
+        @include dark-mode-3000-variables;
     }
 
     &.posthog-3000 {
-        --default: var(--text-3000);
-        --muted: var(--muted-3000);
-        --muted-alt: var(--muted-3000);
-        --primary-alt: var(--text-3000);
-        --border: var(--border-3000);
-        --border-bold: var(--border-bold-3000);
-        --mid: var(--bg-3000);
-        --side: var(--bg-3000);
+        --shadow-elevation: var(--shadow-elevation-3000);
+        --primary: var(--primary-3000);
+        --primary-highlight: var(--primary-3000-highlight);
+
         background: var(--bg-3000);
-        user-select: none; // Make the app feel less page-like and more app-like - apps scarcely allow text selection
+
+        .non-3000 {
+            // Helper to hide non-3000 elements without JS
+            display: none;
+        }
+
+        .LemonButton,
+        .Link {
+            .text-link {
+                color: var(--text-3000);
+            }
+
+            &:hover {
+                .text-link {
+                    color: var(--primary-3000);
+                }
+            }
+        }
 
         * > {
             ::-webkit-scrollbar {
                 width: 0.5rem;
                 height: 0.5rem;
             }
+
             ::-webkit-scrollbar-track {
                 background: var(--accent-3000);
             }
+
             ::-webkit-scrollbar-thumb {
-                border-radius: 0.25rem;
                 background: var(--trace-3000);
+                border-radius: var(--radius);
+
                 &:hover {
                     background: var(--muted-3000);
                 }
             }
         }
+
+        h1,
+        h2,
+        h3,
+        h4,
+        h5 {
+            font-family: var(--font-title);
+        }
+
+        @include posthog-3000-variables;
     }
 
     h1,
@@ -645,13 +569,13 @@ body {
     }
 
     h5 {
+        margin-bottom: 0.25rem;
         font-size: 0.6875rem;
         font-weight: 600;
+        line-height: 1.5rem;
         color: var(--muted-alt);
         text-transform: uppercase;
-        letter-spacing: 0.5px;
-        margin-bottom: 0.25rem;
-        line-height: 1.5rem;
+        letter-spacing: 0.075em;
     }
 
     pre,
@@ -659,6 +583,10 @@ body {
     kbd,
     samp {
         font-family: var(--font-mono);
+    }
+
+    a {
+        color: var(--link);
     }
 
     // AntD uses its own border color for the bottom of tab lists, but we want to use `var(--border)`
@@ -673,8 +601,8 @@ body {
     }
 
     .ant-dropdown {
-        border-radius: var(--radius);
         color: var(--default);
+        border-radius: var(--radius);
     }
 
     .ant-dropdown-menu {
@@ -688,18 +616,43 @@ body {
     .ant-modal-mask {
         z-index: var(--z-ant-modal-mask);
     }
+
     .ant-modal-wrap {
         z-index: var(--z-ant-modal-wrap);
     }
+
     .ant-message {
         z-index: var(--z-ant-message);
     }
+
     .ant-select-dropdown {
         z-index: var(--z-ant-select-dropdown);
+        background-color: var(--bg-3000);
+
+        .ant-select-item.ant-select-item-option {
+            background-color: var(--bg-3000);
+
+            &.ant-select-item-option-active {
+                background-color: var(--border-3000);
+            }
+        }
+    }
+
+    .ant-input-number:hover,
+    .ant-input-number-focused {
+        border-color: var(--border-bold);
+    }
+
+    .ant-input-number-group-addon {
+        background: var(--bg-3000);
     }
 
     .ant-picker-dropdown {
         z-index: var(--z-ant-select-dropdown);
+    }
+
+    .ant-popconfirm {
+        z-index: var(--z-bottom-notice);
     }
 
     .ant-card-bordered {
@@ -731,7 +684,11 @@ body {
 
     // Tooltip styles
     .ant-tooltip-inner {
-        background-color: var(--bg-charcoal);
+        background-color: var(--tooltip-bg);
+    }
+
+    .ant-tooltip-arrow-content {
+        background-color: var(--tooltip-bg);
     }
 
     .ant-tooltip {
@@ -742,6 +699,7 @@ body {
     .ant-table-small .ant-table-thead > tr > th {
         background: var(--mid);
     }
+
     .ant-table-tbody > tr > td {
         border-bottom-color: var(--border);
     }
@@ -756,13 +714,14 @@ body {
     *,
     *::before,
     *::after {
-        transition: none !important;
+        transition-duration: 0ms !important;
         animation-fill-mode: forwards !important;
         animation-duration: 0ms !important;
         animation-iteration-count: 1 !important;
     }
+
     // Hide some parts of the UI that were causing flakiness
-    ::-webkit-scrollbar, // Scrollbar in WebKit/Blink browsers 
+    ::-webkit-scrollbar, // Scrollbar in WebKit/Blink browsers
     .LemonTabs__bar::after, // Active tab slider
     .scrollable::after, // Scrollability indicators
     .scrollable::before {
@@ -775,4 +734,18 @@ body {
         background: var(--secondary-3000);
         border-color: transparent;
     }
+}
+
+.posthog-3000[theme='dark'] {
+    .ant-empty-img-simple-path {
+        fill: var(--border-3000);
+    }
+
+    .ant-empty-img-simple-ellipse {
+        fill: var(--border-3000);
+    }
+}
+
+.ligatures-none {
+    font-variant-ligatures: none;
 }

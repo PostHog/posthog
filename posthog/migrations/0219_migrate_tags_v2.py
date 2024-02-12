@@ -33,7 +33,11 @@ def forwards(apps, schema_editor):
     )
 
     for insight_page in insight_paginator.page_range:
-        logger.info("insight_tag_batch_get_start", limit=batch_size, offset=(insight_page - 1) * batch_size)
+        logger.info(
+            "insight_tag_batch_get_start",
+            limit=batch_size,
+            offset=(insight_page - 1) * batch_size,
+        )
         insights = iter(insight_paginator.get_page(insight_page))
         for tags, team_id, insight_id in insights:
             unique_tags = set(tagify(t) for t in tags if isinstance(t, str) and t.strip() != "")
@@ -55,13 +59,22 @@ def forwards(apps, schema_editor):
     )
 
     for dashboard_page in dashboard_paginator.page_range:
-        logger.info("dashboard_tag_batch_get_start", limit=batch_size, offset=(dashboard_page - 1) * batch_size)
+        logger.info(
+            "dashboard_tag_batch_get_start",
+            limit=batch_size,
+            offset=(dashboard_page - 1) * batch_size,
+        )
         dashboards = iter(dashboard_paginator.get_page(dashboard_page))
         for tags, team_id, dashboard_id in dashboards:
             unique_tags = set(tagify(t) for t in tags if isinstance(t, str) and t.strip() != "")
             for tag in unique_tags:
                 temp_tag = Tag(name=tag, team_id=team_id)
-                createables.append((temp_tag, TaggedItem(dashboard_id=dashboard_id, tag_id=temp_tag.id)))
+                createables.append(
+                    (
+                        temp_tag,
+                        TaggedItem(dashboard_id=dashboard_id, tag_id=temp_tag.id),
+                    )
+                )
 
     logger.info("dashboard_tag_get_end", tags_count=len(createables) - num_insight_tags)
 
@@ -94,7 +107,9 @@ def forwards(apps, schema_editor):
 
         # Create tag <-> item relationships, ignoring conflicts
         TaggedItem.objects.bulk_create(
-            [tagged_item for (_, tagged_item) in createable_batch], ignore_conflicts=True, batch_size=batch_size
+            [tagged_item for (_, tagged_item) in createable_batch],
+            ignore_conflicts=True,
+            batch_size=batch_size,
         )
 
     logger.info("posthog/0219_migrate_tags_v2_end")

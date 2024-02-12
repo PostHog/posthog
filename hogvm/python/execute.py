@@ -1,5 +1,5 @@
 import re
-from typing import List, Any, Dict, Callable, Optional
+from typing import List, Any, Dict
 
 from hogvm.python.operation import Operation, HOGQL_BYTECODE_IDENTIFIER
 
@@ -33,9 +33,7 @@ def to_concat_arg(arg) -> str:
     return str(arg)
 
 
-def execute_bytecode(
-    bytecode: List[Any], fields: Dict[str, Any], async_operation: Optional[Callable[..., Any]] = None
-) -> Any:
+def execute_bytecode(bytecode: List[Any], fields: Dict[str, Any]) -> Any:
     try:
         stack = []
         iterator = iter(bytecode)
@@ -59,9 +57,9 @@ def execute_bytecode(
                 case Operation.NOT:
                     stack.append(not stack.pop())
                 case Operation.AND:
-                    stack.append(all([stack.pop() for _ in range(next(iterator))]))
+                    stack.append(all([stack.pop() for _ in range(next(iterator))]))  # noqa: C419
                 case Operation.OR:
-                    stack.append(any([stack.pop() for _ in range(next(iterator))]))
+                    stack.append(any([stack.pop() for _ in range(next(iterator))]))  # noqa: C419
                 case Operation.PLUS:
                     stack.append(stack.pop() + stack.pop())
                 case Operation.MINUS:
@@ -96,16 +94,6 @@ def execute_bytecode(
                     stack.append(stack.pop() in stack.pop())
                 case Operation.NOT_IN:
                     stack.append(stack.pop() not in stack.pop())
-                case Operation.IN_COHORT:
-                    if async_operation is None:
-                        raise HogVMException("HogVM async_operation IN_COHORT not provided")
-                    args = [Operation.IN_COHORT, stack.pop(), stack.pop()]
-                    stack.append(async_operation(*args))
-                case Operation.NOT_IN_COHORT:
-                    if async_operation is None:
-                        raise HogVMException("HogVM async_operation NOT_IN_COHORT not provided")
-                    args = [Operation.NOT_IN_COHORT, stack.pop(), stack.pop()]
-                    stack.append(async_operation(*args))
                 case Operation.REGEX:
                     args = [stack.pop(), stack.pop()]
                     stack.append(bool(re.search(re.compile(args[1]), args[0])))

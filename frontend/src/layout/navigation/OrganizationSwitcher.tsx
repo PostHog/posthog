@@ -9,7 +9,10 @@ import { organizationLogic } from 'scenes/organizationLogic'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { sceneLogic } from 'scenes/sceneLogic'
 import { userLogic } from 'scenes/userLogic'
+
 import { AvailableFeature, OrganizationBasicType } from '~/types'
+
+import { globalModalsLogic } from '../GlobalModals'
 import { navigationLogic } from './navigationLogic'
 
 export function AccessLevelIndicator({ organization }: { organization: OrganizationBasicType }): JSX.Element {
@@ -33,7 +36,6 @@ export function OtherOrganizationButton({
         <LemonButton
             onClick={() => updateCurrentOrganization(organization.id)}
             icon={<Lettermark index={index} name={organization.name} />}
-            status="stealth"
             title={`Switch to organization ${organization.name}`}
             fullWidth
         >
@@ -44,7 +46,8 @@ export function OtherOrganizationButton({
 }
 
 export function NewOrganizationButton(): JSX.Element {
-    const { closeSitePopover, showCreateOrganizationModal } = useActions(navigationLogic)
+    const { closeAccountPopover } = useActions(navigationLogic)
+    const { showCreateOrganizationModal } = useActions(globalModalsLogic)
     const { guardAvailableFeature } = useActions(sceneLogic)
 
     return (
@@ -56,7 +59,7 @@ export function NewOrganizationButton(): JSX.Element {
                     'multiple organizations',
                     'Organizations group people building products together. An organization can have multiple projects.',
                     () => {
-                        closeSitePopover()
+                        closeAccountPopover()
                         showCreateOrganizationModal()
                     },
                     {
@@ -83,7 +86,6 @@ export function OrganizationSwitcherOverlay(): JSX.Element {
             {currentOrganization && (
                 <LemonButton
                     icon={<Lettermark name={currentOrganization.name} />}
-                    status="stealth"
                     title={`Switch to organization ${currentOrganization.name}`}
                     fullWidth
                 >

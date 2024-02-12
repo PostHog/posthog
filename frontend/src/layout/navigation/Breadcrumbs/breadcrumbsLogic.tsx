@@ -1,18 +1,19 @@
-import { connect, kea, path, props, selectors } from 'kea'
-import { organizationLogic } from 'scenes/organizationLogic'
-import { teamLogic } from 'scenes/teamLogic'
-import './Breadcrumbs.scss'
-import type { breadcrumbsLogicType } from './breadcrumbsLogicType'
-import { sceneLogic } from 'scenes/sceneLogic'
-import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
-import { identifierToHuman, objectsEqual, stripHTTP } from 'lib/utils'
-import { userLogic } from 'scenes/userLogic'
+import { actions, connect, kea, listeners, path, props, reducers, selectors } from 'kea'
+import { subscriptions } from 'kea-subscriptions'
 import { Lettermark } from 'lib/lemon-ui/Lettermark'
 import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
-import { ProjectSwitcherOverlay } from '~/layout/navigation/ProjectSwitcher'
+import { identifierToHuman, objectsEqual, stripHTTP } from 'lib/utils'
+import { organizationLogic } from 'scenes/organizationLogic'
+import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
+import { sceneLogic } from 'scenes/sceneLogic'
+import { teamLogic } from 'scenes/teamLogic'
+import { userLogic } from 'scenes/userLogic'
+
 import { OrganizationSwitcherOverlay } from '~/layout/navigation/OrganizationSwitcher'
+import { ProjectSwitcherOverlay } from '~/layout/navigation/ProjectSwitcher'
 import { Breadcrumb } from '~/types'
-import { subscriptions } from 'kea-subscriptions'
+
+import type { breadcrumbsLogicType } from './breadcrumbsLogicType'
 
 export const breadcrumbsLogic = kea<breadcrumbsLogicType>([
     path(['layout', 'navigation', 'Breadcrumbs', 'breadcrumbsLogic']),
@@ -35,25 +36,49 @@ export const breadcrumbsLogic = kea<breadcrumbsLogicType>([
             ['currentTeam'],
         ],
     })),
+    actions({
+        setActionsContainer: (element: HTMLElement | null) => ({ element }),
+        tentativelyRename: (breadcrumbGlobalKey: string, tentativeName: string) => ({
+            breadcrumbGlobalKey,
+            tentativeName,
+        }),
+        finishRenaming: true,
+    }),
+    reducers({
+        actionsContainer: [
+            null as HTMLElement | null,
+            {
+                setActionsContainer: (_, { element }) => element,
+            },
+        ],
+        renameState: [
+            null as [breadcrumbGlobalKey: string, tentativeName: string] | null,
+            {
+                tentativelyRename: (_, { breadcrumbGlobalKey, tentativeName }) => [breadcrumbGlobalKey, tentativeName],
+                finishRenaming: () => null,
+            },
+        ],
+    }),
+    listeners(({ actions }) => ({
+        [sceneLogic.actionTypes.loadScene]: () => actions.finishRenaming(), // Cancel renaming on navigation away
+    })),
     selectors(() => ({
         sceneBreadcrumbs: [
             (s) => [
                 // We're effectively passing the selector through to the scene logic, and "recalculating"
                 // this every time it's rendered. Caching will happen within the scene's breadcrumb selector.
-                (state, props) => {
+                (state, props): Breadcrumb[] => {
                     const activeSceneLogic = sceneLogic.selectors.activeSceneLogic(state, props)
                     const activeScene = s.activeScene(state, props)
-                    const sceneConfig = s.sceneConfig(state, props)
                     if (activeSceneLogic && 'breadcrumbs' in activeSceneLogic.selectors) {
                         const activeLoadedScene = sceneLogic.selectors.activeLoadedScene(state, props)
                         return activeSceneLogic.selectors.breadcrumbs(
                             state,
                             activeLoadedScene?.paramsToProps?.(activeLoadedScene?.sceneParams) || props
                         )
-                    } else if (sceneConfig?.name) {
-                        return [{ name: sceneConfig.name }]
                     } else if (activeScene) {
-                        return [{ name: identifierToHuman(activeScene) }]
+                        const sceneConfig = s.sceneConfig(state, props)
+                        return [{ name: sceneConfig?.name ?? identifierToHuman(activeScene), key: activeScene }]
                     } else {
                         return []
                     }
@@ -83,8 +108,9 @@ export const breadcrumbsLogic = kea<breadcrumbsLogicType>([
                         return breadcrumbs
                     }
                     breadcrumbs.push({
+                        key: 'me',
                         name: user.first_name,
-                        symbol: <ProfilePicture name={user.first_name} email={user.email} size="md" />,
+                        symbol: <ProfilePicture user={user} size="md" />,
                     })
                 }
                 // Instance
@@ -93,6 +119,7 @@ export const breadcrumbsLogic = kea<breadcrumbsLogicType>([
                         return breadcrumbs
                     }
                     breadcrumbs.push({
+                        key: 'instance',
                         name: stripHTTP(preflight.site_url),
                         symbol: <Lettermark name="@" />,
                     })
@@ -103,13 +130,13 @@ export const breadcrumbsLogic = kea<breadcrumbsLogicType>([
                         return breadcrumbs
                     }
                     breadcrumbs.push({
+                        key: 'organization',
                         name: currentOrganization.name,
                         symbol: <Lettermark name={currentOrganization.name} />,
                         popover:
                             otherOrganizations?.length || preflight?.can_create_org
                                 ? {
                                       overlay: <OrganizationSwitcherOverlay />,
-                                      actionable: true,
                                   }
                                 : undefined,
                     })
@@ -120,10 +147,10 @@ export const breadcrumbsLogic = kea<breadcrumbsLogicType>([
                         return breadcrumbs
                     }
                     breadcrumbs.push({
+                        key: 'project',
                         name: currentTeam.name,
                         popover: {
                             overlay: <ProjectSwitcherOverlay />,
-                            actionable: true,
                         },
                     })
                 }
@@ -131,10 +158,14 @@ export const breadcrumbsLogic = kea<breadcrumbsLogicType>([
                 return breadcrumbs
             },
         ],
+        sceneBreadcrumbKeys: [
+            (s) => [s.sceneBreadcrumbs],
+            (sceneBreadcrumbs): Breadcrumb['key'][] => sceneBreadcrumbs.map((breadcrumb) => breadcrumb.key),
+        ],
         breadcrumbs: [
             (s) => [s.appBreadcrumbs, s.sceneBreadcrumbs],
-            (appBreadcrumbs, sceneBreadcrumbs) => {
-                return [...appBreadcrumbs, ...sceneBreadcrumbs]
+            (appBreadcrumbs, sceneBreadcrumbs): Breadcrumb[] => {
+                return appBreadcrumbs.concat(sceneBreadcrumbs)
             },
         ],
         firstBreadcrumb: [(s) => [s.breadcrumbs], (breadcrumbs) => breadcrumbs[0]],

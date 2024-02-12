@@ -1,5 +1,5 @@
-from django.test.client import Client as HttpClient
 import pytest
+from django.test.client import Client as HttpClient
 
 from posthog.api.test.batch_exports.operations import (
     create_batch_export_ok,
@@ -9,7 +9,6 @@ from posthog.api.test.batch_exports.operations import (
 from posthog.api.test.test_organization import create_organization
 from posthog.api.test.test_team import create_team
 from posthog.api.test.test_user import create_user
-
 
 pytestmark = [
     pytest.mark.django_db,
@@ -31,7 +30,6 @@ def test_list_batch_exports(client: HttpClient):
             "bucket_name": "my-production-s3-bucket",
             "region": "us-east-1",
             "prefix": "posthog-events/",
-            "batch_window_size": 3600,
             "aws_access_key_id": "abc123",
             "aws_secret_access_key": "secret",
         },
@@ -77,7 +75,6 @@ def test_cannot_list_batch_exports_for_other_organizations(client: HttpClient):
             "bucket_name": "my-production-s3-bucket",
             "region": "us-east-1",
             "prefix": "posthog-events/",
-            "batch_window_size": 3600,
             "aws_access_key_id": "abc123",
             "aws_secret_access_key": "secret",
         },
@@ -117,7 +114,6 @@ def test_list_is_partitioned_by_team(client: HttpClient):
             "bucket_name": "my-production-s3-bucket",
             "region": "us-east-1",
             "prefix": "posthog-events/",
-            "batch_window_size": 3600,
             "aws_access_key_id": "abc123",
             "aws_secret_access_key": "secret",
         },

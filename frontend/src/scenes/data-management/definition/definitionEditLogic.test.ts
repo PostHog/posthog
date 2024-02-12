@@ -1,13 +1,14 @@
-import { definitionLogic } from 'scenes/data-management/definition/definitionLogic'
-import { useMocks } from '~/mocks/jest'
-import { mockEventDefinitions, mockEventPropertyDefinition } from '~/test/mocks'
-import { initKeaTests } from '~/test/init'
-import { definitionEditLogic } from 'scenes/data-management/definition/definitionEditLogic'
+import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
+import { definitionEditLogic } from 'scenes/data-management/definition/definitionEditLogic'
+import { definitionLogic } from 'scenes/data-management/definition/definitionLogic'
 import { eventDefinitionsTableLogic } from 'scenes/data-management/events/eventDefinitionsTableLogic'
 import { propertyDefinitionsTableLogic } from 'scenes/data-management/properties/propertyDefinitionsTableLogic'
-import { router } from 'kea-router'
 import { urls } from 'scenes/urls'
+
+import { useMocks } from '~/mocks/jest'
+import { initKeaTests } from '~/test/init'
+import { mockEventDefinitions, mockEventPropertyDefinition } from '~/test/mocks'
 
 describe('definitionEditLogic', () => {
     let logic: ReturnType<typeof definitionEditLogic.build>

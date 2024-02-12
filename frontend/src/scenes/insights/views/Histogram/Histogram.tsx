@@ -1,13 +1,14 @@
-import { useEffect } from 'react'
-import * as d3 from 'd3'
-import { D3Selector, D3Transition, useD3 } from 'lib/hooks/useD3'
-import { FunnelLayout } from 'lib/constants'
-import { createRoundedRectPath, D3HistogramDatum, getConfig, INITIAL_CONFIG } from './histogramUtils'
-import { animate, getOrCreateEl, wrap } from 'lib/utils/d3Utils'
-
 import './Histogram.scss'
+
+import * as d3 from 'd3'
 import { useActions, useValues } from 'kea'
+import { FunnelLayout } from 'lib/constants'
+import { D3Selector, D3Transition, useD3 } from 'lib/hooks/useD3'
+import { animate, getOrCreateEl, wrap } from 'lib/utils/d3Utils'
+import { useEffect } from 'react'
 import { histogramLogic } from 'scenes/insights/views/Histogram/histogramLogic'
+
+import { createRoundedRectPath, D3HistogramDatum, getConfig, INITIAL_CONFIG } from './histogramUtils'
 
 export interface HistogramDatum {
     id: string | number
@@ -260,5 +261,6 @@ export function Histogram({
 
     /* minWidth required to enforce d3's width calculations on the div wrapping the svg
      so that scrolling horizontally works */
+    //  eslint-disable-next-line react/forbid-dom-props
     return <div className="histogram-container" ref={ref} style={{ minWidth: config.width }} />
 }

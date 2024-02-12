@@ -1,26 +1,28 @@
+import { hide } from '@floating-ui/react'
+import { LemonButton, LemonCheckbox, LemonDivider } from '@posthog/lemon-ui'
+import { useActions, useValues } from 'kea'
+import { ActionPopoverInfo } from 'lib/components/DefinitionPopover/ActionPopoverInfo'
+import { CohortPopoverInfo } from 'lib/components/DefinitionPopover/CohortPopoverInfo'
+import { DefinitionPopover } from 'lib/components/DefinitionPopover/DefinitionPopover'
+import { definitionPopoverLogic, DefinitionPopoverState } from 'lib/components/DefinitionPopover/definitionPopoverLogic'
+import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
+import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
 import {
     SimpleOption,
     TaxonomicDefinitionTypes,
     TaxonomicFilterGroup,
     TaxonomicFilterGroupType,
 } from 'lib/components/TaxonomicFilter/types'
-import { useActions, useValues } from 'kea'
-import { definitionPopoverLogic, DefinitionPopoverState } from 'lib/components/DefinitionPopover/definitionPopoverLogic'
-import { useEffect } from 'react'
-import { isPostHogProp, KEY_MAPPING } from 'lib/taxonomy'
-import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
-import { DefinitionPopover } from 'lib/components/DefinitionPopover/DefinitionPopover'
-import { Link } from 'lib/lemon-ui/Link'
 import { IconInfo, IconLock, IconOpenInNew } from 'lib/lemon-ui/icons'
-import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
-import { ActionType, CohortType, EventDefinition, PropertyDefinition } from '~/types'
-import { ActionPopoverInfo } from 'lib/components/DefinitionPopover/ActionPopoverInfo'
-import { CohortPopoverInfo } from 'lib/components/DefinitionPopover/CohortPopoverInfo'
-import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { LemonTextArea } from 'lib/lemon-ui/LemonTextArea/LemonTextArea'
+import { Link } from 'lib/lemon-ui/Link'
 import { Popover } from 'lib/lemon-ui/Popover'
-import { hide } from '@floating-ui/react'
-import { LemonButton, LemonCheckbox } from '@posthog/lemon-ui'
+import { Tooltip } from 'lib/lemon-ui/Tooltip'
+import { CORE_FILTER_DEFINITIONS_BY_GROUP, isCoreFilter } from 'lib/taxonomy'
+import { useEffect } from 'react'
+
+import { ActionType, CohortType, EventDefinition, PropertyDefinition } from '~/types'
+
 import { TZLabel } from '../TZLabel'
 
 function TaxonomyIntroductionSection(): JSX.Element {
@@ -93,7 +95,7 @@ export function VerifiedDefinitionCheckbox({
 }
 
 function DefinitionView({ group }: { group: TaxonomicFilterGroup }): JSX.Element {
-    const { definition, type, hasTaxonomyFeatures, isAction, isEvent, isCohort, isElement, isProperty } =
+    const { definition, type, hasTaxonomyFeatures, isAction, isEvent, isCohort, isProperty } =
         useValues(definitionPopoverLogic)
 
     if (!definition) {
@@ -102,8 +104,7 @@ function DefinitionView({ group }: { group: TaxonomicFilterGroup }): JSX.Element
 
     const description: string | JSX.Element | undefined | null =
         (definition && 'description' in definition && definition?.description) ||
-        (definition?.name &&
-            (KEY_MAPPING.element[definition.name]?.description || KEY_MAPPING.event[definition.name]?.description))
+        (definition?.name && CORE_FILTER_DEFINITIONS_BY_GROUP[group.type]?.[definition.name]?.description)
 
     const sharedComponents = (
         <>
@@ -127,7 +128,7 @@ function DefinitionView({ group }: { group: TaxonomicFilterGroup }): JSX.Element
                 updatedAt={(definition && 'updated_at' in definition && definition.updated_at) || undefined}
                 updatedBy={(definition && 'updated_by' in definition && definition.updated_by) || undefined}
             />
-            <DefinitionPopover.HorizontalLine />
+            <LemonDivider className="DefinitionPopover my-4" />
         </>
     )
 
@@ -167,7 +168,7 @@ function DefinitionView({ group }: { group: TaxonomicFilterGroup }): JSX.Element
             <>
                 {sharedComponents}
                 <ActionPopoverInfo entity={_definition} />
-                {(_definition?.steps?.length || 0) > 0 && <DefinitionPopover.HorizontalLine />}
+                {(_definition?.steps?.length || 0) > 0 && <LemonDivider className="DefinitionPopover my-4" />}
                 <DefinitionPopover.Grid cols={2}>
                     <DefinitionPopover.Card
                         title="First seen"
@@ -243,7 +244,7 @@ function DefinitionView({ group }: { group: TaxonomicFilterGroup }): JSX.Element
             </>
         )
     }
-    if (isElement) {
+    if (group.type === TaxonomicFilterGroupType.Elements) {
         const _definition = definition as SimpleOption
         return (
             <>
@@ -282,7 +283,7 @@ function DefinitionEdit(): JSX.Element {
 
     return (
         <>
-            <DefinitionPopover.HorizontalLine />
+            <LemonDivider className="DefinitionPopover my-4" />
             <form className="definition-popover-edit-form">
                 {definition && 'description' in localDefinition && (
                     <>
@@ -319,7 +320,7 @@ function DefinitionEdit(): JSX.Element {
                         </div>
                     </>
                 )}
-                {definition && definition.name && !isPostHogProp(definition.name) && 'verified' in localDefinition && (
+                {definition && definition.name && !isCoreFilter(definition.name) && 'verified' in localDefinition && (
                     <VerifiedDefinitionCheckbox
                         verified={!!localDefinition.verified}
                         isProperty={isProperty}
@@ -329,7 +330,7 @@ function DefinitionEdit(): JSX.Element {
                         compact
                     />
                 )}
-                <DefinitionPopover.HorizontalLine style={{ marginTop: 0 }} />
+                <LemonDivider className="DefinitionPopover mt-0" />
                 <div className="flex items-center justify-between gap-2 click-outside-block">
                     {!hideView && isViewable && type !== TaxonomicFilterGroupType.Events ? (
                         <LemonButton
@@ -391,7 +392,7 @@ export function ControlledDefinitionPopover({
         return null
     }
 
-    const { state, singularType, isElement, definition } = useValues(definitionPopoverLogic)
+    const { state, singularType, definition } = useValues(definitionPopoverLogic)
     const { setDefinition } = useActions(definitionPopoverLogic)
 
     const icon = group.getIcon?.(definition || item)
@@ -413,7 +414,7 @@ export function ControlledDefinitionPopover({
                         title={
                             <PropertyKeyInfo
                                 value={item.name ?? ''}
-                                type={isElement ? 'element' : undefined}
+                                type={group.type}
                                 disablePopover
                                 disableIcon={!!icon}
                                 ellipsis={false}

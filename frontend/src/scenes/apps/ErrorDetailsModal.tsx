@@ -1,13 +1,14 @@
-import { useState } from 'react'
 import { useActions, useValues } from 'kea'
-import { AppMetricErrorDetail, appMetricsSceneLogic } from './appMetricsSceneLogic'
-import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
-import { TZLabel } from 'lib/components/TZLabel'
-import { LemonLabel } from 'lib/lemon-ui/LemonLabel/LemonLabel'
-import { LemonButton } from 'lib/lemon-ui/LemonButton'
-import { IconChevronLeft, IconChevronRight, IconUnfoldLess, IconUnfoldMore } from 'lib/lemon-ui/icons'
-import { LemonModal } from 'lib/lemon-ui/LemonModal'
 import { CodeSnippet, Language } from 'lib/components/CodeSnippet'
+import { TZLabel } from 'lib/components/TZLabel'
+import { IconChevronLeft, IconChevronRight, IconUnfoldLess, IconUnfoldMore } from 'lib/lemon-ui/icons'
+import { LemonButton } from 'lib/lemon-ui/LemonButton'
+import { LemonLabel } from 'lib/lemon-ui/LemonLabel/LemonLabel'
+import { LemonModal } from 'lib/lemon-ui/LemonModal'
+import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
+import { useState } from 'react'
+
+import { AppMetricErrorDetail, appMetricsSceneLogic } from './appMetricsSceneLogic'
 
 export function ErrorDetailsModal(): JSX.Element {
     const { errorDetails, errorDetailsModalError, errorDetailsLoading } = useValues(appMetricsSceneLogic)
@@ -21,12 +22,12 @@ export function ErrorDetailsModal(): JSX.Element {
             isOpen={!!errorDetailsModalError}
             onClose={closeErrorDetailsModal}
             title={errorDetailsModalError}
-            width={'min(50vw, 80rem)'}
+            width="min(50vw, 80rem)"
             description={<span>{activeErrorDetails?.error_details?.error.message?.substring(0, 200)}</span>}
             footer={
                 <div className="flex items-center justify-end gap-1 h-">
                     {errorDetailsLoading ? (
-                        <LemonSkeleton className="1-10" />
+                        <LemonSkeleton className="h-10" />
                     ) : (
                         <>
                             <span>
@@ -102,7 +103,6 @@ function CollapsibleSection(props: {
     return (
         <div className="bg-mid border rounded">
             <LemonButton
-                status="stealth"
                 fullWidth
                 onClick={() => setIsExpanded(!isExpanded)}
                 sideIcon={isExpanded ? <IconUnfoldLess /> : <IconUnfoldMore />}

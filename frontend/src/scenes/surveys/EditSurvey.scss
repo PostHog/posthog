@@ -1,0 +1,25 @@
+.presentation-preview .CodeSnippet__actions {
+    display: none;
+}
+
+.SurveyForm {
+    .LemonCollapsePanel__header {
+        background: var(--border-light);
+    }
+}
+
+.question-choice-open-ended-footer {
+    position: absolute;
+    bottom: -5px;
+    left: 6px;
+    padding: 0 5px;
+    font-size: 10px;
+    background-color: var(--bg-3000);
+}
+
+.SurveyQuestionDragHandle {
+    font-size: 1.2em;
+    color: var(--default);
+    cursor: move;
+    transform: rotate(90deg);
+}

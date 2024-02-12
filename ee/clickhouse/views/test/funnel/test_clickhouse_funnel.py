@@ -2,11 +2,20 @@ import json
 from datetime import datetime
 
 from ee.api.test.base import LicensedTestMixin
-from ee.clickhouse.views.test.funnel.util import EventPattern, FunnelRequest, get_funnel_actors_ok, get_funnel_ok
+from ee.clickhouse.views.test.funnel.util import (
+    EventPattern,
+    FunnelRequest,
+    get_funnel_actors_ok,
+    get_funnel_ok,
+)
 from posthog.constants import INSIGHT_FUNNELS
 from posthog.models.group.util import create_group
 from posthog.models.group_type_mapping import GroupTypeMapping
-from posthog.test.base import APIBaseTest, ClickhouseTestMixin, snapshot_clickhouse_queries
+from posthog.test.base import (
+    APIBaseTest,
+    ClickhouseTestMixin,
+    snapshot_clickhouse_queries,
+)
 from posthog.test.test_journeys import journeys_for
 
 
@@ -18,11 +27,31 @@ class ClickhouseTestFunnelGroups(ClickhouseTestMixin, LicensedTestMixin, APIBase
         GroupTypeMapping.objects.create(team=self.team, group_type="organization", group_type_index=0)
         GroupTypeMapping.objects.create(team=self.team, group_type="company", group_type_index=1)
 
-        create_group(team_id=self.team.pk, group_type_index=0, group_key="org:5", properties={"industry": "finance"})
-        create_group(team_id=self.team.pk, group_type_index=0, group_key="org:6", properties={"industry": "technology"})
+        create_group(
+            team_id=self.team.pk,
+            group_type_index=0,
+            group_key="org:5",
+            properties={"industry": "finance"},
+        )
+        create_group(
+            team_id=self.team.pk,
+            group_type_index=0,
+            group_key="org:6",
+            properties={"industry": "technology"},
+        )
 
-        create_group(team_id=self.team.pk, group_type_index=1, group_key="company:1", properties={})
-        create_group(team_id=self.team.pk, group_type_index=1, group_key="company:2", properties={})
+        create_group(
+            team_id=self.team.pk,
+            group_type_index=1,
+            group_key="company:1",
+            properties={},
+        )
+        create_group(
+            team_id=self.team.pk,
+            group_type_index=1,
+            group_key="company:2",
+            properties={},
+        )
 
     @snapshot_clickhouse_queries
     def test_funnel_aggregation_with_groups(self):
@@ -30,7 +59,11 @@ class ClickhouseTestFunnelGroups(ClickhouseTestMixin, LicensedTestMixin, APIBase
 
         events_by_person = {
             "user_1": [
-                {"event": "user signed up", "timestamp": datetime(2020, 1, 2, 14), "properties": {"$group_0": "org:5"}},
+                {
+                    "event": "user signed up",
+                    "timestamp": datetime(2020, 1, 2, 14),
+                    "properties": {"$group_0": "org:5"},
+                },
                 {
                     "event": "user signed up",  # same person, different group, so should count as different step 1 in funnel
                     "timestamp": datetime(2020, 1, 10, 14),
@@ -76,7 +109,11 @@ class ClickhouseTestFunnelGroups(ClickhouseTestMixin, LicensedTestMixin, APIBase
 
         events_by_person = {
             "user_1": [
-                {"event": "user signed up", "timestamp": datetime(2020, 1, 2, 14), "properties": {"$group_0": "org:5"}}
+                {
+                    "event": "user signed up",
+                    "timestamp": datetime(2020, 1, 2, 14),
+                    "properties": {"$group_0": "org:5"},
+                }
             ],
             "user_2": [
                 {  # different person, same group, so should count as step two in funnel
@@ -98,7 +135,12 @@ class ClickhouseTestFunnelGroups(ClickhouseTestMixin, LicensedTestMixin, APIBase
         params = FunnelRequest(
             events=json.dumps(
                 [
-                    EventPattern(id="user signed up", type="events", order=0, properties={"$group_0": "org:5"}),
+                    EventPattern(
+                        id="user signed up",
+                        type="events",
+                        order=0,
+                        properties={"$group_0": "org:5"},
+                    ),
                     EventPattern(id="paid", type="events", order=1),
                 ]
             ),
@@ -124,7 +166,11 @@ class ClickhouseTestFunnelGroups(ClickhouseTestMixin, LicensedTestMixin, APIBase
 
         events_by_person = {
             "user_1": [
-                {"event": "user signed up", "timestamp": datetime(2020, 1, 2, 14), "properties": {"$group_0": "org:5"}},
+                {
+                    "event": "user signed up",
+                    "timestamp": datetime(2020, 1, 2, 14),
+                    "properties": {"$group_0": "org:5"},
+                },
                 {
                     "event": "paid",
                     "timestamp": datetime(2020, 1, 3, 14),
@@ -149,7 +195,12 @@ class ClickhouseTestFunnelGroups(ClickhouseTestMixin, LicensedTestMixin, APIBase
         params = FunnelRequest(
             events=json.dumps(
                 [
-                    EventPattern(id="user signed up", type="events", order=0, properties={"$group_0": "org:5"}),
+                    EventPattern(
+                        id="user signed up",
+                        type="events",
+                        order=0,
+                        properties={"$group_0": "org:5"},
+                    ),
                     EventPattern(id="paid", type="events", order=1),
                 ]
             ),
@@ -175,7 +226,11 @@ class ClickhouseTestFunnelGroups(ClickhouseTestMixin, LicensedTestMixin, APIBase
 
         events_by_person = {
             "user_1": [
-                {"event": "user signed up", "timestamp": datetime(2020, 1, 2, 14), "properties": {"$group_0": "org:5"}},
+                {
+                    "event": "user signed up",
+                    "timestamp": datetime(2020, 1, 2, 14),
+                    "properties": {"$group_0": "org:5"},
+                },
                 {
                     "event": "paid",
                     "timestamp": datetime(2020, 1, 3, 14),
@@ -209,7 +264,16 @@ class ClickhouseTestFunnelGroups(ClickhouseTestMixin, LicensedTestMixin, APIBase
             date_from="2020-01-01",
             date_to="2020-01-14",
             insight=INSIGHT_FUNNELS,
-            properties=json.dumps([{"key": "industry", "value": "finance", "type": "group", "group_type_index": 0}]),
+            properties=json.dumps(
+                [
+                    {
+                        "key": "industry",
+                        "value": "finance",
+                        "type": "group",
+                        "group_type_index": 0,
+                    }
+                ]
+            ),
         )
 
         result = get_funnel_ok(self.client, self.team.pk, params)

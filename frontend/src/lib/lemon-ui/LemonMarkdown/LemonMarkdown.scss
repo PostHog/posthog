@@ -1,0 +1,41 @@
+.LemonMarkdown {
+    > * {
+        margin: 0 0 0.5em;
+
+        &:last-child {
+            margin-bottom: 0;
+        }
+    }
+
+    ol,
+    ul,
+    dl {
+        padding-left: 1.5em;
+    }
+
+    ol {
+        list-style-type: decimal;
+    }
+
+    ul {
+        list-style-type: disc;
+    }
+
+    strong[level] {
+        // Low-key headings
+        display: block;
+    }
+
+    hr {
+        margin: 1em 0;
+    }
+
+    h1 {
+        margin-bottom: 0.25em;
+        font-weight: 600;
+    }
+
+    img {
+        max-width: 100%;
+    }
+}

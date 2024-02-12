@@ -1,13 +1,15 @@
-import { breadcrumbsLogic } from './breadcrumbsLogic'
-import { initKeaTests } from '~/test/init'
-import { expectLogic } from 'kea-test-utils'
 import { router } from 'kea-router'
-import { urls } from 'scenes/urls'
+import { expectLogic } from 'kea-test-utils'
 import { sceneLogic } from 'scenes/sceneLogic'
 import { Scene } from 'scenes/sceneTypes'
+import { urls } from 'scenes/urls'
+
+import { initKeaTests } from '~/test/init'
+
+import { breadcrumbsLogic } from './breadcrumbsLogic'
 
 const blankScene = (): any => ({ scene: { component: () => null, logic: null } })
-const scenes: any = { [Scene.Annotations]: blankScene, [Scene.Dashboards]: blankScene }
+const scenes: any = { [Scene.SavedInsights]: blankScene, [Scene.Dashboards]: blankScene }
 
 describe('breadcrumbsLogic', () => {
     let logic: ReturnType<typeof breadcrumbsLogic.build>
@@ -24,9 +26,9 @@ describe('breadcrumbsLogic', () => {
         logic.mount()
 
         // test with .delay because subscriptions happen async
-        router.actions.push(urls.annotations())
-        await expectLogic(logic).delay(1).toMatchValues({ documentTitle: 'Annotations • PostHog' })
-        expect(global.document.title).toEqual('Annotations • PostHog')
+        router.actions.push(urls.savedInsights())
+        await expectLogic(logic).delay(1).toMatchValues({ documentTitle: 'Product analytics • PostHog' })
+        expect(global.document.title).toEqual('Product analytics • PostHog')
 
         router.actions.push(urls.dashboards())
         await expectLogic(logic).delay(1).toMatchValues({ documentTitle: 'Dashboards • PostHog' })

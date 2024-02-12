@@ -1,11 +1,10 @@
-import React, { useEffect, useMemo, useState } from 'react'
+import clsx from 'clsx'
+import React, { useMemo } from 'react'
+
 import { IconClose } from '../icons'
 import { LemonButton, LemonButtonProps } from '../LemonButton'
-import { PopoverProps } from '../Popover'
-import './LemonSelect.scss'
-import clsx from 'clsx'
-import { TooltipProps } from '../Tooltip'
 import {
+    isLemonMenuSection,
     LemonMenu,
     LemonMenuItem,
     LemonMenuItemBase,
@@ -13,8 +12,9 @@ import {
     LemonMenuItemNode,
     LemonMenuProps,
     LemonMenuSection,
-    isLemonMenuSection,
 } from '../LemonMenu/LemonMenu'
+import { PopoverProps } from '../Popover'
+import { TooltipProps } from '../Tooltip'
 
 // Select options are basically menu items that handle onClick and active state internally
 interface LemonSelectOptionBase extends Omit<LemonMenuItemBase, 'active' | 'status'> {
@@ -22,7 +22,7 @@ interface LemonSelectOptionBase extends Omit<LemonMenuItemBase, 'active' | 'stat
     hidden?: boolean
 }
 
-type LemonSelectCustomControl<T> = ({ onSelect }: { onSelect: OnSelect<T> }) => JSX.Element
+type LemonSelectCustomControl<T> = ({ onSelect }: { onSelect: (newValue: T) => void }) => JSX.Element
 export interface LemonSelectOptionLeaf<T> extends LemonSelectOptionBase {
     value: T
     /**
@@ -31,7 +31,7 @@ export interface LemonSelectOptionLeaf<T> extends LemonSelectOptionBase {
      * If you really need something more advanced than a button, this also allows providing a custom control component,
      * which takes an `onSelect` prop. Can be for example a textarea with an "Apply value" button. Use this sparingly!
      */
-    labelInMenu?: JSX.Element | LemonSelectCustomControl<T>
+    labelInMenu?: string | JSX.Element | LemonSelectCustomControl<T>
 }
 
 export interface LemonSelectOptionNode<T> extends LemonSelectOptionBase {
@@ -46,11 +46,9 @@ export interface LemonSelectSection<T> {
     footer?: string | React.ReactNode
 }
 
-type OnChange<T> = (newValue: T | null) => void
-type OnSelect<T> = (newValue: T) => void
 export type LemonSelectOptions<T> = LemonSelectSection<T>[] | LemonSelectOption<T>[]
 
-export interface LemonSelectProps<T>
+export interface LemonSelectPropsBase<T>
     extends Pick<
         LemonButtonProps,
         | 'id'
@@ -63,26 +61,42 @@ export interface LemonSelectProps<T>
         | 'aria-label'
         | 'onClick'
         | 'tabIndex'
+        | 'type'
     > {
     options: LemonSelectOptions<T>
-    /** Null only is valid for clearable selects. */
-    value?: T | null
-    /** Callback fired when a value different from the one currently set is selected. */
-    onChange?: OnChange<T>
     /** Callback fired when a value is selected, even if it already is set. */
-    onSelect?: OnSelect<T>
+    onSelect?: (newValue: T) => void
     optionTooltipPlacement?: TooltipProps['placement']
     dropdownMatchSelectWidth?: boolean
     dropdownMaxContentWidth?: boolean
     dropdownPlacement?: PopoverProps['placement']
-    allowClear?: boolean
     className?: string
     placeholder?: string
-    size?: 'small' | 'medium'
+    size?: LemonButtonProps['size']
     menu?: Pick<LemonMenuProps, 'className' | 'closeParentPopoverOnClickInside'>
 }
 
-export function LemonSelect<T>({
+export interface LemonSelectPropsClearable<T> extends LemonSelectPropsBase<T> {
+    allowClear: true
+    /** Should only be undefined in form fields. */
+    value?: T | null
+    /** Callback fired when a value different from the one currently set is selected. */
+    onChange?: (newValue: T | null) => void
+    renderButtonContent?: (leaf: LemonSelectOptionLeaf<T | null> | undefined) => string | JSX.Element
+}
+
+export interface LemonSelectPropsNonClearable<T> extends LemonSelectPropsBase<T> {
+    allowClear?: false
+    /** Should only be undefined in form fields. */
+    value?: T
+    /** Callback fired when a value different from the one currently set is selected. */
+    onChange?: (newValue: T) => void
+    renderButtonContent?: (leaf: LemonSelectOptionLeaf<T | null> | undefined) => string | JSX.Element
+}
+
+export type LemonSelectProps<T> = LemonSelectPropsClearable<T> | LemonSelectPropsNonClearable<T>
+
+export function LemonSelect<T extends string | number | boolean | null>({
     value = null,
     onChange,
     onSelect,
@@ -95,31 +109,22 @@ export function LemonSelect<T>({
     allowClear = false,
     className,
     menu,
+    renderButtonContent,
     ...buttonProps
 }: LemonSelectProps<T>): JSX.Element {
-    const [activeValue, setActiveValue] = useState<T | null>(value)
-
-    useEffect(() => {
-        if (!buttonProps.loading) {
-            setActiveValue(value)
-        }
-    }, [value, buttonProps.loading])
-
-    const wrappedOnSelect: OnSelect<T> = (newValue) => {
-        if (newValue !== activeValue) {
-            onChange?.(newValue)
-            setActiveValue(newValue)
-        }
-        onSelect?.(newValue)
-    }
-
     const [items, allLeafOptions] = useMemo(
-        () => convertSelectOptionsToMenuItems(options, activeValue, wrappedOnSelect),
-        [options, activeValue]
+        () =>
+            convertSelectOptionsToMenuItems(options, value, (newValue) => {
+                if (newValue !== value) {
+                    onChange?.(newValue)
+                }
+                onSelect?.(newValue)
+            }),
+        [options, value]
     )
 
-    const activeLeaf = allLeafOptions.find((o) => o.value === activeValue)
-    const isClearButtonShown = allowClear && !!activeValue
+    const activeLeaf = allLeafOptions.find((o) => o.value === value)
+    const isClearButtonShown = allowClear && !!value
 
     return (
         <LemonMenu
@@ -127,7 +132,6 @@ export function LemonSelect<T>({
             tooltipPlacement={optionTooltipPlacement}
             sameWidth={dropdownMatchSelectWidth}
             placement={dropdownPlacement}
-            actionable
             className={menu?.className}
             maxContentWidth={dropdownMaxContentWidth}
             activeItemIndex={items
@@ -136,31 +140,29 @@ export function LemonSelect<T>({
             closeParentPopoverOnClickInside={menu?.closeParentPopoverOnClickInside}
         >
             <LemonButton
-                className={clsx(className, isClearButtonShown && 'LemonSelect--clearable')}
+                className={clsx(className, 'LemonSelect')}
                 icon={activeLeaf?.icon}
-                // so that the pop-up isn't shown along with the close button
-                sideIcon={isClearButtonShown ? <div /> : undefined}
                 type="secondary"
-                status="stealth"
+                sideAction={
+                    isClearButtonShown
+                        ? {
+                              icon: <IconClose />,
+                              divider: false,
+                              onClick: () => {
+                                  onChange?.(null as T)
+                              },
+                          }
+                        : null
+                }
                 {...buttonProps}
             >
-                <span>
-                    {activeLeaf ? activeLeaf.label : activeValue ?? <span className="text-muted">{placeholder}</span>}
+                <span className="flex flex-1">
+                    {renderButtonContent
+                        ? renderButtonContent(activeLeaf)
+                        : activeLeaf
+                        ? activeLeaf.label
+                        : value ?? <span className="text-muted">{placeholder}</span>}
                 </span>
-                {isClearButtonShown && (
-                    <LemonButton
-                        className="LemonSelect--button--clearable"
-                        type="tertiary"
-                        status="stealth"
-                        noPadding
-                        icon={<IconClose />}
-                        tooltip="Clear selection"
-                        onClick={() => {
-                            onChange?.(null)
-                            setActiveValue(null)
-                        }}
-                    />
-                )}
             </LemonButton>
         </LemonMenu>
     )
@@ -175,7 +177,7 @@ export function LemonSelect<T>({
 function convertSelectOptionsToMenuItems<T>(
     options: LemonSelectOptions<T>,
     activeValue: T | null,
-    onSelect: OnSelect<T>
+    onSelect: NonNullable<LemonSelectPropsBase<T>['onSelect']>
 ): [(LemonMenuItem | LemonMenuSection)[], LemonSelectOptionLeaf<T>[]] {
     const leafOptionsAccumulator: LemonSelectOptionLeaf<T>[] = []
     const items = options
@@ -187,7 +189,7 @@ function convertSelectOptionsToMenuItems<T>(
 function convertToMenuSingle<T>(
     option: LemonSelectOption<T> | LemonSelectSection<T>,
     activeValue: T | null,
-    onSelect: OnSelect<T>,
+    onSelect: NonNullable<LemonSelectPropsBase<T>['onSelect']>,
     acc: LemonSelectOptionLeaf<T>[]
 ): LemonMenuItem | LemonMenuSection | null {
     if (isLemonSelectSection(option)) {

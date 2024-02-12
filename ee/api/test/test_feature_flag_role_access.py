@@ -15,7 +15,10 @@ class TestFeatureFlagRoleAccessAPI(APILicensedTest):
         self.eng_role = Role.objects.create(name="Engineering", organization=self.organization)
         self.marketing_role = Role.objects.create(name="Marketing", organization=self.organization)
         self.feature_flag = FeatureFlag.objects.create(
-            created_by=self.user, team=self.team, key="flag_role_access", name="Flag role access"
+            created_by=self.user,
+            team=self.team,
+            key="flag_role_access",
+            name="Flag role access",
         )
 
     def test_can_always_add_role_access_if_creator_of_feature_flag(self):
@@ -34,6 +37,26 @@ class TestFeatureFlagRoleAccessAPI(APILicensedTest):
         self.assertEqual(flag_role.role.name, self.eng_role.name)
         self.assertEqual(flag_role.feature_flag.id, self.feature_flag.id)
 
+    def test_role_access_with_deleted_creator_of_feature_flag(self):
+        OrganizationResourceAccess.objects.create(
+            resource=OrganizationResourceAccess.Resources.FEATURE_FLAGS,
+            access_level=OrganizationResourceAccess.AccessLevel.CAN_ONLY_VIEW,
+            organization=self.organization,
+        )
+
+        flag = FeatureFlag.objects.create(
+            created_by=None,
+            team=self.team,
+            key="flag_role_access_none",
+            name="Flag role access",
+        )
+        self.assertEqual(self.user.role_memberships.count(), 0)
+        flag_role_access_create_res = self.client.post(
+            f"/api/projects/@current/feature_flags/{flag.id}/role_access",
+            {"role_id": self.eng_role.id},
+        )
+        self.assertEqual(flag_role_access_create_res.status_code, status.HTTP_403_FORBIDDEN)
+
     def test_cannot_add_role_access_if_feature_flags_access_level_too_low_and_not_creator(self):
         OrganizationResourceAccess.objects.create(
             resource=OrganizationResourceAccess.Resources.FEATURE_FLAGS,
@@ -49,7 +72,10 @@ class TestFeatureFlagRoleAccessAPI(APILicensedTest):
         )
         response_data = res.json()
         self.assertEqual(res.status_code, status.HTTP_403_FORBIDDEN)
-        self.assertEqual(response_data, self.permission_denied_response("You can't edit roles for this feature flag."))
+        self.assertEqual(
+            response_data,
+            self.permission_denied_response("You can't edit roles for this feature flag."),
+        )
 
     def test_can_add_role_access_if_role_feature_flags_access_level_allows(self):
         OrganizationResourceAccess.objects.create(
@@ -61,7 +87,8 @@ class TestFeatureFlagRoleAccessAPI(APILicensedTest):
         self.organization.save()
         self.organization_membership.save()
         self.client.post(
-            f"/api/organizations/@current/roles/{self.eng_role.id}/role_memberships", {"user_uuid": self.user.uuid}
+            f"/api/organizations/@current/roles/{self.eng_role.id}/role_memberships",
+            {"user_uuid": self.user.uuid},
         )
         self.assertEqual(
             self.user.role_memberships.first().role.feature_flags_access_level,  # type: ignore
@@ -96,7 +123,8 @@ class TestFeatureFlagRoleAccessAPI(APILicensedTest):
 
         # Add role membership and feature flag access level
         self.client.post(
-            f"/api/organizations/@current/roles/{self.eng_role.id}/role_memberships", {"user_uuid": self.user.uuid}
+            f"/api/organizations/@current/roles/{self.eng_role.id}/role_memberships",
+            {"user_uuid": self.user.uuid},
         )
 
         self.client.post(
@@ -137,5 +165,6 @@ class TestFeatureFlagRoleAccessAPI(APILicensedTest):
         )
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
         self.assertEqual(
-            response.json(), self.permission_denied_response("You can't edit roles for this feature flag.")
+            response.json(),
+            self.permission_denied_response("You can't edit roles for this feature flag."),
         )

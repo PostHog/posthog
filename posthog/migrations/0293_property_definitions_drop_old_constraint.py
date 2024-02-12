@@ -4,7 +4,6 @@ from django.db import migrations
 
 
 class Migration(migrations.Migration):
-
     dependencies = [
         ("posthog", "0292_property_definitions_persons_and_groups_support"),
     ]

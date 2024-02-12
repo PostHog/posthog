@@ -1,8 +1,9 @@
-import { Card, Select } from 'antd'
+import { LemonSelect, Link } from '@posthog/lemon-ui'
 import { IconGolang, IconJavascript, IconNodeJS, IconPHP, IconPython, IconRuby } from 'lib/lemon-ui/icons'
 import { useState } from 'react'
+
 import { Experiment, MultivariateFlagVariant } from '~/types'
-import { CaretDownOutlined } from '@ant-design/icons'
+
 import {
     GolangSnippet,
     JSSnippet,
@@ -12,7 +13,6 @@ import {
     RNSnippet,
     RubySnippet,
 } from './ExperimentCodeSnippets'
-import { Link } from '@posthog/lemon-ui'
 
 interface ExperimentImplementationDetailsProps {
     experiment: Partial<Experiment> | null
@@ -75,20 +75,22 @@ export function CodeLanguageSelect({
     selectOption: (selectedValue: string) => void
 }): JSX.Element {
     return (
-        <Select
+        <LemonSelect
+            size="small"
+            className="min-w-[7.5rem]"
+            onSelect={selectOption}
             value={selectedOptionValue}
-            onChange={selectOption}
-            style={{ minWidth: 120 }}
-            suffixIcon={<CaretDownOutlined />}
-        >
-            {OPTIONS.map(({ value, Icon }, index) => (
-                <Select.Option data-attr={'experiment-instructions-select-option-' + value} key={index} value={value}>
-                    <div className="flex items-center">
-                        <Icon className="mr-1" /> {value}
+            options={OPTIONS.map(({ value, Icon }) => ({
+                value,
+                label: value,
+                labelInMenu: (
+                    <div className="flex items-center space-x-2">
+                        <Icon />
+                        <span>{value}</span>
                     </div>
-                </Select.Option>
-            ))}
-        </Select>
+                ),
+            }))}
+        />
     )
 }
 
@@ -107,38 +109,36 @@ export function ExperimentImplementationDetails({ experiment }: ExperimentImplem
     }
 
     return (
-        <Card
-            title={<span className="card-secondary">Feature flag usage and implementation</span>}
-            className="experiment-implementation-details"
-        >
-            <div style={{ justifyContent: 'space-between' }} className="flex mb-2">
-                <div>
-                    <span className="mr-2">Variant group</span>
-                    <Select
-                        onChange={setCurrentVariant}
-                        value={currentVariant}
-                        style={{ minWidth: 80 }}
-                        suffixIcon={<CaretDownOutlined />}
-                    >
-                        {experiment?.parameters?.feature_flag_variants?.map(
-                            (variant: MultivariateFlagVariant, idx: number) => (
-                                <Select.Option key={idx} value={variant.key}>
-                                    {variant.key}
-                                </Select.Option>
-                            )
-                        )}
-                    </Select>
+        <div className="border rounded bg-bg-light">
+            <div className="card-secondary p-4 border-b">Feature flag usage and implementation</div>
+            <div className="p-6">
+                <div className="flex mb-2 justify-between">
+                    <div className="flex items-center">
+                        <span className="mr-2">Variant group</span>
+                        <LemonSelect
+                            size="small"
+                            className="min-w-[5rem]"
+                            onSelect={setCurrentVariant}
+                            value={currentVariant}
+                            options={(experiment?.parameters?.feature_flag_variants || []).map(
+                                (variant: MultivariateFlagVariant) => ({
+                                    value: variant.key,
+                                    label: variant.key,
+                                })
+                            )}
+                        />
+                    </div>
+                    <div>
+                        <CodeLanguageSelect selectOption={selectOption} selectedOptionValue={selectedOption.value} />
+                    </div>
                 </div>
-                <div>
-                    <CodeLanguageSelect selectOption={selectOption} selectedOptionValue={selectedOption.value} />
-                </div>
-            </div>
-            <b>Implement your experiment in code</b>
-            <selectedOption.Snippet variant={currentVariant} flagKey={experiment?.feature_flag?.key ?? ''} />
+                <b>Implement your experiment in code</b>
+                <selectedOption.Snippet variant={currentVariant} flagKey={experiment?.feature_flag?.key ?? ''} />
 
-            <Link to={selectedOption.documentationLink} target="_blank">
-                See the docs for more implementation information.
-            </Link>
-        </Card>
+                <Link subtle to={selectedOption.documentationLink} target="_blank">
+                    See the docs for more implementation information.
+                </Link>
+            </div>
+        </div>
     )
 }

@@ -1,25 +1,31 @@
-import React, { useEffect, useState } from 'react'
+import { IconCode } from '@posthog/icons'
+import { LemonButton, LemonSwitch, LemonTag, Link } from '@posthog/lemon-ui'
+import { Form } from 'antd'
 import { useActions, useValues } from 'kea'
-import { pluginsLogic } from 'scenes/plugins/pluginsLogic'
-import { Button, Form, Popconfirm, Space, Switch, Tag } from 'antd'
-import { DeleteOutlined, CodeOutlined, LockFilled, GlobalOutlined, RollbackOutlined } from '@ant-design/icons'
-import { userLogic } from 'scenes/userLogic'
-import { PluginImage } from 'scenes/plugins/plugin/PluginImage'
 import { Drawer } from 'lib/components/Drawer'
-import { LocalPluginTag } from 'scenes/plugins/plugin/LocalPluginTag'
-import { defaultConfigForPlugin, doFieldRequirementsMatch, getConfigSchemaArray } from 'scenes/plugins/utils'
-import ReactMarkdown from 'react-markdown'
-import { SourcePluginTag } from 'scenes/plugins/plugin/SourcePluginTag'
-import { PluginSource } from '../source/PluginSource'
-import { PluginConfigChoice, PluginConfigSchema } from '@posthog/plugin-scaffold'
-import { PluginField } from 'scenes/plugins/edit/PluginField'
-import { endWithPunctation } from 'lib/utils'
-import { canGloballyManagePlugins, canInstallPlugins } from '../access'
-import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
-import { capabilitiesInfo } from './CapabilitiesInfo'
-import { Tooltip } from 'lib/lemon-ui/Tooltip'
-import { PluginJobOptions } from './interface-jobs/PluginJobOptions'
 import { MOCK_NODE_PROCESS } from 'lib/constants'
+import { IconLock } from 'lib/lemon-ui/icons'
+import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
+import { Tooltip } from 'lib/lemon-ui/Tooltip'
+import { endWithPunctation } from 'lib/utils'
+import React, { useEffect, useState } from 'react'
+import {
+    defaultConfigForPlugin,
+    determineInvisibleFields,
+    determineRequiredFields,
+    getConfigSchemaArray,
+    isValidField,
+} from 'scenes/pipeline/configUtils'
+import { PluginField } from 'scenes/plugins/edit/PluginField'
+import { PluginImage } from 'scenes/plugins/plugin/PluginImage'
+import { pluginsLogic } from 'scenes/plugins/pluginsLogic'
+import { userLogic } from 'scenes/userLogic'
+
+import { canGloballyManagePlugins } from '../access'
+import { PluginSource } from '../source/PluginSource'
+import { PluginTags } from '../tabs/apps/components'
+import { capabilitiesInfo } from './CapabilitiesInfo'
+import { PluginJobOptions } from './interface-jobs/PluginJobOptions'
 
 window.process = MOCK_NODE_PROCESS
 
@@ -31,10 +37,10 @@ function EnabledDisabledSwitch({
     onChange?: (value: boolean) => void
 }): JSX.Element {
     return (
-        <>
-            <Switch checked={value} onChange={onChange} />
-            <strong className="pl-2.5">{value ? 'Enabled' : 'Disabled'}</strong>
-        </>
+        <div className="flex items-center gap-2">
+            <LemonSwitch checked={value || false} onChange={onChange} />
+            <strong>{value ? 'Enabled' : 'Disabled'}</strong>
+        </div>
     )
 }
 
@@ -44,29 +50,26 @@ const SecretFieldIcon = (): JSX.Element => (
             placement="topLeft"
             title="This is a secret write-only field. Its value is not available after saving."
         >
-            <LockFilled style={{ marginRight: 5 }} />
+            <IconLock style={{ marginRight: 5 }} />
         </Tooltip>
     </>
 )
 
 export function PluginDrawer(): JSX.Element {
     const { user } = useValues(userLogic)
-    const { preflight } = useValues(preflightLogic)
     const { editingPlugin, loading, editingSource, editingPluginInitialChanges } = useValues(pluginsLogic)
-    const {
-        editPlugin,
-        savePluginConfig,
-        uninstallPlugin,
-        setEditingSource,
-        generateApiKeysIfNeeded,
-        patchPlugin,
-        showPluginLogs,
-    } = useActions(pluginsLogic)
+    const { editPlugin, savePluginConfig, setEditingSource, generateApiKeysIfNeeded, showPluginLogs } =
+        useActions(pluginsLogic)
 
     const [form] = Form.useForm()
 
     const [invisibleFields, setInvisibleFields] = useState<string[]>([])
     const [requiredFields, setRequiredFields] = useState<string[]>([])
+
+    const updateInvisibleAndRequiredFields = (): void => {
+        setInvisibleFields(editingPlugin ? determineInvisibleFields(form.getFieldValue, editingPlugin) : [])
+        setRequiredFields(editingPlugin ? determineRequiredFields(form.getFieldValue, editingPlugin) : [])
+    }
 
     useEffect(() => {
         if (editingPlugin) {
@@ -82,59 +85,6 @@ export function PluginDrawer(): JSX.Element {
         updateInvisibleAndRequiredFields()
     }, [editingPlugin?.id, editingPlugin?.config_schema])
 
-    const updateInvisibleAndRequiredFields = (): void => {
-        determineAndSetInvisibleFields()
-        determineAndSetRequiredFields()
-    }
-
-    const determineAndSetInvisibleFields = (): void => {
-        const fieldsToSetAsInvisible = []
-        for (const field of Object.values(getConfigSchemaArray(editingPlugin?.config_schema || {}))) {
-            if (!field.visible_if || !field.key) {
-                continue
-            }
-            const shouldBeVisible = field.visible_if.every(
-                ([targetFieldName, targetFieldValue]: Array<string | undefined>) =>
-                    doFieldRequirementsMatch(form, targetFieldName, targetFieldValue)
-            )
-
-            if (!shouldBeVisible) {
-                fieldsToSetAsInvisible.push(field.key)
-            }
-        }
-        setInvisibleFields(fieldsToSetAsInvisible)
-    }
-
-    const determineAndSetRequiredFields = (): void => {
-        const fieldsToSetAsRequired = []
-        for (const field of Object.values(getConfigSchemaArray(editingPlugin?.config_schema || {}))) {
-            if (!field.required_if || !Array.isArray(field.required_if) || !field.key) {
-                continue
-            }
-            const shouldBeRequired = field.required_if.every(
-                ([targetFieldName, targetFieldValue]: Array<string | undefined>) =>
-                    doFieldRequirementsMatch(form, targetFieldName, targetFieldValue)
-            )
-            if (shouldBeRequired) {
-                fieldsToSetAsRequired.push(field.key)
-            }
-        }
-
-        setRequiredFields(fieldsToSetAsRequired)
-    }
-
-    const isValidChoiceConfig = (fieldConfig: PluginConfigChoice): boolean => {
-        return (
-            Array.isArray(fieldConfig.choices) &&
-            !!fieldConfig.choices.length &&
-            !fieldConfig.choices.find((c) => typeof c !== 'string') &&
-            !fieldConfig.secret
-        )
-    }
-
-    const isValidField = (fieldConfig: PluginConfigSchema): boolean =>
-        fieldConfig.type !== 'choice' || isValidChoiceConfig(fieldConfig)
-
     return (
         <>
             <Drawer
@@ -145,84 +95,19 @@ export function PluginDrawer(): JSX.Element {
                 title={editingPlugin?.name}
                 data-attr="plugin-drawer"
                 footer={
-                    <div className="flex">
-                        <Space style={{ flexGrow: 1 }}>
-                            {editingPlugin &&
-                                !editingPlugin.is_global &&
-                                canInstallPlugins(user?.organization, editingPlugin.organization_id) && (
-                                    <Popconfirm
-                                        placement="topLeft"
-                                        title="Are you sure you wish to uninstall this app completely?"
-                                        onConfirm={() => uninstallPlugin(editingPlugin.name)}
-                                        okText="Uninstall"
-                                        cancelText="Cancel"
-                                        className="plugins-popconfirm"
-                                    >
-                                        <Button
-                                            style={{ color: 'var(--danger)', padding: 4 }}
-                                            type="text"
-                                            icon={<DeleteOutlined />}
-                                            data-attr="plugin-uninstall"
-                                        >
-                                            Uninstall
-                                        </Button>
-                                    </Popconfirm>
-                                )}
-                            {preflight?.cloud &&
-                                editingPlugin &&
-                                canGloballyManagePlugins(user?.organization) &&
-                                (editingPlugin.is_global ? (
-                                    <Tooltip
-                                        title={
-                                            <>
-                                                This app can currently be used by other organizations in this instance
-                                                of PostHog. This action will <b>disable and hide it</b> for all
-                                                organizations other than yours.
-                                            </>
-                                        }
-                                    >
-                                        <Button
-                                            type="text"
-                                            icon={<RollbackOutlined />}
-                                            onClick={() => patchPlugin(editingPlugin.id, { is_global: false })}
-                                            style={{ padding: 4 }}
-                                        >
-                                            Make local
-                                        </Button>
-                                    </Tooltip>
-                                ) : (
-                                    <Tooltip
-                                        title={
-                                            <>
-                                                This action will mark this app as installed for <b>all organizations</b>{' '}
-                                                in this instance of PostHog.
-                                            </>
-                                        }
-                                    >
-                                        <Button
-                                            type="text"
-                                            icon={<GlobalOutlined />}
-                                            onClick={() => patchPlugin(editingPlugin.id, { is_global: true })}
-                                            style={{ padding: 4 }}
-                                        >
-                                            Make global
-                                        </Button>
-                                    </Tooltip>
-                                ))}
-                        </Space>
-                        <Space>
-                            <Button onClick={() => editPlugin(null)} data-attr="plugin-drawer-cancel">
-                                Cancel
-                            </Button>
-                            <Button
-                                type="primary"
-                                loading={loading}
-                                onClick={form.submit}
-                                data-attr="plugin-drawer-save"
-                            >
-                                Save
-                            </Button>
-                        </Space>
+                    <div className="flex space-x-2">
+                        <LemonButton size="small" onClick={() => editPlugin(null)} data-attr="plugin-drawer-cancel">
+                            Cancel
+                        </LemonButton>
+                        <LemonButton
+                            size="small"
+                            type="primary"
+                            loading={loading}
+                            onClick={form.submit}
+                            data-attr="plugin-drawer-save"
+                        >
+                            Save
+                        </LemonButton>
                     </div>
                 }
             >
@@ -230,28 +115,19 @@ export function PluginDrawer(): JSX.Element {
                     {/* TODO: Rework as Kea form with Lemon UI components */}
                     {editingPlugin ? (
                         <div>
-                            <div className="flex mb-4">
-                                <PluginImage
-                                    pluginType={editingPlugin.plugin_type}
-                                    url={editingPlugin.url}
-                                    icon={editingPlugin.icon}
-                                    size="large"
-                                />
-                                <div className="grow pl-4">
-                                    {endWithPunctation(editingPlugin.description)}
-                                    <div className="mt-1.5">
-                                        {editingPlugin?.plugin_type === 'local' && editingPlugin.url ? (
-                                            <LocalPluginTag url={editingPlugin.url} title="Installed Locally" />
-                                        ) : editingPlugin.plugin_type === 'source' ? (
-                                            <SourcePluginTag />
-                                        ) : null}
+                            <div className="flex gap-4">
+                                <PluginImage plugin={editingPlugin} size="large" />
+                                <div className="flex flex-col grow gap-2">
+                                    <span>{endWithPunctation(editingPlugin.description)}</span>
+                                    <div className="flex items-center">
+                                        <PluginTags plugin={editingPlugin} />
                                         {editingPlugin.url && (
-                                            <a href={editingPlugin.url}>
+                                            <Link to={editingPlugin.url}>
                                                 <i>⤷ Learn more</i>
-                                            </a>
+                                            </Link>
                                         )}
                                     </div>
-                                    <div className="flex items-center mt-1.5">
+                                    <div className="flex items-center">
                                         <Form.Item
                                             fieldKey="__enabled"
                                             name="__enabled"
@@ -266,14 +142,13 @@ export function PluginDrawer(): JSX.Element {
 
                             {editingPlugin.plugin_type === 'source' && canGloballyManagePlugins(user?.organization) ? (
                                 <div>
-                                    <Button
-                                        type={editingSource ? 'default' : 'primary'}
-                                        icon={<CodeOutlined />}
+                                    <LemonButton
+                                        icon={<IconCode />}
                                         onClick={() => setEditingSource(!editingSource)}
                                         data-attr="plugin-edit-source"
                                     >
                                         Edit source
-                                    </Button>
+                                    </LemonButton>
                                 </div>
                             ) : null}
 
@@ -291,12 +166,12 @@ export function PluginDrawer(): JSX.Element {
                                             )
                                             .map((capability) => (
                                                 <Tooltip title={capabilitiesInfo[capability] || ''} key={capability}>
-                                                    <Tag className="plugin-capabilities-tag">{capability}</Tag>
+                                                    <LemonTag className="cursor-default">{capability}</LemonTag>
                                                 </Tooltip>
                                             ))}
                                         {(editingPlugin.capabilities?.jobs || []).map((jobName) => (
                                             <Tooltip title="Custom job" key={jobName}>
-                                                <Tag className="plugin-capabilities-tag">{jobName}</Tag>
+                                                <LemonTag className="cursor-default">{jobName}</LemonTag>
                                             </Tooltip>
                                         ))}
                                     </div>
@@ -324,9 +199,7 @@ export function PluginDrawer(): JSX.Element {
                             ) : null}
                             {getConfigSchemaArray(editingPlugin.config_schema).map((fieldConfig, index) => (
                                 <React.Fragment key={fieldConfig.key || `__key__${index}`}>
-                                    {fieldConfig.markdown && (
-                                        <ReactMarkdown source={fieldConfig.markdown} linkTarget="_blank" />
-                                    )}
+                                    {fieldConfig.markdown && <LemonMarkdown>{fieldConfig.markdown}</LemonMarkdown>}
                                     {fieldConfig.type && isValidField(fieldConfig) ? (
                                         <Form.Item
                                             hidden={!!fieldConfig.key && invisibleFields.includes(fieldConfig.key)}
@@ -339,8 +212,9 @@ export function PluginDrawer(): JSX.Element {
                                             extra={
                                                 fieldConfig.hint && (
                                                     <small>
-                                                        <div className="h-0.5" />
-                                                        <ReactMarkdown source={fieldConfig.hint} linkTarget="_blank" />
+                                                        <LemonMarkdown className="mt-0.5">
+                                                            {fieldConfig.hint}
+                                                        </LemonMarkdown>
                                                     </small>
                                                 )
                                             }

@@ -1,9 +1,11 @@
+import clsx from 'clsx'
 import { useValues } from 'kea'
-import { IconGauge, IconTerminal, IconUnverifiedEvent, IconMagnifier } from 'lib/lemon-ui/icons'
+import { IconGauge, IconMagnifier, IconTerminal, IconUnverifiedEvent } from 'lib/lemon-ui/icons'
+
 import { SessionRecordingPlayerTab } from '~/types'
+
 import { sessionRecordingPlayerLogic } from '../sessionRecordingPlayerLogic'
 import { playerInspectorLogic } from './playerInspectorLogic'
-import clsx from 'clsx'
 
 const TabToIcon = {
     [SessionRecordingPlayerTab.ALL]: IconMagnifier,
@@ -12,7 +14,7 @@ const TabToIcon = {
     [SessionRecordingPlayerTab.NETWORK]: IconGauge,
 }
 
-export function PlayerInspectorPreview(): JSX.Element {
+export function PlayerInspectorPreview(props: { onClick: () => void }): JSX.Element {
     const { logicProps } = useValues(sessionRecordingPlayerLogic)
     const inspectorLogic = playerInspectorLogic(logicProps)
 
@@ -26,7 +28,7 @@ export function PlayerInspectorPreview(): JSX.Element {
     ]
 
     return (
-        <div className="PlayerInspectorPreview bg-side p-2 space-y-2 flex flex-col">
+        <div className="PlayerInspectorPreview bg-side p-2 space-y-2 flex flex-col" onClick={props.onClick}>
             {tabs.map((tabId) => {
                 const TabIcon = TabToIcon[tabId]
                 return (

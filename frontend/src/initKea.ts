@@ -1,19 +1,20 @@
 import { KeaPlugin, resetContext } from 'kea'
+import { formsPlugin } from 'kea-forms'
+import { loadersPlugin } from 'kea-loaders'
 import { localStoragePlugin } from 'kea-localstorage'
 import { routerPlugin } from 'kea-router'
-import { loadersPlugin } from 'kea-loaders'
-import { windowValuesPlugin } from 'kea-window-values'
-import { identifierToHuman } from 'lib/utils'
-import { waitForPlugin } from 'kea-waitfor'
-import { lemonToast } from 'lib/lemon-ui/lemonToast'
 import { subscriptionsPlugin } from 'kea-subscriptions'
-import { formsPlugin } from 'kea-forms'
+import { waitForPlugin } from 'kea-waitfor'
+import { windowValuesPlugin } from 'kea-window-values'
+import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
+import { identifierToHuman } from 'lib/utils'
+import { addProjectIdIfMissing, removeProjectIdIfPresent } from 'lib/utils/router-utils'
 
 /*
 Actions for which we don't want to show error alerts,
 mostly to avoid user confusion.
 */
-const ERROR_FILTER_WHITELIST = [
+const ERROR_FILTER_ALLOW_LIST = [
     'loadPreflight', // Gracefully handled if it fails
     'loadUser', // App won't load (unless loading from shared dashboards)
     'loadFunnels', // Special error handling on insights
@@ -23,6 +24,7 @@ const ERROR_FILTER_WHITELIST = [
     'loadLatestVersion',
     'loadBilling', // Gracefully handled if it fails
     'loadData', // Gracefully handled in the data table
+    'loadRecordingMeta', // Gracefully handled in the recording player
 ]
 
 interface InitKeaProps {
@@ -73,19 +75,32 @@ export function initKea({ routerHistory, routerLocation, beforePlugins }: InitKe
                 // in "/url/:key". Default: "a-zA-Z0-9-_~ %".
                 segmentValueCharset: "a-zA-Z0-9-_~ %.@()!'|",
             },
+            pathFromRoutesToWindow: (path) => {
+                return addProjectIdIfMissing(path)
+            },
+            transformPathInActions: (path) => {
+                return addProjectIdIfMissing(path)
+            },
+            pathFromWindowToRoutes: (path) => {
+                return removeProjectIdIfPresent(path)
+            },
         }),
         formsPlugin,
         loadersPlugin({
             onFailure({ error, reducerKey, actionKey }: { error: any; reducerKey: string; actionKey: string }) {
                 // Toast if it's a fetch error or a specific API update error
                 if (
-                    !ERROR_FILTER_WHITELIST.includes(actionKey) &&
+                    !ERROR_FILTER_ALLOW_LIST.includes(actionKey) &&
                     (error?.message === 'Failed to fetch' || // Likely CORS headers errors (i.e. request failing without reaching Django)
                         (error?.status !== undefined && ![200, 201, 204].includes(error.status)))
                 ) {
+                    let errorMessageFallback = 'PostHog may be offline'
+                    if (error.status === 404) {
+                        errorMessageFallback = 'URL not found'
+                    }
                     lemonToast.error(
                         `${identifierToHuman(actionKey)} failed: ${
-                            error.detail || error.statusText || 'PostHog may be offline'
+                            error.detail || error.statusText || errorMessageFallback
                         }`
                     )
                 }

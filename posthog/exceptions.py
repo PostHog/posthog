@@ -40,7 +40,7 @@ class Conflict(APIException):
 
 class EstimatedQueryExecutionTimeTooLong(APIException):
     status_code = 512  # Custom error code
-    default_detail = "Estimated query execution time is too long"
+    default_detail = "Estimated query execution time is too long. Try reducing its scope by changing the time range."
 
 
 class ExceptionContext(TypedDict):
@@ -78,7 +78,8 @@ def generate_exception_response(
     from statshog.defaults.django import statsd
 
     statsd.incr(
-        f"posthog_cloud_raw_endpoint_exception", tags={"endpoint": endpoint, "code": code, "type": type, "attr": attr}
+        f"posthog_cloud_raw_endpoint_exception",
+        tags={"endpoint": endpoint, "code": code, "type": type, "attr": attr},
     )
     return JsonResponse(
         {"type": type, "code": code, "detail": detail, "attr": attr}, status=status_code, headers=headers

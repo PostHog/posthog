@@ -52,12 +52,20 @@ class Insight(models.Model):
     refresh_attempt: models.IntegerField = models.IntegerField(null=True, blank=True)
     last_modified_at: models.DateTimeField = models.DateTimeField(default=timezone.now)
     last_modified_by: models.ForeignKey = models.ForeignKey(
-        "User", on_delete=models.SET_NULL, null=True, blank=True, related_name="modified_insights"
+        "User",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="modified_insights",
     )
 
     # DEPRECATED: using the new "dashboards" relation instead
     dashboard: models.ForeignKey = models.ForeignKey(
-        "Dashboard", related_name="items", on_delete=models.CASCADE, null=True, blank=True
+        "Dashboard",
+        related_name="items",
+        on_delete=models.CASCADE,
+        null=True,
+        blank=True,
     )
     # DEPRECATED: on dashboard_insight now
     layouts: models.JSONField = models.JSONField(default=dict)
@@ -75,7 +83,11 @@ class Insight(models.Model):
     deprecated_tags: ArrayField = ArrayField(models.CharField(max_length=32), null=True, blank=True, default=list)
     # DEPRECATED: now using app-wide tagging model. See EnterpriseTaggedItem
     deprecated_tags_v2: ArrayField = ArrayField(
-        models.CharField(max_length=32), null=True, blank=True, default=None, db_column="tags"
+        models.CharField(max_length=32),
+        null=True,
+        blank=True,
+        default=None,
+        db_column="tags",
     )
 
     # Changing these fields materially alters the Insight, so these count for the "last_modified_*" fields
@@ -105,7 +117,7 @@ class Insight(models.Model):
         unique_together = ("team", "short_id")
 
     def dashboard_filters(self, dashboard: Optional[Dashboard] = None):
-        # TODO dashboard filtering needs to know how to override query date ranges😱
+        # query date range is set in a different function, see dashboard_query
         if dashboard and not self.query:
             dashboard_filters = {**dashboard.filters}
             dashboard_properties = dashboard_filters.pop("properties") if dashboard_filters.get("properties") else None
@@ -141,7 +153,10 @@ class Insight(models.Model):
                 elif self.filters.get("properties", {}).get("type"):
                     filters["properties"] = {
                         "type": "AND",
-                        "values": [self.filters["properties"], {"type": "AND", "values": dashboard_properties}],
+                        "values": [
+                            self.filters["properties"],
+                            {"type": "AND", "values": dashboard_properties},
+                        ],
                     }
                 elif not self.filters.get("properties"):
                     filters["properties"] = dashboard_properties
@@ -153,6 +168,15 @@ class Insight(models.Model):
             return filters
         else:
             return self.filters
+
+    def dashboard_query(self, dashboard: Optional[Dashboard]) -> Optional[dict]:
+        if not dashboard or not self.query:
+            return self.query
+        from posthog.hogql_queries.apply_dashboard_filters import (
+            apply_dashboard_filters,
+        )
+
+        return apply_dashboard_filters(self.query, dashboard.filters, self.team)
 
     @property
     def url(self):
@@ -174,12 +198,21 @@ class InsightViewed(models.Model):
 def generate_insight_cache_key(insight: Insight, dashboard: Optional[Dashboard]) -> str:
     try:
         if insight.query is not None:
-            # TODO: dashboard filtering needs to know how to override queries and date ranges 😱
-            q = insight.query
+            dashboard_filters = dashboard.filters if dashboard else None
+
+            if dashboard_filters:
+                from posthog.hogql_queries.apply_dashboard_filters import (
+                    apply_dashboard_filters,
+                )
+
+                q = apply_dashboard_filters(insight.query, dashboard_filters, insight.team)
+            else:
+                q = insight.query
+
             if q.get("source"):
                 q = q["source"]
 
-            return generate_cache_key("{}_{}".format(q, insight.team_id))
+            return generate_cache_key("{}_{}_{}".format(q, dashboard_filters, insight.team_id))
 
         dashboard_insight_filter = get_filter(data=insight.dashboard_filters(dashboard=dashboard), team=insight.team)
         candidate_filters_hash = generate_cache_key("{}_{}".format(dashboard_insight_filter.toJSON(), insight.team_id))

@@ -1,5 +1,6 @@
-import { EventsNode, EventsQuery } from '~/queries/schema'
 import { LemonEventName } from 'scenes/actions/EventName'
+
+import { EventsNode, EventsQuery } from '~/queries/schema'
 
 interface EventNameProps {
     query: EventsNode | EventsQuery

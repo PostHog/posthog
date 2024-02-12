@@ -1,20 +1,27 @@
 from datetime import date, datetime
-from typing import List, Optional, Any, cast
+from typing import List, Optional, Any, cast, Literal
 from uuid import UUID
 
 from posthog.hogql import ast
 from posthog.hogql.ast import FieldTraverserType, ConstantType
 from posthog.hogql.functions import HOGQL_POSTHOG_FUNCTIONS
 from posthog.hogql.context import HogQLContext
-from posthog.hogql.database.models import StringJSONDatabaseField, FunctionCallTable, LazyTable, SavedQuery
+from posthog.hogql.database.models import (
+    StringJSONDatabaseField,
+    FunctionCallTable,
+    LazyTable,
+    SavedQuery,
+)
 from posthog.hogql.errors import ResolverException
-from posthog.hogql.functions.cohort import cohort
+from posthog.hogql.functions.cohort import cohort_query_node
 from posthog.hogql.functions.mapping import validate_function_args
 from posthog.hogql.functions.sparkline import sparkline
 from posthog.hogql.parser import parse_select
-from posthog.hogql.visitor import CloningVisitor, clone_expr
+from posthog.hogql.resolver_utils import convert_hogqlx_tag, lookup_cte_by_name, lookup_field_by_name
+from posthog.hogql.visitor import CloningVisitor, clone_expr, TraversingVisitor
 from posthog.models.utils import UUIDT
-
+from posthog.hogql.database.schema.events import EventsTable
+from posthog.hogql.database.s3_table import S3Table
 
 # https://github.com/ClickHouse/ClickHouse/issues/23194 - "Describe how identifiers in SELECT queries are resolved"
 
@@ -47,19 +54,39 @@ def resolve_constant_data_type(constant: Any) -> ConstantType:
 
 
 def resolve_types(
-    node: ast.Expr, context: HogQLContext, scopes: Optional[List[ast.SelectQueryType]] = None
+    node: ast.Expr,
+    context: HogQLContext,
+    dialect: Literal["hogql", "clickhouse"],
+    scopes: Optional[List[ast.SelectQueryType]] = None,
 ) -> ast.Expr:
-    return Resolver(scopes=scopes, context=context).visit(node)
+    return Resolver(scopes=scopes, context=context, dialect=dialect).visit(node)
+
+
+class AliasCollector(TraversingVisitor):
+    def __init__(self):
+        super().__init__()
+        self.aliases: List[str] = []
+
+    def visit_alias(self, node: ast.Alias):
+        self.aliases.append(node.alias)
+        return node
 
 
 class Resolver(CloningVisitor):
     """The Resolver visits an AST and 1) resolves all fields, 2) assigns types to nodes, 3) expands all CTEs."""
 
-    def __init__(self, context: HogQLContext, scopes: Optional[List[ast.SelectQueryType]] = None):
+    def __init__(
+        self,
+        context: HogQLContext,
+        dialect: Literal["hogql", "clickhouse"] = "clickhouse",
+        scopes: Optional[List[ast.SelectQueryType]] = None,
+    ):
         super().__init__()
         # Each SELECT query creates a new scope (type). Store all of them in a list as we traverse the tree.
         self.scopes: List[ast.SelectQueryType] = scopes or []
+        self.current_view_depth: int = 0
         self.context = context
+        self.dialect = dialect
         self.database = context.database
         self.cte_counter = 0
 
@@ -105,25 +132,62 @@ class Resolver(CloningVisitor):
         # Visit the FROM clauses first. This resolves all table aliases onto self.scopes[-1]
         new_node.select_from = self.visit(node.select_from)
 
+        # Array joins (pass 1 - so we can use aliases from the array join in columns)
+        new_node.array_join_op = node.array_join_op
+        ac = AliasCollector()
+        array_join_aliases = []
+        if node.array_join_list:
+            for expr in node.array_join_list:
+                ac.visit(expr)
+            array_join_aliases = ac.aliases
+            for key in array_join_aliases:
+                if key in node_type.aliases:
+                    raise ResolverException(f"Cannot redefine an alias with the name: {key}")
+                node_type.aliases[key] = ast.FieldAliasType(alias=key, type=ast.UnknownType())
+
         # Visit all the "SELECT a,b,c" columns. Mark each for export in "columns".
+        select_nodes = []
         for expr in node.select or []:
             new_expr = self.visit(expr)
-
-            # if it's an asterisk, carry on in a subroutine
             if isinstance(new_expr.type, ast.AsteriskType):
-                self._expand_asterisk_columns(new_node, new_expr.type)
-                continue
+                columns = self._asterisk_columns(new_expr.type)
+                select_nodes.extend([self.visit(expr) for expr in columns])
+            else:
+                select_nodes.append(new_expr)
 
-            # not an asterisk
+        columns_with_visible_alias = {}
+        for new_expr in select_nodes:
             if isinstance(new_expr.type, ast.FieldAliasType):
-                node_type.columns[new_expr.type.alias] = new_expr.type
+                alias = new_expr.type.alias
             elif isinstance(new_expr.type, ast.FieldType):
-                node_type.columns[new_expr.type.name] = new_expr.type
+                alias = new_expr.type.name
+            elif isinstance(new_expr.type, ast.ExpressionFieldType):
+                alias = new_expr.type.name
             elif isinstance(new_expr, ast.Alias):
-                node_type.columns[new_expr.alias] = new_expr.type
+                alias = new_expr.alias
+            else:
+                alias = None
+
+            if alias:
+                # Make a reference of the first visible or last hidden expr for each unique alias name.
+                if isinstance(new_expr, ast.Alias) and new_expr.hidden:
+                    if alias not in node_type.columns or not columns_with_visible_alias.get(alias, False):
+                        node_type.columns[alias] = new_expr.type
+                        columns_with_visible_alias[alias] = False
+                else:
+                    node_type.columns[alias] = new_expr.type
+                    columns_with_visible_alias[alias] = True
 
             # add the column to the new select query
             new_node.select.append(new_expr)
+
+        # Array joins (pass 2 - so we can use aliases from columns in the array join)
+        if node.array_join_list:
+            for key in array_join_aliases:
+                if key in node_type.aliases:
+                    # delete the keys we added in the first pass to avoid "can't redefine" errors
+                    del node_type.aliases[key]
+            new_node.array_join_list = [self.visit(expr) for expr in node.array_join_list]
 
         # :TRICKY: Make sure to clone and visit _all_ SelectQuery nodes.
         new_node.where = self.visit(node.where)
@@ -142,20 +206,18 @@ class Resolver(CloningVisitor):
         new_node.window_exprs = (
             {name: self.visit(expr) for name, expr in node.window_exprs.items()} if node.window_exprs else None
         )
+        new_node.settings = node.settings.model_copy() if node.settings is not None else None
 
         self.scopes.pop()
 
         return new_node
 
-    def _expand_asterisk_columns(self, select_query: ast.SelectQuery, asterisk: ast.AsteriskType):
+    def _asterisk_columns(self, asterisk: ast.AsteriskType) -> List[ast.Expr]:
         """Expand an asterisk. Mutates `select_query.select` and `select_query.type.columns` with the new fields"""
         if isinstance(asterisk.table_type, ast.BaseTableType):
             table = asterisk.table_type.resolve_database_table()
             database_fields = table.get_asterisk()
-            for key in database_fields.keys():
-                type = ast.FieldType(name=key, table_type=asterisk.table_type)
-                select_query.select.append(ast.Field(chain=[key], type=type))
-                select_query.type.columns[key] = type
+            return [ast.Field(chain=[key]) for key in database_fields.keys()]
         elif (
             isinstance(asterisk.table_type, ast.SelectUnionQueryType)
             or isinstance(asterisk.table_type, ast.SelectQueryType)
@@ -167,10 +229,7 @@ class Resolver(CloningVisitor):
             if isinstance(select, ast.SelectUnionQueryType):
                 select = select.types[0]
             if isinstance(select, ast.SelectQueryType):
-                for name in select.columns.keys():
-                    type = ast.FieldType(name=name, table_type=asterisk.table_type)
-                    select_query.select.append(ast.Field(chain=[name], type=type))
-                    select_query.type.columns[name] = type
+                return [ast.Field(chain=[key]) for key in select.columns.keys()]
             else:
                 raise ResolverException("Can't expand asterisk (*) on subquery")
         else:
@@ -183,6 +242,9 @@ class Resolver(CloningVisitor):
             raise ResolverException("Unexpected JoinExpr outside a SELECT query")
 
         scope = self.scopes[-1]
+
+        if isinstance(node.table, ast.HogQLXTag):
+            node.table = convert_hogqlx_tag(node.table, self.context.team_id)
 
         # If selecting from a CTE, expand and visit the new node
         if isinstance(node.table, ast.Field) and len(node.table.chain) == 1:
@@ -208,9 +270,16 @@ class Resolver(CloningVisitor):
                 database_table = self.database.get_table(table_name)
 
                 if isinstance(database_table, SavedQuery):
+                    self.current_view_depth += 1
+
+                    if self.current_view_depth > self.context.max_view_depth:
+                        raise ResolverException("Nested views are not supported")
+
                     node.table = parse_select(str(database_table.query))
                     node.alias = table_alias or database_table.name
                     node = self.visit(node)
+
+                    self.current_view_depth -= 1
                     return node
 
                 if isinstance(database_table, LazyTable):
@@ -231,7 +300,19 @@ class Resolver(CloningVisitor):
                 node.type = node_type
                 node.table = cast(ast.Field, clone_expr(node.table))
                 node.table.type = node_table_type
+                if node.table_args is not None:
+                    node.table_args = [self.visit(arg) for arg in node.table_args]
                 node.next_join = self.visit(node.next_join)
+
+                # Look ahead if current is events table and next is s3 table, global join must be used for distributed query on external data to work
+                if isinstance(node.type, ast.TableAliasType):
+                    is_global = isinstance(node.type.table_type.table, EventsTable) and self._is_next_s3(node.next_join)
+                else:
+                    is_global = isinstance(node.type.table, EventsTable) and self._is_next_s3(node.next_join)
+
+                if is_global:
+                    node.next_join.join_type = "GLOBAL JOIN"
+
                 node.constraint = self.visit(node.constraint)
                 node.sample = self.visit(node.sample)
 
@@ -267,20 +348,24 @@ class Resolver(CloningVisitor):
         else:
             raise ResolverException(f"JoinExpr with table of type {type(node.table).__name__} not supported")
 
+    def visit_hogqlx_tag(self, node: ast.HogQLXTag):
+        return self.visit(convert_hogqlx_tag(node, self.context.team_id))
+
     def visit_alias(self, node: ast.Alias):
         """Visit column aliases. SELECT 1, (select 3 as y) as x."""
         if len(self.scopes) == 0:
             raise ResolverException("Aliases are allowed only within SELECT queries")
 
         scope = self.scopes[-1]
-        if node.alias in scope.aliases:
+        if node.alias in scope.aliases and not node.hidden:
             raise ResolverException(f"Cannot redefine an alias with the name: {node.alias}")
         if node.alias == "":
             raise ResolverException("Alias cannot be empty")
 
         node = super().visit_alias(node)
         node.type = ast.FieldAliasType(alias=node.alias, type=node.expr.type or ast.UnknownType())
-        scope.aliases[node.alias] = node.type
+        if not node.hidden:
+            scope.aliases[node.alias] = node.type
         return node
 
     def visit_call(self, node: ast.Call):
@@ -307,7 +392,10 @@ class Resolver(CloningVisitor):
                 else:
                     param_types.append(ast.UnknownType())
         node.type = ast.CallType(
-            name=node.name, arg_types=arg_types, param_types=param_types, return_type=ast.UnknownType()
+            name=node.name,
+            arg_types=arg_types,
+            param_types=param_types,
+            return_type=ast.UnknownType(),
         )
         return node
 
@@ -386,20 +474,37 @@ class Resolver(CloningVisitor):
             raise ResolverException(f"Unable to resolve field: {name}")
 
         # Recursively resolve the rest of the chain until we can point to the deepest node.
+        field_name = node.chain[-1]
         loop_type = type
         chain_to_parse = node.chain[1:]
+        previous_types = []
         while True:
             if isinstance(loop_type, FieldTraverserType):
                 chain_to_parse = loop_type.chain + chain_to_parse
                 loop_type = loop_type.table_type
                 continue
+            previous_types.append(loop_type)
             if len(chain_to_parse) == 0:
                 break
             next_chain = chain_to_parse.pop(0)
+            if next_chain == "..":  # only support one level of ".."
+                previous_types.pop()
+                previous_types.pop()
+                loop_type = previous_types[-1]
+                next_chain = chain_to_parse.pop(0)
+
             loop_type = loop_type.get_child(next_chain)
             if loop_type is None:
                 raise ResolverException(f"Cannot resolve type {'.'.join(node.chain)}. Unable to resolve {next_chain}.")
         node.type = loop_type
+
+        if isinstance(node.type, ast.ExpressionFieldType):
+            # only swap out expression fields in ClickHouse
+            if self.dialect == "clickhouse":
+                new_expr = clone_expr(node.type.expr)
+                new_node = ast.Alias(alias=node.type.name, expr=new_expr, hidden=True)
+                new_node = self.visit(new_node)
+                return new_node
 
         if isinstance(node.type, ast.FieldType) and node.start is not None and node.end is not None:
             self.context.add_notice(
@@ -408,42 +513,69 @@ class Resolver(CloningVisitor):
                 message=f"Field '{node.type.name}' is of type '{node.type.resolve_constant_type().print_type()}'",
             )
 
+        if isinstance(node.type, ast.FieldType):
+            return ast.Alias(
+                alias=field_name or node.type.name,
+                expr=node,
+                hidden=True,
+                type=ast.FieldAliasType(alias=node.type.name, type=node.type),
+            )
+        elif isinstance(node.type, ast.PropertyType):
+            property_alias = "__".join(node.type.chain)
+            return ast.Alias(
+                alias=property_alias,
+                expr=node,
+                hidden=True,
+                type=ast.FieldAliasType(alias=property_alias, type=node.type),
+            )
+
         return node
 
     def visit_array_access(self, node: ast.ArrayAccess):
         node = super().visit_array_access(node)
 
+        array = node.array
+        while isinstance(array, ast.Alias):
+            array = array.expr
+
         if (
-            isinstance(node.array, ast.Field)
+            isinstance(array, ast.Field)
             and isinstance(node.property, ast.Constant)
             and (isinstance(node.property.value, str) or isinstance(node.property.value, int))
             and (
-                (isinstance(node.array.type, ast.PropertyType))
+                (isinstance(array.type, ast.PropertyType))
                 or (
-                    isinstance(node.array.type, ast.FieldType)
-                    and isinstance(node.array.type.resolve_database_field(), StringJSONDatabaseField)
+                    isinstance(array.type, ast.FieldType)
+                    and isinstance(
+                        array.type.resolve_database_field(),
+                        StringJSONDatabaseField,
+                    )
                 )
             )
         ):
-            node.array.chain.append(node.property.value)
-            node.array.type = node.array.type.get_child(node.property.value)
-            return node.array
+            array.chain.append(node.property.value)
+            array.type = array.type.get_child(node.property.value)
+            return array
 
         return node
 
     def visit_tuple_access(self, node: ast.TupleAccess):
         node = super().visit_tuple_access(node)
 
-        if isinstance(node.tuple, ast.Field) and (
-            (isinstance(node.tuple.type, ast.PropertyType))
+        tuple = node.tuple
+        while isinstance(tuple, ast.Alias):
+            tuple = tuple.expr
+
+        if isinstance(tuple, ast.Field) and (
+            (isinstance(tuple.type, ast.PropertyType))
             or (
-                isinstance(node.tuple.type, ast.FieldType)
-                and isinstance(node.tuple.type.resolve_database_field(), StringJSONDatabaseField)
+                isinstance(tuple.type, ast.FieldType)
+                and isinstance(tuple.type.resolve_database_field(), StringJSONDatabaseField)
             )
         ):
-            node.tuple.chain.append(node.index)
-            node.tuple.type = node.tuple.type.get_child(node.index)
-            return node.tuple
+            tuple.chain.append(node.index)
+            tuple.type = tuple.type.get_child(node.index)
+            return tuple
 
         return node
 
@@ -468,50 +600,66 @@ class Resolver(CloningVisitor):
         return node
 
     def visit_compare_operation(self, node: ast.CompareOperation):
-        if node.op == ast.CompareOperationOp.InCohort:
-            return self.visit(
-                ast.CompareOperation(
-                    op=ast.CompareOperationOp.In,
-                    left=node.left,
-                    right=cohort(node=node.right, args=[node.right], context=self.context),
+        if self.context.modifiers.inCohortVia == "subquery":
+            if node.op == ast.CompareOperationOp.InCohort:
+                return self.visit(
+                    ast.CompareOperation(
+                        op=ast.CompareOperationOp.In,
+                        left=node.left,
+                        right=cohort_query_node(node.right, context=self.context),
+                    )
                 )
-            )
-        elif node.op == ast.CompareOperationOp.NotInCohort:
-            return self.visit(
-                ast.CompareOperation(
-                    op=ast.CompareOperationOp.NotIn,
-                    left=node.left,
-                    right=cohort(node=node.right, args=[node.right], context=self.context),
+            elif node.op == ast.CompareOperationOp.NotInCohort:
+                return self.visit(
+                    ast.CompareOperation(
+                        op=ast.CompareOperationOp.NotIn,
+                        left=node.left,
+                        right=cohort_query_node(node.right, context=self.context),
+                    )
                 )
-            )
 
         node = super().visit_compare_operation(node)
         node.type = ast.BooleanType()
+
+        if (
+            (node.op == ast.CompareOperationOp.In or node.op == ast.CompareOperationOp.NotIn)
+            and self._is_events_table(node.left)
+            and self._is_s3_cluster(node.right)
+        ):
+            if node.op == ast.CompareOperationOp.In:
+                node.op = ast.CompareOperationOp.GlobalIn
+            else:
+                node.op = ast.CompareOperationOp.GlobalNotIn
+
         return node
 
+    def _is_events_table(self, node: ast.Expr) -> bool:
+        while isinstance(node, ast.Alias):
+            node = node.expr
+        if isinstance(node, ast.Field) and isinstance(node.type, ast.FieldType):
+            if isinstance(node.type.table_type, ast.TableAliasType):
+                return isinstance(node.type.table_type.table_type.table, EventsTable)
+            if isinstance(node.type.table_type, ast.TableType):
+                return isinstance(node.type.table_type.table, EventsTable)
+        return False
 
-def lookup_field_by_name(scope: ast.SelectQueryType, name: str) -> Optional[ast.Type]:
-    """Looks for a field in the scope's list of aliases and children for each joined table."""
-    if name in scope.aliases:
-        return scope.aliases[name]
-    else:
-        named_tables = [table for table in scope.tables.values() if table.has_child(name)]
-        anonymous_tables = [table for table in scope.anonymous_tables if table.has_child(name)]
-        tables_with_field = named_tables + anonymous_tables
+    def _is_s3_cluster(self, node: ast.Expr) -> bool:
+        while isinstance(node, ast.Alias):
+            node = node.expr
+        if (
+            isinstance(node, ast.SelectQuery)
+            and node.select_from
+            and isinstance(node.select_from.type, ast.BaseTableType)
+        ):
+            if isinstance(node.select_from.type, ast.TableAliasType):
+                return isinstance(node.select_from.type.table_type.table, S3Table)
+            elif isinstance(node.select_from.type, ast.TableType):
+                return isinstance(node.select_from.type.table, S3Table)
+        return False
 
-        if len(tables_with_field) > 1:
-            raise ResolverException(f"Ambiguous query. Found multiple sources for field: {name}")
-        elif len(tables_with_field) == 1:
-            return tables_with_field[0].get_child(name)
-
-        if scope.parent:
-            return lookup_field_by_name(scope.parent, name)
-
-        return None
-
-
-def lookup_cte_by_name(scopes: List[ast.SelectQueryType], name: str) -> Optional[ast.CTE]:
-    for scope in reversed(scopes):
-        if scope and scope.ctes and name in scope.ctes:
-            return scope.ctes[name]
-    return None
+    def _is_next_s3(self, node: Optional[ast.JoinExpr]):
+        if node is None:
+            return False
+        if isinstance(node.type, ast.TableAliasType):
+            return isinstance(node.type.table_type.table, S3Table)
+        return False

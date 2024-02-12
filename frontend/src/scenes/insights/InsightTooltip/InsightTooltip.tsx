@@ -1,22 +1,26 @@
 import './InsightTooltip.scss'
-import { ReactNode } from 'react'
+
+import clsx from 'clsx'
+import { useValues } from 'kea'
+import { InsightLabel } from 'lib/components/InsightLabel'
+import { IconHandClick } from 'lib/lemon-ui/icons'
 import { LemonTable, LemonTableColumn, LemonTableColumns } from 'lib/lemon-ui/LemonTable'
+import { shortTimeZone } from 'lib/utils'
+import { ReactNode } from 'react'
+import { formatAggregationValue } from 'scenes/insights/utils'
+
+import { FormatPropertyValueForDisplayFunction, propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
+
 import {
     COL_CUTOFF,
-    ROW_CUTOFF,
+    getFormattedDate,
     getTooltipTitle,
     InsightTooltipProps,
     invertDataSource,
     InvertedSeriesDatum,
+    ROW_CUTOFF,
     SeriesDatum,
-    getFormattedDate,
 } from './insightTooltipUtils'
-import { InsightLabel } from 'lib/components/InsightLabel'
-import { IconHandClick } from 'lib/lemon-ui/icons'
-import { shortTimeZone } from 'lib/utils'
-import { useValues } from 'kea'
-import { FormatPropertyValueForDisplayFunction, propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
-import { formatAggregationValue } from 'scenes/insights/utils'
 
 export function ClickToInspectActors({
     isTruncated,
@@ -54,14 +58,12 @@ function renderDatumToTableCell(
     // Value can be undefined if the datum's series doesn't have ANY value for the breakdown value being rendered
     return (
         <div className="series-data-cell">
-            {
-                color && (
-                    // eslint-disable-next-line react/forbid-dom-props
-                    <span className="mr-2" style={{ color }}>
-                        ●
-                    </span>
-                ) /* eslint-disable-line react/forbid-dom-props */
-            }
+            {color && (
+                // eslint-disable-next-line react/forbid-dom-props
+                <span className="mr-2" style={{ color }}>
+                    ●
+                </span>
+            )}
             {datumValue !== undefined
                 ? formatAggregationValue(datumMathProperty, datumValue, renderCount, formatPropertyValueForDisplay)
                 : '–'}
@@ -77,6 +79,7 @@ export function InsightTooltip({
     altRightTitle,
     renderSeries,
     renderCount,
+    embedded = false,
     hideColorCol = false,
     hideInspectActorsSection = false,
     entitiesAsColumnsOverride,
@@ -97,7 +100,7 @@ export function InsightTooltip({
 
     const title: ReactNode | null =
         getTooltipTitle(seriesData, altTitle, date) ||
-        (!!date
+        (date
             ? `${getFormattedDate(date, seriesData?.[0]?.filter?.interval)} (${
                   timezone ? shortTimeZone(timezone) : 'UTC'
               })`
@@ -156,7 +159,7 @@ export function InsightTooltip({
                             seriesColumnData?.count,
                             formatPropertyValueForDisplay,
                             renderCount,
-                            seriesColumnData.color
+                            seriesColumnData?.color
                         )
                     },
                 })
@@ -170,7 +173,7 @@ export function InsightTooltip({
         }
 
         return (
-            <div className="InsightTooltip">
+            <div className={clsx('InsightTooltip', embedded && 'InsightTooltip--embedded')}>
                 <LemonTable
                     dataSource={dataSource.slice(0, rowCutoff)}
                     columns={columns}
@@ -231,7 +234,7 @@ export function InsightTooltip({
     })
 
     return (
-        <div className="InsightTooltip">
+        <div className={clsx('InsightTooltip', embedded && 'InsightTooltip--embedded')}>
             <LemonTable
                 dataSource={dataSource.slice(0, rowCutoff)}
                 columns={columns}

@@ -1,18 +1,21 @@
-import { kea } from 'kea'
-import type { definitionPopoverLogicType } from './definitionPopoverLogicType'
-import { TaxonomicDefinitionTypes, TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
-import { capitalizeFirstLetter } from 'lib/utils'
-import { getSingularType } from 'lib/components/DefinitionPopover/utils'
-import { ActionType, AvailableFeature, CohortType, EventDefinition, PropertyDefinition } from '~/types'
-import { urls } from 'scenes/urls'
-import api from 'lib/api'
-import { actionsModel } from '~/models/actionsModel'
-import { updatePropertyDefinitions } from '~/models/propertyDefinitionsModel'
-import { cohortsModel } from '~/models/cohortsModel'
 import equal from 'fast-deep-equal'
-import { userLogic } from 'scenes/userLogic'
-import { lemonToast } from 'lib/lemon-ui/lemonToast'
+import { actions, connect, events, kea, listeners, path, props, reducers, selectors } from 'kea'
+import { loaders } from 'kea-loaders'
+import api from 'lib/api'
+import { getSingularType } from 'lib/components/DefinitionPopover/utils'
+import { TaxonomicDefinitionTypes, TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
+import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
+import { capitalizeFirstLetter } from 'lib/utils'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
+import { urls } from 'scenes/urls'
+import { userLogic } from 'scenes/userLogic'
+
+import { actionsModel } from '~/models/actionsModel'
+import { cohortsModel } from '~/models/cohortsModel'
+import { updatePropertyDefinitions } from '~/models/propertyDefinitionsModel'
+import { ActionType, AvailableFeature, CohortType, EventDefinition, PropertyDefinition } from '~/types'
+
+import type { definitionPopoverLogicType } from './definitionPopoverLogicType'
 
 const IS_TEST_MODE = process.env.NODE_ENV === 'test'
 
@@ -33,35 +36,20 @@ export interface DefinitionPopoverLogicProps {
     openDetailInNewTab?: boolean
 }
 
-export const definitionPopoverLogic = kea<definitionPopoverLogicType>({
-    props: {} as DefinitionPopoverLogicProps,
-    connect: {
+export const definitionPopoverLogic = kea<definitionPopoverLogicType>([
+    props({} as DefinitionPopoverLogicProps),
+    path(['lib', 'components', 'DefinitionPanel', 'definitionPopoverLogic']),
+    connect({
         values: [userLogic, ['hasAvailableFeature']],
-    },
-    path: ['lib', 'components', 'DefinitionPanel', 'definitionPopoverLogic'],
-    actions: {
+    }),
+    actions({
         setDefinition: (item: Partial<TaxonomicDefinitionTypes>) => ({ item }),
         setLocalDefinition: (item: Partial<TaxonomicDefinitionTypes>) => ({ item }),
         setPopoverState: (state: DefinitionPopoverState) => ({ state }),
         handleCancel: true,
         recordHoverActivity: true,
-    },
-    reducers: {
-        state: [
-            DefinitionPopoverState.View as DefinitionPopoverState,
-            {
-                setPopoverState: (_, { state }) => state,
-            },
-        ],
-        localDefinition: [
-            {} as Partial<TaxonomicDefinitionTypes>,
-            {
-                setDefinition: (_, { item }) => item,
-                setLocalDefinition: (state, { item }) => ({ ...state, ...item } as Partial<TaxonomicDefinitionTypes>),
-            },
-        ],
-    },
-    loaders: ({ values, props, cache }) => ({
+    }),
+    loaders(({ values, props, cache }) => ({
         definition: [
             {} as Partial<TaxonomicDefinitionTypes>,
             {
@@ -121,8 +109,23 @@ export const definitionPopoverLogic = kea<definitionPopoverLogicType>({
                 },
             },
         ],
+    })),
+    reducers({
+        state: [
+            DefinitionPopoverState.View as DefinitionPopoverState,
+            {
+                setPopoverState: (_, { state }) => state,
+            },
+        ],
+        localDefinition: [
+            {} as Partial<TaxonomicDefinitionTypes>,
+            {
+                setDefinition: (_, { item }) => item,
+                setLocalDefinition: (state, { item }) => ({ ...state, ...item } as Partial<TaxonomicDefinitionTypes>),
+            },
+        ],
     }),
-    selectors: {
+    selectors({
         type: [() => [(_, props) => props.type], (type) => type],
         hideView: [() => [(_, props) => props.hideView], (hideView) => hideView ?? false],
         hideEdit: [() => [(_, props) => props.hideEdit], (hideEdit) => hideEdit ?? false],
@@ -175,10 +178,10 @@ export const definitionPopoverLogic = kea<definitionPopoverLogicType>({
                     TaxonomicFilterGroupType.EventProperties,
                     TaxonomicFilterGroupType.EventFeatureFlags,
                     TaxonomicFilterGroupType.NumericalEventProperties,
+                    TaxonomicFilterGroupType.Metadata,
                 ].includes(type) || type.startsWith(TaxonomicFilterGroupType.GroupsPrefix),
         ],
         isCohort: [(s) => [s.type], (type) => type === TaxonomicFilterGroupType.Cohorts],
-        isElement: [(s) => [s.type], (type) => type === TaxonomicFilterGroupType.Elements],
         viewFullDetailUrl: [
             (s) => [s.definition, s.isAction, s.isEvent, s.isProperty, s.isCohort],
             (definition, isAction, isEvent, isProperty, isCohort) => {
@@ -198,8 +201,8 @@ export const definitionPopoverLogic = kea<definitionPopoverLogicType>({
                 return undefined
             },
         ],
-    },
-    listeners: ({ actions, selectors, values, props, cache }) => ({
+    }),
+    listeners(({ actions, selectors, values, props, cache }) => ({
         setDefinition: (_, __, ___, previousState) => {
             // Reset definition popover to view mode if context is switched
             if (
@@ -247,10 +250,10 @@ export const definitionPopoverLogic = kea<definitionPopoverLogicType>({
             await breakpoint(IS_TEST_MODE ? 1 : 1000) // Tests will wait for all breakpoints to finish
             eventUsageLogic.findMounted()?.actions?.reportDataManagementDefinitionHovered(values.type)
         },
-    }),
-    events: ({ actions }) => ({
+    })),
+    events(({ actions }) => ({
         afterMount: () => {
             actions.recordHoverActivity()
         },
-    }),
-})
+    })),
+])

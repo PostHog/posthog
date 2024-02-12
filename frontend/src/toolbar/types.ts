@@ -1,5 +1,4 @@
 import { ActionStepType, ActionType, ElementType } from '~/types'
-import { NamePath, StoreValue } from 'rc-field-form/es/interface'
 
 export type ElementsEventType = {
     count: number
@@ -62,12 +61,4 @@ export interface ActionStepForm extends ActionStepType {
 
 export interface ActionForm extends ActionDraftType {
     steps?: ActionStepForm[]
-}
-
-export interface AntdFieldData {
-    touched?: boolean
-    validating?: boolean
-    errors?: string[]
-    value?: StoreValue
-    name: NamePath
 }

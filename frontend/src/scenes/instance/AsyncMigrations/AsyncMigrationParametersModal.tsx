@@ -1,12 +1,13 @@
-import { useState } from 'react'
+import { Link } from '@posthog/lemon-ui'
 import { useActions } from 'kea'
-import { AsyncMigrationModalProps, asyncMigrationsLogic } from 'scenes/instance/AsyncMigrations/asyncMigrationsLogic'
-import { LemonButton } from 'lib/lemon-ui/LemonButton'
-import { asyncMigrationParameterFormLogic } from 'scenes/instance/AsyncMigrations/asyncMigrationParameterFormLogic'
 import { Field, Form } from 'kea-forms'
-import { LemonInput } from 'lib/lemon-ui/LemonInput/LemonInput'
 import { AnimatedCollapsible } from 'lib/components/AnimatedCollapsible'
+import { LemonButton } from 'lib/lemon-ui/LemonButton'
+import { LemonInput } from 'lib/lemon-ui/LemonInput/LemonInput'
 import { LemonModal } from 'lib/lemon-ui/LemonModal'
+import { useState } from 'react'
+import { asyncMigrationParameterFormLogic } from 'scenes/instance/AsyncMigrations/asyncMigrationParameterFormLogic'
+import { AsyncMigrationModalProps, asyncMigrationsLogic } from 'scenes/instance/AsyncMigrations/asyncMigrationsLogic'
 
 export function AsyncMigrationParametersModal(props: AsyncMigrationModalProps): JSX.Element {
     const { closeAsyncMigrationsModal } = useActions(asyncMigrationsLogic)
@@ -32,13 +33,13 @@ export function AsyncMigrationParametersModal(props: AsyncMigrationModalProps): 
                         {collapsed && (
                             <>
                                 <br />
-                                <a
+                                <Link
                                     onClick={() => {
                                         setCollapsed(!collapsed)
                                     }}
                                 >
                                     Click here to show advanced configuration.
-                                </a>
+                                </Link>
                             </>
                         )}
                     </p>

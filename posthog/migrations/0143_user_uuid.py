@@ -17,7 +17,6 @@ def backwards(app, schema_editor):
 
 
 class Migration(migrations.Migration):
-
     dependencies = [
         ("posthog", "0142_fix_team_data_attributes_default"),
     ]

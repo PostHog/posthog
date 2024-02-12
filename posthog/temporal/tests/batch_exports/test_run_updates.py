@@ -10,7 +10,7 @@ from posthog.models import (
     Organization,
     Team,
 )
-from posthog.temporal.workflows.base import (
+from posthog.temporal.batch_exports.batch_exports import (
     CreateBatchExportRunInputs,
     UpdateBatchExportRunStatusInputs,
     create_export_run,
@@ -49,7 +49,6 @@ def destination(team):
             "bucket_name": "bucket",
             "region": "us-east-1",
             "prefix": "posthog-events/",
-            "batch_window_size": 3600,
             "aws_access_key_id": "key_id",
             "aws_secret_access_key": "secret",
         },
@@ -123,6 +122,7 @@ async def test_update_export_run_status(activity_environment, team, batch_export
     update_inputs = UpdateBatchExportRunStatusInputs(
         id=str(run_id),
         status="Completed",
+        team_id=inputs.team_id,
     )
     await activity_environment.run(update_export_run_status, update_inputs)
 

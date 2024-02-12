@@ -1,13 +1,14 @@
 import { Meta } from '@storybook/react'
-
-import { useEffect } from 'react'
-import { mswDecorator } from '~/mocks/browser'
-import eventsQuery from './__mocks__/eventsQuery.json'
 import { router } from 'kea-router'
-import { urls } from 'scenes/urls'
+import { useEffect } from 'react'
 import { App } from 'scenes/App'
+import { urls } from 'scenes/urls'
 
-export default {
+import { mswDecorator } from '~/mocks/browser'
+
+import eventsQuery from './__mocks__/eventsQuery.json'
+
+const meta: Meta = {
     title: 'Scenes-App/Events',
     decorators: [
         mswDecorator({
@@ -18,15 +19,14 @@ export default {
     ],
     parameters: {
         layout: 'fullscreen',
-        options: { showPanel: false },
         testOptions: {
             excludeNavigationFromSnapshot: true,
         },
         viewMode: 'story',
         mockDate: '2023-01-28', // To stabilize relative dates
     },
-} as Meta
-
+}
+export default meta
 export const EventExplorer = (): JSX.Element => {
     useEffect(() => {
         router.actions.push(urls.events())

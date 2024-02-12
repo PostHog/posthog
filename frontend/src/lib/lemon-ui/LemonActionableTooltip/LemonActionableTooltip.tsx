@@ -1,9 +1,10 @@
-import { Placement } from '@floating-ui/react'
-import { Popover } from 'lib/lemon-ui/Popover/Popover'
-import { IconOpenInNew } from 'lib/lemon-ui/icons'
-import { IconClose, IconChevronLeft, IconChevronRight } from 'lib/lemon-ui/icons'
-import { LemonButton } from '@posthog/lemon-ui'
 import './LemonActionableTooltip.scss'
+
+import { Placement } from '@floating-ui/react'
+import { LemonButton } from '@posthog/lemon-ui'
+import { IconOpenInNew } from 'lib/lemon-ui/icons'
+import { IconChevronLeft, IconChevronRight, IconClose } from 'lib/lemon-ui/icons'
+import { Popover } from 'lib/lemon-ui/Popover/Popover'
 
 export type LemonActionableTooltipProps = {
     title?: string
@@ -58,7 +59,6 @@ export const LemonActionableTooltip = ({
                                         onClick={previous}
                                         disabled={step === 0}
                                         size="small"
-                                        status="muted"
                                         type="secondary"
                                         icon={<IconChevronLeft />}
                                     />
@@ -70,7 +70,6 @@ export const LemonActionableTooltip = ({
                                         onClick={next}
                                         disabled={step === maxSteps - 1}
                                         size="small"
-                                        status="muted"
                                         type="secondary"
                                         icon={<IconChevronRight />}
                                     />
@@ -78,7 +77,7 @@ export const LemonActionableTooltip = ({
                             )}
                         </div>
                         <div>
-                            <LemonButton size="small" status="stealth" onClick={close}>
+                            <LemonButton size="small" onClick={close}>
                                 <IconClose />
                             </LemonButton>
                         </div>

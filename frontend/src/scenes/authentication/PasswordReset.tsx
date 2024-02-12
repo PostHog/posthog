@@ -1,18 +1,19 @@
 /*
 Scene to request a password reset email.
 */
-import { useActions, useValues } from 'kea'
-import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
-import { CodeSnippet, Language } from 'lib/components/CodeSnippet'
-import { passwordResetLogic } from './passwordResetLogic'
-import { router } from 'kea-router'
-import { SceneExport } from 'scenes/sceneTypes'
-import { Spinner } from 'lib/lemon-ui/Spinner/Spinner'
 import { LemonButton, LemonDivider, LemonInput, Link } from '@posthog/lemon-ui'
+import { useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
-import { Field } from 'lib/forms/Field'
+import { router } from 'kea-router'
 import { BridgePage } from 'lib/components/BridgePage/BridgePage'
+import { CodeSnippet, Language } from 'lib/components/CodeSnippet'
+import { Field } from 'lib/forms/Field'
 import { IconCheckCircleOutline, IconErrorOutline } from 'lib/lemon-ui/icons'
+import { Spinner } from 'lib/lemon-ui/Spinner/Spinner'
+import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
+import { SceneExport } from 'scenes/sceneTypes'
+
+import { passwordResetLogic } from './passwordResetLogic'
 import { SupportModalButton } from './SupportModalButton'
 
 export const scene: SceneExport = {
@@ -67,16 +68,16 @@ function EmailUnavailable(): JSX.Element {
                     <ul>
                         <li>
                             Password reset is unavailable because email service is not configured.{' '}
-                            <a href="https://posthog.com/docs/self-host/configure/email?utm_medium=in-product&utm_campaign=password-reset">
+                            <Link to="https://posthog.com/docs/self-host/configure/email?utm_medium=in-product&utm_campaign=password-reset">
                                 Read the docs
-                            </a>{' '}
+                            </Link>{' '}
                             on how to set this up.
                         </li>
                         <li>To reset the password manually, run the following command in your instance.</li>
                     </ul>
                 </p>
                 <CodeSnippet language={Language.Bash} wrap>
-                    {'python manage.py changepassword [account email]'}
+                    python manage.py changepassword [account email]
                 </CodeSnippet>
             </div>
         </div>
@@ -87,7 +88,7 @@ function ResetForm(): JSX.Element {
     const { isRequestPasswordResetSubmitting } = useValues(passwordResetLogic)
 
     return (
-        <Form logic={passwordResetLogic} formKey={'requestPasswordReset'} className="space-y-4" enableFormOnSubmit>
+        <Form logic={passwordResetLogic} formKey="requestPasswordReset" className="space-y-4" enableFormOnSubmit>
             <div className="text-center">
                 Enter your email address. If an account exists, you’ll receive an email with a password reset link soon.
             </div>
@@ -104,10 +105,12 @@ function ResetForm(): JSX.Element {
             <LemonButton
                 fullWidth
                 type="primary"
+                status="alt"
                 center
                 htmlType="submit"
                 data-attr="password-reset"
                 loading={isRequestPasswordResetSubmitting}
+                size="large"
             >
                 Continue
             </LemonButton>
@@ -124,7 +127,15 @@ function ResetSuccess(): JSX.Element {
             Request received successfully! If the email <b>{requestPasswordReset?.email || 'you typed'}</b> exists,
             you’ll receive an email with a reset link soon.
             <div className="mt-4">
-                <LemonButton type="primary" data-attr="back-to-login" center fullWidth onClick={() => push('/login')}>
+                <LemonButton
+                    type="primary"
+                    status="alt"
+                    data-attr="back-to-login"
+                    center
+                    fullWidth
+                    onClick={() => push('/login')}
+                    size="large"
+                >
                     Back to login
                 </LemonButton>
             </div>
@@ -145,7 +156,15 @@ function ResetThrottled(): JSX.Element {
             </Link>{' '}
             if you think this has been a mistake.
             <div className="mt-4">
-                <LemonButton type="primary" data-attr="back-to-login" center fullWidth onClick={() => push('/login')}>
+                <LemonButton
+                    type="primary"
+                    status="alt"
+                    data-attr="back-to-login"
+                    center
+                    fullWidth
+                    onClick={() => push('/login')}
+                    size="large"
+                >
                     Back to login
                 </LemonButton>
             </div>

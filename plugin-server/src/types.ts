@@ -2,39 +2,37 @@ import { ReaderModel } from '@maxmind/geoip2-node'
 import ClickHouse from '@posthog/clickhouse'
 import {
     Element,
-    Meta,
     PluginAttachment,
     PluginConfigSchema,
     PluginEvent,
     PluginSettings,
+    PostHogEvent,
     ProcessedPluginEvent,
     Properties,
+    Webhook,
 } from '@posthog/plugin-scaffold'
 import { Pool as GenericPool } from 'generic-pool'
-import { StatsD } from 'hot-shots'
 import { Redis } from 'ioredis'
 import { Kafka } from 'kafkajs'
 import { DateTime } from 'luxon'
 import { Job } from 'node-schedule'
-import { Pool } from 'pg'
 import { VM } from 'vm2'
+import { RustyHook } from 'worker/rusty-hook'
 
 import { ObjectStorage } from './main/services/object_storage'
 import { DB } from './utils/db/db'
 import { KafkaProducerWrapper } from './utils/db/kafka-producer-wrapper'
+import { PostgresRouter } from './utils/db/postgres'
 import { UUID } from './utils/utils'
 import { AppMetrics } from './worker/ingestion/app-metrics'
-import { EventPipelineResult } from './worker/ingestion/event-pipeline/runner'
 import { OrganizationManager } from './worker/ingestion/organization-manager'
 import { EventsProcessor } from './worker/ingestion/process-event'
 import { TeamManager } from './worker/ingestion/team-manager'
 import { PluginsApiKeyManager } from './worker/vm/extensions/helpers/api-key-manager'
 import { RootAccessManager } from './worker/vm/extensions/helpers/root-acess-manager'
 import { LazyPluginVM } from './worker/vm/lazy'
-import { PromiseManager } from './worker/vm/promise-manager'
 
-/** Re-export Element from scaffolding, for backwards compat. */
-export { Element } from '@posthog/plugin-scaffold'
+export { Element } from '@posthog/plugin-scaffold' // Re-export Element from scaffolding, for backwards compat.
 
 type Brand<K, T> = K & { __brand: T }
 
@@ -78,8 +76,8 @@ export enum PluginServerMode {
     jobs = 'jobs',
     scheduler = 'scheduler',
     analytics_ingestion = 'analytics-ingestion',
-    recordings_ingestion = 'recordings-ingestion',
     recordings_blob_ingestion = 'recordings-blob-ingestion',
+    person_overrides = 'person-overrides',
 }
 
 export const stringToPluginServerMode = Object.fromEntries(
@@ -96,6 +94,9 @@ export interface PluginsServerConfig {
     INGESTION_BATCH_SIZE: number // kafka consumer batch size
     TASK_TIMEOUT: number // how many seconds until tasks are timed out
     DATABASE_URL: string // Postgres database URL
+    DATABASE_READONLY_URL: string // Optional read-only replica to the main Postgres database
+    PLUGIN_STORAGE_DATABASE_URL: string // Optional read-write Postgres database for plugin storage
+    POSTGRES_CONNECTION_POOL_SIZE: number
     POSTHOG_DB_NAME: string | null
     POSTHOG_DB_USER: string
     POSTHOG_DB_PASSWORD: string
@@ -126,7 +127,6 @@ export interface PluginsServerConfig {
     KAFKA_SASL_USER: string | undefined
     KAFKA_SASL_PASSWORD: string | undefined
     KAFKA_CLIENT_RACK: string | undefined
-    KAFKA_CONSUMPTION_USE_RDKAFKA: boolean
     KAFKA_CONSUMPTION_MAX_BYTES: number
     KAFKA_CONSUMPTION_MAX_BYTES_PER_PARTITION: number
     KAFKA_CONSUMPTION_MAX_WAIT_MS: number // fetch.wait.max.ms rdkafka parameter
@@ -136,20 +136,22 @@ export interface PluginsServerConfig {
     KAFKA_CONSUMPTION_OVERFLOW_TOPIC: string | null
     KAFKA_CONSUMPTION_REBALANCE_TIMEOUT_MS: number | null
     KAFKA_CONSUMPTION_SESSION_TIMEOUT_MS: number
-    KAFKA_PRODUCER_MAX_QUEUE_SIZE: number
-    KAFKA_PRODUCER_WAIT_FOR_ACK: boolean
-    KAFKA_MAX_MESSAGE_BATCH_SIZE: number
+    KAFKA_CONSUMPTION_MAX_POLL_INTERVAL_MS: number
+    KAFKA_TOPIC_CREATION_TIMEOUT_MS: number
+    KAFKA_PRODUCER_LINGER_MS: number // linger.ms rdkafka parameter
+    KAFKA_PRODUCER_BATCH_SIZE: number // batch.size rdkafka parameter
+    KAFKA_PRODUCER_QUEUE_BUFFERING_MAX_MESSAGES: number // queue.buffering.max.messages rdkafka parameter
     KAFKA_FLUSH_FREQUENCY_MS: number
     APP_METRICS_FLUSH_FREQUENCY_MS: number
+    APP_METRICS_FLUSH_MAX_QUEUE_SIZE: number
     BASE_DIR: string // base path for resolving local plugins
     PLUGINS_RELOAD_PUBSUB_CHANNEL: string // Redis channel for reload events'
+    PLUGINS_DEFAULT_LOG_LEVEL: PluginLogLevel
     LOG_LEVEL: LogLevel
     SENTRY_DSN: string | null
     SENTRY_PLUGIN_SERVER_TRACING_SAMPLE_RATE: number // Rate of tracing in plugin server (between 0 and 1)
     SENTRY_PLUGIN_SERVER_PROFILING_SAMPLE_RATE: number // Rate of profiling in plugin server (between 0 and 1)
-    STATSD_HOST: string | null
-    STATSD_PORT: number
-    STATSD_PREFIX: string
+    HTTP_SERVER_PORT: number
     SCHEDULE_LOCK_TTL: number // how many seconds to hold the lock for the schedule
     DISABLE_MMDB: boolean // whether to disable fetching MaxMind database for IP location
     DISTINCT_ID_LRU_SIZE: number
@@ -169,7 +171,6 @@ export interface PluginsServerConfig {
     PISCINA_USE_ATOMICS: boolean // corresponds to the piscina useAtomics config option (https://github.com/piscinajs/piscina#constructor-new-piscinaoptions)
     PISCINA_ATOMICS_TIMEOUT: number // (advanced) corresponds to the length of time a piscina worker should block for when looking for tasks
     SITE_URL: string | null
-    MAX_PENDING_PROMISES_PER_WORKER: number // (advanced) maximum number of promises that a worker can have running at once in the background. currently only targets the exportEvents buffer.
     KAFKA_PARTITIONS_CONSUMED_CONCURRENTLY: number // (advanced) how many kafka partitions the plugin server should consume from concurrently
     RECORDING_PARTITIONS_CONSUMED_CONCURRENTLY: number
     CONVERSION_BUFFER_ENABLED: boolean
@@ -185,17 +186,33 @@ export interface PluginsServerConfig {
     OBJECT_STORAGE_SECRET_ACCESS_KEY: string
     OBJECT_STORAGE_BUCKET: string // the object storage bucket name
     PLUGIN_SERVER_MODE: PluginServerMode | null
+    PLUGIN_LOAD_SEQUENTIALLY: boolean // could help with reducing memory usage spikes on startup
     KAFKAJS_LOG_LEVEL: 'NOTHING' | 'DEBUG' | 'INFO' | 'WARN' | 'ERROR'
-    HISTORICAL_EXPORTS_ENABLED: boolean // enables historical exports for export apps
-    HISTORICAL_EXPORTS_MAX_RETRY_COUNT: number
-    HISTORICAL_EXPORTS_INITIAL_FETCH_TIME_WINDOW: number
-    HISTORICAL_EXPORTS_FETCH_WINDOW_MULTIPLIER: number
     APP_METRICS_GATHERED_FOR_ALL: boolean // whether to gather app metrics for all teams
     MAX_TEAM_ID_TO_BUFFER_ANONYMOUS_EVENTS_FOR: number
     USE_KAFKA_FOR_SCHEDULED_TASKS: boolean // distribute scheduled tasks across the scheduler workers
     EVENT_OVERFLOW_BUCKET_CAPACITY: number
     EVENT_OVERFLOW_BUCKET_REPLENISH_RATE: number
-    CLOUD_DEPLOYMENT: string
+    /** Label of the PostHog Cloud environment. Null if not running PostHog Cloud. @example 'US' */
+    CLOUD_DEPLOYMENT: string | null
+    EXTERNAL_REQUEST_TIMEOUT_MS: number
+    DROP_EVENTS_BY_TOKEN_DISTINCT_ID: string
+    DROP_EVENTS_BY_TOKEN: string
+    POE_EMBRACE_JOIN_FOR_TEAMS: string
+    POE_WRITES_ENABLED_MAX_TEAM_ID: number
+    POE_WRITES_EXCLUDE_TEAMS: string
+    RELOAD_PLUGIN_JITTER_MAX_MS: number
+    RUSTY_HOOK_FOR_TEAMS: string
+    RUSTY_HOOK_ROLLOUT_PERCENTAGE: number
+    RUSTY_HOOK_URL: string
+    SKIP_UPDATE_EVENT_AND_PROPERTIES_STEP: boolean
+
+    // dump profiles to disk, covering the first N seconds of runtime
+    STARTUP_PROFILE_DURATION_SECONDS: number
+    STARTUP_PROFILE_CPU: boolean
+    STARTUP_PROFILE_HEAP: boolean
+    STARTUP_PROFILE_HEAP_INTERVAL: number
+    STARTUP_PROFILE_HEAP_DEPTH: number
 
     // local directory might be a volume mount or a directory on disk (e.g. in local dev)
     SESSION_RECORDING_LOCAL_DIRECTORY: string
@@ -204,13 +221,20 @@ export interface PluginsServerConfig {
     SESSION_RECORDING_BUFFER_AGE_IN_MEMORY_MULTIPLIER: number
     SESSION_RECORDING_BUFFER_AGE_JITTER: number
     SESSION_RECORDING_REMOTE_FOLDER: string
-    SESSION_RECORDING_REDIS_OFFSET_STORAGE_KEY: string
+    SESSION_RECORDING_REDIS_PREFIX: string
+    SESSION_RECORDING_PARTITION_REVOKE_OPTIMIZATION: boolean
+    SESSION_RECORDING_PARALLEL_CONSUMPTION: boolean
+    SESSION_RECORDING_CONSOLE_LOGS_INGESTION_ENABLED: boolean
+    // a single partition which will output many more log messages to the console
+    // useful when that partition is lagging unexpectedly
+    SESSION_RECORDING_DEBUG_PARTITION: string | undefined
 
     // Dedicated infra values
     SESSION_RECORDING_KAFKA_HOSTS: string | undefined
     SESSION_RECORDING_KAFKA_SECURITY_PROTOCOL: KafkaSecurityProtocol | undefined
     SESSION_RECORDING_KAFKA_BATCH_SIZE: number
     SESSION_RECORDING_KAFKA_QUEUE_SIZE: number
+
     POSTHOG_SESSION_RECORDING_REDIS_HOST: string | undefined
     POSTHOG_SESSION_RECORDING_REDIS_PORT: number | undefined
 }
@@ -219,16 +243,15 @@ export interface Hub extends PluginsServerConfig {
     instanceId: UUID
     // what tasks this server will tackle - e.g. ingestion, scheduled plugins or others.
     capabilities: PluginServerCapabilities
-    // active connections to Postgres, Redis, ClickHouse, Kafka, StatsD
+    // active connections to Postgres, Redis, ClickHouse, Kafka
     db: DB
-    postgres: Pool
+    postgres: PostgresRouter
     redisPool: GenericPool<Redis>
     clickhouse: ClickHouse
     kafka: Kafka
     kafkaProducer: KafkaProducerWrapper
     objectStorage: ObjectStorage
     // metrics
-    statsd?: StatsD
     pluginMetricsJob: Job | undefined
     // currently enabled plugin status
     plugins: Map<PluginId, Plugin>
@@ -243,9 +266,9 @@ export interface Hub extends PluginsServerConfig {
     organizationManager: OrganizationManager
     pluginsApiKeyManager: PluginsApiKeyManager
     rootAccessManager: RootAccessManager
-    promiseManager: PromiseManager
     eventsProcessor: EventsProcessor
     appMetrics: AppMetrics
+    rustyHook: RustyHook
     // geoip database, setup in workers
     mmdb?: ReaderModel
     // diagnostics
@@ -255,9 +278,17 @@ export interface Hub extends PluginsServerConfig {
     conversionBufferEnabledTeams: Set<number>
     // functions
     enqueuePluginJob: (job: EnqueuedPluginJob) => Promise<void>
+    // ValueMatchers used for various opt-in/out features
+    pluginConfigsToSkipElementsParsing: ValueMatcher<number>
+    poeEmbraceJoinForTeams: ValueMatcher<number>
+    poeWritesExcludeTeams: ValueMatcher<number>
+    // lookups
+    eventsToDropByToken: Map<string, string[]>
 }
 
 export interface PluginServerCapabilities {
+    // Warning: when adding more entries, make sure to update worker/vm/capabilities.ts
+    // and the shouldSetupPluginInServer() test accordingly.
     ingestion?: boolean
     ingestionOverflow?: boolean
     ingestionHistorical?: boolean
@@ -265,8 +296,10 @@ export interface PluginServerCapabilities {
     processPluginJobs?: boolean
     processAsyncOnEventHandlers?: boolean
     processAsyncWebhooksHandlers?: boolean
-    sessionRecordingIngestion?: boolean
     sessionRecordingBlobIngestion?: boolean
+    personOverrides?: boolean
+    appManagementSingleton?: boolean
+    preflightSchedules?: boolean // Used for instance health checks on hobby deploy, not useful on cloud
     http?: boolean
     mmdb?: boolean
 }
@@ -354,6 +387,11 @@ export interface PluginCapabilities {
     methods?: string[]
 }
 
+export enum PluginMethod {
+    onEvent = 'onEvent',
+    composeWebhook = 'composeWebhook',
+}
+
 export interface PluginConfig {
     id: number
     team_id: TeamId
@@ -362,11 +400,14 @@ export interface PluginConfig {
     enabled: boolean
     order: number
     config: Record<string, unknown>
-    has_error: boolean
     attachments?: Record<string, PluginAttachment>
     vm?: LazyPluginVM | null
     created_at: string
     updated_at?: string
+    // We're migrating to a new functions that take PostHogEvent instead of PluginEvent
+    // we'll need to know which method this plugin is using to call it the right way
+    // undefined for old plugins with multiple or deprecated methods
+    method?: PluginMethod
 }
 
 export interface PluginJsonConfig {
@@ -383,7 +424,7 @@ export interface PluginError {
     time: string
     name?: string
     stack?: string
-    event?: PluginEvent | ProcessedPluginEvent | null
+    event?: PluginEvent | ProcessedPluginEvent | PostHogEvent | null
 }
 
 export interface PluginAttachmentDB {
@@ -413,9 +454,10 @@ export enum PluginLogEntryType {
 
 export enum PluginLogLevel {
     Full = 0, // all logs
-    Debug = 1, // all except log
-    Warn = 2, // all except log and info
-    Critical = 3, // only error type and system source
+    Log = 1, // all except debug
+    Info = 2, // all expect log and debug
+    Warn = 3, // all except log, debug and info
+    Critical = 4, // only error type and system source
 }
 
 export interface PluginLogEntry {
@@ -428,12 +470,6 @@ export interface PluginLogEntry {
     type: PluginLogEntryType
     message: string
     instance_id: string
-}
-
-export enum PluginSourceFileStatus {
-    Transpiled = 'TRANSPILED',
-    Locked = 'LOCKED',
-    Error = 'ERROR',
 }
 
 export enum PluginTaskType {
@@ -449,17 +485,12 @@ export interface PluginTask {
     __ignoreForAppMetrics?: boolean
 }
 
-export type WorkerMethods = {
-    runAppsOnEventPipeline: (event: PostIngestionEvent) => Promise<void>
-    runEventPipeline: (event: PipelineEvent) => Promise<EventPipelineResult>
-}
-
 export type VMMethods = {
     setupPlugin?: () => Promise<void>
     teardownPlugin?: () => Promise<void>
     getSettings?: () => PluginSettings
     onEvent?: (event: ProcessedPluginEvent) => Promise<void>
-    exportEvents?: (events: PluginEvent[]) => Promise<void>
+    composeWebhook?: (event: PostHogEvent) => Webhook | null
     processEvent?: (event: PluginEvent) => Promise<PluginEvent>
 }
 
@@ -491,12 +522,7 @@ export interface PluginConfigVMResponse {
     methods: VMMethods
     tasks: Record<PluginTaskType, Record<string, PluginTask>>
     vmResponseVariable: string
-}
-
-export interface PluginConfigVMInternalResponse<M extends Meta = Meta> {
-    methods: VMMethods
-    tasks: Record<PluginTaskType, Record<string, PluginTask>>
-    meta: M
+    usedImports: Set<string>
 }
 
 export interface EventUsage {
@@ -625,7 +651,6 @@ export interface ClickHouseEvent extends BaseEvent {
 interface BaseIngestionEvent {
     eventUuid: string
     event: string
-    ip: string | null
     teamId: TeamId
     distinctId: string
     properties: Properties
@@ -633,8 +658,15 @@ interface BaseIngestionEvent {
     elementsList: Element[]
 }
 
-/** Ingestion event before saving, currently just an alias of BaseIngestionEvent. */
-export type PreIngestionEvent = BaseIngestionEvent
+/** Ingestion event before saving, BaseIngestionEvent without elementsList */
+export interface PreIngestionEvent {
+    eventUuid: string
+    event: string
+    teamId: TeamId
+    distinctId: string
+    properties: Properties
+    timestamp: ISOTimestamp
+}
 
 /** Ingestion event after saving, currently just an alias of BaseIngestionEvent */
 export interface PostIngestionEvent extends BaseIngestionEvent {
@@ -886,6 +918,8 @@ export interface RawAction {
     is_calculating: boolean
     updated_at: string
     last_calculated_at: string
+    bytecode?: any[]
+    bytecode_error?: string
 }
 
 /** Usable Action model. */
@@ -904,6 +938,15 @@ export interface RawSessionRecordingEvent {
     window_id: string
     snapshot_data: string
     created_at: string
+}
+
+/** Raw session replay event row from ClickHouse. */
+export interface RawSessionReplayEvent {
+    min_first_timestamp: string
+    team_id: number
+    distinct_id: string
+    session_id: string
+    /* TODO what columns do we need */
 }
 
 export interface RawPerformanceEvent {
@@ -1134,4 +1177,8 @@ export type RRWebEvent = Record<string, any> & {
     timestamp: number
     type: number
     data: any
+}
+
+export interface ValueMatcher<T> {
+    (value: T): boolean
 }

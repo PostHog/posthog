@@ -1,36 +1,36 @@
 import './PlayerUpNext.scss'
-import { sessionRecordingPlayerLogic } from './sessionRecordingPlayerLogic'
-import { CSSTransition } from 'react-transition-group'
-import { useActions, useValues } from 'kea'
+
+import clsx from 'clsx'
+import { BuiltLogic, useActions, useValues } from 'kea'
 import { IconPlay } from 'lib/lemon-ui/icons'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { useEffect, useRef, useState } from 'react'
-import clsx from 'clsx'
-import { router } from 'kea-router'
+import { CSSTransition } from 'react-transition-group'
+
+import { sessionRecordingsPlaylistLogicType } from '../playlist/sessionRecordingsPlaylistLogicType'
+import { sessionRecordingPlayerLogic } from './sessionRecordingPlayerLogic'
 
 export interface PlayerUpNextProps {
+    playlistLogic: BuiltLogic<sessionRecordingsPlaylistLogicType>
     interrupted?: boolean
     clearInterrupted?: () => void
 }
 
-export function PlayerUpNext({ interrupted, clearInterrupted }: PlayerUpNextProps): JSX.Element | null {
+export function PlayerUpNext({ interrupted, clearInterrupted, playlistLogic }: PlayerUpNextProps): JSX.Element | null {
     const timeoutRef = useRef<any>()
-    const { endReached, logicProps } = useValues(sessionRecordingPlayerLogic)
+    const { endReached } = useValues(sessionRecordingPlayerLogic)
     const { reportNextRecordingTriggered } = useActions(sessionRecordingPlayerLogic)
     const [animate, setAnimate] = useState(false)
 
-    const nextSessionRecording = logicProps.nextSessionRecording
+    const { nextSessionRecording } = useValues(playlistLogic)
+    const { setSelectedRecordingId } = useActions(playlistLogic)
 
     const goToRecording = (automatic: boolean): void => {
+        if (!nextSessionRecording?.id) {
+            return
+        }
         reportNextRecordingTriggered(automatic)
-        router.actions.push(
-            router.values.currentLocation.pathname,
-            {
-                ...router.values.currentLocation.searchParams,
-                sessionRecordingId: nextSessionRecording?.id,
-            },
-            router.values.currentLocation.hashParams
-        )
+        setSelectedRecordingId(nextSessionRecording.id)
     }
 
     useEffect(() => {
@@ -60,7 +60,7 @@ export function PlayerUpNext({ interrupted, clearInterrupted }: PlayerUpNextProp
 
     return (
         <CSSTransition in={endReached} timeout={250} classNames="PlayerUpNext-" mountOnEnter unmountOnExit>
-            <Tooltip title={'Play the next recording (press enter)'}>
+            <Tooltip title="Play the next recording (press enter)">
                 <div className="PlayerUpNext">
                     <div
                         className={clsx('PlayerUpNextButton', animate && 'PlayerUpNextButton--animating')}

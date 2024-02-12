@@ -22,7 +22,7 @@ export async function startBackfill() {
     defaultConfig.PLUGIN_SERVER_MODE = null // Disable all consuming capabilities
     const noCapability = {}
     initApp(defaultConfig)
-    const [hub, closeHub] = await createHub(defaultConfig, null, noCapability)
+    const [hub, closeHub] = await createHub(defaultConfig, noCapability)
     status.info('🏁', 'Bootstraping done, starting to backfill')
 
     await runBackfill(hub)
@@ -101,7 +101,7 @@ async function retrieveEvents(
         WHERE _timestamp >= '${chTimestampLower}'
           AND _timestamp < '${chTimestampHigher}'
           AND timestamp >= '${chTimestampLowerTS}'
-          AND timestamp < '${chTimestampHigherTS}' 
+          AND timestamp < '${chTimestampHigherTS}'
           AND event IN ('$merge_dangerously', '$create_alias', '$identify')
           AND ((event = '$identify' and JSONExtractString(properties, '$anon_distinct_id') != '') OR
                (event != '$identify' and JSONExtractString(properties, 'alias') != ''))

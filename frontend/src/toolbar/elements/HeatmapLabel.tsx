@@ -1,5 +1,5 @@
-import { inBounds } from '~/toolbar/utils'
 import { ElementRect } from '~/toolbar/types'
+import { inBounds } from '~/toolbar/utils'
 
 const heatmapLabelStyle = {
     lineHeight: '14px',

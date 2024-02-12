@@ -1,17 +1,17 @@
+import './FunnelCorrelation.scss'
+
 import { useMountedLogic, useValues } from 'kea'
-
-import { insightLogic } from 'scenes/insights/insightLogic'
-import { funnelDataLogic } from 'scenes/funnels/funnelDataLogic'
-import { funnelCorrelationUsageLogic } from 'scenes/funnels/funnelCorrelationUsageLogic'
-
 import { PayGateMini } from 'lib/components/PayGateMini/PayGateMini'
-import { FunnelCorrelationSkewWarning } from './FunnelCorrelationSkewWarning'
-import { FunnelCorrelationTable } from './FunnelCorrelationTable'
-import { FunnelCorrelationFeedbackForm } from './FunnelCorrelationFeedbackForm'
-import { FunnelPropertyCorrelationTable } from './FunnelPropertyCorrelationTable'
+import { funnelCorrelationUsageLogic } from 'scenes/funnels/funnelCorrelationUsageLogic'
+import { funnelDataLogic } from 'scenes/funnels/funnelDataLogic'
+import { insightLogic } from 'scenes/insights/insightLogic'
+
 import { AvailableFeature } from '~/types'
 
-import './FunnelCorrelation.scss'
+import { FunnelCorrelationFeedbackForm } from './FunnelCorrelationFeedbackForm'
+import { FunnelCorrelationSkewWarning } from './FunnelCorrelationSkewWarning'
+import { FunnelCorrelationTable } from './FunnelCorrelationTable'
+import { FunnelPropertyCorrelationTable } from './FunnelPropertyCorrelationTable'
 
 export const FunnelCorrelation = (): JSX.Element | null => {
     const { insightProps } = useValues(insightLogic)

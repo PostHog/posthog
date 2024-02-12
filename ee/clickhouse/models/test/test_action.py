@@ -7,7 +7,13 @@ from posthog.models.action import Action
 from posthog.models.action.util import filter_event, format_action_filter
 from posthog.models.action_step import ActionStep
 from posthog.models.test.test_event_model import filter_by_actions_factory
-from posthog.test.base import BaseTest, ClickhouseTestMixin, _create_event, _create_person
+from posthog.test.base import (
+    BaseTest,
+    ClickhouseTestMixin,
+    _create_event,
+    _create_person,
+)
+from hogvm.python.operation import Operation as op, HOGQL_BYTECODE_IDENTIFIER as _H
 
 
 @dataclasses.dataclass
@@ -30,7 +36,11 @@ def _get_events_for_action(action: Action) -> List[MockEvent]:
         AND events.team_id = %(team_id)s
         ORDER BY events.timestamp DESC
     """
-    events = sync_execute(query, {"team_id": action.team_id, **params, **hogql_context.values}, team_id=action.team_id)
+    events = sync_execute(
+        query,
+        {"team_id": action.team_id, **params, **hogql_context.values},
+        team_id=action.team_id,
+    )
     return [MockEvent(str(uuid), distinct_id) for uuid, distinct_id in events]
 
 
@@ -38,7 +48,8 @@ EVENT_UUID_QUERY = "SELECT uuid FROM events WHERE {} AND team_id = %(team_id)s"
 
 
 class TestActions(
-    ClickhouseTestMixin, filter_by_actions_factory(_create_event, _create_person, _get_events_for_action)  # type: ignore
+    ClickhouseTestMixin,
+    filter_by_actions_factory(_create_event, _create_person, _get_events_for_action),  # type: ignore
 ):
     pass
 
@@ -68,7 +79,10 @@ class TestActionFormat(ClickhouseTestMixin, BaseTest):
 
         action1 = Action.objects.create(team=self.team, name="action1")
         step1 = ActionStep.objects.create(
-            event="$autocapture", action=action1, url="https://posthog.com/feedback/123", url_matching=ActionStep.EXACT
+            event="$autocapture",
+            action=action1,
+            url="https://posthog.com/feedback/123",
+            url_matching=ActionStep.EXACT,
         )
         query, params = filter_event(step1)
 
@@ -122,7 +136,6 @@ class TestActionFormat(ClickhouseTestMixin, BaseTest):
         )
 
     def test_filter_event_contains_url(self):
-
         _create_event(
             event="$autocapture",
             team=self.team,
@@ -153,7 +166,6 @@ class TestActionFormat(ClickhouseTestMixin, BaseTest):
         self.assertEqual(len(result), 2)
 
     def test_filter_event_regex_url(self):
-
         _create_event(
             event="$autocapture",
             team=self.team,
@@ -177,7 +189,10 @@ class TestActionFormat(ClickhouseTestMixin, BaseTest):
 
         action1 = Action.objects.create(team=self.team, name="action1")
         step1 = ActionStep.objects.create(
-            event="$autocapture", action=action1, url="/123", url_matching=ActionStep.REGEX
+            event="$autocapture",
+            action=action1,
+            url="/123",
+            url_matching=ActionStep.REGEX,
         )
         query, params = filter_event(step1)
 
@@ -187,26 +202,55 @@ class TestActionFormat(ClickhouseTestMixin, BaseTest):
 
     def test_double(self):
         # Tests a regression where the second step properties would override those of the first step, causing issues
-        _create_event(event="insight viewed", team=self.team, distinct_id="whatever", properties={"filters_count": 2})
+        _create_event(
+            event="insight viewed",
+            team=self.team,
+            distinct_id="whatever",
+            properties={"filters_count": 2},
+        )
 
         action1 = Action.objects.create(team=self.team, name="action1")
         ActionStep.objects.create(
             event="insight viewed",
             action=action1,
-            properties=[{"key": "insight", "type": "event", "value": ["RETENTION"], "operator": "exact"}],
+            properties=[
+                {
+                    "key": "insight",
+                    "type": "event",
+                    "value": ["RETENTION"],
+                    "operator": "exact",
+                }
+            ],
         )
         ActionStep.objects.create(
             event="insight viewed",
             action=action1,
-            properties=[{"key": "filters_count", "type": "event", "value": "1", "operator": "gt"}],
+            properties=[
+                {
+                    "key": "filters_count",
+                    "type": "event",
+                    "value": "1",
+                    "operator": "gt",
+                }
+            ],
         )
 
         events = _get_events_for_action(action1)
         self.assertEqual(len(events), 1)
 
     def test_filter_with_hogql(self):
-        _create_event(event="insight viewed", team=self.team, distinct_id="first", properties={"filters_count": 20})
-        _create_event(event="insight viewed", team=self.team, distinct_id="second", properties={"filters_count": 1})
+        _create_event(
+            event="insight viewed",
+            team=self.team,
+            distinct_id="first",
+            properties={"filters_count": 20},
+        )
+        _create_event(
+            event="insight viewed",
+            team=self.team,
+            distinct_id="second",
+            properties={"filters_count": 1},
+        )
 
         action1 = Action.objects.create(team=self.team, name="action1")
         ActionStep.objects.create(
@@ -217,3 +261,35 @@ class TestActionFormat(ClickhouseTestMixin, BaseTest):
 
         events = _get_events_for_action(action1)
         self.assertEqual(len(events), 1)
+
+        self.assertEqual(action1.bytecode, action1.generate_bytecode())
+        self.assertEqual(
+            action1.bytecode,
+            [
+                _H,
+                # toInt(properties.filters_count) > 10
+                op.INTEGER,
+                10,
+                op.STRING,
+                "filters_count",
+                op.STRING,
+                "properties",
+                op.FIELD,
+                2,
+                op.CALL,
+                "toInt",
+                1,
+                op.GT,
+                # event = 'insight viewed'
+                op.STRING,
+                "insight viewed",
+                op.STRING,
+                "event",
+                op.FIELD,
+                1,
+                op.EQ,
+                # and
+                op.AND,
+                2,
+            ],
+        )

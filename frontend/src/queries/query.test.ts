@@ -1,9 +1,10 @@
+import posthog from 'posthog-js'
+
+import { useMocks } from '~/mocks/jest'
 import { query, queryExportContext } from '~/queries/query'
 import { EventsQuery, HogQLQuery, NodeKind } from '~/queries/schema'
-import { PropertyFilterType, PropertyOperator } from '~/types'
 import { initKeaTests } from '~/test/init'
-import posthog from 'posthog-js'
-import { useMocks } from '~/mocks/jest'
+import { PropertyFilterType, PropertyOperator } from '~/types'
 
 describe('query', () => {
     beforeEach(() => {
@@ -67,7 +68,6 @@ describe('query', () => {
                     'timestamp',
                 ],
             },
-            max_limit: 10000,
         })
     })
 

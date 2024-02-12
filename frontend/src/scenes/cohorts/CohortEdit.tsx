@@ -1,37 +1,36 @@
-import { cohortEditLogic } from 'scenes/cohorts/cohortEditLogic'
+import { LemonDivider, LemonFileInput } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
-import { userLogic } from 'scenes/userLogic'
-import { CohortLogicProps } from 'scenes/cohorts/cohortLogic'
-import { PageHeader } from 'lib/components/PageHeader'
-import { LemonButton } from 'lib/lemon-ui/LemonButton'
-import { router } from 'kea-router'
-import { urls } from 'scenes/urls'
-import { Divider } from 'antd'
-import { Field } from 'lib/forms/Field'
-import { LemonInput } from 'lib/lemon-ui/LemonInput/LemonInput'
-import { LemonSelect } from 'lib/lemon-ui/LemonSelect'
-import { COHORT_TYPE_OPTIONS } from 'scenes/cohorts/CohortFilters/constants'
-import { CohortTypeEnum } from 'lib/constants'
-import { AvailableFeature } from '~/types'
-import { LemonTextArea } from 'lib/lemon-ui/LemonTextArea/LemonTextArea'
-import Dragger from 'antd/lib/upload/Dragger'
-import { UploadFile } from 'antd/es/upload/interface'
-import { IconUploadFile } from 'lib/lemon-ui/icons'
-import { CohortCriteriaGroups } from 'scenes/cohorts/CohortFilters/CohortCriteriaGroups'
-import { Spinner } from 'lib/lemon-ui/Spinner/Spinner'
-import { LemonLabel } from 'lib/lemon-ui/LemonLabel/LemonLabel'
 import { Form } from 'kea-forms'
+import { router } from 'kea-router'
 import { NotFound } from 'lib/components/NotFound'
-import { Query } from '~/queries/Query/Query'
+import { PageHeader } from 'lib/components/PageHeader'
+import { CohortTypeEnum } from 'lib/constants'
+import { Field } from 'lib/forms/Field'
+import { IconUploadFile } from 'lib/lemon-ui/icons'
+import { LemonButton } from 'lib/lemon-ui/LemonButton'
+import { More } from 'lib/lemon-ui/LemonButton/More'
+import { LemonInput } from 'lib/lemon-ui/LemonInput/LemonInput'
+import { LemonLabel } from 'lib/lemon-ui/LemonLabel/LemonLabel'
+import { LemonSelect } from 'lib/lemon-ui/LemonSelect'
+import { LemonTextArea } from 'lib/lemon-ui/LemonTextArea/LemonTextArea'
+import { Spinner } from 'lib/lemon-ui/Spinner/Spinner'
 import { pluralize } from 'lib/utils'
-import { LemonDivider } from '@posthog/lemon-ui'
+import { cohortEditLogic, CohortLogicProps } from 'scenes/cohorts/cohortEditLogic'
+import { CohortCriteriaGroups } from 'scenes/cohorts/CohortFilters/CohortCriteriaGroups'
+import { COHORT_TYPE_OPTIONS } from 'scenes/cohorts/CohortFilters/constants'
+import { NotebookSelectButton } from 'scenes/notebooks/NotebookSelectButton/NotebookSelectButton'
+import { urls } from 'scenes/urls'
+import { userLogic } from 'scenes/userLogic'
+
 import { AndOrFilterSelect } from '~/queries/nodes/InsightViz/PropertyGroupFilters/AndOrFilterSelect'
+import { Query } from '~/queries/Query/Query'
+import { AvailableFeature, NotebookNodeType } from '~/types'
 
 export function CohortEdit({ id }: CohortLogicProps): JSX.Element {
     const logicProps = { id }
     const logic = cohortEditLogic(logicProps)
-    const { deleteCohort, setOuterGroupsType, setQuery, duplicateToStaticCohort } = useActions(logic)
-    const { cohort, cohortLoading, cohortMissing, query, duplicatedStaticCohortLoading } = useValues(logic)
+    const { deleteCohort, setOuterGroupsType, setQuery, duplicateCohort } = useActions(logic)
+    const { cohort, cohortLoading, cohortMissing, query, duplicatedCohortLoading } = useValues(logic)
     const { hasAvailableFeature } = useValues(userLogic)
     const isNewCohort = cohort.id === 'new' || cohort.id === undefined
 
@@ -40,9 +39,8 @@ export function CohortEdit({ id }: CohortLogicProps): JSX.Element {
     }
     return (
         <div className="cohort">
-            <Form logic={cohortEditLogic} props={logicProps} formKey="cohort" enableFormOnSubmit>
+            <Form id="cohort" logic={cohortEditLogic} props={logicProps} formKey="cohort" enableFormOnSubmit>
                 <PageHeader
-                    title={isNewCohort ? 'New cohort' : cohort.name || 'Untitled'}
                     buttons={
                         <div className="flex items-center gap-2">
                             {isNewCohort ? (
@@ -57,47 +55,73 @@ export function CohortEdit({ id }: CohortLogicProps): JSX.Element {
                                     Cancel
                                 </LemonButton>
                             ) : (
-                                <LemonButton
-                                    data-attr="delete-cohort"
-                                    status="danger"
-                                    type="secondary"
-                                    onClick={() => {
-                                        deleteCohort()
-                                    }}
-                                    disabled={cohortLoading}
-                                >
-                                    Delete
-                                </LemonButton>
+                                <More
+                                    overlay={
+                                        <>
+                                            {!cohort.is_static && (
+                                                <>
+                                                    <LemonButton
+                                                        onClick={() => duplicateCohort(false)}
+                                                        fullWidth
+                                                        disabledReason={
+                                                            cohort.is_calculating
+                                                                ? 'Cohort is still calculating'
+                                                                : undefined
+                                                        }
+                                                        loading={duplicatedCohortLoading}
+                                                    >
+                                                        Duplicate as dynamic cohort
+                                                    </LemonButton>
+                                                    <LemonButton
+                                                        onClick={() => duplicateCohort(true)}
+                                                        fullWidth
+                                                        disabledReason={
+                                                            cohort.is_calculating
+                                                                ? 'Cohort is still calculating'
+                                                                : undefined
+                                                        }
+                                                        loading={duplicatedCohortLoading}
+                                                    >
+                                                        Duplicate as static cohort
+                                                    </LemonButton>
+                                                    <LemonDivider />
+                                                </>
+                                            )}
+                                            <LemonButton
+                                                data-attr="delete-cohort"
+                                                fullWidth
+                                                status="danger"
+                                                onClick={deleteCohort}
+                                            >
+                                                Delete cohort
+                                            </LemonButton>
+                                        </>
+                                    }
+                                />
                             )}
-                            {!isNewCohort && !cohort.is_static && (
-                                <>
-                                    <LemonDivider vertical />
-                                    <LemonButton
-                                        onClick={duplicateToStaticCohort}
-                                        type="secondary"
-                                        disabledReason={
-                                            cohort.is_calculating ? 'Cohort is still calculating' : undefined
-                                        }
-                                        loading={duplicatedStaticCohortLoading}
-                                    >
-                                        Duplicate as static cohort
-                                    </LemonButton>
-                                </>
+                            {!isNewCohort && (
+                                <NotebookSelectButton
+                                    type="secondary"
+                                    resource={{
+                                        type: NotebookNodeType.Cohort,
+                                        attrs: { id },
+                                    }}
+                                />
                             )}
                             <LemonButton
                                 type="primary"
                                 data-attr="save-cohort"
                                 htmlType="submit"
                                 loading={cohortLoading || cohort.is_calculating}
-                                disabled={cohortLoading || cohort.is_calculating}
+                                form="cohort"
                             >
                                 Save
                             </LemonButton>
                         </div>
                     }
                 />
-                <Divider />
-                <div className="space-y-2" style={{ maxWidth: 640 }}>
+                <LemonDivider className="my-2 non-3000" />
+                <div className="space-y-2 max-w-160">
                     <div className="flex gap-4 flex-wrap">
                         <div className="flex-1">
                             <Field name="name" label="Name">
@@ -143,45 +167,43 @@ export function CohortEdit({ id }: CohortLogicProps): JSX.Element {
                                         single column with the user’s distinct ID. The very first row (the header) will
                                         be skipped during import.
                                     </span>
-                                    <Dragger
-                                        name="file"
-                                        multiple={false}
-                                        fileList={cohort.csv ? [cohort.csv] : []}
+                                    <LemonFileInput
                                         accept=".csv"
-                                        showUploadList={false}
-                                        beforeUpload={(file: UploadFile) => {
-                                            onChange(file)
-                                            return false
-                                        }}
-                                        className="cohort-csv-dragger"
-                                    >
-                                        {cohort.csv ? (
-                                            <>
-                                                <IconUploadFile
-                                                    style={{ fontSize: '3rem', color: 'var(--muted-alt)' }}
-                                                />
-                                                <div className="ant-upload-text">
-                                                    {cohort.csv?.name ?? 'File chosen'}
-                                                </div>
-                                            </>
-                                        ) : (
-                                            <>
-                                                <IconUploadFile
-                                                    style={{ fontSize: '3rem', color: 'var(--muted-alt)' }}
-                                                />
-                                                <div className="ant-upload-text">
-                                                    Drag a file here or click to browse for a file
-                                                </div>
-                                            </>
-                                        )}
-                                    </Dragger>
+                                        multiple={false}
+                                        value={cohort.csv ? [cohort.csv] : []}
+                                        onChange={(files) => onChange(files[0])}
+                                        showUploadedFiles={false}
+                                        callToAction={
+                                            <div className="flex flex-col items-center justify-center flex-1 cohort-csv-dragger text-default space-y-1">
+                                                {cohort.csv ? (
+                                                    <>
+                                                        <IconUploadFile
+                                                            style={{ fontSize: '3rem', color: 'var(--muted-alt)' }}
+                                                        />
+                                                        <div className="ant-upload-text">
+                                                            {cohort.csv?.name ?? 'File chosen'}
+                                                        </div>
+                                                    </>
+                                                ) : (
+                                                    <>
+                                                        <IconUploadFile
+                                                            style={{ fontSize: '3rem', color: 'var(--muted-alt)' }}
+                                                        />
+                                                        <div className="ant-upload-text">
+                                                            Drag a file here or click to browse for a file
+                                                        </div>
+                                                    </>
+                                                )}
+                                            </div>
+                                        }
+                                    />
                                 </>
                             )}
                         </Field>
                     </div>
                 ) : (
                     <>
-                        <Divider />
+                        <LemonDivider className="my-6" />
                         <div className="flex items-center justify-between my-4">
                             <div className="flex flex-col">
                                 <LemonLabel htmlFor="groups">Matching criteria</LemonLabel>
@@ -206,7 +228,7 @@ export function CohortEdit({ id }: CohortLogicProps): JSX.Element {
                 {/* The typeof here is needed to pass the cohort id to the query below. Using `isNewCohort` won't work */}
                 {typeof cohort.id === 'number' && (
                     <>
-                        <Divider />
+                        <LemonDivider className="my-6" />
                         <div>
                             <h3 className="l3 mb-4">
                                 Persons in this cohort

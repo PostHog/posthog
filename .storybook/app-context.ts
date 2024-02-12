@@ -9,5 +9,4 @@ export const getStorybookAppContext = (): AppContext => ({
     persisted_feature_flags: [],
     preflight: null as any, // null triggers a fetch and lets us mock the data
     switched_team: null,
-    week_start: 1,
 })

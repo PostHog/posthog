@@ -1,10 +1,13 @@
+import ClickHouse from '@posthog/clickhouse'
 import { PluginEvent } from '@posthog/plugin-scaffold'
 
+import { waitForExpect } from '../../functional_tests/expectations'
 import { startPluginsServer } from '../../src/main/pluginsServer'
-import { LogLevel } from '../../src/types'
-import Piscina, { makePiscina } from '../../src/worker/piscina'
+import { Hub, LogLevel, PluginLogEntry, PluginLogEntrySource, PluginLogEntryType } from '../../src/types'
+import { runEventPipeline } from '../../src/worker/ingestion/event-pipeline/runner'
+import { makePiscina } from '../../src/worker/piscina'
 import { pluginConfig39 } from '../helpers/plugins'
-import { getErrorForPluginConfig, resetTestDatabase } from '../helpers/sql'
+import { resetTestDatabase } from '../helpers/sql'
 
 jest.mock('../../src/utils/status')
 jest.setTimeout(60000) // 60 sec timeout
@@ -20,9 +23,20 @@ const defaultEvent: PluginEvent = {
     properties: { key: 'value' },
 }
 
+async function getLogEntriesForPluginConfig(hub: Hub, pluginConfigId: number) {
+    const { data: logEntries } = (await hub.clickhouse.querying(`
+        SELECT *
+        FROM plugin_log_entries
+        WHERE 
+            plugin_config_id = ${pluginConfigId} AND
+            instance_id = '${hub.instanceId}'
+        ORDER BY timestamp`)) as unknown as ClickHouse.ObjectQueryResult<PluginLogEntry>
+    return logEntries
+}
+
 describe('teardown', () => {
-    const processEvent = async (piscina: Piscina, event: PluginEvent) => {
-        const result = await piscina.run({ task: 'runEventPipeline', args: { event } })
+    const processEvent = async (hub: Hub, event: PluginEvent) => {
+        const result = await runEventPipeline(hub, event)
         const resultEvent = result.args[0]
         return resultEvent
     }
@@ -38,7 +52,8 @@ describe('teardown', () => {
                 throw new Error('This Happened In The Teardown Palace')
             }
         `)
-        const { piscina, stop } = await startPluginsServer(
+
+        const { hub, stop } = await startPluginsServer(
             {
                 WORKER_CONCURRENCY: 2,
                 LOG_LEVEL: LogLevel.Log,
@@ -47,16 +62,30 @@ describe('teardown', () => {
             undefined
         )
 
-        const error1 = await getErrorForPluginConfig(pluginConfig39.id)
-        expect(error1).toBe(null)
+        await processEvent(hub!, defaultEvent)
 
-        await processEvent(piscina!, defaultEvent)
+        await stop!()
 
-        await stop?.()
+        // verify the teardownPlugin code runs -- since we're reading from
+        // ClickHouse, we need to give it a bit of time to have consumed from
+        // the topic and written everything we're looking for to the table
+        await waitForExpect(async () => {
+            const logEntries = await getLogEntriesForPluginConfig(hub!, pluginConfig39.id)
 
-        // verify the teardownPlugin code runs
-        const error2 = await getErrorForPluginConfig(pluginConfig39.id)
-        expect(error2.message).toBe('This Happened In The Teardown Palace')
+            const systemErrors = logEntries.filter(
+                (logEntry) =>
+                    logEntry.source == PluginLogEntrySource.System && logEntry.type == PluginLogEntryType.Error
+            )
+            expect(systemErrors).toHaveLength(1)
+            expect(systemErrors[0].message).toContain('Plugin failed to unload')
+
+            const pluginErrors = logEntries.filter(
+                (logEntry) =>
+                    logEntry.source == PluginLogEntrySource.Plugin && logEntry.type == PluginLogEntryType.Error
+            )
+            expect(pluginErrors).toHaveLength(1)
+            expect(pluginErrors[0].message).toContain('This Happened In The Teardown Palace')
+        })
     })
 
     test('no need to tear down if plugin was never setup', async () => {
@@ -70,7 +99,7 @@ describe('teardown', () => {
                 throw new Error('This Happened In The Teardown Palace')
             }
         `)
-        const { stop } = await startPluginsServer(
+        const { hub, stop } = await startPluginsServer(
             {
                 WORKER_CONCURRENCY: 2,
                 LOG_LEVEL: LogLevel.Log,
@@ -79,14 +108,26 @@ describe('teardown', () => {
             undefined
         )
 
-        const error1 = await getErrorForPluginConfig(pluginConfig39.id)
-        expect(error1).toBe(null)
+        await stop!()
 
-        await stop?.()
+        // verify the teardownPlugin code runs -- since we're reading from
+        // ClickHouse, we need to give it a bit of time to have consumed from
+        // the topic and written everything we're looking for to the table
+        await waitForExpect(async () => {
+            const logEntries = await getLogEntriesForPluginConfig(hub!, pluginConfig39.id)
 
-        // verify the teardownPlugin code doesn't run, because processEvent was never called
-        // and thus the plugin was never setup - see LazyVM
-        const error2 = await getErrorForPluginConfig(pluginConfig39.id)
-        expect(error2).toBe(null)
+            const systemLogs = logEntries.filter((logEntry) => logEntry.source == PluginLogEntrySource.System)
+            expect(systemLogs).toHaveLength(2)
+            expect(systemLogs[0].message).toContain('Plugin loaded')
+            expect(systemLogs[1].message).toContain('Plugin unloaded')
+
+            // verify the teardownPlugin code doesn't run, because processEvent was never called
+            // and thus the plugin was never setup - see LazyVM
+            const pluginErrors = logEntries.filter(
+                (logEntry) =>
+                    logEntry.source == PluginLogEntrySource.Plugin && logEntry.type == PluginLogEntryType.Error
+            )
+            expect(pluginErrors).toHaveLength(0)
+        })
     })
 })

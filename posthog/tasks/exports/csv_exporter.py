@@ -1,20 +1,25 @@
 import datetime
 from typing import Any, Dict, List, Optional, Tuple
 from urllib.parse import parse_qsl, quote, urlencode, urlparse, urlunparse
-from django.http import QueryDict
 
 import requests
 import structlog
+from django.http import QueryDict
 from sentry_sdk import capture_exception, push_scope
-from statshog.defaults.django import statsd
 
+from posthog.api.services.query import process_query
 from posthog.jwt import PosthogJwtAudience, encode_jwt
-from posthog.api.query import process_query
-from posthog.logging.timing import timed
 from posthog.models.exported_asset import ExportedAsset, save_content
 from posthog.utils import absolute_uri
-
 from .ordered_csv_renderer import OrderedCsvRenderer
+from ..exporter import (
+    EXPORT_FAILED_COUNTER,
+    EXPORT_ASSET_UNKNOWN_COUNTER,
+    EXPORT_SUCCEEDED_COUNTER,
+    EXPORT_TIMER,
+)
+from ...constants import CSV_EXPORT_LIMIT
+from ...hogql.query import LimitContext
 
 logger = structlog.get_logger(__name__)
 
@@ -115,11 +120,12 @@ def _convert_response_to_csv_data(data: Any) -> List[Any]:
             return csv_rows
         elif first_result.get("appearances") and first_result.get("person"):
             # RETENTION PERSONS LIKE
+            period = data["filters"]["period"] or "Day"
             csv_rows = []
             for item in items:
                 line = {"person": item["person"]["name"]}
                 for index, data in enumerate(item["appearances"]):
-                    line[f"Day {index}"] = data
+                    line[f"{period} {index}"] = data
 
                 csv_rows.append(line)
             return csv_rows
@@ -129,12 +135,18 @@ def _convert_response_to_csv_data(data: Any) -> List[Any]:
             for item in items:
                 if item.get("date"):
                     # Dated means we create a grid
-                    line = {"cohort": item["date"], "cohort size": item["values"][0]["count"]}
+                    line = {
+                        "cohort": item["date"],
+                        "cohort size": item["values"][0]["count"],
+                    }
                     for index, data in enumerate(item["values"]):
                         line[items[index]["label"]] = data["count"]
                 else:
                     # Otherwise we just specify "Period" for titles
-                    line = {"cohort": item["label"], "cohort size": item["values"][0]["count"]}
+                    line = {
+                        "cohort": item["label"],
+                        "cohort size": item["values"][0]["count"],
+                    }
                     for index, data in enumerate(item["values"]):
                         line[f"Period {index}"] = data["count"]
 
@@ -158,6 +170,16 @@ def _convert_response_to_csv_data(data: Any) -> List[Any]:
             return csv_rows
         else:
             return items
+    elif data.get("result") and isinstance(data.get("result"), dict):
+        result = data["result"]
+
+        if "bins" not in result:
+            return []
+
+        csv_rows = []
+        for key, value in result["bins"]:
+            csv_rows.append({"bin": key, "value": value})
+        return csv_rows
 
     return []
 
@@ -166,20 +188,15 @@ class UnexpectedEmptyJsonResponse(Exception):
     pass
 
 
-def _export_to_csv(exported_asset: ExportedAsset, limit: int = 1000, max_limit: int = 3_500) -> None:
+def _export_to_csv(exported_asset: ExportedAsset, limit: int) -> None:
     resource = exported_asset.export_context
 
     columns: List[str] = resource.get("columns", [])
-
     all_csv_rows: List[Any] = []
 
     if resource.get("source"):
-        from posthog.hogql.constants import MAX_SELECT_RETURNED_ROWS
-
         query = resource.get("source")
-        query_response = process_query(
-            team=exported_asset.team, query_json=query, default_limit=MAX_SELECT_RETURNED_ROWS
-        )
+        query_response = process_query(team=exported_asset.team, query_json=query, limit_context=LimitContext.EXPORT)
         all_csv_rows = _convert_response_to_csv_data(query_response)
 
     else:
@@ -188,19 +205,13 @@ def _export_to_csv(exported_asset: ExportedAsset, limit: int = 1000, max_limit: 
         body = resource.get("body", None)
         next_url = None
         access_token = encode_jwt(
-            {"id": exported_asset.created_by_id}, datetime.timedelta(minutes=15), PosthogJwtAudience.IMPERSONATED_USER
+            {"id": exported_asset.created_by_id},
+            datetime.timedelta(minutes=15),
+            PosthogJwtAudience.IMPERSONATED_USER,
         )
 
-        while len(all_csv_rows) < max_limit:
+        while len(all_csv_rows) < CSV_EXPORT_LIMIT:
             response = make_api_call(access_token, body, limit, method, next_url, path)
-
-            if response.status_code != 200:
-                # noinspection PyBroadException
-                try:
-                    response_json = response.json()
-                except Exception:
-                    response_json = "no response json to parse"
-                raise Exception(f"export API call failed with status_code: {response.status_code}. {response_json}")
 
             # Figure out how to handle funnel polling....
             data = response.json()
@@ -238,6 +249,10 @@ def _export_to_csv(exported_asset: ExportedAsset, limit: int = 1000, max_limit: 
     if columns:
         render_context["header"] = columns
 
+    # Fallback if empty to produce any CSV at all to distinguish from a failed export
+    if not all_csv_rows:
+        all_csv_rows = [{}]
+
     rendered_csv_content = renderer.render(all_csv_rows, renderer_context=render_context)
     save_content(exported_asset, rendered_csv_content)
 
@@ -249,40 +264,42 @@ def get_limit_param_key(path: str) -> str:
 
 
 def make_api_call(
-    access_token: str, body: Any, limit: int, method: str, next_url: Optional[str], path: str
+    access_token: str,
+    body: Any,
+    limit: int,
+    method: str,
+    next_url: Optional[str],
+    path: str,
 ) -> requests.models.Response:
     request_url: str = absolute_uri(next_url or path)
-    try:
-        url = add_query_params(request_url, {get_limit_param_key(request_url): str(limit), "is_csv_export": "1"})
-        response = requests.request(
-            method=method.lower(), url=url, json=body, headers={"Authorization": f"Bearer {access_token}"}
-        )
-        return response
-    except Exception as ex:
-        logger.error(
-            "csv_exporter.error_making_api_call",
-            exc=ex,
-            exc_info=True,
-            next_url=next_url,
-            path=path,
-            request_url=request_url,
-            limit=limit,
-        )
-        raise ex
+    params: dict[str, str | int] = {
+        get_limit_param_key(request_url): limit,
+        "is_csv_export": "1",
+    }
+    response = requests.request(
+        method=method.lower(),
+        url=request_url,
+        params=params,
+        json=body,
+        headers={"Authorization": f"Bearer {access_token}"},
+        timeout=60,
+    )
+    response.raise_for_status()
+    return response
 
 
-@timed("csv_exporter")
-def export_csv(exported_asset: ExportedAsset, limit: Optional[int] = None, max_limit: int = 3_500) -> None:
+def export_csv(exported_asset: ExportedAsset, limit: Optional[int] = None) -> None:
     if not limit:
-        limit = 1000
+        limit = 200  # Too high limit makes e.g. queries with long breakdown values too long and fail
 
     try:
-        if exported_asset.export_format == "text/csv":
-            _export_to_csv(exported_asset, limit, max_limit)
-            statsd.incr("csv_exporter.succeeded", tags={"team_id": exported_asset.team.id})
-        else:
-            statsd.incr("csv_exporter.unknown_asset", tags={"team_id": exported_asset.team.id})
+        if exported_asset.export_format != "text/csv":
+            EXPORT_ASSET_UNKNOWN_COUNTER.labels(type="csv").inc()
             raise NotImplementedError(f"Export to format {exported_asset.export_format} is not supported")
+
+        with EXPORT_TIMER.labels(type="csv").time():
+            _export_to_csv(exported_asset, limit)
+        EXPORT_SUCCEEDED_COUNTER.labels(type="csv").inc()
     except Exception as e:
         if exported_asset:
             team_id = str(exported_asset.team.id)
@@ -291,8 +308,9 @@ def export_csv(exported_asset: ExportedAsset, limit: Optional[int] = None, max_l
 
         with push_scope() as scope:
             scope.set_tag("celery_task", "csv_export")
+            scope.set_tag("team_id", team_id)
             capture_exception(e)
 
         logger.error("csv_exporter.failed", exception=e, exc_info=True)
-        statsd.incr("csv_exporter.failed", tags={"team_id": team_id})
+        EXPORT_FAILED_COUNTER.labels(type="csv").inc()
         raise e

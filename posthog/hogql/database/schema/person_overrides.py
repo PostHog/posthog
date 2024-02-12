@@ -1,4 +1,6 @@
 from typing import Any, Dict, List
+from posthog.hogql.ast import SelectQuery
+from posthog.hogql.context import HogQLContext
 
 from posthog.hogql.database.argmax import argmax_select
 from posthog.hogql.database.models import (
@@ -10,6 +12,7 @@ from posthog.hogql.database.models import (
 )
 
 from posthog.hogql.errors import HogQLException
+from posthog.schema import HogQLQueryModifiers
 
 PERSON_OVERRIDES_FIELDS: Dict[str, FieldOrTable] = {
     "team_id": IntegerDatabaseField(name="team_id"),
@@ -30,7 +33,13 @@ def select_from_person_overrides_table(requested_fields: Dict[str, List[str]]):
     )
 
 
-def join_with_person_overrides_table(from_table: str, to_table: str, requested_fields: Dict[str, Any]):
+def join_with_person_overrides_table(
+    from_table: str,
+    to_table: str,
+    requested_fields: Dict[str, Any],
+    context: HogQLContext,
+    node: SelectQuery,
+):
     from posthog.hogql import ast
 
     if not requested_fields:
@@ -42,7 +51,7 @@ def join_with_person_overrides_table(from_table: str, to_table: str, requested_f
     join_expr.constraint = ast.JoinConstraint(
         expr=ast.CompareOperation(
             op=ast.CompareOperationOp.Eq,
-            left=ast.Field(chain=[from_table, "person_id"]),
+            left=ast.Field(chain=[from_table, "event_person_id"]),
             right=ast.Field(chain=[to_table, "old_person_id"]),
         )
     )
@@ -59,13 +68,13 @@ class RawPersonOverridesTable(Table):
         return "person_overrides"
 
     def to_printed_hogql(self):
-        return "person_overrides"
+        return "raw_person_overrides"
 
 
 class PersonOverridesTable(Table):
     fields: Dict[str, FieldOrTable] = PERSON_OVERRIDES_FIELDS
 
-    def lazy_select(self, requested_fields: Dict[str, Any]):
+    def lazy_select(self, requested_fields: Dict[str, Any], modifiers: HogQLQueryModifiers):
         return select_from_person_overrides_table(requested_fields)
 
     def to_printed_clickhouse(self, context):

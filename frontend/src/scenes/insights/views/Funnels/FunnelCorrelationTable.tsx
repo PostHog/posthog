@@ -1,29 +1,31 @@
-import { useEffect } from 'react'
-import { ConfigProvider, Table, Empty } from 'antd'
+import './FunnelCorrelationTable.scss'
+
+import { IconInfo } from '@posthog/icons'
+import { LemonCheckbox } from '@posthog/lemon-ui'
+import { ConfigProvider, Empty, Table } from 'antd'
 import Column from 'antd/lib/table/Column'
 import { useActions, useValues } from 'kea'
-import { RiseOutlined, FallOutlined, InfoCircleOutlined } from '@ant-design/icons'
-import { IconSelectEvents, IconUnfoldLess, IconUnfoldMore } from 'lib/lemon-ui/icons'
-import { FunnelCorrelation, FunnelCorrelationResultsType, FunnelCorrelationType } from '~/types'
-import { insightLogic } from 'scenes/insights/insightLogic'
-import { ValueInspectorButton } from 'scenes/funnels/ValueInspectorButton'
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
-import './FunnelCorrelationTable.scss'
-import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { VisibilitySensor } from 'lib/components/VisibilitySensor/VisibilitySensor'
+import { IconSelectEvents, IconTrendingDown, IconTrendUp, IconUnfoldLess, IconUnfoldMore } from 'lib/lemon-ui/icons'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
-import { CorrelationMatrix } from './CorrelationMatrix'
-import { capitalizeFirstLetter } from 'lib/utils'
-import { Spinner } from 'lib/lemon-ui/Spinner/Spinner'
-import { EventCorrelationActionsCell } from './CorrelationActionsCell'
 import { Link } from 'lib/lemon-ui/Link'
-import { funnelCorrelationUsageLogic } from 'scenes/funnels/funnelCorrelationUsageLogic'
-
+import { Spinner } from 'lib/lemon-ui/Spinner/Spinner'
+import { Tooltip } from 'lib/lemon-ui/Tooltip'
+import { capitalizeFirstLetter } from 'lib/utils'
+import { useEffect } from 'react'
 import { funnelCorrelationLogic } from 'scenes/funnels/funnelCorrelationLogic'
+import { funnelCorrelationUsageLogic } from 'scenes/funnels/funnelCorrelationUsageLogic'
 import { funnelDataLogic } from 'scenes/funnels/funnelDataLogic'
-import { parseDisplayNameForCorrelation } from 'scenes/funnels/funnelUtils'
-import { LemonCheckbox } from '@posthog/lemon-ui'
 import { funnelPersonsModalLogic } from 'scenes/funnels/funnelPersonsModalLogic'
+import { parseDisplayNameForCorrelation } from 'scenes/funnels/funnelUtils'
+import { ValueInspectorButton } from 'scenes/funnels/ValueInspectorButton'
+import { insightLogic } from 'scenes/insights/insightLogic'
+
+import { FunnelCorrelation, FunnelCorrelationResultsType, FunnelCorrelationType } from '~/types'
+
+import { EventCorrelationActionsCell } from './CorrelationActionsCell'
+import { CorrelationMatrix } from './CorrelationMatrix'
 
 export function FunnelCorrelationTable(): JSX.Element | null {
     const { insightProps } = useValues(insightLogic)
@@ -85,7 +87,11 @@ export function FunnelCorrelationTable(): JSX.Element | null {
         return (
             <>
                 <h4>
-                    {is_success ? <RiseOutlined className="text-success" /> : <FallOutlined className="text-danger" />}{' '}
+                    {is_success ? (
+                        <IconTrendUp className="text-success" />
+                    ) : (
+                        <IconTrendingDown className="text-danger" />
+                    )}{' '}
                     <PropertyKeyInfo value={first_value} />
                     {second_value !== undefined && (
                         <>
@@ -141,7 +147,7 @@ export function FunnelCorrelationTable(): JSX.Element | null {
             return (
                 <div className="flex flex-col items-center py-2">
                     <Spinner className="text-2xl mb-2" />
-                    <h3 className="mb-1 text-md font-semibold">Loading correlation results…</h3>
+                    <h3 className="mb-1 font-semibold">Loading correlation results…</h3>
                     <p className="m-0 text-xs text-muted">This process can take up to 20 seconds.</p>
                 </div>
             )
@@ -276,8 +282,6 @@ export function FunnelCorrelationTable(): JSX.Element | null {
                                     <Tooltip title="Collapse">
                                         <LemonButton
                                             icon={<IconUnfoldLess />}
-                                            status="stealth"
-                                            type="tertiary"
                                             active
                                             noPadding
                                             onClick={(e) => {
@@ -290,8 +294,6 @@ export function FunnelCorrelationTable(): JSX.Element | null {
                                     <Tooltip title="Expand to see correlated properties for this event">
                                         <LemonButton
                                             icon={<IconUnfoldMore />}
-                                            status="stealth"
-                                            type="tertiary"
                                             noPadding
                                             onClick={(e) => {
                                                 !eventHasPropertyCorrelations(record.event.event) &&
@@ -321,7 +323,7 @@ export function FunnelCorrelationTable(): JSX.Element | null {
                                             querySource?.aggregation_group_type_index != undefined ? 'that' : 'who'
                                         } performed the event and completed the entire funnel.`}
                                     >
-                                        <InfoCircleOutlined className="column-info" />
+                                        <IconInfo className="column-info" />
                                     </Tooltip>
                                 </div>
                             }
@@ -345,7 +347,7 @@ export function FunnelCorrelationTable(): JSX.Element | null {
                                             </>
                                         }
                                     >
-                                        <InfoCircleOutlined className="column-info" />
+                                        <IconInfo className="column-info" />
                                     </Tooltip>
                                 </div>
                             }

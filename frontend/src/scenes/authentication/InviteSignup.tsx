@@ -1,22 +1,24 @@
+import { LemonButton, LemonCheckbox, LemonDivider, LemonInput } from '@posthog/lemon-ui'
+import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
-import { inviteSignupLogic, ErrorCodes } from './inviteSignupLogic'
-import { userLogic } from 'scenes/userLogic'
-import { PrevalidatedInvite } from '~/types'
-import { Link } from 'lib/lemon-ui/Link'
+import { Form } from 'kea-forms'
+import { BridgePage } from 'lib/components/BridgePage/BridgePage'
+import PasswordStrength from 'lib/components/PasswordStrength'
+import SignupRoleSelect from 'lib/components/SignupRoleSelect'
 import { SocialLoginButtons } from 'lib/components/SocialLoginButton/SocialLoginButton'
-import { urls } from 'scenes/urls'
-import { SceneExport } from 'scenes/sceneTypes'
+import { Field, PureField } from 'lib/forms/Field'
+import { IconChevronLeft, IconChevronRight } from 'lib/lemon-ui/icons'
+import { Link } from 'lib/lemon-ui/Link'
 import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
 import { SpinnerOverlay } from 'lib/lemon-ui/Spinner/Spinner'
-import { IconChevronLeft, IconChevronRight } from 'lib/lemon-ui/icons'
-import { LemonButton, LemonCheckbox, LemonDivider, LemonInput } from '@posthog/lemon-ui'
-import { Form } from 'kea-forms'
-import { Field, PureField } from 'lib/forms/Field'
-import PasswordStrength from 'lib/components/PasswordStrength'
-import clsx from 'clsx'
-import { BridgePage } from 'lib/components/BridgePage/BridgePage'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
-import SignupRoleSelect from 'lib/components/SignupRoleSelect'
+import { SceneExport } from 'scenes/sceneTypes'
+import { urls } from 'scenes/urls'
+import { userLogic } from 'scenes/userLogic'
+
+import { PrevalidatedInvite } from '~/types'
+
+import { ErrorCodes, inviteSignupLogic } from './inviteSignupLogic'
 import { SupportModalButton } from './SupportModalButton'
 
 export const scene: SceneExport = {
@@ -126,7 +128,7 @@ function AuthenticatedAcceptInvite({ invite }: { invite: PrevalidatedInvite }): 
 
     return (
         <BridgePage
-            view={'accept-invite'}
+            view="accept-invite"
             hedgehog
             message={user?.first_name ? `Hey ${user?.first_name}!` : 'Hello!'}
             footer={<SupportModalButton name={user?.first_name} email={user?.email} />}
@@ -141,7 +143,7 @@ function AuthenticatedAcceptInvite({ invite }: { invite: PrevalidatedInvite }): 
                         className="border rounded-lg border-dashed flex items-center gap-2 px-2 py-1"
                         data-attr="top-navigation-whoami"
                     >
-                        <ProfilePicture name={user.first_name} email={user.email} />
+                        <ProfilePicture user={user} />
                         <div className="">
                             <div className="font-bold">{user.first_name}</div>
                             <div>{user.organization?.name}</div>
@@ -193,7 +195,7 @@ function UnauthenticatedAcceptInvite({ invite }: { invite: PrevalidatedInvite })
 
     return (
         <BridgePage
-            view={'invites-signup'}
+            view="invites-signup"
             hedgehog
             message={
                 <>
@@ -268,6 +270,7 @@ function UnauthenticatedAcceptInvite({ invite }: { invite: PrevalidatedInvite })
 
                 <LemonButton
                     type="primary"
+                    status="alt"
                     htmlType="submit"
                     data-attr="password-signup"
                     loading={isSignupSubmitting}
@@ -282,13 +285,13 @@ function UnauthenticatedAcceptInvite({ invite }: { invite: PrevalidatedInvite })
             </div>
             <div className="mt-4 text-center text-muted">
                 By clicking continue you agree to our{' '}
-                <a href="https://posthog.com/terms" target="_blank" rel="noopener">
+                <Link to="https://posthog.com/terms" target="_blank">
                     Terms of Service
-                </a>{' '}
+                </Link>{' '}
                 and{' '}
-                <a href="https://posthog.com/privacy" target="_blank" rel="noopener">
+                <Link to="https://posthog.com/privacy" target="_blank">
                     Privacy Policy
-                </a>
+                </Link>
                 .
             </div>
             <SocialLoginButtons

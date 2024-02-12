@@ -59,7 +59,13 @@ service_dependencies: Dict[ServiceRole, List[str]] = {
     # NOTE: we can be pretty picky about what the worker needs as by its nature
     # of reading from a durable queue rather that being required to perform
     # request/response, we are more resilient to service downtime.
-    "worker": ["http", "postgres", "postgres_migrations_uptodate", "clickhouse", "celery_broker"],
+    "worker": [
+        "http",
+        "postgres",
+        "postgres_migrations_uptodate",
+        "clickhouse",
+        "celery_broker",
+    ],
     "decide": ["http"],
 }
 

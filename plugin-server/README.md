@@ -13,18 +13,25 @@ Let's get you developing the plugin server in no time:
 
 1. Install dependencies and prepare for takeoff by running command `pnpm i`.
 
-1. Start a development instance of [PostHog](/PostHog/posthog) - [instructions here](https://posthog.com/docs/developing-locally). After all, this is the _PostHog_ Plugin Server, and it works in conjuction with the main server.
+1. Start a development instance of [PostHog](/PostHog/posthog) - [instructions
+   here](https://posthog.com/docs/developing-locally). After all, this is the _PostHog_ Plugin
+   Server, and it works in conjuction with the main server.
 
-1. Make sure that the plugin server is configured correctly (see [Configuration](#Configuration)). The following settings need to be the same for the plugin server and the main server: `DATABASE_URL`, `REDIS_URL`, `KAFKA_HOSTS`, `CLICKHOUSE_HOST`, `CLICKHOUSE_DATABASE`, `CLICKHOUSE_USER`, and `CLICKHOUSE_PASSWORD`. Their default values should work just fine in local development though.
+1. Make sure that the plugin server is configured correctly (see [Configuration](#Configuration)).
+   The following settings need to be the same for the plugin server and the main server:
+   `DATABASE_URL`, `REDIS_URL`, `KAFKA_HOSTS`, `CLICKHOUSE_HOST`, `CLICKHOUSE_DATABASE`,
+   `CLICKHOUSE_USER`, and `CLICKHOUSE_PASSWORD`. Their default values should work just fine in local
+   development though.
 
-1. Start the plugin server in autoreload mode with `pnpm start:dev`, or in compiled mode with `pnpm build && pnpm start:dist`, and develop away!
+1. Start the plugin server in autoreload mode with `pnpm start:dev`, or in compiled mode with `pnpm
+build && pnpm start:dist`, and develop away!
 
 1. Prepare for running tests with `pnpm setup:test`, which will run the
    necessary migrations. Run the tests themselves with `pnpm test:{1,2}`.
 
 1. Prepare for running functional tests. See notes below.
 
-## Functional tests
+### Running Functional Tests
 
 Functional tests are provided located in `functional_tests`. They provide tests
 for high level functionality of the plugin-server, i.e. functionality that any
@@ -47,8 +54,21 @@ testing:
 
 1. run docker `docker compose -f docker-compose.dev.yml up` (in posthog folder)
 1. setup the test DBs `pnpm setup:test`
-1. start the plugin-server with `CLICKHOUSE_DATABASE='default' DATABASE_URL=postgres://posthog:posthog@localhost:5432/test_posthog pnpm start:dev`
-1. run the tests with `CLICKHOUSE_DATABASE='default' DATABASE_URL=postgres://posthog:posthog@localhost:5432/test_posthog pnpm functional_tests --watch`
+1. start the plugin-server:
+    ```bash
+    APP_METRICS_FLUSH_FREQUENCY_MS=0 \
+        CLICKHOUSE_DATABASE='default' \
+        DATABASE_URL=postgres://posthog:posthog@localhost:5432/test_posthog \
+        PLUGINS_DEFAULT_LOG_LEVEL=0 \
+        RELOAD_PLUGIN_JITTER_MAX_MS=0 \
+        pnpm start:dev
+    ```
+1. run the tests:
+    ```bash
+    CLICKHOUSE_DATABASE='default' \
+        DATABASE_URL=postgres://posthog:posthog@localhost:5432/test_posthog \
+        pnpm functional_tests --watch
+    ```
 
 ## CLI flags
 
@@ -112,16 +132,12 @@ There's a multitude of settings you can use to control the plugin server. Use th
 | KAFKA_MAX_MESSAGE_BATCH_SIZE               | Kafka producer batch max size in bytes before flushing                                                                                                                                                         | `900000`                              |
 | LOG_LEVEL                                  | minimum log level                                                                                                                                                                                              | `'info'`                              |
 | SENTRY_DSN                                 | Sentry ingestion URL                                                                                                                                                                                           | `null`                                |
-| STATSD_HOST                                | StatsD host - integration disabled if this is not provided                                                                                                                                                     | `null`                                |
-| STATSD_PORT                                | StatsD port                                                                                                                                                                                                    | `8125`                                |
-| STATSD_PREFIX                              | StatsD prefix                                                                                                                                                                                                  | `'plugin-server.'`                    |
 | DISABLE_MMDB                               | whether to disable MMDB IP location capabilities                                                                                                                                                               | `false`                               |
 | INTERNAL_MMDB_SERVER_PORT                  | port of the internal server used for IP location (0 means random)                                                                                                                                              | `0`                                   |
 | DISTINCT_ID_LRU_SIZE                       | size of persons distinct ID LRU cache                                                                                                                                                                          | `10000`                               |
 | PISCINA_USE_ATOMICS                        | corresponds to the piscina useAtomics config option (https://github.com/piscinajs/piscina#constructor-new-piscinaoptions)                                                                                      | `true`                                |
 | PISCINA_ATOMICS_TIMEOUT                    | (advanced) corresponds to the length of time (in ms) a piscina worker should block for when looking for tasks - instances with high volumes (100+ events/sec) might benefit from setting this to a lower value | `5000`                                |
 | HEALTHCHECK_MAX_STALE_SECONDS              | 'maximum number of seconds the plugin server can go without ingesting events before the healthcheck fails'                                                                                                     | `7200`                                |
-| MAX_PENDING_PROMISES_PER_WORKER            | (advanced) maximum number of promises that a worker can have running at once in the background. currently only targets the exportEvents buffer.                                                                | `100`                                 |
 | KAFKA_PARTITIONS_CONSUMED_CONCURRENTLY     | (advanced) how many kafka partitions the plugin server should consume from concurrently                                                                                                                        | `1`                                   |
 | RECORDING_PARTITIONS_CONSUMED_CONCURRENTLY | (advanced) how many kafka partitions the recordings consumer should consume from concurrently                                                                                                                  | `1`                                   |
 | PLUGIN_SERVER_MODE                         | (advanced) see alternative modes section                                                                                                                                                                       | `null`                                |
@@ -150,7 +166,7 @@ Let's talk about the main thread first. This has:
 1. `hub` – Handler of connections to required DBs and queues (ClickHouse, Kafka, Postgres, Redis), holds loaded plugins.
    Created via `hub.ts -> createHub`. Every thread has its own instance.
 
-1. `piscina` – Manager of tasks delegated to threads. `makePiscina` creates the manager, while `createWorker` creates the worker threads.
+1. `piscina` – This used to be a manager of tasks that were delegated to threads. It is now a shim over normal JS function calls that will be removed in the future.
 
 1. `pluginScheduleControl` – Controller of scheduled jobs. Responsible for adding Piscina tasks for scheduled jobs, when the time comes. The schedule information makes it into the controller when plugin VMs are created.
 
@@ -166,21 +182,30 @@ Let's talk about the main thread first. This has:
 
 1. `mmdbServer` – TCP server, which works as an interface between the GeoIP MMDB data reader located in main thread memory and plugins ran in worker threads of the same plugin server instance. This way the GeoIP reader is only loaded in one thread and can be used in all. Additionally this mechanism ensures that `mmdbServer` is ready before ingestion is started (database downloaded from [http-mmdb](https://github.com/PostHog/http-mmdb) and read), and keeps the database up to date in the background.
 
-### Worker threads
-
-This begins with `worker.ts` and `createWorker()`.
-
-`hub` is the same setup as in the main thread.
-
-New functions called here are:
-
-1. `setupPlugins` – Loads plugins and prepares them for lazy VM initialization.
-
-2. `createTaskRunner` – Creates a Piscina task runner that allows to operate on plugin VMs.
-
 > Note:
 > An `organization_id` is tied to a _company_ and its _installed plugins_, a `team_id` is tied to a _project_ and its _plugin configs_ (enabled/disabled+extra config).
 
-## Questions?
+### Patching node-rdkafka
 
-### [Join our Slack community. 🦔](https://posthog.com/slack)
+We carry a node-rdkafka patch that adds cooperative rebalancing. To generate this patch:
+
+    # setup a local node-rdkafka clone
+    git clone git@github.com:PostHog/node-rdkafka.git
+    cd node-rdkafka
+    git remote add blizzard git@github.com:Blizzard/node-rdkafka.git
+    git fetch blizzard
+
+    # generate the diff
+    git diff blizzard/master > ~/node-rdkafka.diff
+
+    # in the plugin-server directory, this will output a temporary working directory
+    pnpm patch node-rdkafka@2.17.0
+
+    # enter the temporary directory from the previous command
+    cd /private/var/folders/b7/bmmghlpx5qdd6gpyvmz1k1_m0000gn/T/6082767a6879b3b4e11182f944f5cca3
+
+    # if asked, skip any missing files
+    patch -p1 < ~/node-rdkafka.diff
+
+    # in the plugin-server directory, target the temporary directory from the previous command
+    pnpm patch-commit /private/var/folders/b7/bmmghlpx5qdd6gpyvmz1k1_m0000gn/T/6082767a6879b3b4e11182f944f5cca3

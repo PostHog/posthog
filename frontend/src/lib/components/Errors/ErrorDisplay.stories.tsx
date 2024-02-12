@@ -1,11 +1,13 @@
-import { ComponentMeta } from '@storybook/react'
+import { Meta } from '@storybook/react'
 import { ErrorDisplay } from 'lib/components/Errors/ErrorDisplay'
+
 import { EventType, RecordingEventType } from '~/types'
 
-export default {
+const meta: Meta<typeof ErrorDisplay> = {
     title: 'Components/Errors/Error Display',
     component: ErrorDisplay,
-} as ComponentMeta<typeof ErrorDisplay>
+}
+export default meta
 
 function errorEvent(properties: Record<string, any>): EventType | RecordingEventType {
     return {

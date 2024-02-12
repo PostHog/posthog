@@ -13,3 +13,22 @@ export function createPromise<T = void>(): MockPromise<T> {
 
     return result as MockPromise<T>
 }
+
+export class WaitEvent {
+    private promise: Promise<void>
+    private resolve: () => void
+
+    constructor() {
+        this.promise = new Promise((resolve) => {
+            this.resolve = resolve
+        })
+    }
+
+    public set() {
+        this.resolve()
+    }
+
+    public async wait() {
+        return this.promise
+    }
+}

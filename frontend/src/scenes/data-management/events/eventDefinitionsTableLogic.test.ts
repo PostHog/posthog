@@ -1,17 +1,15 @@
-import { initKeaTests } from '~/test/init'
-import {
-    EVENT_DEFINITIONS_PER_PAGE,
-    eventDefinitionsTableLogic,
-    PROPERTY_DEFINITIONS_PER_EVENT,
-} from 'scenes/data-management/events/eventDefinitionsTableLogic'
-import { api, MOCK_TEAM_ID } from 'lib/api.mock'
-import { expectLogic, partial } from 'kea-test-utils'
-import { mockEvent, mockEventDefinitions, mockEventPropertyDefinitions } from '~/test/mocks'
-import { useMocks } from '~/mocks/jest'
-import { organizationLogic } from 'scenes/organizationLogic'
 import { combineUrl, router } from 'kea-router'
-import { keyMappingKeys } from 'lib/taxonomy'
+import { expectLogic, partial } from 'kea-test-utils'
+import { api, MOCK_TEAM_ID } from 'lib/api.mock'
+import { EVENT_DEFINITIONS_PER_PAGE, PROPERTY_DEFINITIONS_PER_EVENT } from 'lib/constants'
+import { PROPERTY_KEYS } from 'lib/taxonomy'
+import { eventDefinitionsTableLogic } from 'scenes/data-management/events/eventDefinitionsTableLogic'
+import { organizationLogic } from 'scenes/organizationLogic'
 import { urls } from 'scenes/urls'
+
+import { useMocks } from '~/mocks/jest'
+import { initKeaTests } from '~/test/init'
+import { mockEvent, mockEventDefinitions, mockEventPropertyDefinitions } from '~/test/mocks'
 import { EventDefinitionType } from '~/types'
 
 describe('eventDefinitionsTableLogic', () => {
@@ -222,7 +220,7 @@ describe('eventDefinitionsTableLogic', () => {
             combineUrl('', {
                 limit: PROPERTY_DEFINITIONS_PER_EVENT,
                 event_names: ['event1'],
-                excluded_properties: keyMappingKeys,
+                excluded_properties: PROPERTY_KEYS,
                 filter_by_event_names: true,
                 is_feature_flag: false,
             }).search

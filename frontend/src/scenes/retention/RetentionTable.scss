@@ -1,17 +1,18 @@
 .RetentionTable {
-    --retention-table-color: var(--primary);
+    --retention-table-color: var(--primary-3000);
 
-    font-weight: 500;
     width: 100%;
+    font-weight: 500;
 
     th {
-        white-space: nowrap;
+        padding: 0 0.5rem;
         font-weight: 500;
-        border-left: 1px solid var(--border);
-        padding: 0rem 0.5rem;
+        text-align: left;
+        white-space: nowrap;
         border-top: 10px solid transparent;
         border-bottom: 10px solid transparent;
-        text-align: left;
+        border-left: 1px solid var(--border);
+
         &:first-of-type {
             border-left: none;
         }
@@ -30,27 +31,28 @@
     }
 
     .RetentionTable__TextTab {
-        padding: 0rem 1rem 0rem 0.5rem;
+        padding: 0 1rem 0 0.5rem;
         white-space: nowrap;
     }
 
     .RetentionTable__Tab {
+        min-height: 2rem;
         padding: 0.5rem;
         margin: 2px;
-        border-radius: 0.25rem;
         text-align: right;
-        min-height: 2rem;
-        transition: transform 200ms ease-out;
         background-color: var(--retention-table-color); // NOTE: This is usually overridden in JS
+        border-radius: var(--radius);
+        transition: transform 200ms ease-out;
 
         &:hover {
             transform: scale(1.05);
         }
 
         &.RetentionTable__Tab--period {
+            color: var(--muted);
             background-color: var(--bg-light);
-            border: 1px solid var(--retention-table-color);
-            opacity: 0.75;
+            border: 1px solid var(--border);
+            border-style: dashed;
         }
     }
 
@@ -63,9 +65,30 @@
 
         .RetentionTable__Tab {
             cursor: initial;
+
             &:hover {
                 transform: none;
             }
+        }
+    }
+
+    &.RetentionTable--small-layout {
+        font-size: 0.75rem;
+        line-height: 1rem;
+
+        th {
+            padding-right: 0.25rem;
+            padding-left: 0.25rem;
+        }
+
+        .RetentionTable__TextTab {
+            padding-right: 0.25rem;
+            padding-left: 0.25rem;
+        }
+
+        .RetentionTable__Tab {
+            padding: 0.5rem 0.25rem;
+            margin: 0;
         }
     }
 }

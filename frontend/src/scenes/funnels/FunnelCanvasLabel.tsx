@@ -1,16 +1,15 @@
-import './FunnelCanvasLabel.scss'
-import React from 'react'
-import { useActions, useValues } from 'kea'
-
-import { insightLogic } from 'scenes/insights/insightLogic'
-import { funnelDataLogic } from './funnelDataLogic'
-
 import { Link } from '@posthog/lemon-ui'
-import { Tooltip } from 'lib/lemon-ui/Tooltip'
+import { useActions, useValues } from 'kea'
 import { IconInfo } from 'lib/lemon-ui/icons'
-import { FunnelVizType } from '~/types'
+import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { humanFriendlyDuration, percentage } from 'lib/utils'
+import React from 'react'
+import { insightLogic } from 'scenes/insights/insightLogic'
 import { FunnelStepsPicker } from 'scenes/insights/views/Funnels/FunnelStepsPicker'
+
+import { FunnelVizType } from '~/types'
+
+import { funnelDataLogic } from './funnelDataLogic'
 
 export function FunnelCanvasLabel(): JSX.Element | null {
     const { insightProps } = useValues(insightLogic)
@@ -18,7 +17,7 @@ export function FunnelCanvasLabel(): JSX.Element | null {
     const { updateInsightFilter } = useActions(funnelDataLogic(insightProps))
 
     const labels = [
-        ...(funnelsFilter?.funnel_viz_type === FunnelVizType.Steps
+        ...(funnelsFilter?.funnelVizType === FunnelVizType.Steps
             ? [
                   <>
                       <span className="flex items-center text-muted-alt mr-1">
@@ -33,7 +32,7 @@ export function FunnelCanvasLabel(): JSX.Element | null {
                   </>,
               ]
             : []),
-        ...(funnelsFilter?.funnel_viz_type !== FunnelVizType.Trends
+        ...(funnelsFilter?.funnelVizType !== FunnelVizType.Trends
             ? [
                   <>
                       <span className="flex items-center text-muted-alt">
@@ -44,14 +43,14 @@ export function FunnelCanvasLabel(): JSX.Element | null {
                           </Tooltip>
                           <span>Average time to convert</span>
                       </span>
-                      {funnelsFilter?.funnel_viz_type === FunnelVizType.TimeToConvert && <FunnelStepsPicker />}
+                      {funnelsFilter?.funnelVizType === FunnelVizType.TimeToConvert && <FunnelStepsPicker />}
                       <span className="text-muted-alt mr-1">:</span>
-                      {funnelsFilter?.funnel_viz_type === FunnelVizType.TimeToConvert ? (
+                      {funnelsFilter?.funnelVizType === FunnelVizType.TimeToConvert ? (
                           <span className="font-bold">{humanFriendlyDuration(conversionMetrics.averageTime)}</span>
                       ) : (
                           <Link
                               className="font-bold"
-                              onClick={() => updateInsightFilter({ funnel_viz_type: FunnelVizType.TimeToConvert })}
+                              onClick={() => updateInsightFilter({ funnelVizType: FunnelVizType.TimeToConvert })}
                           >
                               {humanFriendlyDuration(conversionMetrics.averageTime)}
                           </Link>
@@ -59,7 +58,7 @@ export function FunnelCanvasLabel(): JSX.Element | null {
                   </>,
               ]
             : []),
-        ...(funnelsFilter?.funnel_viz_type === FunnelVizType.Trends
+        ...(funnelsFilter?.funnelVizType === FunnelVizType.Trends
             ? [
                   <>
                       <span className="text-muted-alt">Conversion rate</span>

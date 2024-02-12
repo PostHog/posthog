@@ -17,24 +17,24 @@
 
     .ActionFilterRow__start,
     .ActionFilterRow__end {
-        height: 40px;
         display: flex;
-        align-items: center;
         flex: 0;
         gap: 0.25rem;
+        align-items: center;
+        height: 40px;
     }
 
     .ActionFilterRow__center {
         flex: 1;
-        overflow: hidden;
         flex-wrap: wrap;
         gap: 0.5rem;
+        overflow: hidden;
     }
 }
 
 .ActionFilterRowDragHandle {
-    cursor: move;
-    color: var(--default);
     font-size: 1.2em;
+    color: var(--default);
+    cursor: move;
     transform: rotate(90deg);
 }

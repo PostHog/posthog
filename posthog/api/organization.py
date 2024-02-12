@@ -114,32 +114,13 @@ class OrganizationSerializer(serializers.ModelSerializer, UserPermissionsSeriali
         return membership.level if membership is not None else None
 
     def get_teams(self, instance: Organization) -> List[Dict[str, Any]]:
-        teams = cast(
-            List[Dict[str, Any]], TeamBasicSerializer(instance.teams.all(), context=self.context, many=True).data
-        )
-        visible_team_ids = set(self.user_permissions.team_ids_visible_for_user)
-        return [team for team in teams if team["id"] in visible_team_ids]
+        visible_teams = instance.teams.filter(id__in=self.user_permissions.team_ids_visible_for_user)
+        return TeamBasicSerializer(visible_teams, context=self.context, many=True).data  # type: ignore
 
     def get_metadata(self, instance: Organization) -> Dict[str, Union[str, int, object]]:
-        output = {
-            "taxonomy_set_events_count": 0,
-            "taxonomy_set_properties_count": 0,
+        return {
             "instance_tag": settings.INSTANCE_TAG,
         }
-
-        try:
-            from ee.models import EnterpriseEventDefinition, EnterprisePropertyDefinition
-        except ImportError:
-            return output
-
-        output["taxonomy_set_events_count"] = EnterpriseEventDefinition.objects.exclude(
-            description="", tagged_items__isnull=True
-        ).count()
-        output["taxonomy_set_properties_count"] = EnterprisePropertyDefinition.objects.exclude(
-            description="", tagged_items__isnull=True
-        ).count()
-
-        return output
 
 
 class OrganizationViewSet(viewsets.ModelViewSet):
@@ -156,8 +137,14 @@ class OrganizationViewSet(viewsets.ModelViewSet):
     def get_permissions(self):
         if self.request.method == "POST":
             # Cannot use `OrganizationMemberPermissions` or `OrganizationAdminWritePermissions`
-            # because they require an existing org, unneded anyways because permissions are organization-based
-            return [permission() for permission in [permissions.IsAuthenticated, PremiumMultiorganizationPermissions]]
+            # because they require an existing org, unneeded anyway because permissions are organization-based
+            return [
+                permission()
+                for permission in [
+                    permissions.IsAuthenticated,
+                    PremiumMultiorganizationPermissions,
+                ]
+            ]
         return super().get_permissions()
 
     def get_queryset(self) -> QuerySet:
@@ -186,11 +173,19 @@ class OrganizationViewSet(viewsets.ModelViewSet):
         # Once the organization is deleted, queue deletion of associated data
         AsyncDeletion.objects.bulk_create(
             [
-                AsyncDeletion(deletion_type=DeletionType.Team, team_id=team_id, key=str(team_id), created_by=user)
+                AsyncDeletion(
+                    deletion_type=DeletionType.Team,
+                    team_id=team_id,
+                    key=str(team_id),
+                    created_by=user,
+                )
                 for team_id in team_ids
             ],
             ignore_conflicts=True,
         )
 
     def get_serializer_context(self) -> Dict[str, Any]:
-        return {**super().get_serializer_context(), "user_permissions": UserPermissions(cast(User, self.request.user))}
+        return {
+            **super().get_serializer_context(),
+            "user_permissions": UserPermissions(cast(User, self.request.user)),
+        }

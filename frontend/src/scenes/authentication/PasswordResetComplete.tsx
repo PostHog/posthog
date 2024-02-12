@@ -1,17 +1,18 @@
 /*
 Scene to enter a new password from a received reset link
 */
-import { useValues } from 'kea'
-import { passwordResetLogic } from './passwordResetLogic'
-import { SceneExport } from 'scenes/sceneTypes'
-import { Field } from 'lib/forms/Field'
 import { LemonButton, LemonInput } from '@posthog/lemon-ui'
-import PasswordStrength from 'lib/components/PasswordStrength'
-import { Spinner } from 'lib/lemon-ui/Spinner/Spinner'
+import { useValues } from 'kea'
 import { Form } from 'kea-forms'
-import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { BridgePage } from 'lib/components/BridgePage/BridgePage'
+import PasswordStrength from 'lib/components/PasswordStrength'
+import { Field } from 'lib/forms/Field'
 import { IconErrorOutline } from 'lib/lemon-ui/icons'
+import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
+import { Spinner } from 'lib/lemon-ui/Spinner/Spinner'
+import { SceneExport } from 'scenes/sceneTypes'
+
+import { passwordResetLogic } from './passwordResetLogic'
 
 export const scene: SceneExport = {
     component: PasswordResetComplete,
@@ -52,7 +53,7 @@ function NewPasswordForm(): JSX.Element {
                         'Could not complete your password reset request. Please try again.'}
                 </LemonBanner>
             )}
-            <Form logic={passwordResetLogic} formKey={'passwordReset'} className="space-y-4" enableFormOnSubmit>
+            <Form logic={passwordResetLogic} formKey="passwordReset" className="space-y-4" enableFormOnSubmit>
                 <Field
                     name="password"
                     label={
@@ -103,7 +104,7 @@ function ResetInvalid(): JSX.Element {
         <div className="text-center">
             The provided link is <b>invalid or has expired</b>. Please request a new link.
             <div className="mt-4">
-                <LemonButton fullWidth type="primary" center data-attr="back-to-login" to={'/reset'}>
+                <LemonButton fullWidth type="primary" center data-attr="back-to-login" to="/reset">
                     Request new link
                 </LemonButton>
             </div>

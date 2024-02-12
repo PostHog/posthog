@@ -17,7 +17,9 @@ class TestActionApi(APIBaseTest):
         from ee.models.license import License, LicenseManager
 
         super(LicenseManager, cast(LicenseManager, License.objects)).create(
-            key="key_123", plan="enterprise", valid_until=timezone.datetime(2038, 1, 19, 3, 14, 7)
+            key="key_123",
+            plan="enterprise",
+            valid_until=timezone.datetime(2038, 1, 19, 3, 14, 7),
         )
 
         response = self.client.post(f"/api/projects/{self.team.id}/actions/", data={"name": "user signed up"})
@@ -32,7 +34,8 @@ class TestActionApi(APIBaseTest):
         self.assertEqual(set(response.json()["tags"]), {"hello", "random"})
 
         response = self.client.patch(
-            f"/api/projects/{self.team.id}/actions/{response.json()['id']}", data={"name": "user signed up", "tags": []}
+            f"/api/projects/{self.team.id}/actions/{response.json()['id']}",
+            data={"name": "user signed up", "tags": []},
         )
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
@@ -42,12 +45,17 @@ class TestActionApi(APIBaseTest):
         from ee.models.license import License, LicenseManager
 
         super(LicenseManager, cast(LicenseManager, License.objects)).create(
-            key="key_123", plan="enterprise", valid_until=timezone.datetime(2038, 1, 19, 3, 14, 7)
+            key="key_123",
+            plan="enterprise",
+            valid_until=timezone.datetime(2038, 1, 19, 3, 14, 7),
         )
 
         response = self.client.post(
             f"/api/projects/{self.team.id}/actions/",
-            data={"name": "user signed up", "tags": ["nightly", "is", "a", "good", "girl"]},
+            data={
+                "name": "user signed up",
+                "tags": ["nightly", "is", "a", "good", "girl"],
+            },
         )
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
         self.assertEqual(set(response.json()["tags"]), {"nightly", "is", "a", "good", "girl"})
@@ -56,7 +64,9 @@ class TestActionApi(APIBaseTest):
         from ee.models.license import License, LicenseManager
 
         super(LicenseManager, cast(LicenseManager, License.objects)).create(
-            key="key_123", plan="enterprise", valid_until=timezone.datetime(2038, 1, 19, 3, 14, 7)
+            key="key_123",
+            plan="enterprise",
+            valid_until=timezone.datetime(2038, 1, 19, 3, 14, 7),
         )
 
         # Ensure the cloud check is cached to not affect the number of queries
@@ -79,10 +89,13 @@ class TestActionApi(APIBaseTest):
         from ee.models.license import License, LicenseManager
 
         super(LicenseManager, cast(LicenseManager, License.objects)).create(
-            key="key_123", plan="enterprise", valid_until=timezone.datetime(2038, 1, 19, 3, 14, 7)
+            key="key_123",
+            plan="enterprise",
+            valid_until=timezone.datetime(2038, 1, 19, 3, 14, 7),
         )
         response = self.client.post(
-            f"/api/projects/{self.team.id}/actions/", data={"name": "user signed up", "tags": ["a", "b", "a"]}
+            f"/api/projects/{self.team.id}/actions/",
+            data={"name": "user signed up", "tags": ["a", "b", "a"]},
         )
 
         self.assertListEqual(sorted(response.json()["tags"]), ["a", "b"])

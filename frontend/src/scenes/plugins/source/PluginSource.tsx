@@ -1,19 +1,21 @@
 import './PluginSource.scss'
-import { useEffect } from 'react'
-import { useActions, useValues } from 'kea'
-import { Button, Skeleton } from 'antd'
-import MonacoEditor, { useMonaco } from '@monaco-editor/react'
-import { Drawer } from 'lib/components/Drawer'
 
-import { userLogic } from 'scenes/userLogic'
-import { canGloballyManagePlugins } from '../access'
-import { pluginSourceLogic } from 'scenes/plugins/source/pluginSourceLogic'
-import { Field } from 'lib/forms/Field'
-import { PluginSourceTabs } from 'scenes/plugins/source/PluginSourceTabs'
-import { LemonButton } from 'lib/lemon-ui/LemonButton'
-import { createDefaultPluginSource } from 'scenes/plugins/source/createDefaultPluginSource'
+import { useMonaco } from '@monaco-editor/react'
+import { Link } from '@posthog/lemon-ui'
+import { Skeleton } from 'antd'
+import { useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
-import { Spinner } from 'lib/lemon-ui/Spinner'
+import { CodeEditor } from 'lib/components/CodeEditors'
+import { Drawer } from 'lib/components/Drawer'
+import { Field } from 'lib/forms/Field'
+import { LemonButton } from 'lib/lemon-ui/LemonButton'
+import { useEffect } from 'react'
+import { createDefaultPluginSource } from 'scenes/plugins/source/createDefaultPluginSource'
+import { pluginSourceLogic } from 'scenes/plugins/source/pluginSourceLogic'
+import { PluginSourceTabs } from 'scenes/plugins/source/PluginSourceTabs'
+import { userLogic } from 'scenes/userLogic'
+
+import { canGloballyManagePlugins } from '../access'
 
 interface PluginSourceProps {
     pluginId: number
@@ -56,7 +58,7 @@ export function PluginSource({
         if (!monaco) {
             return
         }
-        import('./types/packages.json').then((files) => {
+        void import('./types/packages.json').then((files) => {
             for (const [fileName, fileContents] of Object.entries(files).filter(
                 ([fileName]) => fileName !== 'default'
             )) {
@@ -75,17 +77,15 @@ export function PluginSource({
             forceRender={true}
             visible={visible}
             onClose={closePluginSource}
-            width={'min(90vw, 64rem)'}
+            width="min(90vw, 64rem)"
             title={pluginSourceLoading ? 'Loading...' : `Edit App: ${name}`}
             placement={placement ?? 'left'}
             footer={
-                <div style={{ textAlign: 'right' }}>
-                    <Button onClick={closePluginSource} style={{ marginRight: 16 }}>
-                        Close
-                    </Button>
-                    <Button type="primary" loading={isPluginSourceSubmitting} onClick={submitPluginSource}>
+                <div className="text-right space-x-2">
+                    <LemonButton onClick={closePluginSource}>Close</LemonButton>
+                    <LemonButton type="primary" loading={isPluginSourceSubmitting} onClick={submitPluginSource}>
                         Save
-                    </Button>
+                    </LemonButton>
                 </div>
             }
         >
@@ -94,19 +94,20 @@ export function PluginSource({
                     <>
                         <p>
                             Read our{' '}
-                            <a href="https://posthog.com/docs/apps/build" target="_blank">
+                            <Link to="https://posthog.com/docs/apps/build" target="_blank">
                                 app building overview in PostHog Docs
-                            </a>{' '}
+                            </Link>{' '}
                             for a good grasp of possibilities.
                             <br />
                             Once satisfied with your app, feel free to{' '}
-                            <a href="https://posthog.com/docs/apps/build/tutorial#submitting-your-app" target="_blank">
+                            <Link to="https://posthog.com/docs/apps/build/tutorial#submitting-your-app" target="_blank">
                                 submit it to the official App Store
-                            </a>
+                            </Link>
                             .
                         </p>
 
                         {pluginSourceLoading ? (
+                            // eslint-disable-next-line react/forbid-elements
                             <Skeleton />
                         ) : (
                             <>
@@ -114,8 +115,7 @@ export function PluginSource({
                                 <Field name={[currentFile]}>
                                     {({ value, onChange }) => (
                                         <>
-                                            <MonacoEditor
-                                                theme="vs-dark"
+                                            <CodeEditor
                                                 path={currentFile}
                                                 language={currentFile.endsWith('.json') ? 'json' : 'typescript'}
                                                 value={value}
@@ -124,10 +124,9 @@ export function PluginSource({
                                                 options={{
                                                     minimap: { enabled: false },
                                                 }}
-                                                loading={<Spinner />}
                                             />
                                             {!value && createDefaultPluginSource(name)[currentFile] ? (
-                                                <div style={{ marginTop: '0.5rem' }}>
+                                                <div className="mt-2">
                                                     <LemonButton
                                                         type="primary"
                                                         onClick={() =>

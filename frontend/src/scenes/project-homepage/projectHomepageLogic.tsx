@@ -1,11 +1,12 @@
 import { afterMount, connect, kea, path, selectors } from 'kea'
+import { loaders } from 'kea-loaders'
+import api from 'lib/api'
+import { DashboardLogicProps } from 'scenes/dashboard/dashboardLogic'
+import { teamLogic } from 'scenes/teamLogic'
+
+import { DashboardPlacement, InsightModel, PersonType } from '~/types'
 
 import type { projectHomepageLogicType } from './projectHomepageLogicType'
-import { teamLogic } from 'scenes/teamLogic'
-import { DashboardLogicProps } from 'scenes/dashboard/dashboardLogic'
-import { DashboardPlacement, InsightModel, PersonType } from '~/types'
-import api from 'lib/api'
-import { loaders } from 'kea-loaders'
 
 export const projectHomepageLogic = kea<projectHomepageLogicType>([
     path(['scenes', 'project-homepage', 'projectHomepageLogic']),

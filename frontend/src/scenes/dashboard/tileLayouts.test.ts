@@ -1,4 +1,5 @@
 import { calculateLayouts } from 'scenes/dashboard/tileLayouts'
+
 import { DashboardLayoutSize, DashboardTile, TileLayout } from '~/types'
 
 function tileWithLayout(layouts: Record<DashboardLayoutSize, TileLayout>, tileId: number = 1): DashboardTile {

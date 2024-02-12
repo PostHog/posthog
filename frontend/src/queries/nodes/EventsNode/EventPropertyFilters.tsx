@@ -1,20 +1,26 @@
-import { EventsNode, EventsQuery } from '~/queries/schema'
 import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
-import { AnyPropertyFilter } from '~/types'
-import { useState } from 'react'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
+import { useState } from 'react'
+
+import { EventsNode, EventsQuery, HogQLQuery } from '~/queries/schema'
+import { isHogQLQuery } from '~/queries/utils'
+import { AnyPropertyFilter } from '~/types'
 
 interface EventPropertyFiltersProps {
-    query: EventsNode | EventsQuery
-    setQuery?: (query: EventsNode | EventsQuery) => void
+    query: EventsNode | EventsQuery | HogQLQuery
+    setQuery?: (query: EventsNode | EventsQuery | HogQLQuery) => void
 }
 
 let uniqueNode = 0
 export function EventPropertyFilters({ query, setQuery }: EventPropertyFiltersProps): JSX.Element {
     const [id] = useState(() => uniqueNode++)
-    return !query.properties || Array.isArray(query.properties) ? (
+
+    const properties = isHogQLQuery(query) ? query.filters?.properties : query.properties
+    const eventNames = isHogQLQuery(query) ? [] : query.event ? [query.event] : []
+
+    return !properties || Array.isArray(properties) ? (
         <PropertyFilters
-            propertyFilters={query.properties || []}
+            propertyFilters={properties || []}
             taxonomicGroupTypes={[
                 TaxonomicFilterGroupType.EventProperties,
                 TaxonomicFilterGroupType.PersonProperties,
@@ -23,10 +29,15 @@ export function EventPropertyFilters({ query, setQuery }: EventPropertyFiltersPr
                 TaxonomicFilterGroupType.Elements,
                 TaxonomicFilterGroupType.HogQLExpression,
             ]}
-            onChange={(value: AnyPropertyFilter[]) => setQuery?.({ ...query, properties: value })}
+            onChange={(value: AnyPropertyFilter[]) => {
+                if (isHogQLQuery(query)) {
+                    setQuery?.({ ...query, filters: { ...(query.filters ?? {}), properties: value } })
+                } else {
+                    setQuery?.({ ...query, properties: value })
+                }
+            }}
             pageKey={`EventPropertyFilters.${id}`}
-            style={{ marginBottom: 0, marginTop: 0 }}
-            eventNames={query.event ? [query.event] : []}
+            eventNames={eventNames}
         />
     ) : (
         <div>Error: property groups are not supported.</div>

@@ -1,22 +1,27 @@
-import { LemonButtonWithDropdown } from '@posthog/lemon-ui'
+import { LemonButton } from '@posthog/lemon-ui'
 import { IconPlus } from 'lib/lemon-ui/icons'
-import { SlashCommands } from '../Notebook/SlashCommands'
-import { InsertionSuggestion } from './InsertionSuggestion'
+import { useState } from 'react'
 
-const Component = (): JSX.Element => {
+import { SlashCommandsPopover } from '../Notebook/SlashCommands'
+import { InsertionSuggestion, InsertionSuggestionViewProps } from './InsertionSuggestion'
+
+const Component = ({ editor }: InsertionSuggestionViewProps): JSX.Element => {
+    const [visible, setVisible] = useState<boolean>(false)
+
+    const onClick = (): void => {
+        editor.focus()
+        setVisible(true)
+    }
+
     return (
-        <LemonButtonWithDropdown
-            size="small"
-            icon={<IconPlus />}
-            dropdown={{
-                overlay: <SlashCommands mode="add" range={undefined} />,
-                placement: 'right-start',
-                fallbackPlacements: ['left-start'],
-                actionable: true,
-                closeParentPopoverOnClickInside: true,
-            }}
-            className="NotebookFloatingButton__plus ml-1"
-        />
+        <SlashCommandsPopover
+            mode="add"
+            visible={visible}
+            getPos={editor?.getCurrentPosition}
+            onClose={() => setVisible(false)}
+        >
+            <LemonButton size="xsmall" icon={<IconPlus />} onClick={onClick} />
+        </SlashCommandsPopover>
     )
 }
 

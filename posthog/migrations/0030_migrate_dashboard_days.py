@@ -18,7 +18,6 @@ def migrate_to_array(apps, schema_editor):
 
 
 class Migration(migrations.Migration):
-
     dependencies = [
         ("posthog", "0029_migrate_dashboard_actions"),
     ]

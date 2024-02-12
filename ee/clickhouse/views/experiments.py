@@ -9,9 +9,15 @@ from rest_framework.request import Request
 from rest_framework.response import Response
 from statshog.defaults.django import statsd
 
-from ee.clickhouse.queries.experiments.funnel_experiment_result import ClickhouseFunnelExperimentResult
-from ee.clickhouse.queries.experiments.secondary_experiment_result import ClickhouseSecondaryExperimentResult
-from ee.clickhouse.queries.experiments.trend_experiment_result import ClickhouseTrendExperimentResult
+from ee.clickhouse.queries.experiments.funnel_experiment_result import (
+    ClickhouseFunnelExperimentResult,
+)
+from ee.clickhouse.queries.experiments.secondary_experiment_result import (
+    ClickhouseSecondaryExperimentResult,
+)
+from ee.clickhouse.queries.experiments.trend_experiment_result import (
+    ClickhouseTrendExperimentResult,
+)
 from ee.clickhouse.queries.experiments.utils import requires_flag_warning
 from posthog.api.feature_flag import FeatureFlagSerializer, MinimalFeatureFlagSerializer
 from posthog.api.routing import StructuredViewSetMixin
@@ -23,7 +29,6 @@ from posthog.models.experiment import Experiment
 from posthog.models.filters.filter import Filter
 from posthog.permissions import (
     PremiumFeaturePermission,
-    ProjectMembershipNecessaryPermissions,
     TeamMemberAccessPermission,
 )
 from posthog.utils import generate_cache_key, get_safe_cache
@@ -50,11 +55,20 @@ def _calculate_experiment_results(experiment: Experiment, refresh: bool = False)
         ).get_results()
     else:
         calculate_func = lambda: ClickhouseFunnelExperimentResult(
-            filter, experiment.team, experiment.feature_flag, experiment.start_date, experiment.end_date
+            filter,
+            experiment.team,
+            experiment.feature_flag,
+            experiment.start_date,
+            experiment.end_date,
         ).get_results()
 
     return _experiment_results_cached(
-        experiment, "primary", filter, calculate_func, refresh=refresh, exposure_filter=exposure_filter
+        experiment,
+        "primary",
+        filter,
+        calculate_func,
+        refresh=refresh,
+        exposure_filter=exposure_filter,
     )
 
 
@@ -63,7 +77,11 @@ def _calculate_secondary_experiment_results(experiment: Experiment, parsed_id: i
 
     # TODO: refactor such that ClickhouseSecondaryExperimentResult's get_results doesn't return a dict
     calculate_func = lambda: ClickhouseSecondaryExperimentResult(
-        filter, experiment.team, experiment.feature_flag, experiment.start_date, experiment.end_date
+        filter,
+        experiment.team,
+        experiment.feature_flag,
+        experiment.start_date,
+        experiment.end_date,
     ).get_results()["result"]
 
     return _experiment_results_cached(experiment, "secondary", filter, calculate_func, refresh=refresh)
@@ -97,12 +115,14 @@ def _experiment_results_cached(
     if cached_result_package and cached_result_package.get("result") and not refresh:
         cached_result_package["is_cached"] = True
         statsd.incr(
-            "posthog_cached_function_cache_hit", tags={"route": "/projects/:id/experiments/:experiment_id/results"}
+            "posthog_cached_function_cache_hit",
+            tags={"route": "/projects/:id/experiments/:experiment_id/results"},
         )
         return cached_result_package
 
     statsd.incr(
-        "posthog_cached_function_cache_miss", tags={"route": "/projects/:id/experiments/:experiment_id/results"}
+        "posthog_cached_function_cache_miss",
+        tags={"route": "/projects/:id/experiments/:experiment_id/results"},
     )
 
     result = calculate_func()
@@ -111,14 +131,17 @@ def _experiment_results_cached(
     fresh_result_package = {"result": result, "last_refresh": now(), "is_cached": False}
 
     update_cached_state(
-        experiment.team.pk, cache_key, timestamp, fresh_result_package, ttl=EXPERIMENT_RESULTS_CACHE_DEFAULT_TTL
+        experiment.team.pk,
+        cache_key,
+        timestamp,
+        fresh_result_package,
+        ttl=EXPERIMENT_RESULTS_CACHE_DEFAULT_TTL,
     )
 
     return fresh_result_package
 
 
 class ExperimentSerializer(serializers.ModelSerializer):
-
     feature_flag_key = serializers.CharField(source="get_feature_flag_key")
     created_by = UserBasicSerializer(read_only=True)
     feature_flag = MinimalFeatureFlagSerializer(read_only=True)
@@ -141,7 +164,13 @@ class ExperimentSerializer(serializers.ModelSerializer):
             "created_at",
             "updated_at",
         ]
-        read_only_fields = ["id", "created_by", "created_at", "updated_at", "feature_flag"]
+        read_only_fields = [
+            "id",
+            "created_by",
+            "created_at",
+            "updated_at",
+            "feature_flag",
+        ]
 
     def validate_parameters(self, value):
         if not value:
@@ -158,7 +187,6 @@ class ExperimentSerializer(serializers.ModelSerializer):
         return value
 
     def create(self, validated_data: dict, *args: Any, **kwargs: Any) -> Experiment:
-
         if not validated_data.get("filters"):
             raise ValidationError("Filters are required to create an Experiment")
 
@@ -186,7 +214,7 @@ class ExperimentSerializer(serializers.ModelSerializer):
         ]
 
         filters = {
-            "groups": [{"properties": properties, "rollout_percentage": None}],
+            "groups": [{"properties": properties, "rollout_percentage": 100}],
             "multivariate": {"variants": variants or default_variants},
             "aggregation_group_type_index": aggregation_group_type_index,
         }
@@ -233,7 +261,6 @@ class ExperimentSerializer(serializers.ModelSerializer):
             raise ValidationError(f"Can't update keys: {', '.join(sorted(extra_keys))} on Experiment")
 
         if "feature_flag_variants" in validated_data.get("parameters", {}):
-
             if len(validated_data["parameters"]["feature_flag_variants"]) != len(feature_flag.variants):
                 raise ValidationError("Can't update feature_flag_variants on Experiment")
 
@@ -264,7 +291,6 @@ class ClickhouseExperimentsViewSet(StructuredViewSetMixin, viewsets.ModelViewSet
     permission_classes = [
         IsAuthenticated,
         PremiumFeaturePermission,
-        ProjectMembershipNecessaryPermissions,
         TeamMemberAccessPermission,
     ]
     premium_feature = AvailableFeature.EXPERIMENTATION
@@ -333,7 +359,6 @@ class ClickhouseExperimentsViewSet(StructuredViewSetMixin, viewsets.ModelViewSet
     # ******************************************
     @action(methods=["GET"], detail=False)
     def requires_flag_implementation(self, request: Request, *args: Any, **kwargs: Any) -> Response:
-
         filter = Filter(request=request, team=self.team).shallow_clone({"date_from": "-7d", "date_to": ""})
 
         warning = requires_flag_warning(filter, self.team)

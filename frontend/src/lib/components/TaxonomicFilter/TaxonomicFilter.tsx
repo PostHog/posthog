@@ -1,17 +1,19 @@
 import './TaxonomicFilter.scss'
-import { useEffect, useMemo, useRef } from 'react'
+
+import clsx from 'clsx'
 import { BindLogic, useActions, useValues } from 'kea'
-import { InfiniteSelectResults } from './InfiniteSelectResults'
-import { taxonomicFilterLogic } from './taxonomicFilterLogic'
 import {
     TaxonomicFilterGroupType,
     TaxonomicFilterLogicProps,
     TaxonomicFilterProps,
 } from 'lib/components/TaxonomicFilter/types'
-import { LemonInput } from 'lib/lemon-ui/LemonInput/LemonInput'
 import { IconKeyboard } from 'lib/lemon-ui/icons'
+import { LemonInput } from 'lib/lemon-ui/LemonInput/LemonInput'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
-import clsx from 'clsx'
+import { useEffect, useMemo, useRef } from 'react'
+
+import { InfiniteSelectResults } from './InfiniteSelectResults'
+import { taxonomicFilterLogic } from './taxonomicFilterLogic'
 
 let uniqueMemoizedIndex = 0
 
@@ -23,12 +25,14 @@ export function TaxonomicFilter({
     onClose,
     taxonomicGroupTypes,
     optionsFromProp,
+    metadataSource,
     eventNames,
     height,
     width,
     excludedProperties,
     popoverEnabled = true,
     selectFirstItem = true,
+    propertyAllowList,
 }: TaxonomicFilterProps): JSX.Element {
     // Generate a unique key for each unique TaxonomicFilter that's rendered
     const taxonomicFilterLogicKey = useMemo(
@@ -50,6 +54,8 @@ export function TaxonomicFilter({
         popoverEnabled,
         selectFirstItem,
         excludedProperties,
+        metadataSource,
+        propertyAllowList,
     }
 
     const logic = taxonomicFilterLogic(taxonomicFilterLogicProps)
@@ -67,14 +73,18 @@ export function TaxonomicFilter({
         ...(height ? { height } : {}),
     }
 
+    const taxonomicFilterRef = useRef<HTMLInputElement | null>(null)
+
     return (
         <BindLogic logic={taxonomicFilterLogic} props={taxonomicFilterLogicProps}>
             <div
+                ref={taxonomicFilterRef}
                 className={clsx(
                     'taxonomic-filter',
                     taxonomicGroupTypes.length === 1 && 'one-taxonomic-tab',
                     !width && 'force-minimum-width'
                 )}
+                data-attr={taxonomicFilterLogicKey}
                 // eslint-disable-next-line react/forbid-dom-props
                 style={style}
             >
@@ -92,10 +102,10 @@ export function TaxonomicFilter({
                                         <>
                                             You can easily navigate between tabs with your keyboard.{' '}
                                             <div>
-                                                Use <b>tab</b> or <b>right arrow</b> to move to the next tab.
+                                                Use <b>tab</b> to move to the next tab.
                                             </div>
                                             <div>
-                                                Use <b>shift + tab</b> or <b>left arrow</b> to move to the previous tab.
+                                                Use <b>shift + tab</b> to move to the previous tab.
                                             </div>
                                         </>
                                     }
@@ -104,30 +114,28 @@ export function TaxonomicFilter({
                                 </Tooltip>
                             }
                             onKeyDown={(e) => {
-                                if (e.key === 'ArrowUp') {
-                                    e.preventDefault()
-                                    moveUp()
+                                let shouldPreventDefault = true
+                                switch (e.key) {
+                                    case 'ArrowUp':
+                                        moveUp()
+                                        break
+                                    case 'ArrowDown':
+                                        moveDown()
+                                        break
+                                    case 'Tab':
+                                        e.shiftKey ? tabLeft() : tabRight()
+                                        break
+                                    case 'Enter':
+                                        selectSelected()
+                                        break
+                                    case 'Escape':
+                                        onClose?.()
+                                        break
+                                    default:
+                                        shouldPreventDefault = false
                                 }
-                                if (e.key === 'ArrowDown') {
+                                if (shouldPreventDefault) {
                                     e.preventDefault()
-                                    moveDown()
-                                }
-                                if (e.key === 'Tab') {
-                                    e.preventDefault()
-                                    if (e.shiftKey) {
-                                        tabLeft()
-                                    } else {
-                                        tabRight()
-                                    }
-                                }
-
-                                if (e.key === 'Enter') {
-                                    e.preventDefault()
-                                    selectSelected()
-                                }
-                                if (e.key === 'Escape') {
-                                    e.preventDefault()
-                                    onClose?.()
                                 }
                             }}
                             ref={searchInputRef}
@@ -135,7 +143,11 @@ export function TaxonomicFilter({
                         />
                     </div>
                 ) : null}
-                <InfiniteSelectResults focusInput={focusInput} taxonomicFilterLogicProps={taxonomicFilterLogicProps} />
+                <InfiniteSelectResults
+                    focusInput={focusInput}
+                    taxonomicFilterLogicProps={taxonomicFilterLogicProps}
+                    popupAnchorElement={taxonomicFilterRef.current}
+                />
             </div>
         </BindLogic>
     )

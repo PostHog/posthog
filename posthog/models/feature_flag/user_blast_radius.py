@@ -7,24 +7,41 @@ from posthog.models.cohort import Cohort
 from posthog.models.filters import Filter
 from posthog.models.property import GroupTypeIndex
 from posthog.models.team.team import Team
+from posthog.queries.base import relative_date_parse_for_feature_flag_matching
 
 
-def get_user_blast_radius(team: Team, feature_flag_condition: dict, group_type_index: Optional[GroupTypeIndex] = None):
+def replace_proxy_properties(team: Team, feature_flag_condition: dict):
+    prop_groups = Filter(data=feature_flag_condition, team=team).property_groups
 
+    for prop in prop_groups.flat:
+        if prop.operator in ("is_date_before", "is_date_after"):
+            relative_date = relative_date_parse_for_feature_flag_matching(str(prop.value))
+            if relative_date:
+                prop.value = relative_date.strftime("%Y-%m-%d %H:%M:%S")
+
+    return Filter(data={"properties": prop_groups.to_dict()}, team=team)
+
+
+def get_user_blast_radius(
+    team: Team,
+    feature_flag_condition: dict,
+    group_type_index: Optional[GroupTypeIndex] = None,
+):
     from posthog.queries.person_query import PersonQuery
 
     # No rollout % calculations here, since it makes more sense to compute that on the frontend
     properties = feature_flag_condition.get("properties") or []
 
-    if group_type_index is not None:
+    cleaned_filter = replace_proxy_properties(team, feature_flag_condition)
 
+    if group_type_index is not None:
         try:
             from ee.clickhouse.queries.groups_join_query import GroupsJoinQuery
         except Exception:
             return 0, 0
 
         if len(properties) > 0:
-            filter = Filter(data=feature_flag_condition, team=team)
+            filter = cleaned_filter
 
             for property in filter.property_groups.flat:
                 if property.group_type_index is None or (property.group_type_index != group_type_index):
@@ -48,7 +65,7 @@ def get_user_blast_radius(team: Team, feature_flag_condition: dict, group_type_i
         return total_affected_count, team.groups_seen_so_far(group_type_index)
 
     if len(properties) > 0:
-        filter = Filter(data=feature_flag_condition, team=team)
+        filter = cleaned_filter
         cohort_filters = []
         for property in filter.property_groups.flat:
             if property.type in ["cohort", "precalculated-cohort", "static-cohort"]:

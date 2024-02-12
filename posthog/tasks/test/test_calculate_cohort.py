@@ -71,7 +71,10 @@ def calculate_cohort_test_factory(event_factory: Callable, person_factory: Calla
                 team=self.team,
                 filters={
                     "groups": [
-                        {"properties": [{"key": "id", "type": "cohort", "value": 267}], "rollout_percentage": None}
+                        {
+                            "properties": [{"key": "id", "type": "cohort", "value": 267}],
+                            "rollout_percentage": None,
+                        }
                     ]
                 },
                 key="default-flag-1",

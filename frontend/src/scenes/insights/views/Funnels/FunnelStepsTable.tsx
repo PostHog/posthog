@@ -1,33 +1,34 @@
 import { useActions, useValues } from 'kea'
-import { insightLogic } from 'scenes/insights/insightLogic'
-import { LemonTable, LemonTableColumn, LemonTableColumnGroup } from 'lib/lemon-ui/LemonTable'
-import { FlattenedFunnelStepByBreakdown } from '~/types'
-import { EntityFilterInfo } from 'lib/components/EntityFilterInfo'
-import { getVisibilityKey } from 'scenes/funnels/funnelUtils'
-import { getActionFilterFromFunnelStep, getSignificanceFromBreakdownStep } from './funnelStepTableUtils'
-import { cohortsModel } from '~/models/cohortsModel'
-import { LemonCheckbox } from 'lib/lemon-ui/LemonCheckbox'
-import { Lettermark, LettermarkColor } from 'lib/lemon-ui/Lettermark'
-import { LemonRow } from 'lib/lemon-ui/LemonRow'
-import { humanFriendlyDuration, humanFriendlyNumber, percentage } from 'lib/utils'
-import { ValueInspectorButton } from 'scenes/funnels/ValueInspectorButton'
 import { getSeriesColor } from 'lib/colors'
+import { EntityFilterInfo } from 'lib/components/EntityFilterInfo'
 import { IconFlag } from 'lib/lemon-ui/icons'
-import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
-import { formatBreakdownLabel } from 'scenes/insights/utils'
+import { LemonCheckbox } from 'lib/lemon-ui/LemonCheckbox'
+import { LemonRow } from 'lib/lemon-ui/LemonRow'
+import { LemonTable, LemonTableColumn, LemonTableColumnGroup } from 'lib/lemon-ui/LemonTable'
+import { Lettermark, LettermarkColor } from 'lib/lemon-ui/Lettermark'
+import { humanFriendlyDuration, humanFriendlyNumber, percentage } from 'lib/utils'
 import { funnelDataLogic } from 'scenes/funnels/funnelDataLogic'
-import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 import { funnelPersonsModalLogic } from 'scenes/funnels/funnelPersonsModalLogic'
+import { getVisibilityKey } from 'scenes/funnels/funnelUtils'
+import { ValueInspectorButton } from 'scenes/funnels/ValueInspectorButton'
+import { insightLogic } from 'scenes/insights/insightLogic'
+import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
+import { formatBreakdownLabel } from 'scenes/insights/utils'
+
+import { cohortsModel } from '~/models/cohortsModel'
+import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
+import { FlattenedFunnelStepByBreakdown } from '~/types'
+
+import { getActionFilterFromFunnelStep, getSignificanceFromBreakdownStep } from './funnelStepTableUtils'
 
 export function FunnelStepsTable(): JSX.Element | null {
     const { insightProps, insightLoading } = useValues(insightLogic)
-    const { breakdown } = useValues(insightVizDataLogic(insightProps))
+    const { breakdownFilter } = useValues(insightVizDataLogic(insightProps))
     const { steps, flattenedBreakdowns, funnelsFilter } = useValues(funnelDataLogic(insightProps))
     const { updateInsightFilter } = useActions(funnelDataLogic(insightProps))
     const { canOpenPersonModal } = useValues(funnelPersonsModalLogic(insightProps))
     const { openPersonsModalForSeries } = useActions(funnelPersonsModalLogic(insightProps))
 
-    const breakdownFilter = breakdown ?? undefined
     const isOnlySeries = flattenedBreakdowns.length <= 1
     const hiddenLegendBreakdowns = funnelsFilter?.hidden_legend_breakdowns
     const setHiddenLegendBreakdowns = (hidden_legend_breakdowns: string[]): void => {
@@ -198,7 +199,7 @@ export function FunnelStepsTable(): JSX.Element | null {
                         const significance = getSignificanceFromBreakdownStep(breakdown, step.order)
                         return significance?.total ? (
                             <LemonRow
-                                className="significance-highlight"
+                                className="funnel-significance-highlight"
                                 tooltip="Significantly different from other breakdown values"
                                 icon={<IconFlag />}
                                 size="small"
@@ -230,7 +231,7 @@ export function FunnelStepsTable(): JSX.Element | null {
                                   // Only flag as significant here if not flagged already in "Conversion so far"
                                   return !significance?.total && significance?.fromPrevious ? (
                                       <LemonRow
-                                          className="significance-highlight"
+                                          className="funnel-significance-highlight"
                                           tooltip="Significantly different from other breakdown values"
                                           icon={<IconFlag />}
                                           size="small"

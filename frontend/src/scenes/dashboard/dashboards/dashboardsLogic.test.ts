@@ -1,10 +1,12 @@
-import { dashboardsLogic } from 'scenes/dashboard/dashboards/dashboardsLogic'
-import { initKeaTests } from '~/test/init'
-import { useMocks } from '~/mocks/jest'
-import { DashboardType, UserBasicType } from '~/types'
-import dashboardJson from '../__mocks__/dashboard.json'
-import { dashboardsModel } from '~/models/dashboardsModel'
 import { expectLogic, truth } from 'kea-test-utils'
+import { dashboardsLogic } from 'scenes/dashboard/dashboards/dashboardsLogic'
+
+import { useMocks } from '~/mocks/jest'
+import { dashboardsModel } from '~/models/dashboardsModel'
+import { initKeaTests } from '~/test/init'
+import { DashboardType, UserBasicType } from '~/types'
+
+import dashboardJson from '../__mocks__/dashboard.json'
 
 let dashboardId = 1234
 const dashboard = (extras: Partial<DashboardType>): DashboardType => {

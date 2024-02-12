@@ -1,13 +1,17 @@
+import { Meta, StoryFn, StoryObj } from '@storybook/react'
 import { useEffect } from 'react'
-import { ComponentMeta, ComponentStory } from '@storybook/react'
-import { Exporter } from './Exporter'
-import { dashboard } from '~/exporter/__mocks__/Exporter.mocks'
 
-export default {
+import { dashboard } from '~/exporter/__mocks__/Exporter.mocks'
+import { ExportType } from '~/exporter/types'
+
+import { Exporter } from './Exporter'
+
+type Story = StoryObj<typeof Exporter>
+const meta: Meta<typeof Exporter> = {
     title: 'Exporter/Exporter',
     component: Exporter,
     args: {
-        type: 'embed',
+        type: ExportType.Embed,
         whitelabel: false,
         noHeader: false,
         legend: false,
@@ -19,9 +23,11 @@ export default {
         mockDate: '2023-02-01',
         viewMode: 'story',
     },
-} as ComponentMeta<typeof Exporter>
+}
 
-const Template: ComponentStory<typeof Exporter> = (props) => {
+export default meta
+
+const Template: StoryFn<typeof Exporter> = (props) => {
     useEffect(() => {
         document.body.className = ''
         document.documentElement.className = `export-type-${props.type}`
@@ -33,84 +39,116 @@ const Template: ComponentStory<typeof Exporter> = (props) => {
     )
 }
 
-export const TrendsLineInsight = Template.bind({})
-TrendsLineInsight.args = { insight: require('../scenes/insights/__mocks__/trendsLine.json') }
+export const TrendsLineInsight: Story = Template.bind({})
+TrendsLineInsight.args = { insight: require('../mocks/fixtures/api/projects/team_id/insights/trendsLine.json') }
 
-export const TrendsLineBreakdownInsight = Template.bind({})
-TrendsLineBreakdownInsight.args = { insight: require('../scenes/insights/__mocks__/trendsLineBreakdown.json') }
+export const TrendsLineMultiInsight: Story = Template.bind({})
+TrendsLineMultiInsight.args = {
+    insight: require('../mocks/fixtures/api/projects/team_id/insights/trendsLineMulti.json'),
+}
+TrendsLineMultiInsight.parameters = {
+    mockDate: '2023-07-10',
+}
 
-export const TrendsBarInsight = Template.bind({})
-TrendsBarInsight.args = { insight: require('../scenes/insights/__mocks__/trendsBar.json') }
+export const TrendsLineBreakdownInsight: Story = Template.bind({})
+TrendsLineBreakdownInsight.args = {
+    insight: require('../mocks/fixtures/api/projects/team_id/insights/trendsLineBreakdown.json'),
+}
 
-export const TrendsBarBreakdownInsight = Template.bind({})
-TrendsBarBreakdownInsight.args = { insight: require('../scenes/insights/__mocks__/trendsBarBreakdown.json') }
+export const TrendsBarInsight: Story = Template.bind({})
+TrendsBarInsight.args = { insight: require('../mocks/fixtures/api/projects/team_id/insights/trendsBar.json') }
 
-export const TrendsValueInsight = Template.bind({})
-TrendsValueInsight.args = { insight: require('../scenes/insights/__mocks__/trendsValue.json') }
+export const TrendsBarBreakdownInsight: Story = Template.bind({})
+TrendsBarBreakdownInsight.args = {
+    insight: require('../mocks/fixtures/api/projects/team_id/insights/trendsBarBreakdown.json'),
+}
 
-export const TrendsValueBreakdownInsight = Template.bind({})
-TrendsValueBreakdownInsight.args = { insight: require('../scenes/insights/__mocks__/trendsValueBreakdown.json') }
+export const TrendsValueInsight: Story = Template.bind({})
+TrendsValueInsight.args = { insight: require('../mocks/fixtures/api/projects/team_id/insights/trendsValue.json') }
 
-export const TrendsAreaInsight = Template.bind({})
-TrendsAreaInsight.args = { insight: require('../scenes/insights/__mocks__/trendsArea.json') }
+export const TrendsValueBreakdownInsight: Story = Template.bind({})
+TrendsValueBreakdownInsight.args = {
+    insight: require('../mocks/fixtures/api/projects/team_id/insights/trendsValueBreakdown.json'),
+}
 
-export const TrendsAreaBreakdownInsight = Template.bind({})
-TrendsAreaBreakdownInsight.args = { insight: require('../scenes/insights/__mocks__/trendsAreaBreakdown.json') }
+export const TrendsAreaInsight: Story = Template.bind({})
+TrendsAreaInsight.args = { insight: require('../mocks/fixtures/api/projects/team_id/insights/trendsArea.json') }
 
-export const TrendsNumberInsight = Template.bind({})
-TrendsNumberInsight.args = { insight: require('../scenes/insights/__mocks__/trendsNumber.json') }
+export const TrendsAreaBreakdownInsight: Story = Template.bind({})
+TrendsAreaBreakdownInsight.args = {
+    insight: require('../mocks/fixtures/api/projects/team_id/insights/trendsAreaBreakdown.json'),
+}
 
-export const TrendsTableInsight = Template.bind({})
-TrendsTableInsight.args = { insight: require('../scenes/insights/__mocks__/trendsTable.json') }
+export const TrendsNumberInsight: Story = Template.bind({})
+TrendsNumberInsight.args = { insight: require('../mocks/fixtures/api/projects/team_id/insights/trendsNumber.json') }
 
-export const TrendsTableBreakdownInsight = Template.bind({})
-TrendsTableBreakdownInsight.args = { insight: require('../scenes/insights/__mocks__/trendsTableBreakdown.json') }
+export const TrendsTableInsight: Story = Template.bind({})
+TrendsTableInsight.args = { insight: require('../mocks/fixtures/api/projects/team_id/insights/trendsTable.json') }
 
-export const TrendsPieInsight = Template.bind({})
-TrendsPieInsight.args = { insight: require('../scenes/insights/__mocks__/trendsPie.json') }
+export const TrendsTableBreakdownInsight: Story = Template.bind({})
+TrendsTableBreakdownInsight.args = {
+    insight: require('../mocks/fixtures/api/projects/team_id/insights/trendsTableBreakdown.json'),
+}
 
-export const TrendsPieBreakdownInsight = Template.bind({})
-TrendsPieBreakdownInsight.args = { insight: require('../scenes/insights/__mocks__/trendsPieBreakdown.json') }
+export const TrendsPieInsight: Story = Template.bind({})
+TrendsPieInsight.args = { insight: require('../mocks/fixtures/api/projects/team_id/insights/trendsPie.json') }
 
-export const TrendsWorldMapInsight = Template.bind({})
-TrendsWorldMapInsight.args = { insight: require('../scenes/insights/__mocks__/trendsWorldMap.json') }
+export const TrendsPieBreakdownInsight: Story = Template.bind({})
+TrendsPieBreakdownInsight.args = {
+    insight: require('../mocks/fixtures/api/projects/team_id/insights/trendsPieBreakdown.json'),
+}
 
-export const FunnelLeftToRightInsight = Template.bind({})
-FunnelLeftToRightInsight.args = { insight: require('../scenes/insights/__mocks__/funnelLeftToRight.json') }
+export const TrendsWorldMapInsight: Story = Template.bind({})
+TrendsWorldMapInsight.args = {
+    insight: require('../mocks/fixtures/api/projects/team_id/insights/trendsWorldMap.json'),
+}
 
-export const FunnelLeftToRightBreakdownInsight = Template.bind({})
+export const FunnelLeftToRightInsight: Story = Template.bind({})
+FunnelLeftToRightInsight.args = {
+    insight: require('../mocks/fixtures/api/projects/team_id/insights/funnelLeftToRight.json'),
+}
+
+export const FunnelLeftToRightBreakdownInsight: Story = Template.bind({})
 FunnelLeftToRightBreakdownInsight.args = {
-    insight: require('../scenes/insights/__mocks__/funnelLeftToRightBreakdown.json'),
+    insight: require('../mocks/fixtures/api/projects/team_id/insights/funnelLeftToRightBreakdown.json'),
 }
 
-export const FunnelTopToBottomInsight = Template.bind({})
-FunnelTopToBottomInsight.args = { insight: require('../scenes/insights/__mocks__/funnelTopToBottom.json') }
+export const FunnelTopToBottomInsight: Story = Template.bind({})
+FunnelTopToBottomInsight.args = {
+    insight: require('../mocks/fixtures/api/projects/team_id/insights/funnelTopToBottom.json'),
+}
 
-export const FunnelTopToBottomBreakdownInsight = Template.bind({})
+export const FunnelTopToBottomBreakdownInsight: Story = Template.bind({})
 FunnelTopToBottomBreakdownInsight.args = {
-    insight: require('../scenes/insights/__mocks__/funnelTopToBottomBreakdown.json'),
+    insight: require('../mocks/fixtures/api/projects/team_id/insights/funnelTopToBottomBreakdown.json'),
 }
 
-export const FunnelHistoricalTrendsInsight = Template.bind({})
-FunnelHistoricalTrendsInsight.args = { insight: require('../scenes/insights/__mocks__/funnelHistoricalTrends.json') }
+export const FunnelHistoricalTrendsInsight: Story = Template.bind({})
+FunnelHistoricalTrendsInsight.args = {
+    insight: require('../mocks/fixtures/api/projects/team_id/insights/funnelHistoricalTrends.json'),
+}
 
-export const FunnelTimeToConvertInsight = Template.bind({})
-FunnelTimeToConvertInsight.args = { insight: require('../scenes/insights/__mocks__/funnelTimeToConvert.json') }
+export const FunnelTimeToConvertInsight: Story = Template.bind({})
+FunnelTimeToConvertInsight.args = {
+    insight: require('../mocks/fixtures/api/projects/team_id/insights/funnelTimeToConvert.json'),
+}
 
-export const RetentionInsight = Template.bind({})
-RetentionInsight.args = { insight: require('../scenes/insights/__mocks__/retention.json') }
+export const RetentionInsight: Story = Template.bind({})
+RetentionInsight.args = { insight: require('../mocks/fixtures/api/projects/team_id/insights/retention.json') }
 
-export const RetentionBreakdownInsight = Template.bind({})
-RetentionBreakdownInsight.args = { insight: require('../scenes/insights/__mocks__/retentionBreakdown.json') }
+export const RetentionBreakdownInsight: Story = Template.bind({})
+RetentionBreakdownInsight.args = {
+    insight: require('../mocks/fixtures/api/projects/team_id/insights/retentionBreakdown.json'),
+}
 
-export const LifecycleInsight = Template.bind({})
-LifecycleInsight.args = { insight: require('../scenes/insights/__mocks__/lifecycle.json') }
+export const LifecycleInsight: Story = Template.bind({})
+LifecycleInsight.args = { insight: require('../mocks/fixtures/api/projects/team_id/insights/lifecycle.json') }
 
-export const StickinessInsight = Template.bind({})
-StickinessInsight.args = { insight: require('../scenes/insights/__mocks__/stickiness.json') }
+export const StickinessInsight: Story = Template.bind({})
+StickinessInsight.args = { insight: require('../mocks/fixtures/api/projects/team_id/insights/stickiness.json') }
 
-export const UserPathsInsight = Template.bind({})
-UserPathsInsight.args = { insight: require('../scenes/insights/__mocks__/userPaths.json') }
+export const UserPathsInsight: Story = Template.bind({})
+UserPathsInsight.args = { insight: require('../mocks/fixtures/api/projects/team_id/insights/userPaths.json') }
 
-export const Dashboard = Template.bind({})
+export const Dashboard: Story = Template.bind({})
 Dashboard.args = { dashboard }

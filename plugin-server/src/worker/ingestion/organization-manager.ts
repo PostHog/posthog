@@ -1,7 +1,5 @@
-import { Client, Pool } from 'pg'
-
 import { RawOrganization, Team, TeamId } from '../../types'
-import { postgresQuery } from '../../utils/db/postgres'
+import { PostgresRouter, PostgresUse } from '../../utils/db/postgres'
 import { timeoutGuard } from '../../utils/db/utils'
 import { getByAge } from '../../utils/utils'
 import { TeamManager } from './team-manager'
@@ -11,12 +9,12 @@ const ONE_DAY = 24 * 60 * 60 * 1000
 type OrganizationCache<T> = Map<RawOrganization['id'], [T, number]>
 
 export class OrganizationManager {
-    postgres: Client | Pool
+    postgres: PostgresRouter
     teamManager: TeamManager
     organizationCache: OrganizationCache<RawOrganization | null>
     availableFeaturesCache: Map<TeamId, [Array<string>, number]>
 
-    constructor(postgres: Client | Pool, teamManager: TeamManager) {
+    constructor(postgres: PostgresRouter, teamManager: TeamManager) {
         this.postgres = postgres
         this.teamManager = teamManager
         this.organizationCache = new Map()
@@ -67,11 +65,11 @@ export class OrganizationManager {
 }
 
 export async function fetchOrganization(
-    client: Client | Pool,
+    client: PostgresRouter,
     organizationId: string
 ): Promise<RawOrganization | undefined> {
-    const selectResult = await postgresQuery<RawOrganization>(
-        client,
+    const selectResult = await client.query<RawOrganization>(
+        PostgresUse.COMMON_READ,
         `SELECT * FROM posthog_organization WHERE id = $1`,
         [organizationId],
         'fetchOrganization'

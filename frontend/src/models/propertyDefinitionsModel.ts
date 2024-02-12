@@ -1,19 +1,23 @@
 import { actions, kea, listeners, path, reducers, selectors } from 'kea'
 import api, { ApiMethodOptions } from 'lib/api'
+import { TaxonomicFilterValue } from 'lib/components/TaxonomicFilter/types'
+import { dayjs } from 'lib/dayjs'
+import { captureTimeToSeeData } from 'lib/internalMetrics'
+import { colonDelimitedDuration } from 'lib/utils'
+import { permanentlyMount } from 'lib/utils/kea-logic-builders'
+import { teamLogic } from 'scenes/teamLogic'
+
 import {
     BreakdownKeyType,
+    GroupTypeIndex,
     PropertyDefinition,
     PropertyDefinitionState,
     PropertyDefinitionType,
     PropertyFilterValue,
     PropertyType,
 } from '~/types'
+
 import type { propertyDefinitionsModelType } from './propertyDefinitionsModelType'
-import { dayjs } from 'lib/dayjs'
-import { TaxonomicFilterValue } from 'lib/components/TaxonomicFilter/types'
-import { colonDelimitedDuration } from 'lib/utils'
-import { captureTimeToSeeData } from 'lib/internalMetrics'
-import { teamLogic } from 'scenes/teamLogic'
 
 export type PropertyDefinitionStorage = Record<string, PropertyDefinition | PropertyDefinitionState>
 
@@ -33,7 +37,8 @@ const localProperties: PropertyDefinitionStorage = {
 export type FormatPropertyValueForDisplayFunction = (
     propertyName?: BreakdownKeyType,
     valueToFormat?: PropertyFilterValue,
-    type?: PropertyDefinitionType
+    type?: PropertyDefinitionType,
+    groupTypeIndex?: GroupTypeIndex
 ) => string | string[] | null
 
 /** Update cached property definition metadata */
@@ -53,18 +58,33 @@ export type Option = {
     values?: PropValue[]
 }
 
+const getPropertyKey = (
+    type: PropertyDefinitionType,
+    propertyName?: BreakdownKeyType,
+    groupTypeIndex?: number | null
+): string => {
+    if (type === PropertyDefinitionType.Group) {
+        return `${type}/${groupTypeIndex}/${propertyName}`
+    } else {
+        return `${type}/${propertyName}`
+    }
+}
+
 /** Schedules an immediate background task, that fetches property definitions after a 10ms debounce. Returns the property sync if already found. */
 const checkOrLoadPropertyDefinition = (
     propertyName: BreakdownKeyType | undefined,
     definitionType: PropertyDefinitionType,
-    propertyDefinitionStorage: PropertyDefinitionStorage
+    propertyDefinitionStorage: PropertyDefinitionStorage,
+    groupTypeIndex?: number | null
 ): PropertyDefinition | null => {
     // first time we see this, schedule a fetch
-    const key = `${definitionType}/${propertyName}`
+    const key = getPropertyKey(definitionType, propertyName, groupTypeIndex)
     if (typeof propertyName === 'string' && !(key in propertyDefinitionStorage)) {
         window.setTimeout(
             () =>
-                propertyDefinitionsModel.findMounted()?.actions.loadPropertyDefinitions([propertyName], definitionType),
+                propertyDefinitionsModel
+                    .findMounted()
+                    ?.actions.loadPropertyDefinitions([propertyName], definitionType, groupTypeIndex),
             0
         )
     }
@@ -79,7 +99,11 @@ export const propertyDefinitionsModel = kea<propertyDefinitionsModelType>([
     path(['models', 'propertyDefinitionsModel']),
     actions({
         // public
-        loadPropertyDefinitions: (propertyKeys: string[], type: PropertyDefinitionType) => ({ propertyKeys, type }),
+        loadPropertyDefinitions: (
+            propertyKeys: string[],
+            type: PropertyDefinitionType,
+            groupTypeIndex?: number | null
+        ) => ({ propertyKeys, type, groupTypeIndex }),
         updatePropertyDefinitions: (propertyDefinitions: PropertyDefinitionStorage) => ({
             propertyDefinitions,
         }),
@@ -122,12 +146,12 @@ export const propertyDefinitionsModel = kea<propertyDefinitionsModelType>([
         ],
     }),
     listeners(({ actions, values, cache }) => ({
-        loadPropertyDefinitions: async ({ propertyKeys, type }) => {
+        loadPropertyDefinitions: async ({ propertyKeys, type, groupTypeIndex }) => {
             const { propertyDefinitionStorage } = values
 
             const pendingStateUpdate: PropertyDefinitionStorage = {}
             for (const propertyKey of propertyKeys) {
-                const key = `${type}/${propertyKey}`
+                const key = getPropertyKey(type, propertyKey, groupTypeIndex)
                 if (
                     !(key in propertyDefinitionStorage) ||
                     propertyDefinitionStorage[key] === PropertyDefinitionState.Error
@@ -154,13 +178,25 @@ export const propertyDefinitionsModel = kea<propertyDefinitionsModelType>([
             }
             // take the first 50 pending properties to avoid the 4k query param length limit
             const allPending = values.pendingProperties.slice(0, 50)
-            const pendingByType: Record<PropertyDefinitionType, string[]> = {
+            const pendingByType: Record<
+                'event' | 'person' | 'group/0' | 'group/1' | 'group/2' | 'group/3' | 'group/4',
+                string[]
+            > = {
                 event: [],
                 person: [],
-                group: [],
+                'group/0': [],
+                'group/1': [],
+                'group/2': [],
+                'group/3': [],
+                'group/4': [],
             }
             for (const key of allPending) {
-                const [type, ...rest] = key.split('/')
+                let [type, ...rest] = key.split('/')
+
+                if (type === 'group') {
+                    type = `${type}/${rest[0]}`
+                    rest = rest.slice(1)
+                }
                 if (!(type in pendingByType)) {
                     throw new Error(`Unknown property definition type: ${type}`)
                 }
@@ -177,10 +213,22 @@ export const propertyDefinitionsModel = kea<propertyDefinitionsModelType>([
                     actions.updatePropertyDefinitions(
                         Object.fromEntries(pending.map((key) => [`${type}/${key}`, PropertyDefinitionState.Loading]))
                     )
+
+                    let queryParams = {
+                        type: type as PropertyDefinitionType,
+                        group_type_index: null as string | null,
+                    }
+                    if (type.startsWith('group')) {
+                        queryParams = {
+                            type: PropertyDefinitionType.Group,
+                            group_type_index: type.split('/')[1],
+                        }
+                    }
+
                     // and then fetch them
                     const propertyDefinitions = await api.propertyDefinitions.list({
                         properties: pending,
-                        type: type as PropertyDefinitionType,
+                        ...queryParams,
                     })
 
                     for (const propertyDefinition of propertyDefinitions.results) {
@@ -285,10 +333,12 @@ export const propertyDefinitionsModel = kea<propertyDefinitionsModelType>([
         ],
         propertyDefinitionsByType: [
             (s) => [s.propertyDefinitionStorage],
-            (propertyDefinitionStorage): ((type: string) => PropertyDefinition[]) => {
-                return (type) => {
+            (propertyDefinitionStorage): ((type: string, groupTypeIndex?: number | null) => PropertyDefinition[]) => {
+                return (type, groupTypeIndex) => {
+                    const keyPrefix = type === 'group' ? `${type}/${groupTypeIndex}/` : `${type}/`
+
                     return Object.entries(propertyDefinitionStorage ?? {})
-                        .filter(([key, value]) => key.startsWith(`${type}/`) && typeof value === 'object')
+                        .filter(([key, value]) => key.startsWith(keyPrefix) && typeof value === 'object')
                         .map(([, value]) => value as PropertyDefinition)
                 }
             },
@@ -297,24 +347,46 @@ export const propertyDefinitionsModel = kea<propertyDefinitionsModelType>([
             (s) => [s.propertyDefinitionStorage],
             (
                     propertyDefinitionStorage
-                ): ((s: TaxonomicFilterValue, type: PropertyDefinitionType) => PropertyDefinition | null) =>
-                (propertyName: TaxonomicFilterValue, type: PropertyDefinitionType): PropertyDefinition | null => {
-                    if (!propertyName) {
+                ): ((
+                    s: TaxonomicFilterValue,
+                    type: PropertyDefinitionType,
+                    groupTypeIndex?: number
+                ) => PropertyDefinition | null) =>
+                (
+                    propertyName: TaxonomicFilterValue,
+                    type: PropertyDefinitionType,
+                    groupTypeIndex?: number
+                ): PropertyDefinition | null => {
+                    if (
+                        !propertyName ||
+                        (type === PropertyDefinitionType.Group &&
+                            (groupTypeIndex === undefined || groupTypeIndex === null))
+                    ) {
                         return null
                     }
-                    return checkOrLoadPropertyDefinition(propertyName, type, propertyDefinitionStorage)
+                    return checkOrLoadPropertyDefinition(propertyName, type, propertyDefinitionStorage, groupTypeIndex)
                 },
         ],
         describeProperty: [
             (s) => [s.propertyDefinitionStorage],
-            (propertyDefinitionStorage): ((s: TaxonomicFilterValue, type: PropertyDefinitionType) => string | null) =>
-                (propertyName: TaxonomicFilterValue, type: PropertyDefinitionType) => {
-                    if (!propertyName) {
+            (
+                    propertyDefinitionStorage
+                ): ((
+                    s: TaxonomicFilterValue,
+                    type: PropertyDefinitionType,
+                    groupTypeIndex?: number
+                ) => string | null) =>
+                (propertyName: TaxonomicFilterValue, type: PropertyDefinitionType, groupTypeIndex?: number) => {
+                    if (
+                        !propertyName ||
+                        (type === PropertyDefinitionType.Group &&
+                            (groupTypeIndex === undefined || groupTypeIndex === null))
+                    ) {
                         return null
                     }
                     return (
-                        checkOrLoadPropertyDefinition(propertyName, type, propertyDefinitionStorage)?.property_type ??
-                        null
+                        checkOrLoadPropertyDefinition(propertyName, type, propertyDefinitionStorage, groupTypeIndex)
+                            ?.property_type ?? null
                     )
                 },
         ],
@@ -324,15 +396,22 @@ export const propertyDefinitionsModel = kea<propertyDefinitionsModelType>([
                 return (
                     propertyName?: BreakdownKeyType,
                     valueToFormat?: PropertyFilterValue | undefined,
-                    type?: PropertyDefinitionType
+                    type?: PropertyDefinitionType,
+                    groupTypeIndex?: number | null
                 ) => {
-                    if (valueToFormat === null || valueToFormat === undefined) {
+                    if (
+                        valueToFormat === null ||
+                        valueToFormat === undefined ||
+                        (type === PropertyDefinitionType.Group &&
+                            (groupTypeIndex === undefined || groupTypeIndex === null))
+                    ) {
                         return null
                     }
                     const propertyDefinition: PropertyDefinition | null = checkOrLoadPropertyDefinition(
                         propertyName,
                         type ?? PropertyDefinitionType.Event,
-                        propertyDefinitionStorage
+                        propertyDefinitionStorage,
+                        groupTypeIndex
                     )
                     const arrayOfPropertyValues = Array.isArray(valueToFormat) ? valueToFormat : [valueToFormat]
 
@@ -367,4 +446,5 @@ export const propertyDefinitionsModel = kea<propertyDefinitionsModelType>([
             },
         ],
     }),
+    permanentlyMount(),
 ])

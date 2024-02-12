@@ -14,7 +14,7 @@ from posthog.models.element.element import chain_to_elements
 from posthog.models.element.sql import GET_ELEMENTS, GET_VALUES
 from posthog.models.instance_setting import get_instance_setting
 from posthog.models.property.util import parse_prop_grouped_clauses
-from posthog.permissions import ProjectMembershipNecessaryPermissions, TeamMemberAccessPermission
+from posthog.permissions import TeamMemberAccessPermission
 from posthog.queries.query_date_range import QueryDateRange
 from posthog.utils import format_query_params_absolute_url
 
@@ -46,7 +46,7 @@ class ElementViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
         authentication.SessionAuthentication,
         authentication.BasicAuthentication,
     ]
-    permission_classes = [IsAuthenticated, ProjectMembershipNecessaryPermissions, TeamMemberAccessPermission]
+    permission_classes = [IsAuthenticated, TeamMemberAccessPermission]
     include_in_docs = False
 
     @action(methods=["GET"], detail=False)
@@ -84,14 +84,23 @@ class ElementViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
         paginate_response = request.query_params.get("paginate_response", "false") == "true"
         if not paginate_response:
             # once we are getting no hits on this counter we can default to paginated responses
-            statsd.incr("toolbar_element_stats_unpaginated_api_request_tombstone", tags={"team_id": self.team_id})
+            statsd.incr(
+                "toolbar_element_stats_unpaginated_api_request_tombstone",
+                tags={"team_id": self.team_id},
+            )
 
         prop_filters, prop_filter_params = parse_prop_grouped_clauses(
-            team_id=self.team.pk, property_group=filter.property_groups, hogql_context=filter.hogql_context
+            team_id=self.team.pk,
+            property_group=filter.property_groups,
+            hogql_context=filter.hogql_context,
         )
         result = sync_execute(
             GET_ELEMENTS.format(
-                date_from=date_from, date_to=date_to, query=prop_filters, limit=limit + 1, offset=offset
+                date_from=date_from,
+                date_to=date_to,
+                query=prop_filters,
+                limit=limit + 1,
+                offset=offset,
             ),
             {
                 "team_id": self.team.pk,
@@ -117,7 +126,13 @@ class ElementViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
             has_next = len(result) == limit + 1
             next_url = format_query_params_absolute_url(request, offset + limit) if has_next else None
             previous_url = format_query_params_absolute_url(request, offset - limit) if offset - limit >= 0 else None
-            return response.Response({"results": serialized_elements, "next": next_url, "previous": previous_url})
+            return response.Response(
+                {
+                    "results": serialized_elements,
+                    "next": next_url,
+                    "previous": previous_url,
+                }
+            )
         else:
             return response.Response(serialized_elements)
 
@@ -161,7 +176,12 @@ class ElementViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
                 filter_regex = select_regex
 
         result = sync_execute(
-            GET_VALUES.format(), {"team_id": self.team.id, "regex": select_regex, "filter_regex": filter_regex}
+            GET_VALUES.format(),
+            {
+                "team_id": self.team.id,
+                "regex": select_regex,
+                "filter_regex": filter_regex,
+            },
         )
         return response.Response([{"name": value[0]} for value in result])
 

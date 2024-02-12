@@ -6,11 +6,15 @@ from uuid import UUID
 from django.utils import timezone
 from freezegun import freeze_time
 
-from ee.clickhouse.queries.funnels.funnel_correlation_persons import FunnelCorrelationActors
+from ee.clickhouse.queries.funnels.funnel_correlation_persons import (
+    FunnelCorrelationActors,
+)
 from posthog.constants import INSIGHT_FUNNELS
 from posthog.models import Cohort, Filter
 from posthog.models.person import Person
-from posthog.session_recordings.test.test_factory import create_session_recording_events
+from posthog.session_recordings.queries.test.session_replay_sql import (
+    produce_replay_summary,
+)
 from posthog.tasks.calculate_cohort import insert_cohort_from_insight_filter
 from posthog.test.base import (
     APIBaseTest,
@@ -28,7 +32,6 @@ PERSON_ID_COLUMN = 2
 
 
 class TestClickhouseFunnelCorrelationsActors(ClickhouseTestMixin, APIBaseTest):
-
     maxDiff = None
 
     def _setup_basic_test(self):
@@ -55,7 +58,10 @@ class TestClickhouseFunnelCorrelationsActors(ClickhouseTestMixin, APIBaseTest):
 
             if i % 2 == 0:
                 events_by_person[person_id].append(
-                    {"event": "positively_related", "timestamp": datetime(2020, 1, 3, 14)}
+                    {
+                        "event": "positively_related",
+                        "timestamp": datetime(2020, 1, 3, 14),
+                    }
                 )
 
                 success_target_persons.append(str(person.uuid))
@@ -68,7 +74,10 @@ class TestClickhouseFunnelCorrelationsActors(ClickhouseTestMixin, APIBaseTest):
             events_by_person[person_id] = [{"event": "user signed up", "timestamp": datetime(2020, 1, 2, 14)}]
             if i % 2 == 0:
                 events_by_person[person_id].append(
-                    {"event": "negatively_related", "timestamp": datetime(2020, 1, 3, 14)}
+                    {
+                        "event": "negatively_related",
+                        "timestamp": datetime(2020, 1, 3, 14),
+                    }
                 )
                 failure_target_persons.append(str(person.uuid))
 
@@ -88,17 +97,32 @@ class TestClickhouseFunnelCorrelationsActors(ClickhouseTestMixin, APIBaseTest):
             {"event": "negatively_related", "timestamp": datetime(2020, 1, 3, 14)},
             {"event": "paid", "timestamp": datetime(2020, 1, 4, 14)},
         ]
-        journeys_for(events_by_person, self.team)
+        journeys_for(events_by_person, self.team, create_people=False)
 
-        return filter, success_target_persons, failure_target_persons, person_fail, person_succ
+        return (
+            filter,
+            success_target_persons,
+            failure_target_persons,
+            person_fail,
+            person_succ,
+        )
 
     def test_basic_funnel_correlation_with_events(self):
-        filter, success_target_persons, failure_target_persons, person_fail, person_succ = self._setup_basic_test()
+        (
+            filter,
+            success_target_persons,
+            failure_target_persons,
+            person_fail,
+            person_succ,
+        ) = self._setup_basic_test()
 
         # test positively_related successes
         filter = filter.shallow_clone(
             {
-                "funnel_correlation_person_entity": {"id": "positively_related", "type": "events"},
+                "funnel_correlation_person_entity": {
+                    "id": "positively_related",
+                    "type": "events",
+                },
                 "funnel_correlation_person_converted": "TrUe",
             }
         )
@@ -109,7 +133,10 @@ class TestClickhouseFunnelCorrelationsActors(ClickhouseTestMixin, APIBaseTest):
         # test negatively_related failures
         filter = filter.shallow_clone(
             {
-                "funnel_correlation_person_entity": {"id": "negatively_related", "type": "events"},
+                "funnel_correlation_person_entity": {
+                    "id": "negatively_related",
+                    "type": "events",
+                },
                 "funnel_correlation_person_converted": "falsE",
             }
         )
@@ -121,7 +148,10 @@ class TestClickhouseFunnelCorrelationsActors(ClickhouseTestMixin, APIBaseTest):
         # test positively_related failures
         filter = filter.shallow_clone(
             {
-                "funnel_correlation_person_entity": {"id": "positively_related", "type": "events"},
+                "funnel_correlation_person_entity": {
+                    "id": "positively_related",
+                    "type": "events",
+                },
                 "funnel_correlation_person_converted": "False",
             }
         )
@@ -132,7 +162,10 @@ class TestClickhouseFunnelCorrelationsActors(ClickhouseTestMixin, APIBaseTest):
         # test negatively_related successes
         filter = filter.shallow_clone(
             {
-                "funnel_correlation_person_entity": {"id": "negatively_related", "type": "events"},
+                "funnel_correlation_person_entity": {
+                    "id": "negatively_related",
+                    "type": "events",
+                },
                 "funnel_correlation_person_converted": "trUE",
             }
         )
@@ -143,32 +176,46 @@ class TestClickhouseFunnelCorrelationsActors(ClickhouseTestMixin, APIBaseTest):
         # test all positively_related
         filter = filter.shallow_clone(
             {
-                "funnel_correlation_person_entity": {"id": "positively_related", "type": "events"},
+                "funnel_correlation_person_entity": {
+                    "id": "positively_related",
+                    "type": "events",
+                },
                 "funnel_correlation_person_converted": None,
             }
         )
         _, serialized_actors, _ = FunnelCorrelationActors(filter, self.team).get_actors()
 
         self.assertCountEqual(
-            [str(val["id"]) for val in serialized_actors], [*success_target_persons, str(person_fail.uuid)]
+            [str(val["id"]) for val in serialized_actors],
+            [*success_target_persons, str(person_fail.uuid)],
         )
 
         # test all negatively_related
         filter = filter.shallow_clone(
             {
-                "funnel_correlation_person_entity": {"id": "negatively_related", "type": "events"},
+                "funnel_correlation_person_entity": {
+                    "id": "negatively_related",
+                    "type": "events",
+                },
                 "funnel_correlation_person_converted": None,
             }
         )
         _, serialized_actors, _ = FunnelCorrelationActors(filter, self.team).get_actors()
 
         self.assertCountEqual(
-            [str(val["id"]) for val in serialized_actors], [*failure_target_persons, str(person_succ.uuid)]
+            [str(val["id"]) for val in serialized_actors],
+            [*failure_target_persons, str(person_succ.uuid)],
         )
 
     @patch("posthog.tasks.calculate_cohort.insert_cohort_from_insight_filter.delay")
     def test_create_funnel_correlation_cohort(self, _insert_cohort_from_insight_filter):
-        filter, success_target_persons, failure_target_persons, person_fail, person_succ = self._setup_basic_test()
+        (
+            filter,
+            success_target_persons,
+            failure_target_persons,
+            person_fail,
+            person_succ,
+        ) = self._setup_basic_test()
 
         params = {
             "events": [
@@ -179,7 +226,10 @@ class TestClickhouseFunnelCorrelationsActors(ClickhouseTestMixin, APIBaseTest):
             "date_from": "2020-01-01",
             "date_to": "2020-01-14",
             "funnel_correlation_type": "events",
-            "funnel_correlation_person_entity": {"id": "positively_related", "type": "events"},
+            "funnel_correlation_person_entity": {
+                "id": "positively_related",
+                "type": "events",
+            },
             "funnel_correlation_person_converted": "TrUe",
         }
 
@@ -212,14 +262,19 @@ class TestClickhouseFunnelCorrelationsActors(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(cohort.count, 5)
 
     def test_people_arent_returned_multiple_times(self):
-
         people = journeys_for(
             {
                 "user_1": [
                     {"event": "user signed up", "timestamp": datetime(2020, 1, 2, 14)},
-                    {"event": "positively_related", "timestamp": datetime(2020, 1, 3, 14)},
+                    {
+                        "event": "positively_related",
+                        "timestamp": datetime(2020, 1, 3, 14),
+                    },
                     # duplicate event
-                    {"event": "positively_related", "timestamp": datetime(2020, 1, 3, 14)},
+                    {
+                        "event": "positively_related",
+                        "timestamp": datetime(2020, 1, 3, 14),
+                    },
                     {"event": "paid", "timestamp": datetime(2020, 1, 4, 14)},
                 ]
             },
@@ -236,7 +291,10 @@ class TestClickhouseFunnelCorrelationsActors(ClickhouseTestMixin, APIBaseTest):
                 "date_from": "2020-01-01",
                 "date_to": "2020-01-14",
                 "funnel_correlation_type": "events",
-                "funnel_correlation_person_entity": {"id": "positively_related", "type": "events"},
+                "funnel_correlation_person_entity": {
+                    "id": "positively_related",
+                    "type": "events",
+                },
                 "funnel_correlation_person_converted": "TrUe",
             }
         )
@@ -273,13 +331,13 @@ class TestClickhouseFunnelCorrelationsActors(ClickhouseTestMixin, APIBaseTest):
             event_uuid="21111111-1111-1111-1111-111111111111",
         )
 
-        create_session_recording_events(
-            self.team.pk,
-            datetime(2021, 1, 2, 0, 0, 0),
-            "user_1",
-            "s2",
-            use_recording_table=False,
-            use_replay_table=True,
+        timestamp = datetime(2021, 1, 2, 0, 0, 0)
+        produce_replay_summary(
+            team_id=self.team.pk,
+            session_id="s2",
+            distinct_id="user_1",
+            first_timestamp=timestamp,
+            last_timestamp=timestamp,
         )
 
         # Success filter
@@ -289,9 +347,15 @@ class TestClickhouseFunnelCorrelationsActors(ClickhouseTestMixin, APIBaseTest):
                 "date_from": "2021-01-01",
                 "date_to": "2021-01-08",
                 "funnel_correlation_type": "events",
-                "events": [{"id": "$pageview", "order": 0}, {"id": "insight analyzed", "order": 1}],
+                "events": [
+                    {"id": "$pageview", "order": 0},
+                    {"id": "insight analyzed", "order": 1},
+                ],
                 "include_recordings": "true",
-                "funnel_correlation_person_entity": {"id": "insight loaded", "type": "events"},
+                "funnel_correlation_person_entity": {
+                    "id": "insight loaded",
+                    "type": "events",
+                },
                 "funnel_correlation_person_converted": "True",
             }
         )
@@ -327,7 +391,10 @@ class TestClickhouseFunnelCorrelationsActors(ClickhouseTestMixin, APIBaseTest):
                     {"id": "insight updated", "order": 2},
                 ],
                 "include_recordings": "true",
-                "funnel_correlation_person_entity": {"id": "insight loaded", "type": "events"},
+                "funnel_correlation_person_entity": {
+                    "id": "insight loaded",
+                    "type": "events",
+                },
                 "funnel_correlation_person_converted": "False",
             }
         )
@@ -371,13 +438,13 @@ class TestClickhouseFunnelCorrelationsActors(ClickhouseTestMixin, APIBaseTest):
             event_uuid="21111111-1111-1111-1111-111111111111",
         )
 
-        create_session_recording_events(
-            self.team.pk,
-            datetime(2021, 1, 2, 0, 0, 0),
-            "user_1",
-            "s2",
-            use_recording_table=False,
-            use_replay_table=True,
+        timestamp = datetime(2021, 1, 2, 0, 0, 0)
+        produce_replay_summary(
+            team_id=self.team.pk,
+            session_id="s2",
+            distinct_id="user_1",
+            first_timestamp=timestamp,
+            last_timestamp=timestamp,
         )
 
         # Success filter
@@ -387,10 +454,18 @@ class TestClickhouseFunnelCorrelationsActors(ClickhouseTestMixin, APIBaseTest):
                 "date_from": "2021-01-01",
                 "date_to": "2021-01-08",
                 "funnel_correlation_type": "properties",
-                "events": [{"id": "$pageview", "order": 0}, {"id": "insight analyzed", "order": 1}],
+                "events": [
+                    {"id": "$pageview", "order": 0},
+                    {"id": "insight analyzed", "order": 1},
+                ],
                 "include_recordings": "true",
                 "funnel_correlation_property_values": [
-                    {"key": "foo", "value": "bar", "operator": "exact", "type": "person"}
+                    {
+                        "key": "foo",
+                        "value": "bar",
+                        "operator": "exact",
+                        "type": "person",
+                    }
                 ],
                 "funnel_correlation_person_converted": "True",
             }
@@ -417,7 +492,6 @@ class TestClickhouseFunnelCorrelationsActors(ClickhouseTestMixin, APIBaseTest):
     @snapshot_clickhouse_queries
     @freeze_time("2021-01-02 00:00:00.000Z")
     def test_strict_funnel_correlation_with_recordings(self):
-
         # First use that successfully completes the strict funnel
         p1 = _create_person(distinct_ids=["user_1"], team=self.team, properties={"foo": "bar"})
         _create_event(
@@ -444,13 +518,13 @@ class TestClickhouseFunnelCorrelationsActors(ClickhouseTestMixin, APIBaseTest):
             properties={"$session_id": "s2", "$window_id": "w2"},
             event_uuid="41111111-1111-1111-1111-111111111111",
         )
-        create_session_recording_events(
-            self.team.pk,
-            datetime(2021, 1, 2, 0, 0, 0),
-            "user_1",
-            "s2",
-            use_recording_table=False,
-            use_replay_table=True,
+        timestamp = datetime(2021, 1, 2, 0, 0, 0)
+        produce_replay_summary(
+            team_id=self.team.pk,
+            session_id="s2",
+            distinct_id="user_1",
+            first_timestamp=timestamp,
+            last_timestamp=timestamp,
         )
 
         # Second user with strict funnel drop off, but completed the step events for a normal funnel
@@ -479,13 +553,13 @@ class TestClickhouseFunnelCorrelationsActors(ClickhouseTestMixin, APIBaseTest):
             properties={"$session_id": "s3", "$window_id": "w2"},
             event_uuid="71111111-1111-1111-1111-111111111111",
         )
-        create_session_recording_events(
-            self.team.pk,
-            datetime(2021, 1, 2, 0, 0, 0),
-            "user_2",
-            "s3",
-            use_recording_table=False,
-            use_replay_table=True,
+        timestamp1 = datetime(2021, 1, 2, 0, 0, 0)
+        produce_replay_summary(
+            team_id=self.team.pk,
+            session_id="s3",
+            distinct_id="user_2",
+            first_timestamp=timestamp1,
+            last_timestamp=timestamp1,
         )
 
         # Success filter
@@ -496,10 +570,18 @@ class TestClickhouseFunnelCorrelationsActors(ClickhouseTestMixin, APIBaseTest):
                 "date_to": "2021-01-08",
                 "funnel_order_type": "strict",
                 "funnel_correlation_type": "properties",
-                "events": [{"id": "$pageview", "order": 0}, {"id": "insight analyzed", "order": 1}],
+                "events": [
+                    {"id": "$pageview", "order": 0},
+                    {"id": "insight analyzed", "order": 1},
+                ],
                 "include_recordings": "true",
                 "funnel_correlation_property_values": [
-                    {"key": "foo", "value": "bar", "operator": "exact", "type": "person"}
+                    {
+                        "key": "foo",
+                        "value": "bar",
+                        "operator": "exact",
+                        "type": "person",
+                    }
                 ],
                 "funnel_correlation_person_converted": "True",
             }
@@ -532,10 +614,18 @@ class TestClickhouseFunnelCorrelationsActors(ClickhouseTestMixin, APIBaseTest):
                 "date_to": "2021-01-08",
                 "funnel_order_type": "strict",
                 "funnel_correlation_type": "properties",
-                "events": [{"id": "$pageview", "order": 0}, {"id": "insight analyzed", "order": 1}],
+                "events": [
+                    {"id": "$pageview", "order": 0},
+                    {"id": "insight analyzed", "order": 1},
+                ],
                 "include_recordings": "true",
                 "funnel_correlation_property_values": [
-                    {"key": "foo", "value": "bar", "operator": "exact", "type": "person"}
+                    {
+                        "key": "foo",
+                        "value": "bar",
+                        "operator": "exact",
+                        "type": "person",
+                    }
                 ],
                 "funnel_correlation_person_converted": "False",
             }

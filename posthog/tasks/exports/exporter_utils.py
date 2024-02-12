@@ -50,4 +50,8 @@ def log_error_if_site_url_not_reachable() -> None:
     if not settings.SITE_URL:
         logger.error("site_url_not_set")
     elif not is_site_url_reachable():
-        logger.error("site_url_not_reachable", site_url=settings.SITE_URL, exception=_site_reachable_exception)
+        logger.error(
+            "site_url_not_reachable",
+            site_url=settings.SITE_URL,
+            exception=_site_reachable_exception,
+        )

@@ -25,7 +25,7 @@ jobs:
             - name: Set up Node.js
               uses: actions/setup-node@v3
               with:
-                  node-version: 18
+                  node-version: 18.12.1
                   cache: pnpm
                   cache-dependency-path: posthog/pnpm-lock.yaml
 
@@ -54,7 +54,7 @@ jobs:
               run: echo "msg=Storybook build for ${{ github.sha }}" >> $GITHUB_OUTPUT
 
             - name: Commit update
-              uses: stefanzweifel/git-auto-commit-action@v4
+              uses: stefanzweifel/git-auto-commit-action@v5
               with:
                   repository: storybook-build
                   commit_message: ${{ steps.commit-message.outputs.msg }}

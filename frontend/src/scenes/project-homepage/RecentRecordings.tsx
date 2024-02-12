@@ -1,20 +1,22 @@
-import { dayjs } from 'lib/dayjs'
-import { useActions, useValues } from 'kea'
-
 import './ProjectHomepage.scss'
+
+import { useActions, useValues } from 'kea'
 import { CompactList } from 'lib/components/CompactList/CompactList'
-import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
-import { sessionRecordingsListLogic } from 'scenes/session-recordings/playlist/sessionRecordingsListLogic'
-import { urls } from 'scenes/urls'
-import { SessionRecordingType } from '~/types'
-import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
-import { humanFriendlyDuration } from 'lib/utils'
+import { dayjs } from 'lib/dayjs'
 import { IconPlayCircle } from 'lib/lemon-ui/icons'
-import { SessionPlayerModal } from 'scenes/session-recordings/player/modal/SessionPlayerModal'
-import { teamLogic } from 'scenes/teamLogic'
-import { sessionPlayerModalLogic } from 'scenes/session-recordings/player/modal/sessionPlayerModalLogic'
-import { ProjectHomePageCompactListItem } from './ProjectHomePageCompactListItem'
+import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
+import { humanFriendlyDuration } from 'lib/utils'
+import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { asDisplay } from 'scenes/persons/person-utils'
+import { SessionPlayerModal } from 'scenes/session-recordings/player/modal/SessionPlayerModal'
+import { sessionPlayerModalLogic } from 'scenes/session-recordings/player/modal/sessionPlayerModalLogic'
+import { sessionRecordingsPlaylistLogic } from 'scenes/session-recordings/playlist/sessionRecordingsPlaylistLogic'
+import { teamLogic } from 'scenes/teamLogic'
+import { urls } from 'scenes/urls'
+
+import { SessionRecordingType } from '~/types'
+
+import { ProjectHomePageCompactListItem } from './ProjectHomePageCompactListItem'
 
 interface RecordingRowProps {
     recording: SessionRecordingType
@@ -48,7 +50,7 @@ export function RecordingRow({ recording }: RecordingRowProps): JSX.Element {
 
 export function RecentRecordings(): JSX.Element {
     const { currentTeam } = useValues(teamLogic)
-    const sessionRecordingsListLogicInstance = sessionRecordingsListLogic({ key: 'projectHomepage' })
+    const sessionRecordingsListLogicInstance = sessionRecordingsPlaylistLogic({ logicKey: 'projectHomepage' })
     const { sessionRecordings, sessionRecordingsResponseLoading } = useValues(sessionRecordingsListLogicInstance)
 
     return (
@@ -70,7 +72,7 @@ export function RecentRecordings(): JSX.Element {
                               title: 'Recordings are not enabled for this project',
                               description: 'Once recordings are enabled, new recordings will display here.',
                               buttonText: 'Enable recordings',
-                              buttonTo: urls.projectSettings() + '#recordings',
+                              buttonTo: urls.settings('project-replay'),
                           }
                 }
                 items={sessionRecordings.slice(0, 5)}

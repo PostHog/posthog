@@ -1,73 +1,91 @@
 .LemonTabs {
+    --lemon-tabs-margin-bottom: 1rem;
+    --lemon-tabs-gap: 2rem;
+    --lemon-tabs-content-padding: 0.75rem 0;
+
     position: relative;
     display: flex;
     flex-direction: column;
     align-self: stretch;
-}
 
-.LemonTabs__bar {
-    position: relative;
-    flex-shrink: 0;
-    margin-bottom: 1rem;
-    list-style: none;
-    display: flex;
-    flex-direction: row;
-    align-items: stretch;
-    overflow-x: auto;
-    &::before {
-        // The bottom border
-        content: '';
-        position: absolute;
-        left: 0;
-        bottom: 0;
-        height: 1px;
-        width: 100%;
-        background: var(--border);
+    .Navigation3000__scene > &:first-child,
+    .Navigation3000__scene > :first-child > &:first-child {
+        margin-top: -0.75rem;
     }
-    &::after {
-        // The active tab slider
-        content: '';
-        position: absolute;
-        bottom: 0;
-        left: 0;
-        height: 0.125rem;
-        width: var(--lemon-tabs-slider-width);
-        transform: translateX(var(--lemon-tabs-slider-offset));
-        background: var(--primary);
-        .LemonTabs--transitioning & {
-            transition: width 200ms ease, transform 200ms ease;
+
+    .LemonTabs__bar {
+        position: relative;
+        display: flex;
+        flex-direction: row;
+        flex-shrink: 0;
+        gap: var(--lemon-tabs-gap);
+        align-items: stretch;
+        margin-bottom: var(--lemon-tabs-margin-bottom);
+        overflow-x: auto;
+        list-style: none;
+
+        &::before {
+            position: absolute;
+            bottom: 0;
+            left: 0;
+            width: 100%;
+            height: 1px;
+
+            // The bottom border
+            content: '';
+            background: var(--border);
+        }
+
+        &::after {
+            position: absolute;
+            bottom: 0;
+            left: 0;
+            width: var(--lemon-tabs-slider-width);
+            height: 0.125rem;
+
+            // The active tab slider
+            content: '';
+            background: var(--link);
+            transform: translateX(var(--lemon-tabs-slider-offset));
+
+            .LemonTabs--transitioning & {
+                transition: width 200ms ease, transform 200ms ease;
+            }
+        }
+
+        .LemonTabs__tab {
+            .LemonTabs--transitioning & {
+                transition: color 200ms ease;
+            }
+
+            &:hover {
+                color: var(--link);
+            }
+
+            &:active {
+                color: var(--primary-3000-active);
+            }
+
+            &.LemonTabs__tab--active {
+                color: var(--link);
+                text-shadow: 0 0 0.25px currentColor; // Simulate increased weight without affecting width
+            }
+
+            a {
+                color: inherit;
+
+                // Make tab labels that are links the same colors as regular tab labels
+                text-decoration: none;
+                transition: none;
+            }
+
+            .LemonTabs__tab-content {
+                display: flex;
+                align-items: center;
+                padding: var(--lemon-tabs-content-padding);
+                white-space: nowrap;
+                cursor: pointer;
+            }
         }
     }
-}
-
-.LemonTabs__tab {
-    .LemonTabs--transitioning & {
-        transition: color 200ms ease;
-    }
-    &:not(:last-child) {
-        margin-right: 2rem;
-    }
-    &:hover {
-        color: var(--primary);
-    }
-    &:active {
-        color: var(--primary-dark);
-    }
-    &.LemonTabs__tab--active {
-        color: var(--primary);
-        text-shadow: 0 0 0.25px currentColor; // Simulate increased weight without affecting width
-    }
-    a {
-        // Make tab labels that are links the same colors as regular tab labels
-        text-decoration: none;
-        color: inherit;
-        transition: none;
-    }
-}
-
-.LemonTabs__tab-content {
-    display: flex;
-    align-items: center;
-    padding: 0.75rem 0;
-    cursor: pointer;
 }

@@ -1,15 +1,19 @@
-import { Space, Tag, Typography } from 'antd'
-import { ActionFilter, BreakdownKeyType } from '~/types'
-import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
-import { capitalizeFirstLetter, hexToRGBA, midEllipsis } from 'lib/utils'
 import './InsightLabel.scss'
-import { SeriesLetter } from 'lib/components/SeriesGlyph'
-import { EntityFilterInfo } from 'lib/components/EntityFilterInfo'
-import { useValues } from 'kea'
-import { mathsLogic } from 'scenes/trends/mathsLogic'
+
+import { LemonTag } from '@posthog/lemon-ui'
 import clsx from 'clsx'
-import { groupsModel } from '~/models/groupsModel'
+import { useValues } from 'kea'
+import { EntityFilterInfo } from 'lib/components/EntityFilterInfo'
+import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
+import { SeriesLetter } from 'lib/components/SeriesGlyph'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
+import { capitalizeFirstLetter, hexToRGBA, midEllipsis } from 'lib/utils'
+import { mathsLogic } from 'scenes/trends/mathsLogic'
+
+import { groupsModel } from '~/models/groupsModel'
+import { ActionFilter, BreakdownKeyType } from '~/types'
+
+import { TaxonomicFilterGroupType } from '../TaxonomicFilter/types'
 
 export enum IconSize {
     Small = 'small',
@@ -54,18 +58,18 @@ function MathTag({ math, mathProperty, mathHogQL, mathGroupTypeIndex }: MathTagP
     const { aggregationLabel } = useValues(groupsModel)
 
     if (!math || math === 'total') {
-        return <Tag>Total</Tag>
+        return <LemonTag>Total</LemonTag>
     }
     if (math === 'dau') {
-        return <Tag>Unique</Tag>
+        return <LemonTag>Unique</LemonTag>
     }
     if (math === 'unique_group' && mathGroupTypeIndex != undefined) {
-        return <Tag>Unique {aggregationLabel(mathGroupTypeIndex).plural}</Tag>
+        return <LemonTag>Unique {aggregationLabel(mathGroupTypeIndex).plural}</LemonTag>
     }
     if (math && ['sum', 'avg', 'min', 'max', 'median', 'p90', 'p95', 'p99'].includes(math || '')) {
         return (
             <>
-                <Tag>{mathDefinitions[math]?.name || capitalizeFirstLetter(math)}</Tag>
+                <LemonTag>{mathDefinitions[math]?.name || capitalizeFirstLetter(math)}</LemonTag>
                 {mathProperty && (
                     <>
                         <span>of</span>
@@ -76,13 +80,9 @@ function MathTag({ math, mathProperty, mathHogQL, mathGroupTypeIndex }: MathTagP
         )
     }
     if (math === 'hogql') {
-        return (
-            <Tag title={String(mathHogQL)} className="max-w-60 text-ellipsis overflow-hidden">
-                {String(mathHogQL)}
-            </Tag>
-        )
+        return <LemonTag className="max-w-60 text-ellipsis overflow-hidden">{String(mathHogQL) || 'HogQL'}</LemonTag>
     }
-    return <Tag>{capitalizeFirstLetter(math)}</Tag>
+    return <LemonTag>{capitalizeFirstLetter(math)}</LemonTag>
 }
 
 export function InsightLabel({
@@ -121,6 +121,7 @@ export function InsightLabel({
                 {!(hasMultipleSeries && !breakdownValue) && !hideIcon && (
                     <div
                         className="color-icon"
+                        // eslint-disable-next-line react/forbid-dom-props
                         style={{
                             background: seriesColor,
                             boxShadow: `0px 0px 0px 1px ${hexToRGBA(seriesColor, 0.5)}`,
@@ -152,7 +153,13 @@ export function InsightLabel({
                                     showSingleName={showSingleName}
                                 />
                             ) : (
-                                <PropertyKeyInfo disableIcon disablePopover value={eventName} ellipsis={!allowWrap} />
+                                <PropertyKeyInfo
+                                    disableIcon
+                                    disablePopover
+                                    value={eventName}
+                                    ellipsis={!allowWrap}
+                                    type={TaxonomicFilterGroupType.Events}
+                                />
                             )}
                         </>
                     )}
@@ -167,20 +174,18 @@ export function InsightLabel({
                     )}
 
                     {pillValues.length > 0 && (
-                        <Space direction={'horizontal'} wrap={true}>
+                        <div className="flex flex-wrap gap-1">
                             {pillValues.map((pill) => (
                                 <Tooltip title={pill} key={pill}>
-                                    <Tag className="tag-pill" closable={false}>
-                                        <Typography.Text
-                                            ellipsis={{ tooltip: pill }}
-                                            style={{ maxWidth: pillMaxWidth }}
-                                        >
+                                    <LemonTag className="tag-pill">
+                                        {/* eslint-disable-next-line react/forbid-dom-props */}
+                                        <span className="truncate" style={{ maxWidth: pillMaxWidth }}>
                                             {pillMidEllipsis ? midEllipsis(String(pill), 50) : pill}
-                                        </Typography.Text>
-                                    </Tag>
+                                        </span>
+                                    </LemonTag>
                                 </Tooltip>
                             ))}
-                        </Space>
+                        </div>
                     )}
                 </div>
             </div>

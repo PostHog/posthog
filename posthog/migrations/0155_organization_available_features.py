@@ -5,7 +5,6 @@ from django.db import migrations, models
 
 
 class Migration(migrations.Migration):
-
     dependencies = [
         ("posthog", "0154_organization_for_internal_metrics"),
     ]
@@ -15,7 +14,10 @@ class Migration(migrations.Migration):
             model_name="organization",
             name="available_features",
             field=django.contrib.postgres.fields.ArrayField(
-                base_field=models.CharField(max_length=64), blank=True, default=list, size=None
+                base_field=models.CharField(max_length=64),
+                blank=True,
+                default=list,
+                size=None,
             ),
         ),
     ]

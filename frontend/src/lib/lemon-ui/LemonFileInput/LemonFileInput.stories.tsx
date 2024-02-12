@@ -1,17 +1,24 @@
-import { ComponentMeta, ComponentStory } from '@storybook/react'
+import { Meta, StoryFn, StoryObj } from '@storybook/react'
 import { LemonFileInput } from 'lib/lemon-ui/LemonFileInput/LemonFileInput'
 import { createRef, useState } from 'react'
 
-export default {
+type Story = StoryObj<typeof LemonFileInput>
+const meta: Meta<typeof LemonFileInput> = {
     title: 'Lemon UI/Lemon File Input',
     component: LemonFileInput,
+    tags: ['autodocs'],
     argTypes: {
-        loading: { type: 'boolean', defaultValue: false },
-        accept: { type: 'string', defaultValue: '.json' },
+        loading: { type: 'boolean' },
+        accept: { type: 'string' },
     },
-} as ComponentMeta<typeof LemonFileInput>
+    args: {
+        loading: false,
+        accept: '.json',
+    },
+}
+export default meta
 
-const Template: ComponentStory<typeof LemonFileInput> = (props) => {
+const Template: StoryFn<typeof LemonFileInput> = (props) => {
     const [singleValue, setSingleValue] = useState([] as any[])
     const [multipleValue, setMultipleValue] = useState([] as any[])
     const [extraTargetValue, setExtraTargetValue] = useState([] as any[])
@@ -19,7 +26,7 @@ const Template: ComponentStory<typeof LemonFileInput> = (props) => {
     const additionalDragTarget = createRef<HTMLDivElement>()
 
     return (
-        <div className={'flex flex-col gap-4'}>
+        <div className="flex flex-col gap-4">
             <div>
                 <h5>Single file input</h5>
                 <LemonFileInput
@@ -42,7 +49,7 @@ const Template: ComponentStory<typeof LemonFileInput> = (props) => {
             </div>
             <div>
                 <h5>Extra drag and drop target</h5>
-                <div ref={additionalDragTarget} className={'h-12 w-full border flex items-center justify-center'}>
+                <div ref={additionalDragTarget} className="h-12 w-full border flex items-center justify-center">
                     This area is also a drag target
                 </div>
                 <LemonFileInput
@@ -58,4 +65,4 @@ const Template: ComponentStory<typeof LemonFileInput> = (props) => {
     )
 }
 
-export const Default = Template.bind({})
+export const Default: Story = Template.bind({})

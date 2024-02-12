@@ -10,8 +10,12 @@ from ee.clickhouse.queries.experiments.funnel_experiment_result import (
     Variant,
     calculate_expected_loss,
 )
-from ee.clickhouse.queries.experiments.trend_experiment_result import ClickhouseTrendExperimentResult
-from ee.clickhouse.queries.experiments.trend_experiment_result import Variant as CountVariant
+from ee.clickhouse.queries.experiments.trend_experiment_result import (
+    ClickhouseTrendExperimentResult,
+)
+from ee.clickhouse.queries.experiments.trend_experiment_result import (
+    Variant as CountVariant,
+)
 from ee.clickhouse.queries.experiments.trend_experiment_result import calculate_p_value
 from posthog.constants import ExperimentSignificanceCode
 
@@ -40,7 +44,12 @@ def calculate_probability_of_winning_for_target(target_variant: Variant, other_v
 
     elif len(variants) == 2:
         return probability_C_beats_A_and_B(
-            variants[0][0], variants[0][1], variants[1][0], variants[1][1], target[0], target[1]
+            variants[0][0],
+            variants[0][1],
+            variants[1][0],
+            variants[1][1],
+            target[0],
+            target[1],
         )
 
     elif len(variants) == 3:
@@ -72,9 +81,13 @@ def probability_B_beats_A(A_success: int, A_failure: int, B_success: int, B_fail
 
 
 def probability_C_beats_A_and_B(
-    A_success: int, A_failure: int, B_success: int, B_failure: int, C_success: int, C_failure: int
+    A_success: int,
+    A_failure: int,
+    B_success: int,
+    B_failure: int,
+    C_success: int,
+    C_failure: int,
 ):
-
     total: Probability = 0
     for i in range(A_success):
         for j in range(B_success):
@@ -110,7 +123,10 @@ def probability_D_beats_A_B_and_C(
         for j in range(B_success):
             for k in range(C_success):
                 total += exp(
-                    logbeta(D_success + i + j + k, D_failure + A_failure + B_failure + C_failure)
+                    logbeta(
+                        D_success + i + j + k,
+                        D_failure + A_failure + B_failure + C_failure,
+                    )
                     - log(A_failure + i)
                     - log(B_failure + j)
                     - log(C_failure + k)
@@ -135,7 +151,6 @@ def probability_D_beats_A_B_and_C(
 @flaky(max_runs=10, min_passes=1)
 class TestFunnelExperimentCalculator(unittest.TestCase):
     def test_calculate_results(self):
-
         variant_test = Variant("A", 100, 10)
         variant_control = Variant("B", 100, 18)
 
@@ -177,7 +192,9 @@ class TestFunnelExperimentCalculator(unittest.TestCase):
         self.assertAlmostEqual(probabilities[0], alternative_probability_for_control, places=2)
 
         self.assertAlmostEqual(
-            calculate_expected_loss(variant_test_2, [variant_control, variant_test_1]), 0.0004, places=3
+            calculate_expected_loss(variant_test_2, [variant_control, variant_test_1]),
+            0.0004,
+            places=3,
         )
 
         # this loss only checks variant 2 against control
@@ -206,7 +223,9 @@ class TestFunnelExperimentCalculator(unittest.TestCase):
         self.assertAlmostEqual(probabilities[0], alternative_probability_for_control, places=1)
 
         self.assertAlmostEqual(
-            calculate_expected_loss(variant_test_2, [variant_control, variant_test_1]), 0.022, places=2
+            calculate_expected_loss(variant_test_2, [variant_control, variant_test_1]),
+            0.022,
+            places=2,
         )
 
         significant, loss = ClickhouseFunnelExperimentResult.are_results_significant(
@@ -254,11 +273,15 @@ class TestFunnelExperimentCalculator(unittest.TestCase):
         self.assertAlmostEqual(probabilities[0], alternative_probability_for_control, places=1)
 
         self.assertAlmostEqual(
-            calculate_expected_loss(variant_test_2, [variant_control, variant_test_1, variant_test_3]), 0.0004, places=2
+            calculate_expected_loss(variant_test_2, [variant_control, variant_test_1, variant_test_3]),
+            0.0004,
+            places=2,
         )
 
         significant, loss = ClickhouseFunnelExperimentResult.are_results_significant(
-            variant_control, [variant_test_1, variant_test_2, variant_test_3], probabilities
+            variant_control,
+            [variant_test_1, variant_test_2, variant_test_3],
+            probabilities,
         )
         self.assertAlmostEqual(loss, 0.0004, places=2)
         self.assertEqual(significant, ExperimentSignificanceCode.SIGNIFICANT)
@@ -284,7 +307,9 @@ class TestFunnelExperimentCalculator(unittest.TestCase):
         self.assertAlmostEqual(probabilities[0], alternative_probability_for_control, places=1)
 
         self.assertAlmostEqual(
-            calculate_expected_loss(variant_test_2, [variant_control, variant_test_1, variant_test_3]), 0.033, places=2
+            calculate_expected_loss(variant_test_2, [variant_control, variant_test_1, variant_test_3]),
+            0.033,
+            places=2,
         )
 
         # passing in artificial probabilities to subvert the low_probability threshold
@@ -311,7 +336,9 @@ class TestFunnelExperimentCalculator(unittest.TestCase):
         self.assertAlmostEqual(probabilities[0], alternative_probability_for_control, places=1)
 
         significant, loss = ClickhouseFunnelExperimentResult.are_results_significant(
-            variant_control, [variant_test_1, variant_test_2, variant_test_3], probabilities
+            variant_control,
+            [variant_test_1, variant_test_2, variant_test_3],
+            probabilities,
         )
         self.assertAlmostEqual(loss, 0, places=2)
         self.assertEqual(significant, ExperimentSignificanceCode.SIGNIFICANT)
@@ -381,6 +408,50 @@ class TestFunnelExperimentCalculator(unittest.TestCase):
         self.assertAlmostEqual(loss, 1, places=2)
         self.assertEqual(significant, ExperimentSignificanceCode.LOW_WIN_PROBABILITY)
 
+    def test_calculate_results_control_is_significant(self):
+        variant_test = Variant("test", 100, 18)
+        variant_control = Variant("control", 100, 10)
+
+        probabilities = ClickhouseFunnelExperimentResult.calculate_results(variant_control, [variant_test])
+
+        self.assertAlmostEqual(probabilities[0], 0.918, places=2)
+
+        significant, loss = ClickhouseFunnelExperimentResult.are_results_significant(
+            variant_control, [variant_test], probabilities
+        )
+
+        self.assertAlmostEqual(loss, 0.0016, places=3)
+        self.assertEqual(significant, ExperimentSignificanceCode.SIGNIFICANT)
+
+    def test_calculate_results_many_variants_control_is_significant(self):
+        variant_test_1 = Variant("test_1", 100, 20)
+        variant_test_2 = Variant("test_2", 100, 21)
+        variant_test_3 = Variant("test_3", 100, 22)
+        variant_test_4 = Variant("test_4", 100, 23)
+        variant_test_5 = Variant("test_5", 100, 24)
+        variant_test_6 = Variant("test_6", 100, 25)
+        variant_control = Variant("control", 100, 10)
+
+        variants_test = [
+            variant_test_1,
+            variant_test_2,
+            variant_test_3,
+            variant_test_4,
+            variant_test_5,
+            variant_test_6,
+        ]
+
+        probabilities = ClickhouseFunnelExperimentResult.calculate_results(variant_control, variants_test)
+
+        self.assertAlmostEqual(probabilities[0], 0.901, places=2)
+
+        significant, loss = ClickhouseFunnelExperimentResult.are_results_significant(
+            variant_control, variants_test, probabilities
+        )
+
+        self.assertAlmostEqual(loss, 0.0008, places=3)
+        self.assertEqual(significant, ExperimentSignificanceCode.SIGNIFICANT)
+
 
 # calculation: https://www.evanmiller.org/bayesian-ab-testing.html#count_ab
 def calculate_probability_of_winning_for_target_count_data(
@@ -398,7 +469,12 @@ def calculate_probability_of_winning_for_target_count_data(
 
     elif len(variants) == 2:
         return probability_C_beats_A_and_B_count_data(
-            variants[0][0], variants[0][1], variants[1][0], variants[1][1], target[0], target[1]
+            variants[0][0],
+            variants[0][1],
+            variants[1][0],
+            variants[1][1],
+            target[0],
+            target[1],
         )
     else:
         return 0
@@ -419,7 +495,12 @@ def probability_B_beats_A_count_data(A_count: int, A_exposure: float, B_count: i
 
 
 def probability_C_beats_A_and_B_count_data(
-    A_count: int, A_exposure: float, B_count: int, B_exposure: float, C_count: int, C_exposure: float
+    A_count: int,
+    A_exposure: float,
+    B_count: int,
+    B_exposure: float,
+    C_count: int,
+    C_exposure: float,
 ) -> Probability:
     total: Probability = 0
 

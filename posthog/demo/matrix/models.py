@@ -19,7 +19,7 @@ from typing import (
     Set,
     TypeVar,
 )
-from urllib.parse import urlparse
+from urllib.parse import urlparse, parse_qs
 from uuid import UUID
 
 if TYPE_CHECKING:
@@ -54,6 +54,9 @@ EVENT_IDENTIFY = "$identify"
 EVENT_GROUP_IDENTIFY = "$groupidentify"
 
 PROPERTY_GEOIP_COUNTRY_CODE = "$geoip_country_code"
+
+UTM_QUERY_PROPERTIES = {"utm_source", "utm_campaign", "utm_medium", "utm_term", "utm_content"}
+
 
 # Properties who get `$set_once` implicitly as `$initial_foo` - source of truth in plugin-server/src/utils/db/utils.ts
 PROPERTIES_WITH_IMPLICIT_INITIAL_VALUE_TRACKING = {
@@ -181,7 +184,11 @@ class SimBrowserClient(SimClient):
     def __init__(self, person: "SimPerson"):
         self.person = person
         self.matrix = person.cluster.matrix
-        self.device_type, self.os, self.browser = self.person.cluster.properties_provider.device_type_os_browser()
+        (
+            self.device_type,
+            self.os,
+            self.browser,
+        ) = self.person.cluster.properties_provider.device_type_os_browser()
         self.device_id = str(UUID(int=self.person.cluster.random.getrandbits(128)))
         self.active_distinct_id = self.device_id  # Pre-`$identify`, the device ID is used as the distinct ID
         self.active_session_id = None
@@ -211,19 +218,28 @@ class SimBrowserClient(SimClient):
             "$session_id": self.active_session_id,
             "$device_id": self.device_id,
         }
+        if "$set" not in combined_properties:
+            combined_properties["$set"] = {}
         if self.super_properties:
             combined_properties.update(self.super_properties)
         if self.current_url is not None:
             parsed_current_url = urlparse(self.current_url)
+            parsed_current_url_query = parse_qs(parsed_current_url.query)
             combined_properties["$current_url"] = self.current_url
             combined_properties["$host"] = parsed_current_url.netloc
             combined_properties["$pathname"] = parsed_current_url.path
-        if "$set" not in combined_properties:
-            combined_properties["$set"] = {}
+            for utm_key in UTM_QUERY_PROPERTIES:
+                if utm_key in parsed_current_url_query:
+                    utm_value = parsed_current_url_query[utm_key][0]
+                    combined_properties[utm_key] = utm_value
+                    combined_properties["$set"][utm_key] = utm_value
         if properties:
             if referrer := properties.get("$referrer"):
                 referring_domain = urlparse(referrer).netloc if referrer != "$direct" else referrer
-                referrer_properties = {"$referrer": referrer, "$referring_domain": referring_domain}
+                referrer_properties = {
+                    "$referrer": referrer,
+                    "$referring_domain": referring_domain,
+                }
                 self.register(referrer_properties)
                 combined_properties["$set"].update(referrer_properties)
                 combined_properties["$referring_domain"] = referring_domain
@@ -235,7 +251,11 @@ class SimBrowserClient(SimClient):
         super()._capture_raw(event, combined_properties, distinct_id=self.active_distinct_id)
 
     def capture_pageview(
-        self, current_url: str, properties: Optional[Properties] = None, *, referrer: Optional[str] = None
+        self,
+        current_url: str,
+        properties: Optional[Properties] = None,
+        *,
+        referrer: Optional[str] = None,
     ):
         """Capture a $pageview event. $pageleave is handled implicitly."""
         if self.current_url is not None:
@@ -259,14 +279,24 @@ class SimBrowserClient(SimClient):
             self.active_distinct_id = distinct_id
         self.capture(EVENT_IDENTIFY, identify_properties)
 
-    def group(self, group_type: str, group_key: str, set_properties: Optional[Properties] = None):
+    def group(
+        self,
+        group_type: str,
+        group_key: str,
+        set_properties: Optional[Properties] = None,
+    ):
         """Link the person to the specified group. Similar to JS `posthog.group()`."""
         if set_properties is None:
             set_properties = {}
         self.person._groups[group_type] = group_key
         self.person.cluster.matrix._update_group(group_type, group_key, set_properties)
         self.capture(
-            EVENT_GROUP_IDENTIFY, {"$group_type": group_type, "$group_key": group_key, "$group_set": set_properties}
+            EVENT_GROUP_IDENTIFY,
+            {
+                "$group_type": group_type,
+                "$group_key": group_key,
+                "$group_set": set_properties,
+            },
         )
 
     def reset(self):
@@ -404,7 +434,13 @@ class SimPerson(ABC):
 
         An effect is a function that runs on the person, so it can change the person's state."""
         self.cluster.raw_schedule_effect(
-            Effect(timestamp=timestamp, callback=callback, source=self, target=target, condition=condition)
+            Effect(
+                timestamp=timestamp,
+                callback=callback,
+                source=self,
+                target=target,
+                condition=condition,
+            )
         )
 
     # Person state
@@ -423,7 +459,14 @@ class SimPerson(ABC):
         setattr(self, attr, getattr(self, attr) + delta)
         return True
 
-    def _append_event(self, event: str, properties: Properties, *, distinct_id: str, timestamp: dt.datetime):
+    def _append_event(
+        self,
+        event: str,
+        properties: Properties,
+        *,
+        distinct_id: str,
+        timestamp: dt.datetime,
+    ):
         """Append event to `past_events` or `future_events`, whichever is appropriate."""
         if self.in_posthog_id is None:
             self.in_posthog_id = self.cluster.roll_uuidt()

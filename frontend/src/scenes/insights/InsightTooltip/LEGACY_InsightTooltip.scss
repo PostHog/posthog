@@ -1,18 +1,14 @@
-.legacy-ph-graph-tooltip,
-.ant-popover {
-    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
-    font-size: 14px;
-    overflow-x: hidden;
-    z-index: var(--z-graph-tooltip);
-    transition: all 0.4s;
-}
-
 .legacy-ph-graph-tooltip {
+    z-index: var(--z-graph-tooltip);
     max-width: 480px;
     padding: 8px 12px;
+    overflow-x: hidden;
+    font-size: 14px;
+    background: #fafafa;
     border: 1px solid var(--border);
     border-radius: var(--radius);
-    background: #fafafa;
+    box-shadow: 0 4px 12px rgb(0 0 0 / 10%);
+    transition: all 0.4s;
 }
 
 .inner-tooltip {
@@ -23,28 +19,29 @@
         }
 
         footer {
-            margin-top: 0 !important;
             padding-top: 6px;
+            margin-top: 0 !important;
             border-top: 1px solid var(--border);
         }
     }
 
     header {
-        font-weight: bold;
         margin-bottom: 0.5rem;
+        font-weight: bold;
     }
 
     footer {
-        margin-top: 0.5rem;
-        font-weight: bold;
-        font-size: 85%;
-        color: var(--muted);
         display: flex;
-        justify-content: center;
         align-items: center;
+        justify-content: center;
+        margin-top: 0.5rem;
+        font-size: 85%;
+        font-weight: bold;
+        color: var(--muted);
+
         svg {
-            font-size: 1.4em;
             margin-right: 4px;
+            font-size: 1.4em;
         }
     }
 
@@ -57,18 +54,19 @@
         align-items: center;
         margin-top: 2px;
         font-style: italic;
+
         svg {
-            margin-left: 2px;
             margin-right: 6px;
+            margin-left: 2px;
         }
     }
 
     ul {
-        list-style-type: none;
+        max-height: 32vh;
         padding: 0;
         margin-bottom: 0;
-        max-height: 32vh;
         overflow-y: hidden; // As the element has pointer-events: none to allow proper function, scrolling is not supported anyways
+        list-style-type: none;
 
         li {
             display: flex;

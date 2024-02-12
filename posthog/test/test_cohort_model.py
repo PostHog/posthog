@@ -41,11 +41,15 @@ class TestCohort(BaseTest):
             name="cohort1",
         )
         person1 = Person.objects.create(
-            distinct_ids=["person1"], team_id=self.team.pk, properties={"$some_prop": "something"}
+            distinct_ids=["person1"],
+            team_id=self.team.pk,
+            properties={"$some_prop": "something"},
         )
         Person.objects.create(distinct_ids=["person2"], team_id=self.team.pk, properties={})
         person3 = Person.objects.create(
-            distinct_ids=["person3"], team_id=self.team.pk, properties={"$some_prop": "something"}
+            distinct_ids=["person3"],
+            team_id=self.team.pk,
+            properties={"$some_prop": "something"},
         )
         cohort.calculate_people_ch(pending_version=0)
 
@@ -53,7 +57,11 @@ class TestCohort(BaseTest):
             row[0]
             for row in sync_execute(
                 GET_COHORTPEOPLE_BY_COHORT_ID,
-                {"cohort_id": cohort.pk, "team_id": self.team.pk, "version": cohort.version},
+                {
+                    "cohort_id": cohort.pk,
+                    "team_id": self.team.pk,
+                    "version": cohort.version,
+                },
             )
         ]
         self.assertCountEqual(uuids, [person1.uuid, person3.uuid])
@@ -74,11 +82,22 @@ class TestCohort(BaseTest):
             groups=[
                 {
                     "properties": [
-                        {"key": "$some_prop", "value": "something", "type": "person", "operator": "contains"},
+                        {
+                            "key": "$some_prop",
+                            "value": "something",
+                            "type": "person",
+                            "operator": "contains",
+                        },
                         {"key": "other_prop", "value": "other_value", "type": "person"},
                     ]
                 },
-                {"days": "4", "count": "3", "label": "$pageview", "action_id": 1, "count_operator": "eq"},
+                {
+                    "days": "4",
+                    "count": "3",
+                    "label": "$pageview",
+                    "action_id": 1,
+                    "count_operator": "eq",
+                },
             ],
             name="cohort1",
         )
@@ -91,8 +110,17 @@ class TestCohort(BaseTest):
                     {
                         "type": "AND",
                         "values": [
-                            {"key": "$some_prop", "type": "person", "value": "something", "operator": "contains"},
-                            {"key": "other_prop", "type": "person", "value": "other_value"},
+                            {
+                                "key": "$some_prop",
+                                "type": "person",
+                                "value": "something",
+                                "operator": "contains",
+                            },
+                            {
+                                "key": "other_prop",
+                                "type": "person",
+                                "value": "other_value",
+                            },
                         ],
                     },
                     {
@@ -120,11 +148,22 @@ class TestCohort(BaseTest):
             groups=[
                 {
                     "properties": [
-                        {"key": "$some_prop", "value": "something", "type": "person", "operator": "contains"},
+                        {
+                            "key": "$some_prop",
+                            "value": "something",
+                            "type": "person",
+                            "operator": "contains",
+                        },
                         {"key": "other_prop", "value": "other_value", "type": "person"},
                     ]
                 },
-                {"days": "4", "count": "0", "label": "$pageview", "event_id": "$pageview", "count_operator": "gte"},
+                {
+                    "days": "4",
+                    "count": "0",
+                    "label": "$pageview",
+                    "event_id": "$pageview",
+                    "count_operator": "gte",
+                },
             ],
             name="cohort1",
         )
@@ -137,8 +176,17 @@ class TestCohort(BaseTest):
                     {
                         "type": "AND",
                         "values": [
-                            {"key": "$some_prop", "type": "person", "value": "something", "operator": "contains"},
-                            {"key": "other_prop", "type": "person", "value": "other_value"},
+                            {
+                                "key": "$some_prop",
+                                "type": "person",
+                                "value": "something",
+                                "operator": "contains",
+                            },
+                            {
+                                "key": "other_prop",
+                                "type": "person",
+                                "value": "other_value",
+                            },
                         ],
                     },
                     {
@@ -164,7 +212,13 @@ class TestCohort(BaseTest):
         cohort = Cohort.objects.create(
             team=self.team,
             groups=[
-                {"days": "4", "count": "0", "label": "$pageview", "event_id": "$pageview", "count_operator": "lte"}
+                {
+                    "days": "4",
+                    "count": "0",
+                    "label": "$pageview",
+                    "event_id": "$pageview",
+                    "count_operator": "lte",
+                }
             ],
             name="cohort1",
         )
@@ -196,7 +250,14 @@ class TestCohort(BaseTest):
     def test_group_to_property_conversion_with_missing_days_and_invalid_count(self):
         cohort = Cohort.objects.create(
             team=self.team,
-            groups=[{"count": -3, "label": "$pageview", "event_id": "$pageview", "count_operator": "gte"}],
+            groups=[
+                {
+                    "count": -3,
+                    "label": "$pageview",
+                    "event_id": "$pageview",
+                    "count_operator": "gte",
+                }
+            ],
             name="cohort1",
         )
 

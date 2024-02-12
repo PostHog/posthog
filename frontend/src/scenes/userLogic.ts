@@ -1,13 +1,17 @@
-import { actions, afterMount, connect, kea, listeners, path, reducers, selectors } from 'kea'
-import api from 'lib/api'
-import type { userLogicType } from './userLogicType'
-import { AvailableFeature, OrganizationBasicType, ProductKey, UserType } from '~/types'
-import posthog from 'posthog-js'
-import { getAppContext } from 'lib/utils/getAppContext'
-import { preflightLogic } from './PreflightCheck/preflightLogic'
-import { lemonToast } from 'lib/lemon-ui/lemonToast'
-import { loaders } from 'kea-loaders'
+import { actions, afterMount, kea, listeners, path, reducers, selectors } from 'kea'
 import { forms } from 'kea-forms'
+import { loaders } from 'kea-loaders'
+import { urlToAction } from 'kea-router'
+import api from 'lib/api'
+import { DashboardCompatibleScenes } from 'lib/components/SceneDashboardChoice/sceneDashboardChoiceModalLogic'
+import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
+import { getAppContext } from 'lib/utils/getAppContext'
+import posthog from 'posthog-js'
+
+import { AvailableFeature, OrganizationBasicType, ProductKey, UserTheme, UserType } from '~/types'
+
+import { urls } from './urls'
+import type { userLogicType } from './userLogicType'
 
 export interface UserDetailsFormType {
     first_name: string
@@ -16,16 +20,14 @@ export interface UserDetailsFormType {
 
 export const userLogic = kea<userLogicType>([
     path(['scenes', 'userLogic']),
-    connect({
-        values: [preflightLogic, ['preflight']],
-    }),
     actions(() => ({
         loadUser: (resetOnFailure?: boolean) => ({ resetOnFailure }),
-        updateCurrentTeam: (teamId: number, destination?: string) => ({ teamId, destination }),
         updateCurrentOrganization: (organizationId: string, destination?: string) => ({ organizationId, destination }),
         logout: true,
         updateUser: (user: Partial<UserType>, successCallback?: () => void) => ({ user, successCallback }),
+        setUserScenePersonalisation: (scene: DashboardCompatibleScenes, dashboard: number) => ({ scene, dashboard }),
         updateHasSeenProductIntroFor: (productKey: ProductKey, value: boolean) => ({ productKey, value }),
+        switchTeam: (teamId: string | number) => ({ teamId }),
     })),
     forms(({ actions }) => ({
         userDetails: {
@@ -68,6 +70,20 @@ export const userLogic = kea<userLogicType>([
                         const response = await api.update('api/users/@me/', user)
                         successCallback && successCallback()
                         return response
+                    } catch (error: any) {
+                        console.error(error)
+                        actions.updateUserFailure(error.message)
+                    }
+                },
+                setUserScenePersonalisation: async ({ scene, dashboard }) => {
+                    if (!values.user) {
+                        throw new Error('Current user has not been loaded yet, so it cannot be updated!')
+                    }
+                    try {
+                        return await api.create('api/users/@me/scene_personalisation', {
+                            scene,
+                            dashboard,
+                        })
                     } catch (error: any) {
                         console.error(error)
                         actions.updateUserFailure(error.message)
@@ -155,14 +171,6 @@ export const userLogic = kea<userLogicType>([
                 toastId: 'updateUser',
             })
         },
-        updateCurrentTeam: async ({ teamId, destination }, breakpoint) => {
-            if (values.user?.team?.id === teamId) {
-                return
-            }
-            await breakpoint(10)
-            await api.update('api/users/@me/', { set_current_team: teamId })
-            window.location.href = destination || '/'
-        },
         updateCurrentOrganization: async ({ organizationId, destination }, breakpoint) => {
             if (values.user?.organization?.id === organizationId) {
                 return
@@ -183,6 +191,9 @@ export const userLogic = kea<userLogicType>([
                 .then(() => {
                     actions.loadUser()
                 })
+        },
+        switchTeam: ({ teamId }) => {
+            window.location.href = urls.project(teamId)
         },
     })),
     selectors({
@@ -217,6 +228,13 @@ export const userLogic = kea<userLogicType>([
                           ) || []
                     : [],
         ],
+
+        themeMode: [
+            (s) => [s.user],
+            (user): UserTheme => {
+                return user?.theme_mode || 'light'
+            },
+        ],
     }),
     afterMount(({ actions }) => {
         const preloadedUser = getAppContext()?.current_user
@@ -228,4 +246,14 @@ export const userLogic = kea<userLogicType>([
             actions.loadUser()
         }
     }),
+    urlToAction(({ values }) => ({
+        '/year_in_posthog/2023': () => {
+            if (window.POSTHOG_APP_CONTEXT?.year_in_hog_url) {
+                window.location.href = `${window.location.origin}${window.POSTHOG_APP_CONTEXT.year_in_hog_url}`
+            }
+            if (values.user?.uuid) {
+                window.location.href = `${window.location.origin}/year_in_posthog/2023/${values.user?.uuid}`
+            }
+        },
+    })),
 ])

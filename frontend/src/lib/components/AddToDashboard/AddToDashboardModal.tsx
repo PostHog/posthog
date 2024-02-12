@@ -1,20 +1,20 @@
-import { Tooltip } from 'lib/lemon-ui/Tooltip'
+import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { addToDashboardModalLogic } from 'lib/components/AddToDashboard/addToDashboardModalLogic'
-import { urls } from 'scenes/urls'
-import './AddToDashboard.scss'
 import { IconCottage } from 'lib/lemon-ui/icons'
-import { LemonInput } from 'lib/lemon-ui/LemonInput/LemonInput'
-import { List, ListRowProps, ListRowRenderer } from 'react-virtualized/dist/es/List'
-import { AutoSizer } from 'react-virtualized/dist/es/AutoSizer'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
-import { Link } from 'lib/lemon-ui/Link'
-import { DashboardBasicType, InsightModel } from '~/types'
-import clsx from 'clsx'
-import { pluralize } from 'lib/utils'
-import { teamLogic } from 'scenes/teamLogic'
+import { LemonInput } from 'lib/lemon-ui/LemonInput/LemonInput'
 import { LemonModal } from 'lib/lemon-ui/LemonModal'
+import { Link } from 'lib/lemon-ui/Link'
+import { Tooltip } from 'lib/lemon-ui/Tooltip'
+import { pluralize } from 'lib/utils'
 import { CSSProperties } from 'react'
+import { AutoSizer } from 'react-virtualized/dist/es/AutoSizer'
+import { List, ListRowProps, ListRowRenderer } from 'react-virtualized/dist/es/List'
+import { teamLogic } from 'scenes/teamLogic'
+import { urls } from 'scenes/urls'
+
+import { DashboardBasicType, InsightModel } from '~/types'
 
 interface SaveToDashboardModalProps {
     isOpen: boolean
@@ -70,12 +70,13 @@ const DashboardRelationRow = ({
             )}
             <span className="grow" />
             <LemonButton
-                type={isAlreadyOnDashboard ? 'primary' : 'secondary'}
+                type="secondary"
+                status={isAlreadyOnDashboard ? 'danger' : 'default'}
                 loading={dashboardWithActiveAPICall === dashboard.id}
                 disabledReason={
                     !canEditInsight
                         ? "You don't have permission to edit this dashboard"
-                        : !!dashboardWithActiveAPICall
+                        : dashboardWithActiveAPICall
                         ? 'Loading...'
                         : ''
                 }
@@ -87,7 +88,7 @@ const DashboardRelationRow = ({
                         : addToDashboard(insight, dashboard.id)
                 }}
             >
-                {isAlreadyOnDashboard ? 'Added' : 'Add to dashboard'}
+                {isAlreadyOnDashboard ? 'Remove from dashboard' : 'Add to dashboard'}
             </LemonButton>
         </div>
     )
@@ -149,12 +150,12 @@ export function AddToDashboardModal({
                 </>
             }
         >
-            <div className="space-y-2 w-md max-w-full">
+            <div className="space-y-2 w-192 max-w-full">
                 <LemonInput
                     data-attr="dashboard-searchfield"
                     type="search"
                     fullWidth
-                    placeholder={`Search for dashboards...`}
+                    placeholder="Search for dashboards..."
                     value={searchQuery}
                     onChange={(newValue) => setSearchQuery(newValue)}
                 />

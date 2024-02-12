@@ -3,7 +3,6 @@ from posthog.test.base import APIBaseTest, ClickhouseTestMixin
 
 class TestQuery(ClickhouseTestMixin, APIBaseTest):
     def test_get_queries_detects(self):
-
         # some random
         with self.capture_select_queries() as queries:
             self.client.post(

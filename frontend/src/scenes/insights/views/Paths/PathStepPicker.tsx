@@ -1,14 +1,11 @@
+import { LemonSelect } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
-import { Select } from 'antd'
-import { BarsOutlined } from '@ant-design/icons'
-import { ANTD_TOOLTIP_PLACEMENTS } from 'lib/utils'
-
+import { insightLogic } from 'scenes/insights/insightLogic'
 import { DEFAULT_STEP_LIMIT } from 'scenes/paths/pathsDataLogic'
 import { pathsDataLogic } from 'scenes/paths/pathsDataLogic'
 import { userLogic } from 'scenes/userLogic'
 
 import { AvailableFeature } from '~/types'
-import { insightLogic } from 'scenes/insights/insightLogic'
 
 interface StepOption {
     label: string
@@ -20,7 +17,7 @@ export function PathStepPicker(): JSX.Element {
     const { pathsFilter } = useValues(pathsDataLogic(insightProps))
     const { updateInsightFilter } = useActions(pathsDataLogic(insightProps))
 
-    const { step_limit } = pathsFilter || {}
+    const { stepLimit } = pathsFilter || {}
 
     const { user } = useValues(userLogic)
 
@@ -33,33 +30,11 @@ export function PathStepPicker(): JSX.Element {
     }))
 
     return (
-        <Select
-            id="path-step-filter"
-            data-attr="path-step-filter"
-            defaultValue={5}
-            value={step_limit || DEFAULT_STEP_LIMIT}
-            onSelect={(count) => updateInsightFilter({ step_limit: count })}
-            listHeight={440}
-            bordered={false}
-            dropdownMatchSelectWidth={true}
-            dropdownAlign={ANTD_TOOLTIP_PLACEMENTS.bottomRight}
-            optionLabelProp="label"
-        >
-            {options.map((option) => {
-                return (
-                    <Select.Option
-                        key={option.value}
-                        value={option.value}
-                        label={
-                            <>
-                                <BarsOutlined /> {option.label}
-                            </>
-                        }
-                    >
-                        {option.label}
-                    </Select.Option>
-                )
-            })}
-        </Select>
+        <LemonSelect
+            size="small"
+            value={stepLimit || DEFAULT_STEP_LIMIT}
+            onChange={(count) => updateInsightFilter({ stepLimit: count })}
+            options={options}
+        />
     )
 }

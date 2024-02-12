@@ -1,24 +1,20 @@
-import type { StorybookConfig } from '@storybook/react/types'
 import { createEntry } from '../webpack.config'
+import { StorybookConfig } from '@storybook/react-webpack5'
 
 const config: StorybookConfig = {
     stories: ['../frontend/src/**/*.stories.@(js|jsx|ts|tsx|mdx)'],
+
     addons: [
-        {
-            name: '@storybook/addon-docs',
-            options: {
-                sourceLoaderOptions: {
-                    injectStoryParameters: false,
-                },
-            },
-        },
+        '@storybook/addon-docs',
         '@storybook/addon-links',
         '@storybook/addon-essentials',
         '@storybook/addon-storysource',
         '@storybook/addon-a11y',
         'storybook-addon-pseudo-states',
     ],
+
     staticDirs: ['public'],
+
     webpackFinal: (config) => {
         const mainConfig = createEntry('main')
         return {
@@ -32,24 +28,24 @@ const config: StorybookConfig = {
                 ...config.module,
                 rules: [
                     ...mainConfig.module.rules,
-                    ...config.module!.rules.filter((rule) => rule.test!.toString().includes('.mdx')),
-                    {
-                        test: /\.stories\.tsx?$/,
-                        use: [
-                            {
-                                loader: require.resolve('@storybook/source-loader'),
-                                options: { parser: 'typescript' },
-                            },
-                        ],
-                        enforce: 'pre',
-                    },
+                    ...(config.module?.rules?.filter(
+                        (rule: any) => 'test' in rule && rule.test.toString().includes('.mdx')
+                    ) ?? []),
                 ],
             },
         }
     },
-    features: {
-        postcss: false,
+
+    framework: {
+        name: '@storybook/react-webpack5',
+        options: { builder: { useSWC: true } },
     },
+
+    docs: {
+        autodocs: 'tag',
+    },
+
+    typescript: { reactDocgen: 'react-docgen' }, // Shouldn't be needed in Storybook 8
 }
 
 export default config

@@ -1,28 +1,43 @@
-import { colonDelimitedDuration } from 'lib/utils'
-import { useEffect, useRef, useState } from 'react'
-import { PlayerFrame } from '../PlayerFrame'
 import { BindLogic, useActions, useValues } from 'kea'
-import { SessionRecordingPlayerLogicProps, sessionRecordingPlayerLogic } from '../sessionRecordingPlayerLogic'
-import { FlaggedFeature } from 'lib/components/FlaggedFeature'
 import { FEATURE_FLAGS } from 'lib/constants'
+import useIsHovering from 'lib/hooks/useIsHovering'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { colonDelimitedDuration } from 'lib/utils'
+import { MutableRefObject, useEffect, useRef, useState } from 'react'
 import { useDebouncedCallback } from 'use-debounce'
+
+import { PlayerFrame } from '../PlayerFrame'
+import {
+    sessionRecordingPlayerLogic,
+    SessionRecordingPlayerLogicProps,
+    SessionRecordingPlayerMode,
+} from '../sessionRecordingPlayerLogic'
+
+const TWENTY_MINUTES_IN_MS = 20 * 60 * 1000
 
 export type PlayerSeekbarPreviewProps = {
     minMs: number
     maxMs: number
+    seekBarRef: MutableRefObject<HTMLDivElement | null>
+    activeMs: number | null
 }
 
 const PlayerSeekbarPreviewFrame = ({
     percentage,
     minMs,
     maxMs,
-}: { percentage: number } & PlayerSeekbarPreviewProps): JSX.Element => {
+    isVisible,
+}: { percentage: number; isVisible: boolean } & Omit<
+    PlayerSeekbarPreviewProps,
+    'seekBarRef' | 'activeMs'
+>): JSX.Element => {
     const { sessionRecordingId, logicProps } = useValues(sessionRecordingPlayerLogic)
 
     const seekPlayerLogicProps: SessionRecordingPlayerLogicProps = {
         sessionRecordingId: sessionRecordingId,
         playerKey: `${logicProps.playerKey}-preview`,
         autoPlay: false,
+        mode: SessionRecordingPlayerMode.Preview,
     }
 
     const { setPause, seekToTime } = useActions(sessionRecordingPlayerLogic(seekPlayerLogicProps))
@@ -39,8 +54,10 @@ const PlayerSeekbarPreviewFrame = ({
     )
 
     useEffect(() => {
-        debouncedSeekToTime(minMs + (maxMs - minMs) * percentage)
-    }, [percentage, minMs, maxMs])
+        if (isVisible) {
+            debouncedSeekToTime(minMs + (maxMs - minMs) * percentage)
+        }
+    }, [percentage, minMs, maxMs, isVisible])
 
     return (
         <BindLogic logic={sessionRecordingPlayerLogic} props={seekPlayerLogicProps}>
@@ -51,19 +68,29 @@ const PlayerSeekbarPreviewFrame = ({
     )
 }
 
-export function PlayerSeekbarPreview({ minMs, maxMs }: PlayerSeekbarPreviewProps): JSX.Element {
+export function PlayerSeekbarPreview({ minMs, maxMs, seekBarRef, activeMs }: PlayerSeekbarPreviewProps): JSX.Element {
     const [percentage, setPercentage] = useState<number>(0)
     const ref = useRef<HTMLDivElement>(null)
     const fixedUnits = maxMs / 1000 > 3600 ? 3 : 2
     const content = colonDelimitedDuration(minMs / 1000 + ((maxMs - minMs) / 1000) * percentage, fixedUnits)
 
+    const isHovering = useIsHovering(seekBarRef)
+
+    const { featureFlags } = useValues(featureFlagLogic)
+    const alwaysShowSeekbarPreview = !!featureFlags[FEATURE_FLAGS.ALWAYS_SHOW_SEEKBAR_PREVIEW]
+    const canShowPreview = alwaysShowSeekbarPreview || (typeof activeMs === 'number' && activeMs < TWENTY_MINUTES_IN_MS)
+
     useEffect(() => {
+        if (!seekBarRef?.current) {
+            return
+        }
+
         const handleMouseMove = (e: MouseEvent): void => {
             const rect = ref.current?.getBoundingClientRect()
-
             if (!rect) {
                 return
             }
+
             const relativeX = e.clientX - rect.x
             const newPercentage = Math.max(Math.min(relativeX / rect.width, 1), 0)
 
@@ -72,9 +99,11 @@ export function PlayerSeekbarPreview({ minMs, maxMs }: PlayerSeekbarPreviewProps
             }
         }
 
-        window.addEventListener('mousemove', handleMouseMove)
-        return () => window.removeEventListener('mousemove', handleMouseMove)
-    }, [])
+        seekBarRef.current.addEventListener('mousemove', handleMouseMove)
+        // fixes react-hooks/exhaustive-deps warning about stale ref elements
+        const { current } = ref
+        return () => current?.removeEventListener('mousemove', handleMouseMove)
+    }, [seekBarRef])
 
     return (
         <div className="PlayerSeekBarPreview" ref={ref}>
@@ -86,9 +115,14 @@ export function PlayerSeekbarPreview({ minMs, maxMs }: PlayerSeekbarPreviewProps
                 }}
             >
                 <div className="PlayerSeekBarPreview__tooltip__content">
-                    <FlaggedFeature flag={FEATURE_FLAGS.SESSION_RECORDING_PLAYER_PREVIEW}>
-                        <PlayerSeekbarPreviewFrame minMs={minMs} maxMs={maxMs} percentage={percentage} />
-                    </FlaggedFeature>
+                    {canShowPreview && (
+                        <PlayerSeekbarPreviewFrame
+                            minMs={minMs}
+                            maxMs={maxMs}
+                            percentage={percentage}
+                            isVisible={isHovering}
+                        />
+                    )}
                     <div className="text-center p-2">{content}</div>
                 </div>
             </div>

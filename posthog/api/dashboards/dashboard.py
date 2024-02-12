@@ -14,7 +14,9 @@ from rest_framework.request import Request
 from rest_framework.response import Response
 from rest_framework.utils.serializer_helpers import ReturnDict
 
-from posthog.api.dashboards.dashboard_template_json_schema_parser import DashboardTemplateCreationJSONSchemaParser
+from posthog.api.dashboards.dashboard_template_json_schema_parser import (
+    DashboardTemplateCreationJSONSchemaParser,
+)
 from posthog.api.forbid_destroy_model import ForbidDestroyModel
 from posthog.api.insight import InsightSerializer, InsightViewSet
 from posthog.api.routing import StructuredViewSetMixin
@@ -29,7 +31,7 @@ from posthog.models.dashboard_templates import DashboardTemplate
 from posthog.models.tagged_item import TaggedItem
 from posthog.models.team.team import check_is_feature_available_for_team
 from posthog.models.user import User
-from posthog.permissions import ProjectMembershipNecessaryPermissions, TeamMemberAccessPermission
+from posthog.permissions import TeamMemberAccessPermission
 from posthog.user_permissions import UserPermissionsSerializerMixin
 
 logger = structlog.get_logger(__name__)
@@ -61,7 +63,14 @@ class DashboardTileSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = DashboardTile
-        exclude = ["dashboard", "deleted", "filters_hash", "last_refresh", "refreshing", "refresh_attempt"]
+        exclude = [
+            "dashboard",
+            "deleted",
+            "filters_hash",
+            "last_refresh",
+            "refreshing",
+            "refresh_attempt",
+        ]
         read_only_fields = ["id", "insight"]
         depth = 1
 
@@ -76,7 +85,11 @@ class DashboardTileSerializer(serializers.ModelSerializer):
         return representation
 
 
-class DashboardBasicSerializer(TaggedItemSerializerMixin, serializers.ModelSerializer, UserPermissionsSerializerMixin):
+class DashboardBasicSerializer(
+    TaggedItemSerializerMixin,
+    serializers.ModelSerializer,
+    UserPermissionsSerializerMixin,
+):
     created_by = UserBasicSerializer(read_only=True)
     effective_privilege_level = serializers.SerializerMethodField()
     effective_restriction_level = serializers.SerializerMethodField()
@@ -252,7 +265,10 @@ class DashboardSerializer(DashboardBasicSerializer):
             text_serializer.save()
             text = cast(Text, text_serializer.instance)
             DashboardTile.objects.create(
-                dashboard=dashboard, text=text, layouts=existing_tile.layouts, color=existing_tile.color
+                dashboard=dashboard,
+                text=text,
+                layouts=existing_tile.layouts,
+                color=existing_tile.color,
             )
 
     def update(self, instance: Dashboard, validated_data: Dict, *args: Any, **kwargs: Any) -> Dashboard:
@@ -310,13 +326,15 @@ class DashboardSerializer(DashboardBasicSerializer):
                 },
             )
             DashboardTile.objects.update_or_create(
-                id=tile_data.get("id", None), defaults={**tile_data, "text": text, "dashboard": instance}
+                id=tile_data.get("id", None),
+                defaults={**tile_data, "text": text, "dashboard": instance},
             )
         elif "deleted" in tile_data or "color" in tile_data or "layouts" in tile_data:
             tile_data.pop("insight", None)  # don't ever update insight tiles here
 
             DashboardTile.objects.update_or_create(
-                id=tile_data.get("id", None), defaults={**tile_data, "dashboard": instance}
+                id=tile_data.get("id", None),
+                defaults={**tile_data, "dashboard": instance},
             )
 
     @staticmethod
@@ -352,7 +370,9 @@ class DashboardSerializer(DashboardBasicSerializer):
 
         tiles = DashboardTile.dashboard_queryset(dashboard.tiles).prefetch_related(
             Prefetch(
-                "insight__tagged_items", queryset=TaggedItem.objects.select_related("tag"), to_attr="prefetched_tags"
+                "insight__tagged_items",
+                queryset=TaggedItem.objects.select_related("tag"),
+                to_attr="prefetched_tags",
             )
         )
         self.user_permissions.set_preloaded_dashboard_tiles(list(tiles))
@@ -382,11 +402,15 @@ class DashboardSerializer(DashboardBasicSerializer):
         return {**validated_data, "creation_mode": "default"}
 
 
-class DashboardsViewSet(TaggedItemViewSetMixin, StructuredViewSetMixin, ForbidDestroyModel, viewsets.ModelViewSet):
+class DashboardsViewSet(
+    TaggedItemViewSetMixin,
+    StructuredViewSetMixin,
+    ForbidDestroyModel,
+    viewsets.ModelViewSet,
+):
     queryset = Dashboard.objects.order_by("name")
     permission_classes = [
         IsAuthenticated,
-        ProjectMembershipNecessaryPermissions,
         TeamMemberAccessPermission,
         CanEditDashboard,
     ]
@@ -462,11 +486,16 @@ class DashboardsViewSet(TaggedItemViewSetMixin, StructuredViewSetMixin, ForbidDe
         tile.save(update_fields=["dashboard_id"])
 
         serializer = DashboardSerializer(
-            Dashboard.objects.get(id=from_dashboard), context={"view": self, "request": request}
+            Dashboard.objects.get(id=from_dashboard),
+            context={"view": self, "request": request},
         )
         return Response(serializer.data)
 
-    @action(methods=["POST"], detail=False, parser_classes=[DashboardTemplateCreationJSONSchemaParser])
+    @action(
+        methods=["POST"],
+        detail=False,
+        parser_classes=[DashboardTemplateCreationJSONSchemaParser],
+    )
     def create_from_template_json(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         dashboard = Dashboard.objects.create(team_id=self.team_id)
 

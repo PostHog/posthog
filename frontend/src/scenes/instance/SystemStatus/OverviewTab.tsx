@@ -1,10 +1,12 @@
-import { systemStatusLogic } from './systemStatusLogic'
+import { LemonTable } from '@posthog/lemon-ui'
 import { useValues } from 'kea'
-import { SystemStatusRow, SystemStatusSubrows } from '~/types'
 import { IconOpenInNew } from 'lib/lemon-ui/icons'
 import { Link } from 'lib/lemon-ui/Link'
+
+import { SystemStatusRow, SystemStatusSubrows } from '~/types'
+
 import { RenderMetricValue } from './RenderMetricValue'
-import { LemonTable } from '@posthog/lemon-ui'
+import { systemStatusLogic } from './systemStatusLogic'
 
 const METRIC_KEY_TO_INTERNAL_LINK = {
     async_migrations_ok: '/instance/async_migrations',
@@ -45,7 +47,7 @@ export function OverviewTab(): JSX.Element {
             loading={systemStatusLoading}
             expandable={{
                 expandedRowRender: function renderExpand(row) {
-                    return !!row.subrows?.rows.length ? <Subrows {...row.subrows} /> : null
+                    return row.subrows?.rows.length ? <Subrows {...row.subrows} /> : null
                 },
                 rowExpandable: (row) => !!row.subrows?.rows.length,
             }}

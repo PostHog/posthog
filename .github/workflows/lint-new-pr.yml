@@ -2,12 +2,13 @@ name: Lint new PR
 
 on:
     pull_request:
-        types: [opened]
+        types: [opened, ready_for_review]
 
 jobs:
     check-description:
         name: Check that PR has description
         runs-on: ubuntu-20.04
+        if: github.event.pull_request.draft == false
 
         steps:
             - name: Check if PR is shame-worthy
@@ -15,7 +16,7 @@ jobs:
               run: |
                   FILTERED_BODY=$( \
                       sed -r -e \
-                      '/^(\.\.\.)|(\*)|(#+ )|(- )|(<!--)|(👉)/d' \
+                      '/^(\.\.\.)|(\*)|(#+ )|(<!--)|(👉)/d' \
                       <<< $RAW_BODY \
                   )
                   echo "::debug::Filtered PR body to $FILTERED_BODY"

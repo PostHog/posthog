@@ -1,14 +1,14 @@
-import { Dispatch, RefObject, SetStateAction } from 'react'
 import * as d3 from 'd3'
 import * as Sankey from 'd3-sankey'
-
-import { PathsFilterType } from '~/types'
-import { stripHTTP } from 'lib/utils'
 import { D3Selector } from 'lib/hooks/useD3'
+import { stripHTTP } from 'lib/utils'
+import { Dispatch, RefObject, SetStateAction } from 'react'
 
-import { HIDE_PATH_CARD_HEIGHT, FALLBACK_CANVAS_WIDTH } from './Paths'
-import { roundedRect, isSelectedPathStartOrEnd, PathNodeData, PathTargetLink } from './pathUtils'
+import { PathsFilter } from '~/queries/schema'
+
+import { FALLBACK_CANVAS_WIDTH, HIDE_PATH_CARD_HEIGHT } from './Paths'
 import { PathNode } from './pathsDataLogic'
+import { isSelectedPathStartOrEnd, PathNodeData, PathTargetLink, roundedRect } from './pathUtils'
 
 const createCanvas = (canvasRef: RefObject<HTMLDivElement>, width: number, height: number): D3Selector => {
     return d3
@@ -33,7 +33,7 @@ const createSankey = (width: number, height: number): Sankey.SankeyLayout<any, a
 const appendPathNodes = (
     svg: any,
     nodes: PathNodeData[],
-    pathsFilter: Partial<PathsFilterType>,
+    pathsFilter: PathsFilter,
     setNodeCards: Dispatch<SetStateAction<PathNodeData[]>>
 ): void => {
     svg.append('g')
@@ -200,7 +200,7 @@ export function renderPaths(
     canvasWidth: number,
     canvasHeight: number,
     paths: { links: PathNode[]; nodes: any[] },
-    pathsFilter: Partial<PathsFilterType>,
+    pathsFilter: PathsFilter,
     setNodeCards: Dispatch<SetStateAction<PathNodeData[]>>
 ): void {
     if (!paths || paths.nodes.length === 0) {

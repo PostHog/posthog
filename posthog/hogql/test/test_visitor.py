@@ -1,4 +1,5 @@
 from posthog.hogql import ast
+from posthog.hogql.ast import UUIDType, HogQLXTag, HogQLXAttribute
 from posthog.hogql.errors import HogQLException
 from posthog.hogql.parser import parse_expr
 from posthog.hogql.visitor import CloningVisitor, Visitor, TraversingVisitor
@@ -66,7 +67,10 @@ class TestVisitor(BaseTest):
                         ],
                     )
                 ),
-                ast.Alias(expr=ast.SelectQuery(select=[ast.Field(chain=["timestamp"])]), alias="f"),
+                ast.Alias(
+                    expr=ast.SelectQuery(select=[ast.Field(chain=["timestamp"])]),
+                    alias="f",
+                ),
                 ast.SelectQuery(
                     select=[ast.Field(chain=["a"])],
                     select_from=ast.JoinExpr(
@@ -134,3 +138,18 @@ class TestVisitor(BaseTest):
         self.assertEqual(str(e.exception), "You tried accessing a forbidden number, perish!")
         self.assertEqual(e.exception.start, 4)
         self.assertEqual(e.exception.end, 7)
+
+    def test_hogql_visitor_naming_exceptions(self):
+        class NamingCheck(Visitor):
+            def visit_uuid_type(self, node: ast.Constant):
+                return "visit_uuid_type"
+
+            def visit_hogqlx_tag(self, node: ast.Constant):
+                return "visit_hogqlx_tag"
+
+            def visit_hogqlx_attribute(self, node: ast.Constant):
+                return "visit_hogqlx_attribute"
+
+        assert NamingCheck().visit(UUIDType()) == "visit_uuid_type"
+        assert NamingCheck().visit(HogQLXAttribute(name="a", value="a")) == "visit_hogqlx_attribute"
+        assert NamingCheck().visit(HogQLXTag(kind="", attributes=[])) == "visit_hogqlx_tag"

@@ -7,7 +7,7 @@ from posthog.models.filters.mixins.utils import cached_property
 from posthog.models.filters.stickiness_filter import StickinessFilter
 from posthog.queries.event_query import EventQuery
 from posthog.queries.person_query import PersonQuery
-from posthog.queries.util import get_person_properties_mode, get_trunc_func_ch
+from posthog.queries.util import get_person_properties_mode, get_start_of_interval_sql
 from posthog.utils import PersonOnEventsMode
 
 
@@ -18,9 +18,9 @@ class StickinessEventsQuery(EventQuery):
     def __init__(self, entity: Entity, *args, **kwargs):
         self._entity = entity
         super().__init__(*args, **kwargs)
+        self._should_round_interval = True
 
     def get_query(self) -> Tuple[str, Dict[str, Any]]:
-
         prop_query, prop_params = self._get_prop_groups(
             self._filter.property_groups.combine_property_group(PropertyOperatorType.AND, self._entity.property_groups),
             person_properties_mode=get_person_properties_mode(self._team),
@@ -29,8 +29,8 @@ class StickinessEventsQuery(EventQuery):
 
         self.params.update(prop_params)
 
-        actions_query, actions_params = self.get_actions_query()
-        self.params.update(actions_params)
+        entity_query, entity_params = self.get_entity_query()
+        self.params.update(entity_params)
 
         date_query, date_params = self._get_date_filter()
         self.params.update(date_params)
@@ -53,15 +53,17 @@ class StickinessEventsQuery(EventQuery):
         query = f"""
             SELECT
                 {self.aggregation_target()} AS aggregation_target,
-                countDistinct({get_trunc_func_ch(self._filter.interval)}(toTimeZone(toDateTime(timestamp, 'UTC'), %(timezone)s))) as num_intervals
+                countDistinct(
+                    {get_start_of_interval_sql(self._filter.interval, team=self._team)}
+                ) as num_intervals
             FROM events {self.EVENT_TABLE_ALIAS}
             {sample_clause}
-            {self._get_person_ids_query()}
+            {self._get_person_ids_query(relevant_events_conditions=f"{entity_query} {date_query}")}
             {person_query}
             {groups_query}
             WHERE team_id = %(team_id)s
             {date_query}
-            AND {actions_query}
+            {entity_query}
             {prop_query}
             {null_person_filter}
             GROUP BY aggregation_target
@@ -93,9 +95,9 @@ class StickinessEventsQuery(EventQuery):
     def aggregation_target(self):
         return self._person_id_alias
 
-    def get_actions_query(self) -> Tuple[str, Dict[str, Any]]:
+    def get_entity_query(self) -> Tuple[str, Dict[str, Any]]:
         if self._entity.type == TREND_FILTER_TYPE_ACTIONS:
-            return format_action_filter(
+            condition, params = format_action_filter(
                 team_id=self._team_id,
                 action=self._entity.get_action(),
                 person_properties_mode=get_person_properties_mode(self._team),
@@ -103,6 +105,8 @@ class StickinessEventsQuery(EventQuery):
                 hogql_context=self._filter.hogql_context,
             )
         elif self._entity.id is None:
-            return "1 = 1", {}
+            condition, params = None, {}
         else:
-            return "event = %(event)s", {"event": self._entity.id}
+            condition, params = "event = %(event)s", {"event": self._entity.id}
+
+        return f"AND {condition}" if condition else "", params

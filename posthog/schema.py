@@ -4,9 +4,13 @@
 from __future__ import annotations
 
 from enum import Enum
-from typing import Any, Dict, List, Optional, Union
+from typing import Any, Dict, List, Literal, Optional, Union
 
-from pydantic import BaseModel, Extra, Field
+from pydantic import AwareDatetime, BaseModel, ConfigDict, Field, RootModel
+
+
+class SchemaRoot(RootModel[Any]):
+    root: Any
 
 
 class MathGroupTypeIndex(float, Enum):
@@ -23,6 +27,56 @@ class AggregationAxisFormat(str, Enum):
     duration_ms = "duration_ms"
     percentage = "percentage"
     percentage_scaled = "percentage_scaled"
+
+
+class Kind(str, Enum):
+    Method = "Method"
+    Function = "Function"
+    Constructor = "Constructor"
+    Field = "Field"
+    Variable = "Variable"
+    Class = "Class"
+    Struct = "Struct"
+    Interface = "Interface"
+    Module = "Module"
+    Property = "Property"
+    Event = "Event"
+    Operator = "Operator"
+    Unit = "Unit"
+    Value = "Value"
+    Constant = "Constant"
+    Enum = "Enum"
+    EnumMember = "EnumMember"
+    Keyword = "Keyword"
+    Text = "Text"
+    Color = "Color"
+    File = "File"
+    Reference = "Reference"
+    Customcolor = "Customcolor"
+    Folder = "Folder"
+    TypeParameter = "TypeParameter"
+    User = "User"
+    Issue = "Issue"
+    Snippet = "Snippet"
+
+
+class AutocompleteCompletionItem(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    documentation: Optional[str] = Field(
+        default=None, description="A human-readable string that represents a doc-comment."
+    )
+    insertText: str = Field(
+        ..., description="A string or snippet that should be inserted in a document when selecting this completion."
+    )
+    kind: Kind = Field(
+        ..., description="The kind of this completion item. Based on the kind an icon is chosen by the editor."
+    )
+    label: str = Field(
+        ...,
+        description="The label of this completion item. By default this is also the text that is inserted when selecting this completion.",
+    )
 
 
 class BaseMathType(str, Enum):
@@ -46,6 +100,18 @@ class BreakdownType(str, Enum):
     event = "event"
     group = "group"
     session = "session"
+    hogql = "hogql"
+
+
+class BreakdownValueInt(RootModel[int]):
+    root: int
+
+
+class ChartAxis(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    column: str
 
 
 class ChartDisplayType(str, Enum):
@@ -61,13 +127,13 @@ class ChartDisplayType(str, Enum):
 
 
 class CohortPropertyFilter(BaseModel):
-    class Config:
-        extra = Extra.forbid
-
-    key: str = Field("id", const=True)
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    key: Literal["id"] = "id"
     label: Optional[str] = None
-    type: str = Field("cohort", const=True)
-    value: float
+    type: Literal["cohort"] = "cohort"
+    value: int
 
 
 class CountPerActorMathType(str, Enum):
@@ -81,9 +147,9 @@ class CountPerActorMathType(str, Enum):
 
 
 class DatabaseSchemaQueryResponseField(BaseModel):
-    class Config:
-        extra = Extra.forbid
-
+    model_config = ConfigDict(
+        extra="forbid",
+    )
     chain: Optional[List[str]] = None
     fields: Optional[List[str]] = None
     key: str
@@ -92,11 +158,15 @@ class DatabaseSchemaQueryResponseField(BaseModel):
 
 
 class DateRange(BaseModel):
-    class Config:
-        extra = Extra.forbid
-
+    model_config = ConfigDict(
+        extra="forbid",
+    )
     date_from: Optional[str] = None
     date_to: Optional[str] = None
+
+
+class Day(RootModel[int]):
+    root: int
 
 
 class Key(str, Enum):
@@ -107,9 +177,9 @@ class Key(str, Enum):
 
 
 class ElementType(BaseModel):
-    class Config:
-        extra = Extra.forbid
-
+    model_config = ConfigDict(
+        extra="forbid",
+    )
     attr_class: Optional[List[str]] = None
     attr_id: Optional[str] = None
     attributes: Dict[str, str]
@@ -122,13 +192,10 @@ class ElementType(BaseModel):
 
 
 class EmptyPropertyFilter(BaseModel):
-    class Config:
-        extra = Extra.forbid
-
-    key: Optional[Any] = None
-    operator: Optional[Any] = None
-    type: Optional[Any] = None
-    value: Optional[Any] = None
+    pass
+    model_config = ConfigDict(
+        extra="forbid",
+    )
 
 
 class EntityType(str, Enum):
@@ -138,18 +205,18 @@ class EntityType(str, Enum):
 
 
 class Person(BaseModel):
-    class Config:
-        extra = Extra.forbid
-
+    model_config = ConfigDict(
+        extra="forbid",
+    )
     distinct_ids: List[str]
     is_identified: Optional[bool] = None
     properties: Dict[str, Any]
 
 
 class EventType(BaseModel):
-    class Config:
-        extra = Extra.forbid
-
+    model_config = ConfigDict(
+        extra="forbid",
+    )
     distinct_id: str
     elements: List[ElementType]
     elements_chain: Optional[str] = None
@@ -161,30 +228,30 @@ class EventType(BaseModel):
     uuid: Optional[str] = None
 
 
-class MathGroupTypeIndex1(float, Enum):
-    number_0 = 0
-    number_1 = 1
-    number_2 = 2
-    number_3 = 3
-    number_4 = 4
-
-
 class Response(BaseModel):
-    class Config:
-        extra = Extra.forbid
-
+    model_config = ConfigDict(
+        extra="forbid",
+    )
     next: Optional[str] = None
     results: List[EventType]
 
 
-class EventsQueryResponse(BaseModel):
-    class Config:
-        extra = Extra.forbid
+class Properties(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    email: Optional[str] = None
+    name: Optional[str] = None
 
-    columns: List
-    hasMore: Optional[bool] = None
-    results: List[List]
-    types: List[str]
+
+class EventsQueryPersonColumn(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    created_at: str
+    distinct_id: str
+    properties: Properties
+    uuid: str
 
 
 class FilterLogicalOperator(str, Enum):
@@ -201,6 +268,28 @@ class FunnelConversionWindowTimeUnit(str, Enum):
     month = "month"
 
 
+class FunnelExclusionLegacy(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    custom_name: Optional[str] = None
+    funnel_from_step: float
+    funnel_to_step: float
+    id: Optional[Union[str, float]] = None
+    index: Optional[float] = None
+    name: Optional[str] = None
+    order: Optional[float] = None
+    type: Optional[EntityType] = None
+
+
+class FunnelExclusionSteps(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    funnelFromStep: int
+    funnelToStep: int
+
+
 class FunnelLayout(str, Enum):
     horizontal = "horizontal"
     vertical = "vertical"
@@ -210,20 +299,6 @@ class FunnelPathType(str, Enum):
     funnel_path_before_step = "funnel_path_before_step"
     funnel_path_between_steps = "funnel_path_between_steps"
     funnel_path_after_step = "funnel_path_after_step"
-
-
-class FunnelStepRangeEntityFilter(BaseModel):
-    class Config:
-        extra = Extra.forbid
-
-    custom_name: Optional[str] = None
-    funnel_from_step: Optional[float] = None
-    funnel_to_step: Optional[float] = None
-    id: Optional[Union[str, float]] = None
-    index: Optional[float] = None
-    name: Optional[str] = None
-    order: Optional[float] = None
-    type: Optional[EntityType] = None
 
 
 class FunnelStepReference(str, Enum):
@@ -237,31 +312,160 @@ class FunnelVizType(str, Enum):
     trends = "trends"
 
 
-class FunnelCorrelationPersonConverted(str, Enum):
-    true = "true"
-    false = "false"
+class GoalLine(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    label: str
+    value: float
+
+
+class HogQLAutocompleteResponse(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    suggestions: List[AutocompleteCompletionItem]
 
 
 class HogQLNotice(BaseModel):
-    class Config:
-        extra = Extra.forbid
-
-    end: Optional[float] = None
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    end: Optional[int] = None
     fix: Optional[str] = None
     message: str
-    start: Optional[float] = None
+    start: Optional[int] = None
 
 
-class HogQLQueryResponse(BaseModel):
-    class Config:
-        extra = Extra.forbid
+class InCohortVia(str, Enum):
+    auto = "auto"
+    leftjoin = "leftjoin"
+    subquery = "subquery"
+    leftjoin_conjoined = "leftjoin_conjoined"
 
-    clickhouse: Optional[str] = None
-    columns: Optional[List] = None
-    hogql: Optional[str] = None
-    query: Optional[str] = None
-    results: Optional[List] = None
-    types: Optional[List] = None
+
+class MaterializationMode(str, Enum):
+    auto = "auto"
+    legacy_null_as_string = "legacy_null_as_string"
+    legacy_null_as_null = "legacy_null_as_null"
+    disabled = "disabled"
+
+
+class PersonsArgMaxVersion(str, Enum):
+    auto = "auto"
+    v1 = "v1"
+    v2 = "v2"
+
+
+class PersonsOnEventsMode(str, Enum):
+    disabled = "disabled"
+    v1_enabled = "v1_enabled"
+    v1_mixed = "v1_mixed"
+    v2_enabled = "v2_enabled"
+
+
+class HogQLQueryModifiers(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    inCohortVia: Optional[InCohortVia] = None
+    materializationMode: Optional[MaterializationMode] = None
+    personsArgMaxVersion: Optional[PersonsArgMaxVersion] = None
+    personsOnEventsMode: Optional[PersonsOnEventsMode] = None
+
+
+class Compare(str, Enum):
+    current = "current"
+    previous = "previous"
+
+
+class BreakdownItem(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    label: str
+    value: Union[str, int]
+
+
+class CompareItem(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    label: str
+    value: str
+
+
+class DayItem(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    label: str
+    value: Union[str, int]
+
+
+class IntervalItem(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    label: str
+    value: int = Field(..., description="An interval selected out of available intervals in source query")
+
+
+class Series(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    label: str
+    value: int
+
+
+class StatusItem(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    label: str
+    value: str
+
+
+class InsightActorsQueryOptionsResponse(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    breakdown: Optional[List[BreakdownItem]] = None
+    compare: Optional[List[CompareItem]] = None
+    day: Optional[List[DayItem]] = None
+    interval: Optional[List[IntervalItem]] = None
+    series: Optional[List[Series]] = None
+    status: Optional[List[StatusItem]] = None
+
+
+class InsightFilterProperty(str, Enum):
+    trendsFilter = "trendsFilter"
+    funnelsFilter = "funnelsFilter"
+    retentionFilter = "retentionFilter"
+    pathsFilter = "pathsFilter"
+    stickinessFilter = "stickinessFilter"
+    lifecycleFilter = "lifecycleFilter"
+
+
+class InsightNodeKind(str, Enum):
+    TrendsQuery = "TrendsQuery"
+    FunnelsQuery = "FunnelsQuery"
+    RetentionQuery = "RetentionQuery"
+    PathsQuery = "PathsQuery"
+    StickinessQuery = "StickinessQuery"
+    LifecycleQuery = "LifecycleQuery"
+
+
+class InsightType(str, Enum):
+    TRENDS = "TRENDS"
+    STICKINESS = "STICKINESS"
+    LIFECYCLE = "LIFECYCLE"
+    FUNNELS = "FUNNELS"
+    RETENTION = "RETENTION"
+    PATHS = "PATHS"
+    JSON = "JSON"
+    SQL = "SQL"
 
 
 class IntervalType(str, Enum):
@@ -278,10 +482,42 @@ class LifecycleToggle(str, Enum):
     dormant = "dormant"
 
 
-class PathCleaningFilter(BaseModel):
-    class Config:
-        extra = Extra.forbid
+class NodeKind(str, Enum):
+    EventsNode = "EventsNode"
+    ActionsNode = "ActionsNode"
+    EventsQuery = "EventsQuery"
+    PersonsNode = "PersonsNode"
+    HogQLQuery = "HogQLQuery"
+    HogQLMetadata = "HogQLMetadata"
+    HogQLAutocomplete = "HogQLAutocomplete"
+    ActorsQuery = "ActorsQuery"
+    SessionsTimelineQuery = "SessionsTimelineQuery"
+    DataTableNode = "DataTableNode"
+    DataVisualizationNode = "DataVisualizationNode"
+    SavedInsightNode = "SavedInsightNode"
+    InsightVizNode = "InsightVizNode"
+    TrendsQuery = "TrendsQuery"
+    FunnelsQuery = "FunnelsQuery"
+    RetentionQuery = "RetentionQuery"
+    PathsQuery = "PathsQuery"
+    StickinessQuery = "StickinessQuery"
+    LifecycleQuery = "LifecycleQuery"
+    InsightActorsQuery = "InsightActorsQuery"
+    InsightActorsQueryOptions = "InsightActorsQueryOptions"
+    WebOverviewQuery = "WebOverviewQuery"
+    WebTopClicksQuery = "WebTopClicksQuery"
+    WebStatsTableQuery = "WebStatsTableQuery"
+    TimeToSeeDataSessionsQuery = "TimeToSeeDataSessionsQuery"
+    TimeToSeeDataQuery = "TimeToSeeDataQuery"
+    TimeToSeeDataSessionsJSONNode = "TimeToSeeDataSessionsJSONNode"
+    TimeToSeeDataSessionsWaterfallNode = "TimeToSeeDataSessionsWaterfallNode"
+    DatabaseSchemaQuery = "DatabaseSchemaQuery"
 
+
+class PathCleaningFilter(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
     alias: Optional[str] = None
     regex: Optional[str] = None
 
@@ -294,27 +530,60 @@ class PathType(str, Enum):
 
 
 class PathsFilter(BaseModel):
-    class Config:
-        extra = Extra.forbid
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    edgeLimit: Optional[int] = None
+    endPoint: Optional[str] = None
+    excludeEvents: Optional[List[str]] = None
+    funnelFilter: Optional[Dict[str, Any]] = None
+    funnelPaths: Optional[FunnelPathType] = None
+    includeEventTypes: Optional[List[PathType]] = None
+    localPathCleaningFilters: Optional[List[PathCleaningFilter]] = None
+    maxEdgeWeight: Optional[int] = None
+    minEdgeWeight: Optional[int] = None
+    pathDropoffKey: Optional[str] = Field(default=None, description="Relevant only within actors query")
+    pathEndKey: Optional[str] = Field(default=None, description="Relevant only within actors query")
+    pathGroupings: Optional[List[str]] = None
+    pathReplacements: Optional[bool] = None
+    pathStartKey: Optional[str] = Field(default=None, description="Relevant only within actors query")
+    pathsHogQLExpression: Optional[str] = None
+    startPoint: Optional[str] = None
+    stepLimit: Optional[int] = None
 
-    edge_limit: Optional[float] = None
+
+class PathsFilterLegacy(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    edge_limit: Optional[int] = None
     end_point: Optional[str] = None
     exclude_events: Optional[List[str]] = None
     funnel_filter: Optional[Dict[str, Any]] = None
     funnel_paths: Optional[FunnelPathType] = None
     include_event_types: Optional[List[PathType]] = None
     local_path_cleaning_filters: Optional[List[PathCleaningFilter]] = None
-    max_edge_weight: Optional[float] = None
-    min_edge_weight: Optional[float] = None
-    path_dropoff_key: Optional[str] = None
-    path_end_key: Optional[str] = None
+    max_edge_weight: Optional[int] = None
+    min_edge_weight: Optional[int] = None
     path_groupings: Optional[List[str]] = None
     path_replacements: Optional[bool] = None
-    path_start_key: Optional[str] = None
     path_type: Optional[PathType] = None
     paths_hogql_expression: Optional[str] = None
     start_point: Optional[str] = None
-    step_limit: Optional[float] = None
+    step_limit: Optional[int] = None
+
+
+class PropertyFilterType(str, Enum):
+    meta = "meta"
+    event = "event"
+    person = "person"
+    element = "element"
+    feature = "feature"
+    session = "session"
+    cohort = "cohort"
+    recording = "recording"
+    group = "group"
+    hogql = "hogql"
 
 
 class PropertyMathType(str, Enum):
@@ -350,15 +619,105 @@ class PropertyOperator(str, Enum):
     max = "max"
 
 
-class RecordingDurationFilter(BaseModel):
-    class Config:
-        extra = Extra.forbid
+class QueryResponseAlternative1(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    next: Optional[str] = None
+    results: List[EventType]
 
-    key: str = Field("duration", const=True)
+
+class QueryResponseAlternative2(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    results: List[Dict[str, Any]]
+
+
+class QueryResponseAlternative5(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    breakdown: Optional[List[BreakdownItem]] = None
+    compare: Optional[List[CompareItem]] = None
+    day: Optional[List[DayItem]] = None
+    interval: Optional[List[IntervalItem]] = None
+    series: Optional[List[Series]] = None
+    status: Optional[List[StatusItem]] = None
+
+
+class QueryResponseAlternative8(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    errors: List[HogQLNotice]
+    inputExpr: Optional[str] = None
+    inputSelect: Optional[str] = None
+    isValid: Optional[bool] = None
+    isValidView: Optional[bool] = None
+    notices: List[HogQLNotice]
+    warnings: List[HogQLNotice]
+
+
+class QueryResponseAlternative9(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    suggestions: List[AutocompleteCompletionItem]
+
+
+class QueryStatus(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    complete: Optional[bool] = False
+    end_time: Optional[AwareDatetime] = None
+    error: Optional[bool] = False
+    error_message: Optional[str] = ""
+    expiration_time: Optional[AwareDatetime] = None
+    id: str
+    query_async: Optional[bool] = True
+    results: Optional[Any] = None
+    start_time: Optional[AwareDatetime] = None
+    task_id: Optional[str] = None
+    team_id: int
+
+
+class QueryTiming(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    k: str = Field(..., description="Key. Shortened to 'k' to save on data.")
+    t: float = Field(..., description="Time in seconds. Shortened to 't' to save on data.")
+
+
+class RecordingDurationFilter(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    key: Literal["duration"] = "duration"
     label: Optional[str] = None
     operator: PropertyOperator
-    type: str = Field("recording", const=True)
+    type: Literal["recording"] = "recording"
     value: float
+
+
+class Kind1(str, Enum):
+    ActionsNode = "ActionsNode"
+    EventsNode = "EventsNode"
+
+
+class RetentionEntity(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    custom_name: Optional[str] = None
+    id: Optional[Union[str, float]] = None
+    kind: Optional[Kind1] = None
+    name: Optional[str] = None
+    order: Optional[int] = None
+    type: Optional[EntityType] = None
+    uuid: Optional[str] = None
 
 
 class RetentionReference(str, Enum):
@@ -378,29 +737,30 @@ class RetentionType(str, Enum):
     retention_first_time = "retention_first_time"
 
 
-class SavedInsightNode(BaseModel):
-    class Config:
-        extra = Extra.forbid
+class RetentionValue(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    count: int
 
-    kind: str = Field("SavedInsightNode", const=True)
-    shortId: str
+
+class SamplingRate(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    denominator: Optional[float] = None
+    numerator: float
 
 
 class SessionPropertyFilter(BaseModel):
-    class Config:
-        extra = Extra.forbid
-
-    key: str = Field("$session_duration", const=True)
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    key: Literal["$session_duration"] = "$session_duration"
     label: Optional[str] = None
     operator: PropertyOperator
-    type: str = Field("session", const=True)
+    type: Literal["session"] = "session"
     value: Optional[Union[str, float, List[Union[str, float]]]] = None
-
-
-class ShownAsValue(str, Enum):
-    Volume = "Volume"
-    Stickiness = "Stickiness"
-    Lifecycle = "Lifecycle"
 
 
 class StepOrderValue(str, Enum):
@@ -410,117 +770,365 @@ class StepOrderValue(str, Enum):
 
 
 class StickinessFilter(BaseModel):
-    class Config:
-        extra = Extra.forbid
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    compare: Optional[bool] = None
+    display: Optional[ChartDisplayType] = None
+    hidden_legend_indexes: Optional[List[float]] = None
+    showLegend: Optional[bool] = None
+    showValuesOnSeries: Optional[bool] = None
 
+
+class StickinessFilterLegacy(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
     compare: Optional[bool] = None
     display: Optional[ChartDisplayType] = None
     hidden_legend_indexes: Optional[List[float]] = None
     show_legend: Optional[bool] = None
     show_values_on_series: Optional[bool] = None
-    shown_as: Optional[ShownAsValue] = None
-    stickiness_days: Optional[float] = None
+
+
+class StickinessQueryResponse(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    hogql: Optional[str] = None
+    is_cached: Optional[bool] = None
+    last_refresh: Optional[str] = None
+    next_allowed_client_refresh: Optional[str] = None
+    results: List[Dict[str, Any]]
+    timings: Optional[List[QueryTiming]] = None
+
+
+class TimeToSeeDataQuery(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    kind: Literal["TimeToSeeDataQuery"] = "TimeToSeeDataQuery"
+    response: Optional[Dict[str, Any]] = Field(default=None, description="Cached query response")
+    sessionEnd: Optional[str] = None
+    sessionId: Optional[str] = Field(default=None, description="Project to filter on. Defaults to current session")
+    sessionStart: Optional[str] = Field(
+        default=None, description="Session start time. Defaults to current time - 2 hours"
+    )
+    teamId: Optional[int] = Field(default=None, description="Project to filter on. Defaults to current project")
 
 
 class TimeToSeeDataSessionsQueryResponse(BaseModel):
-    class Config:
-        extra = Extra.forbid
-
+    model_config = ConfigDict(
+        extra="forbid",
+    )
     results: List[Dict[str, Any]]
 
 
-class TrendsFilter(BaseModel):
-    class Config:
-        extra = Extra.forbid
+class TimeToSeeDataWaterfallNode(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    kind: Literal["TimeToSeeDataSessionsWaterfallNode"] = "TimeToSeeDataSessionsWaterfallNode"
+    source: TimeToSeeDataQuery
 
+
+class TimelineEntry(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    events: List[EventType]
+    recording_duration_s: Optional[float] = Field(default=None, description="Duration of the recording in seconds.")
+    sessionId: Optional[str] = Field(default=None, description="Session ID. None means out-of-session events")
+
+
+class TrendsFilter(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    aggregationAxisFormat: Optional[AggregationAxisFormat] = None
+    aggregationAxisPostfix: Optional[str] = None
+    aggregationAxisPrefix: Optional[str] = None
+    breakdown_histogram_bin_count: Optional[float] = None
+    compare: Optional[bool] = None
+    decimalPlaces: Optional[float] = None
+    display: Optional[ChartDisplayType] = None
+    formula: Optional[str] = None
+    hidden_legend_indexes: Optional[List[float]] = None
+    showLabelsOnSeries: Optional[bool] = None
+    showLegend: Optional[bool] = None
+    showPercentStackView: Optional[bool] = None
+    showValuesOnSeries: Optional[bool] = None
+    smoothingIntervals: Optional[float] = None
+
+
+class TrendsFilterLegacy(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
     aggregation_axis_format: Optional[AggregationAxisFormat] = None
     aggregation_axis_postfix: Optional[str] = None
     aggregation_axis_prefix: Optional[str] = None
     breakdown_histogram_bin_count: Optional[float] = None
     compare: Optional[bool] = None
+    decimal_places: Optional[float] = None
     display: Optional[ChartDisplayType] = None
     formula: Optional[str] = None
     hidden_legend_indexes: Optional[List[float]] = None
+    show_labels_on_series: Optional[bool] = None
     show_legend: Optional[bool] = None
     show_percent_stack_view: Optional[bool] = None
     show_values_on_series: Optional[bool] = None
-    shown_as: Optional[ShownAsValue] = None
     smoothing_intervals: Optional[float] = None
 
 
-class Breakdown(BaseModel):
-    class Config:
-        extra = Extra.forbid
+class TrendsQueryResponse(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    hogql: Optional[str] = None
+    is_cached: Optional[bool] = None
+    last_refresh: Optional[str] = None
+    next_allowed_client_refresh: Optional[str] = None
+    results: List[Dict[str, Any]]
+    timings: Optional[List[QueryTiming]] = None
 
+
+class ActionsPie(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    disableHoverOffset: Optional[bool] = None
+    hideAggregation: Optional[bool] = None
+
+
+class RETENTION(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    hideLineGraph: Optional[bool] = None
+    hideSizeColumn: Optional[bool] = None
+    useSmallLayout: Optional[bool] = None
+
+
+class VizSpecificOptions(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    ActionsPie: Optional[ActionsPie] = None
+    RETENTION: Optional[RETENTION] = None
+
+
+class Sampling(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    enabled: Optional[bool] = None
+    forceSamplingRate: Optional[SamplingRate] = None
+
+
+class Kind2(str, Enum):
+    unit = "unit"
+    duration_s = "duration_s"
+    percentage = "percentage"
+
+
+class WebOverviewItem(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    changeFromPreviousPct: Optional[float] = None
+    isIncreaseBad: Optional[bool] = None
+    key: str
+    kind: Kind2
+    previous: Optional[float] = None
+    value: Optional[float] = None
+
+
+class WebOverviewQueryResponse(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    hogql: Optional[str] = None
+    is_cached: Optional[bool] = None
+    last_refresh: Optional[str] = None
+    next_allowed_client_refresh: Optional[str] = None
+    results: List[WebOverviewItem]
+    samplingRate: Optional[SamplingRate] = None
+    timings: Optional[List[QueryTiming]] = None
+
+
+class WebStatsBreakdown(str, Enum):
+    Page = "Page"
+    InitialPage = "InitialPage"
+    InitialChannelType = "InitialChannelType"
+    InitialReferringDomain = "InitialReferringDomain"
+    InitialUTMSource = "InitialUTMSource"
+    InitialUTMCampaign = "InitialUTMCampaign"
+    InitialUTMMedium = "InitialUTMMedium"
+    InitialUTMTerm = "InitialUTMTerm"
+    InitialUTMContent = "InitialUTMContent"
+    Browser = "Browser"
+    OS = "OS"
+    DeviceType = "DeviceType"
+    Country = "Country"
+    Region = "Region"
+    City = "City"
+
+
+class WebStatsTableQueryResponse(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    columns: Optional[List] = None
+    hasMore: Optional[bool] = None
+    hogql: Optional[str] = None
+    is_cached: Optional[bool] = None
+    last_refresh: Optional[str] = None
+    limit: Optional[int] = None
+    next_allowed_client_refresh: Optional[str] = None
+    offset: Optional[int] = None
+    results: List
+    samplingRate: Optional[SamplingRate] = None
+    timings: Optional[List[QueryTiming]] = None
+    types: Optional[List] = None
+
+
+class WebTopClicksQueryResponse(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    columns: Optional[List] = None
+    hogql: Optional[str] = None
+    is_cached: Optional[bool] = None
+    last_refresh: Optional[str] = None
+    next_allowed_client_refresh: Optional[str] = None
+    results: List
+    samplingRate: Optional[SamplingRate] = None
+    timings: Optional[List[QueryTiming]] = None
+    types: Optional[List] = None
+
+
+class ActorsQueryResponse(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    columns: List
+    hasMore: Optional[bool] = None
+    hogql: str
+    limit: int
+    missing_actors_count: Optional[int] = None
+    offset: int
+    results: List[List]
+    timings: Optional[List[QueryTiming]] = None
+    types: List[str]
+
+
+class AnyResponseType1(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    next: Optional[str] = None
+    results: List[EventType]
+
+
+class Breakdown(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
     normalize_url: Optional[bool] = None
     property: Union[str, float]
     type: BreakdownType
 
 
 class BreakdownFilter(BaseModel):
-    class Config:
-        extra = Extra.forbid
-
+    model_config = ConfigDict(
+        extra="forbid",
+    )
     breakdown: Optional[Union[str, float, List[Union[str, float]]]] = None
-    breakdown_group_type_index: Optional[float] = None
-    breakdown_histogram_bin_count: Optional[float] = None
+    breakdown_group_type_index: Optional[int] = None
+    breakdown_hide_other_aggregation: Optional[bool] = None
+    breakdown_histogram_bin_count: Optional[int] = None
+    breakdown_limit: Optional[int] = None
     breakdown_normalize_url: Optional[bool] = None
     breakdown_type: Optional[BreakdownType] = None
     breakdowns: Optional[List[Breakdown]] = None
 
 
-class ElementPropertyFilter(BaseModel):
-    class Config:
-        extra = Extra.forbid
+class DataNode(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    kind: NodeKind
+    response: Optional[Dict[str, Any]] = Field(default=None, description="Cached query response")
 
+
+class ChartSettings(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    goalLines: Optional[List[GoalLine]] = None
+    xAxis: Optional[ChartAxis] = None
+    yAxis: Optional[List[ChartAxis]] = None
+
+
+class ElementPropertyFilter(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
     key: Key
     label: Optional[str] = None
     operator: PropertyOperator
-    type: str = Field("element", const=True)
+    type: Literal["element"] = "element"
     value: Optional[Union[str, float, List[Union[str, float]]]] = None
 
 
 class EventPropertyFilter(BaseModel):
-    class Config:
-        extra = Extra.forbid
-
+    model_config = ConfigDict(
+        extra="forbid",
+    )
     key: str
     label: Optional[str] = None
     operator: PropertyOperator
-    type: str = Field("event", const=True, description="Event properties")
+    type: Literal["event"] = Field(default="event", description="Event properties")
     value: Optional[Union[str, float, List[Union[str, float]]]] = None
+
+
+class EventsQueryResponse(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    columns: List
+    hasMore: Optional[bool] = None
+    hogql: str
+    limit: Optional[int] = None
+    offset: Optional[int] = None
+    results: List[List]
+    timings: Optional[List[QueryTiming]] = None
+    types: List[str]
 
 
 class FeaturePropertyFilter(BaseModel):
-    class Config:
-        extra = Extra.forbid
-
+    model_config = ConfigDict(
+        extra="forbid",
+    )
     key: str
     label: Optional[str] = None
     operator: PropertyOperator
-    type: str = Field("feature", const=True, description='Event property with "$feature/" prepended')
+    type: Literal["feature"] = Field(default="feature", description='Event property with "$feature/" prepended')
     value: Optional[Union[str, float, List[Union[str, float]]]] = None
 
 
-class FunnelsFilter(BaseModel):
-    class Config:
-        extra = Extra.forbid
-
+class FunnelsFilterLegacy(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
     bin_count: Optional[Union[float, str]] = None
     breakdown_attribution_type: Optional[BreakdownAttributionType] = None
     breakdown_attribution_value: Optional[float] = None
-    drop_off: Optional[bool] = None
-    entrance_period_start: Optional[str] = None
-    exclusions: Optional[List[FunnelStepRangeEntityFilter]] = None
-    funnel_advanced: Optional[bool] = None
+    exclusions: Optional[List[FunnelExclusionLegacy]] = None
     funnel_aggregate_by_hogql: Optional[str] = None
-    funnel_correlation_person_converted: Optional[FunnelCorrelationPersonConverted] = None
-    funnel_correlation_person_entity: Optional[Dict[str, Any]] = None
-    funnel_custom_steps: Optional[List[float]] = None
     funnel_from_step: Optional[float] = None
     funnel_order_type: Optional[StepOrderValue] = None
-    funnel_step: Optional[float] = None
-    funnel_step_breakdown: Optional[Union[str, List[float], float]] = None
     funnel_step_reference: Optional[FunnelStepReference] = None
     funnel_to_step: Optional[float] = None
     funnel_viz_type: Optional[FunnelVizType] = None
@@ -530,22 +1138,34 @@ class FunnelsFilter(BaseModel):
     layout: Optional[FunnelLayout] = None
 
 
-class GroupPropertyFilter(BaseModel):
-    class Config:
-        extra = Extra.forbid
+class FunnelsQueryResponse(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    hogql: Optional[str] = None
+    is_cached: Optional[bool] = None
+    last_refresh: Optional[str] = None
+    next_allowed_client_refresh: Optional[str] = None
+    results: Union[List[Dict[str, Any]], List[List[Dict[str, Any]]]]
+    timings: Optional[List[QueryTiming]] = None
 
+
+class GroupPropertyFilter(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
     group_type_index: Optional[float] = None
     key: str
     label: Optional[str] = None
     operator: PropertyOperator
-    type: str = Field("group", const=True)
+    type: Literal["group"] = "group"
     value: Optional[Union[str, float, List[Union[str, float]]]] = None
 
 
 class HogQLMetadataResponse(BaseModel):
-    class Config:
-        extra = Extra.forbid
-
+    model_config = ConfigDict(
+        extra="forbid",
+    )
     errors: List[HogQLNotice]
     inputExpr: Optional[str] = None
     inputSelect: Optional[str] = None
@@ -556,82 +1176,459 @@ class HogQLMetadataResponse(BaseModel):
 
 
 class HogQLPropertyFilter(BaseModel):
-    class Config:
-        extra = Extra.forbid
-
+    model_config = ConfigDict(
+        extra="forbid",
+    )
     key: str
     label: Optional[str] = None
-    type: str = Field("hogql", const=True)
+    type: Literal["hogql"] = "hogql"
     value: Optional[Union[str, float, List[Union[str, float]]]] = None
 
 
-class HogQLQuery(BaseModel):
-    class Config:
-        extra = Extra.forbid
-
-    kind: str = Field("HogQLQuery", const=True)
-    query: str
-    response: Optional[HogQLQueryResponse] = Field(None, description="Cached query response")
+class HogQLQueryResponse(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    clickhouse: Optional[str] = Field(default=None, description="Executed ClickHouse query")
+    columns: Optional[List] = Field(default=None, description="Returned columns")
+    error: Optional[str] = Field(
+        default=None, description="Query error. Returned only if 'explain' is true. Throws an error otherwise."
+    )
+    explain: Optional[List[str]] = Field(default=None, description="Query explanation output")
+    hasMore: Optional[bool] = None
+    hogql: Optional[str] = Field(default=None, description="Generated HogQL query")
+    limit: Optional[int] = None
+    metadata: Optional[HogQLMetadataResponse] = Field(default=None, description="Query metadata output")
+    modifiers: Optional[HogQLQueryModifiers] = Field(
+        default=None, description="Modifiers used when performing the query"
+    )
+    offset: Optional[int] = None
+    query: Optional[str] = Field(default=None, description="Input query string")
+    results: Optional[List] = Field(default=None, description="Query results")
+    timings: Optional[List[QueryTiming]] = Field(
+        default=None, description="Measured timings for different parts of the query generation process"
+    )
+    types: Optional[List] = Field(default=None, description="Types of returned columns")
 
 
 class LifecycleFilter(BaseModel):
-    class Config:
-        extra = Extra.forbid
-
-    show_values_on_series: Optional[bool] = None
-    shown_as: Optional[ShownAsValue] = None
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    showValuesOnSeries: Optional[bool] = None
     toggledLifecycles: Optional[List[LifecycleToggle]] = None
 
 
-class PersonPropertyFilter(BaseModel):
-    class Config:
-        extra = Extra.forbid
+class LifecycleFilterLegacy(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    show_values_on_series: Optional[bool] = None
+    toggledLifecycles: Optional[List[LifecycleToggle]] = None
 
+
+class LifecycleQueryResponse(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    hogql: Optional[str] = None
+    is_cached: Optional[bool] = None
+    last_refresh: Optional[str] = None
+    next_allowed_client_refresh: Optional[str] = None
+    results: List[Dict[str, Any]]
+    timings: Optional[List[QueryTiming]] = None
+
+
+class Node(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    kind: NodeKind
+
+
+class PathsQueryResponse(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    hogql: Optional[str] = None
+    is_cached: Optional[bool] = None
+    last_refresh: Optional[str] = None
+    next_allowed_client_refresh: Optional[str] = None
+    results: List[Dict[str, Any]]
+    timings: Optional[List[QueryTiming]] = None
+
+
+class PersonPropertyFilter(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
     key: str
     label: Optional[str] = None
     operator: PropertyOperator
-    type: str = Field("person", const=True, description="Person properties")
+    type: Literal["person"] = Field(default="person", description="Person properties")
     value: Optional[Union[str, float, List[Union[str, float]]]] = None
 
 
-class RetentionFilter(BaseModel):
-    class Config:
-        extra = Extra.forbid
+class QueryResponse(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    hogql: Optional[str] = None
+    is_cached: Optional[bool] = None
+    last_refresh: Optional[str] = None
+    next_allowed_client_refresh: Optional[str] = None
+    results: List
+    timings: Optional[List[QueryTiming]] = None
 
+
+class QueryResponseAlternative3(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    columns: List
+    hasMore: Optional[bool] = None
+    hogql: str
+    limit: Optional[int] = None
+    offset: Optional[int] = None
+    results: List[List]
+    timings: Optional[List[QueryTiming]] = None
+    types: List[str]
+
+
+class QueryResponseAlternative4(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    columns: List
+    hasMore: Optional[bool] = None
+    hogql: str
+    limit: int
+    missing_actors_count: Optional[int] = None
+    offset: int
+    results: List[List]
+    timings: Optional[List[QueryTiming]] = None
+    types: List[str]
+
+
+class QueryResponseAlternative6(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    hasMore: Optional[bool] = None
+    hogql: Optional[str] = None
+    results: List[TimelineEntry]
+    timings: Optional[List[QueryTiming]] = None
+
+
+class QueryResponseAlternative7(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    clickhouse: Optional[str] = Field(default=None, description="Executed ClickHouse query")
+    columns: Optional[List] = Field(default=None, description="Returned columns")
+    error: Optional[str] = Field(
+        default=None, description="Query error. Returned only if 'explain' is true. Throws an error otherwise."
+    )
+    explain: Optional[List[str]] = Field(default=None, description="Query explanation output")
+    hasMore: Optional[bool] = None
+    hogql: Optional[str] = Field(default=None, description="Generated HogQL query")
+    limit: Optional[int] = None
+    metadata: Optional[HogQLMetadataResponse] = Field(default=None, description="Query metadata output")
+    modifiers: Optional[HogQLQueryModifiers] = Field(
+        default=None, description="Modifiers used when performing the query"
+    )
+    offset: Optional[int] = None
+    query: Optional[str] = Field(default=None, description="Input query string")
+    results: Optional[List] = Field(default=None, description="Query results")
+    timings: Optional[List[QueryTiming]] = Field(
+        default=None, description="Measured timings for different parts of the query generation process"
+    )
+    types: Optional[List] = Field(default=None, description="Types of returned columns")
+
+
+class QueryResponseAlternative10(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    hogql: Optional[str] = None
+    is_cached: Optional[bool] = None
+    last_refresh: Optional[str] = None
+    next_allowed_client_refresh: Optional[str] = None
+    results: List[WebOverviewItem]
+    samplingRate: Optional[SamplingRate] = None
+    timings: Optional[List[QueryTiming]] = None
+
+
+class QueryResponseAlternative11(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    columns: Optional[List] = None
+    hasMore: Optional[bool] = None
+    hogql: Optional[str] = None
+    is_cached: Optional[bool] = None
+    last_refresh: Optional[str] = None
+    limit: Optional[int] = None
+    next_allowed_client_refresh: Optional[str] = None
+    offset: Optional[int] = None
+    results: List
+    samplingRate: Optional[SamplingRate] = None
+    timings: Optional[List[QueryTiming]] = None
+    types: Optional[List] = None
+
+
+class QueryResponseAlternative12(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    columns: Optional[List] = None
+    hogql: Optional[str] = None
+    is_cached: Optional[bool] = None
+    last_refresh: Optional[str] = None
+    next_allowed_client_refresh: Optional[str] = None
+    results: List
+    samplingRate: Optional[SamplingRate] = None
+    timings: Optional[List[QueryTiming]] = None
+    types: Optional[List] = None
+
+
+class QueryResponseAlternative13(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    hogql: Optional[str] = None
+    is_cached: Optional[bool] = None
+    last_refresh: Optional[str] = None
+    next_allowed_client_refresh: Optional[str] = None
+    results: List[Dict[str, Any]]
+    timings: Optional[List[QueryTiming]] = None
+
+
+class RetentionFilter(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    period: Optional[RetentionPeriod] = None
+    retentionReference: Optional[RetentionReference] = None
+    retentionType: Optional[RetentionType] = None
+    returningEntity: Optional[RetentionEntity] = None
+    targetEntity: Optional[RetentionEntity] = None
+    totalIntervals: Optional[int] = None
+
+
+class RetentionFilterLegacy(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
     period: Optional[RetentionPeriod] = None
     retention_reference: Optional[RetentionReference] = None
     retention_type: Optional[RetentionType] = None
-    returning_entity: Optional[Dict[str, Any]] = None
-    target_entity: Optional[Dict[str, Any]] = None
-    total_intervals: Optional[float] = None
+    returning_entity: Optional[RetentionEntity] = None
+    target_entity: Optional[RetentionEntity] = None
+    total_intervals: Optional[int] = None
+
+
+class RetentionResult(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    date: AwareDatetime
+    label: str
+    values: List[RetentionValue]
+
+
+class SavedInsightNode(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    allowSorting: Optional[bool] = Field(
+        default=None, description="Can the user click on column headers to sort the table? (default: true)"
+    )
+    embedded: Optional[bool] = Field(default=None, description="Query is embedded inside another bordered component")
+    expandable: Optional[bool] = Field(
+        default=None, description="Can expand row to show raw event data (default: true)"
+    )
+    full: Optional[bool] = Field(
+        default=None, description="Show with most visual options enabled. Used in insight scene."
+    )
+    hidePersonsModal: Optional[bool] = None
+    kind: Literal["SavedInsightNode"] = "SavedInsightNode"
+    propertiesViaUrl: Optional[bool] = Field(default=None, description="Link properties via the URL (default: false)")
+    shortId: str
+    showActions: Optional[bool] = Field(default=None, description="Show the kebab menu at the end of the row")
+    showColumnConfigurator: Optional[bool] = Field(
+        default=None, description="Show a button to configure the table's columns if possible"
+    )
+    showCorrelationTable: Optional[bool] = None
+    showDateRange: Optional[bool] = Field(default=None, description="Show date range selector")
+    showElapsedTime: Optional[bool] = Field(default=None, description="Show the time it takes to run a query")
+    showEventFilter: Optional[bool] = Field(
+        default=None, description="Include an event filter above the table (EventsNode only)"
+    )
+    showExport: Optional[bool] = Field(default=None, description="Show the export button")
+    showFilters: Optional[bool] = None
+    showHeader: Optional[bool] = None
+    showHogQLEditor: Optional[bool] = Field(default=None, description="Include a HogQL query editor above HogQL tables")
+    showLastComputation: Optional[bool] = None
+    showLastComputationRefresh: Optional[bool] = None
+    showOpenEditorButton: Optional[bool] = Field(
+        default=None, description="Show a button to open the current query as a new insight. (default: true)"
+    )
+    showPersistentColumnConfigurator: Optional[bool] = Field(
+        default=None, description="Show a button to configure and persist the table's default columns if possible"
+    )
+    showPropertyFilter: Optional[bool] = Field(default=None, description="Include a property filter above the table")
+    showReload: Optional[bool] = Field(default=None, description="Show a reload button")
+    showResults: Optional[bool] = None
+    showResultsTable: Optional[bool] = Field(default=None, description="Show a results table")
+    showSavedQueries: Optional[bool] = Field(default=None, description="Shows a list of saved queries")
+    showSearch: Optional[bool] = Field(default=None, description="Include a free text search field (PersonsNode only)")
+    showTable: Optional[bool] = None
+    showTimings: Optional[bool] = Field(default=None, description="Show a detailed query timing breakdown")
+    suppressSessionAnalysisWarning: Optional[bool] = None
+    vizSpecificOptions: Optional[VizSpecificOptions] = None
+
+
+class SessionsTimelineQueryResponse(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    hasMore: Optional[bool] = None
+    hogql: Optional[str] = None
+    results: List[TimelineEntry]
+    timings: Optional[List[QueryTiming]] = None
+
+
+class TimeToSeeDataJSONNode(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    kind: Literal["TimeToSeeDataSessionsJSONNode"] = "TimeToSeeDataSessionsJSONNode"
+    source: TimeToSeeDataQuery
+
+
+class TimeToSeeDataNode(RootModel[Union[TimeToSeeDataJSONNode, TimeToSeeDataWaterfallNode]]):
+    root: Union[TimeToSeeDataJSONNode, TimeToSeeDataWaterfallNode]
 
 
 class TimeToSeeDataSessionsQuery(BaseModel):
-    class Config:
-        extra = Extra.forbid
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    dateRange: Optional[DateRange] = Field(default=None, description="Date range for the query")
+    kind: Literal["TimeToSeeDataSessionsQuery"] = "TimeToSeeDataSessionsQuery"
+    response: Optional[TimeToSeeDataSessionsQueryResponse] = Field(default=None, description="Cached query response")
+    teamId: Optional[int] = Field(default=None, description="Project to filter on. Defaults to current project")
 
-    dateRange: Optional[DateRange] = Field(None, description="Date range for the query")
-    kind: str = Field("TimeToSeeDataSessionsQuery", const=True)
-    response: Optional[TimeToSeeDataSessionsQueryResponse] = Field(None, description="Cached query response")
-    teamId: Optional[float] = Field(None, description="Project to filter on. Defaults to current project")
+
+class WebAnalyticsQueryBase(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    dateRange: Optional[DateRange] = None
+    properties: List[Union[EventPropertyFilter, PersonPropertyFilter]]
+    sampling: Optional[Sampling] = None
+
+
+class WebOverviewQuery(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    dateRange: Optional[DateRange] = None
+    kind: Literal["WebOverviewQuery"] = "WebOverviewQuery"
+    properties: List[Union[EventPropertyFilter, PersonPropertyFilter]]
+    response: Optional[WebOverviewQueryResponse] = None
+    sampling: Optional[Sampling] = None
+
+
+class WebStatsTableQuery(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    breakdownBy: WebStatsBreakdown
+    dateRange: Optional[DateRange] = None
+    doPathCleaning: Optional[bool] = None
+    includeBounceRate: Optional[bool] = None
+    includeScrollDepth: Optional[bool] = None
+    kind: Literal["WebStatsTableQuery"] = "WebStatsTableQuery"
+    limit: Optional[int] = None
+    properties: List[Union[EventPropertyFilter, PersonPropertyFilter]]
+    response: Optional[WebStatsTableQueryResponse] = None
+    sampling: Optional[Sampling] = None
+
+
+class WebTopClicksQuery(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    dateRange: Optional[DateRange] = None
+    kind: Literal["WebTopClicksQuery"] = "WebTopClicksQuery"
+    properties: List[Union[EventPropertyFilter, PersonPropertyFilter]]
+    response: Optional[WebTopClicksQueryResponse] = None
+    sampling: Optional[Sampling] = None
+
+
+class AnyResponseType(
+    RootModel[
+        Union[
+            Dict[str, Any],
+            HogQLQueryResponse,
+            HogQLMetadataResponse,
+            HogQLAutocompleteResponse,
+            Union[AnyResponseType1, Any],
+            EventsQueryResponse,
+        ]
+    ]
+):
+    root: Union[
+        Dict[str, Any],
+        HogQLQueryResponse,
+        HogQLMetadataResponse,
+        HogQLAutocompleteResponse,
+        Union[AnyResponseType1, Any],
+        EventsQueryResponse,
+    ]
+
+
+class DashboardFilter(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    date_from: Optional[str] = None
+    date_to: Optional[str] = None
+    properties: Optional[
+        List[
+            Union[
+                EventPropertyFilter,
+                PersonPropertyFilter,
+                ElementPropertyFilter,
+                SessionPropertyFilter,
+                CohortPropertyFilter,
+                RecordingDurationFilter,
+                GroupPropertyFilter,
+                FeaturePropertyFilter,
+                HogQLPropertyFilter,
+                EmptyPropertyFilter,
+            ]
+        ]
+    ] = None
 
 
 class DatabaseSchemaQuery(BaseModel):
-    class Config:
-        extra = Extra.forbid
-
-    kind: str = Field("DatabaseSchemaQuery", const=True)
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    kind: Literal["DatabaseSchemaQuery"] = "DatabaseSchemaQuery"
     response: Optional[Dict[str, List[DatabaseSchemaQueryResponseField]]] = Field(
-        None, description="Cached query response"
+        default=None, description="Cached query response"
     )
 
 
-class EventsNode(BaseModel):
-    class Config:
-        extra = Extra.forbid
-
+class EntityNode(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
     custom_name: Optional[str] = None
-    event: Optional[str] = Field(None, description="The event or `null` for all events.")
     fixedProperties: Optional[
         List[
             Union[
@@ -648,17 +1645,17 @@ class EventsNode(BaseModel):
             ]
         ]
     ] = Field(
-        None,
+        default=None,
         description="Fixed properties in the query, can't be edited in the interface (e.g. scoping down by person)",
     )
-    kind: str = Field("EventsNode", const=True)
-    limit: Optional[float] = None
-    math: Optional[Union[BaseMathType, PropertyMathType, CountPerActorMathType, str, str]] = None
-    math_group_type_index: Optional[MathGroupTypeIndex1] = None
+    kind: NodeKind
+    math: Optional[
+        Union[BaseMathType, PropertyMathType, CountPerActorMathType, Literal["unique_group"], Literal["hogql"]]
+    ] = None
+    math_group_type_index: Optional[MathGroupTypeIndex] = None
     math_hogql: Optional[str] = None
     math_property: Optional[str] = None
     name: Optional[str] = None
-    orderBy: Optional[List[str]] = Field(None, description="Columns to order by")
     properties: Optional[
         List[
             Union[
@@ -674,18 +1671,16 @@ class EventsNode(BaseModel):
                 EmptyPropertyFilter,
             ]
         ]
-    ] = Field(None, description="Properties configurable in the interface")
-    response: Optional[Response] = Field(None, description="Return a limited set of data")
+    ] = Field(default=None, description="Properties configurable in the interface")
+    response: Optional[Dict[str, Any]] = Field(default=None, description="Cached query response")
 
 
-class EventsQuery(BaseModel):
-    class Config:
-        extra = Extra.forbid
-
-    actionId: Optional[int] = Field(None, description="Show events matching a given action")
-    after: Optional[str] = Field(None, description="Only fetch events that happened after this timestamp")
-    before: Optional[str] = Field(None, description="Only fetch events that happened before this timestamp")
-    event: Optional[str] = Field(None, description="Limit to events matching this string")
+class EventsNode(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    custom_name: Optional[str] = None
+    event: Optional[str] = Field(default=None, description="The event or `null` for all events.")
     fixedProperties: Optional[
         List[
             Union[
@@ -702,14 +1697,19 @@ class EventsQuery(BaseModel):
             ]
         ]
     ] = Field(
-        None,
+        default=None,
         description="Fixed properties in the query, can't be edited in the interface (e.g. scoping down by person)",
     )
-    kind: str = Field("EventsQuery", const=True)
-    limit: Optional[int] = Field(None, description="Number of rows to return")
-    offset: Optional[int] = Field(None, description="Number of rows to skip before returning rows")
-    orderBy: Optional[List[str]] = Field(None, description="Columns to order by")
-    personId: Optional[str] = Field(None, description="Show events for a given person")
+    kind: Literal["EventsNode"] = "EventsNode"
+    limit: Optional[int] = None
+    math: Optional[
+        Union[BaseMathType, PropertyMathType, CountPerActorMathType, Literal["unique_group"], Literal["hogql"]]
+    ] = None
+    math_group_type_index: Optional[MathGroupTypeIndex] = None
+    math_hogql: Optional[str] = None
+    math_property: Optional[str] = None
+    name: Optional[str] = None
+    orderBy: Optional[List[str]] = Field(default=None, description="Columns to order by")
     properties: Optional[
         List[
             Union[
@@ -725,27 +1725,216 @@ class EventsQuery(BaseModel):
                 EmptyPropertyFilter,
             ]
         ]
-    ] = Field(None, description="Properties configurable in the interface")
-    response: Optional[EventsQueryResponse] = Field(None, description="Cached query response")
+    ] = Field(default=None, description="Properties configurable in the interface")
+    response: Optional[Response] = Field(default=None, description="Return a limited set of data")
+
+
+class EventsQuery(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    actionId: Optional[int] = Field(default=None, description="Show events matching a given action")
+    after: Optional[str] = Field(default=None, description="Only fetch events that happened after this timestamp")
+    before: Optional[str] = Field(default=None, description="Only fetch events that happened before this timestamp")
+    event: Optional[str] = Field(default=None, description="Limit to events matching this string")
+    fixedProperties: Optional[
+        List[
+            Union[
+                EventPropertyFilter,
+                PersonPropertyFilter,
+                ElementPropertyFilter,
+                SessionPropertyFilter,
+                CohortPropertyFilter,
+                RecordingDurationFilter,
+                GroupPropertyFilter,
+                FeaturePropertyFilter,
+                HogQLPropertyFilter,
+                EmptyPropertyFilter,
+            ]
+        ]
+    ] = Field(
+        default=None,
+        description="Fixed properties in the query, can't be edited in the interface (e.g. scoping down by person)",
+    )
+    kind: Literal["EventsQuery"] = "EventsQuery"
+    limit: Optional[int] = Field(default=None, description="Number of rows to return")
+    offset: Optional[int] = Field(default=None, description="Number of rows to skip before returning rows")
+    orderBy: Optional[List[str]] = Field(default=None, description="Columns to order by")
+    personId: Optional[str] = Field(default=None, description="Show events for a given person")
+    properties: Optional[
+        List[
+            Union[
+                EventPropertyFilter,
+                PersonPropertyFilter,
+                ElementPropertyFilter,
+                SessionPropertyFilter,
+                CohortPropertyFilter,
+                RecordingDurationFilter,
+                GroupPropertyFilter,
+                FeaturePropertyFilter,
+                HogQLPropertyFilter,
+                EmptyPropertyFilter,
+            ]
+        ]
+    ] = Field(default=None, description="Properties configurable in the interface")
+    response: Optional[EventsQueryResponse] = Field(default=None, description="Cached query response")
     select: List[str] = Field(..., description="Return a limited set of data. Required.")
-    where: Optional[List[str]] = Field(None, description="HogQL filters to apply on returned data")
+    where: Optional[List[str]] = Field(default=None, description="HogQL filters to apply on returned data")
 
 
-class HogQLMetadata(BaseModel):
-    class Config:
-        extra = Extra.forbid
+class FunnelExclusionActionsNode(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    custom_name: Optional[str] = None
+    fixedProperties: Optional[
+        List[
+            Union[
+                EventPropertyFilter,
+                PersonPropertyFilter,
+                ElementPropertyFilter,
+                SessionPropertyFilter,
+                CohortPropertyFilter,
+                RecordingDurationFilter,
+                GroupPropertyFilter,
+                FeaturePropertyFilter,
+                HogQLPropertyFilter,
+                EmptyPropertyFilter,
+            ]
+        ]
+    ] = Field(
+        default=None,
+        description="Fixed properties in the query, can't be edited in the interface (e.g. scoping down by person)",
+    )
+    funnelFromStep: int
+    funnelToStep: int
+    id: int
+    kind: Literal["ActionsNode"] = "ActionsNode"
+    math: Optional[
+        Union[BaseMathType, PropertyMathType, CountPerActorMathType, Literal["unique_group"], Literal["hogql"]]
+    ] = None
+    math_group_type_index: Optional[MathGroupTypeIndex] = None
+    math_hogql: Optional[str] = None
+    math_property: Optional[str] = None
+    name: Optional[str] = None
+    properties: Optional[
+        List[
+            Union[
+                EventPropertyFilter,
+                PersonPropertyFilter,
+                ElementPropertyFilter,
+                SessionPropertyFilter,
+                CohortPropertyFilter,
+                RecordingDurationFilter,
+                GroupPropertyFilter,
+                FeaturePropertyFilter,
+                HogQLPropertyFilter,
+                EmptyPropertyFilter,
+            ]
+        ]
+    ] = Field(default=None, description="Properties configurable in the interface")
+    response: Optional[Dict[str, Any]] = Field(default=None, description="Cached query response")
 
-    expr: Optional[str] = None
-    kind: str = Field("HogQLMetadata", const=True)
-    response: Optional[HogQLMetadataResponse] = Field(None, description="Cached query response")
-    select: Optional[str] = None
+
+class FunnelExclusionEventsNode(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    custom_name: Optional[str] = None
+    event: Optional[str] = Field(default=None, description="The event or `null` for all events.")
+    fixedProperties: Optional[
+        List[
+            Union[
+                EventPropertyFilter,
+                PersonPropertyFilter,
+                ElementPropertyFilter,
+                SessionPropertyFilter,
+                CohortPropertyFilter,
+                RecordingDurationFilter,
+                GroupPropertyFilter,
+                FeaturePropertyFilter,
+                HogQLPropertyFilter,
+                EmptyPropertyFilter,
+            ]
+        ]
+    ] = Field(
+        default=None,
+        description="Fixed properties in the query, can't be edited in the interface (e.g. scoping down by person)",
+    )
+    funnelFromStep: int
+    funnelToStep: int
+    kind: Literal["EventsNode"] = "EventsNode"
+    limit: Optional[int] = None
+    math: Optional[
+        Union[BaseMathType, PropertyMathType, CountPerActorMathType, Literal["unique_group"], Literal["hogql"]]
+    ] = None
+    math_group_type_index: Optional[MathGroupTypeIndex] = None
+    math_hogql: Optional[str] = None
+    math_property: Optional[str] = None
+    name: Optional[str] = None
+    orderBy: Optional[List[str]] = Field(default=None, description="Columns to order by")
+    properties: Optional[
+        List[
+            Union[
+                EventPropertyFilter,
+                PersonPropertyFilter,
+                ElementPropertyFilter,
+                SessionPropertyFilter,
+                CohortPropertyFilter,
+                RecordingDurationFilter,
+                GroupPropertyFilter,
+                FeaturePropertyFilter,
+                HogQLPropertyFilter,
+                EmptyPropertyFilter,
+            ]
+        ]
+    ] = Field(default=None, description="Properties configurable in the interface")
+    response: Optional[Response] = Field(default=None, description="Return a limited set of data")
+
+
+class HogQLFilters(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    dateRange: Optional[DateRange] = None
+    properties: Optional[
+        List[
+            Union[
+                EventPropertyFilter,
+                PersonPropertyFilter,
+                ElementPropertyFilter,
+                SessionPropertyFilter,
+                CohortPropertyFilter,
+                RecordingDurationFilter,
+                GroupPropertyFilter,
+                FeaturePropertyFilter,
+                HogQLPropertyFilter,
+                EmptyPropertyFilter,
+            ]
+        ]
+    ] = None
+
+
+class HogQLQuery(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    explain: Optional[bool] = None
+    filters: Optional[HogQLFilters] = None
+    kind: Literal["HogQLQuery"] = "HogQLQuery"
+    modifiers: Optional[HogQLQueryModifiers] = None
+    query: str
+    response: Optional[HogQLQueryResponse] = Field(default=None, description="Cached query response")
+    values: Optional[Dict[str, Any]] = Field(
+        default=None, description="Constant values that can be referenced with the {placeholder} syntax in the query"
+    )
 
 
 class PersonsNode(BaseModel):
-    class Config:
-        extra = Extra.forbid
-
-    cohort: Optional[float] = None
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    cohort: Optional[int] = None
     distinctId: Optional[str] = None
     fixedProperties: Optional[
         List[
@@ -763,12 +1952,12 @@ class PersonsNode(BaseModel):
             ]
         ]
     ] = Field(
-        None,
+        default=None,
         description="Fixed properties in the query, can't be edited in the interface (e.g. scoping down by person)",
     )
-    kind: str = Field("PersonsNode", const=True)
-    limit: Optional[float] = None
-    offset: Optional[float] = None
+    kind: Literal["PersonsNode"] = "PersonsNode"
+    limit: Optional[int] = None
+    offset: Optional[int] = None
     properties: Optional[
         List[
             Union[
@@ -784,15 +1973,15 @@ class PersonsNode(BaseModel):
                 EmptyPropertyFilter,
             ]
         ]
-    ] = Field(None, description="Properties configurable in the interface")
-    response: Optional[Dict[str, Any]] = Field(None, description="Cached query response")
+    ] = Field(default=None, description="Properties configurable in the interface")
+    response: Optional[Dict[str, Any]] = Field(default=None, description="Cached query response")
     search: Optional[str] = None
 
 
 class PropertyGroupFilterValue(BaseModel):
-    class Config:
-        extra = Extra.forbid
-
+    model_config = ConfigDict(
+        extra="forbid",
+    )
     type: FilterLogicalOperator
     values: List[
         Union[
@@ -813,10 +2002,91 @@ class PropertyGroupFilterValue(BaseModel):
     ]
 
 
-class ActionsNode(BaseModel):
-    class Config:
-        extra = Extra.forbid
+class QueryResponseAlternative14(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    hogql: Optional[str] = None
+    is_cached: Optional[bool] = None
+    last_refresh: Optional[str] = None
+    next_allowed_client_refresh: Optional[str] = None
+    results: List[RetentionResult]
+    timings: Optional[List[QueryTiming]] = None
 
+
+class QueryResponseAlternative(
+    RootModel[
+        Union[
+            QueryResponseAlternative1,
+            Dict[str, Any],
+            QueryResponseAlternative2,
+            QueryResponseAlternative3,
+            QueryResponseAlternative4,
+            QueryResponseAlternative5,
+            QueryResponseAlternative6,
+            QueryResponseAlternative7,
+            QueryResponseAlternative8,
+            QueryResponseAlternative9,
+            QueryResponseAlternative10,
+            QueryResponseAlternative11,
+            QueryResponseAlternative12,
+            QueryResponseAlternative13,
+            QueryResponseAlternative14,
+            Dict[str, List[DatabaseSchemaQueryResponseField]],
+        ]
+    ]
+):
+    root: Union[
+        QueryResponseAlternative1,
+        Dict[str, Any],
+        QueryResponseAlternative2,
+        QueryResponseAlternative3,
+        QueryResponseAlternative4,
+        QueryResponseAlternative5,
+        QueryResponseAlternative6,
+        QueryResponseAlternative7,
+        QueryResponseAlternative8,
+        QueryResponseAlternative9,
+        QueryResponseAlternative10,
+        QueryResponseAlternative11,
+        QueryResponseAlternative12,
+        QueryResponseAlternative13,
+        QueryResponseAlternative14,
+        Dict[str, List[DatabaseSchemaQueryResponseField]],
+    ]
+
+
+class RetentionQueryResponse(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    hogql: Optional[str] = None
+    is_cached: Optional[bool] = None
+    last_refresh: Optional[str] = None
+    next_allowed_client_refresh: Optional[str] = None
+    results: List[RetentionResult]
+    timings: Optional[List[QueryTiming]] = None
+
+
+class SessionsTimelineQuery(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    after: Optional[str] = Field(
+        default=None, description="Only fetch sessions that started after this timestamp (default: '-24h')"
+    )
+    before: Optional[str] = Field(
+        default=None, description="Only fetch sessions that started before this timestamp (default: '+5s')"
+    )
+    kind: Literal["SessionsTimelineQuery"] = "SessionsTimelineQuery"
+    personId: Optional[str] = Field(default=None, description="Fetch sessions only for a given person")
+    response: Optional[SessionsTimelineQueryResponse] = Field(default=None, description="Cached query response")
+
+
+class ActionsNode(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
     custom_name: Optional[str] = None
     fixedProperties: Optional[
         List[
@@ -834,12 +2104,14 @@ class ActionsNode(BaseModel):
             ]
         ]
     ] = Field(
-        None,
+        default=None,
         description="Fixed properties in the query, can't be edited in the interface (e.g. scoping down by person)",
     )
-    id: float
-    kind: str = Field("ActionsNode", const=True)
-    math: Optional[Union[BaseMathType, PropertyMathType, CountPerActorMathType, str, str]] = None
+    id: int
+    kind: Literal["ActionsNode"] = "ActionsNode"
+    math: Optional[
+        Union[BaseMathType, PropertyMathType, CountPerActorMathType, Literal["unique_group"], Literal["hogql"]]
+    ] = None
     math_group_type_index: Optional[MathGroupTypeIndex] = None
     math_hogql: Optional[str] = None
     math_property: Optional[str] = None
@@ -859,68 +2131,80 @@ class ActionsNode(BaseModel):
                 EmptyPropertyFilter,
             ]
         ]
-    ] = Field(None, description="Properties configurable in the interface")
-    response: Optional[Dict[str, Any]] = Field(None, description="Cached query response")
+    ] = Field(default=None, description="Properties configurable in the interface")
+    response: Optional[Dict[str, Any]] = Field(default=None, description="Cached query response")
 
 
-class DataTableNode(BaseModel):
-    class Config:
-        extra = Extra.forbid
+class DataVisualizationNode(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    chartSettings: Optional[ChartSettings] = None
+    display: Optional[ChartDisplayType] = None
+    kind: Literal["DataVisualizationNode"] = "DataVisualizationNode"
+    source: HogQLQuery
 
-    allowSorting: Optional[bool] = Field(
-        None, description="Can the user click on column headers to sort the table? (default: true)"
+
+class FunnelsFilter(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
     )
-    columns: Optional[List[str]] = Field(
-        None, description="Columns shown in the table, unless the `source` provides them."
+    binCount: Optional[Union[float, str]] = None
+    breakdownAttributionType: Optional[BreakdownAttributionType] = None
+    breakdownAttributionValue: Optional[int] = None
+    exclusions: Optional[List[Union[FunnelExclusionEventsNode, FunnelExclusionActionsNode]]] = None
+    funnelAggregateByHogQL: Optional[str] = None
+    funnelFromStep: Optional[int] = None
+    funnelOrderType: Optional[StepOrderValue] = None
+    funnelStepReference: Optional[FunnelStepReference] = None
+    funnelToStep: Optional[int] = None
+    funnelVizType: Optional[FunnelVizType] = None
+    funnelWindowInterval: Optional[int] = None
+    funnelWindowIntervalUnit: Optional[FunnelConversionWindowTimeUnit] = None
+    hidden_legend_breakdowns: Optional[List[str]] = None
+    layout: Optional[FunnelLayout] = None
+
+
+class HasPropertiesNode(RootModel[Union[EventsNode, EventsQuery, PersonsNode]]):
+    root: Union[EventsNode, EventsQuery, PersonsNode]
+
+
+class HogQLAutocomplete(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
     )
-    expandable: Optional[bool] = Field(None, description="Can expand row to show raw event data (default: true)")
-    full: Optional[bool] = Field(None, description="Show with most visual options enabled. Used in scenes.")
-    hiddenColumns: Optional[List[str]] = Field(
-        None, description="Columns that aren't shown in the table, even if in columns or returned data"
-    )
-    kind: str = Field("DataTableNode", const=True)
-    propertiesViaUrl: Optional[bool] = Field(None, description="Link properties via the URL (default: false)")
-    showActions: Optional[bool] = Field(None, description="Show the kebab menu at the end of the row")
-    showColumnConfigurator: Optional[bool] = Field(
-        None, description="Show a button to configure the table's columns if possible"
-    )
-    showDateRange: Optional[bool] = Field(None, description="Show date range selector")
-    showElapsedTime: Optional[bool] = Field(None, description="Show the time it takes to run a query")
-    showEventFilter: Optional[bool] = Field(
-        None, description="Include an event filter above the table (EventsNode only)"
-    )
-    showExport: Optional[bool] = Field(None, description="Show the export button")
-    showHogQLEditor: Optional[bool] = Field(None, description="Include a HogQL query editor above HogQL tables")
-    showOpenEditorButton: Optional[bool] = Field(
-        None, description="Show a button to open the current query as a new insight. (default: true)"
-    )
-    showPropertyFilter: Optional[bool] = Field(None, description="Include a property filter above the table")
-    showReload: Optional[bool] = Field(None, description="Show a reload button")
-    showSavedQueries: Optional[bool] = Field(None, description="Shows a list of saved queries")
-    showSearch: Optional[bool] = Field(None, description="Include a free text search field (PersonsNode only)")
-    source: Union[EventsNode, EventsQuery, PersonsNode, HogQLQuery, TimeToSeeDataSessionsQuery] = Field(
-        ..., description="Source of the events"
-    )
+    endPosition: int = Field(..., description="End position of the editor word")
+    filters: Optional[HogQLFilters] = Field(default=None, description="Table to validate the expression against")
+    kind: Literal["HogQLAutocomplete"] = "HogQLAutocomplete"
+    response: Optional[HogQLAutocompleteResponse] = Field(default=None, description="Cached query response")
+    select: str = Field(..., description="Full select query to validate")
+    startPosition: int = Field(..., description="Start position of the editor word")
+
+
+class InsightFilter(
+    RootModel[Union[TrendsFilter, FunnelsFilter, RetentionFilter, PathsFilter, StickinessFilter, LifecycleFilter]]
+):
+    root: Union[TrendsFilter, FunnelsFilter, RetentionFilter, PathsFilter, StickinessFilter, LifecycleFilter]
 
 
 class PropertyGroupFilter(BaseModel):
-    class Config:
-        extra = Extra.forbid
-
+    model_config = ConfigDict(
+        extra="forbid",
+    )
     type: FilterLogicalOperator
     values: List[PropertyGroupFilterValue]
 
 
 class RetentionQuery(BaseModel):
-    class Config:
-        extra = Extra.forbid
-
-    aggregation_group_type_index: Optional[float] = Field(None, description="Groups aggregation")
-    dateRange: Optional[DateRange] = Field(None, description="Date range for the query")
-    filterTestAccounts: Optional[bool] = Field(
-        None, description="Exclude internal and test users by applying the respective filters"
+    model_config = ConfigDict(
+        extra="forbid",
     )
-    kind: str = Field("RetentionQuery", const=True)
+    aggregation_group_type_index: Optional[int] = Field(default=None, description="Groups aggregation")
+    dateRange: Optional[DateRange] = Field(default=None, description="Date range for the query")
+    filterTestAccounts: Optional[bool] = Field(
+        default=None, description="Exclude internal and test users by applying the respective filters"
+    )
+    kind: Literal["RetentionQuery"] = "RetentionQuery"
     properties: Optional[
         Union[
             List[
@@ -939,24 +2223,24 @@ class RetentionQuery(BaseModel):
             ],
             PropertyGroupFilter,
         ]
-    ] = Field(None, description="Property filters for all series")
-    retentionFilter: Optional[RetentionFilter] = Field(None, description="Properties specific to the retention insight")
-    samplingFactor: Optional[float] = Field(None, description="Sampling rate")
+    ] = Field(default=None, description="Property filters for all series")
+    response: Optional[RetentionQueryResponse] = None
+    retentionFilter: RetentionFilter = Field(..., description="Properties specific to the retention insight")
+    samplingFactor: Optional[float] = Field(default=None, description="Sampling rate")
 
 
 class StickinessQuery(BaseModel):
-    class Config:
-        extra = Extra.forbid
-
-    aggregation_group_type_index: Optional[float] = Field(None, description="Groups aggregation")
-    dateRange: Optional[DateRange] = Field(None, description="Date range for the query")
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    dateRange: Optional[DateRange] = Field(default=None, description="Date range for the query")
     filterTestAccounts: Optional[bool] = Field(
-        None, description="Exclude internal and test users by applying the respective filters"
+        default=None, description="Exclude internal and test users by applying the respective filters"
     )
     interval: Optional[IntervalType] = Field(
-        None, description="Granularity of the response. Can be one of `hour`, `day`, `week` or `month`"
+        default=None, description="Granularity of the response. Can be one of `hour`, `day`, `week` or `month`"
     )
-    kind: str = Field("StickinessQuery", const=True)
+    kind: Literal["StickinessQuery"] = "StickinessQuery"
     properties: Optional[
         Union[
             List[
@@ -975,28 +2259,28 @@ class StickinessQuery(BaseModel):
             ],
             PropertyGroupFilter,
         ]
-    ] = Field(None, description="Property filters for all series")
-    samplingFactor: Optional[float] = Field(None, description="Sampling rate")
+    ] = Field(default=None, description="Property filters for all series")
+    samplingFactor: Optional[float] = Field(default=None, description="Sampling rate")
     series: List[Union[EventsNode, ActionsNode]] = Field(..., description="Events and actions to include")
     stickinessFilter: Optional[StickinessFilter] = Field(
-        None, description="Properties specific to the stickiness insight"
+        default=None, description="Properties specific to the stickiness insight"
     )
 
 
 class TrendsQuery(BaseModel):
-    class Config:
-        extra = Extra.forbid
-
-    aggregation_group_type_index: Optional[float] = Field(None, description="Groups aggregation")
-    breakdown: Optional[BreakdownFilter] = Field(None, description="Breakdown of the events and actions")
-    dateRange: Optional[DateRange] = Field(None, description="Date range for the query")
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    aggregation_group_type_index: Optional[int] = Field(default=None, description="Groups aggregation")
+    breakdownFilter: Optional[BreakdownFilter] = Field(default=None, description="Breakdown of the events and actions")
+    dateRange: Optional[DateRange] = Field(default=None, description="Date range for the query")
     filterTestAccounts: Optional[bool] = Field(
-        None, description="Exclude internal and test users by applying the respective filters"
+        default=None, description="Exclude internal and test users by applying the respective filters"
     )
     interval: Optional[IntervalType] = Field(
-        None, description="Granularity of the response. Can be one of `hour`, `day`, `week` or `month`"
+        default=None, description="Granularity of the response. Can be one of `hour`, `day`, `week` or `month`"
     )
-    kind: str = Field("TrendsQuery", const=True)
+    kind: Literal["TrendsQuery"] = "TrendsQuery"
     properties: Optional[
         Union[
             List[
@@ -1015,27 +2299,79 @@ class TrendsQuery(BaseModel):
             ],
             PropertyGroupFilter,
         ]
-    ] = Field(None, description="Property filters for all series")
-    samplingFactor: Optional[float] = Field(None, description="Sampling rate")
+    ] = Field(default=None, description="Property filters for all series")
+    response: Optional[TrendsQueryResponse] = None
+    samplingFactor: Optional[float] = Field(default=None, description="Sampling rate")
     series: List[Union[EventsNode, ActionsNode]] = Field(..., description="Events and actions to include")
-    trendsFilter: Optional[TrendsFilter] = Field(None, description="Properties specific to the trends insight")
+    trendsFilter: Optional[TrendsFilter] = Field(default=None, description="Properties specific to the trends insight")
+
+
+class FilterType(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    actions: Optional[List[Dict[str, Any]]] = None
+    aggregation_group_type_index: Optional[float] = None
+    breakdown: Optional[Union[str, float, List[Union[str, float]]]] = None
+    breakdown_group_type_index: Optional[float] = None
+    breakdown_hide_other_aggregation: Optional[bool] = None
+    breakdown_normalize_url: Optional[bool] = None
+    breakdown_type: Optional[BreakdownType] = None
+    breakdowns: Optional[List[Breakdown]] = None
+    date_from: Optional[str] = None
+    date_to: Optional[str] = None
+    entity_id: Optional[Union[str, float]] = None
+    entity_math: Optional[str] = None
+    entity_type: Optional[EntityType] = None
+    events: Optional[List[Dict[str, Any]]] = None
+    explicit_date: Optional[Union[bool, str]] = Field(
+        default=None,
+        description='Whether the `date_from` and `date_to` should be used verbatim. Disables rounding to the start and end of period. Strings are cast to bools, e.g. "true" -> true.',
+    )
+    filter_test_accounts: Optional[bool] = None
+    from_dashboard: Optional[Union[bool, float]] = None
+    insight: Optional[InsightType] = None
+    interval: Optional[IntervalType] = None
+    new_entity: Optional[List[Dict[str, Any]]] = None
+    properties: Optional[
+        Union[
+            List[
+                Union[
+                    EventPropertyFilter,
+                    PersonPropertyFilter,
+                    ElementPropertyFilter,
+                    SessionPropertyFilter,
+                    CohortPropertyFilter,
+                    RecordingDurationFilter,
+                    GroupPropertyFilter,
+                    FeaturePropertyFilter,
+                    HogQLPropertyFilter,
+                    EmptyPropertyFilter,
+                ]
+            ],
+            PropertyGroupFilter,
+        ]
+    ] = None
+    sampling_factor: Optional[float] = None
 
 
 class FunnelsQuery(BaseModel):
-    class Config:
-        extra = Extra.forbid
-
-    aggregation_group_type_index: Optional[float] = Field(None, description="Groups aggregation")
-    breakdown: Optional[BreakdownFilter] = Field(None, description="Breakdown of the events and actions")
-    dateRange: Optional[DateRange] = Field(None, description="Date range for the query")
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    aggregation_group_type_index: Optional[int] = Field(default=None, description="Groups aggregation")
+    breakdownFilter: Optional[BreakdownFilter] = Field(default=None, description="Breakdown of the events and actions")
+    dateRange: Optional[DateRange] = Field(default=None, description="Date range for the query")
     filterTestAccounts: Optional[bool] = Field(
-        None, description="Exclude internal and test users by applying the respective filters"
+        default=None, description="Exclude internal and test users by applying the respective filters"
     )
-    funnelsFilter: Optional[FunnelsFilter] = Field(None, description="Properties specific to the funnels insight")
+    funnelsFilter: Optional[FunnelsFilter] = Field(
+        default=None, description="Properties specific to the funnels insight"
+    )
     interval: Optional[IntervalType] = Field(
-        None, description="Granularity of the response. Can be one of `hour`, `day`, `week` or `month`"
+        default=None, description="Granularity of the response. Can be one of `hour`, `day`, `week` or `month`"
     )
-    kind: str = Field("FunnelsQuery", const=True)
+    kind: Literal["FunnelsQuery"] = "FunnelsQuery"
     properties: Optional[
         Union[
             List[
@@ -1054,25 +2390,58 @@ class FunnelsQuery(BaseModel):
             ],
             PropertyGroupFilter,
         ]
-    ] = Field(None, description="Property filters for all series")
-    samplingFactor: Optional[float] = Field(None, description="Sampling rate")
+    ] = Field(default=None, description="Property filters for all series")
+    samplingFactor: Optional[float] = Field(default=None, description="Sampling rate")
     series: List[Union[EventsNode, ActionsNode]] = Field(..., description="Events and actions to include")
+
+
+class InsightsQueryBase(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    aggregation_group_type_index: Optional[int] = Field(default=None, description="Groups aggregation")
+    dateRange: Optional[DateRange] = Field(default=None, description="Date range for the query")
+    filterTestAccounts: Optional[bool] = Field(
+        default=None, description="Exclude internal and test users by applying the respective filters"
+    )
+    kind: NodeKind
+    properties: Optional[
+        Union[
+            List[
+                Union[
+                    EventPropertyFilter,
+                    PersonPropertyFilter,
+                    ElementPropertyFilter,
+                    SessionPropertyFilter,
+                    CohortPropertyFilter,
+                    RecordingDurationFilter,
+                    GroupPropertyFilter,
+                    FeaturePropertyFilter,
+                    HogQLPropertyFilter,
+                    EmptyPropertyFilter,
+                ]
+            ],
+            PropertyGroupFilter,
+        ]
+    ] = Field(default=None, description="Property filters for all series")
+    samplingFactor: Optional[float] = Field(default=None, description="Sampling rate")
 
 
 class LifecycleQuery(BaseModel):
-    class Config:
-        extra = Extra.forbid
-
-    aggregation_group_type_index: Optional[float] = Field(None, description="Groups aggregation")
-    dateRange: Optional[DateRange] = Field(None, description="Date range for the query")
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    dateRange: Optional[DateRange] = Field(default=None, description="Date range for the query")
     filterTestAccounts: Optional[bool] = Field(
-        None, description="Exclude internal and test users by applying the respective filters"
+        default=None, description="Exclude internal and test users by applying the respective filters"
     )
     interval: Optional[IntervalType] = Field(
-        None, description="Granularity of the response. Can be one of `hour`, `day`, `week` or `month`"
+        default=None, description="Granularity of the response. Can be one of `hour`, `day`, `week` or `month`"
     )
-    kind: str = Field("LifecycleQuery", const=True)
-    lifecycleFilter: Optional[LifecycleFilter] = Field(None, description="Properties specific to the lifecycle insight")
+    kind: Literal["LifecycleQuery"] = "LifecycleQuery"
+    lifecycleFilter: Optional[LifecycleFilter] = Field(
+        default=None, description="Properties specific to the lifecycle insight"
+    )
     properties: Optional[
         Union[
             List[
@@ -1091,22 +2460,30 @@ class LifecycleQuery(BaseModel):
             ],
             PropertyGroupFilter,
         ]
-    ] = Field(None, description="Property filters for all series")
-    samplingFactor: Optional[float] = Field(None, description="Sampling rate")
+    ] = Field(default=None, description="Property filters for all series")
+    response: Optional[LifecycleQueryResponse] = None
+    samplingFactor: Optional[float] = Field(default=None, description="Sampling rate")
     series: List[Union[EventsNode, ActionsNode]] = Field(..., description="Events and actions to include")
 
 
-class PathsQuery(BaseModel):
-    class Config:
-        extra = Extra.forbid
-
-    aggregation_group_type_index: Optional[float] = Field(None, description="Groups aggregation")
-    dateRange: Optional[DateRange] = Field(None, description="Date range for the query")
-    filterTestAccounts: Optional[bool] = Field(
-        None, description="Exclude internal and test users by applying the respective filters"
+class NamedParametersTypeofDateRangeForFilter(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
     )
-    kind: str = Field("PathsQuery", const=True)
-    pathsFilter: Optional[PathsFilter] = Field(None, description="Properties specific to the paths insight")
+    source: Optional[FilterType] = None
+
+
+class PathsQuery(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    aggregation_group_type_index: Optional[int] = Field(default=None, description="Groups aggregation")
+    dateRange: Optional[DateRange] = Field(default=None, description="Date range for the query")
+    filterTestAccounts: Optional[bool] = Field(
+        default=None, description="Exclude internal and test users by applying the respective filters"
+    )
+    kind: Literal["PathsQuery"] = "PathsQuery"
+    pathsFilter: PathsFilter = Field(..., description="Properties specific to the paths insight")
     properties: Optional[
         Union[
             List[
@@ -1125,27 +2502,233 @@ class PathsQuery(BaseModel):
             ],
             PropertyGroupFilter,
         ]
-    ] = Field(None, description="Property filters for all series")
-    samplingFactor: Optional[float] = Field(None, description="Sampling rate")
+    ] = Field(default=None, description="Property filters for all series")
+    response: Optional[PathsQueryResponse] = None
+    samplingFactor: Optional[float] = Field(default=None, description="Sampling rate")
 
 
 class InsightVizNode(BaseModel):
-    class Config:
-        extra = Extra.forbid
-
-    full: Optional[bool] = Field(None, description="Show with most visual options enabled. Used in insight scene.")
-    kind: str = Field("InsightVizNode", const=True)
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    embedded: Optional[bool] = Field(default=None, description="Query is embedded inside another bordered component")
+    full: Optional[bool] = Field(
+        default=None, description="Show with most visual options enabled. Used in insight scene."
+    )
+    hidePersonsModal: Optional[bool] = None
+    kind: Literal["InsightVizNode"] = "InsightVizNode"
     showCorrelationTable: Optional[bool] = None
+    showFilters: Optional[bool] = None
     showHeader: Optional[bool] = None
     showLastComputation: Optional[bool] = None
     showLastComputationRefresh: Optional[bool] = None
-    showLegendButton: Optional[bool] = None
+    showResults: Optional[bool] = None
     showTable: Optional[bool] = None
-    source: Union[TrendsQuery, FunnelsQuery, RetentionQuery, PathsQuery, StickinessQuery, LifecycleQuery]
+    source: Union[TrendsQuery, FunnelsQuery, RetentionQuery, PathsQuery, StickinessQuery, LifecycleQuery] = Field(
+        ..., discriminator="kind"
+    )
+    suppressSessionAnalysisWarning: Optional[bool] = None
+    vizSpecificOptions: Optional[VizSpecificOptions] = None
 
 
-class Model(BaseModel):
-    __root__: Union[
+class InsightActorsQuery(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    breakdown: Optional[Union[str, int]] = None
+    compare: Optional[Compare] = None
+    day: Optional[Union[str, int]] = None
+    interval: Optional[int] = Field(
+        default=None, description="An interval selected out of available intervals in source query"
+    )
+    kind: Literal["InsightActorsQuery"] = "InsightActorsQuery"
+    response: Optional[ActorsQueryResponse] = None
+    series: Optional[int] = None
+    source: Union[TrendsQuery, FunnelsQuery, RetentionQuery, PathsQuery, StickinessQuery, LifecycleQuery] = Field(
+        ..., discriminator="kind"
+    )
+    status: Optional[str] = None
+
+
+class InsightActorsQueryOptions(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    kind: Literal["InsightActorsQueryOptions"] = "InsightActorsQueryOptions"
+    response: Optional[InsightActorsQueryOptionsResponse] = None
+    source: InsightActorsQuery
+
+
+class ActorsQuery(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    fixedProperties: Optional[
+        List[
+            Union[
+                EventPropertyFilter,
+                PersonPropertyFilter,
+                ElementPropertyFilter,
+                SessionPropertyFilter,
+                CohortPropertyFilter,
+                RecordingDurationFilter,
+                GroupPropertyFilter,
+                FeaturePropertyFilter,
+                HogQLPropertyFilter,
+                EmptyPropertyFilter,
+            ]
+        ]
+    ] = None
+    kind: Literal["ActorsQuery"] = "ActorsQuery"
+    limit: Optional[int] = None
+    offset: Optional[int] = None
+    orderBy: Optional[List[str]] = None
+    properties: Optional[
+        List[
+            Union[
+                EventPropertyFilter,
+                PersonPropertyFilter,
+                ElementPropertyFilter,
+                SessionPropertyFilter,
+                CohortPropertyFilter,
+                RecordingDurationFilter,
+                GroupPropertyFilter,
+                FeaturePropertyFilter,
+                HogQLPropertyFilter,
+                EmptyPropertyFilter,
+            ]
+        ]
+    ] = None
+    response: Optional[ActorsQueryResponse] = Field(default=None, description="Cached query response")
+    search: Optional[str] = None
+    select: Optional[List[str]] = None
+    source: Optional[Union[InsightActorsQuery, HogQLQuery]] = None
+
+
+class DataTableNode(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    allowSorting: Optional[bool] = Field(
+        default=None, description="Can the user click on column headers to sort the table? (default: true)"
+    )
+    columns: Optional[List[str]] = Field(
+        default=None, description="Columns shown in the table, unless the `source` provides them."
+    )
+    embedded: Optional[bool] = Field(default=None, description="Uses the embedded version of LemonTable")
+    expandable: Optional[bool] = Field(
+        default=None, description="Can expand row to show raw event data (default: true)"
+    )
+    full: Optional[bool] = Field(default=None, description="Show with most visual options enabled. Used in scenes.")
+    hiddenColumns: Optional[List[str]] = Field(
+        default=None, description="Columns that aren't shown in the table, even if in columns or returned data"
+    )
+    kind: Literal["DataTableNode"] = "DataTableNode"
+    propertiesViaUrl: Optional[bool] = Field(default=None, description="Link properties via the URL (default: false)")
+    showActions: Optional[bool] = Field(default=None, description="Show the kebab menu at the end of the row")
+    showColumnConfigurator: Optional[bool] = Field(
+        default=None, description="Show a button to configure the table's columns if possible"
+    )
+    showDateRange: Optional[bool] = Field(default=None, description="Show date range selector")
+    showElapsedTime: Optional[bool] = Field(default=None, description="Show the time it takes to run a query")
+    showEventFilter: Optional[bool] = Field(
+        default=None, description="Include an event filter above the table (EventsNode only)"
+    )
+    showExport: Optional[bool] = Field(default=None, description="Show the export button")
+    showHogQLEditor: Optional[bool] = Field(default=None, description="Include a HogQL query editor above HogQL tables")
+    showOpenEditorButton: Optional[bool] = Field(
+        default=None, description="Show a button to open the current query as a new insight. (default: true)"
+    )
+    showPersistentColumnConfigurator: Optional[bool] = Field(
+        default=None, description="Show a button to configure and persist the table's default columns if possible"
+    )
+    showPropertyFilter: Optional[bool] = Field(default=None, description="Include a property filter above the table")
+    showReload: Optional[bool] = Field(default=None, description="Show a reload button")
+    showResultsTable: Optional[bool] = Field(default=None, description="Show a results table")
+    showSavedQueries: Optional[bool] = Field(default=None, description="Shows a list of saved queries")
+    showSearch: Optional[bool] = Field(default=None, description="Include a free text search field (PersonsNode only)")
+    showTimings: Optional[bool] = Field(default=None, description="Show a detailed query timing breakdown")
+    source: Union[
+        EventsNode,
+        EventsQuery,
+        PersonsNode,
+        ActorsQuery,
+        HogQLQuery,
+        TimeToSeeDataSessionsQuery,
+        WebOverviewQuery,
+        WebStatsTableQuery,
+        WebTopClicksQuery,
+    ] = Field(..., description="Source of the events")
+
+
+class HogQLMetadata(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    debug: Optional[bool] = Field(
+        default=None, description="Enable more verbose output, usually run from the /debug page"
+    )
+    expr: Optional[str] = Field(
+        default=None, description="HogQL expression to validate (use `select` or `expr`, but not both)"
+    )
+    exprSource: Optional[
+        Union[
+            EventsNode,
+            ActionsNode,
+            PersonsNode,
+            TimeToSeeDataSessionsQuery,
+            EventsQuery,
+            ActorsQuery,
+            InsightActorsQuery,
+            InsightActorsQueryOptions,
+            SessionsTimelineQuery,
+            HogQLQuery,
+            HogQLMetadata,
+            HogQLAutocomplete,
+            WebOverviewQuery,
+            WebStatsTableQuery,
+            WebTopClicksQuery,
+        ]
+    ] = Field(default=None, description='Query within which "expr" is validated. Defaults to "select * from events"')
+    filters: Optional[HogQLFilters] = Field(default=None, description="Extra filters applied to query via {filters}")
+    kind: Literal["HogQLMetadata"] = "HogQLMetadata"
+    response: Optional[HogQLMetadataResponse] = Field(default=None, description="Cached query response")
+    select: Optional[str] = Field(
+        default=None, description="Full select query to validate (use `select` or `expr`, but not both)"
+    )
+    table: Optional[str] = Field(default=None, description="Table to validate the expression against")
+
+
+class QueryRequest(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    async_: Optional[bool] = Field(
+        default=None,
+        alias="async",
+        description="(Experimental) Whether to run the query asynchronously. Defaults to False. If True, the `id` of the query can be used to check the status and to cancel it.",
+        examples=[True],
+    )
+    client_query_id: Optional[str] = Field(
+        default=None, description="Client provided query ID. Can be used to retrieve the status or cancel the query."
+    )
+    query: Union[
+        EventsNode,
+        ActionsNode,
+        PersonsNode,
+        TimeToSeeDataSessionsQuery,
+        EventsQuery,
+        ActorsQuery,
+        InsightActorsQuery,
+        InsightActorsQueryOptions,
+        SessionsTimelineQuery,
+        HogQLQuery,
+        HogQLMetadata,
+        HogQLAutocomplete,
+        WebOverviewQuery,
+        WebStatsTableQuery,
+        WebTopClicksQuery,
+        DataVisualizationNode,
         DataTableNode,
         SavedInsightNode,
         InsightVizNode,
@@ -1155,10 +2738,76 @@ class Model(BaseModel):
         PathsQuery,
         StickinessQuery,
         LifecycleQuery,
-        TimeToSeeDataSessionsQuery,
         DatabaseSchemaQuery,
-        Union[EventsNode, EventsQuery, ActionsNode, PersonsNode, HogQLQuery, HogQLMetadata, TimeToSeeDataSessionsQuery],
+    ] = Field(
+        ...,
+        description='Submit a JSON string representing a query for PostHog data analysis, for example a HogQL query.\n\nExample payload:\n\n```\n\n{"query": {"kind": "HogQLQuery", "query": "select * from events limit 100"}}\n\n```\n\nFor more details on HogQL queries, see the [PostHog HogQL documentation](/docs/hogql#api-access).',
+        discriminator="kind",
+    )
+    refresh: Optional[bool] = None
+
+
+class QuerySchemaRoot(
+    RootModel[
+        Union[
+            EventsNode,
+            ActionsNode,
+            PersonsNode,
+            TimeToSeeDataSessionsQuery,
+            EventsQuery,
+            ActorsQuery,
+            InsightActorsQuery,
+            InsightActorsQueryOptions,
+            SessionsTimelineQuery,
+            HogQLQuery,
+            HogQLMetadata,
+            HogQLAutocomplete,
+            WebOverviewQuery,
+            WebStatsTableQuery,
+            WebTopClicksQuery,
+            DataVisualizationNode,
+            DataTableNode,
+            SavedInsightNode,
+            InsightVizNode,
+            TrendsQuery,
+            FunnelsQuery,
+            RetentionQuery,
+            PathsQuery,
+            StickinessQuery,
+            LifecycleQuery,
+            DatabaseSchemaQuery,
+        ]
     ]
+):
+    root: Union[
+        EventsNode,
+        ActionsNode,
+        PersonsNode,
+        TimeToSeeDataSessionsQuery,
+        EventsQuery,
+        ActorsQuery,
+        InsightActorsQuery,
+        InsightActorsQueryOptions,
+        SessionsTimelineQuery,
+        HogQLQuery,
+        HogQLMetadata,
+        HogQLAutocomplete,
+        WebOverviewQuery,
+        WebStatsTableQuery,
+        WebTopClicksQuery,
+        DataVisualizationNode,
+        DataTableNode,
+        SavedInsightNode,
+        InsightVizNode,
+        TrendsQuery,
+        FunnelsQuery,
+        RetentionQuery,
+        PathsQuery,
+        StickinessQuery,
+        LifecycleQuery,
+        DatabaseSchemaQuery,
+    ] = Field(..., discriminator="kind")
 
 
-PropertyGroupFilterValue.update_forward_refs()
+PropertyGroupFilterValue.model_rebuild()
+QueryRequest.model_rebuild()

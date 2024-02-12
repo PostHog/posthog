@@ -1,6 +1,9 @@
 from typing import List
 
-from posthog.async_migrations.definition import AsyncMigrationDefinition, AsyncMigrationOperation
+from posthog.async_migrations.definition import (
+    AsyncMigrationDefinition,
+    AsyncMigrationOperation,
+)
 
 """
 Nooping this migration for future compatibility. Superseded by 0007_persons_and_groups_on_events_backfill.
@@ -10,7 +13,6 @@ If users ran the old version of this, they will be ok to run 0007, if not, they 
 
 
 class Migration(AsyncMigrationDefinition):
-
     description = "No-op migration"
 
     posthog_max_version = "1.41.99"

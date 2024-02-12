@@ -16,7 +16,11 @@ class Text(models.Model):
     created_by: models.ForeignKey = models.ForeignKey("User", on_delete=models.SET_NULL, null=True, blank=True)
     last_modified_at: models.DateTimeField = models.DateTimeField(default=timezone.now)
     last_modified_by: models.ForeignKey = models.ForeignKey(
-        "User", on_delete=models.SET_NULL, null=True, blank=True, related_name="modified_text_tiles"
+        "User",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="modified_text_tiles",
     )
 
     team: models.ForeignKey = models.ForeignKey("Team", on_delete=models.CASCADE)
@@ -33,8 +37,18 @@ class DashboardTile(models.Model):
 
     # Relations
     dashboard = models.ForeignKey("posthog.Dashboard", on_delete=models.CASCADE, related_name="tiles")
-    insight = models.ForeignKey("posthog.Insight", on_delete=models.CASCADE, related_name="dashboard_tiles", null=True)
-    text = models.ForeignKey("posthog.Text", on_delete=models.CASCADE, related_name="dashboard_tiles", null=True)
+    insight = models.ForeignKey(
+        "posthog.Insight",
+        on_delete=models.CASCADE,
+        related_name="dashboard_tiles",
+        null=True,
+    )
+    text = models.ForeignKey(
+        "posthog.Text",
+        on_delete=models.CASCADE,
+        related_name="dashboard_tiles",
+        null=True,
+    )
 
     # Tile layout and style
     layouts: models.JSONField = models.JSONField(default=dict)
@@ -57,9 +71,14 @@ class DashboardTile(models.Model):
                 condition=Q(("insight__isnull", False)),
             ),
             UniqueConstraint(
-                fields=["dashboard", "text"], name=f"unique_dashboard_text", condition=Q(("text__isnull", False))
+                fields=["dashboard", "text"],
+                name=f"unique_dashboard_text",
+                condition=Q(("text__isnull", False)),
             ),
-            models.CheckConstraint(check=build_check(("insight", "text")), name="dash_tile_exactly_one_related_object"),
+            models.CheckConstraint(
+                check=build_check(("insight", "text")),
+                name="dash_tile_exactly_one_related_object",
+            ),
         ]
 
     @property
@@ -94,7 +113,11 @@ class DashboardTile(models.Model):
 
     def copy_to_dashboard(self, dashboard: Dashboard) -> None:
         DashboardTile.objects.create(
-            dashboard=dashboard, insight=self.insight, text=self.text, color=self.color, layouts=self.layouts
+            dashboard=dashboard,
+            insight=self.insight,
+            text=self.text,
+            color=self.color,
+            layouts=self.layouts,
         )
 
     @staticmethod

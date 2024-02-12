@@ -1,7 +1,6 @@
-import { Select } from 'antd'
-import { PercentageOutlined } from '@ant-design/icons'
-import { insightLogic } from 'scenes/insights/insightLogic'
+import { LemonSelect } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
+import { insightLogic } from 'scenes/insights/insightLogic'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 
 export function RetentionReferencePicker(): JSX.Element {
@@ -9,42 +8,28 @@ export function RetentionReferencePicker(): JSX.Element {
     const { retentionFilter } = useValues(insightVizDataLogic(insightProps))
     const { updateInsightFilter } = useActions(insightVizDataLogic(insightProps))
 
-    const { retention_reference } = retentionFilter || {}
+    const { retentionReference } = retentionFilter || {}
+
     return (
-        <Select
-            value={retention_reference || 'total'}
-            onChange={(retention_reference) => {
-                updateInsightFilter({ retention_reference })
+        <LemonSelect
+            className="w-60"
+            size="small"
+            value={retentionReference || 'total'}
+            onChange={(retentionReference) => {
+                updateInsightFilter({ retentionReference })
             }}
-            bordered={false}
-            dropdownMatchSelectWidth={false}
-            data-attr="reference-selector"
-            optionLabelProp="label"
-        >
-            {[
+            options={[
                 {
                     value: 'total',
-                    icon: <PercentageOutlined />,
-                    label: 'Overall cohort',
+                    labelInMenu: 'Overall cohort',
+                    label: '% Overall cohort',
                 },
                 {
                     value: 'previous',
-                    icon: <PercentageOutlined />,
-                    label: 'Relative to previous period',
+                    labelInMenu: 'Relative to previous period',
+                    label: '% Relative to previous period',
                 },
-            ].map((option) => (
-                <Select.Option
-                    key={option.value}
-                    value={option.value}
-                    label={
-                        <>
-                            {option.icon} {option.label}
-                        </>
-                    }
-                >
-                    {option.label}
-                </Select.Option>
-            ))}
-        </Select>
+            ]}
+        />
     )
 }

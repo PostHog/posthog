@@ -1,21 +1,25 @@
-import { useEffect, useState } from 'react'
-import { InsightModel, InsightShortId, InsightType } from '~/types'
-import { useActions, useValues } from 'kea'
-import { sharingLogic } from './sharingLogic'
-import { LemonButton, LemonSwitch } from '@posthog/lemon-ui'
-import { copyToClipboard } from 'lib/utils'
-import { IconGlobeLock, IconInfo, IconLink, IconLock, IconUnfoldLess, IconUnfoldMore } from 'lib/lemon-ui/icons'
-import { CodeSnippet, Language } from 'lib/components/CodeSnippet'
-import { DashboardCollaboration } from 'scenes/dashboard/DashboardCollaborators'
-import { Field } from 'lib/forms/Field'
-import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import './SharingModal.scss'
+
+import { LemonButton, LemonSwitch } from '@posthog/lemon-ui'
+import { captureException } from '@sentry/react'
+import { useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
-import { Spinner } from 'lib/lemon-ui/Spinner/Spinner'
+import { CodeSnippet, Language } from 'lib/components/CodeSnippet'
 import { TitleWithIcon } from 'lib/components/TitleWithIcon'
+import { Field } from 'lib/forms/Field'
+import { IconGlobeLock, IconInfo, IconLink, IconLock, IconUnfoldLess, IconUnfoldMore } from 'lib/lemon-ui/icons'
+import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
 import { LemonModal } from 'lib/lemon-ui/LemonModal'
 import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
-import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
+import { Spinner } from 'lib/lemon-ui/Spinner/Spinner'
+import { Tooltip } from 'lib/lemon-ui/Tooltip'
+import { copyToClipboard } from 'lib/utils/copyToClipboard'
+import { useEffect, useState } from 'react'
+import { DashboardCollaboration } from 'scenes/dashboard/DashboardCollaborators'
+
+import { InsightModel, InsightShortId, InsightType } from '~/types'
+
+import { sharingLogic } from './sharingLogic'
 
 export const SHARING_MODAL_WIDTH = 600
 
@@ -110,8 +114,21 @@ export function SharingModalContent({
                                     </TitleWithIcon>
                                     <LemonButton
                                         data-attr="sharing-link-button"
-                                        size={'small'}
-                                        onClick={async () => await copyToClipboard(shareLink, 'link')}
+                                        size="small"
+                                        onClick={() => {
+                                            // TRICKY: there's a chance this was sending useless errors to Sentry
+                                            // even when it succeeded, so we're explicitly ignoring the promise success
+                                            // and naming the error when reported to Sentry
+                                            copyToClipboard(shareLink, 'link')
+                                                .then(() => {}) // purposefully no-op
+                                                .catch((e) =>
+                                                    captureException(
+                                                        new Error(
+                                                            'unexpected sharing modal clipboard error: ' + e.message
+                                                        )
+                                                    )
+                                                )
+                                        }}
                                         icon={<IconLink />}
                                     >
                                         Copy public link
@@ -121,28 +138,6 @@ export function SharingModalContent({
                             </div>
 
                             <Form logic={sharingLogic} props={logicProps} formKey="embedConfig" className="space-y-2">
-                                {previewIframe && (
-                                    <div className="rounded border">
-                                        <LemonButton
-                                            fullWidth
-                                            status="stealth"
-                                            sideIcon={showPreview ? <IconUnfoldLess /> : <IconUnfoldMore />}
-                                            onClick={togglePreview}
-                                        >
-                                            Preview
-                                            {showPreview && !iframeLoaded ? <Spinner className="ml-2" /> : null}
-                                        </LemonButton>
-                                        {showPreview && (
-                                            <div className="SharingPreview border-t">
-                                                <iframe
-                                                    className="block"
-                                                    {...iframeProperties}
-                                                    onLoad={() => setIframeLoaded(true)}
-                                                />
-                                            </div>
-                                        )}
-                                    </div>
-                                )}
                                 <Field name="whitelabel">
                                     {({ value, onChange }) => (
                                         <LemonSwitch
@@ -152,7 +147,7 @@ export function SharingModalContent({
                                                 <div className="flex items-center">
                                                     <span>Show PostHog branding</span>
                                                     {!whitelabelAvailable ? (
-                                                        <Tooltip title="Upgrade to PostHog Scale to hide PostHog branding">
+                                                        <Tooltip title="Upgrade to any paid plan to hide PostHog branding">
                                                             <IconLock className="ml-2" />
                                                         </Tooltip>
                                                     ) : null}
@@ -202,6 +197,28 @@ export function SharingModalContent({
                                             />
                                         )}
                                     </Field>
+                                )}
+
+                                {previewIframe && (
+                                    <div className="rounded border">
+                                        <LemonButton
+                                            fullWidth
+                                            sideIcon={showPreview ? <IconUnfoldLess /> : <IconUnfoldMore />}
+                                            onClick={togglePreview}
+                                        >
+                                            Preview
+                                            {showPreview && !iframeLoaded ? <Spinner className="ml-2" /> : null}
+                                        </LemonButton>
+                                        {showPreview && (
+                                            <div className="SharingPreview border-t">
+                                                <iframe
+                                                    className="block"
+                                                    {...iframeProperties}
+                                                    onLoad={() => setIframeLoaded(true)}
+                                                />
+                                            </div>
+                                        )}
+                                    </div>
                                 )}
                             </Form>
                         </>

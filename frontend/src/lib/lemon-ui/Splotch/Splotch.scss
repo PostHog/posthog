@@ -8,18 +8,23 @@
     width: 1rem;
     height: 1rem;
     border-radius: var(--radius);
+
     .Splotch--blue & {
         background: var(--blue);
     }
+
     .Splotch--purple & {
         background: var(--purple);
     }
+
     .Splotch--green & {
         background: var(--green);
     }
+
     .Splotch--black & {
         background: var(--black);
     }
+
     .Splotch--white & {
         background: #fff;
         border: 1px solid var(--border);

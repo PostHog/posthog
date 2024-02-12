@@ -7,10 +7,15 @@ from django.contrib.auth.forms import UserChangeForm as DjangoUserChangeForm
 from django.contrib.auth.tokens import default_token_generator
 from django.utils.html import format_html
 from django.utils.translation import gettext_lazy as _
+from django_otp.plugins.otp_totp.models import TOTPDevice
 
 from posthog.models import (
     Action,
     AsyncDeletion,
+    Cohort,
+    Dashboard,
+    DashboardTile,
+    Experiment,
     FeatureFlag,
     GroupTypeMapping,
     Insight,
@@ -22,16 +27,12 @@ from posthog.models import (
     Plugin,
     PluginAttachment,
     PluginConfig,
+    Survey,
     Team,
-    Dashboard,
-    DashboardTile,
     Text,
     User,
 )
 from posthog.warehouse.models import DataWarehouseTable
-
-admin.site.register(FeatureFlag)
-admin.site.register(DataWarehouseTable)
 
 
 class DashboardTileInline(admin.TabularInline):
@@ -39,6 +40,11 @@ class DashboardTileInline(admin.TabularInline):
     model = DashboardTile
     autocomplete_fields = ("insight", "text")
     readonly_fields = ("filters_hash",)
+
+
+class TOTPDeviceInline(admin.TabularInline):
+    model = TOTPDevice
+    extra = 0
 
 
 @admin.register(Dashboard)
@@ -54,13 +60,55 @@ class DashboardAdmin(admin.ModelAdmin):
     list_display_links = ("id", "name")
     list_select_related = ("team", "team__organization")
     search_fields = ("id", "name", "team__name", "team__organization__name")
-    readonly_fields = ("last_accessed_at", "deprecated_tags", "deprecated_tags_v2", "share_token")
+    readonly_fields = (
+        "last_accessed_at",
+        "deprecated_tags",
+        "deprecated_tags_v2",
+        "share_token",
+    )
     autocomplete_fields = ("team", "created_by")
     ordering = ("-created_at", "creation_mode")
     inlines = (DashboardTileInline,)
 
     def team_link(self, dashboard: Dashboard):
-        return format_html('<a href="/admin/posthog/team/{}/change/">{}</a>', dashboard.team.pk, dashboard.team.name)
+        return format_html(
+            '<a href="/admin/posthog/team/{}/change/">{}</a>',
+            dashboard.team.pk,
+            dashboard.team.name,
+        )
+
+    def organization_link(self, dashboard: Dashboard):
+        return format_html(
+            '<a href="/admin/posthog/organization/{}/change/">{}</a>',
+            dashboard.team.organization.pk,
+            dashboard.team.organization.name,
+        )
+
+
+@admin.register(DataWarehouseTable)
+class DataWarehouseTableAdmin(admin.ModelAdmin):
+    list_display = (
+        "id",
+        "name",
+        "format",
+        "url_pattern",
+        "team_link",
+        "organization_link",
+        "created_at",
+        "created_by",
+    )
+    list_display_links = ("id", "name")
+    list_select_related = ("team", "team__organization")
+    search_fields = ("id", "name", "team__name", "team__organization__name")
+    autocomplete_fields = ("team", "created_by")
+    ordering = ("-created_at",)
+
+    def team_link(self, dashboard: Dashboard):
+        return format_html(
+            '<a href="/admin/posthog/team/{}/change/">{}</a>',
+            dashboard.team.pk,
+            dashboard.team.name,
+        )
 
     def organization_link(self, dashboard: Dashboard):
         return format_html(
@@ -98,7 +146,11 @@ class InsightAdmin(admin.ModelAdmin):
         return insight.name or format_html("<i>{}</>", insight.derived_name)
 
     def team_link(self, insight: Insight):
-        return format_html('<a href="/admin/posthog/team/{}/change/">{}</a>', insight.team.pk, insight.team.name)
+        return format_html(
+            '<a href="/admin/posthog/team/{}/change/">{}</a>',
+            insight.team.pk,
+            insight.team.name,
+        )
 
     def organization_link(self, insight: Insight):
         return format_html(
@@ -135,12 +187,117 @@ class GroupTypeMappingInline(admin.TabularInline):
     min_num = 5
 
 
+@admin.register(Cohort)
+class CohortAdmin(admin.ModelAdmin):
+    list_display = (
+        "id",
+        "name",
+        "team_link",
+        "created_at",
+        "created_by",
+    )
+    list_display_links = ("id", "name")
+    list_select_related = ("team", "team__organization")
+    search_fields = ("id", "name", "team__name", "team__organization__name")
+    autocomplete_fields = ("team", "created_by")
+    ordering = ("-created_at",)
+
+    def team_link(self, cohort: Cohort):
+        return format_html(
+            '<a href="/admin/posthog/team/{}/change/">{}</a>',
+            cohort.team.pk,
+            cohort.team.name,
+        )
+
+
+@admin.register(FeatureFlag)
+class FeatureFlagAdmin(admin.ModelAdmin):
+    list_display = (
+        "id",
+        "key",
+        "team_link",
+        "created_at",
+        "created_by",
+    )
+    list_display_links = ("id", "key")
+    list_select_related = ("team", "team__organization")
+    search_fields = ("id", "key", "team__name", "team__organization__name")
+    autocomplete_fields = ("team", "created_by")
+    ordering = ("-created_at",)
+
+    def team_link(self, flag: FeatureFlag):
+        return format_html(
+            '<a href="/admin/posthog/team/{}/change/">{}</a>',
+            flag.team.pk,
+            flag.team.name,
+        )
+
+
+@admin.register(Experiment)
+class ExperimentAdmin(admin.ModelAdmin):
+    list_display = (
+        "id",
+        "name",
+        "team_link",
+        "created_at",
+        "created_by",
+    )
+    list_display_links = ("id", "name")
+    list_select_related = ("team", "team__organization")
+    search_fields = ("id", "name", "team__name", "team__organization__name")
+    autocomplete_fields = ("team", "created_by")
+    ordering = ("-created_at",)
+
+    def team_link(self, experiment: Experiment):
+        return format_html(
+            '<a href="/admin/posthog/team/{}/change/">{}</a>',
+            experiment.team.pk,
+            experiment.team.name,
+        )
+
+
+@admin.register(Survey)
+class SurveyAdmin(admin.ModelAdmin):
+    list_display = (
+        "id",
+        "name",
+        "team_link",
+        "created_at",
+        "created_by",
+    )
+    list_display_links = ("id", "name")
+    list_select_related = ("team", "team__organization")
+    search_fields = ("id", "name", "team__name", "team__organization__name")
+    autocomplete_fields = ("team", "created_by")
+    ordering = ("-created_at",)
+
+    def team_link(self, experiment: Experiment):
+        return format_html(
+            '<a href="/admin/posthog/team/{}/change/">{}</a>',
+            experiment.team.pk,
+            experiment.team.name,
+        )
+
+
 @admin.register(Team)
 class TeamAdmin(admin.ModelAdmin):
-    list_display = ("id", "name", "organization_link", "organization_id", "created_at", "updated_at")
+    list_display = (
+        "id",
+        "name",
+        "organization_link",
+        "organization_id",
+        "created_at",
+        "updated_at",
+    )
     list_display_links = ("id", "name")
     list_select_related = ("organization",)
-    search_fields = ("id", "name", "organization__id", "organization__name", "api_token")
+    search_fields = (
+        "id",
+        "name",
+        "organization__id",
+        "organization__name",
+        "api_token",
+    )
     readonly_fields = ["organization", "primary_dashboard", "test_account_filters"]
     inlines = [GroupTypeMappingInline, ActionInline]
     fieldsets = [
@@ -169,7 +326,12 @@ class TeamAdmin(admin.ModelAdmin):
             "Onboarding",
             {
                 "classes": ["collapse"],
-                "fields": ["is_demo", "completed_snippet_onboarding", "ingested_event", "signup_token"],
+                "fields": [
+                    "is_demo",
+                    "completed_snippet_onboarding",
+                    "ingested_event",
+                    "signup_token",
+                ],
             },
         ),
         (
@@ -183,6 +345,9 @@ class TeamAdmin(admin.ModelAdmin):
                     "session_recording_opt_in",
                     "capture_console_log_opt_in",
                     "capture_performance_opt_in",
+                    "session_recording_sample_rate",
+                    "session_recording_minimum_duration_milliseconds",
+                    "session_recording_linked_flag",
                     "data_attributes",
                     "session_recording_version",
                     "access_control",
@@ -195,14 +360,20 @@ class TeamAdmin(admin.ModelAdmin):
             "Filters",
             {
                 "classes": ["collapse"],
-                "fields": ["test_account_filters", "test_account_filters_default_checked", "path_cleaning_filters"],
+                "fields": [
+                    "test_account_filters",
+                    "test_account_filters_default_checked",
+                    "path_cleaning_filters",
+                ],
             },
         ),
     ]
 
     def organization_link(self, team: Team):
         return format_html(
-            '<a href="/admin/posthog/organization/{}/change/">{}</a>', team.organization.pk, team.organization.name
+            '<a href="/admin/posthog/organization/{}/change/">{}</a>',
+            team.organization.pk,
+            team.organization.name,
         )
 
 
@@ -252,6 +423,7 @@ class PluginConfigAdmin(admin.ModelAdmin):
     list_display_links = ("id", "plugin_name")
     list_filter = (
         ("enabled", admin.BooleanFieldListFilter),
+        ("deleted", admin.BooleanFieldListFilter),
         ("updated_at", admin.DateFieldListFilter),
         ("plugin", admin.RelatedOnlyFieldListFilter),
     )
@@ -298,9 +470,21 @@ class UserAdmin(DjangoUserAdmin):
     change_password_form = None  # This view is not exposed in our subclass of UserChangeForm
     change_form_template = "loginas/change_form.html"
 
-    inlines = [OrganizationMemberInline]
+    inlines = [OrganizationMemberInline, TOTPDeviceInline]
     fieldsets = (
-        (None, {"fields": ("email", "password", "current_organization", "is_email_verified", "pending_email")}),
+        (
+            None,
+            {
+                "fields": (
+                    "email",
+                    "password",
+                    "current_organization",
+                    "is_email_verified",
+                    "pending_email",
+                    "strapi_id",
+                )
+            },
+        ),
         (_("Personal info"), {"fields": ("first_name", "last_name")}),
         (_("Permissions"), {"fields": ("is_active", "is_staff")}),
         (_("Important dates"), {"fields": ("last_login", "date_joined")}),
@@ -327,14 +511,20 @@ class UserAdmin(DjangoUserAdmin):
         if not user.team:
             return "–"
 
-        return format_html('<a href="/admin/posthog/team/{}/change/">{}</a>', user.team.pk, user.team.name)
+        return format_html(
+            '<a href="/admin/posthog/team/{}/change/">{}</a>',
+            user.team.pk,
+            user.team.name,
+        )
 
     def current_organization_link(self, user: User):
         if not user.organization:
             return "–"
 
         return format_html(
-            '<a href="/admin/posthog/organization/{}/change/">{}</a>', user.organization.pk, user.organization.name
+            '<a href="/admin/posthog/organization/{}/change/">{}</a>',
+            user.organization.pk,
+            user.organization.name,
         )
 
 
@@ -369,7 +559,12 @@ class OrganizationTeamInline(admin.TabularInline):
     readonly_fields = ("id", "displayed_name", "created_at", "updated_at")
 
     def displayed_name(self, team: Team):
-        return format_html('<a href="/admin/posthog/team/{}/change/">{}. {}</a>', team.pk, team.pk, team.name)
+        return format_html(
+            '<a href="/admin/posthog/team/{}/change/">{}. {}</a>',
+            team.pk,
+            team.pk,
+            team.name,
+        )
 
 
 @admin.register(Organization)
@@ -444,7 +639,15 @@ class InstanceSettingAdmin(admin.ModelAdmin):
 
 @admin.register(Person)
 class PersonAdmin(admin.ModelAdmin):
-    list_display = ("id", "distinct_ids", "created_at", "team", "is_user", "is_identified", "version")
+    list_display = (
+        "id",
+        "distinct_ids",
+        "created_at",
+        "team",
+        "is_user",
+        "is_identified",
+        "version",
+    )
     list_filter = ("created_at", "is_identified", "version")
     search_fields = ("id",)
 

@@ -1,7 +1,6 @@
 import datetime as dt
 from typing import Any, Dict, Optional, Tuple
-
-import pytz
+from zoneinfo import ZoneInfo
 
 from posthog.models.entity.util import get_entity_filtering_params
 from posthog.models.filters.properties_timeline_filter import PropertiesTimelineFilter
@@ -76,7 +75,7 @@ class PropertiesTimelineEventQuery(EventQuery):
     def _get_date_filter(self) -> Tuple[str, Dict]:
         query_params: Dict[str, Any] = {}
         query_date_range = QueryDateRange(self._filter, self._team)
-        effective_timezone = pytz.timezone(self._team.timezone)
+        effective_timezone = ZoneInfo(self._team.timezone)
         # Get effective date range from QueryDateRange
         # We need to explicitly replace tzinfo in those datetimes with the team's timezone, because QueryDateRange
         # does not reliably make those datetimes timezone-aware. That's annoying, but it'd be a significant effort

@@ -1,19 +1,25 @@
 .InsightTooltipWrapper {
     position: absolute;
-    transition: all 0.4s;
     z-index: var(--z-graph-tooltip);
     pointer-events: none;
+    transition: all 0.4s;
 }
 
 .InsightTooltip {
-    overflow: hidden;
-    border: 1px solid var(--border);
-    box-shadow: var(--shadow-elevation);
-    font-size: 0.8125rem;
     max-width: 30rem;
-    border-radius: var(--radius);
-    background: var(--bg-light);
+    overflow: hidden;
+    font-size: 0.8125rem;
     pointer-events: none;
+    background: var(--bg-light);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    box-shadow: var(--shadow-elevation);
+
+    &--embedded {
+        border: none;
+        border-radius: 0;
+        box-shadow: none;
+    }
 
     .LemonRow {
         font-size: 0.8125rem;
@@ -22,8 +28,9 @@
     .LemonTable {
         font-size: 0.75rem;
         border: none;
-        border-bottom-left-radius: 0;
         border-bottom-right-radius: 0;
+        border-bottom-left-radius: 0;
+
         &:not(:last-child) {
             border-bottom: 1px solid var(--border);
         }
@@ -37,66 +44,43 @@
             overflow-wrap: anywhere;
         }
 
-        .scrollable__inner {
-            width: 100%;
-            overflow: hidden;
-        }
         .LemonTable__content > table > thead {
             letter-spacing: 0;
+
             .datum-column {
                 .LemonTable__header-content {
                     white-space: nowrap;
                 }
             }
-            .datum-counts-column {
-                .ant-typography {
-                    text-align: left;
-                    overflow: hidden;
-                    text-overflow: ellipsis;
-                    display: -webkit-box;
-                    -webkit-box-orient: vertical;
-                    -webkit-line-clamp: 2; /* number of lines to show */
-                    line-height: 1rem; /* fallback */
-                    max-height: calc(1rem * 2); /* fallback */
-                }
-            }
         }
+
         .LemonTable__content > table {
             .datum-label-column {
-                font-weight: 600;
                 display: flex;
                 align-items: center;
-
-                .ant-typography {
-                    text-align: left;
-                    overflow: hidden;
-                    text-overflow: ellipsis;
-                    display: -webkit-box;
-                    -webkit-box-orient: vertical;
-                    -webkit-line-clamp: 2; /* number of lines to show */
-                    line-height: 1rem; /* fallback */
-                    max-height: calc(1rem * 2); /* fallback */
-                }
+                font-weight: 600;
             }
+
             .series-data-cell {
                 font-weight: 600;
             }
+
             .tag-pill {
-                background-color: rgba(0, 0, 0, 0.08);
                 margin-right: 0;
-                border: 0;
-                color: var(--primary-alt);
                 overflow: hidden;
+                color: var(--primary-alt);
                 vertical-align: middle;
+                background-color: var(--border-3000);
+                border: 0;
             }
         }
     }
 
     .table-subtext {
-        font-size: 0.75rem;
-        text-align: center;
         padding: 0.5rem 1rem;
+        font-size: 0.75rem;
         color: var(--muted);
+        text-align: center;
         background-color: var(--bg-light);
 
         .table-subtext-truncated {
@@ -107,8 +91,8 @@
             display: flex;
             align-items: center;
             justify-content: center;
-            color: var(--default);
             font-weight: 600;
+            color: var(--default);
             white-space: nowrap;
         }
     }

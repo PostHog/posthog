@@ -1,17 +1,20 @@
-import { ComponentMeta } from '@storybook/react'
+import { Meta } from '@storybook/react'
+
 import { ElementType } from '~/types'
+
 import { HTMLElementsDisplay } from './HTMLElementsDisplay'
 
-export default {
+const meta: Meta<typeof HTMLElementsDisplay> = {
     title: 'Components/Html Elements Display',
     component: HTMLElementsDisplay,
-} as ComponentMeta<typeof HTMLElementsDisplay>
+}
+export default meta
 
 export function EmptyDisplay(): JSX.Element {
     return <HTMLElementsDisplay elements={[] as ElementType[]} />
 }
 
-export const elementsExample = [
+export const EXAMPLE_ELEMENTS: ElementType[] = [
     {
         text: 'Insights',
         tag_name: 'span',
@@ -175,15 +178,15 @@ export const elementsExample = [
 ] as ElementType[]
 
 export function ReadOnlyDisplay(): JSX.Element {
-    return <HTMLElementsDisplay elements={elementsExample} />
+    return <HTMLElementsDisplay elements={EXAMPLE_ELEMENTS} />
 }
 
 export function WithoutCentralHghlightDisplay(): JSX.Element {
-    return <HTMLElementsDisplay elements={elementsExample} highlight={false} />
+    return <HTMLElementsDisplay elements={EXAMPLE_ELEMENTS} highlight={false} />
 }
 
 export function EditableDisplay(): JSX.Element {
-    return <HTMLElementsDisplay elements={elementsExample} highlight={false} editable={true} />
+    return <HTMLElementsDisplay elements={EXAMPLE_ELEMENTS} highlight={false} editable={true} />
 }
 
 export function EditableDisplayWithPreselection(): JSX.Element {
@@ -193,8 +196,8 @@ export function EditableDisplayWithPreselection(): JSX.Element {
                 preselect using <pre>'div div.SideBar .LemonButton__content span.text-default'</pre>
             </h4>
             <HTMLElementsDisplay
-                startingSelector={'div div.SideBar .LemonButton__content span.text-default'}
-                elements={elementsExample}
+                startingSelector="div div.SideBar .LemonButton__content span.text-default"
+                elements={EXAMPLE_ELEMENTS}
                 highlight={false}
                 editable={true}
             />
@@ -203,5 +206,5 @@ export function EditableDisplayWithPreselection(): JSX.Element {
 }
 
 export function WithUniquenessCheck(): JSX.Element {
-    return <HTMLElementsDisplay elements={elementsExample} highlight={false} editable={true} checkUniqueness={true} />
+    return <HTMLElementsDisplay elements={EXAMPLE_ELEMENTS} highlight={false} editable={true} checkUniqueness={true} />
 }

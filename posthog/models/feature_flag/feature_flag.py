@@ -1,4 +1,5 @@
 import json
+from django.http import HttpRequest
 import structlog
 from typing import Dict, List, Optional, cast
 
@@ -8,8 +9,11 @@ from django.db.models.signals import post_delete, post_save, pre_delete
 from django.utils import timezone
 from sentry_sdk.api import capture_exception
 
-from posthog.constants import PropertyOperatorType
-from posthog.models.cohort import Cohort
+from posthog.constants import (
+    ENRICHED_DASHBOARD_INSIGHT_IDENTIFIER,
+    PropertyOperatorType,
+)
+from posthog.models.cohort import Cohort, CohortOrEmpty
 from posthog.models.experiment import Experiment
 from posthog.models.property import GroupTypeIndex
 from posthog.models.property.property import Property, PropertyGroup
@@ -24,6 +28,7 @@ class FeatureFlag(models.Model):
     class Meta:
         constraints = [models.UniqueConstraint(fields=["team", "key"], name="unique key for team")]
 
+    # When adding new fields, make sure to update organization_feature_flags.py::copy_flags
     key: models.CharField = models.CharField(max_length=400)
     name: models.TextField = models.TextField(
         blank=True
@@ -33,7 +38,7 @@ class FeatureFlag(models.Model):
     rollout_percentage: models.IntegerField = models.IntegerField(null=True, blank=True)
 
     team: models.ForeignKey = models.ForeignKey("Team", on_delete=models.CASCADE)
-    created_by: models.ForeignKey = models.ForeignKey("User", on_delete=models.CASCADE)
+    created_by: models.ForeignKey = models.ForeignKey("User", on_delete=models.SET_NULL, null=True)
     created_at: models.DateTimeField = models.DateTimeField(default=timezone.now)
     deleted: models.BooleanField = models.BooleanField(default=False)
     active: models.BooleanField = models.BooleanField(default=True)
@@ -42,7 +47,9 @@ class FeatureFlag(models.Model):
     performed_rollback: models.BooleanField = models.BooleanField(null=True, blank=True)
 
     ensure_experience_continuity: models.BooleanField = models.BooleanField(default=False, null=True, blank=True)
-    usage_dashboard: models.ForeignKey = models.ForeignKey("Dashboard", on_delete=models.CASCADE, null=True, blank=True)
+    usage_dashboard: models.ForeignKey = models.ForeignKey(
+        "Dashboard", on_delete=models.SET_NULL, null=True, blank=True
+    )
     analytics_dashboards: models.ManyToManyField = models.ManyToManyField(
         "Dashboard",
         through="FeatureFlagDashboards",
@@ -101,6 +108,15 @@ class FeatureFlag(models.Model):
                 return variants
         return []
 
+    @property
+    def usage_dashboard_has_enriched_insights(self) -> bool:
+        if not self.usage_dashboard:
+            return False
+
+        return any(
+            ENRICHED_DASHBOARD_INSIGHT_IDENTIFIER in tile.insight.name for tile in self.usage_dashboard.tiles.all()
+        )
+
     def get_filters(self):
         if "groups" in self.filters:
             return self.filters
@@ -109,12 +125,17 @@ class FeatureFlag(models.Model):
             #   We don't want to migrate to avoid /decide endpoint downtime until this code has been deployed
             return {
                 "groups": [
-                    {"properties": self.filters.get("properties", []), "rollout_percentage": self.rollout_percentage}
+                    {
+                        "properties": self.filters.get("properties", []),
+                        "rollout_percentage": self.rollout_percentage,
+                    }
                 ],
             }
 
     def transform_cohort_filters_for_easy_evaluation(
-        self, using_database: str = "default", seen_cohorts_cache: Optional[Dict[str, Cohort]] = None
+        self,
+        using_database: str = "default",
+        seen_cohorts_cache: Optional[Dict[int, CohortOrEmpty]] = None,
     ):
         """
         Expands cohort filters into person property filters when possible.
@@ -134,29 +155,37 @@ class FeatureFlag(models.Model):
             return self.conditions
 
         cohort_group_rollout = None
-        cohort: Optional[Cohort] = None
+        cohort: CohortOrEmpty = None
 
         parsed_conditions = []
         for condition in self.conditions:
+            if condition.get("variant"):
+                # variant overrides are not supported for cohort expansion.
+                return self.conditions
+
             cohort_condition = False
             props = condition.get("properties", [])
             cohort_group_rollout = condition.get("rollout_percentage")
             for prop in props:
                 if prop.get("type") == "cohort":
                     cohort_condition = True
-                    cohort_id = prop.get("value")
+                    cohort_id = int(prop.get("value"))
                     if cohort_id:
                         if len(props) > 1:
                             # We cannot expand this cohort condition if it's not the only property in its group.
                             return self.conditions
                         try:
-                            parsed_cohort_id = str(cohort_id)
-                            if parsed_cohort_id in seen_cohorts_cache:
-                                cohort = seen_cohorts_cache[parsed_cohort_id]
+                            if cohort_id in seen_cohorts_cache:
+                                cohort = seen_cohorts_cache[cohort_id]
+                                if not cohort:
+                                    return self.conditions
                             else:
-                                cohort = Cohort.objects.using(using_database).get(pk=cohort_id)
-                                seen_cohorts_cache[parsed_cohort_id] = cohort
+                                cohort = Cohort.objects.using(using_database).get(
+                                    pk=cohort_id, team_id=self.team_id, deleted=False
+                                )
+                                seen_cohorts_cache[cohort_id] = cohort
                         except Cohort.DoesNotExist:
+                            seen_cohorts_cache[cohort_id] = ""
                             return self.conditions
             if not cohort_condition:
                 # flag group without a cohort filter, let it be as is.
@@ -233,9 +262,12 @@ class FeatureFlag(models.Model):
         return parsed_conditions
 
     def get_cohort_ids(
-        self, using_database: str = "default", seen_cohorts_cache: Optional[Dict[str, Cohort]] = None
+        self,
+        using_database: str = "default",
+        seen_cohorts_cache: Optional[Dict[int, CohortOrEmpty]] = None,
+        sort_by_topological_order=False,
     ) -> List[int]:
-        from posthog.models.cohort.util import get_dependent_cohorts
+        from posthog.models.cohort.util import get_dependent_cohorts, sort_cohorts_topologically
 
         if seen_cohorts_cache is None:
             seen_cohorts_cache = {}
@@ -245,28 +277,75 @@ class FeatureFlag(models.Model):
             props = condition.get("properties", [])
             for prop in props:
                 if prop.get("type") == "cohort":
-                    cohort_id = prop.get("value")
+                    cohort_id = int(prop.get("value"))
                     try:
-                        parsed_cohort_id = str(cohort_id)
-                        if parsed_cohort_id in seen_cohorts_cache:
-                            cohort: Cohort = seen_cohorts_cache[parsed_cohort_id]
+                        if cohort_id in seen_cohorts_cache:
+                            cohort: CohortOrEmpty = seen_cohorts_cache[cohort_id]
+                            if not cohort:
+                                continue
                         else:
-                            cohort = Cohort.objects.using(using_database).get(pk=cohort_id)
-                            seen_cohorts_cache[parsed_cohort_id] = cohort
+                            cohort = Cohort.objects.using(using_database).get(
+                                pk=cohort_id, team_id=self.team_id, deleted=False
+                            )
+                            seen_cohorts_cache[cohort_id] = cohort
 
                         cohort_ids.add(cohort.pk)
                         cohort_ids.update(
                             [
                                 dependent_cohort.pk
                                 for dependent_cohort in get_dependent_cohorts(
-                                    cohort, using_database=using_database, seen_cohorts_cache=seen_cohorts_cache
+                                    cohort,
+                                    using_database=using_database,
+                                    seen_cohorts_cache=seen_cohorts_cache,
                                 )
                             ]
                         )
                     except Cohort.DoesNotExist:
+                        seen_cohorts_cache[cohort_id] = ""
                         continue
+        if sort_by_topological_order:
+            return sort_cohorts_topologically(cohort_ids, seen_cohorts_cache)
 
         return list(cohort_ids)
+
+    def scheduled_changes_dispatcher(self, payload):
+        from posthog.api.feature_flag import FeatureFlagSerializer
+
+        if "operation" not in payload or "value" not in payload:
+            raise Exception("Invalid payload")
+
+        http_request = HttpRequest()
+        http_request.user = self.created_by
+        context = {
+            "request": http_request,
+            "team_id": self.team_id,
+        }
+
+        serializer_data = {}
+
+        if payload["operation"] == "add_release_condition":
+            current_filters = self.get_filters()
+            current_groups = current_filters.get("groups", [])
+            new_groups = payload["value"].get("groups", [])
+
+            serializer_data["filters"] = {**current_filters, "groups": current_groups + new_groups}
+        elif payload["operation"] == "update_status":
+            serializer_data["active"] = payload["value"]
+        else:
+            raise Exception(f"Unrecognized operation: {payload['operation']}")
+
+        serializer = FeatureFlagSerializer(self, data=serializer_data, context=context, partial=True)
+        if serializer.is_valid(raise_exception=True):
+            serializer.save()
+
+    @property
+    def uses_cohorts(self) -> bool:
+        for condition in self.conditions:
+            props = condition.get("properties", [])
+            for prop in props:
+                if prop.get("type") == "cohort":
+                    return True
+        return False
 
     def __str__(self):
         return f"{self.key} ({self.pk})"
@@ -286,7 +365,8 @@ class FeatureFlagHashKeyOverride(models.Model):
     class Meta:
         constraints = [
             models.UniqueConstraint(
-                fields=["team", "person", "feature_flag_key"], name="Unique hash_key for a user/team/feature_flag combo"
+                fields=["team", "person", "feature_flag_key"],
+                name="Unique hash_key for a user/team/feature_flag combo",
             )
         ]
 
@@ -305,7 +385,8 @@ class FeatureFlagOverride(models.Model):
     class Meta:
         constraints = [
             models.UniqueConstraint(
-                fields=["user", "feature_flag", "team"], name="unique feature flag for a user/team combo"
+                fields=["user", "feature_flag", "team"],
+                name="unique feature flag for a user/team combo",
             )
         ]
 
@@ -316,14 +397,18 @@ class FeatureFlagOverride(models.Model):
 
 
 def set_feature_flags_for_team_in_cache(
-    team_id: int, feature_flags: Optional[List[FeatureFlag]] = None
+    team_id: int,
+    feature_flags: Optional[List[FeatureFlag]] = None,
+    using_database: str = "default",
 ) -> List[FeatureFlag]:
     from posthog.api.feature_flag import MinimalFeatureFlagSerializer
 
     if feature_flags is not None:
         all_feature_flags = feature_flags
     else:
-        all_feature_flags = list(FeatureFlag.objects.filter(team_id=team_id, active=True, deleted=False))
+        all_feature_flags = list(
+            FeatureFlag.objects.using(using_database).filter(team_id=team_id, active=True, deleted=False)
+        )
 
     serialized_flags = MinimalFeatureFlagSerializer(all_feature_flags, many=True).data
 
@@ -365,5 +450,8 @@ class FeatureFlagDashboards(models.Model):
 
     class Meta:
         constraints = [
-            models.UniqueConstraint(fields=["feature_flag", "dashboard"], name="unique feature flag for a dashboard")
+            models.UniqueConstraint(
+                fields=["feature_flag", "dashboard"],
+                name="unique feature flag for a dashboard",
+            )
         ]

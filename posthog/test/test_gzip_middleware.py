@@ -32,8 +32,12 @@ class TestGzipMiddleware(APIBaseTest):
 
     def test_no_compression_for_unsuccessful_requests_to_paths_on_the_allow_list(self) -> None:
         with self.settings(GZIP_RESPONSE_ALLOW_LIST=["something-else", "snapshots$"]):
-            response = self._get_path("/api/projects/12/session_recordings/blah/snapshots")
-            self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+            response = self._get_path(f"/api/projects/{self.team.pk}/session_recordings/blah/snapshots")
+            self.assertEqual(
+                response.status_code,
+                status.HTTP_404_NOT_FOUND,
+                msg=response.content.decode("utf-8"),
+            )
 
             contentEncoding = response.headers.get("Content-Encoding", None)
             self.assertEqual(contentEncoding, None)

@@ -1,6 +1,6 @@
 import time
 from datetime import datetime
-from typing import Any, Dict, List, Literal, Optional, cast
+from typing import Any, Dict, List, Literal, Optional, Union, cast
 
 import structlog
 from django.conf import settings
@@ -16,6 +16,10 @@ from posthog.models.person import Person
 from posthog.models.property import BehavioralPropertyType, Property, PropertyGroup
 from posthog.models.utils import sane_repr
 from posthog.settings.base_variables import TEST
+
+# The empty string literal helps us determine when the cohort is invalid/deleted, when
+# set in cohorts_cache
+CohortOrEmpty = Union["Cohort", Literal[""], None]
 
 logger = structlog.get_logger(__name__)
 
@@ -76,6 +80,7 @@ class Cohort(models.Model):
     team: models.ForeignKey = models.ForeignKey("Team", on_delete=models.CASCADE)
     deleted: models.BooleanField = models.BooleanField(default=False)
     filters: models.JSONField = models.JSONField(null=True, blank=True)
+    query: models.JSONField = models.JSONField(null=True, blank=True)
     people: models.ManyToManyField = models.ManyToManyField("Person", through="CohortPeople")
     version: models.IntegerField = models.IntegerField(blank=True, null=True)
     pending_version: models.IntegerField = models.IntegerField(blank=True, null=True)
@@ -193,7 +198,12 @@ class Cohort(models.Model):
         from posthog.models.cohort.util import recalculate_cohortpeople
         from posthog.tasks.calculate_cohort import clear_stale_cohort
 
-        logger.warn("cohort_calculation_started", id=self.pk, current_version=self.version, new_version=pending_version)
+        logger.warn(
+            "cohort_calculation_started",
+            id=self.pk,
+            current_version=self.version,
+            new_version=pending_version,
+        )
         start_time = time.monotonic()
 
         try:
@@ -233,11 +243,14 @@ class Cohort(models.Model):
 
     def insert_users_by_list(self, items: List[str]) -> None:
         """
-        Items can be distinct_id or email
+        Items is a list of distinct_ids
         """
 
         batchsize = 1000
-        from posthog.models.cohort.util import insert_static_cohort, get_static_cohort_size
+        from posthog.models.cohort.util import (
+            insert_static_cohort,
+            get_static_cohort_size,
+        )
 
         if TEST:
             from posthog.test.base import flush_persons_and_events
@@ -251,15 +264,26 @@ class Cohort(models.Model):
                 batch = items[i : i + batchsize]
                 persons_query = (
                     Person.objects.filter(team_id=self.team_id)
-                    .filter(Q(persondistinctid__team_id=self.team_id, persondistinctid__distinct_id__in=batch))
+                    .filter(
+                        Q(
+                            persondistinctid__team_id=self.team_id,
+                            persondistinctid__distinct_id__in=batch,
+                        )
+                    )
                     .exclude(cohort__id=self.id)
                 )
-                insert_static_cohort([p for p in persons_query.values_list("uuid", flat=True)], self.pk, self.team)
+                insert_static_cohort(
+                    [p for p in persons_query.values_list("uuid", flat=True)],
+                    self.pk,
+                    self.team,
+                )
                 sql, params = persons_query.distinct("pk").only("pk").query.sql_with_params()
                 query = UPDATE_QUERY.format(
                     cohort_id=self.pk,
                     values_query=sql.replace(
-                        'FROM "posthog_person"', f', {self.pk}, {self.version or "NULL"} FROM "posthog_person"', 1
+                        'FROM "posthog_person"',
+                        f', {self.pk}, {self.version or "NULL"} FROM "posthog_person"',
+                        1,
                     ),
                 )
                 cursor.execute(query, params)
@@ -279,9 +303,8 @@ class Cohort(models.Model):
             self.save()
             capture_exception(err)
 
-    def insert_users_list_by_uuid(self, items: List[str]) -> None:
-        batchsize = 1000
-        from posthog.models.cohort.util import get_static_cohort_size
+    def insert_users_list_by_uuid(self, items: List[str], insert_in_clickhouse: bool = False, batchsize=1000) -> None:
+        from posthog.models.cohort.util import get_static_cohort_size, insert_static_cohort
 
         try:
             cursor = connection.cursor()
@@ -290,11 +313,19 @@ class Cohort(models.Model):
                 persons_query = (
                     Person.objects.filter(team_id=self.team_id).filter(uuid__in=batch).exclude(cohort__id=self.id)
                 )
+                if insert_in_clickhouse:
+                    insert_static_cohort(
+                        [p for p in persons_query.values_list("uuid", flat=True)],
+                        self.pk,
+                        self.team,
+                    )
                 sql, params = persons_query.distinct("pk").only("pk").query.sql_with_params()
                 query = UPDATE_QUERY.format(
                     cohort_id=self.pk,
                     values_query=sql.replace(
-                        'FROM "posthog_person"', f', {self.pk}, {self.version or "NULL"} FROM "posthog_person"', 1
+                        'FROM "posthog_person"',
+                        f', {self.pk}, {self.version or "NULL"} FROM "posthog_person"',
+                        1,
                     ),
                 )
                 cursor.execute(query, params)

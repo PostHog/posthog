@@ -6,8 +6,16 @@ from django.core.exceptions import ImproperlyConfigured
 from django.core.management.base import BaseCommand
 from semantic_version.base import Version
 
-from posthog.async_migrations.runner import complete_migration, is_migration_dependency_fulfilled, start_async_migration
-from posthog.async_migrations.setup import ALL_ASYNC_MIGRATIONS, setup_async_migrations, setup_model
+from posthog.async_migrations.runner import (
+    complete_migration,
+    is_migration_dependency_fulfilled,
+    start_async_migration,
+)
+from posthog.async_migrations.setup import (
+    ALL_ASYNC_MIGRATIONS,
+    setup_async_migrations,
+    setup_model,
+)
 from posthog.constants import FROZEN_POSTHOG_VERSION
 from posthog.models.async_migration import (
     AsyncMigration,
@@ -41,7 +49,9 @@ class Command(BaseCommand):
 
     def add_arguments(self, parser):
         parser.add_argument(
-            "--check", action="store_true", help="Exits with a non-zero status if required unapplied migrations exist."
+            "--check",
+            action="store_true",
+            help="Exits with a non-zero status if required unapplied migrations exist.",
         )
         parser.add_argument(
             "--plan",

@@ -52,7 +52,12 @@ def create_insight(
 
     insight = Insight.objects.create(team=team, filters=filters, deleted=deleted, query=query)
     if viewed_at_delta is not None:
-        InsightViewed.objects.create(insight=insight, last_viewed_at=now() - viewed_at_delta, user=user, team=team)
+        InsightViewed.objects.create(
+            insight=insight,
+            last_viewed_at=now() - viewed_at_delta,
+            user=user,
+            team=team,
+        )
     if is_shared:
         SharingConfiguration.objects.create(team=team, insight=insight, enabled=True)
 
@@ -78,7 +83,9 @@ def create_tile(
         mock_active_teams.return_value = {team.pk} if team_should_be_active else set()
 
     dashboard = Dashboard.objects.create(
-        team=team, last_accessed_at=now() - viewed_at_delta if viewed_at_delta else None, deleted=dashboard_deleted
+        team=team,
+        last_accessed_at=now() - viewed_at_delta if viewed_at_delta else None,
+        deleted=dashboard_deleted,
     )
 
     if on_home_dashboard:
@@ -109,36 +116,91 @@ def create_tile(
     [
         # Insight test cases
         pytest.param(create_insight, {}, TargetCacheAge.MID_PRIORITY, id="shared insight (base)"),
-        pytest.param(create_insight, {"is_shared": False}, TargetCacheAge.NO_CACHING, id="not shared insight"),
         pytest.param(
-            create_insight, {"team_should_be_active": False}, TargetCacheAge.NO_CACHING, id="insight with inactive team"
+            create_insight,
+            {"is_shared": False},
+            TargetCacheAge.NO_CACHING,
+            id="not shared insight",
         ),
-        pytest.param(create_insight, {"viewed_at_delta": None}, TargetCacheAge.NO_CACHING, id="insight never viewed"),
+        pytest.param(
+            create_insight,
+            {"team_should_be_active": False},
+            TargetCacheAge.NO_CACHING,
+            id="insight with inactive team",
+        ),
+        pytest.param(
+            create_insight,
+            {"viewed_at_delta": None},
+            TargetCacheAge.NO_CACHING,
+            id="insight never viewed",
+        ),
         pytest.param(
             create_insight,
             {"viewed_at_delta": timedelta(weeks=100)},
             TargetCacheAge.NO_CACHING,
             id="insight viewed long time ago",
         ),
-        pytest.param(create_insight, {"filters": {}}, TargetCacheAge.NO_CACHING, id="insight with no filters"),
-        pytest.param(create_insight, {"deleted": True}, TargetCacheAge.NO_CACHING, id="deleted insight"),
+        pytest.param(
+            create_insight,
+            {"filters": {}},
+            TargetCacheAge.NO_CACHING,
+            id="insight with no filters",
+        ),
+        pytest.param(
+            create_insight,
+            {"deleted": True},
+            TargetCacheAge.NO_CACHING,
+            id="deleted insight",
+        ),
         # Dashboard tile test cases
         pytest.param(create_tile, {}, TargetCacheAge.LOW_PRIORITY, id="shared tile (base)"),
-        pytest.param(create_tile, {"is_dashboard_shared": False}, TargetCacheAge.NO_CACHING, id="not shared tile"),
         pytest.param(
-            create_tile, {"team_should_be_active": False}, TargetCacheAge.NO_CACHING, id="tile with inactive team"
+            create_tile,
+            {"is_dashboard_shared": False},
+            TargetCacheAge.NO_CACHING,
+            id="not shared tile",
         ),
-        pytest.param(create_tile, {"dashboard_tile_deleted": True}, TargetCacheAge.NO_CACHING, id="deleted tile"),
         pytest.param(
-            create_tile, {"dashboard_deleted": True}, TargetCacheAge.NO_CACHING, id="tile with deleted dashboard"
+            create_tile,
+            {"team_should_be_active": False},
+            TargetCacheAge.NO_CACHING,
+            id="tile with inactive team",
         ),
-        pytest.param(create_tile, {"insight_deleted": True}, TargetCacheAge.NO_CACHING, id="tile with deleted insight"),
         pytest.param(
-            create_tile, {"insight_filters": {}}, TargetCacheAge.NO_CACHING, id="tile with insight with no filters"
+            create_tile,
+            {"dashboard_tile_deleted": True},
+            TargetCacheAge.NO_CACHING,
+            id="deleted tile",
         ),
-        pytest.param(create_tile, {"text_tile": True}, TargetCacheAge.NO_CACHING, id="tile with text"),
         pytest.param(
-            create_tile, {"on_home_dashboard": True}, TargetCacheAge.HIGH_PRIORITY, id="tile on home dashboard"
+            create_tile,
+            {"dashboard_deleted": True},
+            TargetCacheAge.NO_CACHING,
+            id="tile with deleted dashboard",
+        ),
+        pytest.param(
+            create_tile,
+            {"insight_deleted": True},
+            TargetCacheAge.NO_CACHING,
+            id="tile with deleted insight",
+        ),
+        pytest.param(
+            create_tile,
+            {"insight_filters": {}},
+            TargetCacheAge.NO_CACHING,
+            id="tile with insight with no filters",
+        ),
+        pytest.param(
+            create_tile,
+            {"text_tile": True},
+            TargetCacheAge.NO_CACHING,
+            id="tile with text",
+        ),
+        pytest.param(
+            create_tile,
+            {"on_home_dashboard": True},
+            TargetCacheAge.HIGH_PRIORITY,
+            id="tile on home dashboard",
         ),
         pytest.param(
             create_tile,
@@ -165,7 +227,10 @@ def create_tile(
             id="recently viewed tile (2)",
         ),
         pytest.param(
-            create_tile, {"viewed_at_delta": timedelta(days=20)}, TargetCacheAge.LOW_PRIORITY, id="tile viewed ages ago"
+            create_tile,
+            {"viewed_at_delta": timedelta(days=20)},
+            TargetCacheAge.LOW_PRIORITY,
+            id="tile viewed ages ago",
         ),
         # cacheable types of query
         pytest.param(
@@ -182,13 +247,19 @@ def create_tile(
         ),
         pytest.param(
             create_insight,
-            {"query": {"kind": "TimeToSeeDataSessionsQuery"}, "viewed_at_delta": timedelta(days=1)},
+            {
+                "query": {"kind": "TimeToSeeDataSessionsQuery"},
+                "viewed_at_delta": timedelta(days=1),
+            },
             TargetCacheAge.MID_PRIORITY,
             id="insight with TimeToSeeDataSessionsQuery query viewed recently",
         ),
         pytest.param(
             create_insight,
-            {"query": {"kind": "TimeToSeeDataQuery"}, "viewed_at_delta": timedelta(days=1)},
+            {
+                "query": {"kind": "TimeToSeeDataQuery"},
+                "viewed_at_delta": timedelta(days=1),
+            },
             TargetCacheAge.MID_PRIORITY,
             id="insight with TimeToSeeDataQuery query viewed recently",
         ),
@@ -220,7 +291,12 @@ def create_tile(
 @pytest.mark.django_db
 @patch("posthog.caching.insight_caching_state.active_teams")
 def test_calculate_target_age(
-    mock_active_teams, team: Team, user: User, create_item, create_item_kw: Dict, expected_target_age: TargetCacheAge
+    mock_active_teams,
+    team: Team,
+    user: User,
+    create_item,
+    create_item_kw: Dict,
+    expected_target_age: TargetCacheAge,
 ):
     item = cast(
         Union[Insight, DashboardTile],

@@ -5,14 +5,25 @@ from uuid import uuid4
 import pytest
 
 from posthog.async_migrations.runner import start_async_migration
-from posthog.async_migrations.setup import get_async_migration_definition, setup_async_migrations
+from posthog.async_migrations.setup import (
+    get_async_migration_definition,
+    setup_async_migrations,
+)
 from posthog.async_migrations.test.util import AsyncMigrationBaseTest
 from posthog.client import query_with_columns, sync_execute
 from posthog.models import Person
-from posthog.models.async_migration import AsyncMigration, AsyncMigrationError, MigrationStatus
+from posthog.models.async_migration import (
+    AsyncMigration,
+    AsyncMigrationError,
+    MigrationStatus,
+)
 from posthog.models.event.util import create_event
 from posthog.models.group.util import create_group
-from posthog.models.person.util import create_person, create_person_distinct_id, delete_person
+from posthog.models.person.util import (
+    create_person,
+    create_person_distinct_id,
+    delete_person,
+)
 from posthog.models.utils import UUIDT
 from posthog.test.base import ClickhouseTestMixin, run_clickhouse_statement_in_parallel
 
@@ -269,7 +280,12 @@ class Test0007PersonsAndGroupsOnEventsBackfill(AsyncMigrationBaseTest, Clickhous
             team=self.team,
             distinct_id="1",
             event="$pageview",
-            properties={"$group_0": "org:7", "$group_1": "77", "$group_2": "77", "$group_3": "77"},
+            properties={
+                "$group_0": "org:7",
+                "$group_1": "77",
+                "$group_2": "77",
+                "$group_3": "77",
+            },
         )
 
         # we need to also create person data so the backfill postcheck does not fail
@@ -327,7 +343,10 @@ class Test0007PersonsAndGroupsOnEventsBackfill(AsyncMigrationBaseTest, Clickhous
 
         migration_successful = run_migration()
         self.assertFalse(migration_successful)
-        self.assertEqual(AsyncMigration.objects.get(name=MIGRATION_NAME).status, MigrationStatus.RolledBack)
+        self.assertEqual(
+            AsyncMigration.objects.get(name=MIGRATION_NAME).status,
+            MigrationStatus.RolledBack,
+        )
 
         MIGRATION_DEFINITION.operations[-1].fn = old_fn
 
@@ -553,7 +572,8 @@ class Test0007PersonsAndGroupsOnEventsBackfill(AsyncMigrationBaseTest, Clickhous
 
         # Test that we fail the postcheck with the right message when 3 out of 101 events is incomplete (~2%)
         with self.assertRaisesRegex(
-            Exception, "Backfill did not work succesfully. ~2% of events did not get the correct data for persons."
+            Exception,
+            "Backfill did not work succesfully. ~2% of events did not get the correct data for persons.",
         ):
             MIGRATION_DEFINITION._check_person_data()  # type: ignore
 

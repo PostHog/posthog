@@ -8,7 +8,6 @@ import posthog.models.utils
 
 
 class Migration(migrations.Migration):
-
     dependencies = [
         ("posthog", "0280_fix_async_deletion_team"),
         migrations.swappable_dependency(settings.AUTH_USER_MODEL),
@@ -22,14 +21,18 @@ class Migration(migrations.Migration):
                 (
                     "id",
                     models.UUIDField(
-                        default=posthog.models.utils.UUIDT, editable=False, primary_key=True, serialize=False
+                        default=posthog.models.utils.UUIDT,
+                        editable=False,
+                        primary_key=True,
+                        serialize=False,
                     ),
                 ),
                 ("name", models.CharField(max_length=200)),
                 (
                     "feature_flags_access_level",
                     models.PositiveSmallIntegerField(
-                        choices=[(21, "Can only view"), (37, "Can always edit")], default=37
+                        choices=[(21, "Can only view"), (37, "Can always edit")],
+                        default=37,
                     ),
                 ),
                 ("created_at", models.DateTimeField(auto_now_add=True)),
@@ -60,7 +63,10 @@ class Migration(migrations.Migration):
                 (
                     "id",
                     models.UUIDField(
-                        default=posthog.models.utils.UUIDT, editable=False, primary_key=True, serialize=False
+                        default=posthog.models.utils.UUIDT,
+                        editable=False,
+                        primary_key=True,
+                        serialize=False,
                     ),
                 ),
                 ("joined_at", models.DateTimeField(auto_now_add=True)),
@@ -88,7 +94,15 @@ class Migration(migrations.Migration):
         migrations.CreateModel(
             name="OrganizationResourceAccess",
             fields=[
-                ("id", models.AutoField(auto_created=True, primary_key=True, serialize=False, verbose_name="ID")),
+                (
+                    "id",
+                    models.AutoField(
+                        auto_created=True,
+                        primary_key=True,
+                        serialize=False,
+                        verbose_name="ID",
+                    ),
+                ),
                 (
                     "resource",
                     models.CharField(
@@ -107,7 +121,8 @@ class Migration(migrations.Migration):
                 (
                     "access_level",
                     models.PositiveSmallIntegerField(
-                        choices=[(21, "Can only view"), (37, "Can always edit")], default=37
+                        choices=[(21, "Can only view"), (37, "Can always edit")],
+                        default=37,
                     ),
                 ),
                 ("created_at", models.DateTimeField(auto_now_add=True)),
@@ -115,7 +130,9 @@ class Migration(migrations.Migration):
                 (
                     "created_by",
                     models.ForeignKey(
-                        null=True, on_delete=django.db.models.deletion.SET_NULL, to=settings.AUTH_USER_MODEL
+                        null=True,
+                        on_delete=django.db.models.deletion.SET_NULL,
+                        to=settings.AUTH_USER_MODEL,
                     ),
                 ),
                 (
@@ -131,7 +148,15 @@ class Migration(migrations.Migration):
         migrations.CreateModel(
             name="FeatureFlagRoleAccess",
             fields=[
-                ("id", models.AutoField(auto_created=True, primary_key=True, serialize=False, verbose_name="ID")),
+                (
+                    "id",
+                    models.AutoField(
+                        auto_created=True,
+                        primary_key=True,
+                        serialize=False,
+                        verbose_name="ID",
+                    ),
+                ),
                 ("added_at", models.DateTimeField(auto_now_add=True)),
                 ("updated_at", models.DateTimeField(auto_now=True)),
                 (
@@ -165,7 +190,8 @@ class Migration(migrations.Migration):
         migrations.AddConstraint(
             model_name="organizationresourceaccess",
             constraint=models.UniqueConstraint(
-                fields=("organization", "resource"), name="unique resource per organization"
+                fields=("organization", "resource"),
+                name="unique resource per organization",
             ),
         ),
         migrations.AddConstraint(

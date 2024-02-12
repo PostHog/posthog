@@ -1,9 +1,10 @@
-import { initKeaTests } from '~/test/init'
-import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
 import { expectLogic, partial } from 'kea-test-utils'
-import { PropertyDefinition, PropertyDefinitionState, PropertyDefinitionType, PropertyType } from '~/types'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+
 import { useMocks } from '~/mocks/jest'
+import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
+import { initKeaTests } from '~/test/init'
+import { PropertyDefinition, PropertyDefinitionState, PropertyDefinitionType, PropertyType } from '~/types'
 
 const propertyDefinitions: PropertyDefinition[] = [
     {
@@ -35,6 +36,29 @@ const propertyDefinitions: PropertyDefinition[] = [
     },
 ]
 
+const groupPropertyDefinitions: PropertyDefinition[] = [
+    {
+        id: 'an id',
+        name: 'no property type',
+        description: 'a description',
+        type: PropertyDefinitionType.Group,
+    },
+    {
+        id: 'an id',
+        name: 'a string',
+        description: 'a description',
+        property_type: PropertyType.String,
+        type: PropertyDefinitionType.Group,
+    },
+    {
+        id: 'an id',
+        name: '$time',
+        description: 'a description',
+        property_type: PropertyType.DateTime,
+        type: PropertyDefinitionType.Group,
+    },
+]
+
 describe('the property definitions model', () => {
     let logic: ReturnType<typeof propertyDefinitionsModel.build>
     let featureFlagsLogic: ReturnType<typeof featureFlagLogic.build>
@@ -47,7 +71,12 @@ describe('the property definitions model', () => {
                     if (propertiesToFind[0] === 'network error') {
                         return
                     }
-                    const foundProperties = propertyDefinitions.filter(
+                    const filteredPropertyDefinitions =
+                        req.url.searchParams.get('type') === 'group' &&
+                        req.url.searchParams.get('group_type_index') !== null
+                            ? groupPropertyDefinitions
+                            : propertyDefinitions
+                    const foundProperties = filteredPropertyDefinitions.filter(
                         (p) => propertiesToFind.length === 0 || propertiesToFind.includes(p.name)
                     )
                     return [
@@ -103,6 +132,38 @@ describe('the property definitions model', () => {
                     property_type: 'Duration',
                 },
                 propertyDefinitions.find(({ name }) => name === 'a string'),
+            ])
+        })
+
+        it('can load group property definitions when correct group type index is provided', async () => {
+            await expectLogic(logic, () => {
+                logic.actions.loadPropertyDefinitions(['a string'], PropertyDefinitionType.Group, 1)
+            })
+                .toDispatchActions([
+                    logic.actionCreators.updatePropertyDefinitions({
+                        'group/1/a string': PropertyDefinitionState.Pending,
+                    }),
+                    logic.actionCreators.fetchAllPendingDefinitions(),
+                    logic.actionCreators.updatePropertyDefinitions({
+                        'group/1/a string': PropertyDefinitionState.Loading,
+                    }),
+                    logic.actionCreators.updatePropertyDefinitions({
+                        'group/1/a string': groupPropertyDefinitions.find(
+                            ({ name }) => name === 'a string'
+                        ) as PropertyDefinition,
+                    }),
+                ])
+                .toMatchValues({
+                    propertyDefinitionStorage: partial({
+                        'group/1/a string': groupPropertyDefinitions.find(({ name }) => name === 'a string'),
+                    }),
+                })
+
+            // invalid or wrong group type, should not return any properties
+            expect(logic.values.propertyDefinitionsByType('group')).toEqual([])
+            expect(logic.values.propertyDefinitionsByType('group', 0)).toEqual([])
+            expect(logic.values.propertyDefinitionsByType('group', 1)).toEqual([
+                groupPropertyDefinitions.find(({ name }) => name === 'a string'),
             ])
         })
 

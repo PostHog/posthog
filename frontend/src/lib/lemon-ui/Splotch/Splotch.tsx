@@ -1,5 +1,6 @@
-import clsx from 'clsx'
 import './Splotch.scss'
+
+import clsx from 'clsx'
 
 export enum SplotchColor {
     Purple = 'purple',

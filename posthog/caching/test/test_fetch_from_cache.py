@@ -11,7 +11,13 @@ from posthog.caching.fetch_from_cache import (
 )
 from posthog.decorators import CacheType
 from posthog.models import Insight
-from posthog.test.base import BaseTest, ClickhouseTestMixin, _create_event, _create_insight, flush_persons_and_events
+from posthog.test.base import (
+    BaseTest,
+    ClickhouseTestMixin,
+    _create_event,
+    _create_insight,
+    flush_persons_and_events,
+)
 from posthog.utils import get_safe_cache
 
 
@@ -20,12 +26,24 @@ class TestFetchFromCache(ClickhouseTestMixin, BaseTest):
     def setUp(self):
         super().setUp()
 
-        _create_event(team=self.team, event="$pageview", distinct_id="1", properties={"prop": "val"})
-        _create_event(team=self.team, event="$pageview", distinct_id="2", properties={"prop": "another_val"})
+        _create_event(
+            team=self.team,
+            event="$pageview",
+            distinct_id="1",
+            properties={"prop": "val"},
+        )
+        _create_event(
+            team=self.team,
+            event="$pageview",
+            distinct_id="2",
+            properties={"prop": "another_val"},
+        )
         flush_persons_and_events()
 
         insight, dashboard, dashboard_tile = _create_insight(
-            self.team, {"events": [{"id": "$pageview"}], "properties": []}, {"properties": [{}]}
+            self.team,
+            {"events": [{"id": "$pageview"}], "properties": []},
+            {"properties": [{}]},
         )
         self.dashboard = dashboard
         self.insight = insight

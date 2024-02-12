@@ -1,17 +1,21 @@
 // Signup.stories.tsx
 import { Meta } from '@storybook/react'
 import { useEffect } from 'react'
+
 import { mswDecorator, useStorybookMocks } from '~/mocks/browser'
 import preflightJson from '~/mocks/fixtures/_preflight.json'
+
 import { InviteSignup } from './InviteSignup'
 import { inviteSignupLogic } from './inviteSignupLogic'
 
-export default {
+const meta: Meta = {
     title: 'Scenes-Other/InviteSignup',
     parameters: {
         layout: 'fullscreen',
-        options: { showPanel: false },
         viewMode: 'story',
+        testOptions: {
+            waitForSelector: '.BridgePage__left__message--enter-done',
+        },
     },
     decorators: [
         mswDecorator({
@@ -33,8 +37,8 @@ export default {
             },
         }),
     ],
-} as Meta
-
+}
+export default meta
 export const SelfHosted = (): JSX.Element => {
     useStorybookMocks({
         get: {

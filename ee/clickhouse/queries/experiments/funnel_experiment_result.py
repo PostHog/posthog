@@ -1,8 +1,8 @@
 from dataclasses import asdict, dataclass
 from datetime import datetime
 from typing import List, Optional, Tuple, Type
+from zoneinfo import ZoneInfo
 
-import pytz
 from numpy.random import default_rng
 from rest_framework.exceptions import ValidationError
 
@@ -57,7 +57,6 @@ class ClickhouseFunnelExperimentResult:
         experiment_end_date: Optional[datetime] = None,
         funnel_class: Type[ClickhouseFunnel] = ClickhouseFunnel,
     ):
-
         breakdown_key = f"$feature/{feature_flag.key}"
         self.variants = [variant["key"] for variant in feature_flag.variants]
 
@@ -65,9 +64,9 @@ class ClickhouseFunnelExperimentResult:
         # while start and end date are in UTC.
         # so we need to convert them to the project timezone
         if team.timezone:
-            start_date_in_project_timezone = experiment_start_date.astimezone(pytz.timezone(team.timezone))
+            start_date_in_project_timezone = experiment_start_date.astimezone(ZoneInfo(team.timezone))
             end_date_in_project_timezone = (
-                experiment_end_date.astimezone(pytz.timezone(team.timezone)) if experiment_end_date else None
+                experiment_end_date.astimezone(ZoneInfo(team.timezone)) if experiment_end_date else None
             )
 
         query_filter = filter.shallow_clone(
@@ -86,7 +85,11 @@ class ClickhouseFunnelExperimentResult:
 
     def get_results(self):
         funnel_results = self.funnel.run()
+
+        validate_event_variants(funnel_results, self.variants)
+
         filtered_results = [result for result in funnel_results if result[0]["breakdown_value"][0] in self.variants]
+
         control_variant, test_variants = self.get_variants(filtered_results)
 
         probabilities = self.calculate_results(control_variant, test_variants)
@@ -116,7 +119,11 @@ class ClickhouseFunnelExperimentResult:
             failure = total - success
             breakdown_value = result[0]["breakdown_value"][0]
             if breakdown_value == CONTROL_VARIANT_KEY:
-                control_variant = Variant(key=breakdown_value, success_count=int(success), failure_count=int(failure))
+                control_variant = Variant(
+                    key=breakdown_value,
+                    success_count=int(success),
+                    failure_count=int(failure),
+                )
             else:
                 test_variants.append(Variant(breakdown_value, int(success), int(failure)))
 
@@ -124,7 +131,9 @@ class ClickhouseFunnelExperimentResult:
 
     @staticmethod
     def calculate_results(
-        control_variant: Variant, test_variants: List[Variant], priors: Tuple[int, int] = (1, 1)
+        control_variant: Variant,
+        test_variants: List[Variant],
+        priors: Tuple[int, int] = (1, 1),
     ) -> List[Probability]:
         """
         Calculates probability that A is better than B. First variant is control, rest are test variants.
@@ -145,17 +154,28 @@ class ClickhouseFunnelExperimentResult:
             raise ValidationError("No control variant data found", code="no_data")
 
         if len(test_variants) >= 10:
-            raise ValidationError("Can't calculate A/B test results for more than 10 variants", code="too_much_data")
+            raise ValidationError(
+                "Can't calculate A/B test results for more than 10 variants",
+                code="too_much_data",
+            )
 
         if len(test_variants) < 1:
-            raise ValidationError("Can't calculate A/B test results for less than 2 variants", code="no_data")
+            raise ValidationError(
+                "Can't calculate A/B test results for less than 2 variants",
+                code="no_data",
+            )
 
         return calculate_probability_of_winning_for_each([control_variant, *test_variants])
 
     @staticmethod
     def are_results_significant(
-        control_variant: Variant, test_variants: List[Variant], probabilities: List[Probability]
+        control_variant: Variant,
+        test_variants: List[Variant],
+        probabilities: List[Probability],
     ) -> Tuple[ExperimentSignificanceCode, Probability]:
+        def get_conversion_rate(variant: Variant):
+            return variant.success_count / (variant.success_count + variant.failure_count)
+
         control_sample_size = control_variant.success_count + control_variant.failure_count
 
         for variant in test_variants:
@@ -175,10 +195,14 @@ class ClickhouseFunnelExperimentResult:
             return ExperimentSignificanceCode.LOW_WIN_PROBABILITY, 1
 
         best_test_variant = max(
-            test_variants, key=lambda variant: variant.success_count / (variant.success_count + variant.failure_count)
+            test_variants,
+            key=lambda variant: get_conversion_rate(variant),
         )
 
-        expected_loss = calculate_expected_loss(best_test_variant, [control_variant])
+        if get_conversion_rate(best_test_variant) > get_conversion_rate(control_variant):
+            expected_loss = calculate_expected_loss(best_test_variant, [control_variant])
+        else:
+            expected_loss = calculate_expected_loss(control_variant, [best_test_variant])
 
         if expected_loss >= EXPECTED_LOSS_SIGNIFICANCE_LEVEL:
             return ExperimentSignificanceCode.HIGH_LOSS, expected_loss
@@ -208,12 +232,16 @@ def calculate_expected_loss(target_variant: Variant, variants: List[Variant]) ->
         # Get `N=simulations` samples from a Beta distribution with alpha = prior_success + variant_sucess,
         # and beta = prior_failure + variant_failure
         samples = random_sampler.beta(
-            variant.success_count + prior_success, variant.failure_count + prior_failure, simulations_count
+            variant.success_count + prior_success,
+            variant.failure_count + prior_failure,
+            simulations_count,
         )
         variant_samples.append(samples)
 
     target_variant_samples = random_sampler.beta(
-        target_variant.success_count + prior_success, target_variant.failure_count + prior_failure, simulations_count
+        target_variant.success_count + prior_success,
+        target_variant.failure_count + prior_failure,
+        simulations_count,
     )
 
     loss = 0
@@ -235,12 +263,16 @@ def simulate_winning_variant_for_conversion(target_variant: Variant, variants: L
         # Get `N=simulations` samples from a Beta distribution with alpha = prior_success + variant_sucess,
         # and beta = prior_failure + variant_failure
         samples = random_sampler.beta(
-            variant.success_count + prior_success, variant.failure_count + prior_failure, simulations_count
+            variant.success_count + prior_success,
+            variant.failure_count + prior_failure,
+            simulations_count,
         )
         variant_samples.append(samples)
 
     target_variant_samples = random_sampler.beta(
-        target_variant.success_count + prior_success, target_variant.failure_count + prior_failure, simulations_count
+        target_variant.success_count + prior_success,
+        target_variant.failure_count + prior_failure,
+        simulations_count,
     )
 
     winnings = 0
@@ -257,7 +289,10 @@ def calculate_probability_of_winning_for_each(variants: List[Variant]) -> List[P
     Calculates the probability of winning for each variant.
     """
     if len(variants) > 10:
-        raise ValidationError("Can't calculate A/B test results for more than 10 variants", code="too_much_data")
+        raise ValidationError(
+            "Can't calculate A/B test results for more than 10 variants",
+            code="too_much_data",
+        )
 
     probabilities = []
     # simulate winning for each test variant
@@ -267,3 +302,42 @@ def calculate_probability_of_winning_for_each(variants: List[Variant]) -> List[P
     total_test_probabilities = sum(probabilities[1:])
 
     return [max(0, 1 - total_test_probabilities), *probabilities[1:]]
+
+
+def validate_event_variants(funnel_results, variants):
+    if not funnel_results or not funnel_results[0]:
+        raise ValidationError("No experiment events have been ingested yet.", code="no-events")
+
+    eventsWithOrderZero = []
+    for eventArr in funnel_results:
+        for event in eventArr:
+            if event.get("order") == 0:
+                eventsWithOrderZero.append(event)
+
+    missing_variants = []
+
+    # Check if "control" is present
+    control_found = False
+    for event in eventsWithOrderZero:
+        event_variant = event.get("breakdown_value")[0]
+        if event_variant == "control":
+            control_found = True
+            break
+    if not control_found:
+        missing_variants.append("control")
+
+    # Check if at least one of the test variants is present
+    test_variants = [variant for variant in variants if variant != "control"]
+    test_variant_found = False
+    for event in eventsWithOrderZero:
+        event_variant = event.get("breakdown_value")[0]
+        if event_variant in test_variants:
+            test_variant_found = True
+            break
+    if not test_variant_found:
+        missing_variants.extend(test_variants)
+
+    if not len(missing_variants) == 0:
+        missing_variants_str = ", ".join(missing_variants)
+        message = f"No experiment events have been ingested yet for the following variants: {missing_variants_str}"
+        raise ValidationError(message, code=f"missing-flag-variants::{missing_variants_str}")

@@ -1,11 +1,12 @@
 import clsx from 'clsx'
 import { getSeriesColor } from 'lib/colors'
-import { IndexedTrendResult } from 'scenes/trends/types'
 import { InsightLabel } from 'lib/components/InsightLabel'
-import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { IconEdit } from 'lib/lemon-ui/icons'
-import { TrendResult } from '~/types'
+import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { capitalizeFirstLetter } from 'lib/utils'
+import { IndexedTrendResult } from 'scenes/trends/types'
+
+import { TrendResult } from '~/types'
 
 type SeriesColumnItemProps = {
     item: IndexedTrendResult
@@ -27,7 +28,7 @@ export function SeriesColumnItem({
     const showCountedByTag = !!indexedResults.find(({ action }) => action?.math && action.math !== 'total')
 
     return (
-        <div className="series-name-wrapper-col">
+        <div className="series-name-wrapper-col space-x-1">
             <InsightLabel
                 seriesColor={getSeriesColor(item.seriesIndex, compare || false)}
                 action={item.action}

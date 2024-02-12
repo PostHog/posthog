@@ -1,15 +1,40 @@
+import './InsightCard.scss'
+
 import clsx from 'clsx'
 import { BindLogic, useValues } from 'kea'
-import React, { useEffect, useState } from 'react'
+import { Resizeable } from 'lib/components/Cards/CardMeta'
+import { QueriesUnsupportedHere } from 'lib/components/Cards/InsightCard/QueriesUnsupportedHere'
+import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
+import { SpinnerOverlay } from 'lib/lemon-ui/Spinner/Spinner'
+import React, { useState } from 'react'
 import { Layout } from 'react-grid-layout'
+import { Funnel } from 'scenes/funnels/Funnel'
+import { funnelDataLogic } from 'scenes/funnels/funnelDataLogic'
 import {
-    FunnelInvalidExclusionState,
     FunnelSingleStepState,
     InsightEmptyState,
     InsightErrorState,
     InsightTimeoutState,
+    InsightValidationError,
 } from 'scenes/insights/EmptyStates'
+import { insightDataLogic } from 'scenes/insights/insightDataLogic'
 import { insightLogic } from 'scenes/insights/insightLogic'
+import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
+import { isFilterWithDisplay, isFunnelsFilter, isPathsFilter, isRetentionFilter } from 'scenes/insights/sharedUtils'
+import { BoldNumber } from 'scenes/insights/views/BoldNumber'
+import { DashboardInsightsTable } from 'scenes/insights/views/InsightsTable/DashboardInsightsTable'
+import { WorldMap } from 'scenes/insights/views/WorldMap'
+import { Paths } from 'scenes/paths/Paths'
+import { RetentionContainer } from 'scenes/retention/RetentionContainer'
+import { ActionsHorizontalBar, ActionsLineGraph, ActionsPie } from 'scenes/trends/viz'
+
+import { dataNodeLogic, DataNodeLogicProps } from '~/queries/nodes/DataNode/dataNodeLogic'
+import { filtersToQueryNode } from '~/queries/nodes/InsightQuery/utils/filtersToQueryNode'
+import { insightVizDataNodeKey } from '~/queries/nodes/InsightViz/InsightViz'
+import { getCachedResults } from '~/queries/nodes/InsightViz/utils'
+import { Query } from '~/queries/Query/Query'
+import { InsightQueryNode } from '~/queries/schema'
+import { QueryContext } from '~/queries/types'
 import {
     ChartDisplayType,
     ChartParams,
@@ -23,35 +48,9 @@ import {
     InsightModel,
     InsightType,
 } from '~/types'
-import { ResizeHandle1D, ResizeHandle2D } from '../handles'
-import './InsightCard.scss'
-import { ActionsHorizontalBar, ActionsLineGraph, ActionsPie } from 'scenes/trends/viz'
-import { DashboardInsightsTable } from 'scenes/insights/views/InsightsTable/DashboardInsightsTable'
-import { Funnel } from 'scenes/funnels/Funnel'
-import { RetentionContainer } from 'scenes/retention/RetentionContainer'
-import { Paths } from 'scenes/paths/Paths'
 
-import { WorldMap } from 'scenes/insights/views/WorldMap'
-import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
-import { BoldNumber } from 'scenes/insights/views/BoldNumber'
-import { SpinnerOverlay } from 'lib/lemon-ui/Spinner/Spinner'
-import {
-    isFilterWithDisplay,
-    isFunnelsFilter,
-    isPathsFilter,
-    isRetentionFilter,
-    isTrendsFilter,
-} from 'scenes/insights/sharedUtils'
-import { Resizeable } from 'lib/components/Cards/CardMeta'
-import { Query } from '~/queries/Query/Query'
-import { QueriesUnsupportedHere } from 'lib/components/Cards/InsightCard/QueriesUnsupportedHere'
-import { QueryContext } from '~/queries/schema'
+import { ResizeHandle1D, ResizeHandle2D } from '../handles'
 import { InsightMeta } from './InsightMeta'
-import { dataNodeLogic, DataNodeLogicProps } from '~/queries/nodes/DataNode/dataNodeLogic'
-import { filtersToQueryNode } from '~/queries/nodes/InsightQuery/utils/filtersToQueryNode'
-import { insightVizDataNodeKey } from '~/queries/nodes/InsightViz/InsightViz'
-import { getCachedResults } from '~/queries/nodes/InsightViz/utils'
-import { funnelDataLogic } from 'scenes/funnels/funnelDataLogic'
 
 type DisplayedType = ChartDisplayType | 'RetentionContainer' | 'FunnelContainer' | 'PathsContainer'
 
@@ -146,7 +145,7 @@ export interface InsightCardProps extends Resizeable, React.HTMLAttributes<HTMLD
     ribbonColor?: InsightColor | null
     updateColor?: (newColor: DashboardTile['color']) => void
     removeFromDashboard?: () => void
-    deleteWithUndo?: () => void
+    deleteWithUndo?: () => Promise<void>
     refresh?: () => void
     rename?: () => void
     duplicate?: () => void
@@ -154,6 +153,8 @@ export interface InsightCardProps extends Resizeable, React.HTMLAttributes<HTMLD
     /** buttons to add to the "more" menu on the card**/
     moreButtons?: JSX.Element | null
     placement: DashboardPlacement | 'SavedInsightGrid'
+    /** Priority for loading the insight, lower is earlier. */
+    loadPriority?: number
 }
 
 function VizComponentFallback(): JSX.Element {
@@ -164,7 +165,7 @@ export interface FilterBasedCardContentProps
     extends Pick<InsightCardProps, 'insight' | 'loading' | 'apiErrored' | 'timedOut' | 'style'> {
     insightProps: InsightLogicProps
     tooFewFunnelSteps?: boolean
-    invalidFunnelExclusion?: boolean
+    validationError?: string | null
     empty?: boolean
     setAreDetailsShown?: React.Dispatch<React.SetStateAction<boolean>>
     /** pass in information from queries, e.g. what text to use for empty states*/
@@ -176,42 +177,26 @@ export function FilterBasedCardContent({
     insightProps,
     loading,
     setAreDetailsShown,
-    style,
     apiErrored,
     timedOut,
     empty,
     tooFewFunnelSteps,
-    invalidFunnelExclusion,
+    validationError,
     context,
 }: FilterBasedCardContentProps): JSX.Element {
     const displayedType = getDisplayedType(insight.filters)
     const VizComponent = displayMap[displayedType]?.element || VizComponentFallback
-    const query = filtersToQueryNode(insight.filters)
+    const query: InsightQueryNode = filtersToQueryNode(insight.filters)
     const dataNodeLogicProps: DataNodeLogicProps = {
         query,
         key: insightVizDataNodeKey(insightProps),
         cachedResults: getCachedResults(insightProps.cachedInsight, query),
         doNotLoad: insightProps.doNotLoad,
     }
-    useEffect(() => {
-        // If displaying a BoldNumber Trends insight, we need to fire the window resize event
-        // Without this, the value is only autosized before `metaPrimaryHeight` is determined, so it's wrong
-        // With this, autosizing runs again after `metaPrimaryHeight` is ready
-        if (
-            // `display` should be ignored in non-Trends insight
-            isTrendsFilter(insight.filters) &&
-            insight.filters.display === ChartDisplayType.BoldNumber
-        ) {
-            window.dispatchEvent(new Event('resize'))
-        }
-    }, [style?.height])
-
     return (
         <BindLogic logic={dataNodeLogic} props={dataNodeLogicProps}>
             <div
-                className="InsightViz"
-                // eslint-disable-next-line react/forbid-dom-props
-                style={style}
+                className="InsightCard__viz"
                 onClick={
                     setAreDetailsShown
                         ? () => {
@@ -223,8 +208,8 @@ export function FilterBasedCardContent({
                 {loading && <SpinnerOverlay />}
                 {tooFewFunnelSteps ? (
                     <FunnelSingleStepState actionable={false} />
-                ) : invalidFunnelExclusion ? (
-                    <FunnelInvalidExclusionState />
+                ) : validationError ? (
+                    <InsightValidationError detail={validationError} />
                 ) : empty ? (
                     <InsightEmptyState heading={context?.emptyStateHeading} detail={context?.emptyStateDetail} />
                 ) : !loading && timedOut ? (
@@ -263,6 +248,7 @@ function InsightCardInternal(
         children,
         moreButtons,
         placement,
+        loadPriority,
         ...divProps
     }: InsightCardProps,
     ref: React.Ref<HTMLDivElement>
@@ -271,32 +257,28 @@ function InsightCardInternal(
         dashboardItemId: insight.short_id,
         dashboardId: dashboardId,
         cachedInsight: insight,
-        doNotLoad: true,
+        loadPriority,
     }
 
     const { insightLoading } = useValues(insightLogic(insightLogicProps))
-    const { isFunnelWithEnoughSteps, hasFunnelResults, areExclusionFiltersValid } = useValues(
-        funnelDataLogic(insightLogicProps)
-    )
+    const { insightDataLoading } = useValues(insightDataLogic(insightLogicProps))
+    const { hasFunnelResults } = useValues(funnelDataLogic(insightLogicProps))
+    const { isFunnelWithEnoughSteps, validationError } = useValues(insightVizDataLogic(insightLogicProps))
 
     let tooFewFunnelSteps = false
-    let invalidFunnelExclusion = false
     let empty = false
     if (insight.filters.insight === InsightType.FUNNELS) {
         if (!isFunnelWithEnoughSteps) {
             tooFewFunnelSteps = true
-        } else if (!areExclusionFiltersValid) {
-            invalidFunnelExclusion = true
         }
         if (!hasFunnelResults) {
             empty = true
         }
     }
-    if (insightLoading) {
+    if (insightLoading || insightDataLoading) {
         loading = true
     }
 
-    const [metaPrimaryHeight, setMetaPrimaryHeight] = useState<number | undefined>(undefined)
     const [areDetailsShown, setAreDetailsShown] = useState(false)
 
     const canMakeQueryAPICalls =
@@ -324,26 +306,15 @@ function InsightCardInternal(
                     rename={rename}
                     duplicate={duplicate}
                     moveToDashboard={moveToDashboard}
-                    setPrimaryHeight={setMetaPrimaryHeight}
                     areDetailsShown={areDetailsShown}
                     setAreDetailsShown={setAreDetailsShown}
                     showEditingControls={showEditingControls}
                     showDetailsControls={showDetailsControls}
                     moreButtons={moreButtons}
                 />
-                {!!insight.query ? (
-                    <div
-                        className="InsightViz p-2"
-                        // eslint-disable-next-line react/forbid-dom-props
-                        style={
-                            metaPrimaryHeight
-                                ? {
-                                      height: `calc(100% - ${metaPrimaryHeight}px - 2rem /* margins */ - 1px /* border */)`,
-                                  }
-                                : undefined
-                        }
-                    >
-                        {!!insight.result ? (
+                {insight.query ? (
+                    <div className="InsightCard__viz">
+                        {insight.result ? (
                             <Query query={insight.query} cachedResults={insight.result} readOnly />
                         ) : canMakeQueryAPICalls ? (
                             <Query query={insight.query} readOnly />
@@ -351,7 +322,7 @@ function InsightCardInternal(
                             <QueriesUnsupportedHere />
                         )}
                     </div>
-                ) : (
+                ) : insight.filters?.insight ? (
                     <FilterBasedCardContent
                         insight={insight}
                         insightProps={insightLogicProps}
@@ -360,16 +331,16 @@ function InsightCardInternal(
                         timedOut={timedOut}
                         empty={empty}
                         tooFewFunnelSteps={tooFewFunnelSteps}
-                        invalidFunnelExclusion={invalidFunnelExclusion}
-                        style={
-                            metaPrimaryHeight
-                                ? {
-                                      height: `calc(100% - ${metaPrimaryHeight}px - 2rem /* margins */ - 1px /* border */)`,
-                                  }
-                                : undefined
-                        }
+                        validationError={validationError}
                         setAreDetailsShown={setAreDetailsShown}
                     />
+                ) : (
+                    <div className="flex justify-between items-center h-full">
+                        <InsightErrorState
+                            excludeDetail
+                            title="Missing 'filters.insight' property, can't display insight"
+                        />
+                    </div>
                 )}
             </BindLogic>
             {showResizeHandles && (

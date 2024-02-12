@@ -3,7 +3,11 @@ from typing import List, Any
 from posthog.hogql import ast
 from posthog.hogql.errors import NotImplementedException
 from posthog.hogql.visitor import Visitor
-from hogvm.python.operation import Operation, HOGQL_BYTECODE_IDENTIFIER, SUPPORTED_FUNCTIONS
+from hogvm.python.operation import (
+    Operation,
+    HOGQL_BYTECODE_IDENTIFIER,
+    SUPPORTED_FUNCTIONS,
+)
 
 COMPARE_OPERATIONS = {
     ast.CompareOperationOp.Eq: Operation.EQ,
@@ -68,10 +72,17 @@ class BytecodeBuilder(Visitor):
         return [*self.visit(node.expr), Operation.NOT]
 
     def visit_compare_operation(self, node: ast.CompareOperation):
-        return [*self.visit(node.right), *self.visit(node.left), COMPARE_OPERATIONS[node.op]]
+        operation = COMPARE_OPERATIONS[node.op]
+        if operation in [Operation.IN_COHORT, Operation.NOT_IN_COHORT]:
+            raise NotImplementedException("Cohort operations are not supported")
+        return [*self.visit(node.right), *self.visit(node.left), operation]
 
     def visit_arithmetic_operation(self, node: ast.ArithmeticOperation):
-        return [*self.visit(node.right), *self.visit(node.left), ARITHMETIC_OPERATIONS[node.op]]
+        return [
+            *self.visit(node.right),
+            *self.visit(node.left),
+            ARITHMETIC_OPERATIONS[node.op],
+        ]
 
     def visit_field(self, node: ast.Field):
         chain = []
@@ -99,11 +110,23 @@ class BytecodeBuilder(Visitor):
         elif isinstance(node.value, str):
             return [Operation.STRING, node.value]
         else:
-            raise NotImplementedException(f"Unsupported constant type: {type(node.value)}")
+            raise NotImplementedException(f"Constant type `{type(node.value)}` is not supported")
 
     def visit_call(self, node: ast.Call):
+        if node.name == "not" and len(node.args) == 1:
+            return [*self.visit(node.args[0]), Operation.NOT]
+        if node.name == "and" and len(node.args) > 1:
+            args = []
+            for arg in reversed(node.args):
+                args.extend(self.visit(arg))
+            return [*args, Operation.AND, len(node.args)]
+        if node.name == "or" and len(node.args) > 1:
+            args = []
+            for arg in reversed(node.args):
+                args.extend(self.visit(arg))
+            return [*args, Operation.OR, len(node.args)]
         if node.name not in SUPPORTED_FUNCTIONS:
-            raise NotImplementedException(f"Unsupported function: {node.name}")
+            raise NotImplementedException(f"HogQL function `{node.name}` is not supported")
         response = []
         for expr in reversed(node.args):
             response.extend(self.visit(expr))

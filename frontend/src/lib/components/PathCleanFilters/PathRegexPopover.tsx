@@ -1,6 +1,6 @@
+import { LemonButton, LemonDivider, LemonInput } from '@posthog/lemon-ui'
 import { useState } from 'react'
 
-import { LemonInput, LemonButton, LemonDivider } from '@posthog/lemon-ui'
 import { PathCleaningFilter } from '~/types'
 
 interface PathRegexPopoverProps {

@@ -1,0 +1,22 @@
+.CommandBar__input {
+    height: 2.75rem;
+    padding-right: 0.375rem;
+    padding-left: 0.75rem;
+    border-color: transparent !important;
+    border-radius: 0;
+}
+
+.SearchBarTab {
+    &:hover {
+        border-left: 2px solid var(--border-3000);
+    }
+
+    &.SearchBarTab__active {
+        border-color: var(--primary-3000);
+    }
+}
+
+.SearchResults {
+    // offset container height by input
+    height: calc(100% - 2.375rem);
+}

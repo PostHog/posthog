@@ -1,13 +1,14 @@
-import { InfoCircleOutlined } from '@ant-design/icons'
-import { capitalizeFirstLetter, pluralize } from 'lib/utils'
-import { useState } from 'react'
-import { EditorFilterProps, FunnelConversionWindow, FunnelConversionWindowTimeUnit } from '~/types'
-import { Tooltip } from 'lib/lemon-ui/Tooltip'
-import { useDebouncedCallback } from 'use-debounce'
+import { IconInfo } from '@posthog/icons'
 import { LemonInput, LemonSelect, LemonSelectOption } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
+import { Tooltip } from 'lib/lemon-ui/Tooltip'
+import { capitalizeFirstLetter, pluralize } from 'lib/utils'
+import { useState } from 'react'
 import { funnelDataLogic } from 'scenes/funnels/funnelDataLogic'
+import { useDebouncedCallback } from 'use-debounce'
+
 import { FunnelsFilter } from '~/queries/schema'
+import { EditorFilterProps, FunnelConversionWindow, FunnelConversionWindowTimeUnit } from '~/types'
 
 const TIME_INTERVAL_BOUNDS: Record<FunnelConversionWindowTimeUnit, number[]> = {
     [FunnelConversionWindowTimeUnit.Second]: [1, 3600],
@@ -23,26 +24,26 @@ export function FunnelConversionWindowFilter({ insightProps }: Pick<EditorFilter
     const { insightFilter, querySource } = useValues(funnelDataLogic(insightProps))
     const { updateInsightFilter } = useActions(funnelDataLogic(insightProps))
 
-    const { funnel_window_interval = 14, funnel_window_interval_unit = FunnelConversionWindowTimeUnit.Day } =
+    const { funnelWindowInterval = 14, funnelWindowIntervalUnit = FunnelConversionWindowTimeUnit.Day } =
         (insightFilter || {}) as FunnelsFilter
 
     const [localConversionWindow, setLocalConversionWindow] = useState<FunnelConversionWindow>({
-        funnel_window_interval,
-        funnel_window_interval_unit,
+        funnelWindowInterval,
+        funnelWindowIntervalUnit,
     })
 
     const options: LemonSelectOption<FunnelConversionWindowTimeUnit>[] = Object.keys(TIME_INTERVAL_BOUNDS).map(
         (unit) => ({
-            label: capitalizeFirstLetter(pluralize(funnel_window_interval ?? 7, unit, `${unit}s`, false)),
+            label: capitalizeFirstLetter(pluralize(funnelWindowInterval ?? 7, unit, `${unit}s`, false)),
             value: unit as FunnelConversionWindowTimeUnit,
         })
     )
-    const intervalBounds = TIME_INTERVAL_BOUNDS[funnel_window_interval_unit ?? FunnelConversionWindowTimeUnit.Day]
+    const intervalBounds = TIME_INTERVAL_BOUNDS[funnelWindowIntervalUnit ?? FunnelConversionWindowTimeUnit.Day]
 
     const setConversionWindow = useDebouncedCallback((): void => {
         if (
-            localConversionWindow.funnel_window_interval !== funnel_window_interval ||
-            localConversionWindow.funnel_window_interval_unit !== funnel_window_interval_unit
+            localConversionWindow.funnelWindowInterval !== funnelWindowInterval ||
+            localConversionWindow.funnelWindowIntervalUnit !== funnelWindowIntervalUnit
         ) {
             updateInsightFilter(localConversionWindow)
         }
@@ -50,8 +51,8 @@ export function FunnelConversionWindowFilter({ insightProps }: Pick<EditorFilter
 
     return (
         <div className="flex items-center gap-2">
-            <span className="whitespace-nowrap">
-                Conversion window limit{' '}
+            <span className="flex whitespace-nowrap">
+                Conversion window limit
                 <Tooltip
                     title={
                         <>
@@ -63,7 +64,7 @@ export function FunnelConversionWindowFilter({ insightProps }: Pick<EditorFilter
                         </>
                     }
                 >
-                    <InfoCircleOutlined className="info-indicator" />
+                    <IconInfo className="w-4 info-indicator" />
                 </Tooltip>
             </span>
             <div className="flex items-center gap-2">
@@ -73,12 +74,12 @@ export function FunnelConversionWindowFilter({ insightProps }: Pick<EditorFilter
                     fullWidth={false}
                     min={intervalBounds[0]}
                     max={intervalBounds[1]}
-                    defaultValue={funnel_window_interval}
-                    value={localConversionWindow.funnel_window_interval}
-                    onChange={(funnel_window_interval) => {
+                    defaultValue={funnelWindowInterval}
+                    value={localConversionWindow.funnelWindowInterval}
+                    onChange={(funnelWindowInterval) => {
                         setLocalConversionWindow((state) => ({
                             ...state,
-                            funnel_window_interval: Number(funnel_window_interval),
+                            funnelWindowInterval: Number(funnelWindowInterval),
                         }))
                         setConversionWindow()
                     }}
@@ -87,10 +88,10 @@ export function FunnelConversionWindowFilter({ insightProps }: Pick<EditorFilter
                 />
                 <LemonSelect
                     dropdownMatchSelectWidth={false}
-                    value={localConversionWindow.funnel_window_interval_unit}
-                    onChange={(funnel_window_interval_unit: FunnelConversionWindowTimeUnit | null) => {
-                        if (funnel_window_interval_unit) {
-                            setLocalConversionWindow((state) => ({ ...state, funnel_window_interval_unit }))
+                    value={localConversionWindow.funnelWindowIntervalUnit}
+                    onChange={(funnelWindowIntervalUnit: FunnelConversionWindowTimeUnit | null) => {
+                        if (funnelWindowIntervalUnit) {
+                            setLocalConversionWindow((state) => ({ ...state, funnelWindowIntervalUnit }))
                             setConversionWindow()
                         }
                     }}

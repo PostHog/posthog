@@ -1,6 +1,8 @@
-import { dayjs } from 'lib/dayjs'
-import { IntervalType } from '~/types'
 import './DateDisplay.scss'
+
+import { dayjs } from 'lib/dayjs'
+
+import { IntervalType } from '~/types'
 
 interface DateDisplayProps {
     date: string

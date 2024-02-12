@@ -8,7 +8,6 @@ import posthog.models.utils
 
 
 class Migration(migrations.Migration):
-
     dependencies = [
         ("posthog", "0170_project_based_permissioning"),
         migrations.swappable_dependency(settings.AUTH_USER_MODEL),
@@ -22,10 +21,16 @@ class Migration(migrations.Migration):
                 (
                     "id",
                     models.UUIDField(
-                        default=posthog.models.utils.UUIDT, editable=False, primary_key=True, serialize=False
+                        default=posthog.models.utils.UUIDT,
+                        editable=False,
+                        primary_key=True,
+                        serialize=False,
                     ),
                 ),
-                ("level", models.PositiveSmallIntegerField(choices=[(1, "member"), (8, "administrator")], default=1)),
+                (
+                    "level",
+                    models.PositiveSmallIntegerField(choices=[(1, "member"), (8, "administrator")], default=1),
+                ),
                 ("joined_at", models.DateTimeField(auto_now_add=True)),
                 ("updated_at", models.DateTimeField(auto_now=True)),
                 (
@@ -51,7 +56,8 @@ class Migration(migrations.Migration):
         migrations.AddConstraint(
             model_name="explicitteammembership",
             constraint=models.UniqueConstraint(
-                fields=("team", "parent_membership"), name="unique_explicit_team_membership"
+                fields=("team", "parent_membership"),
+                name="unique_explicit_team_membership",
             ),
         ),
     ]

@@ -1,26 +1,38 @@
 .LemonInput {
-    transition: background-color 200ms ease, color 200ms ease, border-color 200ms ease, opacity 200ms ease;
     display: flex;
-    min-height: 2.5rem;
-    padding: 0.25rem 0.5rem;
-    background: none;
-    border-radius: var(--radius);
-    font-size: 0.875rem;
-    text-align: left;
-    line-height: 1.25rem;
-    cursor: text;
-    color: var(--default);
-    border: 1px solid var(--border);
-    background-color: var(--bg-light);
+    gap: 0.25rem;
     align-items: center;
     justify-content: center;
-    gap: 0.25rem;
+    height: 2.5rem;
+    padding: 0.25rem 0.5rem;
+    font-size: 0.875rem;
+    line-height: 1.25rem;
+    color: var(--default);
+    text-align: left;
+    cursor: text;
+    background: none;
+    background-color: var(--bg-light);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+
+    .posthog-3000 & {
+        height: calc(2.125rem + 3px); // Medium size button height + button shadow height
+    }
 
     &:hover:not([aria-disabled='true']) {
-        border-color: var(--primary-light);
+        border-color: var(--primary-3000-hover);
+
+        .posthog-3000 & {
+            border-color: var(--border-bold);
+        }
     }
+
     &.LemonInput--focused:not([aria-disabled='true']) {
-        border-color: var(--primary);
+        border-color: var(--primary-3000);
+
+        .posthog-3000 & {
+            border-color: var(--border-active);
+        }
     }
 
     &.LemonInput--transparent-background {
@@ -33,30 +45,30 @@
     }
 
     .LemonInput__input {
+        align-self: stretch; // Improves selectability
+        width: 100%;
+        text-overflow: ellipsis;
+        background: none;
         border: none;
         outline: none;
-        background: none;
-        width: 100%;
-        align-self: stretch; // Improves selectability
-        text-overflow: ellipsis;
 
         &:disabled {
-            opacity: var(--opacity-disabled);
             cursor: not-allowed;
+            opacity: var(--opacity-disabled);
         }
     }
 
     .LemonIcon {
+        flex-shrink: 0;
         width: 1em;
         height: 1em;
-        transition: color 200ms ease;
-        font-size: 1.5rem;
+        font-size: 1.25rem;
         color: var(--muted-alt);
-        flex-shrink: 0;
+        transition: color 200ms ease;
     }
 
     &.LemonInput--small {
-        min-height: 2rem;
+        height: 2rem;
         padding: 0.125rem 0.25rem;
 
         .LemonIcon {
@@ -66,7 +78,7 @@
 
     &.LemonInput--has-content {
         > .LemonIcon {
-            color: var(--primary);
+            color: var(--primary-3000);
         }
     }
 
@@ -74,6 +86,13 @@
         // NOTE Design: Search inputs are given a specific small width
         max-width: 240px;
     }
+
+    &.LemonInput--type-number {
+        .LemonInput__input {
+            text-overflow: clip;
+        }
+    }
+
     &.LemonInput--full-width {
         width: 100%;
         max-width: 100%;

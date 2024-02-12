@@ -1,18 +1,20 @@
+import { api } from '@posthog/apps-common'
 import { afterMount, connect, kea, listeners, path, reducers, selectors } from 'kea'
+import { subscriptions } from 'kea-subscriptions'
+import { deleteWithUndo } from 'lib/utils/deleteWithUndo'
+import { INSIGHTS_PER_PAGE, savedInsightsLogic } from 'scenes/saved-insights/savedInsightsLogic'
 import { sceneLogic } from 'scenes/sceneLogic'
 import { Scene } from 'scenes/sceneTypes'
+import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
-import { SidebarCategory, BasicListItem } from '../types'
-import { InsightModel } from '~/types'
-import { subscriptions } from 'kea-subscriptions'
+
 import { navigation3000Logic } from '~/layout/navigation-3000/navigationLogic'
-import { INSIGHTS_PER_PAGE, savedInsightsLogic } from 'scenes/saved-insights/savedInsightsLogic'
+import { insightsModel } from '~/models/insightsModel'
+import { InsightModel } from '~/types'
+
+import { BasicListItem, SidebarCategory } from '../types'
 import type { insightsSidebarLogicType } from './insightsType'
 import { findSearchTermInItemName } from './utils'
-import { deleteWithUndo } from 'lib/utils'
-import { teamLogic } from 'scenes/teamLogic'
-import { api } from '@posthog/apps-common'
-import { insightsModel } from '~/models/insightsModel'
 
 export const insightsSidebarLogic = kea<insightsSidebarLogicType>([
     path(['layout', 'navigation-3000', 'sidebars', 'insightsSidebarLogic']),
@@ -86,7 +88,7 @@ export const insightsSidebarLogic = kea<insightsSidebarLogicType>([
                                             },
                                             {
                                                 onClick: () => {
-                                                    deleteWithUndo({
+                                                    void deleteWithUndo({
                                                         object: insight,
                                                         endpoint: `projects/${currentTeamId}/insights`,
                                                         callback: actions.loadInsights,
@@ -116,7 +118,7 @@ export const insightsSidebarLogic = kea<insightsSidebarLogicType>([
                             for (let i = startIndex; i < startIndex + INSIGHTS_PER_PAGE; i++) {
                                 cache.requestedInsights[i] = true
                             }
-                            await savedInsightsLogic.actions.setSavedInsightsFilters(
+                            await savedInsightsLogic.asyncActions.setSavedInsightsFilters(
                                 { page: Math.floor(startIndex / INSIGHTS_PER_PAGE) + 1 },
                                 true,
                                 false

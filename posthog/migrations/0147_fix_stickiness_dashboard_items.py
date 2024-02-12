@@ -11,7 +11,6 @@ def update_stickiness(apps, schema_editor):
 
 
 class Migration(migrations.Migration):
-
     dependencies = [
         ("posthog", "0146_eventproperty_sync"),
     ]

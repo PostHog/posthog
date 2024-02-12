@@ -4,7 +4,6 @@ from django.db import migrations, models
 
 
 class Migration(migrations.Migration):
-
     dependencies = [
         ("posthog", "0334_add_asset_ttl"),
     ]
@@ -14,7 +13,13 @@ class Migration(migrations.Migration):
             model_name="asyncdeletion",
             name="deletion_type",
             field=models.PositiveSmallIntegerField(
-                choices=[(0, "Team"), (1, "Person"), (2, "Group"), (3, "Cohort Stale"), (4, "Cohort Full")]
+                choices=[
+                    (0, "Team"),
+                    (1, "Person"),
+                    (2, "Group"),
+                    (3, "Cohort Stale"),
+                    (4, "Cohort Full"),
+                ]
             ),
         ),
     ]

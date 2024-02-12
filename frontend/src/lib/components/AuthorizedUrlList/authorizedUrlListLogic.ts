@@ -1,3 +1,4 @@
+import Fuse from 'fuse.js'
 import {
     actions,
     afterMount,
@@ -11,19 +12,21 @@ import {
     selectors,
     sharedListeners,
 } from 'kea'
-import api from 'lib/api'
-import { isDomain, isURL, toParams } from 'lib/utils'
-import { ToolbarParams, TrendResult } from '~/types'
-import { teamLogic } from 'scenes/teamLogic'
-import { dayjs } from 'lib/dayjs'
-import Fuse from 'fuse.js'
-import { encodeParams, urlToAction } from 'kea-router'
-import { urls } from 'scenes/urls'
-import { loaders } from 'kea-loaders'
 import { forms } from 'kea-forms'
+import { loaders } from 'kea-loaders'
+import { encodeParams, urlToAction } from 'kea-router'
+import { subscriptions } from 'kea-subscriptions'
+import api from 'lib/api'
+import { isDomain, isURL } from 'lib/utils'
+import { apiHostOrigin } from 'lib/utils/apiHost'
+import { teamLogic } from 'scenes/teamLogic'
+import { urls } from 'scenes/urls'
+
+import { HogQLQuery, NodeKind } from '~/queries/schema'
+import { hogql } from '~/queries/utils'
+import { ToolbarParams } from '~/types'
 
 import type { authorizedUrlListLogicType } from './authorizedUrlListLogicType'
-import { subscriptions } from 'kea-subscriptions'
 
 export interface ProposeNewUrlFormType {
     url: string
@@ -68,11 +71,41 @@ export function appEditorUrl(appUrl: string, actionId?: number | null, defaultIn
         // the toolbar, which isn't correct when used behind a reverse proxy as
         // we require e.g. SSO login to the app, which will not work when placed
         // behind a proxy unless we register each domain with the OAuth2 client.
-        apiURL: window.location.origin,
+        apiURL: apiHostOrigin(),
         appUrl,
         ...(actionId ? { actionId } : {}),
     }
     return '/api/user/redirect_to_site/' + encodeParams(params, '?')
+}
+
+export const filterNotAuthorizedUrls = (urls: string[], authorizedUrls: string[]): string[] => {
+    const suggestedDomains: string[] = []
+
+    urls.forEach((url) => {
+        try {
+            const parsedUrl = new URL(url)
+            const urlWithoutPath = parsedUrl.protocol + '//' + parsedUrl.host
+            // Have we already added this domain?
+            if (suggestedDomains.indexOf(urlWithoutPath) > -1) {
+                return
+            }
+            // Is this domain already in the list of urls?
+            const exactMatch = authorizedUrls.filter((url) => url.indexOf(urlWithoutPath) > -1).length > 0
+            const wildcardMatch = !!authorizedUrls.find((url) => {
+                // Matches something like `https://*.example.com` against the urlWithoutPath
+                const regex = new RegExp(url.replace(/\./g, '\\.').replace(/\*/g, '.*'))
+                return urlWithoutPath.match(regex)
+            })
+
+            if (!exactMatch && !wildcardMatch) {
+                suggestedDomains.push(urlWithoutPath)
+            }
+        } catch (error) {
+            return
+        }
+    })
+
+    return suggestedDomains
 }
 
 export const NEW_URL = 'https://'
@@ -106,49 +139,33 @@ export const authorizedUrlListLogic = kea<authorizedUrlListLogicType>([
         setEditUrlIndex: (originalIndex: number | null) => ({ originalIndex }),
         cancelProposingUrl: true,
     })),
-    loaders(({ values, props }) => ({
+    loaders(({ values }) => ({
         suggestions: {
             __default: [] as string[],
             loadSuggestions: async () => {
-                const params = {
-                    events: [{ id: '$pageview', name: '$pageview', type: 'events' }],
-                    breakdown: '$current_url',
-                    date_from: dayjs().subtract(3, 'days').toISOString(),
+                const query: HogQLQuery = {
+                    kind: NodeKind.HogQLQuery,
+                    query: hogql`select properties.$current_url, count()
+                        from events
+                           where event = '$pageview'
+                           and timestamp >= now() - interval 3 day 
+                            and timestamp <= now()
+                         group by properties.$current_url
+                         order by count() desc
+                        limit 25`,
                 }
-                const result = (
-                    await api.get(`api/projects/${values.currentTeamId}/insights/trend/?${toParams(params)}`)
-                ).result as TrendResult[]
-                if (result && result[0]?.count === 0) {
+
+                const response = await api.query(query)
+                const result = response.results as [string, number][]
+
+                if (result && result.length === 0) {
                     return []
                 }
-                const suggestedDomains: string[] = []
 
-                result.forEach((item) => {
-                    if (item.breakdown_value && typeof item.breakdown_value === 'string') {
-                        try {
-                            const parsedUrl = new URL(item.breakdown_value)
-                            const urlWithoutPath = parsedUrl.protocol + '//' + parsedUrl.host
-                            // Have we already added this domain?
-                            if (suggestedDomains.indexOf(urlWithoutPath) > -1) {
-                                return
-                            }
-                            // Is this domain already in the list of urls?
-                            const existingUrls =
-                                props.type === AuthorizedUrlListType.RECORDING_DOMAINS
-                                    ? values.currentTeam?.recording_domains
-                                    : values.currentTeam?.app_urls
-                            if (
-                                existingUrls &&
-                                existingUrls.filter((url) => url.indexOf(urlWithoutPath) > -1).length > 0
-                            ) {
-                                return
-                            }
-                            suggestedDomains.push(urlWithoutPath)
-                        } catch (error) {
-                            return
-                        }
-                    }
-                })
+                const suggestedDomains = filterNotAuthorizedUrls(
+                    result.map(([url]) => url),
+                    values.authorizedUrls
+                )
 
                 return suggestedDomains.slice(0, 20)
             },

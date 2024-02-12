@@ -1,6 +1,7 @@
 import { lemonToast } from '@posthog/lemon-ui'
-import { kea, props, path, connect, key, listeners } from 'kea'
+import { connect, kea, key, listeners, path, props } from 'kea'
 import { forms } from 'kea-forms'
+
 import { dashboardsModel } from '~/models/dashboardsModel'
 import { DashboardTile, DashboardType } from '~/types'
 

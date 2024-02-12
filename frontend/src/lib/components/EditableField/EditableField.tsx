@@ -1,13 +1,17 @@
-import React, { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import './EditableField.scss'
-import { IconEdit } from 'lib/lemon-ui/icons'
-import { LemonButton } from 'lib/lemon-ui/LemonButton'
-import TextareaAutosize from 'react-textarea-autosize'
-import clsx from 'clsx'
-import { pluralize } from 'lib/utils'
-import { Tooltip } from 'lib/lemon-ui/Tooltip'
 
-interface EditableFieldProps {
+import { useMergeRefs } from '@floating-ui/react'
+import clsx from 'clsx'
+import { useResizeObserver } from 'lib/hooks/useResizeObserver'
+import { IconEdit, IconMarkdown } from 'lib/lemon-ui/icons'
+import { LemonButton } from 'lib/lemon-ui/LemonButton'
+import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
+import { Tooltip } from 'lib/lemon-ui/Tooltip'
+import { pluralize } from 'lib/utils'
+import React, { useEffect, useLayoutEffect, useRef, useState } from 'react'
+import TextareaAutosize from 'react-textarea-autosize'
+
+export interface EditableFieldProps {
     /** What this field stands for. */
     name: string
     value: string
@@ -19,11 +23,16 @@ interface EditableFieldProps {
     maxLength?: number
     autoFocus?: boolean
     multiline?: boolean
-    compactButtons?: boolean
+    /** Whether to render the content as Markdown in view mode. */
+    markdown?: boolean
+    compactButtons?: boolean | 'xsmall' // The 'xsmall' is somewhat hacky, but necessary for 3000 breadcrumbs
     /** Whether this field should be gated behind a "paywall". */
     paywall?: boolean
     /** Controlled mode. */
     mode?: 'view' | 'edit'
+    onModeToggle?: (newMode: 'view' | 'edit') => void
+    /** @default 'outlined' */
+    editingIndication?: 'outlined' | 'underlined'
     className?: string
     style?: React.CSSProperties
     'data-attr'?: string
@@ -44,25 +53,58 @@ export function EditableField({
     placeholder,
     minLength,
     maxLength,
-    autoFocus = true,
+    autoFocus = false,
     multiline = false,
+    markdown = false,
     compactButtons = false,
     paywall = false,
     mode,
+    onModeToggle,
+    editingIndication = 'outlined',
     className,
     style,
     'data-attr': dataAttr,
     saveButtonText = 'Save',
     notice,
 }: EditableFieldProps): JSX.Element {
-    const [localIsEditing, setLocalIsEditing] = useState(false)
-    const [tentativeValue, setTentativeValue] = useState(value)
+    const [localIsEditing, setLocalIsEditing] = useState(mode === 'edit')
+    const [localTentativeValue, setLocalTentativeValue] = useState(value)
+    const [isDisplayTooltipNeeded, setIsDisplayTooltipNeeded] = useState(false)
+    const containerRef = useRef<HTMLDivElement>(null)
+    const inputRef = useRef<HTMLInputElement | HTMLTextAreaElement>(null)
+    const displayRef = useRef<HTMLSpanElement>(null)
+    const previousIsEditing = useRef<boolean>()
 
     useEffect(() => {
-        setTentativeValue(value)
+        setLocalTentativeValue(value)
     }, [value])
 
-    const isSaveable = !minLength || tentativeValue.length >= minLength
+    useEffect(() => {
+        setLocalIsEditing(mode === 'edit')
+    }, [mode])
+
+    useEffect(() => {
+        // We always want to focus when switching to edit mode, but can't use autoFocus, because we don't want this to
+        // happen when the component is _initially_ rendered in edit mode. The `previousIsEditing.current === false`
+        // check is important for this, because only `false` means that the component was previously rendered in view
+        // mode. `undefined` means that the component was never rendered before.
+        if (inputRef.current && previousIsEditing.current === false && localIsEditing) {
+            const endOfInput = inputRef.current.value.length
+            inputRef.current.setSelectionRange(endOfInput, endOfInput)
+            inputRef.current.focus()
+        }
+        previousIsEditing.current = localIsEditing
+    }, [localIsEditing])
+
+    useResizeObserver({
+        ref: containerRef,
+        onResize: () => {
+            if (displayRef.current) {
+                setIsDisplayTooltipNeeded(displayRef.current.scrollWidth > displayRef.current.clientWidth)
+            }
+        },
+    })
+    const isSaveable = !minLength || localTentativeValue.length >= minLength
 
     const mouseDownOnCancelButton = (e: React.MouseEvent): void => {
         // if saveOnBlur is set the onBlur handler of the input fires before the onClick event of the button
@@ -72,12 +114,14 @@ export function EditableField({
 
     const cancel = (): void => {
         setLocalIsEditing(false)
-        setTentativeValue(value)
+        setLocalTentativeValue(value)
+        onModeToggle?.('view')
     }
 
     const save = (): void => {
-        onSave?.(tentativeValue)
+        onSave?.(localTentativeValue)
         setLocalIsEditing(false)
+        onModeToggle?.('view')
     }
 
     const isEditing = !paywall && (mode === 'edit' || localIsEditing)
@@ -103,10 +147,13 @@ export function EditableField({
                 'EditableField',
                 multiline && 'EditableField--multiline',
                 isEditing && 'EditableField--editing',
+                editingIndication === 'underlined' && 'EditableField--underlined',
                 className
             )}
             data-attr={dataAttr}
+            // eslint-disable-next-line react/forbid-dom-props
             style={style}
+            ref={containerRef}
         >
             <Tooltip
                 placement="right"
@@ -116,45 +163,52 @@ export function EditableField({
                         : undefined
                 }
             >
-                <div className="EditableField--highlight">
+                <div className="EditableField__highlight">
                     {isEditing ? (
                         <>
                             {multiline ? (
                                 <TextareaAutosize
                                     name={name}
-                                    value={tentativeValue}
+                                    value={localTentativeValue}
                                     onChange={(e) => {
                                         onChange?.(e.target.value)
-                                        setTentativeValue(e.target.value)
+                                        setLocalTentativeValue(e.target.value)
                                     }}
-                                    onBlur={saveOnBlur ? (tentativeValue !== value ? save : cancel) : undefined}
+                                    onBlur={saveOnBlur ? (localTentativeValue !== value ? save : cancel) : undefined}
                                     onKeyDown={handleKeyDown}
                                     placeholder={placeholder}
                                     minLength={minLength}
                                     maxLength={maxLength}
                                     autoFocus={autoFocus}
+                                    ref={inputRef as React.RefObject<HTMLTextAreaElement>}
                                 />
                             ) : (
                                 <AutosizeInput
                                     name={name}
-                                    value={tentativeValue}
+                                    value={localTentativeValue}
                                     onChange={(e) => {
                                         onChange?.(e.target.value)
-                                        setTentativeValue(e.target.value)
+                                        setLocalTentativeValue(e.target.value)
                                     }}
-                                    onBlur={saveOnBlur ? (tentativeValue !== value ? save : cancel) : undefined}
+                                    onBlur={saveOnBlur ? (localTentativeValue !== value ? save : cancel) : undefined}
                                     onKeyDown={handleKeyDown}
                                     placeholder={placeholder}
                                     minLength={minLength}
                                     maxLength={maxLength}
                                     autoFocus={autoFocus}
+                                    ref={inputRef as React.RefObject<HTMLInputElement>}
                                 />
                             )}
-                            {!mode && (
-                                <>
+                            {(!mode || !!onModeToggle) && (
+                                <div className="EditableField__actions">
+                                    {markdown && (
+                                        <Tooltip title="Markdown formatting support">
+                                            <IconMarkdown className="text-muted text-2xl" />
+                                        </Tooltip>
+                                    )}
                                     <LemonButton
                                         title="Cancel editing"
-                                        size="small"
+                                        size={typeof compactButtons === 'string' ? compactButtons : 'small'}
                                         onClick={cancel}
                                         type="secondary"
                                         onMouseDown={mouseDownOnCancelButton}
@@ -171,29 +225,46 @@ export function EditableField({
                                                       'characters'
                                                   )} required)`
                                         }
-                                        size="small"
+                                        size={typeof compactButtons === 'string' ? compactButtons : 'small'}
                                         disabled={!isSaveable}
                                         onClick={save}
                                         type="primary"
                                     >
                                         {saveButtonText}
                                     </LemonButton>
-                                </>
+                                </div>
                             )}
                         </>
                     ) : (
                         <>
-                            {tentativeValue || <i>{placeholder}</i>}
-                            {!mode && (
-                                <LemonButton
-                                    title="Edit"
-                                    icon={<IconEdit />}
-                                    size={compactButtons ? 'small' : undefined}
-                                    onClick={() => setLocalIsEditing(true)}
-                                    data-attr={`edit-prop-${name}`}
-                                    disabled={paywall}
-                                    noPadding
-                                />
+                            {localTentativeValue && markdown ? (
+                                <LemonMarkdown lowKeyHeadings>{localTentativeValue}</LemonMarkdown>
+                            ) : (
+                                <Tooltip
+                                    title={isDisplayTooltipNeeded ? localTentativeValue : undefined}
+                                    placement="bottomLeft"
+                                    delayMs={0}
+                                >
+                                    <span className="EditableField__display" ref={displayRef}>
+                                        {localTentativeValue || <i>{placeholder}</i>}
+                                    </span>
+                                </Tooltip>
+                            )}
+                            {(!mode || !!onModeToggle) && (
+                                <div className="EditableField__actions">
+                                    <LemonButton
+                                        title="Edit"
+                                        icon={<IconEdit />}
+                                        size={compactButtons ? 'small' : undefined}
+                                        onClick={() => {
+                                            setLocalIsEditing(true)
+                                            onModeToggle?.('edit')
+                                        }}
+                                        data-attr={`edit-prop-${name}`}
+                                        disabled={paywall}
+                                        noPadding
+                                    />
+                                </div>
                             )}
                         </>
                     )}
@@ -211,17 +282,7 @@ export function EditableField({
     )
 }
 
-const AutosizeInput = ({
-    name,
-    value,
-    onChange,
-    placeholder,
-    onBlur,
-    onKeyDown,
-    minLength,
-    maxLength,
-    autoFocus,
-}: {
+interface AutosizeInputProps {
     name: string
     value: string
     onChange: (e: React.ChangeEvent<HTMLInputElement>) => void
@@ -231,11 +292,18 @@ const AutosizeInput = ({
     minLength?: number
     maxLength?: number
     autoFocus?: boolean
-}): JSX.Element => {
+}
+
+const AutosizeInput = React.forwardRef<HTMLInputElement, AutosizeInputProps>(function AutosizeInput(
+    { name, value, onChange, placeholder, onBlur, onKeyDown, minLength, maxLength, autoFocus },
+    ref
+) {
     const [inputWidth, setInputWidth] = useState<number | string>(1)
-    const inputRef = useRef<HTMLInputElement>(null)
+    const [inputStyles, setInputStyles] = useState<CSSStyleDeclaration>()
     const sizerRef = useRef<HTMLDivElement>(null)
     const placeHolderSizerRef = useRef<HTMLDivElement>(null)
+    const inputRef = useRef<HTMLInputElement>(null)
+    const mergedRefs = useMergeRefs([ref, inputRef])
 
     const copyStyles = (styles: CSSStyleDeclaration, node: HTMLDivElement): void => {
         node.style.fontSize = styles.fontSize
@@ -246,21 +314,22 @@ const AutosizeInput = ({
         node.style.textTransform = styles.textTransform
     }
 
-    const inputStyles = useMemo(() => {
-        return inputRef.current ? window.getComputedStyle(inputRef.current) : null
+    useLayoutEffect(() => {
+        if (inputRef.current) {
+            setInputStyles(getComputedStyle(inputRef.current))
+        }
     }, [inputRef.current])
 
     useLayoutEffect(() => {
-        if (inputStyles && placeHolderSizerRef.current) {
-            copyStyles(inputStyles, placeHolderSizerRef.current)
+        if (inputStyles) {
+            if (sizerRef.current) {
+                copyStyles(inputStyles, sizerRef.current)
+            }
+            if (placeHolderSizerRef.current) {
+                copyStyles(inputStyles, placeHolderSizerRef.current)
+            }
         }
-    }, [placeHolderSizerRef, placeHolderSizerRef])
-
-    useLayoutEffect(() => {
-        if (inputStyles && sizerRef.current) {
-            copyStyles(inputStyles, sizerRef.current)
-        }
-    }, [inputStyles, sizerRef])
+    }, [inputStyles])
 
     useLayoutEffect(() => {
         if (!sizerRef.current || !placeHolderSizerRef.current) {
@@ -289,7 +358,7 @@ const AutosizeInput = ({
                 minLength={minLength}
                 maxLength={maxLength}
                 autoFocus={autoFocus}
-                ref={inputRef}
+                ref={mergedRefs}
                 /* eslint-disable-next-line react/forbid-dom-props */
                 style={{ boxSizing: 'content-box', width: `${inputWidth}px` }}
             />
@@ -301,4 +370,4 @@ const AutosizeInput = ({
             </div>
         </div>
     )
-}
+})

@@ -1,15 +1,18 @@
+import { router } from 'kea-router'
+import { expectLogic } from 'kea-test-utils'
+import { api, MOCK_TEAM_ID } from 'lib/api.mock'
+import { urls } from 'scenes/urls'
+
+import { useMocks } from '~/mocks/jest'
+import { initKeaTests } from '~/test/init'
+
 import {
     appEditorUrl,
     authorizedUrlListLogic,
     AuthorizedUrlListType,
+    filterNotAuthorizedUrls,
     validateProposedUrl,
 } from './authorizedUrlListLogic'
-import { initKeaTests } from '~/test/init'
-import { router } from 'kea-router'
-import { expectLogic } from 'kea-test-utils'
-import { useMocks } from '~/mocks/jest'
-import { urls } from 'scenes/urls'
-import { api, MOCK_TEAM_ID } from 'lib/api.mock'
 
 describe('the authorized urls list logic', () => {
     let logic: ReturnType<typeof authorizedUrlListLogic.build>
@@ -134,6 +137,10 @@ describe('the authorized urls list logic', () => {
                     proposedUrl: 'https://not.*.valid.*',
                     validityMessage: 'Wildcards can only be used for subdomains',
                 },
+                {
+                    proposedUrl: 'capacitor://localhost',
+                    validityMessage: undefined,
+                },
             ]
 
             testCases.forEach((testCase) => {
@@ -141,6 +148,37 @@ describe('the authorized urls list logic', () => {
                     expect(validateProposedUrl(testCase.proposedUrl, [], true)).toEqual(testCase.validityMessage)
                 })
             })
+        })
+    })
+
+    describe('filterNotAuthorizedUrls', () => {
+        const testUrls = [
+            'https://1.wildcard.com',
+            'https://2.wildcard.com',
+            'https://a.single.io',
+            'https://a.sub.b.multi-wildcard.com',
+            'https://a.not.b.multi-wildcard.com',
+            'https://not.valid.io',
+        ]
+
+        it('suggests all if empty', () => {
+            expect(filterNotAuthorizedUrls(testUrls, [])).toEqual(testUrls)
+        })
+
+        it('allows specific domains', () => {
+            expect(filterNotAuthorizedUrls(testUrls, ['https://a.single.io'])).toEqual([
+                'https://1.wildcard.com',
+                'https://2.wildcard.com',
+                'https://a.sub.b.multi-wildcard.com',
+                'https://a.not.b.multi-wildcard.com',
+                'https://not.valid.io',
+            ])
+        })
+
+        it('filters wildcard domains', () => {
+            expect(
+                filterNotAuthorizedUrls(testUrls, ['https://*.wildcard.com', 'https://*.sub.*.multi-wildcard.com'])
+            ).toEqual(['https://a.single.io', 'https://a.not.b.multi-wildcard.com', 'https://not.valid.io'])
         })
     })
 })

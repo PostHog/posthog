@@ -1,5 +1,6 @@
 import { PluginEvent } from '@posthog/plugin-scaffold'
 
+import { droppedEventCounter } from '../../../../src/worker/ingestion/event-pipeline/metrics'
 import { pluginsProcessEventStep } from '../../../../src/worker/ingestion/event-pipeline/pluginsProcessEventStep'
 import { runProcessEvent } from '../../../../src/worker/plugins/run'
 
@@ -23,12 +24,6 @@ describe('pluginsProcessEventStep()', () => {
     beforeEach(() => {
         runner = {
             nextStep: (...args: any[]) => args,
-            hub: {
-                statsd: {
-                    increment: jest.fn(),
-                    timing: jest.fn(),
-                },
-            },
         }
     })
 
@@ -43,10 +38,11 @@ describe('pluginsProcessEventStep()', () => {
 
     it('does not forward but counts dropped events by plugins', async () => {
         jest.mocked(runProcessEvent).mockResolvedValue(null)
+        const droppedEventCounterSpy = jest.spyOn(droppedEventCounter, 'inc')
 
         const response = await pluginsProcessEventStep(runner, pluginEvent)
 
         expect(response).toEqual(null)
-        expect(runner.hub.statsd.increment).toHaveBeenCalledWith('kafka_queue.dropped_event', { teamID: '2' })
+        expect(droppedEventCounterSpy).toHaveBeenCalledTimes(1)
     })
 })

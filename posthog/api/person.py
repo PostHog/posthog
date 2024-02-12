@@ -1,4 +1,6 @@
 import json
+import posthoganalytics
+from posthog.renderers import SafeJSONRenderer
 from datetime import datetime
 from typing import (
     Any,
@@ -30,11 +32,23 @@ from posthog.api.capture import capture_internal
 from posthog.api.documentation import PersonPropertiesSerializer, extend_schema
 from posthog.api.routing import StructuredViewSetMixin
 from posthog.api.utils import format_paginated_url, get_pk_or_uuid, get_target_entity
-from posthog.constants import CSV_EXPORT_LIMIT, INSIGHT_FUNNELS, INSIGHT_PATHS, LIMIT, OFFSET, FunnelVizType
-from posthog.decorators import cached_function
+from posthog.constants import (
+    CSV_EXPORT_LIMIT,
+    INSIGHT_FUNNELS,
+    INSIGHT_PATHS,
+    LIMIT,
+    OFFSET,
+    FunnelVizType,
+)
+from posthog.decorators import cached_by_filters
 from posthog.logging.timing import timed
 from posthog.models import Cohort, Filter, Person, User, Team
-from posthog.models.activity_logging.activity_log import Change, Detail, load_activity, log_activity
+from posthog.models.activity_logging.activity_log import (
+    Change,
+    Detail,
+    load_activity,
+    log_activity,
+)
 from posthog.models.activity_logging.activity_page import activity_page_response
 from posthog.models.async_deletion import AsyncDeletion, DeletionType
 from posthog.models.cohort.util import get_all_cohort_ids_by_person_uuid
@@ -44,11 +58,17 @@ from posthog.models.filters.properties_timeline_filter import PropertiesTimeline
 from posthog.models.filters.retention_filter import RetentionFilter
 from posthog.models.filters.stickiness_filter import StickinessFilter
 from posthog.models.person.util import delete_person
-from posthog.permissions import ProjectMembershipNecessaryPermissions, TeamMemberAccessPermission
-from posthog.queries.actor_base_query import ActorBaseQuery, get_people
+from posthog.permissions import TeamMemberAccessPermission
+from posthog.queries.actor_base_query import (
+    ActorBaseQuery,
+    get_people,
+    serialize_people,
+)
 from posthog.queries.funnels import ClickhouseFunnelActors, ClickhouseFunnelTrendsActors
 from posthog.queries.funnels.funnel_strict_persons import ClickhouseFunnelStrictActors
-from posthog.queries.funnels.funnel_unordered_persons import ClickhouseFunnelUnorderedActors
+from posthog.queries.funnels.funnel_unordered_persons import (
+    ClickhouseFunnelUnorderedActors,
+)
 from posthog.queries.insight import insight_sync_execute
 from posthog.queries.paths import PathsActors
 from posthog.queries.person_query import PersonQuery
@@ -59,10 +79,20 @@ from posthog.queries.stickiness import Stickiness
 from posthog.queries.trends.lifecycle import Lifecycle
 from posthog.queries.trends.trends_actors import TrendsActors
 from posthog.queries.util import get_earliest_timestamp
-from posthog.rate_limit import ClickHouseBurstRateThrottle, ClickHouseSustainedRateThrottle
+from posthog.rate_limit import (
+    ClickHouseBurstRateThrottle,
+    ClickHouseSustainedRateThrottle,
+)
 from posthog.settings import EE_AVAILABLE
 from posthog.tasks.split_person import split_person
-from posthog.utils import convert_property_value, format_query_params_absolute_url, is_anonymous_id
+from posthog.utils import (
+    convert_property_value,
+    format_query_params_absolute_url,
+    is_anonymous_id,
+)
+from prometheus_client import Counter
+from posthog.metrics import LABEL_TEAM_ID
+from loginas.utils import is_impersonated_session
 
 DEFAULT_PAGE_LIMIT = 100
 # Sync with .../lib/constants.tsx and .../ingestion/hooks.ts
@@ -75,6 +105,12 @@ PERSON_DEFAULT_DISPLAY_NAME_PROPERTIES = [
     "Username",
     "UserName",
 ]
+
+API_PERSON_LIST_BYTES_READ_FROM_POSTGRES_COUNTER = Counter(
+    "api_person_list_bytes_read_from_postgres",
+    "An estimate of how many bytes we've read from postgres to return the person endpoint.",
+    labelnames=[LABEL_TEAM_ID],
+)
 
 
 class PersonLimitOffsetPagination(LimitOffsetPagination):
@@ -111,7 +147,7 @@ def get_person_name(team: Team, person: Person) -> str:
 
 def get_person_display_name(person: Person, team: Team) -> str | None:
     for property in team.person_display_name_properties or PERSON_DEFAULT_DISPLAY_NAME_PROPERTIES:
-        if person.properties.get(property):
+        if person.properties and person.properties.get(property):
             return person.properties.get(property)
     return None
 
@@ -148,12 +184,23 @@ class PersonSerializer(serializers.HyperlinkedModelSerializer):
         return representation
 
 
+# person distinct ids can grow to be a very large list
+# in the UI we don't need all of them, so we can limit the number of distinct ids we return
+class MinimalPersonSerializer(PersonSerializer):
+    distinct_ids = serializers.SerializerMethodField()
+
+    def get_distinct_ids(self, person):
+        return person.distinct_ids[:10]
+
+
 def get_funnel_actor_class(filter: Filter) -> Callable:
     funnel_actor_class: Type[ActorBaseQuery]
 
     if filter.correlation_person_entity and EE_AVAILABLE:
         if EE_AVAILABLE:
-            from ee.clickhouse.queries.funnels.funnel_correlation_persons import FunnelCorrelationActors
+            from ee.clickhouse.queries.funnels.funnel_correlation_persons import (
+                FunnelCorrelationActors,
+            )
 
             funnel_actor_class = FunnelCorrelationActors
         else:
@@ -182,7 +229,7 @@ class PersonViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
     queryset = Person.objects.all()
     serializer_class = PersonSerializer
     pagination_class = PersonLimitOffsetPagination
-    permission_classes = [IsAuthenticated, ProjectMembershipNecessaryPermissions, TeamMemberAccessPermission]
+    permission_classes = [IsAuthenticated, TeamMemberAccessPermission]
     throttle_classes = [ClickHouseBurstRateThrottle, PersonsThrottle]
     lifecycle_class = Lifecycle
     retention_class = Retention
@@ -220,7 +267,11 @@ class PersonViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
                 description="Filter persons by email (exact match)",
                 examples=[OpenApiExample(name="email", value="test@test.com")],
             ),
-            OpenApiParameter("distinct_id", OpenApiTypes.STR, description="Filter list by distinct id."),
+            OpenApiParameter(
+                "distinct_id",
+                OpenApiTypes.STR,
+                description="Filter list by distinct id.",
+            ),
             OpenApiParameter(
                 "search",
                 OpenApiTypes.STR,
@@ -233,23 +284,64 @@ class PersonViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
         team = self.team
         filter = Filter(request=request, team=self.team)
 
+        assert request.user.is_authenticated
+
         is_csv_request = self.request.accepted_renderer.format == "csv"
         if is_csv_request:
             filter = filter.shallow_clone({LIMIT: CSV_EXPORT_LIMIT, OFFSET: 0})
         elif not filter.limit:
             filter = filter.shallow_clone({LIMIT: DEFAULT_PAGE_LIMIT})
 
-        person_query = PersonQuery(filter, team.pk)
-        paginated_query, paginated_params = person_query.get_query(paginate=True, filter_future_persons=True)
-        raw_paginated_result = insight_sync_execute(
-            paginated_query,
-            {**paginated_params, **filter.hogql_context.values},
-            filter=filter,
-            query_type="person_list",
-            team_id=team.pk,
-        )
-        actor_ids = [row[0] for row in raw_paginated_result]
-        _, serialized_actors = get_people(team, actor_ids)
+        if posthoganalytics.feature_enabled(
+            "load-person-fields-from-clickhouse",
+            request.user.distinct_id,
+            person_properties={"email": request.user.email},
+        ):
+            person_query = PersonQuery(
+                filter,
+                team.pk,
+                extra_fields=[
+                    "created_at",
+                    "properties",
+                    "is_identified",
+                ],
+                include_distinct_ids=True,
+            )
+            paginated_query, paginated_params = person_query.get_query(paginate=True, filter_future_persons=True)
+            actors = insight_sync_execute(
+                paginated_query,
+                {**paginated_params, **filter.hogql_context.values},
+                filter=filter,
+                query_type="person_list",
+                team_id=team.pk,
+            )
+            persons = []
+            for p in actors:
+                person = Person(
+                    uuid=p[0],
+                    created_at=p[1],
+                    is_identified=p[2],
+                    properties=json.loads(p[3]),
+                )
+                person._distinct_ids = p[4]
+                persons.append(person)
+
+            serialized_actors = serialize_people(team, data=persons)
+            _should_paginate = len(serialized_actors) >= filter.limit
+        else:
+            person_query = PersonQuery(filter, team.pk)
+            paginated_query, paginated_params = person_query.get_query(paginate=True, filter_future_persons=True)
+
+            raw_paginated_result = insight_sync_execute(
+                paginated_query,
+                {**paginated_params, **filter.hogql_context.values},
+                filter=filter,
+                query_type="person_list",
+                team_id=team.pk,
+            )
+            actor_ids = [row[0] for row in raw_paginated_result]
+            _, serialized_actors = get_people(team, actor_ids)
+            _should_paginate = len(actor_ids) >= filter.limit
 
         # If the undocumented include_total param is set to true, we'll return the total count of people
         # This is extra time and DB load, so we only do this when necessary, which is in PostHog 3000 navigation
@@ -267,13 +359,17 @@ class PersonViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
             )
             total_count = raw_paginated_result[0][0]
 
-        _should_paginate = len(actor_ids) >= filter.limit
         next_url = format_query_params_absolute_url(request, filter.offset + filter.limit) if _should_paginate else None
         previous_url = (
             format_query_params_absolute_url(request, filter.offset - filter.limit)
             if filter.offset - filter.limit >= 0
             else None
         )
+
+        # TEMPORARY: Work out usage patterns of this endpoint
+        renderer = SafeJSONRenderer()
+        size = len(renderer.render(serialized_actors))
+        API_PERSON_LIST_BYTES_READ_FROM_POSTGRES_COUNTER.labels(team_id=team.pk).inc(size)
 
         return Response(
             {
@@ -294,7 +390,7 @@ class PersonViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
             ),
         ],
     )
-    def destroy(self, request: request.Request, pk=None, **kwargs):  # type: ignore
+    def destroy(self, request: request.Request, pk=None, **kwargs):
         try:
             person = self.get_object()
             person_id = person.id
@@ -304,6 +400,7 @@ class PersonViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
                 organization_id=self.organization.id,
                 team_id=self.team_id,
                 user=cast(User, request.user),
+                was_impersonated=is_impersonated_session(request),
                 item_id=person_id,
                 scope="Person",
                 activity="deleted",
@@ -337,7 +434,12 @@ class PersonViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
             for value, count in result:
                 try:
                     # Try loading as json for dicts or arrays
-                    flattened.append({"name": convert_property_value(json.loads(value)), "count": count})  # type: ignore
+                    flattened.append(
+                        {
+                            "name": convert_property_value(json.loads(value)),
+                            "count": count,
+                        }
+                    )
                 except json.decoder.JSONDecodeError:
                     flattened.append({"name": convert_property_value(value), "count": count})
         return response.Response(flattened)
@@ -353,7 +455,12 @@ class PersonViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
         except Exception as e:
             statsd.incr(
                 "get_person_property_values_for_key_error",
-                tags={"error": str(e), "key": key, "value": value, "team_id": self.team.id},
+                tags={
+                    "error": str(e),
+                    "key": key,
+                    "value": value,
+                    "team_id": self.team.id,
+                },
             )
             raise e
 
@@ -364,18 +471,25 @@ class PersonViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
         person: Person = self.get_object()
         distinct_ids = person.distinct_ids
 
-        split_person.delay(person.id, request.data.get("main_distinct_id", None))
+        split_person.delay(person.id, request.data.get("main_distinct_id", None), None)
 
         log_activity(
             organization_id=self.organization.id,
             team_id=self.team.id,
-            user=request.user,  # type: ignore
+            user=request.user,
+            was_impersonated=is_impersonated_session(request),
             item_id=person.id,
             scope="Person",
             activity="split_person",
             detail=Detail(
                 name=str(person.uuid),
-                changes=[Change(type="Person", action="split", after={"distinct_ids": distinct_ids})],
+                changes=[
+                    Change(
+                        type="Person",
+                        action="split",
+                        after={"distinct_ids": distinct_ids},
+                    )
+                ],
             ),
         )
 
@@ -383,20 +497,40 @@ class PersonViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
 
     @extend_schema(
         parameters=[
-            OpenApiParameter("key", OpenApiTypes.STR, description="Specify the property key", required=True),
-            OpenApiParameter("value", OpenApiTypes.ANY, description="Specify the property value", required=True),
+            OpenApiParameter(
+                "key",
+                OpenApiTypes.STR,
+                description="Specify the property key",
+                required=True,
+            ),
+            OpenApiParameter(
+                "value",
+                OpenApiTypes.ANY,
+                description="Specify the property value",
+                required=True,
+            ),
         ]
     )
     @action(methods=["POST"], detail=True)
     def update_property(self, request: request.Request, pk=None, **kwargs) -> response.Response:
         if request.data.get("value") is None:
             return Response(
-                {"attr": "value", "code": "This field is required.", "detail": "required", "type": "validation_error"},
+                {
+                    "attr": "value",
+                    "code": "This field is required.",
+                    "detail": "required",
+                    "type": "validation_error",
+                },
                 status=400,
             )
         if request.data.get("key") is None:
             return Response(
-                {"attr": "key", "code": "This field is required.", "detail": "required", "type": "validation_error"},
+                {
+                    "attr": "key",
+                    "code": "This field is required.",
+                    "detail": "required",
+                    "type": "validation_error",
+                },
                 status=400,
             )
         self._set_properties({request.data["key"]: request.data["value"]}, request.user)
@@ -405,7 +539,10 @@ class PersonViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
     @extend_schema(
         parameters=[
             OpenApiParameter(
-                "$unset", OpenApiTypes.STR, description="Specify the property key to delete", required=True
+                "$unset",
+                OpenApiTypes.STR,
+                description="Specify the property key to delete",
+                required=True,
             ),
         ]
     )
@@ -431,7 +568,8 @@ class PersonViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
         log_activity(
             organization_id=self.organization.id,
             team_id=self.team.id,
-            user=request.user,  # type: ignore
+            user=request.user,
+            was_impersonated=is_impersonated_session(request),
             item_id=person.id,
             scope="Person",
             activity="delete_property",
@@ -447,7 +585,10 @@ class PersonViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
         team = cast(User, request.user).team
         if not team:
             return response.Response(
-                {"message": "Could not retrieve team", "detail": "Could not validate team associated with user"},
+                {
+                    "message": "Could not retrieve team",
+                    "detail": "Could not validate team associated with user",
+                },
                 status=400,
             )
 
@@ -475,7 +616,13 @@ class PersonViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
             person = self.get_object()
             item_id = person.pk
 
-        activity_page = load_activity(scope="Person", team_id=self.team_id, item_id=item_id, limit=limit, page=page)
+        activity_page = load_activity(
+            scope="Person",
+            team_id=self.team_id,
+            item_ids=[item_id] if item_id else None,
+            limit=limit,
+            page=page,
+        )
         return activity_page_response(activity_page, limit, page, request)
 
     def update(self, request, *args, **kwargs):
@@ -525,6 +672,7 @@ class PersonViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
             organization_id=self.organization.id,
             team_id=self.team.id,
             user=user,
+            was_impersonated=is_impersonated_session(self.request),
             item_id=instance.pk,
             scope="Person",
             activity="updated",
@@ -556,7 +704,7 @@ class PersonViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
 
         return self._respond_with_cached_results(self.calculate_funnel_persons(request))
 
-    @cached_function
+    @cached_by_filters
     def calculate_funnel_persons(
         self, request: request.Request
     ) -> Dict[str, Tuple[List, Optional[str], Optional[str], int]]:
@@ -569,7 +717,14 @@ class PersonViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
         next_url = paginated_result(request, raw_count, filter.offset, filter.limit)
 
         # cached_function expects a dict with the key result
-        return {"result": (serialized_actors, next_url, initial_url, raw_count - len(serialized_actors))}
+        return {
+            "result": (
+                serialized_actors,
+                next_url,
+                initial_url,
+                raw_count - len(serialized_actors),
+            )
+        }
 
     @action(methods=["GET", "POST"], detail=False)
     def path(self, request: request.Request, **kwargs) -> response.Response:
@@ -578,7 +733,7 @@ class PersonViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
 
         return self._respond_with_cached_results(self.calculate_path_persons(request))
 
-    @cached_function
+    @cached_by_filters
     def calculate_path_persons(
         self, request: request.Request
     ) -> Dict[str, Tuple[List, Optional[str], Optional[str], int]]:
@@ -597,7 +752,14 @@ class PersonViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
         initial_url = format_query_params_absolute_url(request, 0)
 
         # cached_function expects a dict with the key result
-        return {"result": (serialized_actors, next_url, initial_url, raw_count - len(serialized_actors))}
+        return {
+            "result": (
+                serialized_actors,
+                next_url,
+                initial_url,
+                raw_count - len(serialized_actors),
+            )
+        }
 
     @action(methods=["GET"], detail=False)
     def trends(self, request: request.Request, *args: Any, **kwargs: Any) -> Response:
@@ -606,7 +768,7 @@ class PersonViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
 
         return self._respond_with_cached_results(self.calculate_trends_persons(request))
 
-    @cached_function
+    @cached_by_filters
     def calculate_trends_persons(
         self, request: request.Request
     ) -> Dict[str, Tuple[List, Optional[str], Optional[str], int]]:
@@ -619,7 +781,14 @@ class PersonViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
         initial_url = format_query_params_absolute_url(request, 0)
 
         # cached_function expects a dict with the key result
-        return {"result": (serialized_actors, next_url, initial_url, raw_count - len(serialized_actors))}
+        return {
+            "result": (
+                serialized_actors,
+                next_url,
+                initial_url,
+                raw_count - len(serialized_actors),
+            )
+        }
 
     @action(methods=["GET"], detail=True)
     def properties_timeline(self, request: request.Request, *args: Any, **kwargs: Any) -> Response:
@@ -638,19 +807,30 @@ class PersonViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
         team = cast(User, request.user).team
         if not team:
             return response.Response(
-                {"message": "Could not retrieve team", "detail": "Could not validate team associated with user"},
+                {
+                    "message": "Could not retrieve team",
+                    "detail": "Could not validate team associated with user",
+                },
                 status=400,
             )
 
         target_date = request.GET.get("target_date", None)
         if target_date is None:
             return response.Response(
-                {"message": "Missing parameter", "detail": "Must include specified date"}, status=400
+                {
+                    "message": "Missing parameter",
+                    "detail": "Must include specified date",
+                },
+                status=400,
             )
         lifecycle_type = request.GET.get("lifecycle_type", None)
         if lifecycle_type is None:
             return response.Response(
-                {"message": "Missing parameter", "detail": "Must include lifecycle type"}, status=400
+                {
+                    "message": "Missing parameter",
+                    "detail": "Must include lifecycle type",
+                },
+                status=400,
             )
 
         filter = LifecycleFilter(request=request, data=request.GET.dict(), team=self.team)
@@ -668,7 +848,10 @@ class PersonViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
         team = cast(User, request.user).team
         if not team:
             return response.Response(
-                {"message": "Could not retrieve team", "detail": "Could not validate team associated with user"},
+                {
+                    "message": "Could not retrieve team",
+                    "detail": "Could not validate team associated with user",
+                },
                 status=400,
             )
         filter = RetentionFilter(request=request, team=team)
@@ -679,14 +862,24 @@ class PersonViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
 
         next_url = paginated_result(request, raw_count, filter.offset, filter.limit)
 
-        return response.Response({"result": people, "next": next_url, "missing_persons": raw_count - len(people)})
+        return response.Response(
+            {
+                "result": people,
+                "next": next_url,
+                "missing_persons": raw_count - len(people),
+                "filters": filter.to_dict(),
+            }
+        )
 
     @action(methods=["GET"], detail=False)
     def stickiness(self, request: request.Request) -> response.Response:
         team = cast(User, request.user).team
         if not team:
             return response.Response(
-                {"message": "Could not retrieve team", "detail": "Could not validate team associated with user"},
+                {
+                    "message": "Could not retrieve team",
+                    "detail": "Could not validate team associated with user",
+                },
                 status=400,
             )
         filter = StickinessFilter(request=request, team=team, get_earliest_timestamp=get_earliest_timestamp)
@@ -726,14 +919,14 @@ def prepare_actor_query_filter(filter: T) -> T:
                 "key": "name",
                 "value": search,
                 "type": "group",
-                "group_type_index": filter.aggregation_group_type_index,  # type: ignore
+                "group_type_index": filter.aggregation_group_type_index,
                 "operator": "icontains",
             },
             {
                 "key": "slug",
                 "value": search,
                 "type": "group",
-                "group_type_index": filter.aggregation_group_type_index,  # type: ignore
+                "group_type_index": filter.aggregation_group_type_index,
                 "operator": "icontains",
             },
         ]
@@ -741,9 +934,19 @@ def prepare_actor_query_filter(filter: T) -> T:
     new_group = {
         "type": "OR",
         "values": [
-            {"key": "email", "type": "person", "value": search, "operator": "icontains"},
+            {
+                "key": "email",
+                "type": "person",
+                "value": search,
+                "operator": "icontains",
+            },
             {"key": "name", "type": "person", "value": search, "operator": "icontains"},
-            {"key": "distinct_id", "type": "event", "value": search, "operator": "icontains"},
+            {
+                "key": "distinct_id",
+                "type": "event",
+                "value": search,
+                "operator": "icontains",
+            },
         ]
         + group_properties_filter_group,
     }

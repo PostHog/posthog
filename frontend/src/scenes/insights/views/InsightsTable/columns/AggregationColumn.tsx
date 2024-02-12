@@ -1,18 +1,19 @@
-import { useValues, useActions } from 'kea'
-import { Dropdown, Menu } from 'antd'
-import { DownOutlined } from '@ant-design/icons'
+import './AggregationColumn.scss'
 
-import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
-
+import { IconChevronDown } from '@posthog/icons'
+import { LemonMenu, LemonMenuItem } from '@posthog/lemon-ui'
+import { useActions, useValues } from 'kea'
 import { average, median } from 'lib/utils'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
-import { formatAggregationValue } from 'scenes/insights/utils'
 import { formatAggregationAxisValue } from 'scenes/insights/aggregationAxisFormat'
+import { formatAggregationValue } from 'scenes/insights/utils'
 import { IndexedTrendResult } from 'scenes/trends/types'
 
-import { CalcColumnState } from '../insightsTableLogic'
-import { TrendsFilterType } from '~/types'
+import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
 import { TrendsFilter } from '~/queries/schema'
+import { TrendsFilterType } from '~/types'
+
+import { CalcColumnState } from '../insightsTableLogic'
 
 const CALC_COLUMN_LABELS: Record<CalcColumnState, string> = {
     total: 'Total Sum',
@@ -37,29 +38,26 @@ export function AggregationColumnTitle({
         return <span>{CALC_COLUMN_LABELS.total}</span>
     }
 
-    const calcColumnMenu = (
-        <Menu>
-            {Object.keys(CALC_COLUMN_LABELS).map((key) => (
-                <Menu.Item
-                    key={key}
-                    onClick={(e) => {
-                        setAggregationType(key as CalcColumnState)
-                        reportInsightsTableCalcToggled(key)
-                        e.domEvent.stopPropagation() // Prevent click here from affecting table sorting
-                    }}
-                >
-                    {CALC_COLUMN_LABELS[key as CalcColumnState]}
-                </Menu.Item>
-            ))}
-        </Menu>
-    )
+    const items: LemonMenuItem[] = Object.entries(CALC_COLUMN_LABELS).map(([key, label]) => ({
+        label,
+        onClick: () => {
+            setAggregationType(key as CalcColumnState)
+            reportInsightsTableCalcToggled(key)
+        },
+    }))
+
     return (
-        <Dropdown overlay={calcColumnMenu}>
-            <span className="cursor-pointer">
+        <LemonMenu items={items}>
+            <span
+                className="AggregationColumn__title LemonTable__header--no-hover flex cursor-pointer whitespace-nowrap"
+                onClick={(e) => {
+                    e.stopPropagation()
+                }}
+            >
                 {CALC_COLUMN_LABELS[aggregation]}
-                <DownOutlined className="ml-1" />
+                <IconChevronDown className="text-lg" />
             </span>
-        </Dropdown>
+        </LemonMenu>
     )
 }
 

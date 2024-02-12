@@ -1,24 +1,27 @@
-import { kea } from 'kea'
+import { actions, connect, events, kea, key, path, props } from 'kea'
+import { loaders } from 'kea-loaders'
 import api from 'lib/api'
 import { toParams } from 'lib/utils'
 import { teamLogic } from 'scenes/teamLogic'
+
 import { ActorType } from '~/types'
+
 import type { relatedGroupsLogicType } from './relatedGroupsLogicType'
 
-export const relatedGroupsLogic = kea<relatedGroupsLogicType>({
-    path: ['scenes', 'groups', 'relatedGroupsLogic'],
-    connect: { values: [teamLogic, ['currentTeamId']] },
-
-    props: {} as {
-        groupTypeIndex: number | null
-        id: string
-    },
-    key: (props) => `${props.groupTypeIndex ?? 'person'}-${props.id}`,
-
-    actions: () => ({
+export const relatedGroupsLogic = kea<relatedGroupsLogicType>([
+    props(
+        {} as {
+            groupTypeIndex: number | null
+            id: string
+        }
+    ),
+    key((props) => `${props.groupTypeIndex ?? 'person'}-${props.id}`),
+    path(['scenes', 'groups', 'relatedGroupsLogic']),
+    connect({ values: [teamLogic, ['currentTeamId']] }),
+    actions(() => ({
         loadRelatedActors: true,
-    }),
-    loaders: ({ values, props }) => ({
+    })),
+    loaders(({ values, props }) => ({
         relatedActors: [
             [] as ActorType[],
             {
@@ -32,8 +35,8 @@ export const relatedGroupsLogic = kea<relatedGroupsLogicType>({
                 setGroup: () => [],
             },
         ],
-    }),
-    events: ({ actions }) => ({
+    })),
+    events(({ actions }) => ({
         afterMount: actions.loadRelatedActors,
-    }),
-})
+    })),
+])

@@ -6,23 +6,34 @@
     display: inline-flex;
     align-items: center;
     justify-content: center;
-    height: 1.25rem;
     min-width: 1.25rem;
+    height: 1.25rem;
     padding: 0 0.1875rem;
-    border-radius: 0.125rem;
-    border-width: 1px;
-    background: var(--accent-3000);
     color: var(--default);
     text-transform: capitalize;
-    .KeyboardShortcut--muted > & {
-        background: none;
-        color: var(--muted);
+    user-select: none;
+    background: var(--accent-3000);
+    border-width: 1px;
+    border-radius: 0.25rem;
+
+    .posthog-3000 & {
+        padding: 0.125rem 0.25rem;
+        font-size: 0.75rem;
+        border-color: var(--secondary-3000-button-border-hover);
+        border-bottom-width: 2px;
     }
+
+    .KeyboardShortcut--muted > & {
+        color: var(--muted);
+        background: none;
+    }
+
     .ant-tooltip & {
         color: #fff;
         background: rgba(#000, 0.333);
         border-color: rgba(#fff, 0.333);
     }
+
     & + .KeyboardShortcut__key {
         margin-left: 0.25rem;
     }
