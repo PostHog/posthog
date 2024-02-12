@@ -87,7 +87,8 @@ def select_from_session_replay_events_table(requested_fields: Dict[str, List[str
     }
 
     select_fields: List[ast.Expr] = []
-    group_by_fields: List[ast.Expr] = []
+    # this "not raw" table is always grouped at least by session id
+    group_by_fields: List[ast.Expr] = ["session_id"]
 
     for name, chain in requested_fields.items():
         if name in RAW_ONLY_FIELDS:
