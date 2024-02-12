@@ -668,6 +668,7 @@ export type FunnelExclusion = FunnelExclusionEventsNode | FunnelExclusionActions
 export type FunnelsFilter = {
     exclusions?: FunnelExclusion[]
     layout?: FunnelsFilterLegacy['layout']
+    /** @asType integer */
     binCount?: FunnelsFilterLegacy['bin_count']
     breakdownAttributionType?: FunnelsFilterLegacy['breakdown_attribution_type']
     /** @asType integer */

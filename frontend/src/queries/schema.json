@@ -1635,7 +1635,7 @@
             "additionalProperties": false,
             "properties": {
                 "binCount": {
-                    "$ref": "#/definitions/BinCountValue"
+                    "type": "integer"
                 },
                 "breakdownAttributionType": {
                     "$ref": "#/definitions/BreakdownAttributionType"

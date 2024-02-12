@@ -2149,7 +2149,7 @@ class FunnelsFilter(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
-    binCount: Optional[Union[float, str]] = None
+    binCount: Optional[int] = None
     breakdownAttributionType: Optional[BreakdownAttributionType] = None
     breakdownAttributionValue: Optional[int] = None
     exclusions: Optional[List[Union[FunnelExclusionEventsNode, FunnelExclusionActionsNode]]] = None
