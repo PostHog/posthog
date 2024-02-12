@@ -64,6 +64,10 @@ class AutocompleteCompletionItem(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
+    detail: Optional[str] = Field(
+        default=None,
+        description="A human-readable string with additional information about this item, like type or symbol information.",
+    )
     documentation: Optional[str] = Field(
         default=None, description="A human-readable string that represents a doc-comment."
     )
@@ -1547,6 +1551,7 @@ class WebStatsTableQuery(BaseModel):
     )
     breakdownBy: WebStatsBreakdown
     dateRange: Optional[DateRange] = None
+    doPathCleaning: Optional[bool] = None
     includeBounceRate: Optional[bool] = None
     includeScrollDepth: Optional[bool] = None
     kind: Literal["WebStatsTableQuery"] = "WebStatsTableQuery"

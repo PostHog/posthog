@@ -250,6 +250,11 @@ export interface AutocompleteCompletionItem {
      */
     documentation?: string
     /**
+     * A human-readable string with additional information
+     * about this item, like type or symbol information.
+     */
+    detail?: string
+    /**
      * A string or snippet that should be inserted in a document when selecting
      * this completion.
      */
@@ -1017,6 +1022,7 @@ export interface WebStatsTableQuery extends WebAnalyticsQueryBase {
     response?: WebStatsTableQueryResponse
     includeScrollDepth?: boolean // automatically sets includeBounceRate to true
     includeBounceRate?: boolean
+    doPathCleaning?: boolean
     /** @asType integer */
     limit?: number
 }

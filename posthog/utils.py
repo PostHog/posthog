@@ -160,13 +160,13 @@ def get_current_day(at: Optional[datetime.datetime] = None) -> Tuple[datetime.da
         at,
         datetime.time.max,
         tzinfo=ZoneInfo("UTC"),
-    )  # end of the reference day
+    )  # very end of the reference day
 
     period_start: datetime.datetime = datetime.datetime.combine(
         period_end,
         datetime.time.min,
         tzinfo=ZoneInfo("UTC"),
-    )  # start of the reference day
+    )  # very start of the reference day
 
     return (period_start, period_end)
 
@@ -815,11 +815,9 @@ def get_instance_realm() -> str:
 
 def get_instance_region() -> Optional[str]:
     """
-    Returns the region for the current instance. `US` or 'EU'.
+    Returns the region for the current Cloud instance. `US` or 'EU'.
     """
-    if is_cloud():
-        return settings.REGION
-    return None
+    return settings.CLOUD_DEPLOYMENT
 
 
 def get_can_create_org(user: Union["AbstractBaseUser", "AnonymousUser"]) -> bool:

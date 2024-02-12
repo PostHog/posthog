@@ -56,7 +56,6 @@ from .plugin import (
     PluginLogEntry,
     PluginSourceFile,
 )
-from .prompt.prompt import Prompt, PromptSequence, UserPromptState
 from .property import Property
 from .property_definition import PropertyDefinition
 from .sharing_configuration import SharingConfiguration
@@ -67,6 +66,8 @@ from .team import Team
 from .uploaded_media import UploadedMedia
 from .user import User, UserManager
 from .user_scene_personalisation import UserScenePersonalisation
+
+from ._deprecated_prompts import Prompt, PromptSequence, UserPromptState
 
 __all__ = [
     "Action",
@@ -121,8 +122,6 @@ __all__ = [
     "PluginConfig",
     "PluginLogEntry",
     "PluginSourceFile",
-    "Prompt",
-    "PromptSequence",
     "Property",
     "PropertyDefinition",
     "RetentionFilter",
@@ -140,7 +139,10 @@ __all__ = [
     "User",
     "UserScenePersonalisation",
     "UserManager",
-    "UserPromptState",
     "DataWarehouseTable",
     "ScheduledChange",
+    # Deprecated models here for backwards compatibility
+    "Prompt",
+    "PromptSequence",
+    "UserPromptState",
 ]

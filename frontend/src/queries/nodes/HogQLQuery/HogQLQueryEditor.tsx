@@ -82,6 +82,16 @@ const convertCompletionItemKind = (kind: AutocompleteCompletionItem['kind']): la
     }
 }
 
+const kindToSortText = (kind: AutocompleteCompletionItem['kind'], label: string): string => {
+    if (kind === 'Variable') {
+        return `1-${label}`
+    }
+    if (kind === 'Method' || kind === 'Function') {
+        return `2-${label}`
+    }
+    return `3-${label}`
+}
+
 export interface HogQLQueryEditorProps {
     query: HogQLQuery
     setQuery?: (query: HogQLQuery) => void
@@ -224,9 +234,15 @@ export function HogQLQueryEditor(props: HogQLQueryEditorProps): JSX.Element {
 
                                         const completionItems = response.suggestions
 
-                                        const suggestions = completionItems.map((item) => {
+                                        const suggestions = completionItems.map<languages.CompletionItem>((item) => {
+                                            const kind = convertCompletionItemKind(item.kind)
+                                            const sortText = kindToSortText(item.kind, item.label)
+
                                             return {
-                                                label: item.label,
+                                                label: {
+                                                    label: item.label,
+                                                    detail: item.detail,
+                                                },
                                                 documentation: item.documentation,
                                                 insertText: item.insertText,
                                                 range: {
@@ -235,7 +251,15 @@ export function HogQLQueryEditor(props: HogQLQueryEditorProps): JSX.Element {
                                                     startColumn: word.startColumn,
                                                     endColumn: word.endColumn,
                                                 },
-                                                kind: convertCompletionItemKind(item.kind),
+                                                kind,
+                                                sortText,
+                                                command:
+                                                    kind === languages.CompletionItemKind.Function
+                                                        ? {
+                                                              id: 'cursorLeft',
+                                                              title: 'Move cursor left',
+                                                          }
+                                                        : undefined,
                                             }
                                         })
 
@@ -317,6 +341,9 @@ export function HogQLQueryEditor(props: HogQLQueryEditorProps): JSX.Element {
                                 scrollBeyondLastLine: false,
                                 automaticLayout: true,
                                 fixedOverflowWidgets: true,
+                                suggest: {
+                                    showInlineDetails: true,
+                                },
                             }}
                         />
                     </div>
