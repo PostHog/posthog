@@ -3,10 +3,11 @@ import inspect
 import re
 import resource
 import threading
+import time
 import uuid
 from contextlib import contextmanager
 from functools import wraps
-from typing import Any, Dict, List, Optional, Tuple, Union
+from typing import Any, Dict, List, Optional, Tuple, Union, Generator
 from unittest.mock import patch
 
 import freezegun
@@ -244,6 +245,20 @@ class TestMixin:
 
         if preheader:
             self.assertIn(preheader, html_message)  # type: ignore
+
+    @contextmanager
+    def retry_assertion(self, max_retries=5, delay=0.1) -> Generator[None, None, None]:
+        for _ in range(max_retries):
+            try:
+                yield
+                break  # If the assertion passed, break the loop
+            except AssertionError:
+                time.sleep(delay)  # If the assertion failed, wait before retrying
+        else:
+            # If we've exhausted all retries and the test is still failing, fail the test
+            # we want to raise the test assertion not some generic error, so run the assertion
+            # one last time
+            yield
 
 
 class MemoryLeakTestMixin:
