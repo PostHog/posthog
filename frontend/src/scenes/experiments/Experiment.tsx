@@ -94,6 +94,7 @@ export function Experiment(): JSX.Element {
         resetRunningExperiment,
         loadExperiment,
         loadExperimentResults,
+        loadSecondaryMetricResults,
         setExposureAndSampleSize,
         updateExperimentSecondaryMetrics,
         setExperiment,
@@ -557,6 +558,13 @@ export function Experiment(): JSX.Element {
                                                                 data-attr="refresh-experiment"
                                                             >
                                                                 Refresh experiment results
+                                                            </LemonButton>
+                                                            <LemonButton
+                                                                onClick={() => loadSecondaryMetricResults(true)}
+                                                                fullWidth
+                                                                data-attr="refresh-secondary-metrics"
+                                                            >
+                                                                Refresh secondary metrics
                                                             </LemonButton>
                                                         </>
                                                     }

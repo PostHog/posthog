@@ -601,13 +601,23 @@ export const experimentLogic = kea<experimentLogicType>([
         secondaryMetricResults: [
             null as SecondaryMetricResults[] | null,
             {
-                loadSecondaryMetricResults: async () => {
+                loadSecondaryMetricResults: async (refresh?: boolean) => {
+                    const refreshParam = refresh ? '&refresh=true' : ''
+
                     return await Promise.all(
                         (values.experiment?.secondary_metrics || []).map(async (_, index) => {
                             try {
                                 const secResults = await api.get(
-                                    `api/projects/${values.currentTeamId}/experiments/${values.experimentId}/secondary_results?id=${index}`
+                                    `api/projects/${values.currentTeamId}/experiments/${values.experimentId}/secondary_results?id=${index}${refreshParam}`
                                 )
+                                // :TRICKY: Maintain backwards compatibility for cached responses, remove after cache period has expired
+                                if (secResults && secResults.result && !secResults.result.hasOwnProperty('result')) {
+                                    return {
+                                        result: { ...secResults.result },
+                                        fakeInsightId: Math.random().toString(36).substring(2, 15),
+                                        last_refresh: secResults.last_refresh,
+                                    }
+                                }
                                 return {
                                     ...secResults.result,
                                     fakeInsightId: Math.random().toString(36).substring(2, 15),
