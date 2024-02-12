@@ -69,6 +69,8 @@ export const ValidationError: StoryFn = () => {
                 ctx.status(200),
                 ctx.json({ count: 1, results: [{ ...insight, result: null }] }),
             ],
+        },
+        post: {
             '/api/projects/:team_id/insights/:id': (_, __, ctx) => [
                 ctx.delay(100),
                 ctx.status(400),
@@ -92,6 +94,8 @@ export const EstimatedQueryExecutionTimeTooLong: StoryFn = () => {
                 ctx.status(200),
                 ctx.json({ count: 1, results: [{ ...insight, result: null }] }),
             ],
+        },
+        post: {
             '/api/projects/:team_id/insights/trend/': (_, __, ctx) => [
                 ctx.delay(100),
                 ctx.status(512),
@@ -120,6 +124,8 @@ export const LongLoading: StoryFn = () => {
                 ctx.status(200),
                 ctx.json({ count: 1, results: [{ ...insight, result: null }] }),
             ],
+        },
+        post: {
             '/api/projects/:team_id/insights/trend/': (_, __, ctx) => [
                 ctx.delay(86400000),
                 ctx.status(200),

@@ -949,7 +949,7 @@ Using the correct cache and enriching the response with dashboard specific confi
     # - start_entity: (dict) specifies id and type of the entity to focus retention on
     # - **shared filter types
     # ******************************************
-    @action(methods=["GET"], detail=False)
+    @action(methods=["GET", "POST"], detail=False)
     def retention(self, request: request.Request, *args: Any, **kwargs: Any) -> Response:
         timings = HogQLTimings()
         try:
@@ -965,7 +965,7 @@ Using the correct cache and enriching the response with dashboard specific confi
     def calculate_retention(self, request: request.Request) -> Dict[str, Any]:
         team = self.team
         data = {}
-        if not request.GET.get("date_from"):
+        if not request.GET.get("date_from") and not request.data.get("date_from"):
             data.update({"date_from": "-11d"})
         filter = RetentionFilter(data=data, request=request, team=self.team)
         base_uri = request.build_absolute_uri("/")
