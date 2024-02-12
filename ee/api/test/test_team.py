@@ -98,25 +98,34 @@ class TestProjectEnterpriseAPI(APILicensedTest):
         self.client.force_login(user)
 
         response = self.client.post("/api/projects/", {"name": "Test"})
-        self.assertEqual(response.status_code, HTTP_400_BAD_REQUEST, response.content)
+        self.assertEqual(response.status_code, HTTP_404_NOT_FOUND, response.content)
         self.assertEqual(
             response.json(),
             {
-                "type": "validation_error",
-                "code": "invalid_input",
+                "type": "invalid_request",
+                "code": "not_found",
                 "detail": "You need to belong to an organization.",
                 "attr": None,
             },
         )
 
     def test_user_create_project_for_org_via_url(self):
-        other_org, _, _ = Organization.objects.bootstrap(self.user, name="other_org")
-        response = self.client.post(f"/api/organizations/{other_org.id}/projects/", {"name": "Test-other"})
-        self.assertEqual(response.status_code, 201)
+        # Set both current and new org to high enough membership level
+        self.organization_membership.level = OrganizationMembership.Level.ADMIN
+        self.organization_membership.save()
 
-        other_org.refresh_from_db()
-        assert other_org.teams.count() == 2  # default plus 1
-        assert self.organization.teams.count() == 1
+        current_org, _, _ = Organization.objects.bootstrap(self.user, name="other_org")
+        other_org = self.organization  # Bootstrapping above sets it to the current org
+
+        assert current_org.id == self.user.current_organization_id
+        response = self.client.post(f"/api/organizations/{current_org.id}/projects/", {"name": "Via current org"})
+        self.assertEqual(response.status_code, 201)
+        assert response.json()["organization"] == str(current_org.id)
+
+        assert other_org.id != self.user.current_organization_id
+        response = self.client.post(f"/api/organizations/{other_org.id}/projects/", {"name": "Via path org"})
+        self.assertEqual(response.status_code, 201, msg=response.json())
+        assert response.json()["organization"] == str(other_org.id)
 
     # Deleting projects
 

@@ -42,6 +42,7 @@ from posthog.permissions import (
     OrganizationMemberPermissions,
     TeamMemberLightManagementPermission,
     TeamMemberStrictManagementPermission,
+    get_organization_from_view,
 )
 from posthog.tasks.demo_create_data import create_data_for_demo_team
 from posthog.user_permissions import UserPermissions, UserPermissionsSerializerMixin
@@ -54,9 +55,10 @@ class PremiumMultiProjectPermissions(BasePermission):
     message = "You must upgrade your PostHog plan to be able to create and manage multiple projects."
 
     def has_permission(self, request: request.Request, view) -> bool:
-        user = cast(User, request.user)
         if request.method in CREATE_METHODS:
-            if user.organization is None:
+            organization = get_organization_from_view(view)
+
+            if organization is None:
                 return False
 
             # if we're not requesting to make a demo project
@@ -64,8 +66,8 @@ class PremiumMultiProjectPermissions(BasePermission):
             # and the org isn't allowed to make multiple projects
             if (
                 ("is_demo" not in request.data or not request.data["is_demo"])
-                and user.organization.teams.exclude(is_demo=True).count() >= 1
-                and not user.organization.is_feature_available(AvailableFeature.ORGANIZATIONS_PROJECTS)
+                and organization.teams.exclude(is_demo=True).count() >= 1
+                and not organization.is_feature_available(AvailableFeature.ORGANIZATIONS_PROJECTS)
             ):
                 return False
 
@@ -74,7 +76,7 @@ class PremiumMultiProjectPermissions(BasePermission):
             if (
                 "is_demo" in request.data
                 and request.data["is_demo"]
-                and user.organization.teams.exclude(is_demo=False).count() > 0
+                and organization.teams.exclude(is_demo=False).count() > 0
             ):
                 return False
 
@@ -366,23 +368,12 @@ class TeamViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             if self.action == "create":
                 if "is_demo" not in self.request.data or not self.request.data["is_demo"]:
                     base_permissions.append(OrganizationAdminWritePermissions())
-                elif "is_demo" in self.request.data:
+                else:
                     base_permissions.append(OrganizationMemberPermissions())
             elif self.action != "list":
                 # Skip TeamMemberAccessPermission for list action, as list is serialized with limited TeamBasicSerializer
                 base_permissions.append(TeamMemberLightManagementPermission())
         return base_permissions
-
-    def check_permissions(self, request):
-        # TODO: Change this to support it coming from the URL
-        if self.action and self.action == "create":
-            organization = getattr(self.request.user, "organization", None)
-            if not organization:
-                raise exceptions.ValidationError("You need to belong to an organization.")
-            # To be used later by OrganizationAdminWritePermissions and TeamSerializer
-            self.organization = organization
-
-        return super().check_permissions(request)
 
     def get_object(self):
         lookup_value = self.kwargs[self.lookup_field]
@@ -512,3 +503,7 @@ class TeamViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     def user_permissions(self):
         team = self.get_object() if self.action == "reset_token" else None
         return UserPermissions(cast(User, self.request.user), team)
+
+
+class RootTeamViewSet(TeamViewSet):
+    base_scope = "not_supported"

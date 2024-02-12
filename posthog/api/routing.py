@@ -96,6 +96,7 @@ class TeamAndOrgViewSetMixin(_GenericViewSet):
             team = user.team
             assert team is not None
             return team.id
+
         return self.parents_query_dict["team_id"]
 
     @cached_property
@@ -119,7 +120,12 @@ class TeamAndOrgViewSetMixin(_GenericViewSet):
         try:
             return self.parents_query_dict["organization_id"]
         except KeyError:
-            return str(self.team.organization_id)
+            user = cast(User, self.request.user)
+            current_organization_id = self.team.organization_id if self.is_team_view else user.current_organization_id
+
+            if not current_organization_id:
+                raise NotFound("You need to belong to an organization.")
+            return str(current_organization_id)
 
     @cached_property
     def organization(self) -> Organization:
