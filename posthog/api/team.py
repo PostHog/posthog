@@ -505,5 +505,6 @@ class TeamViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         return UserPermissions(cast(User, self.request.user), team)
 
 
+# NOTE: We don't want people managing projects via the "current_organization" concept. Rather specifying the org ID at the top level
 class RootTeamViewSet(TeamViewSet):
     base_scope = "not_supported"
