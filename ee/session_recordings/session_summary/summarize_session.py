@@ -10,7 +10,7 @@ from posthog.session_recordings.queries.session_replay_events import SessionRepl
 
 from posthog.utils import get_instance_region
 
-from posthog.session_recordings.ai.utils import (
+from ee.session_recordings.ai.utils import (
     SessionSummaryPromptData,
     reduce_elements_chain,
     simplify_window_id,

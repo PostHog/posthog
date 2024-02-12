@@ -7,7 +7,7 @@ from prometheus_client import Histogram, Counter
 from posthog.models import Team
 
 from posthog.session_recordings.queries.session_replay_events import SessionReplayEvents
-from posthog.session_recordings.ai.utils import (
+from ee.session_recordings.ai.utils import (
     SessionSummaryPromptData,
     reduce_elements_chain,
     simplify_window_id,
