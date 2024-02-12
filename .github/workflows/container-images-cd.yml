@@ -97,18 +97,6 @@ jobs:
                         "context": ${{ toJson(github) }}
                       }
 
-            - name: Trigger PostHog Cloud deployment from Charts
-              uses: mvasigh/dispatch-action@main
-              with:
-                  token: ${{ steps.deployer.outputs.token }}
-                  repo: charts
-                  owner: PostHog
-                  event_type: posthog_deploy
-                  message: |
-                      {
-                        "image_tag": "${{ steps.build.outputs.digest }}"
-                      }                      
-
             - name: Check for changes in plugins directory
               id: check_changes_plugins
               run: |
