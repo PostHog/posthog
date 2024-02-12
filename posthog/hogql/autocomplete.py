@@ -82,19 +82,23 @@ def constant_type_to_database_field(constant_type: ConstantType, name: str) -> D
     return DatabaseField(name=name)
 
 
-def convert_database_field_to_type_string(field: DatabaseField) -> str:
-    if isinstance(field, ast.BooleanDatabaseField):
+def convert_field_or_table_to_type_string(field_or_table: FieldOrTable) -> str:
+    if isinstance(field_or_table, ast.BooleanDatabaseField):
         return "Boolean"
-    if isinstance(field, ast.IntegerDatabaseField):
+    if isinstance(field_or_table, ast.IntegerDatabaseField):
         return "Integer"
-    if isinstance(field, ast.FloatDatabaseField):
+    if isinstance(field_or_table, ast.FloatDatabaseField):
         return "Float"
-    if isinstance(field, ast.StringDatabaseField):
+    if isinstance(field_or_table, ast.StringDatabaseField):
         return "String"
-    if isinstance(field, ast.DateTimeDatabaseField):
+    if isinstance(field_or_table, ast.DateTimeDatabaseField):
         return "DateTime"
-    if isinstance(field, ast.DateDatabaseField):
+    if isinstance(field_or_table, ast.DateDatabaseField):
         return "Date"
+    if isinstance(field_or_table, ast.StringJSONDatabaseField):
+        return "Object"
+    if isinstance(field_or_table, (ast.Table, ast.LazyJoin)):
+        return "Table"
 
     return ""
 
@@ -283,9 +287,7 @@ def get_hogql_autocomplete(query: HogQLAutocomplete, team: Team) -> HogQLAutocom
                             table_fields = list(table.fields.items())
                             for field_name, field_or_table in table_fields:
                                 keys.append(field_name)
-                                details.append(
-                                    convert_database_field_to_type_string(cast(DatabaseField, field_or_table))
-                                )
+                                details.append(convert_field_or_table_to_type_string(field_or_table))
 
                             extend_responses(keys=keys, suggestions=response.suggestions, details=details)
 

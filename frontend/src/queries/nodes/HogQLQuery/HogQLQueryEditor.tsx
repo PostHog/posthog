@@ -239,8 +239,10 @@ export function HogQLQueryEditor(props: HogQLQueryEditorProps): JSX.Element {
                                             const sortText = kindToSortText(item.kind, item.label)
 
                                             return {
-                                                label: item.label,
-                                                detail: item.detail,
+                                                label: {
+                                                    label: item.label,
+                                                    detail: item.detail,
+                                                },
                                                 documentation: item.documentation,
                                                 insertText: item.insertText,
                                                 range: {
