@@ -263,7 +263,7 @@ export function formatBreakdownLabel(
         return cohorts?.filter((c) => c.id == breakdown_value)[0]?.name ?? (breakdown_value || '').toString()
     } else if (typeof breakdown_value == 'number') {
         return isOtherBreakdown(breakdown_value)
-            ? 'Other'
+            ? 'Other (Groups all remaining values)'
             : isNullBreakdown(breakdown_value)
             ? 'None'
             : formatPropertyValueForDisplay
@@ -271,7 +271,7 @@ export function formatBreakdownLabel(
             : String(breakdown_value)
     } else if (typeof breakdown_value == 'string') {
         return isOtherBreakdown(breakdown_value) || breakdown_value === 'nan'
-            ? 'Other'
+            ? 'Other (Groups all remaining values)'
             : isNullBreakdown(breakdown_value) || breakdown_value === ''
             ? 'None'
             : breakdown_value
