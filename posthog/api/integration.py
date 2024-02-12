@@ -49,7 +49,6 @@ class IntegrationViewSet(
     viewsets.GenericViewSet,
 ):
     base_scope = "not_supported"
-    include_in_docs = False
     queryset = Integration.objects.all()
     serializer_class = IntegrationSerializer
 

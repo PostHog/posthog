@@ -88,14 +88,13 @@ class DashboardCollaboratorViewSet(
     mixins.DestroyModelMixin,
     viewsets.GenericViewSet,
 ):
-    base_scope = "dashboard"
+    base_scope = "not_supported"
     permission_classes = [CanEditDashboardCollaborator]
     pagination_class = None
     queryset = DashboardPrivilege.objects.select_related("dashboard").filter(user__is_active=True)
     lookup_field = "user__uuid"
     serializer_class = DashboardCollaboratorSerializer
     filter_rewrite_rules = {"team_id": "dashboard__team_id"}
-    include_in_docs = False
 
     def get_serializer_context(self) -> Dict[str, Any]:
         context = super().get_serializer_context()

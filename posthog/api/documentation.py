@@ -201,10 +201,8 @@ def preprocess_exclude_path_format(endpoints, **kwargs):
             and callback.cls.derive_current_team_from_user_only
         ):
             pass
-        elif hasattr(callback.cls, "base_scope") and callback.cls.base_scope == "not_supported":
-            # If we don't support API scopes, then we don't support it as a publicly callable API
-            pass
-        elif hasattr(callback.cls, "include_in_docs") and callback.cls.include_in_docs:
+        elif hasattr(callback.cls, "base_scope") and callback.cls.base_scope != "not_supported":
+            # If there is an API Scope set then we implictly support it and should have it in the documentation
             path = path.replace("{parent_lookup_team_id}", "{project_id}")
             path = path.replace("{parent_lookup_", "{")
             result.append((path, path_regex, method, callback))

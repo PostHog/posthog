@@ -84,7 +84,6 @@ class OrganizationInviteViewSet(
     viewsets.GenericViewSet,
 ):
     base_scope = "not_supported"
-    include_in_docs = False
     serializer_class = OrganizationInviteSerializer
     queryset = OrganizationInvite.objects.all()
     lookup_field = "id"

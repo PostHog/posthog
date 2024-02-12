@@ -91,8 +91,6 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     """
 
     base_scope = "not_supported"
-    include_in_docs = False
-
     queryset = ExternalDataSource.objects.all()
     serializer_class = ExternalDataSourceSerializers
     filter_backends = [filters.SearchFilter]

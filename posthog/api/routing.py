@@ -43,8 +43,6 @@ class TeamAndOrgViewSetMixin(_GenericViewSet):
     # Example: {"team_id": "foo__team_id"} will make the viewset filtered by obj.foo.team_id instead of obj.team_id
     filter_rewrite_rules: Dict[str, str] = {}
 
-    include_in_docs = True
-
     authentication_classes = []
     permission_classes = []
 

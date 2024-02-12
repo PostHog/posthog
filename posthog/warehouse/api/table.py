@@ -97,7 +97,6 @@ class TableViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     """
 
     base_scope = "not_supported"
-    include_in_docs = False
     queryset = DataWarehouseTable.objects.all()
     serializer_class = TableSerializer
     filter_backends = [filters.SearchFilter]

@@ -40,7 +40,6 @@ class ElementViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     queryset = Element.objects.all()
     serializer_class = ElementSerializer
     authentication_classes = [TemporaryTokenAuthentication]
-    include_in_docs = False
 
     @action(methods=["GET"], detail=False)
     def stats(self, request: request.Request, **kwargs) -> response.Response:
