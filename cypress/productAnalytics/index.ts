@@ -17,9 +17,9 @@ export const savedInsights = {
 }
 
 export function interceptInsightLoad(insightType: string): string {
-    cy.intercept('POST', /api\/projects\/\d+\/insights\/trend\/\?.*/).as('loadNewTrendsInsight')
+    cy.intercept('POST', /api\/projects\/\d+\/insights\/trend\/\?/).as('loadNewTrendsInsight')
     cy.intercept('POST', /api\/projects\/\d+\/insights\/funnel\/?/).as('loadNewFunnelInsight')
-    cy.intercept('POST', /api\/projects\/\d+\/insights\/retention\/\?.*/).as('loadNewRetentionInsight')
+    cy.intercept('POST', /api\/projects\/\d+\/insights\/retention\/\?/).as('loadNewRetentionInsight')
     cy.intercept('POST', /api\/projects\/\d+\/insights\/path\/?/).as('loadNewPathsInsight')
     cy.intercept('POST', /api\/projects\/\d+\/query\//).as('loadNewQueryInsight')
 
