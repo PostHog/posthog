@@ -14,6 +14,7 @@ import {
     useInteractions,
     useMergeRefs,
     useRole,
+    useTransitionStyles,
 } from '@floating-ui/react'
 import clsx from 'clsx'
 import React, { useRef, useState } from 'react'
@@ -64,6 +65,22 @@ export function Tooltip({
 
     const { getFloatingProps, getReferenceProps } = useInteractions([hover, focus, dismiss, role])
 
+    const { styles: transitionStyles } = useTransitionStyles(context, {
+        duration: {
+            open: 200,
+            close: 0,
+        },
+        initial: ({ side }) => ({
+            opacity: 0,
+            transform: {
+                top: 'translateY(3px)',
+                bottom: 'translateY(-3px)',
+                left: 'translateX(3px)',
+                right: 'translateX(-3px)',
+            }[side],
+        }),
+    })
+
     const childrenRef = (children as any).ref
     const triggerRef = useMergeRefs([refs.setReference, childrenRef])
 
@@ -84,17 +101,27 @@ export function Tooltip({
                 <FloatingPortal>
                     <div
                         ref={refs.setFloating}
-                        className={clsx(
-                            'bg-tooltip-bg py-1.5 px-2 z-[1070] break-words rounded text-start text-white',
-
-                            className
-                        )}
                         // eslint-disable-next-line react/forbid-dom-props
                         style={{ ...context.floatingStyles }}
                         {...getFloatingProps()}
                     >
-                        {typeof title === 'function' ? title() : title}
-                        <FloatingArrow ref={caretRef} context={context} width={8} height={4} fill="var(--tooltip-bg)" />
+                        <div
+                            className={clsx(
+                                'bg-tooltip-bg py-1.5 px-2 z-[1070] break-words rounded text-start text-white',
+                                className
+                            )}
+                            // eslint-disable-next-line react/forbid-dom-props
+                            style={{ ...transitionStyles }}
+                        >
+                            {typeof title === 'function' ? title() : title}
+                            <FloatingArrow
+                                ref={caretRef}
+                                context={context}
+                                width={8}
+                                height={4}
+                                fill="var(--tooltip-bg)"
+                            />
+                        </div>
                     </div>
                 </FloatingPortal>
             )}
