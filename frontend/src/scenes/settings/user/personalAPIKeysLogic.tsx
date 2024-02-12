@@ -18,7 +18,7 @@ export const API_KEY_SCOPE_PRESETS = [
     {
         value: 'project_management',
         label: 'Project & user management',
-        scopes: ['team:write', 'organization:read', 'organization_member:write'],
+        scopes: ['project:write', 'organization:read', 'organization_member:write'],
     },
     { value: 'all_access', label: 'All access', scopes: ['*'] },
 ]
@@ -47,6 +47,7 @@ export const APIScopes: APIScope[] = [
     { key: 'insight' },
     { key: 'query', disabledActions: ['write'] },
     { key: 'notebook' },
+    { key: 'organization' },
     {
         key: 'organization_member',
         warnings: {
@@ -60,7 +61,17 @@ export const APIScopes: APIScope[] = [
     },
     { key: 'person' },
     { key: 'plugin' },
-    { key: 'project' },
+    {
+        key: 'project',
+        warnings: {
+            write: (
+                <>
+                    <b>Warning:</b> This scope can be used to create or modify projects within your organization,
+                    including settings about how data is ingested.
+                </>
+            ),
+        },
+    },
     { key: 'property_definition' },
     { key: 'scheduled_change' },
     { key: 'session_recording' },
