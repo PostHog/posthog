@@ -4,6 +4,7 @@ from typing import Any, Dict, List, Optional, Type, cast
 
 from django.core.cache import cache
 from django.shortcuts import get_object_or_404
+from loginas.utils import is_impersonated_session
 from rest_framework import (
     exceptions,
     request,
@@ -20,13 +21,21 @@ from posthog.api.shared import TeamBasicSerializer
 from posthog.constants import AvailableFeature
 from posthog.event_usage import report_user_action
 from posthog.models import InsightCachingState, Team, User
+from posthog.models.activity_logging.activity_log import (
+    log_activity,
+    Detail,
+    Change,
+    load_activity,
+    dict_changes_between,
+)
+from posthog.models.activity_logging.activity_page import activity_page_response
 from posthog.models.async_deletion import AsyncDeletion, DeletionType
 from posthog.models.group_type_mapping import GroupTypeMapping
 from posthog.models.organization import OrganizationMembership
 from posthog.models.signals import mute_selected_signals
 from posthog.models.team.team import groups_on_events_querying_enabled, set_team_in_cache
 from posthog.models.team.util import delete_batch_exports, delete_bulky_postgres_data
-from posthog.models.utils import generate_random_token_project
+from posthog.models.utils import generate_random_token_project, UUIDT
 from posthog.permissions import (
     CREATE_METHODS,
     OrganizationAdminWritePermissions,
@@ -278,6 +287,18 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
         request.user.current_team = team
         request.user.team = request.user.current_team  # Update cached property
         request.user.save()
+
+        log_activity(
+            organization_id=organization.id,
+            team_id=team.pk,
+            user=request.user,
+            was_impersonated=is_impersonated_session(request),
+            scope="Team",
+            item_id=team.pk,
+            activity="created",
+            detail=Detail(name=str(team.name)),
+        )
+
         return team
 
     def _handle_timezone_update(self, team: Team) -> None:
@@ -286,10 +307,28 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
         cache.delete_many(hashes)
 
     def update(self, instance: Team, validated_data: Dict[str, Any]) -> Team:
+        before_update = instance.__dict__.copy()
+
         if "timezone" in validated_data and validated_data["timezone"] != instance.timezone:
             self._handle_timezone_update(instance)
 
         updated_team = super().update(instance, validated_data)
+        changes = dict_changes_between("Team", before_update, updated_team.__dict__, use_field_exclusions=True)
+
+        log_activity(
+            organization_id=cast(UUIDT, instance.organization_id),
+            team_id=instance.pk,
+            user=cast(User, self.context["request"].user),
+            was_impersonated=is_impersonated_session(request),
+            scope="Team",
+            item_id=instance.pk,
+            activity="updated",
+            detail=Detail(
+                name=str(instance.name),
+                changes=changes,
+            ),
+        )
+
         return updated_team
 
 
@@ -369,6 +408,8 @@ class TeamViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
     def perform_destroy(self, team: Team):
         team_id = team.pk
+        organization_id = team.organization_id
+        team_name = team.name
 
         user = cast(User, self.request.user)
 
@@ -391,6 +432,16 @@ class TeamViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             ignore_conflicts=True,
         )
 
+        log_activity(
+            organization_id=cast(UUIDT, organization_id),
+            team_id=team_id,
+            user=user,
+            was_impersonated=is_impersonated_session(self.request),
+            scope="Team",
+            item_id=team_id,
+            activity="deleted",
+            detail=Detail(name=str(team_name)),
+        )
         # TRICKY: We pass in Team here as otherwise the access to "current_team" can fail if it was deleted
         report_user_action(user, f"team deleted", team=team)
 
@@ -408,6 +459,27 @@ class TeamViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         old_token = team.api_token
         team.api_token = generate_random_token_project()
         team.save()
+
+        log_activity(
+            organization_id=team.organization_id,
+            team_id=team.pk,
+            user=cast(User, request.user),
+            was_impersonated=is_impersonated_session(request),
+            scope="Team",
+            item_id=team.pk,
+            activity="updated",
+            detail=Detail(
+                name=str(team.name),
+                changes=[
+                    Change(
+                        type="Team",
+                        action="changed",
+                        field="api_token",
+                    )
+                ],
+            ),
+        )
+
         set_team_in_cache(old_token, None)
         return response.Response(TeamSerializer(team, context=self.get_serializer_context()).data)
 
@@ -420,6 +492,22 @@ class TeamViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         team = self.get_object()
         cache_key = f"is_generating_demo_data_{team.pk}"
         return response.Response({"is_generating_demo_data": cache.get(cache_key) == "True"})
+
+    @action(methods=["GET"], detail=True)
+    def activity(self, request: request.Request, **kwargs):
+        limit = int(request.query_params.get("limit", "10"))
+        page = int(request.query_params.get("page", "1"))
+
+        team = self.get_object()
+
+        activity_page = load_activity(
+            scope="Team",
+            team_id=team.pk,
+            item_ids=[str(team.pk)],
+            limit=limit,
+            page=page,
+        )
+        return activity_page_response(activity_page, limit, page, request)
 
     @cached_property
     def user_permissions(self):

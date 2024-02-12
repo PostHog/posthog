@@ -86,7 +86,7 @@ class Database(BaseModel):
     _table_names: ClassVar[List[str]] = [
         "events",
         "groups",
-        "person",
+        "persons",
         "person_distinct_id2",
         "person_overrides",
         "session_replay_events",
@@ -94,6 +94,8 @@ class Database(BaseModel):
         "person_static_cohort",
         "log_entries",
     ]
+
+    _warehouse_table_names: List[str] = []
 
     _timezone: Optional[str]
     _week_start_day: Optional[WeekStartDay]
@@ -120,9 +122,13 @@ class Database(BaseModel):
             return getattr(self, table_name)
         raise HogQLException(f'Table "{table_name}" not found in database')
 
+    def get_all_tables(self) -> List[str]:
+        return self._table_names + self._warehouse_table_names
+
     def add_warehouse_tables(self, **field_definitions: Any):
         for f_name, f_def in field_definitions.items():
             setattr(self, f_name, f_def)
+            self._warehouse_table_names.append(f_name)
 
 
 def create_hogql_database(
