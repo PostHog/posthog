@@ -22,6 +22,7 @@ import { PropertyDefinitionType, PropertyType } from '~/types'
 import { CopyToClipboardInline } from '../CopyToClipboard'
 import { PROPERTY_FILTER_TYPE_TO_TAXONOMIC_FILTER_GROUP_TYPE } from '../PropertyFilters/utils'
 import { PropertyKeyInfo } from '../PropertyKeyInfo'
+import { TaxonomicFilterGroupType } from '../TaxonomicFilter/types'
 
 type HandledType = 'string' | 'number' | 'bigint' | 'boolean' | 'undefined' | 'null'
 type Type = HandledType | 'symbol' | 'object' | 'function'
@@ -293,7 +294,11 @@ export function PropertiesTable({
                         <div className="properties-table-key">
                             <PropertyKeyInfo
                                 value={item[0]}
-                                type={PROPERTY_FILTER_TYPE_TO_TAXONOMIC_FILTER_GROUP_TYPE[type]}
+                                type={
+                                    rootKey && type === 'event' && ['$set', '$set_once'].includes(rootKey)
+                                        ? TaxonomicFilterGroupType.PersonProperties
+                                        : PROPERTY_FILTER_TYPE_TO_TAXONOMIC_FILTER_GROUP_TYPE[type]
+                                }
                             />
                         </div>
                     )
