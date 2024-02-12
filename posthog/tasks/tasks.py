@@ -723,8 +723,8 @@ def check_data_import_row_limits() -> None:
 @shared_task(ignore_result=True)
 def calculate_replay_embeddings() -> None:
     try:
-        from ee.tasks.replay_summaries import generate_recording_embeddings
+        from ee.tasks.replay_summaries import generate_recordings_embeddings_batch
 
-        generate_recording_embeddings()
+        generate_recordings_embeddings_batch()
     except ImportError:
         pass

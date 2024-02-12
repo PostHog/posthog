@@ -121,7 +121,10 @@ def flush_embeddings_to_clickhouse(embeddings: List[Dict[str, Any]]) -> None:
     sync_execute("INSERT INTO session_replay_embeddings (session_id, team_id, embeddings) VALUES", embeddings)
 
 
-def generate_recording_embeddings(session_id: str, team: Team) -> List[float] | None:
+def generate_recording_embeddings(session_id: str, team: Team | int) -> List[float] | None:
+    if isinstance(team, int):
+        team = Team.objects.get(pk=team)
+
     client = OpenAI()
 
     session_metadata = SessionReplayEvents().get_metadata(session_id=str(session_id), team=team)
