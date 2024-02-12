@@ -927,6 +927,9 @@ const api = {
                         ? new ApiRequest().notebook(`${activityLogProps.id}`).withAction('activity')
                         : new ApiRequest().notebooks().withAction('activity')
                 },
+                [ActivityScope.TEAM]: () => {
+                    return new ApiRequest().projectsDetail().withAction('activity')
+                },
             }
 
             const pagingParameters = { page: page || 1, limit: ACTIVITY_PAGE_SIZE }
