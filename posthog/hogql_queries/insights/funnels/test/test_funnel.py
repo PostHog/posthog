@@ -3557,7 +3557,7 @@ FROM
         FROM
             events AS e
         WHERE
-            and(greaterOrEquals(e.timestamp, toDateTime('2024-01-03 00:00:00.000000')), lessOrEquals(e.timestamp, toDateTime('2024-01-10 23:59:59.999999')))))
+            and(and(greaterOrEquals(e.timestamp, toDateTime('2024-01-03 00:00:00.000000')), lessOrEquals(e.timestamp, toDateTime('2024-01-10 23:59:59.999999'))), or(equals(step_0, 1), equals(step_1, 1)))))
 WHERE
     equals(step_0, 1)
 LIMIT 100""",
@@ -3617,7 +3617,7 @@ FROM
                 FROM
                     events AS e
                 WHERE
-                    and(greaterOrEquals(e.timestamp, toDateTime('2024-01-03 00:00:00.000000')), lessOrEquals(e.timestamp, toDateTime('2024-01-10 23:59:59.999999')))))
+                    and(and(greaterOrEquals(e.timestamp, toDateTime('2024-01-03 00:00:00.000000')), lessOrEquals(e.timestamp, toDateTime('2024-01-10 23:59:59.999999'))), or(equals(step_0, 1), equals(step_1, 1)))))
         WHERE
             equals(step_0, 1)))
 GROUP BY
@@ -3688,7 +3688,7 @@ FROM
                     FROM
                         events AS e
                     WHERE
-                        and(greaterOrEquals(e.timestamp, toDateTime('2024-01-03 00:00:00.000000')), lessOrEquals(e.timestamp, toDateTime('2024-01-10 23:59:59.999999')))))
+                        and(and(greaterOrEquals(e.timestamp, toDateTime('2024-01-03 00:00:00.000000')), lessOrEquals(e.timestamp, toDateTime('2024-01-10 23:59:59.999999'))), or(equals(step_0, 1), equals(step_1, 1)))))
             WHERE
                 equals(step_0, 1)))
     GROUP BY
