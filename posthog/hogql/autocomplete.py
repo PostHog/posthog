@@ -82,6 +82,27 @@ def constant_type_to_database_field(constant_type: ConstantType, name: str) -> D
     return DatabaseField(name=name)
 
 
+def convert_field_or_table_to_type_string(field_or_table: FieldOrTable) -> str:
+    if isinstance(field_or_table, ast.BooleanDatabaseField):
+        return "Boolean"
+    if isinstance(field_or_table, ast.IntegerDatabaseField):
+        return "Integer"
+    if isinstance(field_or_table, ast.FloatDatabaseField):
+        return "Float"
+    if isinstance(field_or_table, ast.StringDatabaseField):
+        return "String"
+    if isinstance(field_or_table, ast.DateTimeDatabaseField):
+        return "DateTime"
+    if isinstance(field_or_table, ast.DateDatabaseField):
+        return "Date"
+    if isinstance(field_or_table, ast.StringJSONDatabaseField):
+        return "Object"
+    if isinstance(field_or_table, (ast.Table, ast.LazyJoin)):
+        return "Table"
+
+    return ""
+
+
 def get_table(context: HogQLContext, join_expr: ast.JoinExpr, ctes: Optional[Dict[str, CTE]]) -> None | Table:
     assert context.database is not None
 
@@ -165,6 +186,7 @@ def extend_responses(
     suggestions: List[AutocompleteCompletionItem],
     kind: Kind = Kind.Variable,
     insert_text: Optional[Callable[[str], str]] = None,
+    details: Optional[List[str | None]] = None,
 ) -> None:
     suggestions.extend(
         [
@@ -172,8 +194,9 @@ def extend_responses(
                 insertText=insert_text(key) if insert_text is not None else key,
                 label=key,
                 kind=kind,
+                detail=details[index] if details is not None else None,
             )
-            for key in keys
+            for index, key in enumerate(keys)
         ]
     )
 
@@ -208,7 +231,10 @@ def get_hogql_autocomplete(query: HogQLAutocomplete, team: Team) -> HogQLAutocom
 
             select_ast = parse_select(query.select)
             if query.filters:
-                select_ast = cast(ast.SelectQuery, replace_filters(select_ast, query.filters, team))
+                try:
+                    select_ast = cast(ast.SelectQuery, replace_filters(select_ast, query.filters, team))
+                except Exception:
+                    pass
 
             if isinstance(select_ast, ast.SelectQuery):
                 ctes = select_ast.ctes
@@ -256,8 +282,14 @@ def get_hogql_autocomplete(query: HogQLAutocomplete, team: Team) -> HogQLAutocom
 
                     if is_last_part:
                         if last_table.fields.get(str(chain_part)) is None:
-                            fields = list(table.fields.keys())
-                            extend_responses(fields, response.suggestions)
+                            keys: List[str] = []
+                            details: List[str | None] = []
+                            table_fields = list(table.fields.items())
+                            for field_name, field_or_table in table_fields:
+                                keys.append(field_name)
+                                details.append(convert_field_or_table_to_type_string(field_or_table))
+
+                            extend_responses(keys=keys, suggestions=response.suggestions, details=details)
 
                             available_functions = ALL_EXPOSED_FUNCTION_NAMES
                             extend_responses(
@@ -289,9 +321,13 @@ def get_hogql_autocomplete(query: HogQLAutocomplete, team: Team) -> HogQLAutocom
                                     name__contains=match_term,
                                     team_id=team.pk,
                                     type=property_type,
-                                )[:PROPERTY_DEFINITION_LIMIT].values("name")
+                                )[:PROPERTY_DEFINITION_LIMIT].values("name", "property_type")
 
-                                extend_responses([prop["name"] for prop in properties], response.suggestions)
+                                extend_responses(
+                                    keys=[prop["name"] for prop in properties],
+                                    suggestions=response.suggestions,
+                                    details=[prop["property_type"] for prop in properties],
+                                )
                         elif isinstance(field, VirtualTable) or isinstance(field, LazyTable):
                             fields = list(last_table.fields.keys())
                             extend_responses(fields, response.suggestions)

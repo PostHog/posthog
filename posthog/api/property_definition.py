@@ -6,7 +6,6 @@ from django.db import connection
 from django.db.models import Prefetch
 from rest_framework import (
     mixins,
-    permissions,
     serializers,
     viewsets,
     status,
@@ -18,7 +17,7 @@ from rest_framework.exceptions import ValidationError
 from rest_framework.pagination import LimitOffsetPagination
 
 from posthog.api.documentation import extend_schema
-from posthog.api.routing import StructuredViewSetMixin
+from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.tagged_item import TaggedItemSerializerMixin, TaggedItemViewSetMixin
 from posthog.constants import GROUP_TYPES_LIMIT, AvailableFeature
 from posthog.event_usage import report_user_action
@@ -27,10 +26,6 @@ from posthog.filters import TermSearchFilterBackend, term_search_filter_sql
 from posthog.models import PropertyDefinition, TaggedItem, User, EventProperty
 from posthog.models.activity_logging.activity_log import log_activity, Detail
 from posthog.models.utils import UUIDT
-from posthog.permissions import (
-    OrganizationMemberPermissions,
-    TeamMemberAccessPermission,
-)
 from loginas.utils import is_impersonated_session
 
 
@@ -444,8 +439,8 @@ class NotCountingLimitOffsetPaginator(LimitOffsetPagination):
 
 
 class PropertyDefinitionViewSet(
+    TeamAndOrgViewSetMixin,
     TaggedItemViewSetMixin,
-    StructuredViewSetMixin,
     mixins.ListModelMixin,
     mixins.RetrieveModelMixin,
     mixins.UpdateModelMixin,
@@ -453,11 +448,6 @@ class PropertyDefinitionViewSet(
     viewsets.GenericViewSet,
 ):
     serializer_class = PropertyDefinitionSerializer
-    permission_classes = [
-        permissions.IsAuthenticated,
-        OrganizationMemberPermissions,
-        TeamMemberAccessPermission,
-    ]
     lookup_field = "id"
     filter_backends = [TermSearchFilterBackend]
     ordering = "name"
