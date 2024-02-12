@@ -9,7 +9,7 @@ import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
-import { BillingProductV2Type, ProductKey } from '~/types'
+import { BillingProductV2Type, Breadcrumb, ProductKey } from '~/types'
 
 import type { onboardingLogicType } from './onboardingLogicType'
 
@@ -141,7 +141,7 @@ export const onboardingLogic = kea<onboardingLogicType>([
     selectors({
         breadcrumbs: [
             (s) => [s.productKey, s.stepKey],
-            (productKey, stepKey) => {
+            (productKey, stepKey): Breadcrumb[] => {
                 return [
                     {
                         key: Scene.Onboarding,
