@@ -343,7 +343,6 @@ class TeamViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     permission_classes = [IsAuthenticated, PremiumMultiProjectPermissions]
     lookup_field = "id"
     ordering = "-created_by"
-    include_in_docs = True
 
     def get_queryset(self):
         # IMPORTANT: This is actually what ensures that a user cannot read/update a project for which they don't have permission

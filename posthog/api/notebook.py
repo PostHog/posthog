@@ -239,8 +239,6 @@ class NotebookViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.Model
     queryset = Notebook.objects.all()
     filter_backends = [DjangoFilterBackend]
     filterset_fields = ["short_id"]
-    # TODO: Remove this once we have released notebooks
-    include_in_docs = DEBUG
     lookup_field = "short_id"
 
     def get_serializer_class(self) -> Type[BaseSerializer]:

@@ -110,7 +110,6 @@ class ExplicitTeamMemberViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     lookup_field = "parent_membership__user__uuid"
     ordering = ["level", "-joined_at"]
     serializer_class = ExplicitTeamMemberSerializer
-    include_in_docs = True
 
     permission_classes = [IsAuthenticated, TeamMemberStrictManagementPermission]
 

@@ -575,7 +575,6 @@ class InsightViewSet(
     renderer_classes = tuple(api_settings.DEFAULT_RENDERER_CLASSES) + (csvrenderers.CSVRenderer,)
     filter_backends = [DjangoFilterBackend]
     filterset_fields = ["short_id", "created_by"]
-    include_in_docs = True
 
     retention_query_class = Retention
     stickiness_query_class = Stickiness
