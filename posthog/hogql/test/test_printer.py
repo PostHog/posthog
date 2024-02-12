@@ -1023,7 +1023,7 @@ class TestPrinter(BaseTest):
             # null = click_count
             f"isNull(session_replay_events.click_count) "
             # ...
-            f"FROM (SELECT min(session_replay_events.min_first_timestamp) AS start_time, sum(session_replay_events.click_count) AS click_count, sum(session_replay_events.keypress_count) AS keypress_count FROM session_replay_events WHERE equals(session_replay_events.team_id, {self.team.pk})) AS session_replay_events LIMIT 10000"
+            f"FROM (SELECT min(session_replay_events.min_first_timestamp) AS start_time, sum(session_replay_events.click_count) AS click_count, sum(session_replay_events.keypress_count) AS keypress_count FROM session_replay_events WHERE equals(session_replay_events.team_id, {self.team.pk}) GROUP BY session_replay_events.session_id) AS session_replay_events LIMIT 10000"
         )
 
     def test_field_nullable_not_equals(self):
@@ -1063,7 +1063,7 @@ class TestPrinter(BaseTest):
             # null = click_count
             f"isNotNull(session_replay_events.click_count) "
             # ...
-            f"FROM (SELECT min(session_replay_events.min_first_timestamp) AS start_time, sum(session_replay_events.click_count) AS click_count, sum(session_replay_events.keypress_count) AS keypress_count FROM session_replay_events WHERE equals(session_replay_events.team_id, {self.team.pk})) AS session_replay_events LIMIT 10000"
+            f"FROM (SELECT min(session_replay_events.min_first_timestamp) AS start_time, sum(session_replay_events.click_count) AS click_count, sum(session_replay_events.keypress_count) AS keypress_count FROM session_replay_events WHERE equals(session_replay_events.team_id, {self.team.pk}) GROUP BY session_replay_events.session_id) AS session_replay_events LIMIT 10000"
         )
 
     def test_field_nullable_boolean(self):
