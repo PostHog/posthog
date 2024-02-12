@@ -240,6 +240,7 @@ export function HogQLQueryEditor(props: HogQLQueryEditorProps): JSX.Element {
 
                                             return {
                                                 label: item.label,
+                                                detail: item.detail,
                                                 documentation: item.documentation,
                                                 insertText: item.insertText,
                                                 range: {
@@ -338,6 +339,9 @@ export function HogQLQueryEditor(props: HogQLQueryEditorProps): JSX.Element {
                                 scrollBeyondLastLine: false,
                                 automaticLayout: true,
                                 fixedOverflowWidgets: true,
+                                suggest: {
+                                    showInlineDetails: true,
+                                },
                             }}
                         />
                     </div>
