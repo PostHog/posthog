@@ -33,7 +33,6 @@ from posthog.models.activity_logging.activity_log import (
 from posthog.models.activity_logging.activity_page import activity_page_response
 from posthog.models.notebook.notebook import Notebook
 from posthog.models.utils import UUIDT
-from posthog.settings import DEBUG
 from posthog.utils import relative_date_parse
 from loginas.utils import is_impersonated_session
 
