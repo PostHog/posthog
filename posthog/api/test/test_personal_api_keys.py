@@ -270,6 +270,10 @@ class TestPersonalAPIKeysWithScopeAPIAuthentication(APIBaseTest):
         assert response.status_code == status.HTTP_403_FORBIDDEN
         assert response.json()["detail"] == "This action does not support Personal API Key access"
 
+    def test_special_handling_for_teams_still_forbids(self):
+        response = self._do_request(f"/api/projects/{self.team.id}/")
+        assert response.status_code == status.HTTP_403_FORBIDDEN
+
     def test_allows_derived_scope_for_read(self):
         response = self._do_request(f"/api/projects/{self.team.id}/feature_flags/")
         assert response.status_code == status.HTTP_200_OK
