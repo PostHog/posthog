@@ -305,7 +305,6 @@ class APIScopePermission(BasePermission):
         if base_scope == "not_supported":
             raise PermissionDenied(f"This action does not support Personal API Key access")
 
-        # TODO: Add tests for this!
         read_actions = getattr(view, "base_scope_read_actions", self.read_actions)
         write_actions = getattr(view, "base_scope_write_actions", self.write_actions)
 
