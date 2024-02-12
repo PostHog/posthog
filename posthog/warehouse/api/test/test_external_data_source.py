@@ -7,7 +7,6 @@ from posthog.temporal.data_imports.pipelines.schemas import (
 )
 from django.test import override_settings
 from django.conf import settings
-from posthog.cloud_utils import TEST_clear_cloud_cache
 from posthog.models import Team
 import psycopg
 
@@ -193,8 +192,6 @@ class TestSavedQuery(APIBaseTest):
     @patch("posthog.warehouse.api.external_data_source.get_postgres_schemas")
     def test_internal_postgres(self, patch_get_postgres_schemas):
         patch_get_postgres_schemas.return_value = ["table_1"]
-
-        TEST_clear_cloud_cache(True)
 
         with override_settings(REGION="US"):
             team_2, _ = Team.objects.get_or_create(id=2, organization=self.team.organization)

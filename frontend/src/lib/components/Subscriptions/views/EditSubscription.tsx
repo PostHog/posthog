@@ -1,4 +1,4 @@
-import { LemonDivider, LemonInput, LemonTextArea, Link } from '@posthog/lemon-ui'
+import { LemonInput, LemonTextArea, Link } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
 import { UserActivityIndicator } from 'lib/components/UserActivityIndicator/UserActivityIndicator'
@@ -105,12 +105,8 @@ export function EditSubscription({
             className="LemonModal__layout"
         >
             <LemonModal.Header>
-                <div className="flex items-center">
-                    <LemonButton onClick={onCancel} size="small">
-                        <IconChevronLeft fontSize="1rem" />
-                        Back
-                    </LemonButton>
-                    <LemonDivider vertical />
+                <div className="flex items-center gap-2">
+                    <LemonButton icon={<IconChevronLeft />} onClick={onCancel} size="xsmall" />
 
                     <h3>{id === 'new' ? 'New' : 'Edit '} Subscription</h3>
                 </div>
