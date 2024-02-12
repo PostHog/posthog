@@ -722,6 +722,8 @@ def check_data_import_row_limits() -> None:
         check_synced_row_limits()
 
 
+# this task runs a CH query and triggers other tasks
+# it can run on the default queue
 @shared_task(ignore_result=True)
 def calculate_replay_embeddings() -> None:
     from posthog.tasks.replay_summaries import generate_recording_embeddings
