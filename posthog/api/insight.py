@@ -16,7 +16,6 @@ from rest_framework import request, serializers, status, viewsets
 from rest_framework.decorators import action
 from rest_framework.exceptions import ParseError, PermissionDenied, ValidationError
 from rest_framework.parsers import JSONParser
-from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.settings import api_settings
 from rest_framework_csv import renderers as csvrenderers
@@ -32,7 +31,7 @@ from posthog.api.insight_serializers import (
     TrendSerializer,
 )
 from posthog.clickhouse.cancel import cancel_query_on_cluster
-from posthog.api.routing import StructuredViewSetMixin
+from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 from posthog.api.tagged_item import TaggedItemSerializerMixin, TaggedItemViewSetMixin
 from posthog.api.utils import format_paginated_url
@@ -78,7 +77,6 @@ from posthog.models.filters.path_filter import PathFilter
 from posthog.models.filters.stickiness_filter import StickinessFilter
 from posthog.models.insight import InsightViewed
 from posthog.models.utils import UUIDT
-from posthog.permissions import TeamMemberAccessPermission
 from posthog.queries.funnels import (
     ClickhouseFunnelTimeToConvert,
     ClickhouseFunnelTrends,
@@ -564,12 +562,11 @@ class InsightSerializer(InsightBasicSerializer, UserPermissionsSerializerMixin):
 
 class InsightViewSet(
     TaggedItemViewSetMixin,
-    StructuredViewSetMixin,
+    TeamAndOrgViewSetMixin,
     ForbidDestroyModel,
     viewsets.ModelViewSet,
 ):
     serializer_class = InsightSerializer
-    permission_classes = [IsAuthenticated, TeamMemberAccessPermission]
     throttle_classes = [
         ClickHouseBurstRateThrottle,
         ClickHouseSustainedRateThrottle,
@@ -1083,4 +1080,4 @@ Using the correct cache and enriching the response with dashboard specific confi
 
 
 class LegacyInsightViewSet(InsightViewSet):
-    legacy_team_compatibility = True
+    derive_current_team_from_user_only = True

@@ -35,7 +35,7 @@
     background-color: var(--bg-light);
     border: 1px solid var(--secondary-3000-button-border);
     border-radius: var(--radius);
-    box-shadow: var(--shadow-elevation);
+    box-shadow: var(--modal-shadow-elevation);
     opacity: 0;
     transition: opacity var(--modal-transition-time) ease-out, transform var(--modal-transition-time) ease-out;
     transform: scale(0.85);
@@ -60,8 +60,8 @@
 
     .LemonModal__close {
         position: absolute;
-        top: 1.25rem;
-        right: 1.25rem;
+        top: 0.75rem;
+        right: 1rem;
         z-index: 1;
 
         &.LemonModal__close--highlighted {
@@ -78,7 +78,7 @@
     }
 
     .LemonModal__content {
-        padding: 1rem 1.5rem;
+        padding: 1rem;
         overflow-y: auto;
 
         &.LemonModal__content--embedded {
@@ -94,8 +94,8 @@
 }
 
 .LemonModal__header {
-    padding-bottom: 1.25rem;
-    margin: 1.5rem;
+    padding-bottom: 1rem;
+    margin: 1rem;
     margin-bottom: 0;
     border-bottom: 1px solid var(--border);
 
@@ -118,8 +118,8 @@
     gap: 0.5rem;
     align-items: center;
     justify-content: flex-end;
-    padding-top: 1.5rem;
-    margin: 1.5rem;
+    padding-top: 1rem;
+    margin: 1rem;
     margin-top: 0;
     white-space: nowrap;
     border-top: 1px solid var(--border);

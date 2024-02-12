@@ -6,7 +6,6 @@ from django.utils import timezone
 from rest_framework import status
 
 from posthog.cloud_utils import (
-    TEST_clear_cloud_cache,
     TEST_clear_instance_license_cache,
 )
 from posthog.models.instance_setting import set_instance_setting
@@ -287,20 +286,14 @@ class TestPreflight(APIBaseTest, QueryMatchingTest):
             self.assertEqual(response.json()["can_create_org"], True)
 
     @pytest.mark.ee
-    def test_cloud_preflight_based_on_license(self):
-        TEST_clear_cloud_cache()
-        try:
-            from ee.models.license import License, LicenseManager
-        except ImportError:
-            pass
-        else:
-            super(LicenseManager, cast(LicenseManager, License.objects)).create(
-                key="key::123",
-                plan="cloud",
-                valid_until=timezone.datetime(2038, 1, 19, 3, 14, 7),
-            )
-
+    def test_cloud_preflight_based_on_region(self):
+        with self.settings(REGION="US"):
             response = self.client.get("/_preflight/")
             assert response.status_code == status.HTTP_200_OK
             assert response.json()["realm"] == "cloud"
-            assert response.json()["cloud"]
+            assert response.json()["cloud"] is True
+        with self.settings(REGION=None):
+            response = self.client.get("/_preflight/")
+            assert response.status_code == status.HTTP_200_OK
+            assert response.json()["realm"] == "hosted-clickhouse"
+            assert response.json()["cloud"] is False

@@ -61,7 +61,7 @@ MATERIALIZE_COLUMNS_ANALYSIS_PERIOD_HOURS = get_from_env(
 # How big of a timeframe to backfill when materializing event properties. 0 for no backfilling
 MATERIALIZE_COLUMNS_BACKFILL_PERIOD_DAYS = get_from_env("MATERIALIZE_COLUMNS_BACKFILL_PERIOD_DAYS", 90, type_cast=int)
 # Maximum number of columns to materialize at once. Avoids running into resource bottlenecks (storage + ingest + backfilling).
-MATERIALIZE_COLUMNS_MAX_AT_ONCE = get_from_env("MATERIALIZE_COLUMNS_MAX_AT_ONCE", 10, type_cast=int)
+MATERIALIZE_COLUMNS_MAX_AT_ONCE = get_from_env("MATERIALIZE_COLUMNS_MAX_AT_ONCE", 100, type_cast=int)
 
 BILLING_SERVICE_URL = get_from_env("BILLING_SERVICE_URL", "https://billing.posthog.com")
 
