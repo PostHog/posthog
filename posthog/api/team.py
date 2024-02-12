@@ -382,6 +382,16 @@ class TeamViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 base_permissions.append(TeamMemberLightManagementPermission())
         return base_permissions
 
+    def check_permissions(self, request):
+        if self.action and self.action == "create":
+            organization = getattr(self.request.user, "organization", None)
+            if not organization:
+                raise exceptions.ValidationError("You need to belong to an organization.")
+            # To be used later by OrganizationAdminWritePermissions and TeamSerializer
+            self.organization = organization
+
+        return super().check_permissions(request)
+
     def get_object(self):
         lookup_value = self.kwargs[self.lookup_field]
         if lookup_value == "@current":

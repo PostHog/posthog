@@ -43,7 +43,6 @@ class ScheduledChangeViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     """
 
     base_scope = "scheduled_change"
-
     serializer_class = ScheduledChangeSerializer
     queryset = ScheduledChange.objects.all()
 
