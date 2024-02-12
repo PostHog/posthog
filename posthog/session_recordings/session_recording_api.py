@@ -27,9 +27,6 @@ from posthog.models import User
 from posthog.models.filters.session_recordings_filter import SessionRecordingsFilter
 from posthog.models.person.person import PersonDistinctId
 from posthog.session_recordings.models.session_recording import SessionRecording
-from posthog.permissions import (
-    SharingTokenPermission,
-)
 from posthog.session_recordings.models.session_recording_event import (
     SessionRecordingViewed,
 )
