@@ -1,9 +1,9 @@
 import structlog
 from celery import shared_task
 
-from posthog.tasks.ee.session_recordings.ai.generate_embeddings import (
-    fetch_recordings_without_embeddings,
+from ee.session_recordings.ai.generate_embeddings import (
     generate_recording_embedding,
+    fetch_recordings_without_embeddings,
 )
 from posthog.tasks.utils import CeleryQueue
 
