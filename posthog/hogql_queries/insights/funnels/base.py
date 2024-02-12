@@ -255,7 +255,7 @@ class FunnelBase(ABC):
         elif breakdownType == "cohort":
             return ast.Field(chain=["value"])
         elif breakdownType == "group":
-            properties_column = f"group{breakdownFilter.breakdown_group_type_index}_properties"
+            properties_column = f"group_{breakdownFilter.breakdown_group_type_index}.properties"
             return get_breakdown_expr(breakdown, properties_column)
         elif breakdownType == "hogql":
             return ast.Alias(
