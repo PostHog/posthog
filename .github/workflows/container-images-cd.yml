@@ -84,7 +84,7 @@ jobs:
             - name: Trigger PostHog Cloud deployment
               # TODO: switch to https://github.com/marketplace/actions/repository-dispatch
               # as this action is now deprecated.
-              uses: mvasigh/dispatch-action@deploy-posthog-from-charts
+              uses: mvasigh/dispatch-action@main
               with:
                   token: ${{ steps.deployer.outputs.token }}
                   repo: posthog-cloud-infra
@@ -98,7 +98,7 @@ jobs:
                       }
 
             - name: Trigger PostHog Cloud deployment from Charts
-              uses: mvasigh/dispatch-action@deploy-posthog-from-charts
+              uses: mvasigh/dispatch-action@main
               with:
                   token: ${{ steps.deployer.outputs.token }}
                   repo: charts
