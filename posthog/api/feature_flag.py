@@ -484,15 +484,7 @@ class FeatureFlagViewSet(
         if not request.user.is_authenticated:  # for mypy
             raise exceptions.NotAuthenticated()
 
-        feature_flags = list(
-            FeatureFlag.objects.filter(team=self.team, deleted=False)
-            .prefetch_related("experiment_set")
-            .prefetch_related("features")
-            .prefetch_related("analytics_dashboards")
-            .prefetch_related("surveys_linked_flag")
-            .select_related("created_by")
-            .order_by("-created_at")
-        )
+        feature_flags = list(FeatureFlag.objects.filter(team=self.team, deleted=False).order_by("-created_at"))
 
         if not feature_flags:
             return Response([])
@@ -500,7 +492,7 @@ class FeatureFlagViewSet(
         groups = json.loads(request.GET.get("groups", "{}"))
         matches, *_ = get_all_feature_flags(self.team_id, request.user.distinct_id, groups)
 
-        all_serialized_flags = FeatureFlagSerializer(
+        all_serialized_flags = MinimalFeatureFlagSerializer(
             feature_flags, many=True, context=self.get_serializer_context()
         ).data
         return Response(
