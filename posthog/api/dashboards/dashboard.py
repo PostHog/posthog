@@ -31,10 +31,7 @@ from posthog.models.dashboard_templates import DashboardTemplate
 from posthog.models.tagged_item import TaggedItem
 from posthog.models.team.team import check_is_feature_available_for_team
 from posthog.models.user import User
-from posthog.permissions import (
-    ProjectMembershipNecessaryPermissions,
-    TeamMemberAccessPermission,
-)
+from posthog.permissions import TeamMemberAccessPermission
 from posthog.user_permissions import UserPermissionsSerializerMixin
 
 logger = structlog.get_logger(__name__)
@@ -414,7 +411,6 @@ class DashboardsViewSet(
     queryset = Dashboard.objects.order_by("name")
     permission_classes = [
         IsAuthenticated,
-        ProjectMembershipNecessaryPermissions,
         TeamMemberAccessPermission,
         CanEditDashboard,
     ]

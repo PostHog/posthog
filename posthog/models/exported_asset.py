@@ -45,6 +45,8 @@ class ExportedAsset(models.Model):
         PDF = "application/pdf", "application/pdf"
         CSV = "text/csv", "text/csv"
 
+    SUPPORTED_FORMATS = [ExportFormat.PNG, ExportFormat.CSV]
+
     # Relations
     team: models.ForeignKey = models.ForeignKey("Team", on_delete=models.CASCADE)
     dashboard = models.ForeignKey("posthog.Dashboard", on_delete=models.CASCADE, null=True)
@@ -136,10 +138,7 @@ def get_content_response(asset: ExportedAsset, download: bool = False):
         content = object_storage.read_bytes(asset.content_location)
 
     if not content:
-        # if we don't have content, the asset is invalid, so, expire it
-        asset.expires_after = now()
-        asset.save()
-
+        # Don't modify the asset here as the task might still be running concurrently
         raise NotFound()
 
     res = HttpResponse(content, content_type=asset.export_format)

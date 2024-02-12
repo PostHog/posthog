@@ -63,7 +63,7 @@ class TestFunnelBreakdown(
 
 class TestFunnelConversionTime(
     ClickhouseTestMixin,
-    funnel_conversion_time_test_factory(Funnel, ClickhouseFunnelActors, _create_event, _create_person),  # type: ignore
+    funnel_conversion_time_test_factory(FunnelOrderType.ORDERED, ClickhouseFunnelActors),  # type: ignore
 ):
     maxDiff = None
     pass

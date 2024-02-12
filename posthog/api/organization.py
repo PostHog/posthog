@@ -137,7 +137,7 @@ class OrganizationViewSet(viewsets.ModelViewSet):
     def get_permissions(self):
         if self.request.method == "POST":
             # Cannot use `OrganizationMemberPermissions` or `OrganizationAdminWritePermissions`
-            # because they require an existing org, unneded anyways because permissions are organization-based
+            # because they require an existing org, unneeded anyway because permissions are organization-based
             return [
                 permission()
                 for permission in [

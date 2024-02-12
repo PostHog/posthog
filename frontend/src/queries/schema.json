@@ -5073,6 +5073,9 @@
                 "dateRange": {
                     "$ref": "#/definitions/DateRange"
                 },
+                "doPathCleaning": {
+                    "type": "boolean"
+                },
                 "includeBounceRate": {
                     "type": "boolean"
                 },

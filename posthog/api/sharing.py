@@ -26,10 +26,7 @@ from posthog.models.exported_asset import (
 from posthog.models.insight import Insight
 from posthog.models import SessionRecording
 from posthog.models.user import User
-from posthog.permissions import (
-    ProjectMembershipNecessaryPermissions,
-    TeamMemberAccessPermission,
-)
+from posthog.permissions import TeamMemberAccessPermission
 from posthog.session_recordings.session_recording_api import SessionRecordingSerializer
 from posthog.user_permissions import UserPermissions
 from posthog.utils import render_template
@@ -86,7 +83,6 @@ class SharingConfigurationSerializer(serializers.ModelSerializer):
 class SharingConfigurationViewSet(StructuredViewSetMixin, mixins.ListModelMixin, viewsets.GenericViewSet):
     permission_classes = [
         IsAuthenticated,
-        ProjectMembershipNecessaryPermissions,
         TeamMemberAccessPermission,
     ]
     pagination_class = None
