@@ -109,6 +109,15 @@ class TestProjectEnterpriseAPI(APILicensedTest):
             },
         )
 
+    def test_user_create_project_for_org_via_url(self):
+        other_org, _, _ = Organization.objects.bootstrap(self.user, name="other_org")
+        response = self.client.post(f"/api/organizations/{other_org.id}/projects/", {"name": "Test-other"})
+        self.assertEqual(response.status_code, 201)
+
+        other_org.refresh_from_db()
+        assert other_org.teams.count() == 2  # default plus 1
+        assert self.organization.teams.count() == 1
+
     # Deleting projects
 
     def test_delete_team_as_org_admin_allowed(self):
