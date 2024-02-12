@@ -134,7 +134,6 @@ class OrganizationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
     def get_permissions(self):
         # When listing there is no individual object to check for
-        # TODO: Is this really what we want?
         if self.action == "list":
             return [permission() for permission in [permissions.IsAuthenticated, APIScopePermission]]
 

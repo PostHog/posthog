@@ -38,6 +38,7 @@ from posthog.models.team.util import delete_batch_exports, delete_bulky_postgres
 from posthog.models.utils import generate_random_token_project, UUIDT
 from posthog.permissions import (
     CREATE_METHODS,
+    APIScopePermission,
     OrganizationAdminWritePermissions,
     OrganizationMemberPermissions,
     TeamMemberLightManagementPermission,
@@ -342,7 +343,6 @@ class TeamViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     base_scope = "project"
     serializer_class = TeamSerializer
     queryset = Team.objects.all().select_related("organization")
-    permission_classes = [IsAuthenticated, PremiumMultiProjectPermissions]
     lookup_field = "id"
     ordering = "-created_by"
 
@@ -356,12 +356,19 @@ class TeamViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             return TeamBasicSerializer
         return super().get_serializer_class()
 
+    # NOTE: Team permissions are somewhat complex so we override the underlying viewset's get_permissions method
     def get_permissions(self) -> List:
         """
         Special permissions handling for create requests as the organization is inferred from the current user.
         """
 
-        base_permissions = [permission() for permission in self.permission_classes]
+        common_permissions: list = [
+            IsAuthenticated,
+            APIScopePermission,
+            PremiumMultiProjectPermissions,
+        ] + self.permission_classes
+
+        base_permissions = [permission() for permission in common_permissions]
 
         # Return early for non-actions (e.g. OPTIONS)
         if self.action:
@@ -439,10 +446,7 @@ class TeamViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         methods=["PATCH"],
         detail=True,
         # Only ADMIN or higher users are allowed to access this project
-        permission_classes=[
-            IsAuthenticated,
-            TeamMemberStrictManagementPermission,
-        ],
+        permission_classes=[TeamMemberStrictManagementPermission],
     )
     def reset_token(self, request: request.Request, id: str, **kwargs) -> response.Response:
         team = self.get_object()

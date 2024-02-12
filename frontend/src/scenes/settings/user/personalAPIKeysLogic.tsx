@@ -12,7 +12,6 @@ import { PersonalAPIKeyType } from '~/types'
 import type { personalAPIKeysLogicType } from './personalAPIKeysLogicType'
 
 export const API_KEY_SCOPE_PRESETS = [
-    // TODO: Double check scopes make sense
     { value: 'local_evaluation', label: 'Local feature flag evaluation', scopes: ['feature_flag:read'] },
     { value: 'analytics', label: 'Performing analytics queries', scopes: ['query:read'] },
     {

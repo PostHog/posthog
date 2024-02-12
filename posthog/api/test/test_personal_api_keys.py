@@ -271,7 +271,6 @@ class TestPersonalAPIKeysWithScopeAPIAuthentication(APIBaseTest):
         assert response.json()["detail"] == "This action does not support Personal API Key access"
 
     def test_allows_derived_scope_for_read(self):
-        # TODO: Investifate why f"/api/projects/{self.team.id}" returns 200...
         response = self._do_request(f"/api/projects/{self.team.id}/feature_flags/")
         assert response.status_code == status.HTTP_200_OK
 

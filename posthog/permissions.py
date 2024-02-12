@@ -265,22 +265,15 @@ class APIScopePermission(BasePermission):
 
         requester_scopes = request.successful_authenticator.personal_api_key.scopes_list
 
-        # If scopes is not set then full access is granted
-        # TODO: Is this correct?
+        # TRICKY: Legacy API keys have no scopes and are allowed to do anything, even if the view is unsupported.
         if not requester_scopes:
             return True
-
-        # LOGIC:
-        # 1. Derive the required scope from the action
-        # 2. Check if the required scope is in the requester's scopes
-        # - If the scope is :read then either :read or :write is enough
 
         required_scopes = self.get_required_scopes(request, view)
 
         if "*" in requester_scopes:
             return True
 
-        # TODO: Abstract this into a method that we can reliably test
         for required_scope in required_scopes:
             valid_scopes = [required_scope]
 
