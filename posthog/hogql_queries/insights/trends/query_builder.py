@@ -13,14 +13,14 @@ from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 from posthog.models.action.action import Action
 from posthog.models.filters.mixins.utils import cached_property
 from posthog.models.team.team import Team
-from posthog.schema import ActionsNode, EventsNode, HogQLQueryModifiers, TrendsQuery
+from posthog.schema import ActionsNode, HogQLQueryModifiers, TrendsQuery, DataWarehouseNode, SeriesType
 
 
 class TrendsQueryBuilder:
     query: TrendsQuery
     team: Team
     query_date_range: QueryDateRange
-    series: EventsNode | ActionsNode
+    series: SeriesType
     timings: HogQLTimings
     modifiers: HogQLQueryModifiers
 
@@ -29,7 +29,7 @@ class TrendsQueryBuilder:
         trends_query: TrendsQuery,
         team: Team,
         query_date_range: QueryDateRange,
-        series: EventsNode | ActionsNode,
+        series: SeriesType,
         timings: HogQLTimings,
         modifiers: HogQLQueryModifiers,
     ):
@@ -158,12 +158,7 @@ class TrendsQueryBuilder:
         breakdown_values_override: Optional[str | int] = None,
         actors_query_time_frame: Optional[str | int] = None,
     ) -> ast.SelectQuery:
-        day_start = ast.Alias(
-            alias="day_start",
-            expr=ast.Call(
-                name=f"toStartOf{self.query_date_range.interval_name.title()}", args=[ast.Field(chain=["timestamp"])]
-            ),
-        )
+        day_start = self._day_start_expr
 
         events_filter = self._events_filter(
             ignore_breakdowns=False,
@@ -179,17 +174,19 @@ class TrendsQueryBuilder:
                 """
                 SELECT
                     {aggregation_operation} AS total
-                FROM events AS e
-                SAMPLE {sample}
+                FROM {table} AS e
                 WHERE {events_filter}
             """,
                 placeholders={
                     "events_filter": events_filter,
                     "aggregation_operation": self._aggregation_operation.select_aggregation(),
-                    "sample": self._sample_value(),
+                    "table": self._table_expr,
                 },
             ),
         )
+
+        if not isinstance(self.series, DataWarehouseNode):
+            default_query.select_from.sample = self._sample_value()
 
         default_query.group_by = []
 
@@ -447,12 +444,18 @@ class TrendsQueryBuilder:
             filters.extend(
                 [
                     parse_expr(
-                        "timestamp >= {date_from_with_adjusted_start_of_interval}",
-                        placeholders=self.query_date_range.to_placeholders(),
+                        "{timestamp_field} >= {date_from_with_adjusted_start_of_interval}",
+                        placeholders={
+                            "timestamp_field": self._timestamp_field,
+                            **self.query_date_range.to_placeholders(),
+                        },
                     ),
                     parse_expr(
-                        "timestamp <= {date_to}",
-                        placeholders=self.query_date_range.to_placeholders(),
+                        "{timestamp_field} <= {date_to}",
+                        placeholders={
+                            "timestamp_field": self._timestamp_field,
+                            **self.query_date_range.to_placeholders(),
+                        },
                     ),
                 ]
             )
@@ -559,3 +562,29 @@ class TrendsQueryBuilder:
             else None
         )
         return TrendsDisplay(display)
+
+    @cached_property
+    def _day_start_expr(self) -> ast.Expr:
+        field = ast.Field(chain=["timestamp"])
+
+        if isinstance(self.series, DataWarehouseNode):
+            field = ast.Call(name="toDateTime", args=[ast.Field(chain=[self.series.timestamp_field])])
+
+        return ast.Alias(
+            alias="day_start",
+            expr=ast.Call(name=f"toStartOf{self.query_date_range.interval_name.title()}", args=[field]),
+        )
+
+    @cached_property
+    def _table_expr(self) -> ast.Field:
+        if isinstance(self.series, DataWarehouseNode):
+            return ast.Field(chain=[self.series.table_name])
+
+        return ast.Field(chain=["events"])
+
+    @cached_property
+    def _timestamp_field(self) -> ast.Field:
+        if isinstance(self.series, DataWarehouseNode):
+            return ast.Call(name="toDateTime", args=[ast.Field(chain=[self.series.timestamp_field])])
+
+        return ast.Field(chain=["timestamp"])

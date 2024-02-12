@@ -17,13 +17,13 @@ from posthog.hogql_queries.insights.trends.utils import (
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 from posthog.models.filters.mixins.utils import cached_property
 from posthog.models.team.team import Team
-from posthog.schema import ActionsNode, EventsNode, HogQLQueryModifiers, InCohortVia, TrendsQuery
+from posthog.schema import SeriesType, HogQLQueryModifiers, InCohortVia, TrendsQuery
 
 
 class Breakdown:
     query: TrendsQuery
     team: Team
-    series: EventsNode | ActionsNode
+    series: SeriesType
     query_date_range: QueryDateRange
     timings: HogQLTimings
     modifiers: HogQLQueryModifiers
@@ -34,7 +34,7 @@ class Breakdown:
         self,
         team: Team,
         query: TrendsQuery,
-        series: EventsNode | ActionsNode,
+        series: SeriesType,
         query_date_range: QueryDateRange,
         timings: HogQLTimings,
         modifiers: HogQLQueryModifiers,

@@ -49,6 +49,8 @@ from posthog.schema import (
     CompareItem,
     DayItem,
     EventsNode,
+    SeriesType,
+    DataWarehouseNode,
     HogQLQueryResponse,
     InCohortVia,
     InsightActorsQueryOptionsResponse,
@@ -236,7 +238,6 @@ class TrendsQueryRunner(QueryRunner):
 
     def calculate(self):
         queries = self.to_query()
-
         if len(queries) == 1:
             resonse_hogql_query = queries[0]
         else:
@@ -491,13 +492,17 @@ class TrendsQueryRunner(QueryRunner):
             now=datetime.now(),
         )
 
-    def series_event(self, series: EventsNode | ActionsNode) -> str | None:
+    def series_event(self, series: SeriesType) -> str | None:
         if isinstance(series, EventsNode):
             return series.event
         if isinstance(series, ActionsNode):
             # TODO: Can we load the Action in more efficiently?
             action = Action.objects.get(pk=int(series.id), team=self.team)
             return action.name
+
+        if isinstance(series, DataWarehouseNode):
+            return series.table_name
+
         return None
 
     def update_hogql_modifiers(self) -> None:

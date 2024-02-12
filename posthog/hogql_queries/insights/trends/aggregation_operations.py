@@ -3,7 +3,8 @@ from posthog.hogql import ast
 from posthog.hogql.parser import parse_expr, parse_select
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 from posthog.models.team.team import Team
-from posthog.schema import ActionsNode, EventsNode
+from posthog.schema import SeriesType, DataWarehouseNode
+from posthog.models.filters.mixins.utils import cached_property
 
 
 class QueryAlternator:
@@ -49,14 +50,14 @@ class QueryAlternator:
 
 class AggregationOperations:
     team: Team
-    series: EventsNode | ActionsNode
+    series: SeriesType
     query_date_range: QueryDateRange
     should_aggregate_values: bool
 
     def __init__(
         self,
         team: Team,
-        series: EventsNode | ActionsNode,
+        series: SeriesType,
         query_date_range: QueryDateRange,
         should_aggregate_values: bool,
     ) -> None:
@@ -65,11 +66,18 @@ class AggregationOperations:
         self.query_date_range = query_date_range
         self.should_aggregate_values = should_aggregate_values
 
+    @cached_property
+    def _id_field(self) -> ast.Expr:
+        if isinstance(self.series, DataWarehouseNode):
+            return ast.Field(chain=["e", self.series.id_field])
+
+        return ast.Field(chain=["e", "uuid"])
+
     def select_aggregation(self) -> ast.Expr:
         if self.series.math == "hogql" and self.series.math_hogql is not None:
             return parse_expr(self.series.math_hogql)
         elif self.series.math == "total":
-            return parse_expr("count(e.uuid)")
+            return parse_expr("count({id_field})", placeholders={"id_field": self._id_field})
         elif self.series.math == "dau":
             actor = "e.distinct_id" if self.team.aggregate_users_by_distinct_id else "e.person.id"
             return parse_expr(f"count(DISTINCT {actor})")
@@ -99,7 +107,9 @@ class AggregationOperations:
             elif self.series.math == "p99":
                 return self._math_quantile(0.99, None)
 
-        return parse_expr("count(e.uuid)")  # All "count per actor" get replaced during query orchestration
+        return parse_expr(
+            "count({id_field})", placeholders={"id_field": self._id_field}
+        )  # All "count per actor" get replaced during query orchestration
 
     def requires_query_orchestration(self) -> bool:
         math_to_return_true = [
@@ -330,13 +340,14 @@ class AggregationOperations:
             query = parse_select(
                 """
                     SELECT
-                        count(e.uuid) AS total
+                        count({id_field}) AS total
                     FROM events AS e
                     SAMPLE {sample}
                     WHERE {events_where_clause}
                     GROUP BY {person_field}
                 """,
                 placeholders={
+                    "id_field": self._id_field,
                     "events_where_clause": where_clause_combined,
                     "sample": sample_value,
                     "person_field": ast.Field(

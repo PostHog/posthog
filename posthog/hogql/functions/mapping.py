@@ -169,7 +169,7 @@ HOGQL_CLICKHOUSE_FUNCTIONS: Dict[str, HogQLFunctionMeta] = {
         "parseDateTime64BestEffortOrNull",
         1,
         1,
-        overloads=[((ast.DateTimeType, ast.DateType), "toDateTime")],
+        overloads=[((ast.DateTimeType, ast.DateType, ast.IntegerType), "toDateTime")],
         tz_aware=True,
     ),
     "toUUID": HogQLFunctionMeta("toUUIDOrNull", 1, 1),
