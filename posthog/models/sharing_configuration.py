@@ -37,6 +37,9 @@ class SharingConfiguration(models.Model):
         if obj.team_id != self.team_id:  # type: ignore
             return False
 
+        if obj._meta.object_name == "Insight" and self.dashboard:
+            return obj.id in self.get_connected_insight_ids()
+
         for comparison in [self.insight, self.dashboard, self.recording]:
             if comparison and comparison == obj:
                 return True
