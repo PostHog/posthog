@@ -256,7 +256,16 @@ class TestPersonalAPIKeysWithScopeAPIAuthentication(APIBaseTest):
     def _do_request(self, url: str):
         return self.client.get(url, HTTP_AUTHORIZATION=f"Bearer {self.value}")
 
+    def test_allows_legacy_api_key_to_access_all(self):
+        self.key.scopes = None
+        self.key.save()
+        response = self._do_request("/api/users/@me/")
+        assert response.status_code == status.HTTP_200_OK
+
     def test_forbids_scoped_access_for_unsupported_endpoint(self):
+        # Even * scope isn't allowed for unsupported endpoints
+        self.key.scopes = "*"
+        self.key.save()
         response = self._do_request("/api/users/@me/")
         assert response.status_code == status.HTTP_403_FORBIDDEN
         assert response.json()["detail"] == "This action does not support Personal API Key access"
