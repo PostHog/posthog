@@ -885,10 +885,11 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
         # my guess was that the order of the response is not guaranteed
         # but even after lifting insight tile out specifically, it still flaps
         # it isn't clear from the error if insight_tile or insight_tile["insight"] is None
-        assert insight_tile is not None
-        assert insight_tile["insight"] is not None
-        assert insight_tile["insight"]["name"] is None
-        assert text_tile is not None
+        with self.retry_assertion():
+            assert insight_tile is not None
+            assert insight_tile["insight"] is not None
+            assert insight_tile["insight"]["name"] is None
+            assert text_tile is not None
 
     def test_dashboard_duplication(self):
         existing_dashboard = Dashboard.objects.create(team=self.team, name="existing dashboard", created_by=self.user)
