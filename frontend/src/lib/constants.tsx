@@ -275,7 +275,7 @@ export const DOMAIN_REGEX = /^([a-z0-9]+(-[a-z0-9]+)*\.)+[a-z]{2,}$/
 export const SECURE_URL_REGEX = /^(?:http(s)?:\/\/)[\w.-]+(?:\.[\w.-]+)+[\w\-._~:/?#[\]@!$&'()*+,;=]+$/gi
 
 export const CLOUD_HOSTNAMES = {
-    [Region.US]: 'app.posthog.com',
+    [Region.US]: 'us.posthog.com',
     [Region.EU]: 'eu.posthog.com',
 }
 
