@@ -34,12 +34,60 @@ SESSION_EMBEDDINGS_GENERATED = Counter(
 
 logger = get_logger(__name__)
 
+# TODO move these to settings
 BATCH_FLUSH_SIZE = 10
+MIN_DURATION_INCLUDE_SECONDS = 120
+
+
+def fetch_recordings_without_embeddings(team: Team, offset=0):
+    query = """
+            WITH embedding_ids AS
+            (
+                SELECT
+                    session_id
+                from
+                    session_replay_embeddings
+                where
+                    team_id = %(team_id)s
+                    -- don't load all data for all time
+                    and generation_timestamp > now() - INTERVAL 7 DAY
+            )
+            SELECT session_id
+            FROM
+                session_replay_events
+            WHERE
+                session_id NOT IN embedding_ids
+                AND team_id = %(team_id)s
+                -- must be a completed session
+                and min_first_timestamp < now() - INTERVAL 1 DAY
+                -- let's not load all data for all time
+                -- will definitely need to do something about this length of time
+                and min_first_timestamp > now() - INTERVAL 7 DAY
+            GROUP BY session_id
+            HAVING dateDiff('second', min(min_first_timestamp), max(max_last_timestamp)) > %(min_duration_include_seconds)s
+            LIMIT %(batch_flush_size)s
+            -- when running locally the offset is used for paging
+            -- when running in celery the offset is not used
+            OFFSET %(offset)s
+        """
+
+    return sync_execute(
+        query,
+        {
+            "team_id": team.pk,
+            "batch_flush_size": BATCH_FLUSH_SIZE,
+            "offset": offset,
+            "min_duration_include_seconds": MIN_DURATION_INCLUDE_SECONDS,
+        },
+    )
 
 
 def generate_team_embeddings(team: Team):
+    """
+    This is here to help shape the internal API but properly hooking up with Celery will change this
+    """
     offset = 0
-    recordings = fetch_recordings(team=team, offset=offset)
+    recordings = fetch_recordings_without_embeddings(team=team, offset=offset)
 
     logger.info(f"found {len(recordings)} recordings to process for team {team.pk}")
 
@@ -66,42 +114,7 @@ def generate_team_embeddings(team: Team):
         if len(batched_embeddings) > 0:
             flush_embeddings_to_clickhouse(embeddings=batched_embeddings)
 
-        recordings = fetch_recordings(team=team, offset=offset)
-
-
-def fetch_recordings(team: Team, offset: int):
-    query = """
-            WITH embedding_ids AS
-            (
-                SELECT
-                    session_id
-                from
-                    session_replay_embeddings
-                where
-                    team_id = %(team_id)s
-                    -- don't load all data for all time
-                    and generation_timestamp > now() - INTERVAL 7 DAY
-            )
-            SELECT DISTINCT
-                session_id
-            FROM
-                session_replay_events
-            WHERE
-                session_id NOT IN embedding_ids
-                AND team_id = %(team_id)s
-                -- must be a completed session
-                and min_first_timestamp < now() - INTERVAL 1 DAY
-                -- let's not load all data for all time
-                -- will definitely need to do something about this length of time
-                and min_first_timestamp > now() - INTERVAL 7 DAY
-            LIMIT %(batch_flush_size)s
-            OFFSET %(offset)s
-        """
-
-    return sync_execute(
-        query,
-        {"team_id": team.pk, "batch_flush_size": BATCH_FLUSH_SIZE, "offset": offset},
-    )
+        recordings = fetch_recordings_without_embeddings(team=team, offset=offset)
 
 
 def flush_embeddings_to_clickhouse(embeddings: List[Dict[str, Any]]) -> None:
