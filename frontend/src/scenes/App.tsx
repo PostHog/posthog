@@ -4,7 +4,6 @@ import { use3000Body } from 'lib/hooks/use3000Body'
 import { ToastCloseButton } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { SpinnerOverlay } from 'lib/lemon-ui/Spinner/Spinner'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { inAppPromptLogic } from 'lib/logic/inAppPrompt/inAppPromptLogic'
 import { Slide, ToastContainer } from 'react-toastify'
 import { frontendAppsLogic } from 'scenes/apps/frontendAppsLogic'
 import { appScenes } from 'scenes/appScenes'
@@ -29,7 +28,7 @@ window.process = MOCK_NODE_PROCESS
 
 export const appLogic = kea<appLogicType>([
     path(['scenes', 'App']),
-    connect([teamLogic, organizationLogic, frontendAppsLogic, inAppPromptLogic, actionsModel, cohortsModel]),
+    connect([teamLogic, organizationLogic, frontendAppsLogic, actionsModel, cohortsModel]),
     actions({
         enableDelayedSpinner: true,
         ignoreFeatureFlags: true,

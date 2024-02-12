@@ -160,7 +160,7 @@ WHERE
     and JSONExtractString(log_comment, 'kind') != 'celery'
     and JSONExtractInt(log_comment, 'team_id') != 0
     and query not like '%person_distinct_id2%' -- Old style person properties that are joined, no need to optimize those queries
-    and column not like 'argMax(%'  -- Old style person properties that are joined, no need to optimize those queries
+    and column IN ('properties', 'person_properties', 'group0_properties', 'group1_properties', 'group2_properties', 'group3_properties', 'group4_properties')
     and read_bytes > min_bytes_read
     and (exception_code IN exception_codes OR query_duration_ms > slow_query_minimum)
     and read_rows > min_read_rows
