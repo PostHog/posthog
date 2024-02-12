@@ -78,7 +78,6 @@ def _calculate_secondary_experiment_results(experiment: Experiment, parsed_id: i
         experiment.start_date,
         experiment.end_date,
     ).get_results()
-    # TODO: Make sure we handle changing this cached value gracefully
     return _experiment_results_cached(experiment, "secondary", filter, calculate_func, refresh=refresh)
 
 
