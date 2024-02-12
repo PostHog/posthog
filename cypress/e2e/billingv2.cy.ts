@@ -18,10 +18,7 @@ describe('Billing', () => {
 
         cy.get('[data-attr=more-button]').first().click()
         cy.contains('.LemonButton', 'Unsubscribe').click()
-        cy.get('.LemonModal__content h3').should(
-            'contain',
-            'Why are you unsubscribing from Product analytics + data stack?'
-        )
+        cy.get('.LemonModal h3').should('contain', 'Why are you unsubscribing from Product analytics + data stack?')
         cy.get('[data-attr=unsubscribe-reason-survey-textarea]').type('Product analytics')
         cy.contains('.LemonModal .LemonButton', 'Unsubscribe').click()
 
