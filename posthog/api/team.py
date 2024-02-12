@@ -32,6 +32,7 @@ from posthog.models.activity_logging.activity_page import activity_page_response
 from posthog.models.async_deletion import AsyncDeletion, DeletionType
 from posthog.models.group_type_mapping import GroupTypeMapping
 from posthog.models.organization import OrganizationMembership
+from posthog.models.personal_api_key import APIScopeObjectOrNotSupported
 from posthog.models.signals import mute_selected_signals
 from posthog.models.team.team import groups_on_events_querying_enabled, set_team_in_cache
 from posthog.models.team.util import delete_batch_exports, delete_bulky_postgres_data
@@ -57,9 +58,9 @@ class PremiumMultiProjectPermissions(BasePermission):
 
     def has_permission(self, request: request.Request, view) -> bool:
         if request.method in CREATE_METHODS:
-            organization = get_organization_from_view(view)
-
-            if organization is None:
+            try:
+                organization = get_organization_from_view(view)
+            except ValueError:
                 return False
 
             # if we're not requesting to make a demo project
@@ -340,7 +341,7 @@ class TeamViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     Projects for the current organization.
     """
 
-    base_scope = "project"
+    base_scope: APIScopeObjectOrNotSupported = "project"
     serializer_class = TeamSerializer
     queryset = Team.objects.all().select_related("organization")
     lookup_field = "id"
