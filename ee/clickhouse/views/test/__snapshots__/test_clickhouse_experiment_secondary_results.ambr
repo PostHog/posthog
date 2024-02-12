@@ -1,7 +1,7 @@
 # serializer version: 1
 # name: ClickhouseTestExperimentSecondaryResults.test_basic_secondary_metric_results
   '''
-  /* user_id:127 celery:posthog.tasks.tasks.sync_insight_caching_state */
+  /* user_id:128 celery:posthog.tasks.tasks.sync_insight_caching_state */
   SELECT team_id,
          date_diff('second', max(timestamp), now()) AS age
   FROM events
