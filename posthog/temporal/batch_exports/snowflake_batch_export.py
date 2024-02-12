@@ -189,8 +189,9 @@ def snowflake_default_fields() -> list[BatchExportField]:
         }
     )
     # Fields kept for backwards compatibility with legacy apps schema.
-    batch_export_fields.append({"expression": "toJSONString(elements_chain)", "alias": "elements"})
+    batch_export_fields.append({"expression": "elements_chain", "alias": "elements"})
     batch_export_fields.append({"expression": "''", "alias": "site_url"})
+    batch_export_fields.pop(batch_export_fields.index({"expression": "created_at", "alias": "created_at"}))
 
     # For historical reasons, 'set' and 'set_once' are prefixed with 'people_'.
     set_field = batch_export_fields.pop(
