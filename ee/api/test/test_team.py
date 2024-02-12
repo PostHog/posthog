@@ -1,7 +1,6 @@
 from rest_framework.status import (
     HTTP_200_OK,
     HTTP_204_NO_CONTENT,
-    HTTP_400_BAD_REQUEST,
     HTTP_403_FORBIDDEN,
     HTTP_404_NOT_FOUND,
 )
@@ -126,6 +125,15 @@ class TestProjectEnterpriseAPI(APILicensedTest):
         response = self.client.post(f"/api/organizations/{other_org.id}/projects/", {"name": "Via path org"})
         self.assertEqual(response.status_code, 201, msg=response.json())
         assert response.json()["organization"] == str(other_org.id)
+
+    def test_user_cannot_create_project_in_org_without_access(self):
+        _, _, _ = Organization.objects.bootstrap(self.user, name="other_org")
+        other_org = self.organization  # Bootstrapping above sets it to the current org
+
+        assert other_org.id != self.user.current_organization_id
+        response = self.client.post(f"/api/organizations/{other_org.id}/projects/", {"name": "Via path org"})
+        self.assertEqual(response.status_code, 403, msg=response.json())
+        assert response.json() == self.permission_denied_response("Your organization access level is insufficient.")
 
     # Deleting projects
 
