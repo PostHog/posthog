@@ -35,14 +35,6 @@ class ClickhouseGroupsTypesView(TeamAndOrgViewSetMixin, mixins.ListModelMixin, v
     pagination_class = None
     sharing_enabled_actions = ["list"]
 
-    def get_permissions(self):
-        if isinstance(self.request.successful_authenticator, SharingAccessTokenAuthentication):
-            return [SharingTokenPermission()]
-        return super().get_permissions()
-
-    def get_authenticators(self):
-        return [SharingAccessTokenAuthentication(), *super().get_authenticators()]
-
     @action(detail=False, methods=["PATCH"], name="Update group types metadata")
     def update_metadata(self, request: request.Request, *args, **kwargs):
         for row in cast(List[Dict], request.data):
