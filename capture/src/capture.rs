@@ -75,10 +75,16 @@ pub async fn event(
         "application/x-www-form-urlencoded" => {
             tracing::Span::current().record("content_type", "application/x-www-form-urlencoded");
 
-            let input: EventFormData = serde_urlencoded::from_bytes(body.deref()).unwrap();
+            let input: EventFormData = serde_urlencoded::from_bytes(body.deref()).map_err(|e| {
+                tracing::error!("failed to decode body: {}", e);
+                CaptureError::RequestDecodingError(String::from("invalid form data"))
+            })?;
             let payload = base64::engine::general_purpose::STANDARD
                 .decode(input.data)
-                .unwrap();
+                .map_err(|e| {
+                    tracing::error!("failed to decode form data: {}", e);
+                    CaptureError::RequestDecodingError(String::from("missing data field"))
+                })?;
             RawEvent::from_bytes(payload.into())
         }
         ct => {
