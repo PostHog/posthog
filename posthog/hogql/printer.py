@@ -454,6 +454,11 @@ class _Printer(Visitor):
     def visit_join_constraint(self, node: ast.JoinConstraint):
         return self.visit(node.expr)
 
+    def visit_join_using_constraint(self, node: ast.JoinUsingConstraint):
+        if len(node.exprs) == 1:
+            return self.visit(node.exprs[0])
+        return ", ".join([self.visit(expr) for expr in node.exprs])
+
     def visit_arithmetic_operation(self, node: ast.ArithmeticOperation):
         if node.op == ast.ArithmeticOperationOp.Add:
             return f"plus({self.visit(node.left)}, {self.visit(node.right)})"

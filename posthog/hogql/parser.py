@@ -369,9 +369,9 @@ class HogQLParseTreeConverter(ParseTreeVisitor):
         raise NotImplementedException(f"Unsupported node: JoinOpCross")
 
     def visitJoinConstraintClause(self, ctx: HogQLParser.JoinConstraintClauseContext):
-        if ctx.USING():
-            raise NotImplementedException(f"Unsupported: JOIN ... USING")
         column_expr_list = self.visit(ctx.columnExprList())
+        if ctx.USING():
+            return ast.JoinUsingConstraint(exprs=column_expr_list)
         if len(column_expr_list) != 1:
             raise NotImplementedException(f"Unsupported: JOIN ... ON with multiple expressions")
         return ast.JoinConstraint(expr=column_expr_list[0])

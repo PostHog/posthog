@@ -504,6 +504,11 @@ class JoinConstraint(Expr):
 
 
 @dataclass(kw_only=True)
+class JoinUsingConstraint(Expr):
+    exprs: Expr
+
+
+@dataclass(kw_only=True)
 class JoinExpr(Expr):
     # :TRICKY: When adding new fields, make sure they're handled in visitor.py and resolver.py
     type: Optional[TableOrSelectType] = None
@@ -513,7 +518,7 @@ class JoinExpr(Expr):
     table_args: Optional[List[Expr]] = None
     alias: Optional[str] = None
     table_final: Optional[bool] = None
-    constraint: Optional["JoinConstraint"] = None
+    constraint: Optional[Union["JoinConstraint", "JoinUsingConstraint"]] = None
     next_join: Optional["JoinExpr"] = None
     sample: Optional["SampleExpr"] = None
 
