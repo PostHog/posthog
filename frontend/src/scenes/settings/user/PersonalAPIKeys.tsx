@@ -127,7 +127,7 @@ function EditKeyModal(): JSX.Element {
                                                     />
                                                 </div>
                                                 {warnings?.[formScopeRadioValues[key]] && (
-                                                    <div className="text-xs italic">
+                                                    <div className="text-xs italic p-2">
                                                         {warnings[formScopeRadioValues[key]]}
                                                     </div>
                                                 )}
