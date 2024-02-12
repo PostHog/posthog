@@ -1,5 +1,7 @@
+from typing import Any
+
 import structlog
-from celery import shared_task, group
+from celery import shared_task, chord
 
 from ee.session_recordings.ai.generate_embeddings import (
     fetch_recordings_without_embeddings,
@@ -11,9 +13,14 @@ from posthog.tasks.utils import CeleryQueue
 logger = structlog.get_logger(__name__)
 
 
-@shared_task(ignore_result=True, queue=CeleryQueue.SESSION_REPLAY_EMBEDDINGS.value)
+@shared_task(ignore_result=False, queue=CeleryQueue.SESSION_REPLAY_EMBEDDINGS.value)
 def embed_single_recording(session_id: str, team_id: int) -> None:
     generate_recording_embeddings(session_id, team_id)
+
+
+@shared_task(ignore_result=True)
+def generate_recordings_embeddings_batch_on_complete(args: Any, kwargs: Any) -> None:
+    logger.info("Embeddings generation batch completed", args=args, kwargs=kwargs)
 
 
 @shared_task(ignore_result=True)
@@ -32,7 +39,7 @@ def generate_recordings_embeddings_batch() -> None:
     # but for now we'll do that naively
 
     for team in settings.REPLAY_EMBEDDINGS_ALLOWED_TEAMS:
-        group(
+        chord(
             embed_single_recording.delay(recording.session_id, recording.team_id)
             for recording in fetch_recordings_without_embeddings(int(team))
-        ).apply_async()
+        )(generate_recordings_embeddings_batch_on_complete.s())
