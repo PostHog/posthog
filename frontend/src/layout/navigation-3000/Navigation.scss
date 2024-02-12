@@ -5,6 +5,9 @@
     --breadcrumbs-height-compact: 2.75rem; // Sync with BREADCRUMBS_HEIGHT_COMPACT
     --scene-padding: 1rem;
 
+    // handle notched devices and mobile safari's bottom nav bar
+    --scene-padding-bottom: calc(var(--scene-padding) + max(env(safe-area-inset-bottom), 80px));
+
     display: flex;
     width: 100%;
     height: 100vh;
@@ -31,8 +34,9 @@
 .Navigation3000__scene {
     // `relative` is for positioning of the scene-level spinner
     position: relative;
-    min-height: calc(100vh - var(--breadcrumbs-height-full) - var(--scene-padding) * 2);
+    min-height: calc(100vh - var(--breadcrumbs-height-full) - var(--scene-padding) - var(--scene-padding-bottom));
     margin: var(--scene-padding);
+    margin-bottom: var(--scene-padding-bottom);
 
     &.Navigation3000__scene--raw {
         --scene-padding: 0px;
