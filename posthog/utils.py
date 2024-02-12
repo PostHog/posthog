@@ -815,11 +815,9 @@ def get_instance_realm() -> str:
 
 def get_instance_region() -> Optional[str]:
     """
-    Returns the region for the current instance. `US` or 'EU'.
+    Returns the region for the current Cloud instance. `US` or 'EU'.
     """
-    if is_cloud():
-        return settings.REGION
-    return None
+    return settings.REGION
 
 
 def get_can_create_org(user: Union["AbstractBaseUser", "AnonymousUser"]) -> bool:

@@ -3,9 +3,8 @@ from typing import Any, List
 from django.conf import settings
 from rest_framework import exceptions, filters, serializers, viewsets
 from rest_framework.exceptions import NotAuthenticated
-from rest_framework.permissions import IsAuthenticated
 
-from posthog.api.routing import StructuredViewSetMixin
+from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.database import SerializedField, serialize_fields
@@ -14,7 +13,6 @@ from posthog.hogql.metadata import is_valid_view
 from posthog.hogql.parser import parse_select
 from posthog.hogql.printer import print_ast
 from posthog.models import User
-from posthog.permissions import OrganizationMemberPermissions
 from posthog.warehouse.models import DataWarehouseSavedQuery
 
 
@@ -92,14 +90,13 @@ class DataWarehouseSavedQuerySerializer(serializers.ModelSerializer):
         return query
 
 
-class DataWarehouseSavedQueryViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
+class DataWarehouseSavedQueryViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     """
     Create, Read, Update and Delete Warehouse Tables.
     """
 
     queryset = DataWarehouseSavedQuery.objects.all()
     serializer_class = DataWarehouseSavedQuerySerializer
-    permission_classes = [IsAuthenticated, OrganizationMemberPermissions]
     filter_backends = [filters.SearchFilter]
     search_fields = ["name"]
     ordering = "-created_at"
