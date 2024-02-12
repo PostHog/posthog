@@ -106,14 +106,6 @@ export const CORE_FILTER_DEFINITIONS_BY_GROUP = {
             label: 'Rageclick',
             description: 'A user has rapidly and repeatedly clicked in a single place',
         },
-        $set: {
-            label: 'Set',
-            description: 'Person properties to be set',
-        },
-        $set_once: {
-            label: 'Set Once',
-            description: 'Person properties to be set if not set already (i.e. first-touch)',
-        },
         $exception: {
             label: 'Exception',
             description: 'Automatically captured exceptions from the client Sentry integration',
@@ -178,6 +170,14 @@ export const CORE_FILTER_DEFINITIONS_BY_GROUP = {
     },
     event_properties: {
         distinct_id: {} as CoreFilterDefinition, // Copied from metadata down below
+        $set: {
+            label: 'Set',
+            description: 'Person properties to be set',
+        },
+        $set_once: {
+            label: 'Set Once',
+            description: 'Person properties to be set if not set already (i.e. first-touch)',
+        },
         $pageview_id: {
             label: 'Pageview ID',
             description: "PostHog's internal ID for matching events to a pageview.",
@@ -901,6 +901,7 @@ export const CORE_FILTER_DEFINITIONS_BY_GROUP = {
         },
     },
 } satisfies Partial<Record<TaxonomicFilterGroupType, Record<string, CoreFilterDefinition>>>
+
 CORE_FILTER_DEFINITIONS_BY_GROUP.person_properties = Object.fromEntries(
     Object.entries(CORE_FILTER_DEFINITIONS_BY_GROUP.event_properties).flatMap(([key, value]) =>
         eventToPersonProperties.has(key) || key.startsWith('$geoip_')
