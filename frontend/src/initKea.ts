@@ -114,6 +114,7 @@ export function initKea({ routerHistory, routerLocation, beforePlugins }: InitKe
         waitForPlugin,
     ]
 
+    // To enable logging, run localStorage.setItem("debug", true) in the console
     if (window.JS_KEA_VERBOSE_LOGGING || ('localStorage' in window && window.localStorage.getItem('debug'))) {
         plugins.push(loggerPlugin)
     }
