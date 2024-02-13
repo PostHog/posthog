@@ -1,4 +1,3 @@
-from posthog.models import Team, SessionRecording
 from posthog.clickhouse.client import sync_execute
 
 
@@ -6,11 +5,10 @@ def similar_recordings(session_id: str, team_id: int):
     target_embeddings = find_target_embeddings(session_id=session_id, team_id=team_id)
 
     if target_embeddings is None:
-        # TODO: generate embeddings for session
-        raise
+        return []
 
-    similar_sessions = closest_embeddings(target=target_embeddings)
-    return similar_sessions
+    similar_embeddings = closest_embeddings(target=target_embeddings)
+    return similar_embeddings
 
 
 def find_target_embeddings(session_id: str, team_id: int):
@@ -29,16 +27,16 @@ def find_target_embeddings(session_id: str, team_id: int):
         """
 
     result = sync_execute(query, {"team_id": team_id, "session_id": session_id})
-    return result[0]
+    return result[0] if len(result) > 0 else None
 
 
-def closest_embeddings(target: [any], team: Team, recording: SessionRecording):
+def closest_embeddings(target: [float], session_id: str, team_id: int):
     query = """
             SELECT
                 session_id,
                 -- distance function choice based on https://help.openai.com/en/articles/6824809-embeddings-frequently-asked-questions
                 -- OpenAI normalizes embeddings so L2 should produce the same score but is slightly slower
-                cosine(embeddings, %(target)s) AS similarity_score
+                cosineDistance(embeddings, %(target)s) AS similarity_score
             FROM session_replay_embeddings
             WHERE
                 team_id = %(team_id)s
@@ -46,12 +44,18 @@ def closest_embeddings(target: [any], team: Team, recording: SessionRecording):
                 AND generation_timestamp > now() - INTERVAL 7 DAY
                 -- skip the target recording
                 AND session_id != %(session_id)s
+                AND length(embeddings) = 3
             ORDER BY similarity_score DESC
             -- only return up to three results
-            LIMIT %(batch_flush_size)s;
+            LIMIT %(limit)s;
         """
 
     return sync_execute(
         query,
-        {"target": target, "team_id": team.pk, "session_id": recording.id, "limit": 3},
+        {"target": target, "team_id": team_id, "session_id": session_id, "limit": 3},
     )
+
+
+# from posthog.session_recordings.ai.similar_recordings import closest_embeddings, find_target_embeddings
+
+# closest_embeddings([0.2, 0.4, 0.2], team_id=1, session_id="4")
