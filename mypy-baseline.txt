@@ -364,6 +364,7 @@ posthog/hogql/query.py:0: error: Incompatible types in assignment (expression ha
 posthog/hogql/query.py:0: error: Argument 1 to "get_default_limit_for_context" has incompatible type "LimitContext | None"; expected "LimitContext"  [arg-type]
 posthog/hogql/query.py:0: error: "SelectQuery" has no attribute "select_queries"  [attr-defined]
 posthog/hogql/query.py:0: error: Subclass of "SelectQuery" and "SelectUnionQuery" cannot exist: would have incompatible method signatures  [unreachable]
+posthog/hogql/autocomplete.py:0: error: Unused "type: ignore" comment  [unused-ignore]
 posthog/hogql_queries/insights/trends/breakdown_values.py:0: error: Item "SelectUnionQuery" of "SelectQuery | SelectUnionQuery" has no attribute "select"  [union-attr]
 posthog/hogql_queries/insights/trends/breakdown_values.py:0: error: Value of type "list[Any] | None" is not indexable  [index]
 posthog/hogql_queries/insights/funnels/base.py:0: error: Incompatible types in assignment (expression has type "FunnelExclusionEventsNode | FunnelExclusionActionsNode", variable has type "EventsNode | ActionsNode")  [assignment]
