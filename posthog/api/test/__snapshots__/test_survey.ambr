@@ -158,7 +158,7 @@
          "posthog_team"."external_data_workspace_last_synced_at"
   FROM "posthog_team"
   WHERE "posthog_team"."api_token" = 'token123'
-  LIMIT 21 /*controller='posthog.api.survey.surveys',route='%5Eapi/surveys/%3F%28%3F%3A%5B%3F%23%5D.%2A%29%3F%24'*/
+  LIMIT 21
   '''
 # ---
 # name: TestSurveysAPIList.test_list_surveys.6
@@ -213,6 +213,6 @@
   LEFT OUTER JOIN "posthog_featureflag" ON ("posthog_survey"."linked_flag_id" = "posthog_featureflag"."id")
   LEFT OUTER JOIN "posthog_featureflag" T4 ON ("posthog_survey"."targeting_flag_id" = T4."id")
   WHERE ("posthog_survey"."team_id" = 2
-         AND NOT ("posthog_survey"."archived")) /*controller='posthog.api.survey.surveys',route='%5Eapi/surveys/%3F%28%3F%3A%5B%3F%23%5D.%2A%29%3F%24'*/
+         AND NOT ("posthog_survey"."archived"))
   '''
 # ---
