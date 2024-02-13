@@ -19,7 +19,7 @@ clickhouse-pool==0.5.3
 cryptography==37.0.2
 defusedxml==0.6.0
 dj-database-url==0.5.0
-Django~=4.2.8
+Django~=4.2.10
 django-axes==5.9.0
 django-cors-headers==3.5.0
 django-deprecate-fields==0.1.1

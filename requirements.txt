@@ -9,6 +9,7 @@ aioboto3==12.0.0
 aiobotocore[boto3]==2.7.0
     # via
     #   aioboto3
+    #   aiobotocore
     #   s3fs
 aiohttp==3.9.0
     # via
@@ -146,7 +147,7 @@ distro==1.9.0
     # via openai
 dj-database-url==0.5.0
     # via -r requirements.in
-django==4.2.8
+django==4.2.10
     # via
     #   -r requirements.in
     #   django-axes
@@ -250,8 +251,9 @@ gitpython==3.1.40
     # via dlt
 giturlparse==0.12.0
     # via dlt
-google-api-core[grpc]==2.11.1
+google-api-core[grpc]==2.12.0
     # via
+    #   google-api-core
     #   google-cloud-bigquery
     #   google-cloud-core
 google-auth==2.22.0
@@ -681,6 +683,7 @@ urllib3[secure,socks]==1.26.18
     #   selenium
     #   sentry-sdk
     #   snowflake-connector-python
+    #   urllib3
 urllib3-secure-extra==0.1.0
     # via urllib3
 vine==5.0.0

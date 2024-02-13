@@ -32,6 +32,7 @@ types-pytz==2023.3
 types-redis==4.3.20
 types-retry==0.9.9.4
 types-requests==2.26.1
+types-tzlocal~=5.1.0.1
 parameterized==0.9.0
 pytest==7.4.4
 pytest-asyncio==0.21.1
