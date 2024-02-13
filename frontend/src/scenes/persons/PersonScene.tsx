@@ -99,7 +99,9 @@ function PersonCaption({ person }: { person: PersonType }): JSX.Element {
                             </>
                         }
                     >
-                        <IconInfo className="ml-1 text-base shrink-0" />
+                        <span>
+                            <IconInfo className="ml-1 text-base shrink-0" />
+                        </span>
                     </Tooltip>
                 </Link>
             </div>
@@ -259,7 +261,9 @@ export function PersonScene(): JSX.Element | null {
                                   <span className="flex items-center" data-attr="persons-related-tab">
                                       Related groups
                                       <Tooltip title="People and groups that have shared events with this person in the last 90 days.">
-                                          <IconInfo className="ml-1 text-base shrink-0" />
+                                          <span>
+                                              <IconInfo className="ml-1 text-base shrink-0" />
+                                          </span>
                                       </Tooltip>
                                   </span>
                               ),
@@ -276,7 +280,9 @@ export function PersonScene(): JSX.Element | null {
                                           <div className="flex items-center">
                                               Choose ID:
                                               <Tooltip title="Feature flags values can depend on person distincts IDs. Turn on persistence in feature flag settings if you'd like these to be constant always.">
-                                                  <IconInfo className="ml-1 text-base" />
+                                                  <span>
+                                                      <IconInfo className="ml-1 text-base" />
+                                                  </span>
                                               </Tooltip>
                                           </div>
                                           <LemonSelect

@@ -323,7 +323,9 @@ export function FunnelCorrelationTable(): JSX.Element | null {
                                             querySource?.aggregation_group_type_index != undefined ? 'that' : 'who'
                                         } performed the event and completed the entire funnel.`}
                                     >
-                                        <IconInfo className="column-info" />
+                                        <span>
+                                            <IconInfo className="column-info" />
+                                        </span>
                                     </Tooltip>
                                 </div>
                             }
@@ -347,7 +349,9 @@ export function FunnelCorrelationTable(): JSX.Element | null {
                                             </>
                                         }
                                     >
-                                        <IconInfo className="column-info" />
+                                        <span>
+                                            <IconInfo className="column-info" />
+                                        </span>
                                     </Tooltip>
                                 </div>
                             }

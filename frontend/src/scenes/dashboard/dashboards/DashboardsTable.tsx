@@ -91,17 +91,23 @@ export function DashboardsTable({
                             </Link>
                             {is_shared && (
                                 <Tooltip title="This dashboard is shared publicly.">
-                                    <IconShare className="ml-1 text-base text-link" />
+                                    <span>
+                                        <IconShare className="ml-1 text-base text-link" />
+                                    </span>
                                 </Tooltip>
                             )}
                             {!canEditDashboard && (
                                 <Tooltip title={DASHBOARD_CANNOT_EDIT_MESSAGE}>
-                                    <IconLock className="ml-1 text-base text-muted" />
+                                    <span>
+                                        <IconLock className="ml-1 text-base text-muted" />
+                                    </span>
                                 </Tooltip>
                             )}
                             {isPrimary && (
                                 <Tooltip title="The primary dashboard is shown on the project home page.">
-                                    <IconCottage className="ml-1 text-base text-warning" />
+                                    <span>
+                                        <IconCottage className="ml-1 text-base text-warning" />
+                                    </span>
                                 </Tooltip>
                             )}
                         </div>

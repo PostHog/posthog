@@ -70,7 +70,9 @@ export function PermissionsGrid(): JSX.Element {
                         <TitleWithIcon
                             icon={
                                 <Tooltip title={`You can extend permissions on a per ${getSingularType(name)} basis.`}>
-                                    <IconInfo />
+                                    <span>
+                                        <IconInfo />
+                                    </span>
                                 </Tooltip>
                             }
                         >

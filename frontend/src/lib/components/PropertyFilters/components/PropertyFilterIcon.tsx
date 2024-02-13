@@ -9,21 +9,27 @@ export function PropertyFilterIcon({ type }: { type?: PropertyFilterType }): JSX
         case 'event':
             iconElement = (
                 <Tooltip title="Event property">
-                    <IconUnverifiedEvent />
+                    <span>
+                        <IconUnverifiedEvent />
+                    </span>
                 </Tooltip>
             )
             break
         case 'person':
             iconElement = (
                 <Tooltip title="Person property">
-                    <IconPerson />
+                    <span>
+                        <IconPerson />
+                    </span>
                 </Tooltip>
             )
             break
         case 'cohort':
             iconElement = (
                 <Tooltip title="Cohort filter">
-                    <IconCohort />
+                    <span>
+                        <IconCohort />
+                    </span>
                 </Tooltip>
             )
             break

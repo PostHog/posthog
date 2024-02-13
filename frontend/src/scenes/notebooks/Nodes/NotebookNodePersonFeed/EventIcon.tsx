@@ -26,7 +26,9 @@ export const EventIcon = ({ event }: EventIconProps): JSX.Element => {
     }
     return (
         <Tooltip title={`${CORE_FILTER_DEFINITIONS_BY_GROUP.events[event.event]?.label || 'Custom'} event`}>
-            <Component className="text-2xl text-muted" />
+            <span>
+                <Component className="text-2xl text-muted" />
+            </span>
         </Tooltip>
     )
 }

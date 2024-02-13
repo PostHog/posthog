@@ -51,7 +51,9 @@ const tabs: Record<
             <TitleWithIcon
                 icon={
                     <Tooltip title="Actions consist of one or more events that you have decided to put into a deliberately-labeled bucket. They're used in insights and dashboards.">
-                        <IconInfo />
+                        <span>
+                            <IconInfo />
+                        </span>
                     </Tooltip>
                 }
             >
@@ -67,7 +69,9 @@ const tabs: Record<
             <TitleWithIcon
                 icon={
                     <Tooltip title="Properties are additional data sent along with an event capture. Use properties to understand additional information about events and the actors that generate them.">
-                        <IconInfo />
+                        <span>
+                            <IconInfo />
+                        </span>
                     </Tooltip>
                 }
             >

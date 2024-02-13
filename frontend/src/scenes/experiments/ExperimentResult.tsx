@@ -127,7 +127,9 @@ export function ExperimentResult(): JSX.Element {
                                                             placement="right"
                                                             title="It might seem confusing that the best variant has lower absolute count, but this can happen when fewer people are exposed to this variant, so its relative count is higher."
                                                         >
-                                                            <IconInfo className="py-1 px-0.5" />
+                                                            <span>
+                                                                <IconInfo className="py-1 px-0.5" />
+                                                            </span>
                                                         </Tooltip>
                                                     )}
                                                 </div>

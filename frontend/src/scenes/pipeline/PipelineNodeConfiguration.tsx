@@ -88,7 +88,9 @@ function PluginConfigurationFields({
                                     placement="top-start"
                                     title="This field is write-only. Its value won't be visible after saving."
                                 >
-                                    <IconLock className="ml-1.5" />
+                                    <span>
+                                        <IconLock className="ml-1.5" />
+                                    </span>
                                 </Tooltip>
                             )}
                             {fieldConfig.markdown && <LemonMarkdown>{fieldConfig.markdown}</LemonMarkdown>}

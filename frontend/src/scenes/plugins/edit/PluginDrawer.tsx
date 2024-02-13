@@ -50,7 +50,9 @@ const SecretFieldIcon = (): JSX.Element => (
             placement="top-start"
             title="This is a secret write-only field. Its value is not available after saving."
         >
-            <IconLock style={{ marginRight: 5 }} />
+            <span>
+                <IconLock style={{ marginRight: 5 }} />
+            </span>
         </Tooltip>
     </>
 )

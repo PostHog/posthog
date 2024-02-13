@@ -76,7 +76,9 @@ function VerifiedDomainsTable(): JSX.Element {
                           <>
                               Verification
                               <Tooltip title="Verification (through DNS) is required to use domains for authentication (e.g. SAML or enforce SSO).">
-                                  <IconInfo style={{ marginLeft: 4 }} />
+                                  <span>
+                                      <IconInfo style={{ marginLeft: 4 }} />
+                                  </span>
                               </Tooltip>
                           </>
                       ),
@@ -108,7 +110,9 @@ function VerifiedDomainsTable(): JSX.Element {
                             currentOrganization?.name || 'this organization'
                         } if it does not exist.`}
                     >
-                        <IconInfo />
+                        <span>
+                            <IconInfo />
+                        </span>
                     </Tooltip>
                 </>
             ),
@@ -135,7 +139,9 @@ function VerifiedDomainsTable(): JSX.Element {
                 <>
                     Enforce SSO{' '}
                     <Tooltip title="Require users with email addresses on this domain to always log in using a specific SSO provider.">
-                        <IconInfo />
+                        <span>
+                            <IconInfo />
+                        </span>
                     </Tooltip>
                 </>
             ),

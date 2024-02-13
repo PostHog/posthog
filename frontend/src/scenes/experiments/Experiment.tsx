@@ -624,11 +624,13 @@ export function Experiment(): JSX.Element {
                                                     placement="bottom"
                                                     title="Your experiment is running, but the linked flag is disabled. No data is being collected."
                                                 >
-                                                    <IconWarning
-                                                        style={{ transform: 'translateY(2px)' }}
-                                                        className="mr-1 text-danger"
-                                                        fontSize="18px"
-                                                    />
+                                                    <span>
+                                                        <IconWarning
+                                                            style={{ transform: 'translateY(2px)' }}
+                                                            className="mr-1 text-danger"
+                                                            fontSize="18px"
+                                                        />
+                                                    </span>
                                                 </Tooltip>
                                             )}
                                         <CopyToClipboardInline

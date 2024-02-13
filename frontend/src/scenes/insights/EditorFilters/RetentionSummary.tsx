@@ -66,7 +66,9 @@ export function RetentionSummary({ insightProps }: EditorFilterProps): JSX.Eleme
                             <>
                                 {value}
                                 <Tooltip placement="right" title={retentionOptionDescriptions[key]}>
-                                    <IconInfo className="info-indicator" />
+                                    <span>
+                                        <IconInfo className="info-indicator" />
+                                    </span>
                                 </Tooltip>
                             </>
                         ),

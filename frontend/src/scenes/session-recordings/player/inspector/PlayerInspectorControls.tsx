@@ -144,7 +144,9 @@ export function PlayerInspectorControls({ onClose }: { onClose: () => void }): J
                             fullWidth
                             suffix={
                                 <Tooltip title={<InspectorSearchInfo />}>
-                                    <IconInfo />
+                                    <span>
+                                        <IconInfo />
+                                    </span>
                                 </Tooltip>
                             }
                         />
@@ -174,7 +176,9 @@ export function PlayerInspectorControls({ onClose }: { onClose: () => void }): J
                                 title="Each recording window translates to a distinct browser tab or window."
                                 className="text-base text-muted-alt"
                             >
-                                <IconInfo />
+                                <span>
+                                    <IconInfo />
+                                </span>
                             </Tooltip>
                         </div>
                     ) : null}
@@ -234,7 +238,9 @@ export function PlayerInspectorControls({ onClose }: { onClose: () => void }): J
                             title="Display only the events that match the global filter."
                             className="text-base text-muted-alt"
                         >
-                            <IconInfo />
+                            <span>
+                                <IconInfo />
+                            </span>
                         </Tooltip>
                     </span>
 

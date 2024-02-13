@@ -15,7 +15,9 @@ export function DuplicateStepIndicator(): JSX.Element {
                 </>
             }
         >
-            <IconInfo style={{ marginLeft: '0.375rem', fontSize: '1.25rem', color: 'var(--muted-alt)' }} />
+            <span>
+                <IconInfo style={{ marginLeft: '0.375rem', fontSize: '1.25rem', color: 'var(--muted-alt)' }} />
+            </span>
         </Tooltip>
     )
 }

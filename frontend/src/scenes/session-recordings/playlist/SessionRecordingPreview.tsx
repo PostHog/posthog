@@ -208,7 +208,9 @@ function FirstURL(props: { startUrl: string | undefined }): JSX.Element {
 function PinnedIndicator(): JSX.Element | null {
     return (
         <Tooltip placement="top-end" title="This recording is pinned to this list.">
-            <IconPinFilled className="text-sm text-orange shrink-0" />
+            <span>
+                <IconPinFilled className="text-sm text-orange shrink-0" />
+            </span>
         </Tooltip>
     )
 }

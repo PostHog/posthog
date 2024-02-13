@@ -76,7 +76,9 @@ function MetricsOverview({ metrics, metricsLoading }: MetricsOverviewProps): JSX
                     <div className="text-muted font-semibold mb-2">
                         Events Processed successfully
                         <Tooltip title="Total number of events processed successfully">
-                            <IconInfo />
+                            <span>
+                                <IconInfo />
+                            </span>
                         </Tooltip>
                     </div>
                     <div className="text-4xl">{renderNumber(metrics?.totals?.successes)}</div>
@@ -85,7 +87,9 @@ function MetricsOverview({ metrics, metricsLoading }: MetricsOverviewProps): JSX
                     <div className="text-muted font-semibold mb-2">
                         Events Failed
                         <Tooltip title="Total number of events that threw an error during processing">
-                            <IconInfo />
+                            <span>
+                                <IconInfo />
+                            </span>
                         </Tooltip>
                     </div>
                     <div className="text-4xl">{renderNumber(metrics?.totals?.failures)}</div>

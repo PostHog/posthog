@@ -29,7 +29,9 @@ function TaxonomyIntroductionSection(): JSX.Element {
     const Lock = (): JSX.Element => (
         <div className="h-full w-full overflow-hidden text-ellipsis text-muted">
             <Tooltip title="Viewing ingestion data requires a premium license">
-                <IconLock className="mr-1 text-warning text-xl shrink-0" />
+                <span>
+                    <IconLock className="mr-1 text-warning text-xl shrink-0" />
+                </span>
             </Tooltip>
         </div>
     )
@@ -82,7 +84,9 @@ export function VerifiedDefinitionCheckbox({
                             Verified {isProperty ? 'property' : 'event'}
                             {compact && (
                                 <Tooltip title={copy}>
-                                    <IconInfo className="ml-2 text-muted text-xl shrink-0" />
+                                    <span>
+                                        <IconInfo className="ml-2 text-muted text-xl shrink-0" />
+                                    </span>
                                 </Tooltip>
                             )}
                         </span>

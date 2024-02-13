@@ -92,7 +92,9 @@ export function MetricsOverview({
                         {DescriptionColumns[tab].successes}{' '}
                         {DescriptionColumns[tab].successes_tooltip && (
                             <Tooltip title={DescriptionColumns[tab].successes_tooltip}>
-                                <IconInfo />
+                                <span>
+                                    <IconInfo />
+                                </span>
                             </Tooltip>
                         )}
                     </div>
@@ -104,7 +106,9 @@ export function MetricsOverview({
                             {DescriptionColumns[tab].successes_on_retry}{' '}
                             {DescriptionColumns[tab].successes_on_retry_tooltip && (
                                 <Tooltip title={DescriptionColumns[tab].successes_on_retry_tooltip}>
-                                    <IconInfo />
+                                    <span>
+                                        <IconInfo />
+                                    </span>
                                 </Tooltip>
                             )}
                         </div>
@@ -116,7 +120,9 @@ export function MetricsOverview({
                         {DescriptionColumns[tab].failures}{' '}
                         {DescriptionColumns[tab].failures_tooltip && (
                             <Tooltip title={DescriptionColumns[tab].failures_tooltip}>
-                                <IconInfo />
+                                <span>
+                                    <IconInfo />
+                                </span>
                             </Tooltip>
                         )}
                     </div>

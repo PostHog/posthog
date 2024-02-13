@@ -67,14 +67,12 @@ export function DashboardReloadAction(): JSX.Element {
                                         title="Auto refresh will only work while this tab is open"
                                         placement="top-end"
                                     >
-                                        <div>
-                                            <LemonSwitch
-                                                onChange={(checked) => setAutoRefresh(checked, autoRefresh.interval)}
-                                                label="Auto refresh"
-                                                checked={autoRefresh.enabled}
-                                                fullWidth={true}
-                                            />
-                                        </div>
+                                        <LemonSwitch
+                                            onChange={(checked) => setAutoRefresh(checked, autoRefresh.interval)}
+                                            label="Auto refresh"
+                                            checked={autoRefresh.enabled}
+                                            fullWidth={true}
+                                        />
                                     </Tooltip>
                                     <LemonDivider />
                                     <div className="flex flex-col">

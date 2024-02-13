@@ -53,15 +53,13 @@ export const HeatmapToolbarMenu = (): JSX.Element => {
                     </div>
 
                     <Tooltip title="Matching links by their target URL can exclude clicks from the heatmap if the URL is too unique.">
-                        <div>
-                            <LemonSwitch
-                                checked={matchLinksByHref}
-                                label="Match links by their target URL"
-                                onChange={(checked) => setMatchLinksByHref(checked)}
-                                fullWidth={true}
-                                bordered={true}
-                            />
-                        </div>
+                        <LemonSwitch
+                            checked={matchLinksByHref}
+                            label="Match links by their target URL"
+                            onChange={(checked) => setMatchLinksByHref(checked)}
+                            fullWidth={true}
+                            bordered={true}
+                        />
                     </Tooltip>
                 </div>
             </ToolbarMenu.Header>

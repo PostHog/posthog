@@ -24,7 +24,9 @@ export function FunnelCanvasLabel(): JSX.Element | null {
                           <Tooltip
                               title={`Overall conversion rate for all ${aggregationTargetLabel.plural} on the entire funnel.`}
                           >
-                              <IconInfo className="mr-1 text-xl shrink-0" />
+                              <span>
+                                  <IconInfo className="mr-1 text-xl shrink-0" />
+                              </span>
                           </Tooltip>
                           <span>Total conversion rate:</span>
                       </span>
@@ -39,7 +41,9 @@ export function FunnelCanvasLabel(): JSX.Element | null {
                           <Tooltip
                               title={`Average (arithmetic mean) of the total time each ${aggregationTargetLabel.singular} spent in the entire funnel.`}
                           >
-                              <IconInfo className="mr-1 text-xl shrink-0" />
+                              <span>
+                                  <IconInfo className="mr-1 text-xl shrink-0" />
+                              </span>
                           </Tooltip>
                           <span>Average time to convert</span>
                       </span>

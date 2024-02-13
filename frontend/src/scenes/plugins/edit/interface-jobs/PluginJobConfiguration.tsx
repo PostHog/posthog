@@ -40,15 +40,17 @@ export function PluginJobConfiguration(props: InterfaceJobsProps): JSX.Element {
         <>
             <span className="ml-1" onClick={() => playButtonOnClick(jobHasEmptyPayload)}>
                 <Tooltip title={configureOrRunJobTooltip}>
-                    {jobHasEmptyPayload ? (
-                        <IconPlayCircle
-                            className={runJobAvailable ? 'Plugin__RunJobButton' : 'Plugin__RunJobButton--disabled'}
-                        />
-                    ) : (
-                        <IconSettings
-                            className={runJobAvailable ? 'Plugin__RunJobButton' : 'Plugin__RunJobButton--disabled'}
-                        />
-                    )}
+                    <span>
+                        {jobHasEmptyPayload ? (
+                            <IconPlayCircle
+                                className={runJobAvailable ? 'Plugin__RunJobButton' : 'Plugin__RunJobButton--disabled'}
+                            />
+                        ) : (
+                            <IconSettings
+                                className={runJobAvailable ? 'Plugin__RunJobButton' : 'Plugin__RunJobButton--disabled'}
+                            />
+                        )}
+                    </span>
                 </Tooltip>
             </span>
 

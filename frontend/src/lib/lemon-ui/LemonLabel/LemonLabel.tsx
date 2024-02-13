@@ -44,7 +44,9 @@ export function LemonLabel({
                             <IconInfo className="text-xl text-muted-alt shrink-0" />
                         </Link>
                     ) : (
-                        <IconInfo className="text-xl text-muted-alt shrink-0" />
+                        <span>
+                            <IconInfo className="text-xl text-muted-alt shrink-0" />
+                        </span>
                     )}
                 </Tooltip>
             ) : null}

@@ -49,7 +49,9 @@ export const BreakdownTagMenu = (): JSX.Element => {
                                     </>
                                 }
                             >
-                                <IconInfo className="text-xl text-muted-alt ml-1 shrink-0" />
+                                <span>
+                                    <IconInfo className="text-xl text-muted-alt ml-1 shrink-0" />
+                                </span>
                             </Tooltip>
                         </div>
                     }
@@ -112,7 +114,9 @@ export const BreakdownTagMenu = (): JSX.Element => {
                                         </>
                                     }
                                 >
-                                    <IconInfo className="text-muted text-xl shrink-0" />
+                                    <span>
+                                        <IconInfo className="text-muted text-xl shrink-0" />
+                                    </span>
                                 </Tooltip>
                             </div>
                         }

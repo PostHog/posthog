@@ -109,7 +109,9 @@ export function ExperimentPreview({
                         <div className="flex items-center">
                             <b>Minimum acceptable improvement</b>
                             <Tooltip title="Minimum acceptable improvement is a calculation that estimates the smallest significant improvement you are willing to accept.">
-                                <IconInfo className="ml-1 text-muted text-xl" />
+                                <span>
+                                    <IconInfo className="ml-1 text-muted text-xl" />
+                                </span>
                             </Tooltip>
                         </div>
                         <div className="flex gap-2">
@@ -295,7 +297,9 @@ export function ExperimentPreview({
                                                 <Tooltip
                                                     title={`This metric determines how we calculate exposure for the experiment. Only users who have this event alongside the property '$feature/${experiment.feature_flag_key}' are included in exposure calculations.`}
                                                 >
-                                                    <IconInfo className="ml-1 text-muted text-sm" />
+                                                    <span>
+                                                        <IconInfo className="ml-1 text-muted text-sm" />
+                                                    </span>
                                                 </Tooltip>
                                             </div>
                                             {experiment.parameters?.custom_exposure_filter ? (

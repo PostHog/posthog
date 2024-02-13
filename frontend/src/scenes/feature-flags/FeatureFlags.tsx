@@ -88,13 +88,15 @@ export function OverViewTab({
                             </Link>
                             {!featureFlag.can_edit && (
                                 <Tooltip title="You don't have edit permissions for this feature flag.">
-                                    <IconLock
-                                        style={{
-                                            marginLeft: 6,
-                                            verticalAlign: '-0.125em',
-                                            display: 'inline',
-                                        }}
-                                    />
+                                    <span>
+                                        <IconLock
+                                            style={{
+                                                marginLeft: 6,
+                                                verticalAlign: '-0.125em',
+                                                display: 'inline',
+                                            }}
+                                        />
+                                    </span>
                                 </Tooltip>
                             )}
                         </div>

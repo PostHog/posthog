@@ -151,7 +151,9 @@ export function BatchExportsEditFields({
                                             "If selected, the Batch Exporter will be created but will be 'paused' allowing you to resumed it at a later date."
                                         }
                                     >
-                                        <IconInfo className=" text-lg text-muted-alt" />
+                                        <span>
+                                            <IconInfo className=" text-lg text-muted-alt" />
+                                        </span>
                                     </Tooltip>
                                 </span>
                             }
@@ -365,7 +367,9 @@ export function BatchExportsEditFields({
                                     <span className="flex items-center gap-2">
                                         Does your Postgres instance have a self-signed SSL certificate?
                                         <Tooltip title="In most cases, Heroku and RDS users should check this.">
-                                            <IconInfo className=" text-lg text-muted-alt" />
+                                            <span>
+                                                <IconInfo className=" text-lg text-muted-alt" />
+                                            </span>
                                         </Tooltip>
                                     </span>
                                 }
@@ -464,7 +468,9 @@ export function BatchExportsEditFields({
                                         <span className="flex items-center gap-2">
                                             Export 'properties', 'set', and 'set_once' fields as BigQuery JSON type
                                             <Tooltip title="If left unchecked, these fields will be sent as STRING type. This setting cannot be changed after batch export is created.">
-                                                <IconInfo className=" text-lg text-muted-alt" />
+                                                <span>
+                                                    <IconInfo className=" text-lg text-muted-alt" />
+                                                </span>
                                             </Tooltip>
                                         </span>
                                     }

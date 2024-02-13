@@ -40,7 +40,9 @@ export const PersonsSearch = (): JSX.Element => {
                     </>
                 }
             >
-                <IconInfo className="text-2xl text-muted-alt shrink-0" />
+                <span>
+                    <IconInfo className="text-2xl text-muted-alt shrink-0" />
+                </span>
             </Tooltip>
         </div>
     )

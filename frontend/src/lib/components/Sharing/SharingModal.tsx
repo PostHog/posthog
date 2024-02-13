@@ -106,7 +106,9 @@ export function SharingModalContent({
                                             <Tooltip
                                                 title={`Use this HTML snippet to embed the ${resource} on your website`}
                                             >
-                                                <IconInfo />
+                                                <span>
+                                                    <IconInfo />
+                                                </span>
                                             </Tooltip>
                                         }
                                     >
@@ -148,7 +150,9 @@ export function SharingModalContent({
                                                     <span>Show PostHog branding</span>
                                                     {!whitelabelAvailable ? (
                                                         <Tooltip title="Upgrade to any paid plan to hide PostHog branding">
-                                                            <IconLock className="ml-2" />
+                                                            <span>
+                                                                <IconLock className="ml-2" />
+                                                            </span>
                                                         </Tooltip>
                                                     ) : null}
                                                 </div>

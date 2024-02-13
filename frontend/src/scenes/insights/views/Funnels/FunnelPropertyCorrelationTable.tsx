@@ -263,7 +263,9 @@ export function FunnelPropertyCorrelationTable(): JSX.Element | null {
                                             querySource?.aggregation_group_type_index != undefined ? 'that' : 'who'
                                         } have this property and completed the entire funnel.`}
                                     >
-                                        <IconInfo className="column-info" />
+                                        <span>
+                                            <IconInfo className="column-info" />
+                                        </span>
                                     </Tooltip>
                                 </div>
                             }
@@ -287,7 +289,9 @@ export function FunnelPropertyCorrelationTable(): JSX.Element | null {
                                             </>
                                         }
                                     >
-                                        <IconInfo className="column-info" />
+                                        <span>
+                                            <IconInfo className="column-info" />
+                                        </span>
                                     </Tooltip>
                                 </div>
                             }

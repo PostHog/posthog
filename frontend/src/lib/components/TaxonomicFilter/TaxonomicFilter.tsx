@@ -110,7 +110,9 @@ export function TaxonomicFilter({
                                         </>
                                     }
                                 >
-                                    <IconKeyboard style={{ fontSize: '1.2rem' }} className="text-muted-alt" />
+                                    <span>
+                                        <IconKeyboard style={{ fontSize: '1.2rem' }} className="text-muted-alt" />
+                                    </span>
                                 </Tooltip>
                             }
                             onKeyDown={(e) => {
