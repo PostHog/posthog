@@ -21,7 +21,6 @@ import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { inviteLogic } from 'scenes/settings/organization/inviteLogic'
 import { ThemeSwitcher } from 'scenes/settings/user/ThemeSwitcher'
 
-import { featurePreviewsLogic } from '~/layout/FeaturePreviews/featurePreviewsLogic'
 import {
     AccessLevelIndicator,
     NewOrganizationButton,
@@ -161,13 +160,13 @@ function InstanceSettings(): JSX.Element | null {
 
 function FeaturePreviewsButton(): JSX.Element {
     const { closeAccountPopover } = useActions(navigationLogic)
-    const { showFeaturePreviewsModal } = useActions(featurePreviewsLogic)
+    const { openSidePanel } = useActions(sidePanelStateLogic)
 
     return (
         <LemonButton
             onClick={() => {
                 closeAccountPopover()
-                showFeaturePreviewsModal()
+                openSidePanel(SidePanelTab.FeaturePreviews)
             }}
             icon={<IconFeatures />}
             fullWidth

@@ -1,41 +1,10 @@
-import { LemonButton, LemonDivider, LemonModal, LemonSwitch, LemonTextArea, Link } from '@posthog/lemon-ui'
+import { LemonButton, LemonDivider, LemonSwitch, LemonTextArea, Link } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { useActions, useAsyncActions, useValues } from 'kea'
 import { SpinnerOverlay } from 'lib/lemon-ui/Spinner'
 import { useLayoutEffect, useState } from 'react'
 
-import { sidePanelStateLogic } from '../navigation-3000/sidepanel/sidePanelStateLogic'
 import { EnrichedEarlyAccessFeature, featurePreviewsLogic } from './featurePreviewsLogic'
-
-export function FeaturePreviewsModal({
-    inline,
-}: {
-    /** @deprecated This is only for Storybook. */
-    inline?: boolean
-}): JSX.Element | null {
-    const { featurePreviewsModalVisible } = useValues(featurePreviewsLogic)
-    const { hideFeaturePreviewsModal, loadEarlyAccessFeatures } = useActions(featurePreviewsLogic)
-    const { sidePanelAvailable } = useValues(sidePanelStateLogic)
-
-    useLayoutEffect(() => loadEarlyAccessFeatures(), [])
-
-    if (sidePanelAvailable) {
-        return null
-    }
-
-    return (
-        <LemonModal
-            isOpen={inline || featurePreviewsModalVisible}
-            onClose={hideFeaturePreviewsModal}
-            title="Feature previews"
-            description="Get early access to these upcoming features. Let us know what you think!"
-            width={528}
-            inline={inline}
-        >
-            <FeaturePreviews />
-        </LemonModal>
-    )
-}
 
 export function FeaturePreviews(): JSX.Element {
     const { earlyAccessFeatures, rawEarlyAccessFeaturesLoading } = useValues(featurePreviewsLogic)
