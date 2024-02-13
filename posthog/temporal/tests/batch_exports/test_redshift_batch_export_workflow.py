@@ -1,5 +1,6 @@
 import datetime as dt
 import json
+import operator
 import os
 import warnings
 from random import randint
@@ -134,6 +135,9 @@ async def assert_clickhouse_records_in_redshfit(
 
     inserted_column_names = [column_name for column_name in inserted_records[0].keys()].sort()
     expected_column_names = [column_name for column_name in expected_records[0].keys()].sort()
+
+    inserted_records.sort(key=operator.itemgetter("event"))
+    expected_records.sort(key=operator.itemgetter("event"))
 
     assert inserted_column_names == expected_column_names
     assert inserted_records[0] == expected_records[0]
@@ -272,6 +276,7 @@ async def test_insert_into_redshift_activity_inserts_data_into_redshift_table(
         count_other_team=0,
         properties=None,
         person_properties=None,
+        event_name="test-no-prop-{i}",
     )
 
     if exclude_events:
