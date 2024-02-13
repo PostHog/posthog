@@ -284,7 +284,7 @@ export function FeatureFlag({ id }: { id?: string } = {}): JSX.Element {
                                 </Link>
                             </LemonBanner>
                         )}
-                        <div className="mt-4 mb-8">
+                        <div className="my-4">
                             <div className="max-w-1/2 space-y-4">
                                 <Field
                                     name="key"
