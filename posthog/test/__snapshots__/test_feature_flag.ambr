@@ -1,42 +1,42 @@
 # serializer version: 1
 # name: TestFeatureFlagMatcher.test_coercion_of_booleans_with_is_not_operator
   '''
-  SELECT NOT ((("posthog_person"."properties" -> 'disabled') = 'false'
-               OR ("posthog_person"."properties" -> 'disabled') = '"false"')
+  SELECT NOT ((("posthog_person"."properties" -> 'disabled') = 'false'::jsonb
+               OR ("posthog_person"."properties" -> 'disabled') = '"false"'::jsonb)
               AND "posthog_person"."properties" ? 'disabled'
-              AND NOT (("posthog_person"."properties" -> 'disabled') = 'null')) AS "flag_X_condition_0",
-             NOT ((("posthog_person"."properties" -> 'disabled') = 'false'
-                   OR ("posthog_person"."properties" -> 'disabled') = '"false"')
+              AND NOT (("posthog_person"."properties" -> 'disabled') = 'null'::jsonb)) AS "flag_X_condition_0",
+             NOT ((("posthog_person"."properties" -> 'disabled') = 'false'::jsonb
+                   OR ("posthog_person"."properties" -> 'disabled') = '"false"'::jsonb)
                   AND "posthog_person"."properties" ? 'disabled'
-                  AND NOT (("posthog_person"."properties" -> 'disabled') = 'null')) AS "flag_X_condition_1",
-                 NOT ((("posthog_person"."properties" -> 'disabled') = 'false'
-                       OR ("posthog_person"."properties" -> 'disabled') = '"false"')
+                  AND NOT (("posthog_person"."properties" -> 'disabled') = 'null'::jsonb)) AS "flag_X_condition_1",
+                 NOT ((("posthog_person"."properties" -> 'disabled') = 'false'::jsonb
+                       OR ("posthog_person"."properties" -> 'disabled') = '"false"'::jsonb)
                       AND "posthog_person"."properties" ? 'disabled'
-                      AND NOT (("posthog_person"."properties" -> 'disabled') = 'null')) AS "flag_X_condition_2",
-                     NOT ((("posthog_person"."properties" -> 'disabled') = 'false'
-                           OR ("posthog_person"."properties" -> 'disabled') = '"false"')
+                      AND NOT (("posthog_person"."properties" -> 'disabled') = 'null'::jsonb)) AS "flag_X_condition_2",
+                     NOT ((("posthog_person"."properties" -> 'disabled') = 'false'::jsonb
+                           OR ("posthog_person"."properties" -> 'disabled') = '"false"'::jsonb)
                           AND "posthog_person"."properties" ? 'disabled'
-                          AND NOT (("posthog_person"."properties" -> 'disabled') = 'null')) AS "flag_X_condition_3",
-                         NOT ((("posthog_person"."properties" -> 'disabled') = 'false'
-                               OR ("posthog_person"."properties" -> 'disabled') = '"false"')
+                          AND NOT (("posthog_person"."properties" -> 'disabled') = 'null'::jsonb)) AS "flag_X_condition_3",
+                         NOT ((("posthog_person"."properties" -> 'disabled') = 'false'::jsonb
+                               OR ("posthog_person"."properties" -> 'disabled') = '"false"'::jsonb)
                               AND "posthog_person"."properties" ? 'disabled'
-                              AND NOT (("posthog_person"."properties" -> 'disabled') = 'null')) AS "flag_X_condition_4",
-                             NOT ((("posthog_person"."properties" -> 'string_disabled') = 'false'
-                                   OR ("posthog_person"."properties" -> 'string_disabled') = '"false"')
+                              AND NOT (("posthog_person"."properties" -> 'disabled') = 'null'::jsonb)) AS "flag_X_condition_4",
+                             NOT ((("posthog_person"."properties" -> 'string_disabled') = 'false'::jsonb
+                                   OR ("posthog_person"."properties" -> 'string_disabled') = '"false"'::jsonb)
                                   AND "posthog_person"."properties" ? 'string_disabled'
-                                  AND NOT (("posthog_person"."properties" -> 'string_disabled') = 'null')) AS "flag_X_condition_5",
-                                 NOT ((("posthog_person"."properties" -> 'string_disabled') = 'false'
-                                       OR ("posthog_person"."properties" -> 'string_disabled') = '"false"')
+                                  AND NOT (("posthog_person"."properties" -> 'string_disabled') = 'null'::jsonb)) AS "flag_X_condition_5",
+                                 NOT ((("posthog_person"."properties" -> 'string_disabled') = 'false'::jsonb
+                                       OR ("posthog_person"."properties" -> 'string_disabled') = '"false"'::jsonb)
                                       AND "posthog_person"."properties" ? 'string_disabled'
-                                      AND NOT (("posthog_person"."properties" -> 'string_disabled') = 'null')) AS "flag_X_condition_6",
-                                     NOT ((("posthog_person"."properties" -> 'string_disabled') = 'false'
-                                           OR ("posthog_person"."properties" -> 'string_disabled') = '"false"')
+                                      AND NOT (("posthog_person"."properties" -> 'string_disabled') = 'null'::jsonb)) AS "flag_X_condition_6",
+                                     NOT ((("posthog_person"."properties" -> 'string_disabled') = 'false'::jsonb
+                                           OR ("posthog_person"."properties" -> 'string_disabled') = '"false"'::jsonb)
                                           AND "posthog_person"."properties" ? 'string_disabled'
-                                          AND NOT (("posthog_person"."properties" -> 'string_disabled') = 'null')) AS "flag_X_condition_7",
-                                         NOT ((("posthog_person"."properties" -> 'string_disabled') = 'false'
-                                               OR ("posthog_person"."properties" -> 'string_disabled') = '"false"')
+                                          AND NOT (("posthog_person"."properties" -> 'string_disabled') = 'null'::jsonb)) AS "flag_X_condition_7",
+                                         NOT ((("posthog_person"."properties" -> 'string_disabled') = 'false'::jsonb
+                                               OR ("posthog_person"."properties" -> 'string_disabled') = '"false"'::jsonb)
                                               AND "posthog_person"."properties" ? 'string_disabled'
-                                              AND NOT (("posthog_person"."properties" -> 'string_disabled') = 'null')) AS "flag_X_condition_8"
+                                              AND NOT (("posthog_person"."properties" -> 'string_disabled') = 'null'::jsonb)) AS "flag_X_condition_8"
   FROM "posthog_person"
   INNER JOIN "posthog_persondistinctid" ON ("posthog_person"."id" = "posthog_persondistinctid"."person_id")
   WHERE ("posthog_persondistinctid"."distinct_id" = '307'
@@ -46,20 +46,20 @@
 # ---
 # name: TestFeatureFlagMatcher.test_coercion_of_strings_and_numbers_with_is_not_operator
   '''
-  SELECT (NOT ((("posthog_person"."properties" -> 'Organizer Id') IN ('"307"')
-                OR ("posthog_person"."properties" -> 'Organizer Id') IN ('307'))
+  SELECT (NOT ((("posthog_person"."properties" -> 'Organizer Id') IN ('"307"'::jsonb)
+                OR ("posthog_person"."properties" -> 'Organizer Id') IN ('307'::jsonb))
                AND "posthog_person"."properties" ? 'Organizer Id'
-               AND NOT (("posthog_person"."properties" -> 'Organizer Id') = 'null'))
-          AND NOT (("posthog_person"."properties" -> 'Organizer Id') IN ('307')
+               AND NOT (("posthog_person"."properties" -> 'Organizer Id') = 'null'::jsonb))
+          AND NOT (("posthog_person"."properties" -> 'Organizer Id') IN ('307'::jsonb)
                    AND "posthog_person"."properties" ? 'Organizer Id'
-                   AND NOT (("posthog_person"."properties" -> 'Organizer Id') = 'null'))
-          AND NOT ((("posthog_person"."properties" -> 'Organizer Id') = '"307"'
-                    OR ("posthog_person"."properties" -> 'Organizer Id') = '307')
+                   AND NOT (("posthog_person"."properties" -> 'Organizer Id') = 'null'::jsonb))
+          AND NOT ((("posthog_person"."properties" -> 'Organizer Id') = '"307"'::jsonb
+                    OR ("posthog_person"."properties" -> 'Organizer Id') = '307'::jsonb)
                    AND "posthog_person"."properties" ? 'Organizer Id'
-                   AND NOT (("posthog_person"."properties" -> 'Organizer Id') = 'null'))
-          AND NOT (("posthog_person"."properties" -> 'Organizer Id') = '307'
+                   AND NOT (("posthog_person"."properties" -> 'Organizer Id') = 'null'::jsonb))
+          AND NOT (("posthog_person"."properties" -> 'Organizer Id') = '307'::jsonb
                    AND "posthog_person"."properties" ? 'Organizer Id'
-                   AND NOT (("posthog_person"."properties" -> 'Organizer Id') = 'null'))) AS "flag_X_condition_0"
+                   AND NOT (("posthog_person"."properties" -> 'Organizer Id') = 'null'::jsonb))) AS "flag_X_condition_0"
   FROM "posthog_person"
   INNER JOIN "posthog_persondistinctid" ON ("posthog_person"."id" = "posthog_persondistinctid"."person_id")
   WHERE ("posthog_persondistinctid"."distinct_id" = '307'
@@ -69,20 +69,20 @@
 # ---
 # name: TestFeatureFlagMatcher.test_coercion_of_strings_and_numbers_with_is_not_operator.1
   '''
-  SELECT NOT ((("posthog_person"."properties" -> 'Distinct Id') IN ('"307"')
-               OR ("posthog_person"."properties" -> 'Distinct Id') IN ('307'))
+  SELECT NOT ((("posthog_person"."properties" -> 'Distinct Id') IN ('"307"'::jsonb)
+               OR ("posthog_person"."properties" -> 'Distinct Id') IN ('307'::jsonb))
               AND "posthog_person"."properties" ? 'Distinct Id'
-              AND NOT (("posthog_person"."properties" -> 'Distinct Id') = 'null')) AS "flag_X_condition_0",
-             NOT (("posthog_person"."properties" -> 'Distinct Id') IN ('307')
+              AND NOT (("posthog_person"."properties" -> 'Distinct Id') = 'null'::jsonb)) AS "flag_X_condition_0",
+             NOT (("posthog_person"."properties" -> 'Distinct Id') IN ('307'::jsonb)
                   AND "posthog_person"."properties" ? 'Distinct Id'
-                  AND NOT (("posthog_person"."properties" -> 'Distinct Id') = 'null')) AS "flag_X_condition_1",
-                 NOT ((("posthog_person"."properties" -> 'Distinct Id') = '"307"'
-                       OR ("posthog_person"."properties" -> 'Distinct Id') = '307')
+                  AND NOT (("posthog_person"."properties" -> 'Distinct Id') = 'null'::jsonb)) AS "flag_X_condition_1",
+                 NOT ((("posthog_person"."properties" -> 'Distinct Id') = '"307"'::jsonb
+                       OR ("posthog_person"."properties" -> 'Distinct Id') = '307'::jsonb)
                       AND "posthog_person"."properties" ? 'Distinct Id'
-                      AND NOT (("posthog_person"."properties" -> 'Distinct Id') = 'null')) AS "flag_X_condition_2",
-                     NOT (("posthog_person"."properties" -> 'Distinct Id') = '307'
+                      AND NOT (("posthog_person"."properties" -> 'Distinct Id') = 'null'::jsonb)) AS "flag_X_condition_2",
+                     NOT (("posthog_person"."properties" -> 'Distinct Id') = '307'::jsonb
                           AND "posthog_person"."properties" ? 'Distinct Id'
-                          AND NOT (("posthog_person"."properties" -> 'Distinct Id') = 'null')) AS "flag_X_condition_3"
+                          AND NOT (("posthog_person"."properties" -> 'Distinct Id') = 'null'::jsonb)) AS "flag_X_condition_3"
   FROM "posthog_person"
   INNER JOIN "posthog_persondistinctid" ON ("posthog_person"."id" = "posthog_persondistinctid"."person_id")
   WHERE ("posthog_persondistinctid"."distinct_id" = '307'
@@ -220,10 +220,10 @@
 # ---
 # name: TestFeatureFlagMatcher.test_db_matches_independent_of_string_or_number_type.4
   '''
-  SELECT ((("posthog_person"."properties" -> 'Distinct Id') IN ('"307"')
-           OR ("posthog_person"."properties" -> 'Distinct Id') IN ('307'))
+  SELECT ((("posthog_person"."properties" -> 'Distinct Id') IN ('"307"'::jsonb)
+           OR ("posthog_person"."properties" -> 'Distinct Id') IN ('307'::jsonb))
           AND "posthog_person"."properties" ? 'Distinct Id'
-          AND NOT (("posthog_person"."properties" -> 'Distinct Id') = 'null')) AS "flag_X_condition_0"
+          AND NOT (("posthog_person"."properties" -> 'Distinct Id') = 'null'::jsonb)) AS "flag_X_condition_0"
   FROM "posthog_person"
   INNER JOIN "posthog_persondistinctid" ON ("posthog_person"."id" = "posthog_persondistinctid"."person_id")
   WHERE ("posthog_persondistinctid"."distinct_id" = '307'
@@ -233,9 +233,9 @@
 # ---
 # name: TestFeatureFlagMatcher.test_db_matches_independent_of_string_or_number_type.5
   '''
-  SELECT (("posthog_person"."properties" -> 'Distinct Id') IN ('307')
+  SELECT (("posthog_person"."properties" -> 'Distinct Id') IN ('307'::jsonb)
           AND "posthog_person"."properties" ? 'Distinct Id'
-          AND NOT (("posthog_person"."properties" -> 'Distinct Id') = 'null')) AS "flag_X_condition_0"
+          AND NOT (("posthog_person"."properties" -> 'Distinct Id') = 'null'::jsonb)) AS "flag_X_condition_0"
   FROM "posthog_person"
   INNER JOIN "posthog_persondistinctid" ON ("posthog_person"."id" = "posthog_persondistinctid"."person_id")
   WHERE ("posthog_persondistinctid"."distinct_id" = '307'
@@ -245,9 +245,9 @@
 # ---
 # name: TestFeatureFlagMatcher.test_db_matches_independent_of_string_or_number_type.6
   '''
-  SELECT (("posthog_person"."properties" -> 'Distinct Id') = '307'
+  SELECT (("posthog_person"."properties" -> 'Distinct Id') = '307'::jsonb
           AND "posthog_person"."properties" ? 'Distinct Id'
-          AND NOT (("posthog_person"."properties" -> 'Distinct Id') = 'null')) AS "flag_X_condition_0"
+          AND NOT (("posthog_person"."properties" -> 'Distinct Id') = 'null'::jsonb)) AS "flag_X_condition_0"
   FROM "posthog_person"
   INNER JOIN "posthog_persondistinctid" ON ("posthog_person"."id" = "posthog_persondistinctid"."person_id")
   WHERE ("posthog_persondistinctid"."distinct_id" = '307'
@@ -269,9 +269,9 @@
 # ---
 # name: TestFeatureFlagMatcher.test_multiple_flags.1
   '''
-  SELECT (("posthog_person"."properties" -> 'email') = '"test@posthog.com"'
+  SELECT (("posthog_person"."properties" -> 'email') = '"test@posthog.com"'::jsonb
           AND "posthog_person"."properties" ? 'email'
-          AND NOT (("posthog_person"."properties" -> 'email') = 'null')) AS "flag_X_condition_0",
+          AND NOT (("posthog_person"."properties" -> 'email') = 'null'::jsonb)) AS "flag_X_condition_0",
          (true) AS "flag_X_condition_1",
          (true) AS "flag_X_condition_0",
          (true) AS "flag_X_condition_0",
@@ -295,12 +295,12 @@
 # ---
 # name: TestFeatureFlagMatcher.test_multiple_flags.3
   '''
-  SELECT (("posthog_group"."group_properties" -> 'name') IN ('"foo.inc"')
+  SELECT (("posthog_group"."group_properties" -> 'name') IN ('"foo.inc"'::jsonb)
           AND "posthog_group"."group_properties" ? 'name'
-          AND NOT (("posthog_group"."group_properties" -> 'name') = 'null')) AS "flag_X_condition_0",
-         (("posthog_group"."group_properties" -> 'name') IN ('"foo2.inc"')
+          AND NOT (("posthog_group"."group_properties" -> 'name') = 'null'::jsonb)) AS "flag_X_condition_0",
+         (("posthog_group"."group_properties" -> 'name') IN ('"foo2.inc"'::jsonb)
           AND "posthog_group"."group_properties" ? 'name'
-          AND NOT (("posthog_group"."group_properties" -> 'name') = 'null')) AS "flag_X_condition_0"
+          AND NOT (("posthog_group"."group_properties" -> 'name') = 'null'::jsonb)) AS "flag_X_condition_0"
   FROM "posthog_group"
   WHERE ("posthog_group"."team_id" = 2
          AND "posthog_group"."group_key" = 'foo'
@@ -321,9 +321,9 @@
 # ---
 # name: TestFeatureFlagMatcher.test_multiple_flags.5
   '''
-  SELECT (("posthog_person"."properties" -> 'email') = '"test@posthog.com"'
+  SELECT (("posthog_person"."properties" -> 'email') = '"test@posthog.com"'::jsonb
           AND "posthog_person"."properties" ? 'email'
-          AND NOT (("posthog_person"."properties" -> 'email') = 'null')) AS "flag_X_condition_0",
+          AND NOT (("posthog_person"."properties" -> 'email') = 'null'::jsonb)) AS "flag_X_condition_0",
          (true) AS "flag_X_condition_1",
          (true) AS "flag_X_condition_0",
          (true) AS "flag_X_condition_0",
@@ -337,12 +337,12 @@
 # ---
 # name: TestFeatureFlagMatcher.test_multiple_flags.6
   '''
-  SELECT (("posthog_group"."group_properties" -> 'name') IN ('"foo.inc"')
+  SELECT (("posthog_group"."group_properties" -> 'name') IN ('"foo.inc"'::jsonb)
           AND "posthog_group"."group_properties" ? 'name'
-          AND NOT (("posthog_group"."group_properties" -> 'name') = 'null')) AS "flag_X_condition_0",
-         (("posthog_group"."group_properties" -> 'name') IN ('"foo2.inc"')
+          AND NOT (("posthog_group"."group_properties" -> 'name') = 'null'::jsonb)) AS "flag_X_condition_0",
+         (("posthog_group"."group_properties" -> 'name') IN ('"foo2.inc"'::jsonb)
           AND "posthog_group"."group_properties" ? 'name'
-          AND NOT (("posthog_group"."group_properties" -> 'name') = 'null')) AS "flag_X_condition_0"
+          AND NOT (("posthog_group"."group_properties" -> 'name') = 'null'::jsonb)) AS "flag_X_condition_0"
   FROM "posthog_group"
   WHERE ("posthog_group"."team_id" = 2
          AND "posthog_group"."group_key" = 'foo2'
@@ -375,30 +375,30 @@
 # ---
 # name: TestFeatureFlagMatcher.test_numeric_operator_with_cohorts_and_nested_cohorts.1
   '''
-  SELECT (((("posthog_person"."properties" -> 'number') > '"100"'
+  SELECT (((("posthog_person"."properties" -> 'number') > '"100"'::jsonb
             AND JSONB_TYPEOF(("posthog_person"."properties" -> 'number')) = ('string'))
-           OR (("posthog_person"."properties" -> 'number') > '100.0'
+           OR (("posthog_person"."properties" -> 'number') > '100.0'::jsonb
                AND JSONB_TYPEOF(("posthog_person"."properties" -> 'number')) = ('number')))
           AND "posthog_person"."properties" ? 'number'
-          AND NOT (("posthog_person"."properties" -> 'number') = 'null')) AS "flag_X_condition_0",
-         (((("posthog_person"."properties" -> 'version') > '"1.05"'
+          AND NOT (("posthog_person"."properties" -> 'number') = 'null'::jsonb)) AS "flag_X_condition_0",
+         (((("posthog_person"."properties" -> 'version') > '"1.05"'::jsonb
             AND JSONB_TYPEOF(("posthog_person"."properties" -> 'version')) = ('string'))
-           OR (("posthog_person"."properties" -> 'version') > '1.05'
+           OR (("posthog_person"."properties" -> 'version') > '1.05'::jsonb
                AND JSONB_TYPEOF(("posthog_person"."properties" -> 'version')) = ('number')))
           AND "posthog_person"."properties" ? 'version'
-          AND NOT (("posthog_person"."properties" -> 'version') = 'null')) AS "flag_X_condition_0",
-         (((("posthog_person"."properties" -> 'number') < '"31"'
+          AND NOT (("posthog_person"."properties" -> 'version') = 'null'::jsonb)) AS "flag_X_condition_0",
+         (((("posthog_person"."properties" -> 'number') < '"31"'::jsonb
             AND JSONB_TYPEOF(("posthog_person"."properties" -> 'number')) = ('string'))
-           OR (("posthog_person"."properties" -> 'number') < '31.0'
+           OR (("posthog_person"."properties" -> 'number') < '31.0'::jsonb
                AND JSONB_TYPEOF(("posthog_person"."properties" -> 'number')) = ('number')))
           AND "posthog_person"."properties" ? 'number'
-          AND NOT (("posthog_person"."properties" -> 'number') = 'null')
-          AND ((("posthog_person"."properties" -> 'nested_prop') > '"20"'
+          AND NOT (("posthog_person"."properties" -> 'number') = 'null'::jsonb)
+          AND ((("posthog_person"."properties" -> 'nested_prop') > '"20"'::jsonb
                 AND JSONB_TYPEOF(("posthog_person"."properties" -> 'nested_prop')) = ('string'))
-               OR (("posthog_person"."properties" -> 'nested_prop') > '20.0'
+               OR (("posthog_person"."properties" -> 'nested_prop') > '20.0'::jsonb
                    AND JSONB_TYPEOF(("posthog_person"."properties" -> 'nested_prop')) = ('number')))
           AND "posthog_person"."properties" ? 'nested_prop'
-          AND NOT (("posthog_person"."properties" -> 'nested_prop') = 'null')) AS "flag_X_condition_0"
+          AND NOT (("posthog_person"."properties" -> 'nested_prop') = 'null'::jsonb)) AS "flag_X_condition_0"
   FROM "posthog_person"
   INNER JOIN "posthog_persondistinctid" ON ("posthog_person"."id" = "posthog_persondistinctid"."person_id")
   WHERE ("posthog_persondistinctid"."distinct_id" = '307'
@@ -420,12 +420,12 @@
 # ---
 # name: TestFeatureFlagMatcher.test_numeric_operator_with_groups_and_person_flags.1
   '''
-  SELECT (((("posthog_person"."properties" -> 'number') >= '"20"'
+  SELECT (((("posthog_person"."properties" -> 'number') >= '"20"'::jsonb
             AND JSONB_TYPEOF(("posthog_person"."properties" -> 'number')) = ('string'))
-           OR (("posthog_person"."properties" -> 'number') >= '20.0'
+           OR (("posthog_person"."properties" -> 'number') >= '20.0'::jsonb
                AND JSONB_TYPEOF(("posthog_person"."properties" -> 'number')) = ('number')))
           AND "posthog_person"."properties" ? 'number'
-          AND NOT (("posthog_person"."properties" -> 'number') = 'null')) AS "flag_X_condition_0"
+          AND NOT (("posthog_person"."properties" -> 'number') = 'null'::jsonb)) AS "flag_X_condition_0"
   FROM "posthog_person"
   INNER JOIN "posthog_persondistinctid" ON ("posthog_person"."id" = "posthog_persondistinctid"."person_id")
   WHERE ("posthog_persondistinctid"."distinct_id" = '307'
@@ -435,12 +435,12 @@
 # ---
 # name: TestFeatureFlagMatcher.test_numeric_operator_with_groups_and_person_flags.2
   '''
-  SELECT (((("posthog_group"."group_properties" -> 'number') > '"100"'
+  SELECT (((("posthog_group"."group_properties" -> 'number') > '"100"'::jsonb
             AND JSONB_TYPEOF(("posthog_group"."group_properties" -> 'number')) = ('string'))
-           OR (("posthog_group"."group_properties" -> 'number') > '100.0'
+           OR (("posthog_group"."group_properties" -> 'number') > '100.0'::jsonb
                AND JSONB_TYPEOF(("posthog_group"."group_properties" -> 'number')) = ('number')))
           AND "posthog_group"."group_properties" ? 'number'
-          AND NOT (("posthog_group"."group_properties" -> 'number') = 'null')) AS "flag_X_condition_0"
+          AND NOT (("posthog_group"."group_properties" -> 'number') = 'null'::jsonb)) AS "flag_X_condition_0"
   FROM "posthog_group"
   WHERE ("posthog_group"."team_id" = 2
          AND "posthog_group"."group_key" = 'foo'
@@ -449,9 +449,9 @@
 # ---
 # name: TestFeatureFlagMatcher.test_numeric_operator_with_groups_and_person_flags.3
   '''
-  SELECT (("posthog_group"."group_properties" -> 'number') > '"100b2c"'
+  SELECT (("posthog_group"."group_properties" -> 'number') > '"100b2c"'::jsonb
           AND "posthog_group"."group_properties" ? 'number'
-          AND NOT (("posthog_group"."group_properties" -> 'number') = 'null')) AS "flag_X_condition_0"
+          AND NOT (("posthog_group"."group_properties" -> 'number') = 'null'::jsonb)) AS "flag_X_condition_0"
   FROM "posthog_group"
   WHERE ("posthog_group"."team_id" = 2
          AND "posthog_group"."group_key" = 'foo-project'
@@ -460,17 +460,17 @@
 # ---
 # name: TestFeatureFlagMatcher.test_super_condition_matches_string
   '''
-  SELECT ((("posthog_person"."properties" -> 'is_enabled') = 'true'
-           OR ("posthog_person"."properties" -> 'is_enabled') = '"true"')
+  SELECT ((("posthog_person"."properties" -> 'is_enabled') = 'true'::jsonb
+           OR ("posthog_person"."properties" -> 'is_enabled') = '"true"'::jsonb)
           AND "posthog_person"."properties" ? 'is_enabled'
-          AND NOT (("posthog_person"."properties" -> 'is_enabled') = 'null')) AS "flag_X_super_condition", ("posthog_person"."properties" -> 'is_enabled') IS NOT NULL AS "flag_X_super_condition_is_set",
-                                                                                                                                                                          (("posthog_person"."properties" -> 'email') = '"fake@posthog.com"'
-                                                                                                                                                                           AND "posthog_person"."properties" ? 'email'
-                                                                                                                                                                           AND NOT (("posthog_person"."properties" -> 'email') = 'null')) AS "flag_X_condition_0",
-                                                                                                                                                                          (("posthog_person"."properties" -> 'email') = '"test@posthog.com"'
-                                                                                                                                                                           AND "posthog_person"."properties" ? 'email'
-                                                                                                                                                                           AND NOT (("posthog_person"."properties" -> 'email') = 'null')) AS "flag_X_condition_1",
-                                                                                                                                                                          (true) AS "flag_X_condition_2"
+          AND NOT (("posthog_person"."properties" -> 'is_enabled') = 'null'::jsonb)) AS "flag_X_super_condition", ("posthog_person"."properties" -> 'is_enabled') IS NOT NULL AS "flag_X_super_condition_is_set",
+                                                                                                                                                                                 (("posthog_person"."properties" -> 'email') = '"fake@posthog.com"'::jsonb
+                                                                                                                                                                                  AND "posthog_person"."properties" ? 'email'
+                                                                                                                                                                                  AND NOT (("posthog_person"."properties" -> 'email') = 'null'::jsonb)) AS "flag_X_condition_0",
+                                                                                                                                                                                 (("posthog_person"."properties" -> 'email') = '"test@posthog.com"'::jsonb
+                                                                                                                                                                                  AND "posthog_person"."properties" ? 'email'
+                                                                                                                                                                                  AND NOT (("posthog_person"."properties" -> 'email') = 'null'::jsonb)) AS "flag_X_condition_1",
+                                                                                                                                                                                 (true) AS "flag_X_condition_2"
   FROM "posthog_person"
   INNER JOIN "posthog_persondistinctid" ON ("posthog_person"."id" = "posthog_persondistinctid"."person_id")
   WHERE ("posthog_persondistinctid"."distinct_id" = 'test_id'
@@ -586,34 +586,34 @@
 # ---
 # name: TestFeatureFlagMatcher.test_with_sql_injection_properties_and_other_aliases.3
   '''
-  SELECT (((("posthog_person"."properties" -> 'number space') > '"100"'
+  SELECT (((("posthog_person"."properties" -> 'number space') > '"100"'::jsonb
             AND JSONB_TYPEOF(("posthog_person"."properties" -> 'number space')) = ('string'))
-           OR (("posthog_person"."properties" -> 'number space') > '100.0'
+           OR (("posthog_person"."properties" -> 'number space') > '100.0'::jsonb
                AND JSONB_TYPEOF(("posthog_person"."properties" -> 'number space')) = ('number')))
           AND "posthog_person"."properties" ? 'number space'
-          AND NOT (("posthog_person"."properties" -> 'number space') = 'null')
+          AND NOT (("posthog_person"."properties" -> 'number space') = 'null'::jsonb)
           AND ((JSONB_TYPEOF(("posthog_person"."properties" -> ';''" SELECT 1; DROP TABLE posthog_featureflag;')) = ('string')
-                AND ("posthog_person"."properties" -> ';''" SELECT 1; DROP TABLE posthog_featureflag;') > '"100"')
+                AND ("posthog_person"."properties" -> ';''" SELECT 1; DROP TABLE posthog_featureflag;') > '"100"'::jsonb)
                OR (JSONB_TYPEOF(("posthog_person"."properties" -> ';''" SELECT 1; DROP TABLE posthog_featureflag;')) = ('number')
-                   AND ("posthog_person"."properties" -> ';''" SELECT 1; DROP TABLE posthog_featureflag;') > '100.0'))
+                   AND ("posthog_person"."properties" -> ';''" SELECT 1; DROP TABLE posthog_featureflag;') > '100.0'::jsonb))
           AND "posthog_person"."properties" ? ';''" SELECT 1; DROP TABLE posthog_featureflag;'
-          AND NOT (("posthog_person"."properties" -> ';''" SELECT 1; DROP TABLE posthog_featureflag;') = 'null')) AS "flag_X_condition_0",
+          AND NOT (("posthog_person"."properties" -> ';''" SELECT 1; DROP TABLE posthog_featureflag;') = 'null'::jsonb)) AS "flag_X_condition_0",
          (((JSONB_TYPEOF(("posthog_person"."properties" -> ';''" SELECT 1; DROP TABLE posthog_featureflag;')) = ('string')
-            AND ("posthog_person"."properties" -> ';''" SELECT 1; DROP TABLE posthog_featureflag;') > '"100"')
+            AND ("posthog_person"."properties" -> ';''" SELECT 1; DROP TABLE posthog_featureflag;') > '"100"'::jsonb)
            OR (JSONB_TYPEOF(("posthog_person"."properties" -> ';''" SELECT 1; DROP TABLE posthog_featureflag;')) = ('number')
-               AND ("posthog_person"."properties" -> ';''" SELECT 1; DROP TABLE posthog_featureflag;') > '100.0'))
+               AND ("posthog_person"."properties" -> ';''" SELECT 1; DROP TABLE posthog_featureflag;') > '100.0'::jsonb))
           AND "posthog_person"."properties" ? ';''" SELECT 1; DROP TABLE posthog_featureflag;'
-          AND NOT (("posthog_person"."properties" -> ';''" SELECT 1; DROP TABLE posthog_featureflag;') = 'null')) AS "flag_X_condition_1",
-         (((("posthog_person"."properties" -> 'version!!!') > '"1.05"'
+          AND NOT (("posthog_person"."properties" -> ';''" SELECT 1; DROP TABLE posthog_featureflag;') = 'null'::jsonb)) AS "flag_X_condition_1",
+         (((("posthog_person"."properties" -> 'version!!!') > '"1.05"'::jsonb
             AND JSONB_TYPEOF(("posthog_person"."properties" -> 'version!!!')) = ('string'))
-           OR (("posthog_person"."properties" -> 'version!!!') > '1.05'
+           OR (("posthog_person"."properties" -> 'version!!!') > '1.05'::jsonb
                AND JSONB_TYPEOF(("posthog_person"."properties" -> 'version!!!')) = ('number')))
           AND "posthog_person"."properties" ? 'version!!!'
-          AND NOT (("posthog_person"."properties" -> 'version!!!') = 'null')) AS "flag_X_condition_2",
-         ((("posthog_person"."properties" -> 'nested_prop --random #comment //test') = '"21"'
-           OR ("posthog_person"."properties" -> 'nested_prop --random #comment //test') = '21')
+          AND NOT (("posthog_person"."properties" -> 'version!!!') = 'null'::jsonb)) AS "flag_X_condition_2",
+         ((("posthog_person"."properties" -> 'nested_prop --random #comment //test') = '"21"'::jsonb
+           OR ("posthog_person"."properties" -> 'nested_prop --random #comment //test') = '21'::jsonb)
           AND "posthog_person"."properties" ? 'nested_prop --random #comment //test'
-          AND NOT (("posthog_person"."properties" -> 'nested_prop --random #comment //test') = 'null')) AS "flag_X_condition_3"
+          AND NOT (("posthog_person"."properties" -> 'nested_prop --random #comment //test') = 'null'::jsonb)) AS "flag_X_condition_3"
   FROM "posthog_person"
   INNER JOIN "posthog_persondistinctid" ON ("posthog_person"."id" = "posthog_persondistinctid"."person_id")
   WHERE ("posthog_persondistinctid"."distinct_id" = '307'
@@ -622,20 +622,103 @@
   '''
 # ---
 # name: TestHashKeyOverridesRaceConditions.test_hash_key_overrides_with_simulated_error_race_conditions_on_person_merging
+  'BEGIN'
+# ---
+# name: TestHashKeyOverridesRaceConditions.test_hash_key_overrides_with_simulated_error_race_conditions_on_person_merging.1
   '''
   
   SET LOCAL statement_timeout = 2
   '''
 # ---
-# name: TestHashKeyOverridesRaceConditions.test_hash_key_overrides_with_simulated_error_race_conditions_on_person_merging.1
+# name: TestHashKeyOverridesRaceConditions.test_hash_key_overrides_with_simulated_error_race_conditions_on_person_merging.10
   '''
   WITH target_person_ids AS
     (SELECT team_id,
             person_id
      FROM posthog_persondistinctid
      WHERE team_id = 2
-       AND distinct_id IN ('other_id',
-                           'example_id') ),
+       AND distinct_id = ANY('{other_id,example_id}') ),
+       existing_overrides AS
+    (SELECT team_id,
+            person_id,
+            feature_flag_key,
+            hash_key
+     FROM posthog_featureflaghashkeyoverride
+     WHERE team_id = 2
+       AND person_id IN
+         (SELECT person_id
+          FROM target_person_ids) ),
+       flags_to_override AS
+    (SELECT key
+     FROM posthog_featureflag
+     WHERE team_id = 2
+       AND ensure_experience_continuity = TRUE
+       AND active = TRUE
+       AND deleted = FALSE
+       AND key NOT IN
+         (SELECT feature_flag_key
+          FROM existing_overrides) )
+  INSERT INTO posthog_featureflaghashkeyoverride (team_id, person_id, feature_flag_key, hash_key)
+  SELECT team_id,
+         person_id,
+         key,
+         'example_id'
+  FROM flags_to_override,
+       target_person_ids
+  WHERE EXISTS
+      (SELECT 1
+       FROM posthog_person
+       WHERE id = person_id
+         AND team_id = 2) ON CONFLICT DO NOTHING
+  '''
+# ---
+# name: TestHashKeyOverridesRaceConditions.test_hash_key_overrides_with_simulated_error_race_conditions_on_person_merging.11
+  'ROLLBACK'
+# ---
+# name: TestHashKeyOverridesRaceConditions.test_hash_key_overrides_with_simulated_error_race_conditions_on_person_merging.12
+  'BEGIN'
+# ---
+# name: TestHashKeyOverridesRaceConditions.test_hash_key_overrides_with_simulated_error_race_conditions_on_person_merging.13
+  '''
+  
+  SET LOCAL statement_timeout = 2
+  '''
+# ---
+# name: TestHashKeyOverridesRaceConditions.test_hash_key_overrides_with_simulated_error_race_conditions_on_person_merging.14
+  '''
+  SELECT "posthog_persondistinctid"."person_id",
+         "posthog_persondistinctid"."distinct_id"
+  FROM "posthog_persondistinctid"
+  WHERE ("posthog_persondistinctid"."distinct_id" IN ('other_id',
+                                                      'example_id')
+         AND "posthog_persondistinctid"."team_id" = 2)
+  '''
+# ---
+# name: TestHashKeyOverridesRaceConditions.test_hash_key_overrides_with_simulated_error_race_conditions_on_person_merging.15
+  '''
+  SELECT "posthog_featureflaghashkeyoverride"."feature_flag_key",
+         "posthog_featureflaghashkeyoverride"."hash_key",
+         "posthog_featureflaghashkeyoverride"."person_id"
+  FROM "posthog_featureflaghashkeyoverride"
+  WHERE ("posthog_featureflaghashkeyoverride"."person_id" IN (1,
+                                                              2,
+                                                              3,
+                                                              4,
+                                                              5 /* ... */)
+         AND "posthog_featureflaghashkeyoverride"."team_id" = 2)
+  '''
+# ---
+# name: TestHashKeyOverridesRaceConditions.test_hash_key_overrides_with_simulated_error_race_conditions_on_person_merging.16
+  'COMMIT'
+# ---
+# name: TestHashKeyOverridesRaceConditions.test_hash_key_overrides_with_simulated_error_race_conditions_on_person_merging.2
+  '''
+  WITH target_person_ids AS
+    (SELECT team_id,
+            person_id
+     FROM posthog_persondistinctid
+     WHERE team_id = 2
+       AND distinct_id = ANY('{other_id,example_id}') ),
        existing_overrides AS
     (SELECT team_id,
             person_id,
@@ -657,111 +740,136 @@
        FROM existing_overrides)
   '''
 # ---
-# name: TestHashKeyOverridesRaceConditions.test_hash_key_overrides_with_simulated_error_race_conditions_on_person_merging.2
-  '''
-  
-  SET LOCAL statement_timeout = 2
-  '''
-# ---
 # name: TestHashKeyOverridesRaceConditions.test_hash_key_overrides_with_simulated_error_race_conditions_on_person_merging.3
-  '''
-  WITH target_person_ids AS
-    (SELECT team_id,
-            person_id
-     FROM posthog_persondistinctid
-     WHERE team_id = 2
-       AND distinct_id IN ('other_id',
-                           'example_id') ),
-       existing_overrides AS
-    (SELECT team_id,
-            person_id,
-            feature_flag_key,
-            hash_key
-     FROM posthog_featureflaghashkeyoverride
-     WHERE team_id = 2
-       AND person_id IN
-         (SELECT person_id
-          FROM target_person_ids) ),
-       flags_to_override AS
-    (SELECT key
-     FROM posthog_featureflag
-     WHERE team_id = 2
-       AND ensure_experience_continuity = TRUE
-       AND active = TRUE
-       AND deleted = FALSE
-       AND key NOT IN
-         (SELECT feature_flag_key
-          FROM existing_overrides) )
-  INSERT INTO posthog_featureflaghashkeyoverride (team_id, person_id, feature_flag_key, hash_key)
-  SELECT team_id,
-         person_id,
-         key,
-         'example_id'
-  FROM flags_to_override,
-       target_person_ids
-  WHERE EXISTS
-      (SELECT 1
-       FROM posthog_person
-       WHERE id = person_id
-         AND team_id = 2) ON CONFLICT DO NOTHING
-  '''
+  'COMMIT'
 # ---
 # name: TestHashKeyOverridesRaceConditions.test_hash_key_overrides_with_simulated_error_race_conditions_on_person_merging.4
-  '''
-  
-  SET LOCAL statement_timeout = 2
-  '''
+  'BEGIN'
 # ---
 # name: TestHashKeyOverridesRaceConditions.test_hash_key_overrides_with_simulated_error_race_conditions_on_person_merging.5
   '''
-  WITH target_person_ids AS
-    (SELECT team_id,
-            person_id
-     FROM posthog_persondistinctid
-     WHERE team_id = 2
-       AND distinct_id IN ('other_id',
-                           'example_id') ),
-       existing_overrides AS
-    (SELECT team_id,
-            person_id,
-            feature_flag_key,
-            hash_key
-     FROM posthog_featureflaghashkeyoverride
-     WHERE team_id = 2
-       AND person_id IN
-         (SELECT person_id
-          FROM target_person_ids) ),
-       flags_to_override AS
-    (SELECT key
-     FROM posthog_featureflag
-     WHERE team_id = 2
-       AND ensure_experience_continuity = TRUE
-       AND active = TRUE
-       AND deleted = FALSE
-       AND key NOT IN
-         (SELECT feature_flag_key
-          FROM existing_overrides) )
-  INSERT INTO posthog_featureflaghashkeyoverride (team_id, person_id, feature_flag_key, hash_key)
-  SELECT team_id,
-         person_id,
-         key,
-         'example_id'
-  FROM flags_to_override,
-       target_person_ids
-  WHERE EXISTS
-      (SELECT 1
-       FROM posthog_person
-       WHERE id = person_id
-         AND team_id = 2) ON CONFLICT DO NOTHING
+  
+  SET LOCAL statement_timeout = 2
   '''
 # ---
 # name: TestHashKeyOverridesRaceConditions.test_hash_key_overrides_with_simulated_error_race_conditions_on_person_merging.6
   '''
+  WITH target_person_ids AS
+    (SELECT team_id,
+            person_id
+     FROM posthog_persondistinctid
+     WHERE team_id = 2
+       AND distinct_id = ANY('{other_id,example_id}') ),
+       existing_overrides AS
+    (SELECT team_id,
+            person_id,
+            feature_flag_key,
+            hash_key
+     FROM posthog_featureflaghashkeyoverride
+     WHERE team_id = 2
+       AND person_id IN
+         (SELECT person_id
+          FROM target_person_ids) ),
+       flags_to_override AS
+    (SELECT key
+     FROM posthog_featureflag
+     WHERE team_id = 2
+       AND ensure_experience_continuity = TRUE
+       AND active = TRUE
+       AND deleted = FALSE
+       AND key NOT IN
+         (SELECT feature_flag_key
+          FROM existing_overrides) )
+  INSERT INTO posthog_featureflaghashkeyoverride (team_id, person_id, feature_flag_key, hash_key)
+  SELECT team_id,
+         person_id,
+         key,
+         'example_id'
+  FROM flags_to_override,
+       target_person_ids
+  WHERE EXISTS
+      (SELECT 1
+       FROM posthog_person
+       WHERE id = person_id
+         AND team_id = 2) ON CONFLICT DO NOTHING
+  '''
+# ---
+# name: TestHashKeyOverridesRaceConditions.test_hash_key_overrides_with_simulated_error_race_conditions_on_person_merging.7
+  'ROLLBACK'
+# ---
+# name: TestHashKeyOverridesRaceConditions.test_hash_key_overrides_with_simulated_error_race_conditions_on_person_merging.8
+  'BEGIN'
+# ---
+# name: TestHashKeyOverridesRaceConditions.test_hash_key_overrides_with_simulated_error_race_conditions_on_person_merging.9
+  '''
   
   SET LOCAL statement_timeout = 2
   '''
 # ---
-# name: TestHashKeyOverridesRaceConditions.test_hash_key_overrides_with_simulated_error_race_conditions_on_person_merging.7
+# name: TestHashKeyOverridesRaceConditions.test_hash_key_overrides_with_simulated_race_conditions_on_person_merging
+  'BEGIN'
+# ---
+# name: TestHashKeyOverridesRaceConditions.test_hash_key_overrides_with_simulated_race_conditions_on_person_merging.1
+  '''
+  
+  SET LOCAL statement_timeout = 2
+  '''
+# ---
+# name: TestHashKeyOverridesRaceConditions.test_hash_key_overrides_with_simulated_race_conditions_on_person_merging.10
+  '''
+  WITH target_person_ids AS
+    (SELECT team_id,
+            person_id
+     FROM posthog_persondistinctid
+     WHERE team_id = 2
+       AND distinct_id = ANY('{other_id,example_id}') ),
+       existing_overrides AS
+    (SELECT team_id,
+            person_id,
+            feature_flag_key,
+            hash_key
+     FROM posthog_featureflaghashkeyoverride
+     WHERE team_id = 2
+       AND person_id IN
+         (SELECT person_id
+          FROM target_person_ids) ),
+       flags_to_override AS
+    (SELECT key
+     FROM posthog_featureflag
+     WHERE team_id = 2
+       AND ensure_experience_continuity = TRUE
+       AND active = TRUE
+       AND deleted = FALSE
+       AND key NOT IN
+         (SELECT feature_flag_key
+          FROM existing_overrides) )
+  INSERT INTO posthog_featureflaghashkeyoverride (team_id, person_id, feature_flag_key, hash_key)
+  SELECT team_id,
+         person_id,
+         key,
+         'example_id'
+  FROM flags_to_override,
+       target_person_ids
+  WHERE EXISTS
+      (SELECT 1
+       FROM posthog_person
+       WHERE id = person_id
+         AND team_id = 2) ON CONFLICT DO NOTHING
+  '''
+# ---
+# name: TestHashKeyOverridesRaceConditions.test_hash_key_overrides_with_simulated_race_conditions_on_person_merging.11
+  'COMMIT'
+# ---
+# name: TestHashKeyOverridesRaceConditions.test_hash_key_overrides_with_simulated_race_conditions_on_person_merging.12
+  'BEGIN'
+# ---
+# name: TestHashKeyOverridesRaceConditions.test_hash_key_overrides_with_simulated_race_conditions_on_person_merging.13
+  '''
+  
+  SET LOCAL statement_timeout = 2
+  '''
+# ---
+# name: TestHashKeyOverridesRaceConditions.test_hash_key_overrides_with_simulated_race_conditions_on_person_merging.14
   '''
   SELECT "posthog_persondistinctid"."person_id",
          "posthog_persondistinctid"."distinct_id"
@@ -771,7 +879,7 @@
          AND "posthog_persondistinctid"."team_id" = 2)
   '''
 # ---
-# name: TestHashKeyOverridesRaceConditions.test_hash_key_overrides_with_simulated_error_race_conditions_on_person_merging.8
+# name: TestHashKeyOverridesRaceConditions.test_hash_key_overrides_with_simulated_race_conditions_on_person_merging.15
   '''
   SELECT "posthog_featureflaghashkeyoverride"."feature_flag_key",
          "posthog_featureflaghashkeyoverride"."hash_key",
@@ -785,21 +893,17 @@
          AND "posthog_featureflaghashkeyoverride"."team_id" = 2)
   '''
 # ---
-# name: TestHashKeyOverridesRaceConditions.test_hash_key_overrides_with_simulated_race_conditions_on_person_merging
-  '''
-  
-  SET LOCAL statement_timeout = 2
-  '''
+# name: TestHashKeyOverridesRaceConditions.test_hash_key_overrides_with_simulated_race_conditions_on_person_merging.16
+  'COMMIT'
 # ---
-# name: TestHashKeyOverridesRaceConditions.test_hash_key_overrides_with_simulated_race_conditions_on_person_merging.1
+# name: TestHashKeyOverridesRaceConditions.test_hash_key_overrides_with_simulated_race_conditions_on_person_merging.2
   '''
   WITH target_person_ids AS
     (SELECT team_id,
             person_id
      FROM posthog_persondistinctid
      WHERE team_id = 2
-       AND distinct_id IN ('other_id',
-                           'example_id') ),
+       AND distinct_id = ANY('{other_id,example_id}') ),
        existing_overrides AS
     (SELECT team_id,
             person_id,
@@ -821,131 +925,69 @@
        FROM existing_overrides)
   '''
 # ---
-# name: TestHashKeyOverridesRaceConditions.test_hash_key_overrides_with_simulated_race_conditions_on_person_merging.2
-  '''
-  
-  SET LOCAL statement_timeout = 2
-  '''
-# ---
 # name: TestHashKeyOverridesRaceConditions.test_hash_key_overrides_with_simulated_race_conditions_on_person_merging.3
-  '''
-  WITH target_person_ids AS
-    (SELECT team_id,
-            person_id
-     FROM posthog_persondistinctid
-     WHERE team_id = 2
-       AND distinct_id IN ('other_id',
-                           'example_id') ),
-       existing_overrides AS
-    (SELECT team_id,
-            person_id,
-            feature_flag_key,
-            hash_key
-     FROM posthog_featureflaghashkeyoverride
-     WHERE team_id = 2
-       AND person_id IN
-         (SELECT person_id
-          FROM target_person_ids) ),
-       flags_to_override AS
-    (SELECT key
-     FROM posthog_featureflag
-     WHERE team_id = 2
-       AND ensure_experience_continuity = TRUE
-       AND active = TRUE
-       AND deleted = FALSE
-       AND key NOT IN
-         (SELECT feature_flag_key
-          FROM existing_overrides) )
-  INSERT INTO posthog_featureflaghashkeyoverride (team_id, person_id, feature_flag_key, hash_key)
-  SELECT team_id,
-         person_id,
-         key,
-         'example_id'
-  FROM flags_to_override,
-       target_person_ids
-  WHERE EXISTS
-      (SELECT 1
-       FROM posthog_person
-       WHERE id = person_id
-         AND team_id = 2) ON CONFLICT DO NOTHING
-  '''
+  'COMMIT'
 # ---
 # name: TestHashKeyOverridesRaceConditions.test_hash_key_overrides_with_simulated_race_conditions_on_person_merging.4
-  '''
-  
-  SET LOCAL statement_timeout = 2
-  '''
+  'BEGIN'
 # ---
 # name: TestHashKeyOverridesRaceConditions.test_hash_key_overrides_with_simulated_race_conditions_on_person_merging.5
   '''
-  WITH target_person_ids AS
-    (SELECT team_id,
-            person_id
-     FROM posthog_persondistinctid
-     WHERE team_id = 2
-       AND distinct_id IN ('other_id',
-                           'example_id') ),
-       existing_overrides AS
-    (SELECT team_id,
-            person_id,
-            feature_flag_key,
-            hash_key
-     FROM posthog_featureflaghashkeyoverride
-     WHERE team_id = 2
-       AND person_id IN
-         (SELECT person_id
-          FROM target_person_ids) ),
-       flags_to_override AS
-    (SELECT key
-     FROM posthog_featureflag
-     WHERE team_id = 2
-       AND ensure_experience_continuity = TRUE
-       AND active = TRUE
-       AND deleted = FALSE
-       AND key NOT IN
-         (SELECT feature_flag_key
-          FROM existing_overrides) )
-  INSERT INTO posthog_featureflaghashkeyoverride (team_id, person_id, feature_flag_key, hash_key)
-  SELECT team_id,
-         person_id,
-         key,
-         'example_id'
-  FROM flags_to_override,
-       target_person_ids
-  WHERE EXISTS
-      (SELECT 1
-       FROM posthog_person
-       WHERE id = person_id
-         AND team_id = 2) ON CONFLICT DO NOTHING
+  
+  SET LOCAL statement_timeout = 2
   '''
 # ---
 # name: TestHashKeyOverridesRaceConditions.test_hash_key_overrides_with_simulated_race_conditions_on_person_merging.6
   '''
-  
-  SET LOCAL statement_timeout = 2
+  WITH target_person_ids AS
+    (SELECT team_id,
+            person_id
+     FROM posthog_persondistinctid
+     WHERE team_id = 2
+       AND distinct_id = ANY('{other_id,example_id}') ),
+       existing_overrides AS
+    (SELECT team_id,
+            person_id,
+            feature_flag_key,
+            hash_key
+     FROM posthog_featureflaghashkeyoverride
+     WHERE team_id = 2
+       AND person_id IN
+         (SELECT person_id
+          FROM target_person_ids) ),
+       flags_to_override AS
+    (SELECT key
+     FROM posthog_featureflag
+     WHERE team_id = 2
+       AND ensure_experience_continuity = TRUE
+       AND active = TRUE
+       AND deleted = FALSE
+       AND key NOT IN
+         (SELECT feature_flag_key
+          FROM existing_overrides) )
+  INSERT INTO posthog_featureflaghashkeyoverride (team_id, person_id, feature_flag_key, hash_key)
+  SELECT team_id,
+         person_id,
+         key,
+         'example_id'
+  FROM flags_to_override,
+       target_person_ids
+  WHERE EXISTS
+      (SELECT 1
+       FROM posthog_person
+       WHERE id = person_id
+         AND team_id = 2) ON CONFLICT DO NOTHING
   '''
 # ---
 # name: TestHashKeyOverridesRaceConditions.test_hash_key_overrides_with_simulated_race_conditions_on_person_merging.7
-  '''
-  SELECT "posthog_persondistinctid"."person_id",
-         "posthog_persondistinctid"."distinct_id"
-  FROM "posthog_persondistinctid"
-  WHERE ("posthog_persondistinctid"."distinct_id" IN ('other_id',
-                                                      'example_id')
-         AND "posthog_persondistinctid"."team_id" = 2)
-  '''
+  'ROLLBACK'
 # ---
 # name: TestHashKeyOverridesRaceConditions.test_hash_key_overrides_with_simulated_race_conditions_on_person_merging.8
+  'BEGIN'
+# ---
+# name: TestHashKeyOverridesRaceConditions.test_hash_key_overrides_with_simulated_race_conditions_on_person_merging.9
   '''
-  SELECT "posthog_featureflaghashkeyoverride"."feature_flag_key",
-         "posthog_featureflaghashkeyoverride"."hash_key",
-         "posthog_featureflaghashkeyoverride"."person_id"
-  FROM "posthog_featureflaghashkeyoverride"
-  WHERE ("posthog_featureflaghashkeyoverride"."person_id" IN (1,
-                                                              2,
-                                                              3,
-                                                              4,
-                                                              5 /* ... */)
-         AND "posthog_featureflaghashkeyoverride"."team_id" = 2)
+  
+  SET LOCAL statement_timeout = 2
   '''
 # ---

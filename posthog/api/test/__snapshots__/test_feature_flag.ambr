@@ -1968,8 +1968,7 @@
             person_id
      FROM posthog_persondistinctid
      WHERE team_id = 2
-       AND distinct_id IN ('example_id',
-                           'random') ),
+       AND distinct_id = ANY('{example_id,random}') ),
        existing_overrides AS
     (SELECT team_id,
             person_id,
@@ -1998,8 +1997,7 @@
             person_id
      FROM posthog_persondistinctid
      WHERE team_id = 2
-       AND distinct_id IN ('example_id',
-                           'random') ),
+       AND distinct_id = ANY('{example_id,random}') ),
        existing_overrides AS
     (SELECT team_id,
             person_id,
@@ -2060,9 +2058,9 @@
 # ---
 # name: TestResiliency.test_feature_flags_v3_with_experience_continuity_working_slow_db.4
   '''
-  SELECT (("posthog_person"."properties" -> 'email') = '"tim@posthog.com"'
+  SELECT (("posthog_person"."properties" -> 'email') = '"tim@posthog.com"'::jsonb
           AND "posthog_person"."properties" ? 'email'
-          AND NOT (("posthog_person"."properties" -> 'email') = 'null')) AS "flag_X_condition_0",
+          AND NOT (("posthog_person"."properties" -> 'email') = 'null'::jsonb)) AS "flag_X_condition_0",
          (true) AS "flag_X_condition_0"
   FROM "posthog_person"
   INNER JOIN "posthog_persondistinctid" ON ("posthog_person"."id" = "posthog_persondistinctid"."person_id")
@@ -2073,15 +2071,12 @@
 # ---
 # name: TestResiliency.test_feature_flags_v3_with_experience_continuity_working_slow_db.5
   '''
-  SELECT pg_sleep(1);
-  
   WITH target_person_ids AS
     (SELECT team_id,
             person_id
      FROM posthog_persondistinctid
      WHERE team_id = 2
-       AND distinct_id IN ('example_id',
-                           'random') ),
+       AND distinct_id = ANY('{example_id,random}') ),
        existing_overrides AS
     (SELECT team_id,
             person_id,
@@ -2105,8 +2100,6 @@
 # ---
 # name: TestResiliency.test_feature_flags_v3_with_experience_continuity_working_slow_db.6
   '''
-  SELECT pg_sleep(1);
-  
   SELECT "posthog_persondistinctid"."person_id",
          "posthog_persondistinctid"."distinct_id"
   FROM "posthog_persondistinctid"
@@ -2117,8 +2110,6 @@
 # ---
 # name: TestResiliency.test_feature_flags_v3_with_experience_continuity_working_slow_db.7
   '''
-  SELECT pg_sleep(1);
-  
   SELECT "posthog_persondistinctid"."person_id",
          "posthog_persondistinctid"."distinct_id"
   FROM "posthog_persondistinctid"
@@ -2128,8 +2119,6 @@
 # ---
 # name: TestResiliency.test_feature_flags_v3_with_group_properties_and_slow_db
   '''
-  SELECT pg_sleep(1);
-  
   SELECT "posthog_grouptypemapping"."id",
          "posthog_grouptypemapping"."team_id",
          "posthog_grouptypemapping"."group_type",
@@ -2142,8 +2131,6 @@
 # ---
 # name: TestResiliency.test_feature_flags_v3_with_group_properties_and_slow_db.1
   '''
-  SELECT pg_sleep(1);
-  
   SELECT "posthog_grouptypemapping"."id",
          "posthog_grouptypemapping"."team_id",
          "posthog_grouptypemapping"."group_type",
@@ -2156,8 +2143,6 @@
 # ---
 # name: TestResiliency.test_feature_flags_v3_with_group_properties_and_slow_db.2
   '''
-  SELECT pg_sleep(1);
-  
   SELECT "posthog_grouptypemapping"."id",
          "posthog_grouptypemapping"."team_id",
          "posthog_grouptypemapping"."group_type",
@@ -2170,14 +2155,12 @@
 # ---
 # name: TestResiliency.test_feature_flags_v3_with_slow_db_doesnt_try_to_compute_conditions_again
   '''
-  SELECT pg_sleep(1);
-  
-  SELECT (("posthog_person"."properties" -> 'email') = '"tim@posthog.com"'
+  SELECT (("posthog_person"."properties" -> 'email') = '"tim@posthog.com"'::jsonb
           AND "posthog_person"."properties" ? 'email'
-          AND NOT (("posthog_person"."properties" -> 'email') = 'null')) AS "flag_X_condition_0",
-         (("posthog_person"."properties" -> 'email') = '"tim@posthog.com"'
+          AND NOT (("posthog_person"."properties" -> 'email') = 'null'::jsonb)) AS "flag_X_condition_0",
+         (("posthog_person"."properties" -> 'email') = '"tim@posthog.com"'::jsonb
           AND "posthog_person"."properties" ? 'email'
-          AND NOT (("posthog_person"."properties" -> 'email') = 'null')) AS "flag_X_condition_0",
+          AND NOT (("posthog_person"."properties" -> 'email') = 'null'::jsonb)) AS "flag_X_condition_0",
          (true) AS "flag_X_condition_0"
   FROM "posthog_person"
   INNER JOIN "posthog_persondistinctid" ON ("posthog_person"."id" = "posthog_persondistinctid"."person_id")
