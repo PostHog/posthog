@@ -19,13 +19,15 @@ import {
 import clsx from 'clsx'
 import React, { useRef, useState } from 'react'
 
-interface TooltipProps {
+export interface TooltipProps {
     title: string | React.ReactNode | (() => string)
     children: JSX.Element
     delayMs?: number
     offset?: number
     placement?: Placement
     className?: string
+    open?: boolean
+    setOpen?: (open: boolean) => void
 }
 
 export function Tooltip({
@@ -35,8 +37,14 @@ export function Tooltip({
     placement = 'top',
     offset = 8,
     delayMs = 500,
+    open: controlledOpen,
+    setOpen: setControlledOpen,
 }: TooltipProps): JSX.Element {
-    const [open, setOpen] = useState(false)
+    const [uncontrolledOpen, setUncontrolledOpen] = useState(false)
+
+    const open = controlledOpen ?? uncontrolledOpen
+    const setOpen = setControlledOpen ?? setUncontrolledOpen
+
     const caretRef = useRef(null)
 
     const { context, refs } = useFloating({
