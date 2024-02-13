@@ -73,7 +73,7 @@ export const OnboardingStep = ({
                     </div>
                 </div>
             </div>
-            <div className={`p-2 ${stepKey !== 'product_intro' && 'max-w-screen-lg'}`}>
+            <div className="p-2">
                 {subtitle && <p>{subtitle}</p>}
                 {children}
                 <div className="mt-8 flex justify-end gap-x-2">

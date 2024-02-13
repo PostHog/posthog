@@ -21,7 +21,6 @@ export enum OnboardingStepKey {
     PRODUCT_INTRO = 'product_intro',
     INSTALL = 'install',
     PLANS = 'plans',
-    OTHER_PRODUCTS = 'other_products',
     VERIFY = 'verify',
     PRODUCT_CONFIGURATION = 'configure',
     INVITE_TEAMMATES = 'invite_teammates',
@@ -197,11 +196,6 @@ export const onboardingLogic = kea<onboardingLogicType>([
                 const hasAllAddons = product?.addons?.every((addon) => addon.subscribed)
                 return !product?.subscribed || !hasAllAddons || subscribedDuringOnboarding
             },
-        ],
-        shouldShowOtherProductsStep: [
-            (s) => [s.suggestedProducts, s.isFirstProductOnboarding],
-            (suggestedProducts: BillingProductV2Type[], isFirstProductOnboarding: boolean) =>
-                suggestedProducts.length > 0 && isFirstProductOnboarding,
         ],
         suggestedProducts: [
             (s) => [s.billing, s.product, s.currentTeam],
