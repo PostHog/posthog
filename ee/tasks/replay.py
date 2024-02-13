@@ -8,6 +8,7 @@ from ee.session_recordings.ai.generate_embeddings import (
     embed_batch_of_recordings,
 )
 from posthog import settings
+from posthog.models import Team
 from posthog.tasks.utils import CeleryQueue
 
 logger = structlog.get_logger(__name__)
@@ -36,5 +37,12 @@ def generate_recordings_embeddings_batch() -> None:
     # so, for now, we'll do that naively
 
     for team in settings.REPLAY_EMBEDDINGS_ALLOWED_TEAMS:
-        recordings = fetch_recordings_without_embeddings(int(team))
-        embed_batch_of_recordings_task.si(recordings, int(team)).apply_async()
+        try:
+            recordings = fetch_recordings_without_embeddings(int(team))
+            embed_batch_of_recordings_task.si(recordings, int(team)).apply_async()
+        except Team.DoesNotExist:
+            logger.info(f"[generate_recordings_embeddings_batch] Team {team} does not exist. Skipping.")
+            pass
+        except Exception as e:
+            logger.error(f"[generate_recordings_embeddings_batch] Error: {e}.", exc_info=True, error=e)
+            pass

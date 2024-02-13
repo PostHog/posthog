@@ -14,6 +14,10 @@ from posthog.ph_client import get_ph_client
 from posthog.redis import get_client
 from posthog.tasks.utils import CeleryQueue
 
+from structlog import get_logger
+
+logger = get_logger(__name__)
+
 
 @shared_task(ignore_result=True)
 def delete_expired_exported_assets() -> None:
@@ -728,3 +732,5 @@ def calculate_replay_embeddings() -> None:
         generate_recordings_embeddings_batch()
     except ImportError:
         pass
+    except Exception as e:
+        logger.error("Failed to calculate replay embeddings", error=e, exc_info=True)
