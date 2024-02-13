@@ -1,9 +1,8 @@
-import { IconArrowLeft, IconArrowRight } from '@posthog/icons'
-import { LemonButton, LemonCard, LemonSelect } from '@posthog/lemon-ui'
+import { IconArrowLeft, IconArrowRight, IconCheck } from '@posthog/icons'
+import { LemonButton, LemonCard, LemonDivider, LemonSelect, Spinner } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { useInterval } from 'lib/hooks/useInterval'
 import { useWindowSize } from 'lib/hooks/useWindowSize'
-import { capitalizeFirstLetter } from 'lib/utils'
 import { useEffect } from 'react'
 import React from 'react'
 import { teamLogic } from 'scenes/teamLogic'
@@ -36,8 +35,20 @@ export function SDKs({
     const { sourceFilter, sdks, selectedSDK, sourceOptions, showSourceOptionsSelect, showSideBySide, panel } =
         useValues(sdksLogic)
     const { productKey, hasNextStep } = useValues(onboardingLogic)
+    const { goToNextStep, completeOnboarding } = useActions(onboardingLogic)
+    const [showListeningFor, setShowListeningFor] = React.useState(false)
+    const [hasCheckedInstallation, setHasCheckedInstallation] = React.useState(false)
 
     const { width } = useWindowSize()
+
+    useEffect(() => {
+        if (showListeningFor && !currentTeam?.[teamPropertyToVerify]) {
+            setHasCheckedInstallation(true)
+            setTimeout(() => {
+                setShowListeningFor(false)
+            }, 5000)
+        }
+    }, [showListeningFor])
 
     const minimumSideBySideSize = 768
 
@@ -60,22 +71,32 @@ export function SDKs({
             title="Install"
             stepKey={stepKey}
             continueOverride={
-                !showSideBySide && panel === 'options' ? (
-                    <></>
-                ) : !currentTeam?.[teamPropertyToVerify] ? (
-                    <LemonButton type="secondary" loading>
-                        Listening for events
-                    </LemonButton>
-                ) : (
-                    <LemonButton
-                        sideIcon={hasNextStep ? <IconArrowRight /> : null}
-                        type="primary"
-                        status="alt"
-                    >{`${capitalizeFirstLetter(listeningForName)}s received! Continue`}</LemonButton>
-                )
+                <div className="flex gap-x-4 items-center justify-center">
+                    {!showSideBySide && panel === 'options' ? (
+                        <></>
+                    ) : !currentTeam?.[teamPropertyToVerify] ? (
+                        <>
+                            <LemonButton
+                                type="tertiary"
+                                onClick={() => (!hasNextStep ? completeOnboarding() : goToNextStep())}
+                            >
+                                Skip setup
+                            </LemonButton>
+                        </>
+                    ) : (
+                        <>
+                            <LemonButton
+                                sideIcon={hasNextStep ? <IconArrowRight /> : null}
+                                type="primary"
+                                status="alt"
+                                onClick={() => (!hasNextStep ? completeOnboarding() : goToNextStep())}
+                            >
+                                Continue
+                            </LemonButton>
+                        </>
+                    )}
+                </div>
             }
-            showSkip={!currentTeam?.[teamPropertyToVerify]}
-            // backActionOverride={!showSideBySide && panel === 'instructions' ? () => setPanel('options') : undefined}
         >
             <div className="flex gap-x-8 mt-8">
                 <div
@@ -117,7 +138,7 @@ export function SDKs({
                     <LemonCard className="mt-6" hoverEffect={false}>
                         <h3 className="font-bold">Need help with this step?</h3>
                         <p>Invite a team member to help you get set up.</p>
-                        <InviteMembersButton type="primary" />
+                        <InviteMembersButton type="secondary" />
                     </LemonCard>
                 </div>
                 {selectedSDK && productKey && !!sdkInstructionMap[selectedSDK.key] && (
@@ -135,6 +156,32 @@ export function SDKs({
                             </LemonButton>
                         )}
                         <SDKSnippet sdk={selectedSDK} sdkInstructions={sdkInstructionMap[selectedSDK.key]} />
+                        <LemonDivider className="my-8" />
+                        <h2 className="font-bold mb-4">Verify installation</h2>
+                        {!showListeningFor && !currentTeam?.[teamPropertyToVerify] ? (
+                            <>
+                                <LemonButton type="primary" onClick={() => setShowListeningFor(true)}>
+                                    Check installation
+                                </LemonButton>
+                                {hasCheckedInstallation && !showListeningFor && (
+                                    <p className="italic text-muted mt-2 text-xs">
+                                        No {listeningForName}s received. Please check your implementation and try again.
+                                    </p>
+                                )}
+                            </>
+                        ) : (
+                            <p className="flex items-center italic text-muted">
+                                {!currentTeam?.[teamPropertyToVerify] ? (
+                                    <>
+                                        <Spinner className="text-3xl mr-2" /> Verifying installation...
+                                    </>
+                                ) : (
+                                    <>
+                                        <IconCheck className="text-xl text-success mr-2" /> Installation complete
+                                    </>
+                                )}
+                            </p>
+                        )}
                     </div>
                 )}
             </div>

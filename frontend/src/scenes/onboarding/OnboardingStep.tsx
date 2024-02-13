@@ -68,10 +68,10 @@ export const OnboardingStep = ({
                     </div>
                 </div>
             </div>
-            <div className="p-2">
+            <div className="p-2 max-w-screen-lg">
                 <p>{subtitle}</p>
                 {children}
-                <div className="mt-8 flex justify-start gap-x-2">
+                <div className="mt-8 flex justify-end gap-x-2">
                     {showHelpButton && (
                         <LemonButton
                             type="secondary"
