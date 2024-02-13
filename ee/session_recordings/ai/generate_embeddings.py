@@ -31,6 +31,10 @@ SESSION_EMBEDDINGS_GENERATED = Counter(
     "posthog_session_recordings_embeddings_generated",
     "Number of session embeddings generated",
 )
+SESSION_EMBEDDINGS_WRITTEN_TO_CLICKHOUSE = Counter(
+    "posthog_session_recordings_embeddings_written_to_clickhouse",
+    "Number of session embeddings written to Clickhouse",
+)
 
 logger = get_logger(__name__)
 
@@ -39,9 +43,9 @@ BATCH_FLUSH_SIZE = 10
 MIN_DURATION_INCLUDE_SECONDS = 120
 
 
-def fetch_recordings_without_embeddings(team: Team | int, offset=0):
+def fetch_recordings_without_embeddings(team: Team | int, offset=0) -> List[str]:
     if isinstance(team, int):
-        team = Team.objects.get(pk=team)
+        team = Team.objects.get(id=team)
 
     query = """
             WITH embedding_ids AS
@@ -74,33 +78,29 @@ def fetch_recordings_without_embeddings(team: Team | int, offset=0):
             OFFSET %(offset)s
         """
 
-    return sync_execute(
-        query,
-        {
-            "team_id": team.pk,
-            "batch_flush_size": BATCH_FLUSH_SIZE,
-            "offset": offset,
-            "min_duration_include_seconds": MIN_DURATION_INCLUDE_SECONDS,
-        },
-    )
+    return [
+        x[0]
+        for x in sync_execute(
+            query,
+            {
+                "team_id": team.pk,
+                "batch_flush_size": BATCH_FLUSH_SIZE,
+                "offset": offset,
+                "min_duration_include_seconds": MIN_DURATION_INCLUDE_SECONDS,
+            },
+        )
+    ]
 
 
-def generate_team_embeddings(team: Team):
-    """
-    This is here to help shape the internal API but properly hooking up with Celery will change this
-    """
-    offset = 0
-    recordings = fetch_recordings_without_embeddings(team=team, offset=offset)
+def embed_batch_of_recordings(recordings: List[str], team: Team | int) -> None:
+    if isinstance(team, int):
+        team = Team.objects.get(id=team)
 
-    logger.info(f"found {len(recordings)} recordings to process for team {team.pk}")
+    logger.info(f"processing {len(recordings)} recordings to embed for team {team.pk}")
 
     while len(recordings) > 0:
-        offset += BATCH_FLUSH_SIZE
-
         batched_embeddings = []
-        for recording in recordings:
-            session_id = recording[0]
-
+        for session_id in recordings:
             with GENERATE_RECORDING_EMBEDDING_TIMING.time():
                 embeddings = generate_recording_embeddings(session_id=session_id, team=team)
 
@@ -117,16 +117,15 @@ def generate_team_embeddings(team: Team):
         if len(batched_embeddings) > 0:
             flush_embeddings_to_clickhouse(embeddings=batched_embeddings)
 
-        recordings = fetch_recordings_without_embeddings(team=team, offset=offset)
-
 
 def flush_embeddings_to_clickhouse(embeddings: List[Dict[str, Any]]) -> None:
     sync_execute("INSERT INTO session_replay_embeddings (session_id, team_id, embeddings) VALUES", embeddings)
+    SESSION_EMBEDDINGS_WRITTEN_TO_CLICKHOUSE.inc(len(embeddings))
 
 
 def generate_recording_embeddings(session_id: str, team: Team | int) -> List[float] | None:
     if isinstance(team, int):
-        team = Team.objects.get(pk=team)
+        team = Team.objects.get(id=team)
 
     client = OpenAI()
 
