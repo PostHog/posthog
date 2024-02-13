@@ -9,12 +9,17 @@ from rest_framework_extensions.routers import ExtendedDefaultRouter
 from rest_framework_extensions.settings import extensions_api_settings
 
 from posthog.api.utils import get_token
-from posthog.auth import JwtAuthentication, PersonalAPIKeyAuthentication
+from posthog.auth import JwtAuthentication, PersonalAPIKeyAuthentication, SharingAccessTokenAuthentication
 from posthog.models.organization import Organization
 from posthog.models.personal_api_key import APIScopeObjectOrNotSupported
 from posthog.models.team import Team
 from posthog.models.user import User
-from posthog.permissions import APIScopePermission, OrganizationMemberPermissions, TeamMemberAccessPermission
+from posthog.permissions import (
+    APIScopePermission,
+    OrganizationMemberPermissions,
+    SharingTokenPermission,
+    TeamMemberAccessPermission,
+)
 from posthog.user_permissions import UserPermissions
 
 if TYPE_CHECKING:
@@ -49,10 +54,14 @@ class TeamAndOrgViewSetMixin(_GenericViewSet):
     # NOTE: Could we type this? Would be pretty cool as a helper
     base_scope: Optional[APIScopeObjectOrNotSupported] = None
     required_scopes: Optional[list[str]] = None
+    sharing_enabled_actions: list[str] = []
 
     # We want to try and ensure that the base permission and authentication are always used
     # so we offer a way to add additional classes
     def get_permissions(self):
+        if isinstance(self.request.successful_authenticator, SharingAccessTokenAuthentication):
+            return [SharingTokenPermission()]
+
         # NOTE: We define these here to make it hard _not_ to use them. If you want to override them, you have to
         # override the entire method.
         permission_classes: list = [IsAuthenticated, APIScopePermission]
@@ -69,10 +78,18 @@ class TeamAndOrgViewSetMixin(_GenericViewSet):
         # NOTE: Custom authentication_classes go first as these typically have extra initial checks
         authentication_classes: list = [
             *self.authentication_classes,
-            JwtAuthentication,
-            PersonalAPIKeyAuthentication,
-            authentication.SessionAuthentication,
         ]
+
+        if self.sharing_enabled_actions:
+            authentication_classes.append(SharingAccessTokenAuthentication)
+
+        authentication_classes.extend(
+            [
+                JwtAuthentication,
+                PersonalAPIKeyAuthentication,
+                authentication.SessionAuthentication,
+            ]
+        )
 
         return [auth() for auth in authentication_classes]
 

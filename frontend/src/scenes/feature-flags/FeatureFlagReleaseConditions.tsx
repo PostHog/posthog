@@ -8,13 +8,13 @@ import { allOperatorsToHumanName } from 'lib/components/DefinitionPopover/utils'
 import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
 import { isPropertyFilterWithOperator } from 'lib/components/PropertyFilters/utils'
 import { FEATURE_FLAGS, INSTANTLY_AVAILABLE_PROPERTIES } from 'lib/constants'
-import { Field } from 'lib/forms/Field'
 import { groupsAccessLogic, GroupsAccessStatus } from 'lib/introductions/groupsAccessLogic'
 import { GroupsIntroductionOption } from 'lib/introductions/GroupsIntroductionOption'
 import { IconCopy, IconDelete, IconErrorOutline, IconOpenInNew, IconPlus, IconSubArrowRight } from 'lib/lemon-ui/icons'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
+import { LemonField } from 'lib/lemon-ui/LemonField'
 import { LemonSlider } from 'lib/lemon-ui/LemonSlider'
 import { LemonTag } from 'lib/lemon-ui/LemonTag/LemonTag'
 import { Spinner } from 'lib/lemon-ui/Spinner/Spinner'
@@ -279,7 +279,7 @@ export function FeatureFlagReleaseConditions({
                                     className="ml-1.5 w-20"
                                 />
                                 <Group name={['filters', 'groups', index]}>
-                                    <Field name="rollout_percentage">
+                                    <LemonField name="rollout_percentage">
                                         <LemonInput
                                             data-attr="rollout-percentage"
                                             type="number"
@@ -293,7 +293,7 @@ export function FeatureFlagReleaseConditions({
                                             step="any"
                                             suffix={<span>%</span>}
                                         />
-                                    </Field>
+                                    </LemonField>
                                 </Group>{' '}
                                 of <b>{aggregationTargetName}</b> in this set.{' '}
                             </div>

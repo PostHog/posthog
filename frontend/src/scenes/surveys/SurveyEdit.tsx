@@ -16,8 +16,8 @@ import {
 import { BindLogic, useActions, useValues } from 'kea'
 import { FlagSelector } from 'lib/components/FlagSelector'
 import { FEATURE_FLAGS } from 'lib/constants'
-import { Field, PureField } from 'lib/forms/Field'
 import { IconCancel, IconDelete, IconLock, IconPlus } from 'lib/lemon-ui/icons'
+import { LemonField } from 'lib/lemon-ui/LemonField'
 import { featureFlagLogic as enabledFeaturesLogic } from 'lib/logic/featureFlagLogic'
 import { featureFlagLogic } from 'scenes/feature-flags/featureFlagLogic'
 import { FeatureFlagReleaseConditions } from 'scenes/feature-flags/FeatureFlagReleaseConditions'
@@ -66,12 +66,12 @@ export default function SurveyEdit(): JSX.Element {
     return (
         <div className="flex flex-row gap-4">
             <div className="flex flex-col gap-2 flex-1 SurveyForm">
-                <Field name="name" label="Name">
+                <LemonField name="name" label="Name">
                     <LemonInput data-attr="survey-name" />
-                </Field>
-                <Field name="description" label="Description (optional)">
+                </LemonField>
+                <LemonField name="description" label="Description (optional)">
                     <LemonTextArea data-attr="survey-description" minRows={2} />
-                </Field>
+                </LemonField>
                 <LemonCollapse
                     activeKey={selectedSection || undefined}
                     onChange={(section) => {
@@ -82,7 +82,7 @@ export default function SurveyEdit(): JSX.Element {
                             key: SurveyEditSection.Presentation,
                             header: 'Presentation',
                             content: (
-                                <Field name="type">
+                                <LemonField name="type">
                                     {({ onChange, value }) => {
                                         return (
                                             <div className="flex gap-4">
@@ -146,7 +146,7 @@ export default function SurveyEdit(): JSX.Element {
                                             </div>
                                         )
                                     }}
-                                </Field>
+                                </LemonField>
                             ),
                         },
                         {
@@ -227,7 +227,7 @@ export default function SurveyEdit(): JSX.Element {
                                                                   ),
                                                                   content: (
                                                                       <>
-                                                                          <PureField label="Thank you header">
+                                                                          <LemonField.Pure label="Thank you header">
                                                                               <LemonInput
                                                                                   value={
                                                                                       survey.appearance
@@ -241,8 +241,8 @@ export default function SurveyEdit(): JSX.Element {
                                                                                   }
                                                                                   placeholder="ex: Thank you for your feedback!"
                                                                               />
-                                                                          </PureField>
-                                                                          <PureField
+                                                                          </LemonField.Pure>
+                                                                          <LemonField.Pure
                                                                               label="Thank you description"
                                                                               className="mt-3"
                                                                           >
@@ -266,8 +266,8 @@ export default function SurveyEdit(): JSX.Element {
                                                                                   }
                                                                                   textPlaceholder="ex: We really appreciate it."
                                                                               />
-                                                                          </PureField>
-                                                                          <PureField className="mt-2">
+                                                                          </LemonField.Pure>
+                                                                          <LemonField.Pure className="mt-2">
                                                                               <LemonCheckbox
                                                                                   checked={
                                                                                       !!survey.appearance.autoDisappear
@@ -280,7 +280,7 @@ export default function SurveyEdit(): JSX.Element {
                                                                                       })
                                                                                   }
                                                                               />
-                                                                          </PureField>
+                                                                          </LemonField.Pure>
                                                                       </>
                                                                   ),
                                                               },
@@ -348,7 +348,7 @@ export default function SurveyEdit(): JSX.Element {
                                       key: SurveyEditSection.Customization,
                                       header: 'Customization',
                                       content: (
-                                          <Field name="appearance" label="">
+                                          <LemonField name="appearance" label="">
                                               {({ value, onChange }) => (
                                                   <>
                                                       {survey.type === SurveyType.Widget && (
@@ -375,7 +375,7 @@ export default function SurveyEdit(): JSX.Element {
                                                       />
                                                   </>
                                               )}
-                                          </Field>
+                                          </LemonField>
                                       ),
                                   },
                               ]
@@ -384,7 +384,7 @@ export default function SurveyEdit(): JSX.Element {
                             key: SurveyEditSection.Targeting,
                             header: 'Targeting',
                             content: (
-                                <PureField>
+                                <LemonField.Pure>
                                     <LemonSelect
                                         onChange={(value) => {
                                             if (value) {
@@ -408,7 +408,7 @@ export default function SurveyEdit(): JSX.Element {
                                         </span>
                                     ) : (
                                         <>
-                                            <Field
+                                            <LemonField
                                                 name="linked_flag_id"
                                                 label="Link feature flag (optional)"
                                                 info={
@@ -432,11 +432,11 @@ export default function SurveyEdit(): JSX.Element {
                                                         )}
                                                     </div>
                                                 )}
-                                            </Field>
-                                            <Field name="conditions">
+                                            </LemonField>
+                                            <LemonField name="conditions">
                                                 {({ value, onChange }) => (
                                                     <>
-                                                        <PureField
+                                                        <LemonField.Pure
                                                             label="URL targeting"
                                                             error={urlMatchTypeValidationError}
                                                             info="Targeting by regex or exact match requires at least version 1.82 of posthog-js"
@@ -471,8 +471,8 @@ export default function SurveyEdit(): JSX.Element {
                                                                     fullWidth
                                                                 />
                                                             </div>
-                                                        </PureField>
-                                                        <PureField label="CSS selector matches:">
+                                                        </LemonField.Pure>
+                                                        <LemonField.Pure label="CSS selector matches:">
                                                             <LemonInput
                                                                 value={value?.selector}
                                                                 onChange={(selectorVal) =>
@@ -480,8 +480,8 @@ export default function SurveyEdit(): JSX.Element {
                                                                 }
                                                                 placeholder="ex: .className or #id"
                                                             />
-                                                        </PureField>
-                                                        <PureField label="Survey wait period">
+                                                        </LemonField.Pure>
+                                                        <LemonField.Pure label="Survey wait period">
                                                             <div className="flex flex-row gap-2 items-center">
                                                                 <LemonCheckbox
                                                                     checked={!!value?.seenSurveyWaitPeriodInDays}
@@ -521,11 +521,11 @@ export default function SurveyEdit(): JSX.Element {
                                                                 />{' '}
                                                                 days.
                                                             </div>
-                                                        </PureField>
+                                                        </LemonField.Pure>
                                                     </>
                                                 )}
-                                            </Field>
-                                            <PureField label="User properties">
+                                            </LemonField>
+                                            <LemonField.Pure label="User properties">
                                                 <BindLogic
                                                     logic={featureFlagLogic}
                                                     props={{ id: survey.targeting_flag?.id || 'new' }}
@@ -562,10 +562,10 @@ export default function SurveyEdit(): JSX.Element {
                                                         </>
                                                     )}
                                                 </BindLogic>
-                                            </PureField>
+                                            </LemonField.Pure>
                                         </>
                                     )}
-                                </PureField>
+                                </LemonField.Pure>
                             ),
                         },
                     ]}
