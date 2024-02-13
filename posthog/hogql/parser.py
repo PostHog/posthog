@@ -371,10 +371,10 @@ class HogQLParseTreeConverter(ParseTreeVisitor):
     def visitJoinConstraintClause(self, ctx: HogQLParser.JoinConstraintClauseContext):
         column_expr_list = self.visit(ctx.columnExprList())
         if ctx.USING():
-            return ast.JoinUsingConstraint(exprs=column_expr_list)
+            return ast.JoinConstraint(join_type="USING", expr=column_expr_list)
         if len(column_expr_list) != 1:
             raise NotImplementedException(f"Unsupported: JOIN ... ON with multiple expressions")
-        return ast.JoinConstraint(expr=column_expr_list[0])
+        return ast.JoinConstraint(join_type="ON", expr=column_expr_list[0])
 
     def visitSampleClause(self, ctx: HogQLParser.SampleClauseContext):
         ratio_expressions = ctx.ratioExpr()

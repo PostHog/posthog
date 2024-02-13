@@ -242,11 +242,11 @@ class TraversingVisitor(Visitor):
         pass
 
     def visit_join_constraint(self, node: ast.JoinConstraint):
-        self.visit(node.expr)
-
-    def visit_join_using_constraint(self, node: ast.JoinUsingConstraint):
-        for expr in node.exprs:
-            self.visit(expr)
+        if node.join_type == "ON":
+            self.visit(node.expr)
+        elif node.join_type == "USING":
+            for expr in node.expr:
+                self.visit(expr)
 
     def visit_hogqlx_tag(self, node: ast.HogQLXTag):
         for attribute in node.attributes:
@@ -523,10 +523,10 @@ class CloningVisitor(Visitor):
         )
 
     def visit_join_constraint(self, node: ast.JoinConstraint):
-        return ast.JoinConstraint(expr=self.visit(node.expr))
-
-    def visit_join_using_constraint(self, node: ast.JoinUsingConstraint):
-        return ast.JoinUsingConstraint(exprs=[self.visit(expr) for expr in node.exprs])
+        if node.join_type == "ON":
+            return ast.JoinConstraint(join_type=node.join_type, expr=self.visit(node.expr))
+        elif node.join_type == "USING":
+            return ast.JoinConstraint(join_type=node.join_type, expr=[self.visit(expr) for expr in node.expr])
 
     def visit_hogqlx_tag(self, node: ast.HogQLXTag):
         return ast.HogQLXTag(kind=node.kind, attributes=[self.visit(a) for a in node.attributes])

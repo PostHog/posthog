@@ -500,12 +500,8 @@ class Call(Expr):
 
 @dataclass(kw_only=True)
 class JoinConstraint(Expr):
-    expr: Expr
-
-
-@dataclass(kw_only=True)
-class JoinUsingConstraint(Expr):
-    exprs: Expr
+    join_type: Literal["ON", "USING"]
+    expr: Expr | List[Expr]
 
 
 @dataclass(kw_only=True)
@@ -518,7 +514,7 @@ class JoinExpr(Expr):
     table_args: Optional[List[Expr]] = None
     alias: Optional[str] = None
     table_final: Optional[bool] = None
-    constraint: Optional[Union["JoinConstraint", "JoinUsingConstraint"]] = None
+    constraint: Optional["JoinConstraint"] = None
     next_join: Optional["JoinExpr"] = None
     sample: Optional["SampleExpr"] = None
 
