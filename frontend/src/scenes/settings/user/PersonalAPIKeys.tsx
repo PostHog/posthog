@@ -6,9 +6,11 @@ import {
     LemonModal,
     LemonSegmentedButton,
     LemonSelect,
+    LemonSelectMultiple,
     LemonTable,
     LemonTag,
     Link,
+    Tooltip,
 } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
@@ -23,8 +25,15 @@ import { PersonalAPIKeyType } from '~/types'
 import { API_KEY_SCOPE_PRESETS, APIScopes, personalAPIKeysLogic } from './personalAPIKeysLogic'
 
 function EditKeyModal(): JSX.Element {
-    const { editingKeyId, isEditingKeySubmitting, editingKeyChanged, formScopeRadioValues, allAccessSelected } =
-        useValues(personalAPIKeysLogic)
+    const {
+        editingKeyId,
+        isEditingKeySubmitting,
+        editingKeyChanged,
+        formScopeRadioValues,
+        allAccessSelected,
+        allTeams,
+        allTeamsLoading,
+    } = useValues(personalAPIKeysLogic)
     const { setEditingKeyId, setScopeRadioValue, submitEditingKey, resetScopes } = useActions(personalAPIKeysLogic)
 
     const isNew = editingKeyId === 'new'
@@ -61,7 +70,41 @@ function EditKeyModal(): JSX.Element {
                         <LemonInput placeholder='for example "Zapier"' maxLength={40} />
                     </Field>
 
-                    <LemonLabel>Scopes</LemonLabel>
+                    <LemonLabel>Team & Organization access</LemonLabel>
+
+                    <Field name="team_access">
+                        <LemonSelectMultiple
+                            mode="multiple"
+                            data-attr="teams"
+                            options={
+                                allTeams?.map((team) => ({
+                                    key: `${team.id}`,
+                                    label: team.name,
+                                    labelComponent: (
+                                        <Tooltip
+                                            title={
+                                                <div className="">
+                                                    <div className="font-semibold">{team.name}</div>
+                                                    <div className="text-xs whitespace-nowrap">
+                                                        Token: {team.api_token}
+                                                    </div>
+                                                    <div className="text-xs whitespace-nowrap">
+                                                        Organization: {team.organization}
+                                                    </div>
+                                                </div>
+                                            }
+                                        >
+                                            {team.name}
+                                        </Tooltip>
+                                    ),
+                                })) ?? []
+                            }
+                            loading={allTeamsLoading}
+                            placeholder="All teams"
+                        />
+                    </Field>
+
+                    <LemonLabel>Permissions</LemonLabel>
                     <Field name="scopes">
                         {({ error }) => (
                             <>
@@ -69,7 +112,10 @@ function EditKeyModal(): JSX.Element {
                                     API Keys are scoped to limit what they are able to do. We highly recommend you only
                                     give the key the permissions it needs to do its job. You can add or revoke scopes
                                     later.
+                                    <br />
+                                    Your API key can never do more than your user can do.
                                 </p>
+
                                 <div className="flex justify-between">
                                     <div className="flex-1">
                                         {error && <span className="text-danger">{error}</span>}
