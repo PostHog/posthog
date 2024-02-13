@@ -9,7 +9,13 @@ import { LemonSelect } from 'lib/lemon-ui/LemonSelect'
 import { isNotNil } from 'lib/utils'
 import React from 'react'
 import { WebAnalyticsHealthCheck } from 'scenes/web-analytics/WebAnalyticsHealthCheck'
-import { QueryTile, TabsTile, TileId, webAnalyticsLogic } from 'scenes/web-analytics/webAnalyticsLogic'
+import {
+    QueryTile,
+    TabsTile,
+    TileId,
+    WEB_ANALYTICS_DATA_COLLECTION_NODE_ID,
+    webAnalyticsLogic,
+} from 'scenes/web-analytics/webAnalyticsLogic'
 import { WebAnalyticsModal } from 'scenes/web-analytics/WebAnalyticsModal'
 import { WebAnalyticsNotice } from 'scenes/web-analytics/WebAnalyticsNotice'
 import { WebQuery } from 'scenes/web-analytics/WebAnalyticsTile'
@@ -248,7 +254,7 @@ export const WebTabs = ({
 export const WebAnalyticsDashboard = (): JSX.Element => {
     return (
         <BindLogic logic={webAnalyticsLogic} props={{}}>
-            <BindLogic logic={dataNodeCollectionLogic} props={{ key: 'web-analytics' }}>
+            <BindLogic logic={dataNodeCollectionLogic} props={{ key: WEB_ANALYTICS_DATA_COLLECTION_NODE_ID }}>
                 <WebAnalyticsModal />
                 <WebAnalyticsNotice />
                 <div className="WebAnalyticsDashboard w-full flex flex-col">
