@@ -24,11 +24,11 @@ from posthog.batch_exports.service import (
     update_batch_export_backfill_status,
     update_batch_export_run_status,
 )
-from posthog.temporal.batch_exports.clickhouse import ClickHouseClient
 from posthog.temporal.batch_exports.metrics import (
     get_export_finished_metric,
     get_export_started_metric,
 )
+from posthog.temporal.common.clickhouse import ClickHouseClient
 from posthog.temporal.common.logger import bind_temporal_worker_logger
 
 SELECT_QUERY_TEMPLATE = Template(
