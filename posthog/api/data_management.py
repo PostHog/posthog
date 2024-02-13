@@ -1,7 +1,7 @@
 from rest_framework import viewsets
 from rest_framework.decorators import action
 
-from posthog.api.routing import StructuredViewSetMixin
+from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.models.activity_logging.activity_page import activity_page_response
 from posthog.models.activity_logging.activity_log import (
     load_all_activity,
@@ -9,7 +9,7 @@ from posthog.models.activity_logging.activity_log import (
 from rest_framework import request
 
 
-class DataManagementViewSet(StructuredViewSetMixin, viewsets.GenericViewSet):
+class DataManagementViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     @action(methods=["GET"], url_path="activity", detail=False)
     def all_activity(self, request: request.Request, **kwargs):
         limit = int(request.query_params.get("limit", "10"))

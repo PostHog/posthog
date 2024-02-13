@@ -2,17 +2,16 @@ from typing import List, cast
 
 from django.db import IntegrityError
 from rest_framework import mixins, serializers, viewsets
-from rest_framework.permissions import SAFE_METHODS, BasePermission, IsAuthenticated
+from rest_framework.permissions import SAFE_METHODS, BasePermission
 
 from ee.models.feature_flag_role_access import FeatureFlagRoleAccess
 from ee.models.organization_resource_access import OrganizationResourceAccess
 from ee.models.role import Role, RoleMembership
-from posthog.api.routing import StructuredViewSetMixin
+from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 from posthog.models import OrganizationMembership
 from posthog.models.feature_flag import FeatureFlag
 from posthog.models.user import User
-from posthog.permissions import OrganizationMemberPermissions
 
 
 class RolePermissions(BasePermission):
@@ -86,7 +85,7 @@ class RoleSerializer(serializers.ModelSerializer):
 
 
 class RoleViewSet(
-    StructuredViewSetMixin,
+    TeamAndOrgViewSetMixin,
     mixins.ListModelMixin,
     mixins.CreateModelMixin,
     mixins.RetrieveModelMixin,
@@ -94,11 +93,7 @@ class RoleViewSet(
     mixins.DestroyModelMixin,
     viewsets.GenericViewSet,
 ):
-    permission_classes = [
-        IsAuthenticated,
-        OrganizationMemberPermissions,
-        RolePermissions,
-    ]
+    permission_classes = [RolePermissions]
     serializer_class = RoleSerializer
     queryset = Role.objects.all()
 
@@ -132,16 +127,13 @@ class RoleMembershipSerializer(serializers.ModelSerializer):
 
 
 class RoleMembershipViewSet(
-    StructuredViewSetMixin,
+    TeamAndOrgViewSetMixin,
     mixins.ListModelMixin,
     mixins.CreateModelMixin,
     mixins.DestroyModelMixin,
     viewsets.GenericViewSet,
 ):
-    permission_classes = [
-        IsAuthenticated,
-        RolePermissions,
-    ]
+    permission_classes = [RolePermissions]
     serializer_class = RoleMembershipSerializer
     queryset = RoleMembership.objects.select_related("role")
     filter_rewrite_rules = {"organization_id": "role__organization_id"}

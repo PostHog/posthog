@@ -126,7 +126,7 @@ export function PersonsModal({
                 <LemonModal.Header>
                     <h3>{getTitle()}</h3>
                 </LemonModal.Header>
-                <div className="px-6 py-2">
+                <div className="px-4 py-2">
                     {actorsResponse && !!missingActorsCount && (
                         <MissingPersonsAlert actorLabel={actorLabel} missingActorsCount={missingActorsCount} />
                     )}
@@ -194,7 +194,7 @@ export function PersonsModal({
                         )}
                     </div>
                 </div>
-                <div className="px-6 overflow-hidden flex flex-col">
+                <div className="px-4 overflow-hidden flex flex-col">
                     <div className="relative min-h-20 p-2 space-y-2 rounded bg-border-light overflow-y-auto mb-2">
                         {errorObject ? (
                             validationError ? (
