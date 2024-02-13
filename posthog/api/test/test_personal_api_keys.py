@@ -3,7 +3,7 @@ from datetime import timedelta
 from rest_framework import status
 
 from posthog.jwt import PosthogJwtAudience, encode_jwt
-from posthog.models.organization import Organization, OrganizationMembership
+from posthog.models.organization import Organization
 from posthog.models.personal_api_key import PersonalAPIKey, hash_key_value
 from posthog.models.team.team import Team
 from posthog.models.utils import generate_random_token_personal
