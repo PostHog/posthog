@@ -32,7 +32,7 @@ export interface LemonTagProps extends React.HTMLAttributes<HTMLDivElement> {
 }
 
 export const LemonTag: React.FunctionComponent<LemonTagProps & React.RefAttributes<HTMLDivElement>> = forwardRef(
-    function SortingIndicator(
+    function LemonTag(
         { type = 'default', children, className, size = 'medium', weight, icon, closable, onClose, popover, ...props },
         ref
     ): JSX.Element {
