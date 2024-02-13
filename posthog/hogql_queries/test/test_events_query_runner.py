@@ -2,6 +2,7 @@ from typing import Tuple, Any
 
 from freezegun import freeze_time
 
+from posthog.hogql.ast import CompareOperationOp
 from posthog.hogql_queries.events_query_runner import EventsQueryRunner
 from posthog.models import Person, Team
 from posthog.models.organization import Organization
@@ -129,3 +130,18 @@ class TestEventsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         another_team = Team.objects.create(organization=Organization.objects.create())
         query_ast = EventsQueryRunner(query=query, team=another_team).to_query()
         self.assertEqual(query_ast.where.exprs[0].right.value, [])
+
+    def test_test_account_filters(self):
+        self.team.test_account_filters = [
+            {
+                "key": "email",
+                "type": "person",
+                "value": "posthog.com",
+                "operator": "not_icontains",
+            }
+        ]
+        self.team.save()
+        query = EventsQuery(kind="EventsQuery", select=["*"], filterTestAccounts=True)  # type: ignore
+        query_ast = EventsQueryRunner(query=query, team=self.team).to_query()
+        self.assertEqual(query_ast.where.exprs[0].right.value, "%posthog.com%")
+        self.assertEqual(query_ast.where.exprs[0].op, CompareOperationOp.NotILike)
