@@ -260,7 +260,7 @@ export function PropertyValue({
             }}
             onSelect={(val, option) => {
                 setInput(option.title)
-                setValue(toString(val))
+                setValue(toString(val).trim())
             }}
             ref={autoCompleteRef}
         >
