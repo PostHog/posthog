@@ -46,7 +46,7 @@ export const stepKeyToTitle = (stepKey?: OnboardingStepKey): undefined | string 
         stepKey &&
         stepKey
             .split('_')
-            .map((part) => part[0].toUpperCase() + part.substring(1))
+            .map((part, i) => (i == 0 ? part[0].toUpperCase() + part.substring(1) : part))
             .join(' ')
     )
 }
