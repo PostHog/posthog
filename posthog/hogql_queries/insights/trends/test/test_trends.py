@@ -513,6 +513,7 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(response[0]["labels"][5], "2-Jan-2020")
         self.assertEqual(response[0]["data"][5], 1.0)
 
+    @snapshot_clickhouse_queries
     def test_trends_data_warehouse(self):
         self._create_events()
 

@@ -1,26 +1,24 @@
 from typing import List, Optional, cast
 from posthog.hogql import ast
 from posthog.hogql.parser import parse_expr, parse_select
-from posthog.hogql.property import action_to_expr, property_to_expr
+from posthog.hogql.property import property_to_expr
 from posthog.hogql.timings import HogQLTimings
 from posthog.hogql_queries.insights.trends.aggregation_operations import (
     AggregationOperations,
 )
 from posthog.hogql_queries.insights.trends.breakdown import Breakdown
 from posthog.hogql_queries.insights.trends.display import TrendsDisplay
-from posthog.hogql_queries.insights.trends.utils import series_event_name
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
-from posthog.models.action.action import Action
 from posthog.models.filters.mixins.utils import cached_property
 from posthog.models.team.team import Team
-from posthog.schema import ActionsNode, HogQLQueryModifiers, TrendsQuery, DataWarehouseNode, SeriesType
+from posthog.schema import HogQLQueryModifiers, TrendsQuery, DataWarehouseNode
 
 
-class TrendsQueryBuilder:
+class DataWarehouseTrendsQueryBuilder:
     query: TrendsQuery
     team: Team
     query_date_range: QueryDateRange
-    series: SeriesType
+    series: DataWarehouseNode
     timings: HogQLTimings
     modifiers: HogQLQueryModifiers
 
@@ -29,7 +27,7 @@ class TrendsQueryBuilder:
         trends_query: TrendsQuery,
         team: Team,
         query_date_range: QueryDateRange,
-        series: SeriesType,
+        series: DataWarehouseNode,
         timings: HogQLTimings,
         modifiers: HogQLQueryModifiers,
     ):
@@ -57,27 +55,6 @@ class TrendsQueryBuilder:
         full_query = self._outer_select_query(inner_query=inner_select, breakdown=breakdown)
 
         return full_query
-
-    def build_actors_query(
-        self, time_frame: Optional[str | int] = None, breakdown_filter: Optional[str | int] = None
-    ) -> ast.SelectQuery | ast.SelectUnionQuery:
-        breakdown = self._breakdown(is_actors_query=True, breakdown_values_override=breakdown_filter)
-
-        return parse_select(
-            """
-                SELECT DISTINCT person_id
-                FROM {subquery}
-            """,
-            placeholders={
-                "subquery": self._get_events_subquery(
-                    False,
-                    is_actors_query=True,
-                    breakdown=breakdown,
-                    breakdown_values_override=breakdown_filter,
-                    actors_query_time_frame=time_frame,
-                )
-            },
-        )
 
     def _get_date_subqueries(self, breakdown: Breakdown, ignore_breakdowns: bool = False) -> List[ast.SelectQuery]:
         if not breakdown.enabled or ignore_breakdowns:
@@ -158,7 +135,13 @@ class TrendsQueryBuilder:
         breakdown_values_override: Optional[str | int] = None,
         actors_query_time_frame: Optional[str | int] = None,
     ) -> ast.SelectQuery:
-        day_start = self._day_start_expr
+        day_start = ast.Alias(
+            alias="day_start",
+            expr=ast.Call(
+                name=f"toStartOf{self.query_date_range.interval_name.title()}",
+                args=[ast.Call(name="toDateTime", args=[ast.Field(chain=[self.series.timestamp_field])])],
+            ),
+        )
 
         events_filter = self._events_filter(
             ignore_breakdowns=False,
@@ -184,9 +167,6 @@ class TrendsQueryBuilder:
                 },
             ),
         )
-
-        if not isinstance(self.series, DataWarehouseNode):
-            default_query.select_from.sample = self._sample_value()
 
         default_query.group_by = []
 
@@ -446,37 +426,23 @@ class TrendsQueryBuilder:
                     parse_expr(
                         "{timestamp_field} >= {date_from_with_adjusted_start_of_interval}",
                         placeholders={
-                            "timestamp_field": self._timestamp_field,
+                            "timestamp_field": ast.Call(
+                                name="toDateTime", args=[ast.Field(chain=[self.series.timestamp_field])]
+                            ),
                             **self.query_date_range.to_placeholders(),
                         },
                     ),
                     parse_expr(
                         "{timestamp_field} <= {date_to}",
                         placeholders={
-                            "timestamp_field": self._timestamp_field,
+                            "timestamp_field": ast.Call(
+                                name="toDateTime", args=[ast.Field(chain=[self.series.timestamp_field])]
+                            ),
                             **self.query_date_range.to_placeholders(),
                         },
                     ),
                 ]
             )
-
-        # Series
-        if series_event_name(self.series) is not None:
-            filters.append(
-                parse_expr(
-                    "event = {event}",
-                    placeholders={"event": ast.Constant(value=series_event_name(self.series))},
-                )
-            )
-
-        # Filter Test Accounts
-        if (
-            self.query.filterTestAccounts
-            and isinstance(self.team.test_account_filters, list)
-            and len(self.team.test_account_filters) > 0
-        ):
-            for property in self.team.test_account_filters:
-                filters.append(property_to_expr(property, self.team))
 
         # Properties
         if self.query.properties is not None and self.query.properties != []:
@@ -485,15 +451,6 @@ class TrendsQueryBuilder:
         # Series Filters
         if series.properties is not None and series.properties != []:
             filters.append(property_to_expr(series.properties, self.team))
-
-        # Actions
-        if isinstance(series, ActionsNode):
-            try:
-                action = Action.objects.get(pk=int(series.id), team=self.team)
-                filters.append(action_to_expr(action))
-            except Action.DoesNotExist:
-                # If an action doesn't exist, we want to return no events
-                filters.append(parse_expr("1 = 2"))
 
         # Breakdown
         if not ignore_breakdowns and breakdown is not None:
@@ -507,6 +464,7 @@ class TrendsQueryBuilder:
 
         return ast.And(exprs=filters)
 
+    # TODO: remove this
     def _sample_value(self) -> ast.RatioExpr:
         if self.query.samplingFactor is None:
             return ast.RatioExpr(left=ast.Constant(value=1))
@@ -564,27 +522,5 @@ class TrendsQueryBuilder:
         return TrendsDisplay(display)
 
     @cached_property
-    def _day_start_expr(self) -> ast.Expr:
-        field = ast.Field(chain=["timestamp"])
-
-        if isinstance(self.series, DataWarehouseNode):
-            field = ast.Call(name="toDateTime", args=[ast.Field(chain=[self.series.timestamp_field])])
-
-        return ast.Alias(
-            alias="day_start",
-            expr=ast.Call(name=f"toStartOf{self.query_date_range.interval_name.title()}", args=[field]),
-        )
-
-    @cached_property
     def _table_expr(self) -> ast.Field:
-        if isinstance(self.series, DataWarehouseNode):
-            return ast.Field(chain=[self.series.table_name])
-
-        return ast.Field(chain=["events"])
-
-    @cached_property
-    def _timestamp_field(self) -> ast.Field:
-        if isinstance(self.series, DataWarehouseNode):
-            return ast.Call(name="toDateTime", args=[ast.Field(chain=[self.series.timestamp_field])])
-
-        return ast.Field(chain=["timestamp"])
+        return ast.Field(chain=[self.series.table_name])

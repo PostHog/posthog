@@ -28,7 +28,8 @@ from posthog.hogql_queries.insights.trends.breakdown_values import (
     BREAKDOWN_OTHER_STRING_LABEL,
 )
 from posthog.hogql_queries.insights.trends.display import TrendsDisplay
-from posthog.hogql_queries.insights.trends.query_builder import TrendsQueryBuilder
+from posthog.hogql_queries.insights.trends.trends_query_builder import TrendsQueryBuilder
+from posthog.hogql_queries.insights.trends.data_warehouse_trends_query_builder import DataWarehouseTrendsQueryBuilder
 from posthog.hogql_queries.insights.trends.series_with_extras import SeriesWithExtras
 from posthog.hogql_queries.query_runner import QueryRunner
 from posthog.hogql_queries.utils.formula_ast import FormulaAST
@@ -111,14 +112,25 @@ class TrendsQueryRunner(QueryRunner):
                 else:
                     query_date_range = self.query_previous_date_range
 
-                query_builder = TrendsQueryBuilder(
-                    trends_query=series.overriden_query or self.query,
-                    team=self.team,
-                    query_date_range=query_date_range,
-                    series=series.series,
-                    timings=self.timings,
-                    modifiers=self.modifiers,
-                )
+                if isinstance(series.series, DataWarehouseNode):
+                    query_builder = DataWarehouseTrendsQueryBuilder(
+                        trends_query=series.overriden_query or self.query,
+                        team=self.team,
+                        query_date_range=query_date_range,
+                        series=series.series,
+                        timings=self.timings,
+                        modifiers=self.modifiers,
+                    )
+                else:
+                    query_builder = TrendsQueryBuilder(
+                        trends_query=series.overriden_query or self.query,
+                        team=self.team,
+                        query_date_range=query_date_range,
+                        series=series.series,
+                        timings=self.timings,
+                        modifiers=self.modifiers,
+                    )
+
                 queries.append(query_builder.build_query())
 
         return queries
