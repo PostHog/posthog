@@ -329,7 +329,7 @@ export function AndroidSnippet({ flagKey, multivariant, payload }: FeatureFlagSn
     const variantSuffix = multivariant ? ` == "example-variant"` : ''
     return (
         <CodeSnippet language={Language.Kotlin} wrap>
-            {`if (${clientSuffix}${flagFunction}("${flagKey}") ${variantSuffix}) {
+            {`if (${clientSuffix}${flagFunction}("${flagKey}")${variantSuffix}) {
     // do something
 }
             `}
@@ -354,7 +354,7 @@ export function FlutterSnippet({ flagKey, multivariant, payload }: FeatureFlagSn
 
     return (
         <CodeSnippet language={Language.Dart} wrap>
-            {`if (${clientSuffix}${flagFunction}('${flagKey}') ${variantSuffix}) {
+            {`if (${clientSuffix}${flagFunction}('${flagKey}')${variantSuffix}) {
     // do something
 }
             `}
@@ -378,7 +378,7 @@ export function iOSSnippet({ flagKey, multivariant, payload }: FeatureFlagSnippe
     const variantSuffix = multivariant ? `as? String == "example-variant"` : ''
     return (
         <CodeSnippet language={Language.Swift} wrap>
-            {`if ${clientSuffix}${flagFunction}("${flagKey}") ${variantSuffix} {
+            {`if ${clientSuffix}${flagFunction}("${flagKey}")${variantSuffix} {
     // do something
 }`}
         </CodeSnippet>
