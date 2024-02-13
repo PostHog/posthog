@@ -7,6 +7,8 @@ import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
+import { Survey } from '~/types'
+
 import { defaultSurveyAppearance, defaultSurveyTemplates } from './constants'
 import { SurveyAppearancePreview } from './SurveyAppearancePreview'
 import { surveyLogic } from './surveyLogic'
@@ -54,15 +56,19 @@ export function SurveyTemplates(): JSX.Element {
                                 <div className="SurveyTemplate">
                                     <SurveyAppearancePreview
                                         key={idx}
-                                        survey={{
-                                            id: `templateMock-${idx}`,
-                                            questions: template.questions,
-                                            appearance: {
-                                                ...defaultSurveyAppearance,
-                                                whiteLabel: true,
-                                                ...template.appearance,
-                                            },
-                                        }}
+                                        survey={
+                                            {
+                                                id: `templateMock-${idx}`,
+                                                questions: template.questions,
+                                                appearance: {
+                                                    ...defaultSurveyAppearance,
+                                                    whiteLabel: true,
+                                                    ...template.appearance,
+                                                },
+                                            } as Survey
+                                        }
+                                        activePreview="survey"
+                                        questionIndex={0}
                                     />
                                 </div>
                             </div>

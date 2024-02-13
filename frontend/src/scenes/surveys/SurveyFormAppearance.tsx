@@ -23,7 +23,7 @@ export function SurveyFormAppearance({
     return survey.type !== SurveyType.API ? (
         <>
             <SurveyAppearancePreview
-                survey={survey}
+                survey={survey as Survey}
                 activePreview={showThankYou ? 'confirmation' : 'survey'}
                 questionIndex={activePreview}
             />

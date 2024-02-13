@@ -76,7 +76,11 @@ const Component = ({ attributes }: NotebookNodeProps<NotebookNodeSurveyAttribute
                                     <SurveyReleaseSummary id={id} survey={survey} hasTargetingFlag={hasTargetingFlag} />
 
                                     <div className="w-full flex flex-col items-center">
-                                        <SurveyAppearancePreview survey={survey} />
+                                        <SurveyAppearancePreview
+                                            survey={survey}
+                                            activePreview="survey"
+                                            questionIndex={0}
+                                        />
                                     </div>
                                 </div>
                             </>
