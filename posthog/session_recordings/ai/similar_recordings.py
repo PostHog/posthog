@@ -49,7 +49,6 @@ def closest_embeddings(target: [float], session_id: str, team_id: int):
                 AND generation_timestamp > now() - INTERVAL 7 DAY
                 -- skip the target recording
                 AND session_id != %(session_id)s
-                AND length(embeddings) = 3
             ORDER BY similarity_score DESC
             -- only return up to three results
             LIMIT %(limit)s;
