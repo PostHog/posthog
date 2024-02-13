@@ -48,6 +48,7 @@ from posthog.rate_limit import (
 from posthog.session_recordings.queries.session_replay_events import SessionReplayEvents
 from posthog.session_recordings.realtime_snapshots import get_realtime_snapshots, publish_subscription
 from posthog.session_recordings.session_summary.summarize_session import summarize_recording
+from posthog.session_recordings.ai.similar_recordings import similar_recordings
 from posthog.session_recordings.snapshots.convert_legacy_snapshots import (
     convert_original_version_lts_recording,
 )
@@ -505,6 +506,36 @@ class SessionRecordingViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         cache.set(cache_key, summary, timeout=30)
 
         posthoganalytics.capture(event="session summarized", distinct_id=str(user.distinct_id), properties=summary)
+
+        # let the browser cache for half the time we cache on the server
+        r = Response(summary, headers={"Cache-Control": "max-age=15"})
+        if timings:
+            r.headers["Server-Timing"] = ", ".join(
+                f"{key};dur={round(duration, ndigits=2)}" for key, duration in timings.items()
+            )
+        return r
+
+    @action(methods=["GET"], detail=False)
+    def similar_sessions(self, request: request.Request, **kwargs):
+        if not request.user.is_authenticated:
+            raise exceptions.NotAuthenticated()
+
+        user = cast(User, request.user)
+
+        cache_key = f'similar_sessions_{self.team.pk}_{self.kwargs["pk"]}'
+        # Check if the response is cached
+        cached_response = cache.get(cache_key)
+        if cached_response is not None:
+            return Response(cached_response)
+
+        recording = self.get_object()
+
+        if not SessionReplayEvents().exists(session_id=str(recording.session_id), team=self.team):
+            raise exceptions.NotFound("Recording not found")
+
+        summary = similar_recordings(recording, user, self.team)
+        timings = summary.pop("timings", None)
+        cache.set(cache_key, summary, timeout=30)
 
         # let the browser cache for half the time we cache on the server
         r = Response(summary, headers={"Cache-Control": "max-age=15"})

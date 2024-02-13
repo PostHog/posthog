@@ -1,13 +1,18 @@
 from posthog.clickhouse.client import sync_execute
+from posthog.models.team import Team
+from posthog.session_recordings.models.session_recording import SessionRecording
 
 
-def similar_recordings(session_id: str, team_id: int):
-    target_embeddings = find_target_embeddings(session_id=session_id, team_id=team_id)
+def similar_recordings(recording: SessionRecording, team: Team):
+    target_embeddings = find_target_embeddings(session_id=recording.session_id, team_id=team.pk)
 
     if target_embeddings is None:
         return []
 
-    similar_embeddings = closest_embeddings(target=target_embeddings)
+    similar_embeddings = closest_embeddings(target=target_embeddings, session_id=recording.session_id, team_id=team.pk)
+
+    # TODO: join session recording context (person, duration, etc)
+
     return similar_embeddings
 
 
