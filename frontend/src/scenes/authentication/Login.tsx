@@ -7,8 +7,8 @@ import { useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
 import { BridgePage } from 'lib/components/BridgePage/BridgePage'
 import { SocialLoginButtons, SSOEnforcedLoginButton } from 'lib/components/SocialLoginButton/SocialLoginButton'
-import { Field } from 'lib/forms/Field'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
+import { LemonField } from 'lib/lemon-ui/LemonField'
 import { Link } from 'lib/lemon-ui/Link'
 import { useEffect, useRef } from 'react'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
@@ -101,7 +101,7 @@ export function Login(): JSX.Element {
                 )}
                 <Form logic={loginLogic} formKey="login" enableFormOnSubmit className="space-y-4">
                     <RegionSelect />
-                    <Field name="email" label="Email">
+                    <LemonField name="email" label="Email">
                         <LemonInput
                             className="ph-ignore-input"
                             autoFocus
@@ -117,9 +117,9 @@ export function Login(): JSX.Element {
                                 }
                             }}
                         />
-                    </Field>
+                    </LemonField>
                     <div className={clsx('PasswordWrapper', isPasswordHidden && 'zero-height')}>
-                        <Field
+                        <LemonField
                             name="password"
                             label={
                                 <div className="flex flex-1 items-center justify-between gap-2">
@@ -138,7 +138,7 @@ export function Login(): JSX.Element {
                                 placeholder="••••••••••"
                                 autoComplete="current-password"
                             />
-                        </Field>
+                        </LemonField>
                     </div>
                     {precheckResponse.status === 'pending' || !precheckResponse.sso_enforcement ? (
                         <LemonButton
