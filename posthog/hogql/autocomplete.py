@@ -181,6 +181,26 @@ def get_table(context: HogQLContext, join_expr: ast.JoinExpr, ctes: Optional[Dic
     return None
 
 
+def get_tables_aliases(query: ast.SelectQuery, context: HogQLContext) -> Dict[str, ast.Table]:
+    tables: Dict[str, ast.Table] = {}
+
+    if query.select_from is not None and query.select_from.alias is not None:
+        table = get_table(context, query.select_from, query.ctes)
+        if table is not None:
+            tables[query.select_from.alias] = table
+
+    if query.select_from is not None and query.select_from.next_join is not None:
+        next_join: ast.JoinExpr | None = query.select_from.next_join
+        while next_join is not None:
+            if next_join.alias is not None:
+                table = get_table(context, next_join, query.ctes)
+                if table is not None:
+                    tables[next_join.alias] = table
+            next_join = next_join.next_join
+
+    return tables
+
+
 # Replaces all ast.FieldTraverser with the underlying node
 def resolve_table_field_traversers(table: Table) -> Table:
     new_table = deepcopy(table)
@@ -316,20 +336,22 @@ def get_hogql_autocomplete(query: HogQLAutocomplete, team: Team) -> HogQLAutocom
                 chain_len = len(node.chain)
                 last_table: Table = table
                 for index, chain_part in enumerate(node.chain):
-                    # TODO: Include joined table aliases
                     # Return just the table alias
                     if table_has_alias and index == 0 and chain_len == 1:
-                        alias = nearest_select.select_from.alias
-                        assert alias is not None
+                        table_aliases = list(get_tables_aliases(nearest_select, context).keys())
                         extend_responses(
-                            keys=[alias],
+                            keys=table_aliases,
                             suggestions=response.suggestions,
                             kind=Kind.Folder,
-                            details=["Table"],
+                            details=["Table"] * len(table_aliases),  # type: ignore
                         )
                         break
 
                     if table_has_alias and index == 0:
+                        tables = get_tables_aliases(nearest_select, context)
+                        aliased_table = tables.get(str(chain_part))
+                        if aliased_table is not None:
+                            last_table = aliased_table
                         continue
 
                     # Ignore last chain part, it's likely an incomplete word or added characters
