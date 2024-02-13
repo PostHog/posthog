@@ -159,6 +159,7 @@ runs:
                   || 'hogvm posthog'
               }} -m "not async_migrations" \
                   --splits ${{ inputs.concurrency }} --group ${{ inputs.group }} \
+                  --showlocals --show-capture=all \
                   --durations=100 --durations-min=1.0 \
                   $PYTEST_ARGS
 
