@@ -201,7 +201,7 @@ export default function SurveyEdit(): JSX.Element {
                                                             ),
                                                         })
                                                     ),
-                                                    ...(survey.appearance.displayThankYouMessage
+                                                    ...(survey.appearance?.displayThankYouMessage
                                                         ? [
                                                               {
                                                                   key: survey.questions.length,
@@ -322,7 +322,7 @@ export default function SurveyEdit(): JSX.Element {
                                                 </Link>
                                             )}
                                         </div>
-                                        {!survey.appearance.displayThankYouMessage && (
+                                        {!survey.appearance?.displayThankYouMessage && (
                                             <LemonButton
                                                 type="secondary"
                                                 className="w-max mt-2"

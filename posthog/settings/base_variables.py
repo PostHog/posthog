@@ -13,9 +13,7 @@ BASE_DIR = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__fil
 DEBUG = get_from_env("DEBUG", False, type_cast=str_to_bool)
 TEST = "test" in sys.argv or sys.argv[0].endswith("pytest") or get_from_env("TEST", False, type_cast=str_to_bool)  # type: bool
 DEMO = get_from_env("DEMO", False, type_cast=str_to_bool)  # Whether this is a managed demo environment
-REGION = get_from_env(  # Whether this is the "US" or "EU" Cloud region (REGION's only set on Cloud)
-    "REGION", optional=True
-)
+CLOUD_DEPLOYMENT = get_from_env("CLOUD_DEPLOYMENT", optional=True)  # "US", "EU", or "DEV" - unset on self-hosted
 SELF_CAPTURE = get_from_env("SELF_CAPTURE", DEBUG and not DEMO, type_cast=str_to_bool)
 E2E_TESTING = get_from_env(
     "E2E_TESTING", False, type_cast=str_to_bool
