@@ -81,7 +81,13 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
         values: [userLogic, ['user'], teamLogic, ['currentTeamId'], featureFlagLogic, ['featureFlags']],
         actions: [
             dataNodeCollectionLogic({ key: props.dataNodeCollectionId || props.key } as DataNodeCollectionProps),
-            ['mountDataNode', 'unmountDataNode'],
+            [
+                'mountDataNode',
+                'unmountDataNode',
+                'collectionNodeLoadData',
+                'collectionNodeLoadDataSuccess',
+                'collectionNodeLoadDataFailure',
+            ],
         ],
     })),
     props({ query: {} } as DataNodeLogicProps),
@@ -560,8 +566,15 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
         cancelQuery: () => {
             actions.abortAnyRunningQuery()
         },
+        loadData: () => {
+            actions.collectionNodeLoadData(props.key)
+        },
         loadDataSuccess: ({ response }) => {
             props.onData?.(response)
+            actions.collectionNodeLoadDataSuccess(props.key)
+        },
+        loadDataFailure: () => {
+            actions.collectionNodeLoadDataFailure(props.key)
         },
         loadNewDataSuccess: ({ response }) => {
             props.onData?.(response)
@@ -596,8 +609,11 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
             actions.loadData()
         }
 
-        console.log('mountDataNode')
-        actions.mountDataNode(props.key, { id: props.key, loadData: actions.loadData })
+        actions.mountDataNode(props.key, {
+            id: props.key,
+            loadData: actions.loadData,
+            cancelQuery: actions.cancelQuery,
+        })
     }),
     beforeUnmount(({ actions, props, values }) => {
         if (values.autoLoadRunning) {

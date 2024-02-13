@@ -29,21 +29,20 @@ export function Reload(): JSX.Element {
 }
 
 export function ReloadAll(): JSX.Element {
-    const { reload } = useActions(dataNodeCollectionLogic)
-
-    // todo loading status and cancel
-    const responseLoading = false
+    const { areAnyLoading } = useValues(dataNodeCollectionLogic)
+    const { reloadAll } = useActions(dataNodeCollectionLogic)
 
     return (
         <LemonButton
             type="secondary"
             onClick={() => {
-                reload()
+                reloadAll()
             }}
             // Setting the loading icon manually to capture clicks while spinning.
-            icon={responseLoading ? <Spinner textColored /> : <IconRefresh />}
+            icon={areAnyLoading ? <Spinner textColored /> : <IconRefresh />}
+            disabledReason={areAnyLoading ? 'Loading' : undefined}
         >
-            {responseLoading ? 'Cancel' : 'Reload'}
+            Reload
         </LemonButton>
     )
 }
