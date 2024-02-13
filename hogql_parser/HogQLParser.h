@@ -204,6 +204,7 @@ public:
     antlr4::tree::TerminalNode *LPAREN();
     SelectUnionStmtContext *selectUnionStmt();
     antlr4::tree::TerminalNode *RPAREN();
+    PlaceholderContext *placeholder();
 
 
     virtual std::any accept(antlr4::tree::ParseTreeVisitor *visitor) override;

@@ -34,7 +34,7 @@ export const funnelsQueryDefault: FunnelsQuery = {
         },
     ],
     funnelsFilter: {
-        funnel_viz_type: FunnelVizType.Steps,
+        funnelVizType: FunnelVizType.Steps,
     },
 }
 
@@ -42,25 +42,25 @@ const retentionQueryDefault: RetentionQuery = {
     kind: NodeKind.RetentionQuery,
     retentionFilter: {
         period: RetentionPeriod.Day,
-        total_intervals: 11,
-        target_entity: {
+        totalIntervals: 11,
+        targetEntity: {
             id: '$pageview',
             name: '$pageview',
             type: 'events',
         },
-        returning_entity: {
+        returningEntity: {
             id: '$pageview',
             name: '$pageview',
             type: 'events',
         },
-        retention_type: 'retention_first_time',
+        retentionType: 'retention_first_time',
     },
 }
 
 const pathsQueryDefault: PathsQuery = {
     kind: NodeKind.PathsQuery,
     pathsFilter: {
-        include_event_types: [PathType.PageView],
+        includeEventTypes: [PathType.PageView],
     },
 }
 
@@ -71,7 +71,7 @@ const stickinessQueryDefault: StickinessQuery = {
             kind: NodeKind.EventsNode,
             name: '$pageview',
             event: '$pageview',
-            math: BaseMathType.TotalCount,
+            math: BaseMathType.UniqueUsers,
         },
     ],
     stickinessFilter: {},
@@ -84,7 +84,6 @@ const lifecycleQueryDefault: LifecycleQuery = {
             kind: NodeKind.EventsNode,
             name: '$pageview',
             event: '$pageview',
-            math: BaseMathType.TotalCount,
         },
     ],
 }

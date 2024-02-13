@@ -58,11 +58,11 @@ class RetentionQueryRunner(QueryRunner):
                 "type": TREND_FILTER_TYPE_EVENTS,
             }
         )
-        target_entity = self.query.retentionFilter.target_entity or default_entity
+        target_entity = self.query.retentionFilter.targetEntity or default_entity
         if event_query_type in [RetentionQueryType.TARGET, RetentionQueryType.TARGET_FIRST_TIME]:
             return target_entity
 
-        return self.query.retentionFilter.returning_entity or target_entity
+        return self.query.retentionFilter.returningEntity or target_entity
 
     def retention_events_query(self, event_query_type) -> ast.SelectQuery:
         start_of_interval_sql = self.query_date_range.get_start_of_interval_hogql(
@@ -173,7 +173,7 @@ class RetentionQueryRunner(QueryRunner):
                 ast.CompareOperation(
                     op=ast.CompareOperationOp.GtEq,
                     left=field_to_compare,
-                    right=ast.Constant(value=self.query_date_range.date_from()),
+                    right=self.query_date_range.get_start_of_interval_hogql(),
                 ),
                 ast.CompareOperation(
                     op=ast.CompareOperationOp.LtEq,
@@ -186,7 +186,7 @@ class RetentionQueryRunner(QueryRunner):
     def build_target_event_query(self) -> ast.SelectQuery:
         event_query_type = (
             RetentionQueryType.TARGET_FIRST_TIME
-            if self.query.retentionFilter.retention_type == RetentionType.retention_first_time
+            if self.query.retentionFilter.retentionType == RetentionType.retention_first_time
             else RetentionQueryType.TARGET
         )
         return self.retention_events_query(event_query_type=event_query_type)
@@ -266,7 +266,7 @@ class RetentionQueryRunner(QueryRunner):
 
     @cached_property
     def query_date_range(self) -> QueryDateRangeWithIntervals:
-        total_intervals = self.query.retentionFilter.total_intervals or DEFAULT_TOTAL_INTERVALS
+        total_intervals = self.query.retentionFilter.totalIntervals or DEFAULT_TOTAL_INTERVALS
         interval = (
             IntervalType(self.query.retentionFilter.period.lower())
             if self.query.retentionFilter.period

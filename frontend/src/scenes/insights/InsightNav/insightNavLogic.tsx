@@ -8,7 +8,6 @@ import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
 import { filterTestAccountsDefaultsLogic } from 'scenes/settings/project/filterTestAccountDefaultsLogic'
 
 import { examples, TotalEventsTable } from '~/queries/examples'
-import { actionsAndEventsToSeries } from '~/queries/nodes/InsightQuery/utils/filtersToQueryNode'
 import { insightMap } from '~/queries/nodes/InsightQuery/utils/queryNodeToFilter'
 import { getDisplay, getShowPercentStackView, getShowValueOnSeries } from '~/queries/nodes/InsightViz/utils'
 import {
@@ -36,10 +35,14 @@ import {
     isInsightQueryWithBreakdown,
     isInsightQueryWithSeries,
     isInsightVizNode,
+    isLifecycleQuery,
     isRetentionQuery,
+    isStickinessQuery,
+    isTrendsQuery,
 } from '~/queries/utils'
-import { ActionFilter, InsightLogicProps, InsightType } from '~/types'
+import { BaseMathType, InsightLogicProps, InsightType } from '~/types'
 
+import { MathAvailability } from '../filters/ActionFilter/ActionFilterRow/ActionFilterRow'
 import type { insightNavLogicType } from './insightNavLogicType'
 
 export interface Tab {
@@ -64,6 +67,34 @@ export interface QueryPropertyCache
         Omit<Partial<StickinessQuery>, 'kind'>,
         Omit<Partial<LifecycleQuery>, 'kind'> {
     commonFilter: CommonInsightFilter
+}
+
+const cleanSeriesEntityMath = (
+    entity: EventsNode | ActionsNode,
+    mathAvailability: MathAvailability
+): EventsNode | ActionsNode => {
+    const { math, math_property, math_group_type_index, math_hogql, ...baseEntity } = entity
+
+    // TODO: This should be improved to keep a math that differs from the default.
+    // For this we need to know wether the math was actively changed e.g.
+    // On which insight type the math properties have been set.
+    if (mathAvailability === MathAvailability.All) {
+        // return entity with default all availability math set
+        return { ...baseEntity, math: BaseMathType.TotalCount }
+    } else if (mathAvailability === MathAvailability.ActorsOnly) {
+        // return entity with default actors only availability math set
+        return { ...baseEntity, math: BaseMathType.UniqueUsers }
+    } else {
+        // return entity without math properties for insights that don't support it
+        return baseEntity
+    }
+}
+
+const cleanSeriesMath = (
+    series: (EventsNode | ActionsNode)[],
+    mathAvailability: MathAvailability
+): (EventsNode | ActionsNode)[] => {
+    return series.map((entity) => cleanSeriesEntityMath(entity, mathAvailability))
 }
 
 export const insightNavLogic = kea<insightNavLogicType>([
@@ -256,22 +287,26 @@ export const insightNavLogic = kea<insightNavLogicType>([
 const cachePropertiesFromQuery = (query: InsightQueryNode, cache: QueryPropertyCache | null): QueryPropertyCache => {
     const newCache = JSON.parse(JSON.stringify(query)) as QueryPropertyCache
 
-    // set series (first two entries) from retention target and returning entity
-    if (isRetentionQuery(query)) {
-        const { target_entity, returning_entity } = query.retentionFilter || {}
-        const series = actionsAndEventsToSeries({
-            events: [
-                ...(target_entity?.type === 'events' ? [target_entity as ActionFilter] : []),
-                ...(returning_entity?.type === 'events' ? [returning_entity as ActionFilter] : []),
-            ],
-            actions: [
-                ...(target_entity?.type === 'actions' ? [target_entity as ActionFilter] : []),
-                ...(returning_entity?.type === 'actions' ? [returning_entity as ActionFilter] : []),
-            ],
-        })
-        if (series.length > 0) {
-            newCache.series = [...series, ...(cache?.series ? cache.series.slice(series.length) : [])]
-        }
+    // // set series (first two entries) from retention target and returning entity
+    // if (isRetentionQuery(query)) {
+    //     const { targetEntity, returningEntity } = query.retentionFilter || {}
+    //     const series = actionsAndEventsToSeries({
+    //         events: [
+    //             ...(targetEntity?.type === 'events' ? [targetEntity as ActionFilter] : []),
+    //             ...(returningEntity?.type === 'events' ? [returningEntity as ActionFilter] : []),
+    //         ],
+    //         actions: [
+    //             ...(targetEntity?.type === 'actions' ? [targetEntity as ActionFilter] : []),
+    //             ...(returningEntity?.type === 'actions' ? [returningEntity as ActionFilter] : []),
+    //         ],
+    //     })
+    //     if (series.length > 0) {
+    //         newCache.series = [...series, ...(cache?.series ? cache.series.slice(series.length) : [])]
+    //     }
+    // }
+
+    if (isLifecycleQuery(query)) {
+        newCache.series = cache?.series
     }
 
     // store the insight specific filter in commonFilter
@@ -292,23 +327,33 @@ const mergeCachedProperties = (query: InsightQueryNode, cache: QueryPropertyCach
     // series
     if (isInsightQueryWithSeries(mergedQuery)) {
         if (cache.series) {
-            mergedQuery.series = cache.series
-        } else if (cache.retentionFilter?.target_entity || cache.retentionFilter?.returning_entity) {
-            mergedQuery.series = [
-                ...(cache.retentionFilter.target_entity
-                    ? [cache.retentionFilter.target_entity as EventsNode | ActionsNode]
-                    : []),
-                ...(cache.retentionFilter.returning_entity
-                    ? [cache.retentionFilter.returning_entity as EventsNode | ActionsNode]
-                    : []),
-            ]
+            if (isLifecycleQuery(mergedQuery)) {
+                mergedQuery.series = cleanSeriesMath(cache.series.slice(0, 1), MathAvailability.None)
+            } else {
+                const mathAvailability = isTrendsQuery(mergedQuery)
+                    ? MathAvailability.All
+                    : isStickinessQuery(mergedQuery)
+                    ? MathAvailability.ActorsOnly
+                    : MathAvailability.None
+                mergedQuery.series = cleanSeriesMath(cache.series, mathAvailability)
+            }
         }
+        // else if (cache.retentionFilter?.targetEntity || cache.retentionFilter?.returningEntity) {
+        //     mergedQuery.series = [
+        //         ...(cache.retentionFilter.targetEntity
+        //             ? [cache.retentionFilter.targetEntity as EventsNode | ActionsNode]
+        //             : []),
+        //         ...(cache.retentionFilter.returningEntity
+        //             ? [cache.retentionFilter.returningEntity as EventsNode | ActionsNode]
+        //             : []),
+        //     ]
+        // }
     } else if (isRetentionQuery(mergedQuery) && cache.series) {
-        mergedQuery.retentionFilter = {
-            ...mergedQuery.retentionFilter,
-            ...(cache.series.length > 0 ? { target_entity: cache.series[0] } : {}),
-            ...(cache.series.length > 1 ? { returning_entity: cache.series[1] } : {}),
-        }
+        // mergedQuery.retentionFilter = {
+        //     ...mergedQuery.retentionFilter,
+        //     ...(cache.series.length > 0 ? { targetEntity: cache.series[0] } : {}),
+        //     ...(cache.series.length > 1 ? { returningEntity: cache.series[1] } : {}),
+        // }
     }
 
     // interval
@@ -331,8 +376,8 @@ const mergeCachedProperties = (query: InsightQueryNode, cache: QueryPropertyCach
             // TODO: fix an issue where switching between trends and funnels with the option enabled would
             // result in an error before uncommenting
             // ...(getCompare(node) ? { compare: getCompare(node) } : {}),
-            ...(getShowValueOnSeries(node) ? { show_values_on_series: getShowValueOnSeries(node) } : {}),
-            ...(getShowPercentStackView(node) ? { show_percent_stack_view: getShowPercentStackView(node) } : {}),
+            ...(getShowValueOnSeries(node) ? { showValuesOnSeries: getShowValueOnSeries(node) } : {}),
+            ...(getShowPercentStackView(node) ? { showPercentStackView: getShowPercentStackView(node) } : {}),
             ...(getDisplay(node) ? { display: getDisplay(node) } : {}),
         }
     }

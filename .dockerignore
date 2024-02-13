@@ -38,3 +38,4 @@
 !plugin-transpiler/*.*
 !test-runner-jest.config.js
 !test-runner-jest-environment.js
+!patches

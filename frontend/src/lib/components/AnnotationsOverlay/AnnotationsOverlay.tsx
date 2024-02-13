@@ -198,6 +198,7 @@ function AnnotationsPopover({
             visible={isPopoverShown}
             onClickOutside={closePopover}
             showArrow
+            padded={false}
             overlay={
                 <LemonModal
                     inline

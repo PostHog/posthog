@@ -73,7 +73,7 @@ def parse_order_expr(
     timings: Optional[HogQLTimings] = None,
     *,
     backend: Optional[Literal["python", "cpp"]] = None,
-) -> ast.Expr:
+) -> ast.OrderExpr:
     if not backend:
         backend = "cpp"
     if timings is None:
@@ -172,6 +172,8 @@ class HogQLParseTreeConverter(ParseTreeVisitor):
                 flattened_queries.append(query)
             elif isinstance(query, ast.SelectUnionQuery):
                 flattened_queries.extend(query.select_queries)
+            elif isinstance(query, ast.Placeholder):
+                flattened_queries.append(query)
             else:
                 raise Exception(f"Unexpected query node type {type(query).__name__}")
         if len(flattened_queries) == 1:
@@ -179,7 +181,7 @@ class HogQLParseTreeConverter(ParseTreeVisitor):
         return ast.SelectUnionQuery(select_queries=flattened_queries)
 
     def visitSelectStmtWithParens(self, ctx: HogQLParser.SelectStmtWithParensContext):
-        return self.visit(ctx.selectStmt() or ctx.selectUnionStmt())
+        return self.visit(ctx.selectStmt() or ctx.selectUnionStmt() or ctx.placeholder())
 
     def visitSelectStmt(self, ctx: HogQLParser.SelectStmtContext):
         select_query = ast.SelectQuery(

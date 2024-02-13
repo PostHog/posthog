@@ -12,7 +12,7 @@ from posthog.schema import HogQLFilters
 from posthog.utils import relative_date_parse
 
 
-def replace_filters(node: ast.Expr, filters: HogQLFilters, team: Team) -> ast.Expr:
+def replace_filters(node: ast.Expr, filters: Optional[HogQLFilters], team: Team) -> ast.Expr:
     return ReplaceFilters(filters, team).visit(node)
 
 

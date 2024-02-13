@@ -10,8 +10,8 @@ export function PathsWildcardGroups({ insightProps }: EditorFilterProps): JSX.El
 
     return (
         <LemonSelectMultiple
-            onChange={(path_groupings: string[]) => updateInsightFilter({ path_groupings })}
-            value={pathsFilter?.path_groupings || []}
+            onChange={(pathGroupings: string[]) => updateInsightFilter({ pathGroupings })}
+            value={pathsFilter?.pathGroupings || []}
             filterOption={false}
             mode="multiple-custom"
         />

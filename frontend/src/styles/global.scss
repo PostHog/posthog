@@ -43,6 +43,10 @@ ul {
     border-width: 0;
 }
 
+input[type='radio'] {
+    accent-color: var(--primary);
+}
+
 .page-title-row {
     display: flex;
     flex-wrap: wrap;
@@ -478,6 +482,19 @@ body {
     --tooltip-bg: var(--bg-charcoal);
     --data-color-1-hover: #1d4affe5;
 
+    // Remove below once we're using Tailwind's base
+    --tw-ring-offset-width: 0px;
+    --tw-ring-offset-color: var(--bg-light);
+    --tw-ring-color: var(--primary-3000);
+    --tw-ring-inset: ;
+    --tw-translate-x: 0;
+    --tw-translate-y: 0;
+    --tw-rotate: 0;
+    --tw-skew-x: 0;
+    --tw-skew-y: 0;
+    --tw-scale-x: 1;
+    --tw-scale-y: 1;
+
     touch-action: manipulation; // Disable double-tap-to-zoom on mobile, making taps slightly snappier
 
     &.posthog-3000[theme='light'] {
@@ -493,7 +510,6 @@ body {
         --primary: var(--primary-3000);
         --primary-highlight: var(--primary-3000-highlight);
 
-        overflow: hidden; // Each area handles scrolling individually (e.g. navbar, scene, side panel)
         background: var(--bg-3000);
 
         .non-3000 {

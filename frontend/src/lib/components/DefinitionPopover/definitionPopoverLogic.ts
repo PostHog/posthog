@@ -178,10 +178,10 @@ export const definitionPopoverLogic = kea<definitionPopoverLogicType>([
                     TaxonomicFilterGroupType.EventProperties,
                     TaxonomicFilterGroupType.EventFeatureFlags,
                     TaxonomicFilterGroupType.NumericalEventProperties,
+                    TaxonomicFilterGroupType.Metadata,
                 ].includes(type) || type.startsWith(TaxonomicFilterGroupType.GroupsPrefix),
         ],
         isCohort: [(s) => [s.type], (type) => type === TaxonomicFilterGroupType.Cohorts],
-        isElement: [(s) => [s.type], (type) => type === TaxonomicFilterGroupType.Elements],
         viewFullDetailUrl: [
             (s) => [s.definition, s.isAction, s.isEvent, s.isProperty, s.isCohort],
             (definition, isAction, isEvent, isProperty, isCohort) => {

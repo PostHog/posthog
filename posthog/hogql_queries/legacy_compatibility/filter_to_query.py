@@ -1,13 +1,17 @@
+import copy
+from enum import Enum
 import json
-from typing import List, Dict
-from posthog.models.entity.entity import Entity as BackendEntity
+from typing import List, Dict, Literal
+from posthog.models.entity.entity import Entity as LegacyEntity
 from posthog.schema import (
     ActionsNode,
+    BaseMathType,
     BreakdownFilter,
     ChartDisplayType,
     DateRange,
     EventsNode,
-    FunnelExclusion,
+    FunnelExclusionActionsNode,
+    FunnelExclusionEventsNode,
     FunnelsFilter,
     FunnelsQuery,
     LifecycleFilter,
@@ -23,6 +27,21 @@ from posthog.schema import (
     TrendsQuery,
 )
 from posthog.types import InsightQueryNode
+
+
+class MathAvailability(str, Enum):
+    Unavailable = ("Unavailable",)
+    All = ("All",)
+    ActorsOnly = "ActorsOnly"
+
+
+actors_only_math_types = [
+    BaseMathType.dau,
+    BaseMathType.weekly_active,
+    BaseMathType.monthly_active,
+    "unique_group",
+    "hogql",
+]
 
 
 def is_property_with_operator(property: Dict):
@@ -114,7 +133,12 @@ def clean_display(display: str):
         return display
 
 
-def entity_to_node(entity: BackendEntity, include_properties: bool, include_math: bool) -> EventsNode | ActionsNode:
+def legacy_entity_to_node(
+    entity: LegacyEntity, include_properties: bool, math_availability: MathAvailability
+) -> EventsNode | ActionsNode:
+    """
+    Takes a legacy entity and converts it into an EventsNode or ActionsNode.
+    """
     shared = {
         "name": entity.name,
         "custom_name": entity.custom_name,
@@ -126,14 +150,24 @@ def entity_to_node(entity: BackendEntity, include_properties: bool, include_math
             "properties": clean_entity_properties(entity._data.get("properties", None)),
         }
 
-    if include_math:
-        shared = {
-            **shared,
-            "math": entity.math,
-            "math_property": entity.math_property,
-            "math_hogql": entity.math_hogql,
-            "math_group_type_index": entity.math_group_type_index,
-        }
+    if math_availability != MathAvailability.Unavailable:
+        #  only trends and stickiness insights support math.
+        #  transition to then default math for stickiness, when an unsupported math type is encountered.
+
+        if (
+            entity.math is not None
+            and math_availability == MathAvailability.ActorsOnly
+            and entity.math not in actors_only_math_types
+        ):
+            shared = {**shared, "math": BaseMathType.dau}
+        else:
+            shared = {
+                **shared,
+                "math": entity.math,
+                "math_property": entity.math_property,
+                "math_hogql": entity.math_hogql,
+                "math_group_type_index": entity.math_group_type_index,
+            }
 
     if entity.type == "actions":
         return ActionsNode(id=entity.id, **shared)
@@ -141,6 +175,28 @@ def entity_to_node(entity: BackendEntity, include_properties: bool, include_math
         return EventsNode(event=entity.id, **shared)
 
 
+def exlusion_entity_to_node(entity) -> FunnelExclusionEventsNode | FunnelExclusionActionsNode:
+    """
+    Takes a legacy exclusion entity and converts it into an FunnelExclusionEventsNode or FunnelExclusionActionsNode.
+    """
+    base_entity = legacy_entity_to_node(
+        LegacyEntity(entity), include_properties=False, math_availability=MathAvailability.Unavailable
+    )
+    if isinstance(base_entity, EventsNode):
+        return FunnelExclusionEventsNode(
+            **base_entity.model_dump(),
+            funnelFromStep=entity.get("funnel_from_step"),
+            funnelToStep=entity.get("funnel_to_step"),
+        )
+    else:
+        return FunnelExclusionActionsNode(
+            **base_entity.model_dump(),
+            funnelFromStep=entity.get("funnel_from_step"),
+            funnelToStep=entity.get("funnel_to_step"),
+        )
+
+
+# TODO: remove this method that returns legacy entities
 def to_base_entity_dict(entity: Dict):
     return {
         "type": entity.get("type"),
@@ -159,6 +215,8 @@ insight_to_query_type = {
     "LIFECYCLE": LifecycleQuery,
     "STICKINESS": StickinessQuery,
 }
+
+INSIGHT_TYPE = Literal["TRENDS", "FUNNELS", "RETENTION", "PATHS", "LIFECYCLE", "STICKINESS"]
 
 
 def _date_range(filter: Dict):
@@ -188,34 +246,37 @@ def _series(filter: Dict):
     if filter.get("events") is not None:
         filter["events"] = [event for event in filter.get("events") if not (isinstance(event, str))]
 
-    include_math = True
-    include_properties = True
-    if _insight_type(filter) == "LIFECYCLE":
-        include_math = False
+    math_availability: MathAvailability = MathAvailability.Unavailable
+    include_properties: bool = True
+
+    if _insight_type(filter) == "TRENDS":
+        math_availability = MathAvailability.All
+    elif _insight_type(filter) == "STICKINESS":
+        math_availability = MathAvailability.ActorsOnly
 
     return {
         "series": [
-            entity_to_node(entity, include_properties, include_math)
+            legacy_entity_to_node(entity, include_properties, math_availability)
             for entity in _entities(filter)
-            if entity.id is not None
+            if not (entity.type == "actions" and entity.id is None)
         ]
     }
 
 
 def _entities(filter: Dict):
-    processed_entities: List[BackendEntity] = []
+    processed_entities: List[LegacyEntity] = []
 
     # add actions
     actions = filter.get("actions", [])
     if isinstance(actions, str):
         actions = json.loads(actions)
-    processed_entities.extend([BackendEntity({**entity, "type": "actions"}) for entity in actions])
+    processed_entities.extend([LegacyEntity({**entity, "type": "actions"}) for entity in actions])
 
     # add events
     events = filter.get("events", [])
     if isinstance(events, str):
         events = json.loads(events)
-    processed_entities.extend([BackendEntity({**entity, "type": "events"}) for entity in events])
+    processed_entities.extend([LegacyEntity({**entity, "type": "events"}) for entity in events])
 
     # order by order
     processed_entities.sort(key=lambda entity: entity.order if entity.order else -1)
@@ -276,9 +337,10 @@ def _breakdown_filter(_filter: Dict):
         "breakdown_normalize_url": _filter.get("breakdown_normalize_url"),
         "breakdown_group_type_index": _filter.get("breakdown_group_type_index"),
         "breakdown_hide_other_aggregation": _filter.get("breakdown_hide_other_aggregation"),
-        "breakdown_histogram_bin_count": _filter.get("breakdown_histogram_bin_count")
-        if _insight_type(_filter) == "TRENDS"
-        else None,
+        "breakdown_histogram_bin_count": (
+            _filter.get("breakdown_histogram_bin_count") if _insight_type(_filter) == "TRENDS" else None
+        ),
+        "breakdown_limit": _filter.get("breakdown_limit"),
     }
 
     # fix breakdown typo
@@ -315,7 +377,7 @@ def _insight_filter(filter: Dict):
         insight_filter = {
             "trendsFilter": TrendsFilter(
                 smoothingIntervals=filter.get("smoothing_intervals"),
-                # show_legend=filter.get('show_legend'),
+                showLegend=filter.get("show_legend"),
                 # hidden_legend_indexes=cleanHiddenLegendIndexes(filter.get('hidden_legend_keys')),
                 compare=filter.get("compare"),
                 aggregationAxisFormat=filter.get("aggregation_axis_format"),
@@ -324,7 +386,7 @@ def _insight_filter(filter: Dict):
                 decimalPlaces=filter.get("decimal_places"),
                 formula=filter.get("formula"),
                 display=clean_display(filter.get("display")),
-                show_values_on_series=filter.get("show_values_on_series"),
+                showValuesOnSeries=filter.get("show_values_on_series"),
                 showPercentStackView=filter.get("show_percent_stack_view"),
                 showLabelsOnSeries=filter.get("show_label_on_series"),
             )
@@ -332,39 +394,32 @@ def _insight_filter(filter: Dict):
     elif _insight_type(filter) == "FUNNELS":
         insight_filter = {
             "funnelsFilter": FunnelsFilter(
-                funnel_viz_type=filter.get("funnel_viz_type"),
-                funnel_order_type=filter.get("funnel_order_type"),
-                funnel_from_step=filter.get("funnel_from_step"),
-                funnel_to_step=filter.get("funnel_to_step"),
-                funnel_window_interval_unit=filter.get("funnel_window_interval_unit"),
-                funnel_window_interval=filter.get("funnel_window_interval"),
-                funnel_step_reference=filter.get("funnel_step_reference"),
-                breakdown_attribution_type=filter.get("breakdown_attribution_type"),
-                breakdown_attribution_value=filter.get("breakdown_attribution_value"),
-                bin_count=filter.get("bin_count"),
-                exclusions=[
-                    FunnelExclusion(
-                        **to_base_entity_dict(entity),
-                        funnel_from_step=entity.get("funnel_from_step"),
-                        funnel_to_step=entity.get("funnel_to_step"),
-                    )
-                    for entity in filter.get("exclusions", [])
-                ],
+                funnelVizType=filter.get("funnel_viz_type"),
+                funnelOrderType=filter.get("funnel_order_type"),
+                funnelFromStep=filter.get("funnel_from_step"),
+                funnelToStep=filter.get("funnel_to_step"),
+                funnelWindowIntervalUnit=filter.get("funnel_window_interval_unit"),
+                funnelWindowInterval=filter.get("funnel_window_interval"),
+                funnelStepReference=filter.get("funnel_step_reference"),
+                breakdownAttributionType=filter.get("breakdown_attribution_type"),
+                breakdownAttributionValue=filter.get("breakdown_attribution_value"),
+                binCount=filter.get("bin_count"),
+                exclusions=[exlusion_entity_to_node(entity) for entity in filter.get("exclusions", [])],
                 layout=filter.get("layout"),
                 # hidden_legend_breakdowns: cleanHiddenLegendSeries(filter.get('hidden_legend_keys')),
-                funnel_aggregate_by_hogql=filter.get("funnel_aggregate_by_hogql"),
+                funnelAggregateByHogQL=filter.get("funnel_aggregate_by_hogql"),
             ),
         }
     elif _insight_type(filter) == "RETENTION":
         insight_filter = {
             "retentionFilter": RetentionFilter(
-                retention_type=filter.get("retention_type"),
-                retention_reference=filter.get("retention_reference"),
-                total_intervals=filter.get("total_intervals"),
-                returning_entity=to_base_entity_dict(filter.get("returning_entity"))
+                retentionType=filter.get("retention_type"),
+                retentionReference=filter.get("retention_reference"),
+                totalIntervals=filter.get("total_intervals"),
+                returningEntity=to_base_entity_dict(filter.get("returning_entity"))
                 if filter.get("returning_entity") is not None
                 else None,
-                target_entity=to_base_entity_dict(filter.get("target_entity"))
+                targetEntity=to_base_entity_dict(filter.get("target_entity"))
                 if filter.get("target_entity") is not None
                 else None,
                 period=filter.get("period"),
@@ -373,37 +428,36 @@ def _insight_filter(filter: Dict):
     elif _insight_type(filter) == "PATHS":
         insight_filter = {
             "pathsFilter": PathsFilter(
-                # path_type=filter.get('path_type'), # legacy
-                paths_hogql_expression=filter.get("paths_hogql_expression"),
-                include_event_types=filter.get("include_event_types"),
-                start_point=filter.get("start_point"),
-                end_point=filter.get("end_point"),
-                path_groupings=filter.get("path_groupings"),
-                exclude_events=filter.get("exclude_events"),
-                step_limit=filter.get("step_limit"),
-                path_replacements=filter.get("path_replacements"),
-                local_path_cleaning_filters=filter.get("local_path_cleaning_filters"),
-                edge_limit=filter.get("edge_limit"),
-                min_edge_weight=filter.get("min_edge_weight"),
-                max_edge_weight=filter.get("max_edge_weight"),
-                funnel_paths=filter.get("funnel_paths"),
-                funnel_filter=filter.get("funnel_filter"),
+                pathsHogQLExpression=filter.get("paths_hogql_expression"),
+                includeEventTypes=filter.get("include_event_types"),
+                startPoint=filter.get("start_point"),
+                endPoint=filter.get("end_point"),
+                pathGroupings=filter.get("path_groupings"),
+                excludeEvents=filter.get("exclude_events"),
+                stepLimit=filter.get("step_limit"),
+                pathReplacements=filter.get("path_replacements"),
+                localPathCleaningFilters=filter.get("local_path_cleaning_filters"),
+                edgeLimit=filter.get("edge_limit"),
+                minEdgeWeight=filter.get("min_edge_weight"),
+                maxEdgeWeight=filter.get("max_edge_weight"),
+                funnelPaths=filter.get("funnel_paths"),
+                funnelFilter=filter.get("funnel_filter"),
             )
         }
     elif _insight_type(filter) == "LIFECYCLE":
         insight_filter = {
             "lifecycleFilter": LifecycleFilter(
-                # toggledLifecycles=filter.get('toggledLifecycles'),
-                show_values_on_series=filter.get("show_values_on_series"),
+                toggledLifecycles=filter.get("toggledLifecycles"),
+                showValuesOnSeries=filter.get("show_values_on_series"),
             )
         }
     elif _insight_type(filter) == "STICKINESS":
         insight_filter = {
             "stickinessFilter": StickinessFilter(
                 compare=filter.get("compare"),
-                # show_legend=filter.get('show_legend'),
+                showLegend=filter.get("show_legend"),
                 # hidden_legend_indexes: cleanHiddenLegendIndexes(filter.get('hidden_legend_keys')),
-                show_values_on_series=filter.get("show_values_on_series"),
+                showValuesOnSeries=filter.get("show_values_on_series"),
             )
         }
     else:
@@ -415,13 +469,15 @@ def _insight_filter(filter: Dict):
     return insight_filter
 
 
-def _insight_type(filter: Dict) -> str:
+def _insight_type(filter: Dict) -> INSIGHT_TYPE:
     if filter.get("insight") == "SESSIONS":
         return "TRENDS"
     return filter.get("insight", "TRENDS")
 
 
 def filter_to_query(filter: Dict) -> InsightQueryNode:
+    filter = copy.deepcopy(filter)  # duplicate to prevent accidental filter alterations
+
     Query = insight_to_query_type[_insight_type(filter)]
 
     data = {

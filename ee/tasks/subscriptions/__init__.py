@@ -2,6 +2,7 @@ from datetime import datetime, timedelta
 from typing import Optional
 
 import structlog
+from celery import shared_task
 from prometheus_client import Counter
 from sentry_sdk import capture_exception, capture_message
 
@@ -9,8 +10,8 @@ from ee.tasks.subscriptions.email_subscriptions import send_email_subscription_r
 from ee.tasks.subscriptions.slack_subscriptions import send_slack_subscription_report
 from ee.tasks.subscriptions.subscription_utils import generate_assets
 from posthog import settings
-from posthog.celery import app
 from posthog.models.subscription import Subscription
+from posthog.tasks.utils import CeleryQueue
 
 logger = structlog.get_logger(__name__)
 
@@ -120,7 +121,7 @@ def _deliver_subscription_report(
         subscription.save()
 
 
-@app.task()
+@shared_task(queue=CeleryQueue.SUBSCRIPTION_DELIVERY.value)
 def schedule_all_subscriptions() -> None:
     """
     Schedule all past notifications (with a buffer) to be delivered
@@ -148,12 +149,20 @@ def schedule_all_subscriptions() -> None:
 report_timeout_seconds = settings.PARALLEL_ASSET_GENERATION_MAX_TIMEOUT_MINUTES * 60 * 1.5
 
 
-@app.task(soft_time_limit=report_timeout_seconds, time_limit=report_timeout_seconds + 10)
+@shared_task(
+    soft_time_limit=report_timeout_seconds,
+    time_limit=report_timeout_seconds + 10,
+    queue=CeleryQueue.SUBSCRIPTION_DELIVERY.value,
+)
 def deliver_subscription_report(subscription_id: int) -> None:
     return _deliver_subscription_report(subscription_id)
 
 
-@app.task(soft_time_limit=report_timeout_seconds, time_limit=report_timeout_seconds + 10)
+@shared_task(
+    soft_time_limit=report_timeout_seconds,
+    time_limit=report_timeout_seconds + 10,
+    queue=CeleryQueue.SUBSCRIPTION_DELIVERY.value,
+)
 def handle_subscription_value_change(
     subscription_id: int, previous_value: str, invite_message: Optional[str] = None
 ) -> None:

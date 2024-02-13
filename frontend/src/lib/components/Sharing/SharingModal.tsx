@@ -1,13 +1,14 @@
 import './SharingModal.scss'
 
 import { LemonButton, LemonSwitch } from '@posthog/lemon-ui'
+import { captureException } from '@sentry/react'
 import { useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
 import { CodeSnippet, Language } from 'lib/components/CodeSnippet'
 import { TitleWithIcon } from 'lib/components/TitleWithIcon'
-import { Field } from 'lib/forms/Field'
 import { IconGlobeLock, IconInfo, IconLink, IconLock, IconUnfoldLess, IconUnfoldMore } from 'lib/lemon-ui/icons'
 import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
+import { LemonField } from 'lib/lemon-ui/LemonField'
 import { LemonModal } from 'lib/lemon-ui/LemonModal'
 import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
 import { Spinner } from 'lib/lemon-ui/Spinner/Spinner'
@@ -114,7 +115,20 @@ export function SharingModalContent({
                                     <LemonButton
                                         data-attr="sharing-link-button"
                                         size="small"
-                                        onClick={() => void copyToClipboard(shareLink, 'link')}
+                                        onClick={() => {
+                                            // TRICKY: there's a chance this was sending useless errors to Sentry
+                                            // even when it succeeded, so we're explicitly ignoring the promise success
+                                            // and naming the error when reported to Sentry
+                                            copyToClipboard(shareLink, 'link')
+                                                .then(() => {}) // purposefully no-op
+                                                .catch((e) =>
+                                                    captureException(
+                                                        new Error(
+                                                            'unexpected sharing modal clipboard error: ' + e.message
+                                                        )
+                                                    )
+                                                )
+                                        }}
                                         icon={<IconLink />}
                                     >
                                         Copy public link
@@ -124,7 +138,7 @@ export function SharingModalContent({
                             </div>
 
                             <Form logic={sharingLogic} props={logicProps} formKey="embedConfig" className="space-y-2">
-                                <Field name="whitelabel">
+                                <LemonField name="whitelabel">
                                     {({ value, onChange }) => (
                                         <LemonSwitch
                                             fullWidth
@@ -144,9 +158,9 @@ export function SharingModalContent({
                                             disabled={!whitelabelAvailable}
                                         />
                                     )}
-                                </Field>
+                                </LemonField>
                                 {insight && (
-                                    <Field name="noHeader">
+                                    <LemonField name="noHeader">
                                         {({ value, onChange }) => (
                                             <LemonSwitch
                                                 fullWidth
@@ -156,10 +170,10 @@ export function SharingModalContent({
                                                 checked={!value}
                                             />
                                         )}
-                                    </Field>
+                                    </LemonField>
                                 )}
                                 {showLegendCheckbox && (
-                                    <Field name="legend">
+                                    <LemonField name="legend">
                                         {({ value, onChange }) => (
                                             <LemonSwitch
                                                 fullWidth
@@ -169,10 +183,10 @@ export function SharingModalContent({
                                                 checked={value}
                                             />
                                         )}
-                                    </Field>
+                                    </LemonField>
                                 )}
                                 {recordingId && (
-                                    <Field name="showInspector">
+                                    <LemonField name="showInspector">
                                         {({ value, onChange }) => (
                                             <LemonSwitch
                                                 fullWidth
@@ -182,7 +196,7 @@ export function SharingModalContent({
                                                 checked={value}
                                             />
                                         )}
-                                    </Field>
+                                    </LemonField>
                                 )}
 
                                 {previewIframe && (

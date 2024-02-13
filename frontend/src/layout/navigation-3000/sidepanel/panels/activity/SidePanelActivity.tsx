@@ -117,11 +117,10 @@ export const SidePanelActivity = (): JSX.Element => {
 
     return (
         <div className="flex flex-col overflow-hidden flex-1">
-            <SidePanelPaneHeader title="Activity" />
+            <SidePanelPaneHeader title="Team activity" />
             <div className="flex flex-col overflow-hidden flex-1">
                 <div className="shrink-0 mx-2">
                     <LemonTabs
-                        inline
                         activeKey={activeTab as SidePanelActivityTab}
                         onChange={(key) => setActiveTab(key)}
                         tabs={[
@@ -138,7 +137,7 @@ export const SidePanelActivity = (): JSX.Element => {
                 </div>
 
                 {/* Controls */}
-                <div className="shrink-0 space-y-2 p-2">
+                <div className="shrink-0 space-y-2 px-2 pb-2">
                     {activeTab === SidePanelActivityTab.Unread ? (
                         <>
                             <LemonBanner type="info" dismissKey="notifications-introduction">

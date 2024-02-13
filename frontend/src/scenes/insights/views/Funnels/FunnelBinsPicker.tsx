@@ -48,7 +48,7 @@ export function FunnelBinsPicker({ disabled }: FunnelBinsPickerProps): JSX.Eleme
     const { updateInsightFilter } = useActions(funnelDataLogic(insightProps))
 
     const setBinCount = (binCount: BinCountValue): void => {
-        updateInsightFilter({ bin_count: binCount && binCount !== BIN_COUNT_AUTO ? binCount : undefined })
+        updateInsightFilter({ binCount: binCount && binCount !== BIN_COUNT_AUTO ? binCount : undefined })
     }
 
     return (
@@ -57,7 +57,7 @@ export function FunnelBinsPicker({ disabled }: FunnelBinsPickerProps): JSX.Eleme
             dropdownClassName="funnel-bin-filter-dropdown"
             data-attr="funnel-bin-filter"
             defaultValue={BIN_COUNT_AUTO}
-            value={funnelsFilter?.bin_count || BIN_COUNT_AUTO}
+            value={funnelsFilter?.binCount || BIN_COUNT_AUTO}
             onSelect={(count) => setBinCount(count)}
             dropdownRender={(menu) => {
                 return (

@@ -1,6 +1,6 @@
 from abc import ABC, abstractmethod
 from datetime import datetime
-from typing import Any, Generic, List, Optional, Type, Dict, TypeVar, Union, Tuple, cast
+from typing import Any, Generic, List, Optional, Type, Dict, TypeVar, Union, Tuple, cast, TypeGuard
 
 from django.conf import settings
 from django.core.cache import cache
@@ -17,21 +17,25 @@ from posthog.hogql.timings import HogQLTimings
 from posthog.metrics import LABEL_TEAM_ID
 from posthog.models import Team
 from posthog.schema import (
+    TrendsQuery,
+    FunnelsQuery,
+    RetentionQuery,
+    PathsQuery,
+    StickinessQuery,
+    LifecycleQuery,
+    HogQLQuery,
+    WebOverviewQuery,
+    WebTopClicksQuery,
+    WebStatsTableQuery,
     QueryTiming,
     SessionsTimelineQuery,
-    StickinessQuery,
-    TrendsQuery,
-    LifecycleQuery,
-    WebTopClicksQuery,
-    WebOverviewQuery,
     ActorsQuery,
     EventsQuery,
-    WebStatsTableQuery,
-    HogQLQuery,
     InsightActorsQuery,
     DashboardFilter,
     HogQLQueryModifiers,
-    RetentionQuery,
+    SamplingRate,
+    InsightActorsQueryOptions,
 )
 from posthog.utils import generate_cache_key, get_safe_cache
 
@@ -62,6 +66,7 @@ class QueryResponse(BaseModel, Generic[DataT]):
     hasMore: Optional[bool] = None
     limit: Optional[int] = None
     offset: Optional[int] = None
+    samplingRate: Optional[SamplingRate] = None
 
 
 class CachedQueryResponse(QueryResponse):
@@ -76,18 +81,21 @@ class CachedQueryResponse(QueryResponse):
 
 
 RunnableQueryNode = Union[
-    HogQLQuery,
     TrendsQuery,
-    LifecycleQuery,
-    InsightActorsQuery,
-    EventsQuery,
-    ActorsQuery,
+    FunnelsQuery,
     RetentionQuery,
+    PathsQuery,
+    StickinessQuery,
+    LifecycleQuery,
+    ActorsQuery,
+    EventsQuery,
+    HogQLQuery,
+    InsightActorsQuery,
+    InsightActorsQueryOptions,
     SessionsTimelineQuery,
     WebOverviewQuery,
-    WebTopClicksQuery,
     WebStatsTableQuery,
-    StickinessQuery,
+    WebTopClicksQuery,
 ]
 
 
@@ -106,21 +114,41 @@ def get_query_runner(
     else:
         raise ValueError(f"Can't get a runner for an unknown query type: {query}")
 
-    if kind == "LifecycleQuery":
-        from .insights.lifecycle_query_runner import LifecycleQueryRunner
-
-        return LifecycleQueryRunner(
-            query=cast(LifecycleQuery | Dict[str, Any], query),
-            team=team,
-            timings=timings,
-            limit_context=limit_context,
-            modifiers=modifiers,
-        )
     if kind == "TrendsQuery":
         from .insights.trends.trends_query_runner import TrendsQueryRunner
 
         return TrendsQueryRunner(
             query=cast(TrendsQuery | Dict[str, Any], query),
+            team=team,
+            timings=timings,
+            limit_context=limit_context,
+            modifiers=modifiers,
+        )
+    if kind == "FunnelsQuery":
+        from .insights.funnels.funnels_query_runner import FunnelsQueryRunner
+
+        return FunnelsQueryRunner(
+            query=cast(FunnelsQuery | Dict[str, Any], query),
+            team=team,
+            timings=timings,
+            limit_context=limit_context,
+            modifiers=modifiers,
+        )
+    if kind == "RetentionQuery":
+        from .insights.retention_query_runner import RetentionQueryRunner
+
+        return RetentionQueryRunner(
+            query=cast(RetentionQuery | Dict[str, Any], query),
+            team=team,
+            timings=timings,
+            limit_context=limit_context,
+            modifiers=modifiers,
+        )
+    if kind == "PathsQuery":
+        from .insights.paths_query_runner import PathsQueryRunner
+
+        return PathsQueryRunner(
+            query=cast(PathsQuery | Dict[str, Any], query),
             team=team,
             timings=timings,
             limit_context=limit_context,
@@ -136,11 +164,11 @@ def get_query_runner(
             limit_context=limit_context,
             modifiers=modifiers,
         )
-    if kind == "RetentionQuery":
-        from .insights.retention_query_runner import RetentionQueryRunner
+    if kind == "LifecycleQuery":
+        from .insights.lifecycle_query_runner import LifecycleQueryRunner
 
-        return RetentionQueryRunner(
-            query=cast(RetentionQuery | Dict[str, Any], query),
+        return LifecycleQueryRunner(
+            query=cast(LifecycleQuery | Dict[str, Any], query),
             team=team,
             timings=timings,
             limit_context=limit_context,
@@ -171,6 +199,16 @@ def get_query_runner(
 
         return InsightActorsQueryRunner(
             query=cast(InsightActorsQuery | Dict[str, Any], query),
+            team=team,
+            timings=timings,
+            limit_context=limit_context,
+            modifiers=modifiers,
+        )
+    if kind == "InsightActorsQueryOptions":
+        from .insights.insight_actors_query_options_runner import InsightActorsQueryOptionsRunner
+
+        return InsightActorsQueryOptionsRunner(
+            query=cast(InsightActorsQueryOptions | Dict[str, Any], query),
             team=team,
             timings=timings,
             limit_context=limit_context,
@@ -231,10 +269,14 @@ class QueryRunner(ABC):
         self.timings = timings or HogQLTimings()
         self.limit_context = limit_context or LimitContext.QUERY
         self.modifiers = create_default_modifiers_for_team(team, modifiers)
-        if isinstance(query, self.query_type):
-            self.query = query
-        else:
-            self.query = self.query_type.model_validate(query)
+
+        if not self.is_query_node(query):
+            query = self.query_type.model_validate(query)
+        assert isinstance(query, self.query_type)
+        self.query = query
+
+    def is_query_node(self, data) -> TypeGuard[RunnableQueryNode]:
+        return isinstance(data, self.query_type)
 
     @abstractmethod
     def calculate(self) -> BaseModel:

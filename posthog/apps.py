@@ -5,11 +5,11 @@ import structlog
 from django.apps import AppConfig
 from django.conf import settings
 from posthoganalytics.client import Client
+from posthog.git import get_git_branch, get_git_commit
 
 from posthog.settings import SELF_CAPTURE, SKIP_ASYNC_MIGRATIONS_SETUP
+from posthog.tasks.tasks import sync_all_organization_available_features
 from posthog.utils import (
-    get_git_branch,
-    get_git_commit,
     get_machine_id,
     get_self_capture_api_token,
 )
@@ -35,8 +35,6 @@ class PostHogConfig(AppConfig):
             # log development server launch to posthog
             if os.getenv("RUN_MAIN") == "true":
                 # Sync all organization.available_features once on launch, in case plans changed
-                from posthog.celery import sync_all_organization_available_features
-
                 sync_all_organization_available_features()
 
                 # NOTE: This has to be created as a separate client so that the "capture" call doesn't lock in the properties
@@ -57,7 +55,7 @@ class PostHogConfig(AppConfig):
 
         # load feature flag definitions if not already loaded
         if not posthoganalytics.disabled and posthoganalytics.feature_flag_definitions() is None:
-            posthoganalytics.default_client.load_feature_flags()
+            posthoganalytics.load_feature_flags()
 
         from posthog.async_migrations.setup import setup_async_migrations
 

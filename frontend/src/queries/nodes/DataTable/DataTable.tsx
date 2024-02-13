@@ -24,6 +24,7 @@ import { ColumnConfigurator } from '~/queries/nodes/DataTable/ColumnConfigurator
 import { DataTableExport } from '~/queries/nodes/DataTable/DataTableExport'
 import { dataTableLogic, DataTableLogicProps, DataTableRow } from '~/queries/nodes/DataTable/dataTableLogic'
 import { EventRowActions } from '~/queries/nodes/DataTable/EventRowActions'
+import { InsightActorsQueryOptions } from '~/queries/nodes/DataTable/InsightActorsQueryOptions'
 import { QueryFeature } from '~/queries/nodes/DataTable/queryFeatures'
 import { renderColumn } from '~/queries/nodes/DataTable/renderColumn'
 import { renderColumnMeta } from '~/queries/nodes/DataTable/renderColumnMeta'
@@ -55,6 +56,7 @@ import {
     isEventsQuery,
     isHogQlAggregation,
     isHogQLQuery,
+    isInsightActorsQuery,
     taxonomicEventFilterToHogQL,
     taxonomicPersonFilterToHogQL,
 } from '~/queries/utils'
@@ -226,7 +228,7 @@ export function DataTable({
                             }}
                         />
                         <LemonDivider />
-                        {canSort && key !== 'person.$delete' ? (
+                        {canSort && key !== 'person.$delete' && key !== 'person' ? (
                             <>
                                 <LemonButton
                                     fullWidth
@@ -384,6 +386,18 @@ export function DataTable({
 
     const firstRowLeft = [
         backToSourceQuery ? <BackToSource key="return-to-source" /> : null,
+        backToSourceQuery && isActorsQuery(query.source) && isInsightActorsQuery(query.source.source) ? (
+            <InsightActorsQueryOptions
+                query={query.source.source}
+                setQuery={(q) =>
+                    setQuerySource({
+                        ...query.source,
+                        source: { ...(query.source as ActorsQuery).source, ...q },
+                    } as ActorsQuery)
+                }
+                key="source-query-options"
+            />
+        ) : null,
         showDateRange && sourceFeatures.has(QueryFeature.dateRangePicker) ? (
             <DateRange key="date-range" query={query.source} setQuery={setQuerySource} />
         ) : null,
@@ -543,7 +557,12 @@ export function DataTable({
                                         result && result[0] && result[0]['event'] === '$exception',
                                 })
                             }
-                            footer={(dataTableRows ?? []).length > 0 ? <LoadNext query={query.source} /> : null}
+                            footer={
+                                (dataTableRows ?? []).length > 0 &&
+                                !sourceFeatures.has(QueryFeature.hideLoadNextButton) ? (
+                                    <LoadNext query={query.source} />
+                                ) : null
+                            }
                             onRow={context?.rowProps}
                         />
                     )}

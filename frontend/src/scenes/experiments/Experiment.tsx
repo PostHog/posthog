@@ -10,7 +10,7 @@ import {
     LemonTextArea,
     Tooltip,
 } from '@posthog/lemon-ui'
-import { Popconfirm, Progress } from 'antd'
+import { Popconfirm } from 'antd'
 import clsx from 'clsx'
 import { BindLogic, useActions, useValues } from 'kea'
 import { Form, Group } from 'kea-forms'
@@ -20,12 +20,13 @@ import { EditableField } from 'lib/components/EditableField/EditableField'
 import { NotFound } from 'lib/components/NotFound'
 import { PageHeader } from 'lib/components/PageHeader'
 import { dayjs } from 'lib/dayjs'
-import { Field } from 'lib/forms/Field'
-import { IconDelete, IconPlusMini } from 'lib/lemon-ui/icons'
+import { IconDelete, IconPlusMini, IconWarning } from 'lib/lemon-ui/icons'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { More } from 'lib/lemon-ui/LemonButton/More'
 import { LemonCollapse } from 'lib/lemon-ui/LemonCollapse'
+import { LemonField } from 'lib/lemon-ui/LemonField'
+import { LemonProgress } from 'lib/lemon-ui/LemonProgress'
 import { Link } from 'lib/lemon-ui/Link'
 import { capitalizeFirstLetter, humanFriendlyNumber } from 'lib/utils'
 import { useEffect, useState } from 'react'
@@ -38,7 +39,7 @@ import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
 import { Query } from '~/queries/Query/Query'
-import { AvailableFeature, Experiment as ExperimentType, FunnelStep, InsightType } from '~/types'
+import { AvailableFeature, Experiment as ExperimentType, FunnelStep, InsightType, ProgressStatus } from '~/types'
 
 import { EXPERIMENT_INSIGHT_ID } from './constants'
 import { ExperimentImplementationDetails } from './ExperimentImplementationDetails'
@@ -211,16 +212,16 @@ export function Experiment(): JSX.Element {
                         <BindLogic logic={insightLogic} props={insightProps}>
                             <>
                                 <div className="flex flex-col gap-2 max-w-1/2">
-                                    <Field name="name" label="Name">
+                                    <LemonField name="name" label="Name">
                                         <LemonInput data-attr="experiment-name" />
-                                    </Field>
-                                    <Field name="feature_flag_key" label="Feature flag key">
+                                    </LemonField>
+                                    <LemonField name="feature_flag_key" label="Feature flag key">
                                         <LemonInput
                                             data-attr="experiment-feature-flag-key"
                                             disabled={editingExistingExperiment}
                                         />
-                                    </Field>
-                                    <Field
+                                    </LemonField>
+                                    <LemonField
                                         name="description"
                                         label={
                                             <div>
@@ -233,7 +234,7 @@ export function Experiment(): JSX.Element {
                                             className="ph-ignore-input"
                                             placeholder="Adding a helpful description can ensure others know what this experiment is about."
                                         />
-                                    </Field>
+                                    </LemonField>
                                     {experiment.parameters.feature_flag_variants && (
                                         <div>
                                             <label>
@@ -275,7 +276,7 @@ export function Experiment(): JSX.Element {
                                                             >
                                                                 {index === 0 ? 'Control' : 'Test'}
                                                             </div>
-                                                            <Field name="key" className="extend-variant-fully">
+                                                            <LemonField name="key" className="extend-variant-fully">
                                                                 <LemonInput
                                                                     disabled={index === 0 || experimentId !== 'new'}
                                                                     data-attr="experiment-variant-key"
@@ -288,7 +289,7 @@ export function Experiment(): JSX.Element {
                                                                     autoCorrect="off"
                                                                     spellCheck={false}
                                                                 />
-                                                            </Field>
+                                                            </LemonField>
 
                                                             <div className="float-right">
                                                                 {experimentId === 'new' &&
@@ -318,6 +319,7 @@ export function Experiment(): JSX.Element {
                                                             <LemonButton
                                                                 onClick={() => addExperimentGroup()}
                                                                 icon={<IconPlusMini />}
+                                                                data-attr="add-test-variant"
                                                             >
                                                                 Add test variant
                                                             </LemonButton>
@@ -407,6 +409,7 @@ export function Experiment(): JSX.Element {
                                             </div>
                                         </div>
                                         <LemonSelect
+                                            data-attr="experiment-goal-type-select"
                                             value={experimentInsightType}
                                             onChange={(val) => {
                                                 val &&
@@ -457,7 +460,7 @@ export function Experiment(): JSX.Element {
                                         </BindLogic>
                                     </div>
                                 </div>
-                                <Field name="secondary_metrics">
+                                <LemonField name="secondary_metrics">
                                     {({ value, onChange }) => (
                                         <div className="secondary-metrics">
                                             <div className="flex flex-col">
@@ -480,7 +483,7 @@ export function Experiment(): JSX.Element {
                                             </div>
                                         </div>
                                     )}
-                                </Field>
+                                </LemonField>
                                 <div className="bg-bg-light border rounded experiment-preview p-4">
                                     <ExperimentPreview
                                         experimentId={experiment.id}
@@ -615,6 +618,19 @@ export function Experiment(): JSX.Element {
                                 {experiment.feature_flag && (
                                     <div className="block ml-10">
                                         <div className="exp-flag-copy-label">Feature flag</div>
+                                        {getExperimentStatus(experiment) === ProgressStatus.Running &&
+                                            !experiment.feature_flag.active && (
+                                                <Tooltip
+                                                    placement="bottom"
+                                                    title="Your experiment is running, but the linked flag is disabled. No data is being collected."
+                                                >
+                                                    <IconWarning
+                                                        style={{ transform: 'translateY(2px)' }}
+                                                        className="mr-1 text-danger"
+                                                        fontSize="18px"
+                                                    />
+                                                </Tooltip>
+                                            )}
                                         <CopyToClipboardInline
                                             iconStyle={{ color: 'var(--lemon-button-icon-opacity)' }}
                                             className="font-normal text-sm"
@@ -680,7 +696,7 @@ export function Experiment(): JSX.Element {
                                 for more information.{' '}
                             </LemonBanner>
                         )}
-                        {showWarning && experiment.end_date && (
+                        {showWarning && experiment.end_date && experiment.feature_flag?.active && (
                             <LemonBanner type="info" onClose={() => setShowWarning(false)}>
                                 <strong>Your experiment is complete, but the feature flag is still enabled.</strong> We
                                 recommend removing the feature flag from your code completely, instead of relying on
@@ -729,9 +745,8 @@ export function Experiment(): JSX.Element {
                                                     <div className="mb-2">
                                                         <b>Experiment progress</b>
                                                     </div>
-                                                    <Progress
-                                                        strokeWidth={20}
-                                                        showInfo={false}
+                                                    <LemonProgress
+                                                        size="large"
                                                         percent={experimentProgressPercent}
                                                         strokeColor="var(--success)"
                                                     />

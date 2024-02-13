@@ -310,6 +310,12 @@ class HogQLParseTreeConverter : public HogQLParserBaseVisitor {
     if (select_stmt_ctx) {
       return visit(select_stmt_ctx);
     }
+
+    auto placeholder_ctx = ctx->placeholder();
+    if (placeholder_ctx) {
+      return visitAsPyObject(placeholder_ctx);
+    }
+    
     return visit(ctx->selectUnionStmt());
   }
 
@@ -344,6 +350,9 @@ class HogQLParseTreeConverter : public HogQLParserBaseVisitor {
         int extend_code = X_PyList_Extend(flattened_queries, sub_select_queries);
         if (extend_code == -1) goto select_queries_loop_py_error;
         Py_DECREF(sub_select_queries);
+      } else if (is_ast_node_instance(query, "Placeholder")) {
+        int append_code = PyList_Append(flattened_queries, query);
+        if (append_code == -1) goto select_queries_loop_py_error;
       } else {
         Py_DECREF(flattened_queries);
         X_Py_DECREF_ALL(select_queries);

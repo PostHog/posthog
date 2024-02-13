@@ -1,17 +1,17 @@
-import { LemonInput, LemonSegmentedButton, LemonSegmentedButtonOption, lemonToast } from '@posthog/lemon-ui'
+import { LemonInput, LemonSegmentedButton, LemonSegmentedButtonOption, lemonToast, Link } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
-import { Field } from 'lib/forms/Field'
 import { useUploadFiles } from 'lib/hooks/useUploadFiles'
 import { IconBugReport, IconFeedback, IconHelpOutline } from 'lib/lemon-ui/icons'
+import { LemonField } from 'lib/lemon-ui/LemonField'
 import { LemonFileInput } from 'lib/lemon-ui/LemonFileInput/LemonFileInput'
 import { LemonSelect } from 'lib/lemon-ui/LemonSelect/LemonSelect'
 import { LemonTextArea } from 'lib/lemon-ui/LemonTextArea/LemonTextArea'
-import { useRef } from 'react'
+import { useEffect, useRef } from 'react'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { userLogic } from 'scenes/userLogic'
 
-import { supportLogic, SupportTicketKind, TARGET_AREA_TO_NAME } from './supportLogic'
+import { SEVERITY_LEVEL_TO_NAME, supportLogic, SupportTicketKind, TARGET_AREA_TO_NAME } from './supportLogic'
 
 const SUPPORT_TICKET_OPTIONS: LemonSegmentedButtonOption<SupportTicketKind>[] = [
     {
@@ -55,6 +55,14 @@ export function SupportForm(): JSX.Element | null {
         },
     })
 
+    useEffect(() => {
+        if (sendSupportRequest.kind === 'bug') {
+            setSendSupportRequestValue('severity_level', 'medium')
+        } else {
+            setSendSupportRequestValue('severity_level', 'low')
+        }
+    }, [sendSupportRequest.kind])
+
     return (
         <Form
             logic={supportLogic}
@@ -65,18 +73,18 @@ export function SupportForm(): JSX.Element | null {
         >
             {!user && (
                 <>
-                    <Field name="name" label="Name">
+                    <LemonField name="name" label="Name">
                         <LemonInput data-attr="name" placeholder="Jane" />
-                    </Field>
-                    <Field name="email" label="Email">
+                    </LemonField>
+                    <LemonField name="email" label="Email">
                         <LemonInput data-attr="email" placeholder="your@email.com" />
-                    </Field>
+                    </LemonField>
                 </>
             )}
-            <Field name="kind" label="What type of message is this?">
+            <LemonField name="kind" label="What type of message is this?">
                 <LemonSegmentedButton fullWidth options={SUPPORT_TICKET_OPTIONS} />
-            </Field>
-            <Field name="target_area" label="What area does this best relate to?">
+            </LemonField>
+            <LemonField name="target_area" label="What area does this best relate to?">
                 <LemonSelect
                     fullWidth
                     options={Object.entries(TARGET_AREA_TO_NAME).map(([key, value]) => ({
@@ -84,8 +92,24 @@ export function SupportForm(): JSX.Element | null {
                         value: key,
                     }))}
                 />
-            </Field>
-            <Field
+            </LemonField>
+            <LemonField name="severity_level" label="What is the severity of this issue?">
+                <LemonSelect
+                    fullWidth
+                    options={Object.entries(SEVERITY_LEVEL_TO_NAME).map(([key, value]) => ({
+                        label: value,
+                        value: key,
+                    }))}
+                />
+            </LemonField>
+            <span className="text-muted">
+                Check out the{' '}
+                <Link target="_blank" to="https://posthog.com/docs/support-options#severity-levels">
+                    severity level definitions
+                </Link>
+                .
+            </span>
+            <LemonField
                 name="message"
                 label={sendSupportRequest.kind ? SUPPORT_TICKET_KIND_TO_PROMPT[sendSupportRequest.kind] : 'Content'}
             >
@@ -108,7 +132,7 @@ export function SupportForm(): JSX.Element | null {
                         )}
                     </div>
                 )}
-            </Field>
+            </LemonField>
         </Form>
     )
 }

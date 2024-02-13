@@ -23,7 +23,9 @@ from posthog.schema import (
     ActionsNode,
     EventsNode,
     LifecycleQueryResponse,
+    InsightActorsQueryOptionsResponse,
 )
+from posthog.utils import format_label_date
 
 
 class LifecycleQueryRunner(QueryRunner):
@@ -122,6 +124,29 @@ class LifecycleQueryRunner(QueryRunner):
                 },
             )
 
+    def to_actors_query_options(self) -> InsightActorsQueryOptionsResponse:
+        return InsightActorsQueryOptionsResponse(
+            day=[{"label": day, "value": day} for day in self.query_date_range.all_values()],
+            status=[
+                {
+                    "label": "Dormant",
+                    "value": "dormant",
+                },
+                {
+                    "label": "New",
+                    "value": "new",
+                },
+                {
+                    "label": "Resurrecting",
+                    "value": "resurrecting",
+                },
+                {
+                    "label": "Returning",
+                    "value": "returning",
+                },
+            ],
+        )
+
     def calculate(self) -> LifecycleQueryResponse:
         query = self.to_query()
         hogql = to_printed_hogql(query, self.team)
@@ -144,10 +169,7 @@ class LifecycleQueryRunner(QueryRunner):
         res = []
         for val in results:
             counts = val[1]
-            labels = [
-                item.strftime("%-d-%b-%Y{}".format(" %H:%M" if self.query_date_range.interval_name == "hour" else ""))
-                for item in val[0]
-            ]
+            labels = [format_label_date(item, self.query_date_range.interval_name) for item in val[0]]
             days = [
                 item.strftime("%Y-%m-%d{}".format(" %H:%M:%S" if self.query_date_range.interval_name == "hour" else ""))
                 for item in val[0]

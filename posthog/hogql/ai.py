@@ -68,7 +68,7 @@ def write_sql_from_prompt(prompt: str, *, current_query: Optional[str] = None, t
         )
     )
     instance_region = get_instance_region() or "HOBBY"
-    messages = [
+    messages: list[openai.types.chat.ChatCompletionMessageParam] = [
         {"role": "system", "content": IDENTITY_MESSAGE},
         {
             "role": "system",
@@ -101,17 +101,18 @@ def write_sql_from_prompt(prompt: str, *, current_query: Optional[str] = None, t
     prompt_tokens_total, completion_tokens_total = 0, 0
     for _ in range(3):  # Try up to 3 times in case the generated SQL is not valid HogQL
         attempt_count += 1
-        result = openai.ChatCompletion.create(
+        result = openai.chat.completions.create(
             model="gpt-3.5-turbo",
             temperature=0.8,
             messages=messages,
             user=f"{instance_region}/{user.pk}",  # The user ID is for tracking within OpenAI in case of overuse/abuse
         )
-        content: str = result["choices"][0]["message"]["content"].removesuffix(";")
-        prompt_tokens_last = result["usage"]["prompt_tokens"]
-        completion_tokens_last = result["usage"]["completion_tokens"]
-        prompt_tokens_total += prompt_tokens_last
-        completion_tokens_total += completion_tokens_last
+        content: str = ""
+        if result.choices[0] and result.choices[0].message.content:
+            content = result.choices[0].message.content.removesuffix(";")
+        if result.usage:
+            prompt_tokens_total += result.usage.prompt_tokens
+            completion_tokens_total += result.usage.completion_tokens
         if content.startswith(UNCLEAR_PREFIX):
             error = content.removeprefix(UNCLEAR_PREFIX).strip()
             break

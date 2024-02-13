@@ -71,6 +71,13 @@ export const TARGET_AREA_TO_NAME = {
     'posthog-3000': 'PostHog 3000',
 }
 
+export const SEVERITY_LEVEL_TO_NAME = {
+    critical: 'Outage / data loss / breach',
+    high: 'Feature unavailable / Significant impact',
+    medium: 'Feature not working as expected',
+    low: 'Feature request or Question',
+}
+
 export const SUPPORT_KIND_TO_SUBJECT = {
     bug: 'Bug Report',
     feedback: 'Feedback',
@@ -78,6 +85,7 @@ export const SUPPORT_KIND_TO_SUBJECT = {
 }
 
 export type SupportTicketTargetArea = keyof typeof TARGET_AREA_TO_NAME
+export type SupportTicketSeverityLevel = keyof typeof SEVERITY_LEVEL_TO_NAME
 export type SupportTicketKind = keyof typeof SUPPORT_KIND_TO_SUBJECT
 
 export const URL_PATH_TO_TARGET_AREA: Record<string, SupportTicketTargetArea> = {
@@ -115,6 +123,7 @@ export type SupportFormFields = {
     email: string
     kind: SupportTicketKind
     target_area: SupportTicketTargetArea | null
+    severity_level: SupportTicketSeverityLevel | null
     message: string
 }
 
@@ -146,15 +155,17 @@ export const supportLogic = kea<supportLogicType>([
                 name: '',
                 email: '',
                 kind: 'support',
+                severity_level: null,
                 target_area: null,
                 message: '',
             } as SupportFormFields,
-            errors: ({ name, email, message, kind, target_area }) => {
+            errors: ({ name, email, message, kind, target_area, severity_level }) => {
                 return {
                     name: !values.user ? (!name ? 'Please enter your name' : '') : '',
                     email: !values.user ? (!email ? 'Please enter your email' : '') : '',
                     message: !message ? 'Please enter a message' : '',
                     kind: !kind ? 'Please choose' : undefined,
+                    severity_level: !severity_level ? 'Please choose' : undefined,
                     target_area: !target_area ? 'Please choose' : undefined,
                 }
             },
@@ -181,13 +192,14 @@ export const supportLogic = kea<supportLogicType>([
             const panelOptions = [
                 values.sendSupportRequest.kind ?? '',
                 values.sendSupportRequest.target_area ?? '',
+                values.sendSupportRequest.severity_level ?? '',
             ].join(':')
 
             if (panelOptions !== ':') {
                 actions.setSidePanelOptions(panelOptions)
             }
         },
-        openSupportForm: async ({ name, email, kind, target_area, message }) => {
+        openSupportForm: async ({ name, email, kind, target_area, severity_level, message }) => {
             const area = target_area ?? getURLPathToTargetArea(window.location.pathname)
             kind = kind ?? 'support'
             actions.resetSendSupportRequest({
@@ -195,6 +207,7 @@ export const supportLogic = kea<supportLogicType>([
                 email: email ?? '',
                 kind,
                 target_area: area,
+                severity_level: severity_level ?? null,
                 message: message ?? '',
             })
 
@@ -207,7 +220,7 @@ export const supportLogic = kea<supportLogicType>([
 
             actions.updateUrlParams()
         },
-        submitZendeskTicket: async ({ name, email, kind, target_area, message }) => {
+        submitZendeskTicket: async ({ name, email, kind, target_area, severity_level, message }) => {
             const zendesk_ticket_uuid = uuid()
             const subject =
                 SUPPORT_KIND_TO_SUBJECT[kind ?? 'support'] +
@@ -222,6 +235,16 @@ export const supportLogic = kea<supportLogicType>([
                 request: {
                     requester: { name: name, email: email },
                     subject: subject,
+                    custom_fields: [
+                        {
+                            id: 22084126888475,
+                            value: severity_level,
+                        },
+                        {
+                            id: 22129191462555,
+                            value: posthog.get_distinct_id(),
+                        },
+                    ],
                     comment: {
                         body: (
                             message +
@@ -304,22 +327,24 @@ export const supportLogic = kea<supportLogicType>([
             const [panel, ...panelOptions] = (hashParams['panel'] ?? '').split(':')
 
             if (panel === SidePanelTab.Support) {
-                const [kind, area] = panelOptions
+                const [kind, area, severity] = panelOptions
 
                 actions.openSupportForm({
                     kind: Object.keys(SUPPORT_KIND_TO_SUBJECT).includes(kind) ? kind : null,
                     target_area: Object.keys(TARGET_AREA_TO_NAME).includes(area) ? area : null,
+                    severity_level: Object.keys(SEVERITY_LEVEL_TO_NAME).includes(severity) ? severity : null,
                 })
                 return
             }
 
             // Legacy supportModal param
             if ('supportModal' in hashParams) {
-                const [kind, area] = (hashParams['supportModal'] || '').split(':')
+                const [kind, area, severity] = (hashParams['supportModal'] || '').split(':')
 
                 actions.openSupportForm({
                     kind: Object.keys(SUPPORT_KIND_TO_SUBJECT).includes(kind) ? kind : null,
                     target_area: Object.keys(TARGET_AREA_TO_NAME).includes(area) ? area : null,
+                    severity_level: Object.keys(SEVERITY_LEVEL_TO_NAME).includes(severity) ? severity : null,
                 })
             }
         },

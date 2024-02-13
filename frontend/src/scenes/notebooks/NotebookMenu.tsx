@@ -21,37 +21,32 @@ export function NotebookMenu({ shortId }: NotebookLogicProps): JSX.Element {
         <LemonMenu
             items={[
                 {
-                    items: [
-                        {
-                            label: 'Export JSON',
-                            icon: <IconExport />,
-                            onClick: () => exportJSON(),
-                        },
-                        {
-                            label: 'History',
-                            icon: <IconClock />,
-                            onClick: () => setShowHistory(!showHistory),
-                        },
-                        {
-                            label: 'Share',
-                            icon: <IconShare />,
-                            onClick: () => openNotebookShareDialog({ shortId }),
-                        },
-                        !isLocalOnly &&
-                            !notebook?.is_template && {
-                                label: 'Delete',
-                                icon: <IconDelete />,
-                                status: 'danger',
-
-                                onClick: () => {
-                                    notebooksModel.actions.deleteNotebook(shortId, notebook?.title)
-                                    router.actions.push(urls.notebooks())
-                                },
-                            },
-                    ],
+                    label: 'Export JSON',
+                    icon: <IconExport />,
+                    onClick: () => exportJSON(),
                 },
+                {
+                    label: 'History',
+                    icon: <IconClock />,
+                    onClick: () => setShowHistory(!showHistory),
+                },
+                {
+                    label: 'Share',
+                    icon: <IconShare />,
+                    onClick: () => openNotebookShareDialog({ shortId }),
+                },
+                !isLocalOnly &&
+                    !notebook?.is_template && {
+                        label: 'Delete',
+                        icon: <IconDelete />,
+                        status: 'danger',
+
+                        onClick: () => {
+                            notebooksModel.actions.deleteNotebook(shortId, notebook?.title)
+                            router.actions.push(urls.notebooks())
+                        },
+                    },
             ]}
-            actionable
         >
             <LemonButton aria-label="more" icon={<IconEllipsis />} size="small" />
         </LemonMenu>

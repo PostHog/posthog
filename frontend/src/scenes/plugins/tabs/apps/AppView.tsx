@@ -23,15 +23,19 @@ export function AppView({
     const { showAppMetricsForPlugin, sortableEnabledPlugins } = useValues(pluginsLogic)
     const { editPlugin, toggleEnabled, openReorderModal } = useActions(pluginsLogic)
     const { hasAvailableFeature } = useValues(userLogic)
-    if (!hasAvailableFeature(AvailableFeature.DATA_PIPELINES)) {
+
+    const pluginConfig = 'pluginConfig' in plugin ? plugin.pluginConfig : null
+    const isConfigured = !!pluginConfig?.id
+
+    // If pluginConfig is enabled always show it regardless of the feature availability
+    // So self-hosted users who were using the plugins in the past can continue to use them
+    if (!hasAvailableFeature(AvailableFeature.DATA_PIPELINES) && !pluginConfig?.enabled) {
         // If the app isn't in the allowed apps list don't show it
         if (!plugin.url || !PLUGINS_ALLOWED_WITHOUT_DATA_PIPELINES.has(plugin.url)) {
             return <></>
         }
     }
 
-    const pluginConfig = 'pluginConfig' in plugin ? plugin.pluginConfig : null
-    const isConfigured = !!pluginConfig?.id
     const orderedIndex = sortableEnabledPlugins.indexOf(plugin as unknown as any) + 1
     const menuItems: LemonMenuItem[] = []
 

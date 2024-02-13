@@ -5,9 +5,14 @@ import {
     ActionsNode,
     BreakdownFilter,
     EventsNode,
+    FunnelsFilterLegacy,
     InsightNodeKind,
     InsightQueryNode,
+    LifecycleFilterLegacy,
     NodeKind,
+    PathsFilterLegacy,
+    RetentionFilterLegacy,
+    StickinessFilterLegacy,
     TrendsFilterLegacy,
 } from '~/queries/schema'
 import {
@@ -146,27 +151,127 @@ export const queryNodeToFilter = (query: InsightQueryNode): Partial<FilterType> 
         filters.toggledLifecycles = query.lifecycleFilter?.toggledLifecycles
     }
 
-    // get node specific filter properties e.g. trendsFilter, funnelsFilter, ...
-    const insightFilter = JSON.parse(JSON.stringify(query[filterMap[query.kind]] || {}))
-    const legacyProps: TrendsFilterLegacy = {}
-    if (isTrendsQuery(query)) {
-        legacyProps.smoothing_intervals = insightFilter.smoothingIntervals
-        legacyProps.decimal_places = insightFilter.decimalPlaces
-        legacyProps.aggregation_axis_format = insightFilter.aggregationAxisFormat
-        legacyProps.aggregation_axis_postfix = insightFilter.aggregationAxisPostfix
-        legacyProps.aggregation_axis_prefix = insightFilter.aggregationAxisPrefix
-        legacyProps.show_labels_on_series = insightFilter.showLabelsOnSeries
-        legacyProps.show_percent_stack_view = insightFilter.showPercentStackView
-        delete insightFilter.smoothingIntervals
-        delete insightFilter.decimalPlaces
-        delete insightFilter.aggregationAxisFormat
-        delete insightFilter.aggregationAxisPostfix
-        delete insightFilter.aggregationAxisPrefix
-        delete insightFilter.showLabelsOnSeries
-        delete insightFilter.showPercentStackView
+    // we don't want to mutate the original query
+    const queryCopy = JSON.parse(JSON.stringify(query))
+
+    // replace camel cased props with the snake cased variant
+    const camelCasedTrendsProps: TrendsFilterLegacy = {}
+    const camelCasedFunnelsProps: FunnelsFilterLegacy = {}
+    const camelCasedRetentionProps: RetentionFilterLegacy = {}
+    const camelCasedPathsProps: PathsFilterLegacy = {}
+    const camelCasedStickinessProps: StickinessFilterLegacy = {}
+    const camelCasedLifecycleProps: LifecycleFilterLegacy = {}
+    if (isTrendsQuery(queryCopy)) {
+        camelCasedTrendsProps.smoothing_intervals = queryCopy.trendsFilter?.smoothingIntervals
+        camelCasedTrendsProps.decimal_places = queryCopy.trendsFilter?.decimalPlaces
+        camelCasedTrendsProps.aggregation_axis_format = queryCopy.trendsFilter?.aggregationAxisFormat
+        camelCasedTrendsProps.aggregation_axis_postfix = queryCopy.trendsFilter?.aggregationAxisPostfix
+        camelCasedTrendsProps.aggregation_axis_prefix = queryCopy.trendsFilter?.aggregationAxisPrefix
+        camelCasedTrendsProps.show_labels_on_series = queryCopy.trendsFilter?.showLabelsOnSeries
+        camelCasedTrendsProps.show_percent_stack_view = queryCopy.trendsFilter?.showPercentStackView
+        camelCasedTrendsProps.show_legend = queryCopy.trendsFilter?.showLegend
+        camelCasedTrendsProps.show_values_on_series = queryCopy.trendsFilter?.showValuesOnSeries
+        delete queryCopy.trendsFilter?.smoothingIntervals
+        delete queryCopy.trendsFilter?.decimalPlaces
+        delete queryCopy.trendsFilter?.aggregationAxisFormat
+        delete queryCopy.trendsFilter?.aggregationAxisPostfix
+        delete queryCopy.trendsFilter?.aggregationAxisPrefix
+        delete queryCopy.trendsFilter?.showLabelsOnSeries
+        delete queryCopy.trendsFilter?.showPercentStackView
+        delete queryCopy.trendsFilter?.showLegend
+        delete queryCopy.trendsFilter?.showValuesOnSeries
+    } else if (isFunnelsQuery(queryCopy)) {
+        camelCasedFunnelsProps.exclusions = queryCopy.funnelsFilter?.exclusions
+            ? queryCopy.funnelsFilter.exclusions.map(({ funnelFromStep, funnelToStep, ...rest }, index) => ({
+                  funnel_from_step: funnelFromStep,
+                  funnel_to_step: funnelToStep,
+                  order: index,
+                  ...seriesNodeToFilter(rest),
+              }))
+            : undefined
+        camelCasedFunnelsProps.bin_count = queryCopy.funnelsFilter?.binCount
+        camelCasedFunnelsProps.breakdown_attribution_type = queryCopy.funnelsFilter?.breakdownAttributionType
+        camelCasedFunnelsProps.breakdown_attribution_value = queryCopy.funnelsFilter?.breakdownAttributionValue
+        camelCasedFunnelsProps.funnel_aggregate_by_hogql = queryCopy.funnelsFilter?.funnelAggregateByHogQL
+        camelCasedFunnelsProps.funnel_to_step = queryCopy.funnelsFilter?.funnelToStep
+        camelCasedFunnelsProps.funnel_from_step = queryCopy.funnelsFilter?.funnelFromStep
+        camelCasedFunnelsProps.funnel_order_type = queryCopy.funnelsFilter?.funnelOrderType
+        camelCasedFunnelsProps.funnel_viz_type = queryCopy.funnelsFilter?.funnelVizType
+        camelCasedFunnelsProps.funnel_window_interval = queryCopy.funnelsFilter?.funnelWindowInterval
+        camelCasedFunnelsProps.funnel_window_interval_unit = queryCopy.funnelsFilter?.funnelWindowIntervalUnit
+        // camelCasedFunnelsProps.hidden_legend_breakdowns = queryCopy.funnelsFilter?.hiddenLegendBreakdowns
+        camelCasedFunnelsProps.funnel_step_reference = queryCopy.funnelsFilter?.funnelStepReference
+        delete queryCopy.funnelsFilter?.exclusions
+        delete queryCopy.funnelsFilter?.binCount
+        delete queryCopy.funnelsFilter?.breakdownAttributionType
+        delete queryCopy.funnelsFilter?.breakdownAttributionValue
+        delete queryCopy.funnelsFilter?.funnelAggregateByHogQL
+        delete queryCopy.funnelsFilter?.funnelToStep
+        delete queryCopy.funnelsFilter?.funnelFromStep
+        delete queryCopy.funnelsFilter?.funnelOrderType
+        delete queryCopy.funnelsFilter?.funnelVizType
+        delete queryCopy.funnelsFilter?.funnelWindowInterval
+        delete queryCopy.funnelsFilter?.funnelWindowIntervalUnit
+        // delete queryCopy.funnelsFilter?.hiddenLegendBreakdowns
+        delete queryCopy.funnelsFilter?.funnelStepReference
+    } else if (isRetentionQuery(queryCopy)) {
+        camelCasedRetentionProps.retention_reference = queryCopy.retentionFilter?.retentionReference
+        camelCasedRetentionProps.retention_type = queryCopy.retentionFilter?.retentionType
+        camelCasedRetentionProps.returning_entity = queryCopy.retentionFilter?.returningEntity
+        camelCasedRetentionProps.target_entity = queryCopy.retentionFilter?.targetEntity
+        camelCasedRetentionProps.total_intervals = queryCopy.retentionFilter?.totalIntervals
+        delete queryCopy.retentionFilter?.retentionReference
+        delete queryCopy.retentionFilter?.retentionType
+        delete queryCopy.retentionFilter?.returningEntity
+        delete queryCopy.retentionFilter?.targetEntity
+        delete queryCopy.retentionFilter?.totalIntervals
+    } else if (isPathsQuery(queryCopy)) {
+        camelCasedPathsProps.edge_limit = queryCopy.pathsFilter?.edgeLimit
+        camelCasedPathsProps.paths_hogql_expression = queryCopy.pathsFilter?.pathsHogQLExpression
+        camelCasedPathsProps.include_event_types = queryCopy.pathsFilter?.includeEventTypes
+        camelCasedPathsProps.start_point = queryCopy.pathsFilter?.startPoint
+        camelCasedPathsProps.end_point = queryCopy.pathsFilter?.endPoint
+        camelCasedPathsProps.path_groupings = queryCopy.pathsFilter?.pathGroupings
+        camelCasedPathsProps.exclude_events = queryCopy.pathsFilter?.excludeEvents
+        camelCasedPathsProps.step_limit = queryCopy.pathsFilter?.stepLimit
+        camelCasedPathsProps.path_replacements = queryCopy.pathsFilter?.pathReplacements
+        camelCasedPathsProps.local_path_cleaning_filters = queryCopy.pathsFilter?.localPathCleaningFilters
+        camelCasedPathsProps.min_edge_weight = queryCopy.pathsFilter?.minEdgeWeight
+        camelCasedPathsProps.max_edge_weight = queryCopy.pathsFilter?.maxEdgeWeight
+        camelCasedPathsProps.funnel_paths = queryCopy.pathsFilter?.funnelPaths
+        camelCasedPathsProps.funnel_filter = queryCopy.pathsFilter?.funnelFilter
+        delete queryCopy.pathsFilter?.edgeLimit
+        delete queryCopy.pathsFilter?.pathsHogQLExpression
+        delete queryCopy.pathsFilter?.includeEventTypes
+        delete queryCopy.pathsFilter?.startPoint
+        delete queryCopy.pathsFilter?.endPoint
+        delete queryCopy.pathsFilter?.pathGroupings
+        delete queryCopy.pathsFilter?.excludeEvents
+        delete queryCopy.pathsFilter?.stepLimit
+        delete queryCopy.pathsFilter?.pathReplacements
+        delete queryCopy.pathsFilter?.localPathCleaningFilters
+        delete queryCopy.pathsFilter?.minEdgeWeight
+        delete queryCopy.pathsFilter?.maxEdgeWeight
+        delete queryCopy.pathsFilter?.funnelPaths
+        delete queryCopy.pathsFilter?.funnelFilter
+    } else if (isStickinessQuery(queryCopy)) {
+        camelCasedStickinessProps.show_legend = queryCopy.stickinessFilter?.showLegend
+        camelCasedStickinessProps.show_values_on_series = queryCopy.stickinessFilter?.showValuesOnSeries
+        delete queryCopy.stickinessFilter?.showLegend
+        delete queryCopy.stickinessFilter?.showValuesOnSeries
+    } else if (isLifecycleQuery(queryCopy)) {
+        camelCasedLifecycleProps.show_values_on_series = queryCopy.lifecycleFilter?.showValuesOnSeries
+        delete queryCopy.lifecycleFilter?.showValuesOnSeries
     }
-    Object.assign(filters, insightFilter)
-    Object.assign(filters, legacyProps)
+    Object.assign(filters, camelCasedTrendsProps)
+    Object.assign(filters, camelCasedFunnelsProps)
+    Object.assign(filters, camelCasedRetentionProps)
+    Object.assign(filters, camelCasedPathsProps)
+    Object.assign(filters, camelCasedStickinessProps)
+    Object.assign(filters, camelCasedLifecycleProps)
+
+    // add the remaining node specific filter properties
+    Object.assign(filters, queryCopy[filterMap[query.kind]])
 
     return filters
 }

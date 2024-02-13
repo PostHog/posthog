@@ -8,10 +8,6 @@ def get_external_data_source(team_id: str, external_data_source_id: str) -> Exte
     return ExternalDataSource.objects.get(team_id=team_id, id=external_data_source_id)
 
 
-def get_external_data_job(team_id: str, run_id: str) -> ExternalDataJob:
-    return ExternalDataJob.objects.prefetch_related("pipeline").get(id=run_id, team_id=team_id)
-
-
 def create_external_data_job(
     external_data_source_id: UUID,
     workflow_id: str,

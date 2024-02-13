@@ -144,7 +144,7 @@ const SLASH_COMMANDS: SlashCommandsItem[] = [
                         },
                     ],
                     funnelsFilter: {
-                        funnel_viz_type: FunnelVizType.Steps,
+                        funnelVizType: FunnelVizType.Steps,
                     },
                 })
             ),
@@ -160,18 +160,18 @@ const SLASH_COMMANDS: SlashCommandsItem[] = [
                     kind: NodeKind.RetentionQuery,
                     retentionFilter: {
                         period: RetentionPeriod.Day,
-                        total_intervals: 11,
-                        target_entity: {
+                        totalIntervals: 11,
+                        targetEntity: {
                             id: '$pageview',
                             name: '$pageview',
                             type: 'events',
                         },
-                        returning_entity: {
+                        returningEntity: {
                             id: '$pageview',
                             name: '$pageview',
                             type: 'events',
                         },
-                        retention_type: 'retention_first_time',
+                        retentionType: 'retention_first_time',
                     },
                 })
             ),
@@ -186,7 +186,7 @@ const SLASH_COMMANDS: SlashCommandsItem[] = [
                 buildInsightVizQueryContent({
                     kind: NodeKind.PathsQuery,
                     pathsFilter: {
-                        include_event_types: [PathType.PageView],
+                        includeEventTypes: [PathType.PageView],
                     },
                 })
             ),

@@ -1,12 +1,12 @@
 from rest_framework import exceptions, mixins, serializers, viewsets
-from rest_framework.permissions import SAFE_METHODS, BasePermission, IsAuthenticated
+from rest_framework.permissions import SAFE_METHODS, BasePermission
 
 from ee.api.role import RoleSerializer
 from ee.models.feature_flag_role_access import FeatureFlagRoleAccess
 from ee.models.organization_resource_access import OrganizationResourceAccess
 from ee.models.role import Role
 from posthog.api.feature_flag import FeatureFlagSerializer
-from posthog.api.routing import StructuredViewSetMixin
+from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.models import FeatureFlag
 from posthog.models.organization import OrganizationMembership
 
@@ -66,14 +66,14 @@ class FeatureFlagRoleAccessSerializer(serializers.ModelSerializer):
 
 
 class FeatureFlagRoleAccessViewSet(
-    StructuredViewSetMixin,
+    TeamAndOrgViewSetMixin,
     mixins.ListModelMixin,
     mixins.CreateModelMixin,
     mixins.DestroyModelMixin,
     mixins.RetrieveModelMixin,
     viewsets.GenericViewSet,
 ):
-    permission_classes = [IsAuthenticated, FeatureFlagRoleAccessPermissions]
+    permission_classes = [FeatureFlagRoleAccessPermissions]
     serializer_class = FeatureFlagRoleAccessSerializer
     queryset = FeatureFlagRoleAccess.objects.select_related("feature_flag")
     filter_rewrite_rules = {"team_id": "feature_flag__team_id"}

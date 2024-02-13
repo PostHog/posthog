@@ -9,8 +9,8 @@ import type { pipelineLogicType } from './pipelineLogicType'
 
 export const humanFriendlyTabName = (tab: PipelineTab): string => {
     switch (tab) {
-        case PipelineTab.Filters:
-            return 'Filters'
+        case PipelineTab.Overview:
+            return 'Overview'
         case PipelineTab.Transformations:
             return 'Transformations'
         case PipelineTab.Destinations:

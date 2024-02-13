@@ -12,11 +12,11 @@ import { useValues } from 'kea'
 import { notebookLogic } from '../Notebook/notebookLogic'
 
 import { openNotebook } from '~/models/notebooksModel'
-import { IconChat, IconDashboard, IconLogomark, IconNotebook, IconRewindPlay } from '@posthog/icons'
+import { IconChat, IconDashboard, IconLogomark, IconNotebook, IconPlaylist, IconRewindPlay } from '@posthog/icons'
 import { useEffect } from 'react'
 
 type BackLinkMapper = {
-    regex: string
+    regex: RegExp
     type: string
     icon: JSX.Element
     getTitle: (match: string) => Promise<string>
@@ -25,7 +25,7 @@ type BackLinkMapper = {
 const BACKLINK_MAP: BackLinkMapper[] = [
     {
         type: 'dashboards',
-        regex: urls.dashboard('(.+)'),
+        regex: new RegExp(urls.dashboard('(.+)')),
         icon: <IconDashboard />,
         getTitle: async (path: string) => {
             const id = path.split('/')[2]
@@ -35,7 +35,7 @@ const BACKLINK_MAP: BackLinkMapper[] = [
     },
     {
         type: 'insights',
-        regex: urls.insightView('(.+)' as InsightModel['short_id']),
+        regex: new RegExp(urls.insightView('(.+)' as InsightModel['short_id'])),
         icon: <IconBarChart />,
         getTitle: async (path: string) => {
             const id = path.split('/')[2]
@@ -45,7 +45,7 @@ const BACKLINK_MAP: BackLinkMapper[] = [
     },
     {
         type: 'feature_flags',
-        regex: urls.featureFlag('(.+)'),
+        regex: new RegExp(urls.featureFlag('(.+)')),
         icon: <IconFlag />,
         getTitle: async (path: string) => {
             const id = path.split('/')[2]
@@ -55,7 +55,7 @@ const BACKLINK_MAP: BackLinkMapper[] = [
     },
     {
         type: 'experiments',
-        regex: urls.experiment('(.+)'),
+        regex: new RegExp(urls.experiment('(.+)')),
         icon: <IconExperiment />,
         getTitle: async (path: string) => {
             const id = path.split('/')[2]
@@ -65,7 +65,7 @@ const BACKLINK_MAP: BackLinkMapper[] = [
     },
     {
         type: 'surveys',
-        regex: urls.survey('(.+)'),
+        regex: new RegExp(urls.survey('(.+)')),
         icon: <IconChat />,
         getTitle: async (path: string) => {
             const id = path.split('/')[2]
@@ -75,7 +75,7 @@ const BACKLINK_MAP: BackLinkMapper[] = [
     },
     {
         type: 'events',
-        regex: urls.eventDefinition('(.+)'),
+        regex: new RegExp(urls.eventDefinition('(.+)')),
         icon: <IconLive width="1em" height="1em" />,
         getTitle: async (path: string) => {
             const id = path.split('/')[3]
@@ -85,7 +85,7 @@ const BACKLINK_MAP: BackLinkMapper[] = [
     },
     {
         type: 'persons',
-        regex: urls.personByDistinctId('(.+)'),
+        regex: new RegExp(urls.personByDistinctId('(.+)')),
         icon: <IconPerson />,
         getTitle: async (path: string) => {
             const id = path.split('/')[2]
@@ -95,7 +95,7 @@ const BACKLINK_MAP: BackLinkMapper[] = [
     },
     {
         type: 'cohorts',
-        regex: urls.cohort('(.+)'),
+        regex: new RegExp(urls.cohort('(.+)')),
         icon: <IconCohort />,
         getTitle: async (path: string) => {
             const id = path.split('/')[2]
@@ -104,8 +104,18 @@ const BACKLINK_MAP: BackLinkMapper[] = [
         },
     },
     {
+        type: 'playlist',
+        regex: new RegExp(urls.replayPlaylist('(.+)')),
+        icon: <IconPlaylist />,
+        getTitle: async (path: string) => {
+            const id = path.split('/')[3]
+            const playlist = await api.recordings.getPlaylist(id)
+            return playlist.name ?? 'None'
+        },
+    },
+    {
         type: 'replay',
-        regex: urls.replaySingle('(.+)'),
+        regex: new RegExp(urls.replaySingle('(.+)')),
         icon: <IconRewindPlay />,
         getTitle: async (path: string) => {
             const id = path.split('/')[2]
@@ -114,7 +124,7 @@ const BACKLINK_MAP: BackLinkMapper[] = [
     },
     {
         type: 'notebooks',
-        regex: urls.notebook('(.+)'),
+        regex: new RegExp(urls.notebook('(.+)')),
         icon: <IconNotebook />,
         getTitle: async (path: string) => {
             const id = path.split('/')[2]
@@ -130,7 +140,7 @@ const Component = (props: NodeViewProps): JSX.Element => {
 
     const href: string = props.node.attrs.href ?? ''
 
-    const backLinkConfig = BACKLINK_MAP.find((config) => href.match(config.regex))
+    const backLinkConfig = BACKLINK_MAP.find((config) => config.regex.test(href))
     const derivedText: string = props.node.attrs.title || props.node.attrs.href
     const isViewing = location.pathname === href
 

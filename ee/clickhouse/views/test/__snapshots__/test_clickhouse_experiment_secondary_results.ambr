@@ -1,7 +1,7 @@
 # serializer version: 1
 # name: ClickhouseTestExperimentSecondaryResults.test_basic_secondary_metric_results
   '''
-  /* user_id:132 celery:posthog.celery.sync_insight_caching_state */
+  /* user_id:127 celery:posthog.tasks.tasks.sync_insight_caching_state */
   SELECT team_id,
          date_diff('second', max(timestamp), now()) AS age
   FROM events
@@ -130,7 +130,7 @@
                  FROM
                    (SELECT e.timestamp as timestamp,
                            pdi.person_id as aggregation_target,
-                           pdi.person_id as person_id ,
+                           pdi.person_id as person_id,
                            if(event = '$pageview_funnel', 1, 0) as step_0,
                            if(step_0 = 1, timestamp, null) as latest_0,
                            if(event = '$pageleave_funnel', 1, 0) as step_1,
@@ -144,6 +144,13 @@
                               argMax(person_id, version) as person_id
                        FROM person_distinct_id2
                        WHERE team_id = 2
+                         AND distinct_id IN
+                           (SELECT distinct_id
+                            FROM events
+                            WHERE team_id = 2
+                              AND event IN ['$pageleave_funnel', '$pageview_funnel']
+                              AND toTimeZone(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
+                              AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-06 00:00:00', 'UTC') )
                        GROUP BY distinct_id
                        HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
                     WHERE team_id = 2

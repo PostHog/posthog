@@ -68,7 +68,7 @@ export const BillingProductAddon = ({ addon }: { addon: BillingProductV2AddonTyp
         addon.type === 'data_pipelines' &&
         addon.subscribed &&
         featureFlags['data-pipelines-notice'] &&
-        addon.plans?.[0].plan_key === 'addon-20240111-og-customers'
+        addon.plans?.[0]?.plan_key === 'addon-20240111-og-customers'
 
     if (showPipelineAddonNotice) {
         setProductSpecificAlert({
@@ -370,6 +370,20 @@ export const BillingProduct = ({ product }: { product: BillingProductV2Type }): 
                                     <More
                                         overlay={
                                             <>
+                                                {billing?.billing_period?.interval == 'month' && (
+                                                    <LemonButton
+                                                        fullWidth
+                                                        onClick={() => setIsEditingBillingLimit(true)}
+                                                    >
+                                                        Set billing limit
+                                                    </LemonButton>
+                                                )}
+                                                <LemonButton
+                                                    fullWidth
+                                                    to="https://posthog.com/docs/billing/estimating-usage-costs#how-to-reduce-your-posthog-costs"
+                                                >
+                                                    Learn how to reduce your bill
+                                                </LemonButton>
                                                 {product.plans?.length > 0 ? (
                                                     <LemonButton
                                                         fullWidth
@@ -386,27 +400,6 @@ export const BillingProduct = ({ product }: { product: BillingProductV2Type }): 
                                                         to="mailto:sales@posthog.com?subject=Custom%20plan%20unsubscribe%20request"
                                                     >
                                                         Contact support to unsubscribe
-                                                    </LemonButton>
-                                                )}
-
-                                                <LemonButton
-                                                    fullWidth
-                                                    to="https://posthog.com/docs/billing/estimating-usage-costs#how-to-reduce-your-posthog-costs"
-                                                >
-                                                    Learn how to reduce your bill
-                                                </LemonButton>
-                                                {billing?.billing_period?.interval == 'month' && (
-                                                    <LemonButton
-                                                        fullWidth
-                                                        disabledReason={
-                                                            billing?.discount_percent === 100
-                                                                ? "You can't set a billing limit with a 100% discount"
-                                                                : null
-                                                        }
-                                                        tooltipPlacement="bottom"
-                                                        onClick={() => setIsEditingBillingLimit(true)}
-                                                    >
-                                                        Set billing limit
                                                     </LemonButton>
                                                 )}
                                             </>

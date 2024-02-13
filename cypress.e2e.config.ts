@@ -1,4 +1,5 @@
 import { defineConfig } from 'cypress'
+import { createClient } from 'redis'
 import webpackPreprocessor from '@cypress/webpack-preprocessor'
 import { PNG } from 'pngjs'
 import pixelmatch from 'pixelmatch'
@@ -92,6 +93,21 @@ export default defineConfig({
 
                         return true
                     })
+                },
+
+                async resetInsightCache() {
+                    const redisClient = await createClient()
+                        .on('error', (err) => console.log('Redis client error', err))
+                        .connect()
+                    for await (const key of redisClient.scanIterator({
+                        TYPE: 'string',
+                        MATCH: '*cache*',
+                        COUNT: 100,
+                    })) {
+                        await redisClient.del(key)
+                    }
+                    await redisClient.quit()
+                    return null
                 },
             })
 

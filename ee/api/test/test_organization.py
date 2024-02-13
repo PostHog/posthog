@@ -8,9 +8,9 @@ from rest_framework import status
 
 from ee.api.test.base import APILicensedTest
 from ee.models.license import License
-from posthog.celery import sync_all_organization_available_features
 from posthog.models import Team, User
 from posthog.models.organization import Organization, OrganizationMembership
+from posthog.tasks.tasks import sync_all_organization_available_features
 
 
 class TestOrganizationEnterpriseAPI(APILicensedTest):

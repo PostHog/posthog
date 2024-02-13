@@ -4,9 +4,8 @@ from posthog.hogql import ast
 from posthog.hogql.parser import parse_expr, parse_select
 from posthog.hogql.query import execute_hogql_query
 from posthog.hogql_queries.insights.trends.utils import get_properties_chain
-from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 from posthog.models.team.team import Team
-from posthog.schema import ChartDisplayType
+from posthog.schema import BreakdownFilter, BreakdownType, ChartDisplayType
 
 BREAKDOWN_OTHER_STRING_LABEL = "$$_posthog_breakdown_other_$$"
 BREAKDOWN_OTHER_NUMERIC_LABEL = 9007199254740991  # pow(2, 53) - 1, for JS compatibility
@@ -18,40 +17,40 @@ class BreakdownValues:
     team: Team
     event_name: str
     breakdown_field: Union[str, float, List[Union[str, float]]]
-    breakdown_type: str
-    query_date_range: QueryDateRange
+    breakdown_type: BreakdownType
     events_filter: ast.Expr
     chart_display_type: ChartDisplayType
     histogram_bin_count: Optional[int]
     group_type_index: Optional[int]
     hide_other_aggregation: Optional[bool]
-    breakdown_limit: Optional[float]
+    breakdown_limit: Optional[int]
 
     def __init__(
         self,
         team: Team,
         event_name: str,
-        breakdown_field: Union[str, float, List[Union[str, float]]],
-        query_date_range: QueryDateRange,
-        breakdown_type: str,
         events_filter: ast.Expr,
         chart_display_type: ChartDisplayType,
-        histogram_bin_count: Optional[float] = None,
-        group_type_index: Optional[float] = None,
-        hide_other_aggregation: Optional[bool] = False,
-        breakdown_limit: Optional[float] = None,
+        breakdown_filter: BreakdownFilter,
     ):
         self.team = team
         self.event_name = event_name
-        self.breakdown_field = breakdown_field
-        self.query_date_range = query_date_range
-        self.breakdown_type = breakdown_type
+        self.breakdown_field = breakdown_filter.breakdown  # type: ignore
+        self.breakdown_type = breakdown_filter.breakdown_type  # type: ignore
         self.events_filter = events_filter
         self.chart_display_type = chart_display_type
-        self.histogram_bin_count = int(histogram_bin_count) if histogram_bin_count is not None else None
-        self.group_type_index = int(group_type_index) if group_type_index is not None else None
-        self.hide_other_aggregation = hide_other_aggregation
-        self.breakdown_limit = breakdown_limit
+        self.histogram_bin_count = (
+            int(breakdown_filter.breakdown_histogram_bin_count)
+            if breakdown_filter.breakdown_histogram_bin_count is not None
+            else None
+        )
+        self.group_type_index = (
+            int(breakdown_filter.breakdown_group_type_index)
+            if breakdown_filter.breakdown_group_type_index is not None
+            else None
+        )
+        self.hide_other_aggregation = breakdown_filter.breakdown_hide_other_aggregation
+        self.breakdown_limit = breakdown_filter.breakdown_limit
 
     def get_breakdown_values(self) -> List[str | int]:
         if self.breakdown_type == "cohort":
@@ -83,7 +82,7 @@ class BreakdownValues:
         if self.chart_display_type == ChartDisplayType.WorldMap:
             breakdown_limit = BREAKDOWN_VALUES_LIMIT_FOR_COUNTRIES
         else:
-            breakdown_limit = self.breakdown_limit or BREAKDOWN_VALUES_LIMIT
+            breakdown_limit = int(self.breakdown_limit) if self.breakdown_limit is not None else BREAKDOWN_VALUES_LIMIT
 
         inner_events_query = parse_select(
             """
@@ -148,6 +147,8 @@ class BreakdownValues:
             elif all_values_are_string_or_none:
                 values = [BREAKDOWN_NULL_STRING_LABEL if value in (None, "") else value for value in values]
                 values.insert(0, BREAKDOWN_OTHER_STRING_LABEL)
+
+            breakdown_limit += 1  # Add one to the limit to account for the "other" value
 
         return values[:breakdown_limit]
 

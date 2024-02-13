@@ -1,4 +1,5 @@
 import { captureException } from '@sentry/node'
+import crypto from 'crypto'
 import { mkdirSync, rmSync } from 'node:fs'
 import { CODES, features, KafkaConsumer, librdkafkaVersion, Message, TopicPartition } from 'node-rdkafka'
 import { Counter, Gauge, Histogram } from 'prom-client'
@@ -90,6 +91,17 @@ const counterKafkaMessageReceived = new Counter({
     labelNames: ['partition'],
 })
 
+const counterCommitSkippedDueToPotentiallyBlockingSession = new Counter({
+    name: 'recording_blob_ingestion_commit_skipped_due_to_potentially_blocking_session',
+    help: 'The number of times we skipped committing due to a potentially blocking session',
+})
+
+const histogramActiveSessionsWhenCommitIsBlocked = new Histogram({
+    name: 'recording_blob_ingestion_active_sessions_when_commit_is_blocked',
+    help: 'The number of active sessions on a partition when we skip committing due to a potentially blocking session',
+    buckets: [0, 1, 2, 3, 4, 5, 10, 20, 50, 100, 1000, 10000, Infinity],
+})
+
 type PartitionMetrics = {
     lastMessageTimestamp?: number
     lastMessageOffset?: number
@@ -138,14 +150,18 @@ export class SessionRecordingIngester {
 
         this.realtimeManager = new RealtimeManager(this.redisPool, this.config)
 
+        // We create a hash of the cluster to use as a unique identifier for the high water marks
+        // This enables us to swap clusters without having to worry about resetting the high water marks
+        const kafkaClusterIdentifier = crypto.createHash('md5').update(this.config.KAFKA_HOSTS).digest('hex')
+
         this.sessionHighWaterMarker = new OffsetHighWaterMarker(
             this.redisPool,
-            this.config.SESSION_RECORDING_REDIS_PREFIX
+            this.config.SESSION_RECORDING_REDIS_PREFIX + `kafka-${kafkaClusterIdentifier}/`
         )
 
         this.persistentHighWaterMarker = new OffsetHighWaterMarker(
             this.redisPool,
-            this.config.SESSION_RECORDING_REDIS_PREFIX + 'persistent/'
+            this.config.SESSION_RECORDING_REDIS_PREFIX + `kafka-${kafkaClusterIdentifier}/persistent/`
         )
 
         // NOTE: This is the only place where we need to use the shared server config
@@ -411,6 +427,11 @@ export class SessionRecordingIngester {
             eachBatch: async (messages) => {
                 return await this.handleEachBatch(messages)
             },
+            topicConfig: {
+                // NOTE: In the event of a failover we want to reset fully to the earliest offset
+                // There is unlikely any other reason why the topic would not have offsets
+                'auto.offset.reset': 'earliest',
+            },
         })
 
         this.totalNumPartitions = (await getPartitionsForTopic(this.connectedBatchConsumer)).length
@@ -648,9 +669,11 @@ export class SessionRecordingIngester {
 
                 let potentiallyBlockingSession: SessionManager | undefined
 
+                let activeSessionsOnThisPartition = 0
                 for (const sessionManager of blockingSessions) {
                     if (sessionManager.partition === partition) {
                         const lowestOffset = sessionManager.getLowestOffset()
+                        activeSessionsOnThisPartition++
                         if (
                             lowestOffset !== null &&
                             lowestOffset < (potentiallyBlockingSession?.getLowestOffset() || Infinity)
@@ -684,6 +707,8 @@ export class SessionRecordingIngester {
                             highestOffsetToCommit,
                         }
                     )
+                    counterCommitSkippedDueToPotentiallyBlockingSession.inc()
+                    histogramActiveSessionsWhenCommitIsBlocked.observe(activeSessionsOnThisPartition)
                     return
                 }
 

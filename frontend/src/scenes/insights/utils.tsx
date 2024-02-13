@@ -1,6 +1,6 @@
 import api from 'lib/api'
 import { dayjs } from 'lib/dayjs'
-import { KEY_MAPPING } from 'lib/taxonomy'
+import { CORE_FILTER_DEFINITIONS_BY_GROUP } from 'lib/taxonomy'
 import { ensureStringIsNotBlank, humanFriendlyNumber, objectsEqual } from 'lib/utils'
 import { getCurrentTeamId } from 'lib/utils/getAppContext'
 import { ReactNode } from 'react'
@@ -11,7 +11,7 @@ import { urls } from 'scenes/urls'
 import { dashboardsModel } from '~/models/dashboardsModel'
 import { FormatPropertyValueForDisplayFunction } from '~/models/propertyDefinitionsModel'
 import { examples } from '~/queries/examples'
-import { ActionsNode, BreakdownFilter, EventsNode } from '~/queries/schema'
+import { ActionsNode, BreakdownFilter, EventsNode, PathsFilter } from '~/queries/schema'
 import { isEventsNode } from '~/queries/utils'
 import {
     ActionFilter,
@@ -26,7 +26,6 @@ import {
     InsightModel,
     InsightShortId,
     InsightType,
-    PathsFilterType,
     PathType,
     TrendsFilterType,
 } from '~/types'
@@ -49,8 +48,8 @@ export const getDisplayNameFromEntityFilter = (
     // Make sure names aren't blank strings
     const customName = ensureStringIsNotBlank(filter?.custom_name)
     let name = ensureStringIsNotBlank(filter?.name)
-    if (name && name in KEY_MAPPING.event) {
-        name = KEY_MAPPING.event[name].label
+    if (name && name in CORE_FILTER_DEFINITIONS_BY_GROUP.events) {
+        name = CORE_FILTER_DEFINITIONS_BY_GROUP.events[name].label
     }
     if (isAllEventsEntityFilter(filter)) {
         name = 'All events'
@@ -64,8 +63,8 @@ export const getDisplayNameFromEntityNode = (node: EventsNode | ActionsNode, isC
     // Make sure names aren't blank strings
     const customName = ensureStringIsNotBlank(node?.custom_name)
     let name = ensureStringIsNotBlank(node?.name)
-    if (name && name in KEY_MAPPING.event) {
-        name = KEY_MAPPING.event[name].label
+    if (name && name in CORE_FILTER_DEFINITIONS_BY_GROUP.events) {
+        name = CORE_FILTER_DEFINITIONS_BY_GROUP.events[name].label
     }
     if (isEventsNode(node) && node.event === null) {
         name = 'All events'
@@ -162,25 +161,25 @@ export async function getInsightId(shortId: InsightShortId): Promise<number | un
               .results[0]?.id
 }
 
-export function humanizePathsEventTypes(include_event_types: PathsFilterType['include_event_types']): string[] {
+export function humanizePathsEventTypes(includeEventTypes: PathsFilter['includeEventTypes']): string[] {
     let humanEventTypes: string[] = []
-    if (include_event_types) {
-        if (include_event_types.includes(PathType.PageView)) {
+    if (includeEventTypes) {
+        if (includeEventTypes.includes(PathType.PageView)) {
             humanEventTypes.push('page views')
         }
-        if (include_event_types.includes(PathType.Screen)) {
+        if (includeEventTypes.includes(PathType.Screen)) {
             humanEventTypes.push('screen views')
         }
-        if (include_event_types.includes(PathType.CustomEvent)) {
+        if (includeEventTypes.includes(PathType.CustomEvent)) {
             humanEventTypes.push('custom events')
         }
         if (
-            (humanEventTypes.length === 0 && !include_event_types.includes(PathType.HogQL)) ||
+            (humanEventTypes.length === 0 && !includeEventTypes.includes(PathType.HogQL)) ||
             humanEventTypes.length === 3
         ) {
             humanEventTypes = ['all events']
         }
-        if (include_event_types.includes(PathType.HogQL)) {
+        if (includeEventTypes.includes(PathType.HogQL)) {
             humanEventTypes.push('HogQL expression')
         }
     }
@@ -220,7 +219,7 @@ export const BREAKDOWN_OTHER_NUMERIC_LABEL = 9007199254740991 // pow(2, 53) - 1
 export const BREAKDOWN_NULL_STRING_LABEL = '$$_posthog_breakdown_null_$$'
 export const BREAKDOWN_NULL_NUMERIC_LABEL = 9007199254740990 // pow(2, 53) - 2
 
-export function isOtherBreakdown(breakdown_value: string | number | null | undefined): boolean {
+export function isOtherBreakdown(breakdown_value: string | number | null | undefined | ReactNode): boolean {
     return breakdown_value === BREAKDOWN_OTHER_STRING_LABEL || breakdown_value === BREAKDOWN_OTHER_NUMERIC_LABEL
 }
 
@@ -297,6 +296,10 @@ export function formatBreakdownType(breakdownFilter: BreakdownFilter): string {
 
 export function sortDates(dates: Array<string | null>): Array<string | null> {
     return dates.sort((a, b) => (dayjs(a).isAfter(dayjs(b)) ? 1 : -1))
+}
+
+export function sortDayJsDates(dates: Array<dayjs.Dayjs>): Array<dayjs.Dayjs> {
+    return dates.sort((a, b) => (a.isAfter(b) ? 1 : -1))
 }
 
 // Gets content-length header from a fetch Response

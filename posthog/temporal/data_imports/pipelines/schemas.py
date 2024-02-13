@@ -5,4 +5,5 @@ from posthog.temporal.data_imports.pipelines.hubspot.settings import ENDPOINTS a
 PIPELINE_TYPE_SCHEMA_DEFAULT_MAPPING = {
     ExternalDataSource.Type.STRIPE: STRIPE_ENDPOINTS,
     ExternalDataSource.Type.HUBSPOT: HUBSPOT_ENDPOINTS,
+    ExternalDataSource.Type.POSTGRES: (),
 }

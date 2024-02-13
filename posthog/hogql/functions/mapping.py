@@ -191,6 +191,7 @@ HOGQL_CLICKHOUSE_FUNCTIONS: Dict[str, HogQLFunctionMeta] = {
     "toMinute": HogQLFunctionMeta("toMinute", 1, 1),
     "toSecond": HogQLFunctionMeta("toSecond", 1, 1),
     "toUnixTimestamp": HogQLFunctionMeta("toUnixTimestamp", 1, 2),
+    "toUnixTimestamp64Milli": HogQLFunctionMeta("toUnixTimestamp64Milli", 1, 1),
     "toStartOfYear": HogQLFunctionMeta("toStartOfYear", 1, 1),
     "toStartOfISOYear": HogQLFunctionMeta("toStartOfISOYear", 1, 1),
     "toStartOfQuarter": HogQLFunctionMeta("toStartOfQuarter", 1, 1),

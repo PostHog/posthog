@@ -1830,64 +1830,6 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         )
         self.assertEqual(response.status_code, status.HTTP_200_OK)
 
-    @patch("posthog.api.insight.capture_exception")
-    def test_serializer(self, patch_capture_exception) -> None:
-        """
-        Various regression tests for the serializer
-        """
-        # Display
-        self.client.get(
-            f"/api/projects/{self.team.id}/insights/trend/?events={json.dumps([{'id': '$pageview'}])}&properties=%5B%5D&display=ActionsLineGraph"
-        )
-
-        self.assertEqual(
-            patch_capture_exception.call_count,
-            0,
-            patch_capture_exception.call_args_list,
-        )
-
-        # Properties with an array
-        events = [
-            {
-                "id": "$pageview",
-                "properties": [{"key": "something", "value": ["something"]}],
-            }
-        ]
-        self.client.get(
-            f"/api/projects/{self.team.id}/insights/trend/?events={json.dumps(events)}&properties=%5B%5D&display=ActionsLineGraph"
-        )
-        self.assertEqual(
-            patch_capture_exception.call_count,
-            0,
-            patch_capture_exception.call_args_list,
-        )
-
-        # Breakdown with ints in funnels
-        cohort_one_id = self._create_one_person_cohort([{"key": "prop", "value": 5, "type": "person"}])
-        cohort_two_id = self._create_one_person_cohort([{"key": "prop", "value": 6, "type": "person"}])
-
-        events = [
-            {
-                "id": "$pageview",
-                "properties": [{"key": "something", "value": ["something"]}],
-            },
-            {"id": "$pageview"},
-        ]
-        response = self.client.post(
-            f"/api/projects/{self.team.id}/insights/funnel/",
-            {
-                "events": events,
-                "breakdown": [cohort_one_id, cohort_two_id],
-                "breakdown_type": "cohort",
-            },
-        )
-        self.assertEqual(response.status_code, 200)
-        self.assertEqual(
-            patch_capture_exception.call_count,
-            0,
-            patch_capture_exception.call_args_list,
-        )
-
     def _create_one_person_cohort(self, properties: List[Dict[str, Any]]) -> int:
         Person.objects.create(team=self.team, properties=properties)
         cohort_one_id = self.client.post(

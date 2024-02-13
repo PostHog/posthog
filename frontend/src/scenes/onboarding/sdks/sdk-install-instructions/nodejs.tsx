@@ -1,5 +1,6 @@
 import { useValues } from 'kea'
 import { CodeSnippet, Language } from 'lib/components/CodeSnippet'
+import { apiHostOrigin } from 'lib/utils/apiHost'
 import { teamLogic } from 'scenes/teamLogic'
 
 export function NodeInstallSnippet(): JSX.Element {
@@ -23,7 +24,7 @@ export function NodeSetupSnippet(): JSX.Element {
 
 const client = new PostHog(
     '${currentTeam?.api_token}',
-    { host: '${window.location.origin}' }
+    { host: '${apiHostOrigin()}' }
 )`}
         </CodeSnippet>
     )

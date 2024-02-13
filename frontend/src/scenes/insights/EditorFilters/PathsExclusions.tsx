@@ -9,14 +9,14 @@ export function PathsExclusions({ insightProps }: EditorFilterProps): JSX.Elemen
     const { pathsFilter, taxonomicGroupTypes } = useValues(pathsDataLogic(insightProps))
     const { updateInsightFilter } = useActions(pathsDataLogic(insightProps))
 
-    const { exclude_events, path_groupings } = pathsFilter || {}
+    const { excludeEvents, pathGroupings } = pathsFilter || {}
     return (
         <PathItemFilters
             taxonomicGroupTypes={taxonomicGroupTypes}
-            pageKey={`${keyForInsightLogicProps('new')(insightProps)}-exclude_events`}
+            pageKey={`${keyForInsightLogicProps('new')(insightProps)}-excludeEvents`}
             propertyFilters={
-                exclude_events &&
-                exclude_events.map(
+                excludeEvents &&
+                excludeEvents.map(
                     (name): EventPropertyFilter => ({
                         key: name,
                         value: name,
@@ -26,9 +26,9 @@ export function PathsExclusions({ insightProps }: EditorFilterProps): JSX.Elemen
                 )
             }
             onChange={(values) => {
-                updateInsightFilter({ exclude_events: values.map((v) => v.value as string) })
+                updateInsightFilter({ excludeEvents: values.map((v) => v.value as string) })
             }}
-            wildcardOptions={path_groupings?.map((name) => ({ name }))}
+            wildcardOptions={pathGroupings?.map((name) => ({ name }))}
         />
     )
 }

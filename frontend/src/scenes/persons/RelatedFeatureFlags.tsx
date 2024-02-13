@@ -1,6 +1,5 @@
 import { LemonInput, LemonSelect, LemonTable, LemonTag, Link } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
-import { normalizeColumnTitle } from 'lib/components/Table/utils'
 import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
 import { LemonTableColumns } from 'lib/lemon-ui/LemonTable'
 import { capitalizeFirstLetter } from 'lib/utils'
@@ -42,7 +41,7 @@ export function RelatedFeatureFlags({ distinctId, groups }: Props): JSX.Element 
 
     const columns: LemonTableColumns<RelatedFeatureFlag> = [
         {
-            title: normalizeColumnTitle('Key'),
+            title: 'Key',
             dataIndex: 'key',
             className: 'ph-no-capture',
             sticky: true,

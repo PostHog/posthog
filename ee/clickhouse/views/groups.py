@@ -8,21 +8,14 @@ from rest_framework import mixins, request, response, serializers, viewsets
 from rest_framework.decorators import action
 from rest_framework.exceptions import NotFound, ValidationError
 from rest_framework.pagination import CursorPagination
-from rest_framework.permissions import IsAuthenticated
 
 from ee.clickhouse.queries.related_actors_query import RelatedActorsQuery
 from posthog.api.documentation import extend_schema
-from posthog.api.routing import StructuredViewSetMixin
-from posthog.auth import SharingAccessTokenAuthentication
+from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.clickhouse.kafka_engine import trim_quotes_expr
 from posthog.client import sync_execute
 from posthog.models.group import Group
 from posthog.models.group_type_mapping import GroupTypeMapping
-from posthog.permissions import (
-    ProjectMembershipNecessaryPermissions,
-    SharingTokenPermission,
-    TeamMemberAccessPermission,
-)
 
 
 class GroupTypeSerializer(serializers.ModelSerializer):
@@ -32,25 +25,11 @@ class GroupTypeSerializer(serializers.ModelSerializer):
         read_only_fields = ["group_type", "group_type_index"]
 
 
-class ClickhouseGroupsTypesView(StructuredViewSetMixin, mixins.ListModelMixin, viewsets.GenericViewSet):
+class ClickhouseGroupsTypesView(TeamAndOrgViewSetMixin, mixins.ListModelMixin, viewsets.GenericViewSet):
     serializer_class = GroupTypeSerializer
     queryset = GroupTypeMapping.objects.all().order_by("group_type_index")
     pagination_class = None
-    permission_classes = [
-        IsAuthenticated,
-        ProjectMembershipNecessaryPermissions,
-        TeamMemberAccessPermission,
-    ]
-
     sharing_enabled_actions = ["list"]
-
-    def get_permissions(self):
-        if isinstance(self.request.successful_authenticator, SharingAccessTokenAuthentication):
-            return [SharingTokenPermission()]
-        return super().get_permissions()
-
-    def get_authenticators(self):
-        return [SharingAccessTokenAuthentication(), *super().get_authenticators()]
 
     @action(detail=False, methods=["PATCH"], name="Update group types metadata")
     def update_metadata(self, request: request.Request, *args, **kwargs):
@@ -74,15 +53,10 @@ class GroupSerializer(serializers.HyperlinkedModelSerializer):
         fields = ["group_type_index", "group_key", "group_properties", "created_at"]
 
 
-class ClickhouseGroupsView(StructuredViewSetMixin, mixins.ListModelMixin, viewsets.GenericViewSet):
+class ClickhouseGroupsView(TeamAndOrgViewSetMixin, mixins.ListModelMixin, viewsets.GenericViewSet):
     serializer_class = GroupSerializer
     queryset = Group.objects.all()
     pagination_class = GroupCursorPagination
-    permission_classes = [
-        IsAuthenticated,
-        ProjectMembershipNecessaryPermissions,
-        TeamMemberAccessPermission,
-    ]
 
     def get_queryset(self):
         return (

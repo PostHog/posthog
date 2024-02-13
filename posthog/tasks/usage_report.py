@@ -17,6 +17,7 @@ from typing import (
 
 import requests
 import structlog
+from celery import shared_task
 from dateutil import parser
 from django.conf import settings
 from django.db import connection
@@ -27,7 +28,6 @@ from retry import retry
 from sentry_sdk import capture_exception
 
 from posthog import version_requirement
-from posthog.celery import app
 from posthog.clickhouse.client.connection import Workload
 from posthog.client import sync_execute
 from posthog.cloud_utils import get_cached_instance_license, is_cloud
@@ -41,6 +41,7 @@ from posthog.models.plugin import PluginConfig
 from posthog.models.team.team import Team
 from posthog.models.utils import namedtuplefetchall
 from posthog.settings import CLICKHOUSE_CLUSTER, INSTANCE_TAG
+from posthog.tasks.utils import CeleryQueue
 from posthog.utils import (
     get_helm_info_env,
     get_instance_realm,
@@ -62,6 +63,13 @@ CH_BILLING_SETTINGS = {
 QUERY_RETRIES = 3
 QUERY_RETRY_DELAY = 1
 QUERY_RETRY_BACKOFF = 2
+
+USAGE_REPORT_TASK_KWARGS = dict(
+    queue=CeleryQueue.USAGE_REPORTS.value,
+    ignore_result=True,
+    autoretry_for=(Exception,),
+    retry_backoff=True,
+)
 
 
 @dataclasses.dataclass
@@ -274,7 +282,7 @@ def get_org_owner_or_first_user(organization_id: str) -> Optional[User]:
     return user
 
 
-@app.task(ignore_result=True, autoretry_for=(Exception,), max_retries=3)
+@shared_task(**USAGE_REPORT_TASK_KWARGS, max_retries=3)
 def send_report_to_billing_service(org_id: str, report: Dict[str, Any]) -> None:
     if not settings.EE_AVAILABLE:
         return
@@ -621,7 +629,7 @@ def get_teams_with_rows_synced_in_period(begin: datetime, end: datetime) -> List
     return results
 
 
-@app.task(ignore_result=True, max_retries=0)
+@shared_task(**USAGE_REPORT_TASK_KWARGS, max_retries=0)
 def capture_report(
     capture_event_name: str,
     org_id: str,
@@ -952,7 +960,7 @@ def _get_full_org_usage_report_as_dict(full_report: FullUsageReport) -> Dict[str
     return dataclasses.asdict(full_report)
 
 
-@app.task(ignore_result=True, max_retries=3, autoretry_for=(Exception,))
+@shared_task(**USAGE_REPORT_TASK_KWARGS, max_retries=3)
 def send_all_org_usage_reports(
     dry_run: bool = False,
     at: Optional[str] = None,
