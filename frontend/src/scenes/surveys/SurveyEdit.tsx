@@ -103,7 +103,11 @@ export default function SurveyEdit(): JSX.Element {
                                                             left: '-1rem',
                                                         }}
                                                     >
-                                                        <SurveyAppearancePreview survey={survey} />
+                                                        <SurveyAppearancePreview
+                                                            survey={survey}
+                                                            activePreview="survey"
+                                                            questionIndex={0}
+                                                        />
                                                     </div>
                                                 </PresentationTypeCard>
                                                 <PresentationTypeCard
