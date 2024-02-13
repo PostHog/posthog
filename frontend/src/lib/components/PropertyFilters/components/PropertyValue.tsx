@@ -115,7 +115,7 @@ export function PropertyValue({
 
     const commonInputProps = {
         onSearch: (newInput: string) => {
-            setInput(newInput.trim())
+            setInput(newInput)
             if (!Object.keys(options).includes(newInput) && !(operator && isOperatorFlag(operator))) {
                 load(newInput.trim())
             }
