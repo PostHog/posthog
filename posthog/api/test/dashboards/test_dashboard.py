@@ -905,6 +905,7 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
         existing_dashboard_item_id_set = {tile1.pk, tile2.pk}
         response_item_id_set = set(map(lambda x: x.get("id", None), response["tiles"]))
         # check both sets are disjoint to verify that the new items' ids are different than the existing items
+
         self.assertTrue(existing_dashboard_item_id_set.isdisjoint(response_item_id_set))
 
         for item in response["tiles"]:
