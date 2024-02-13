@@ -5,6 +5,7 @@ import datetime as dt
 import json
 
 import pyarrow as pa
+import structlog
 from django.conf import settings
 from google.cloud import bigquery
 from google.oauth2 import service_account
@@ -258,7 +259,7 @@ async def insert_into_bigquery_activity(inputs: BigQueryInsertInputs):
         async def worker_shutdown_handler():
             """Handle the Worker shutting down by heart-beating our latest status."""
             await activity.wait_for_worker_shutdown()
-            logger.bind(last_inserted_at=last_inserted_at).debug("Worker shutting down!")
+            structlog.contextvars.bind_contextvars(last_inserted_at=last_inserted_at).debug("Worker shutting down!")
 
             if last_inserted_at is None:
                 # Don't heartbeat if worker shuts down before we could even send anything

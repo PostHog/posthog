@@ -8,6 +8,7 @@ import json
 import typing
 
 import snowflake.connector
+import structlog
 from django.conf import settings
 from snowflake.connector.connection import SnowflakeConnection
 from temporalio import activity, workflow
@@ -394,7 +395,9 @@ async def insert_into_snowflake_activity(inputs: SnowflakeInsertInputs):
             async def worker_shutdown_handler():
                 """Handle the Worker shutting down by heart-beating our latest status."""
                 await activity.wait_for_worker_shutdown()
-                logger.bind(last_inserted_at=last_inserted_at, file_no=file_no).debug("Worker shutting down!")
+                structlog.contextvars.bind_contextvars(last_inserted_at=last_inserted_at, file_no=file_no).debug(
+                    "Worker shutting down!"
+                )
 
                 if last_inserted_at is None:
                     # Don't heartbeat if worker shuts down before we could even send anything

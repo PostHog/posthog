@@ -28,7 +28,6 @@ def add_pid_and_tid(
 # To enable standard library logs to be formatted via structlog, we add this
 # `foreign_pre_chain` to both formatters.
 foreign_pre_chain: List[structlog.types.Processor] = [
-    structlog.contextvars.merge_contextvars,
     structlog.processors.TimeStamper(fmt="iso"),
     structlog.stdlib.add_logger_name,
     structlog.stdlib.add_log_level,
@@ -41,11 +40,11 @@ foreign_pre_chain: List[structlog.types.Processor] = [
 
 structlog.configure(
     processors=[
+        structlog.contextvars.merge_contextvars,
         structlog.stdlib.filter_by_level,
         *foreign_pre_chain,
         structlog.stdlib.ProcessorFormatter.wrap_for_formatter,
     ],
-    context_class=structlog.threadlocal.wrap_dict(dict),
     logger_factory=structlog.stdlib.LoggerFactory(),
     wrapper_class=structlog.stdlib.BoundLogger,
     cache_logger_on_first_use=True,
@@ -61,12 +60,12 @@ LOGGING = {
         "default": {
             "()": structlog.stdlib.ProcessorFormatter,
             "processor": structlog.dev.ConsoleRenderer(colors=DEBUG),
-            "foreign_pre_chain": foreign_pre_chain,
+            "foreign_pre_chain": [structlog.contextvars.merge_contextvars] + foreign_pre_chain,
         },
         "json": {
             "()": structlog.stdlib.ProcessorFormatter,
             "processor": structlog.processors.JSONRenderer(),
-            "foreign_pre_chain": foreign_pre_chain,
+            "foreign_pre_chain": [structlog.contextvars.merge_contextvars] + foreign_pre_chain,
         },
     },
     "filters": {

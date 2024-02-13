@@ -9,6 +9,7 @@ aioboto3==12.0.0
 aiobotocore[boto3]==2.7.0
     # via
     #   aioboto3
+    #   aiobotocore
     #   s3fs
 aiohttp==3.9.0
     # via
@@ -35,7 +36,9 @@ anyio==4.2.0
     #   httpx
     #   openai
 asgiref==3.7.2
-    # via django
+    # via
+    #   django
+    #   django-structlog
 asn1crypto==1.5.1
     # via
     #   oscrypto
@@ -83,6 +86,7 @@ celery==5.3.4
     # via
     #   -r requirements.in
     #   celery-redbeat
+    #   django-structlog
 celery-redbeat==2.1.1
     # via -r requirements.in
 certifi==2019.11.28
@@ -166,8 +170,10 @@ django==4.1.13
     #   djangorestframework
     #   djangorestframework-dataclasses
     #   drf-spectacular
-django-axes==5.9.0
-    # via -r requirements.in
+django-axes[ipware]==6.3.0
+    # via
+    #   -r requirements.in
+    #   django-axes
 django-cors-headers==3.5.0
     # via -r requirements.in
 django-deprecate-fields==0.1.1
@@ -180,8 +186,9 @@ django-filter==2.4.0
     # via -r requirements.in
 django-formtools==2.4
     # via django-two-factor-auth
-django-ipware==3.0.2
+django-ipware==6.0.4
     # via
+    #   -r requirements.in
     #   django-axes
     #   django-structlog
 django-loginas==0.3.11
@@ -200,8 +207,10 @@ django-revproxy==0.12.0
     # via -r requirements.in
 django-statsd==2.5.2
     # via -r requirements.in
-django-structlog==2.1.3
-    # via -r requirements.in
+django-structlog[celery]==7.1.0
+    # via
+    #   -r requirements.in
+    #   django-structlog
 django-two-factor-auth==1.14.0
     # via -r requirements.in
 djangorestframework==3.14.0
@@ -252,6 +261,7 @@ giturlparse==0.12.0
     # via dlt
 google-api-core[grpc]==2.11.1
     # via
+    #   google-api-core
     #   google-cloud-bigquery
     #   google-cloud-core
 google-auth==2.22.0
@@ -486,6 +496,8 @@ python-dateutil==2.8.2
     #   temporalio
 python-dotenv==0.21.0
     # via webdriver-manager
+python-ipware==2.0.1
+    # via django-ipware
 python-statsd==2.1.0
     # via django-statsd
 python3-openid==3.1.0
@@ -681,6 +693,7 @@ urllib3[secure,socks]==1.26.18
     #   selenium
     #   sentry-sdk
     #   snowflake-connector-python
+    #   urllib3
 urllib3-secure-extra==0.1.0
     # via urllib3
 vine==5.0.0

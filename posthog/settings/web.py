@@ -13,11 +13,15 @@ from posthog.utils_cors import CORS_ALLOWED_TRACING_HEADERS
 
 
 AXES_ENABLED = get_from_env("AXES_ENABLED", not TEST, type_cast=str_to_bool)
+# can be any combination of username, ip_address or user_agent
+# in a list of strings or list of lists of strings.
+AXES_LOCKOUT_PARAMETERS = ["ip_address"]  # to keep pre-6.0 behavior
+AXES_HTTP_RESPONSE_CODE = 403  # to keep pre-6.0 behavior
 AXES_HANDLER = "axes.handlers.cache.AxesCacheHandler"
 AXES_FAILURE_LIMIT = get_from_env("AXES_FAILURE_LIMIT", 30, type_cast=int)
 AXES_COOLOFF_TIME = timedelta(minutes=10)
 AXES_LOCKOUT_CALLABLE = "posthog.api.authentication.axes_locked_out"
-AXES_META_PRECEDENCE_ORDER = ["HTTP_X_FORWARDED_FOR", "REMOTE_ADDR"]
+AXES_IPWARE_META_PRECEDENCE_ORDER = ["HTTP_X_FORWARDED_FOR", "REMOTE_ADDR"]
 
 # Decide rate limit setting
 
@@ -45,6 +49,7 @@ DECIDE_SKIP_HASH_KEY_OVERRIDE_WRITES = get_from_env(
 # Application definition
 
 INSTALLED_APPS = [
+    "django_structlog",
     "whitenoise.runserver_nostatic",  # makes sure that whitenoise handles static files in development
     "django.contrib.admin",
     "django.contrib.auth",
@@ -71,18 +76,18 @@ INSTALLED_APPS = [
     # 'two_factor.plugins.yubikey',  # <- for yubikey capability.
 ]
 
+DJANGO_STRUCTLOG_CELERY_ENABLED = True
 
 MIDDLEWARE = [
     "posthog.middleware.PrometheusBeforeMiddlewareWithTeamIds",
     "posthog.gzip_middleware.ScopedGZipMiddleware",
     "posthog.middleware.per_request_logging_context_middleware",
     "django_structlog.middlewares.RequestMiddleware",
-    "django_structlog.middlewares.CeleryMiddleware",
     "django.middleware.security.SecurityMiddleware",
     "posthog.middleware.CaptureMiddleware",
     # NOTE: we need healthcheck high up to avoid hitting middlewares that may be
     # using dependencies that the healthcheck should be checking. It should be
-    # ok below the above middlewares however.
+    # ok below the above middlewares, however.
     "posthog.health.healthcheck_middleware",
     "posthog.middleware.ShortCircuitMiddleware",
     "posthog.middleware.AllowIPMiddleware",
