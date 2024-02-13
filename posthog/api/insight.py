@@ -574,6 +574,7 @@ class InsightViewSet(
     renderer_classes = tuple(api_settings.DEFAULT_RENDERER_CLASSES) + (csvrenderers.CSVRenderer,)
     filter_backends = [DjangoFilterBackend]
     filterset_fields = ["short_id", "created_by"]
+    sharing_enabled_actions = ["retrieve", "list"]
 
     retention_query_class = Retention
     stickiness_query_class = Stickiness
@@ -588,22 +589,10 @@ class InsightViewSet(
             return InsightBasicSerializer
         return super().get_serializer_class()
 
-    def get_authenticators(self):
-        return [SharingAccessTokenAuthentication(), *super().get_authenticators()]
-
     def get_serializer_context(self) -> Dict[str, Any]:
         context = super().get_serializer_context()
         context["is_shared"] = isinstance(self.request.successful_authenticator, SharingAccessTokenAuthentication)
         return context
-
-    def get_permissions(self):
-        if isinstance(self.request.successful_authenticator, SharingAccessTokenAuthentication) and self.action in (
-            "retrieve",
-            "list",
-        ):
-            # Anonymous users authenticated via SharingAccessTokenAuthentication get read-only access to insights
-            return []
-        return super().get_permissions()
 
     def get_queryset(self) -> QuerySet:
         queryset: QuerySet

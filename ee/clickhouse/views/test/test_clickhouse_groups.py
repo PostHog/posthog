@@ -434,6 +434,26 @@ class ClickhouseTestGroupsApi(ClickhouseTestMixin, APIBaseTest):
             self.permission_denied_response("You don't have access to the project."),
         )
 
+    def test_cannot_list_group_types_of_another_org_with_sharing_token(self):
+        sharing_configuration = SharingConfiguration.objects.create(team=self.team, enabled=True)
+
+        other_org = Organization.objects.create(name="other org")
+        other_team = Team.objects.create(organization=other_org, name="other project")
+
+        GroupTypeMapping.objects.create(team=other_team, group_type="organization", group_type_index=0)
+        GroupTypeMapping.objects.create(team=other_team, group_type="playlist", group_type_index=1)
+        GroupTypeMapping.objects.create(team=other_team, group_type="another", group_type_index=2)
+
+        response = self.client.get(
+            f"/api/projects/{other_team.id}/groups_types/?sharing_access_token={sharing_configuration.access_token}"
+        )
+
+        self.assertEqual(response.status_code, 403, response.json())
+        self.assertEqual(
+            response.json(),
+            self.permission_denied_response("You do not have permission to perform this action."),
+        )
+
     def test_can_list_group_types_of_another_org_with_sharing_access_token(self):
         other_org = Organization.objects.create(name="other org")
         other_team = Team.objects.create(organization=other_org, name="other project")
