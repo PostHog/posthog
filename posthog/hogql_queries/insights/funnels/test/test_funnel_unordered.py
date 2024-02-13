@@ -956,7 +956,7 @@ class TestFunnelUnorderedSteps(ClickhouseTestMixin, APIBaseTest):
             ],
             "date_from": "2021-05-01 00:00:00",
             "date_to": "2021-05-07 23:59:59",
-            "funnel_window_days": "1",
+            "funnel_window_interval": "1",
         }
 
         person1_stopped_after_signup = _create_person(distinct_ids=["stopped_after_signup1"], team_id=self.team.pk)
