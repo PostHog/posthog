@@ -1,7 +1,8 @@
-from typing import Tuple, Any
+from typing import Tuple, Any, cast
 
 from freezegun import freeze_time
 
+from posthog.hogql import ast
 from posthog.hogql.ast import CompareOperationOp
 from posthog.hogql_queries.events_query_runner import EventsQueryRunner
 from posthog.models import Person, Team
@@ -124,12 +125,14 @@ class TestEventsQueryRunner(ClickhouseTestMixin, APIBaseTest):
 
         # matching team
         query_ast = EventsQueryRunner(query=query, team=self.team).to_query()
-        self.assertEqual(query_ast.where.exprs[0].right.value, ["id1", "id2"])
+        where_expr = cast(ast.And, query_ast.where).exprs[0]
+        self.assertEqual(where_expr.right.value, ["id1", "id2"])
 
         # another team
         another_team = Team.objects.create(organization=Organization.objects.create())
         query_ast = EventsQueryRunner(query=query, team=another_team).to_query()
-        self.assertEqual(query_ast.where.exprs[0].right.value, [])
+        where_expr = cast(ast.And, query_ast.where).exprs[0]
+        self.assertEqual(where_expr.right.value, [])
 
     def test_test_account_filters(self):
         self.team.test_account_filters = [
@@ -143,5 +146,6 @@ class TestEventsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         self.team.save()
         query = EventsQuery(kind="EventsQuery", select=["*"], filterTestAccounts=True)  # type: ignore
         query_ast = EventsQueryRunner(query=query, team=self.team).to_query()
-        self.assertEqual(query_ast.where.exprs[0].right.value, "%posthog.com%")
-        self.assertEqual(query_ast.where.exprs[0].op, CompareOperationOp.NotILike)
+        where_expr = cast(ast.And, query_ast.where).exprs[0]
+        self.assertEqual(where_expr.right.value, "%posthog.com%")
+        self.assertEqual(where_expr.op, CompareOperationOp.NotILike)
