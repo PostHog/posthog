@@ -1,9 +1,7 @@
-import './onboarding.scss'
-
-import { LemonButton } from '@posthog/lemon-ui'
+import { LemonButton, Link } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { supportLogic } from 'lib/components/Support/supportLogic'
-import { IconArrowRight } from 'lib/lemon-ui/icons'
+import { IconArrowRight, IconChevronRight } from 'lib/lemon-ui/icons'
 import React from 'react'
 
 import { onboardingLogic, OnboardingStepKey, stepKeyToTitle } from './onboardingLogic'
@@ -42,27 +40,32 @@ export const OnboardingStep = ({
     return (
         <>
             <div className="pb-2">
-                <div className={`grid onboardingHeader ${hideHeader && 'hidden'}`}>
+                <div className={`flex justify-between items-center text-muted ${hideHeader && 'hidden'}`}>
                     <h1 className="font-bold m-0 pl-2">
                         {title || stepKeyToTitle(currentOnboardingStep?.props.stepKey)}
                     </h1>
-                    <div />
-                    <div className="flex items-center">
+                    <div className="flex items-center gap-x-3">
                         {onboardingStepNames.map((stepName, idx) => {
                             return (
                                 <React.Fragment key={`stepKey-${idx}`}>
-                                    <div
-                                        className={`text-sm onboardingCrumb ${
+                                    <Link
+                                        className={`text-sm ${
                                             currentOnboardingStep?.props.stepKey === stepName && 'font-bold'
-                                        }`}
+                                        } font-bold`}
                                         data-text={stepKeyToTitle(stepName)}
                                         key={stepName}
                                         onClick={() => setStepKey(stepName)}
                                     >
-                                        {stepKeyToTitle(stepName)}
-                                    </div>
+                                        <span
+                                            className={`text-sm ${
+                                                currentOnboardingStep?.props.stepKey !== stepName && 'text-muted'
+                                            }`}
+                                        >
+                                            {stepKeyToTitle(stepName)}
+                                        </span>
+                                    </Link>
                                     {onboardingStepNames.length > 1 && idx !== onboardingStepNames.length - 1 && (
-                                        <div key={`${stepName}-separator`} className="onboardingCrumbSeparator" />
+                                        <IconChevronRight className="text-xl" />
                                     )}
                                 </React.Fragment>
                             )
