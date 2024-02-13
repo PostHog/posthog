@@ -380,6 +380,14 @@ class BatchExportTemporaryFile:
 
         return result
 
+    def write_record_as_bytes(self, record: bytes):
+        result = self.write(record)
+
+        self.records_total += 1
+        self.records_since_last_reset += 1
+
+        return result
+
     def write_records_to_jsonl(self, records):
         """Write records to a temporary file as JSONL."""
         if len(records) == 1:
