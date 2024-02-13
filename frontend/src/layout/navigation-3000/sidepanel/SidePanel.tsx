@@ -75,6 +75,7 @@ export const SIDE_PANEL_TABS: Record<
         label: 'System status',
         Icon: SidePanelStatusIcon,
         Content: SidePanelStatus,
+        noModalSupport: true,
     },
 }
 
