@@ -7,7 +7,7 @@ from .subscriptions import (
     handle_subscription_value_change,
     schedule_all_subscriptions,
 )
-from .replay_summaries import embed_batch_of_recordings_task, generate_recordings_embeddings_batch
+from .replay import embed_batch_of_recordings_task, generate_recordings_embeddings_batch
 
 # As our EE tasks are not included at startup for Celery, we need to ensure they are declared here so that they are imported by posthog/settings/celery.py
 
