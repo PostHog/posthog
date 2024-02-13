@@ -105,13 +105,14 @@ export function Tooltip({
                 <FloatingPortal>
                     <div
                         ref={refs.setFloating}
+                        className="z-[var(--z-tooltip)]"
                         // eslint-disable-next-line react/forbid-dom-props
                         style={{ ...context.floatingStyles }}
                         {...getFloatingProps()}
                     >
                         <div
                             className={clsx(
-                                'bg-tooltip-bg py-1.5 px-2 z-[1070] break-words rounded text-start text-white',
+                                'bg-tooltip-bg py-1.5 px-2 break-words rounded text-start text-white',
                                 className
                             )}
                             // eslint-disable-next-line react/forbid-dom-props
