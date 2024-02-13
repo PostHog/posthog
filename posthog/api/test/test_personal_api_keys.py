@@ -26,6 +26,8 @@ class TestPersonalAPIKeysAPI(APIBaseTest):
             "last_used_at": None,
             "user_id": self.user.id,
             "scopes": ["insight:read"],
+            "scoped_organizations": None,
+            "scoped_teams": None,
             "value": data["value"],
         }
         assert data["value"].startswith("phx_")  # Personal API key prefix
@@ -120,6 +122,8 @@ class TestPersonalAPIKeysAPI(APIBaseTest):
             "last_used_at": None,
             "user_id": self.user.id,
             "scopes": ["*"],
+            "scoped_organizations": None,
+            "scoped_teams": None,
             "value": None,
         }
 
