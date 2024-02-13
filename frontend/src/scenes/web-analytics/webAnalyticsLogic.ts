@@ -413,6 +413,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                     return {
                         dashboardItemId: getDashboardItemId(tile, tab, false),
                         loadPriority: loadPriorityMap[tile],
+                        dataNodeCollectionId: 'web-analytics',
                     }
                 }
 
@@ -1014,6 +1015,8 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                         insightProps: {
                             dashboardItemId: getDashboardItemId(tileId, tabId, true),
                             loadPriority: 0,
+                            doNotLoad: false,
+                            dataNodeCollectionId: 'web-analytics',
                         },
                         query: extendQuery(tab.query),
                         canOpenInsight: tab.canOpenInsight,
@@ -1030,6 +1033,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                         insightProps: {
                             dashboardItemId: getDashboardItemId(tileId, undefined, true),
                             loadPriority: 0,
+                            dataNodeCollectionId: 'web-analytics',
                         },
                         query: extendQuery(tile.query),
                     }

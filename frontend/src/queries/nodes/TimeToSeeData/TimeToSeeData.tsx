@@ -15,7 +15,12 @@ let uniqueNode = 0
 /** Default renderer for data nodes. Display the JSON in a Monaco editor.  */
 export function TimeToSeeData(props: { query: TimeToSeeDataNode; cachedResults?: AnyResponseType }): JSX.Element {
     const [key] = useState(() => `TimeToSeeData.${uniqueNode++}`)
-    const logic = dataNodeLogic({ query: props.query, key, cachedResults: props.cachedResults })
+    const logic = dataNodeLogic({
+        query: props.query,
+        key,
+        cachedResults: props.cachedResults,
+        dataNodeCollectionId: key,
+    })
     const { response, responseLoading } = useValues(logic)
 
     if (responseLoading) {

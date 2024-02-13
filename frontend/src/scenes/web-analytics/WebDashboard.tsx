@@ -1,6 +1,6 @@
 import { IconExpand45 } from '@posthog/icons'
 import clsx from 'clsx'
-import { useActions, useValues } from 'kea'
+import { BindLogic, useActions, useValues } from 'kea'
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
 import { IconOpenInNew } from 'lib/lemon-ui/icons'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
@@ -16,6 +16,8 @@ import { WebQuery } from 'scenes/web-analytics/WebAnalyticsTile'
 import { WebPropertyFilters } from 'scenes/web-analytics/WebPropertyFilters'
 
 import { navigationLogic } from '~/layout/navigation/navigationLogic'
+import { dataNodeCollectionLogic } from '~/queries/nodes/DataNode/dataNodeCollectionLogic'
+import { ReloadAll } from '~/queries/nodes/DataNode/Reload'
 import { QuerySchema } from '~/queries/schema'
 
 const Filters = (): JSX.Element => {
@@ -242,14 +244,17 @@ export const WebTabs = ({
 
 export const WebAnalyticsDashboard = (): JSX.Element => {
     return (
-        <>
-            <WebAnalyticsModal />
-            <WebAnalyticsNotice />
-            <div className="WebAnalyticsDashboard w-full flex flex-col">
-                <Filters />
-                <WebAnalyticsHealthCheck />
-                <Tiles />
-            </div>
-        </>
+        <BindLogic logic={webAnalyticsLogic} props={{}}>
+            <BindLogic logic={dataNodeCollectionLogic} props={{ key: 'web-analytics' }}>
+                <ReloadAll />
+                <WebAnalyticsModal />
+                <WebAnalyticsNotice />
+                <div className="WebAnalyticsDashboard w-full flex flex-col">
+                    <Filters />
+                    <WebAnalyticsHealthCheck />
+                    <Tiles />
+                </div>
+            </BindLogic>
+        </BindLogic>
     )
 }
