@@ -265,6 +265,7 @@ export function HogQLQueryEditor(props: HogQLQueryEditorProps): JSX.Element {
 
                                         return {
                                             suggestions,
+                                            incomplete: true,
                                         }
                                     },
                                 })

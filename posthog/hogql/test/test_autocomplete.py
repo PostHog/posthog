@@ -2,7 +2,7 @@ from posthog.hogql.autocomplete import get_hogql_autocomplete
 from posthog.hogql.database.schema.events import EventsTable
 from posthog.hogql.database.schema.persons import PERSONS_FIELDS
 from posthog.models.property_definition import PropertyDefinition
-from posthog.schema import HogQLAutocomplete, HogQLAutocompleteResponse
+from posthog.schema import HogQLAutocomplete, HogQLAutocompleteResponse, Kind
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin
 
 
@@ -148,3 +148,23 @@ class TestAutocomplete(ClickhouseTestMixin, APIBaseTest):
         assert results.suggestions[0].label == "potato"
         assert "event" not in [suggestion.label for suggestion in results.suggestions]
         assert "properties" not in [suggestion.label for suggestion in results.suggestions]
+
+    def test_autocomplete_field_traversers(self):
+        query = "select person. from events"
+        results = self._query_response(query=query, start=14, end=14)
+        assert len(results.suggestions) != 0
+
+    def test_autocomplete_fields_have_types(self):
+        query = "select  from events"
+        results = self._query_response(query=query, start=7, end=7)
+        fields = list(filter(lambda x: x.kind == Kind.Variable, results.suggestions))
+
+        assert len(fields) != 0
+        for suggestion in fields:
+            assert suggestion.detail is not None
+
+    def test_autocomplete_table_alias(self):
+        query = "select  from events e"
+        results = self._query_response(query=query, start=7, end=7)
+        assert len(results.suggestions) != 0
+        assert results.suggestions[0].label == "e"
