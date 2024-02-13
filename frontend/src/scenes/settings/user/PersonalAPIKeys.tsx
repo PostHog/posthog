@@ -33,6 +33,7 @@ function EditKeyModal(): JSX.Element {
         allAccessSelected,
         allTeams,
         allTeamsLoading,
+        allOrganizations,
     } = useValues(personalAPIKeysLogic)
     const { setEditingKeyId, setScopeRadioValue, submitEditingKey, resetScopes } = useActions(personalAPIKeysLogic)
 
@@ -70,9 +71,41 @@ function EditKeyModal(): JSX.Element {
                         <LemonInput placeholder='for example "Zapier"' maxLength={40} />
                     </Field>
 
-                    <LemonLabel>Project & Organization access</LemonLabel>
+                    <Field
+                        name="scoped_organizations"
+                        label="Organization access"
+                        info="Limit this API key to only perform operations on certain organizations."
+                    >
+                        <LemonSelectMultiple
+                            mode="multiple"
+                            data-attr="organizations"
+                            options={
+                                allOrganizations?.map((org) => ({
+                                    key: `${org.id}`,
+                                    label: org.name,
+                                    labelComponent: (
+                                        <Tooltip
+                                            title={
+                                                <div>
+                                                    <div className="font-semibold">{org.name}</div>
+                                                    <div className="text-xs whitespace-nowrap">ID: {org.id}</div>
+                                                </div>
+                                            }
+                                        >
+                                            <span className="flex-1">{org.name}</span>
+                                        </Tooltip>
+                                    ),
+                                })) ?? []
+                            }
+                            placeholder="All organizations"
+                        />
+                    </Field>
 
-                    <Field name="team_access">
+                    <Field
+                        name="scoped_teams"
+                        label="Project access"
+                        info="Limit this API key to only perform operations on certain projects."
+                    >
                         <LemonSelectMultiple
                             mode="multiple"
                             data-attr="teams"
@@ -83,7 +116,7 @@ function EditKeyModal(): JSX.Element {
                                     labelComponent: (
                                         <Tooltip
                                             title={
-                                                <div className="">
+                                                <div>
                                                     <div className="font-semibold">{team.name}</div>
                                                     <div className="text-xs whitespace-nowrap">
                                                         Token: {team.api_token}
@@ -94,13 +127,13 @@ function EditKeyModal(): JSX.Element {
                                                 </div>
                                             }
                                         >
-                                            {team.name}
+                                            <span className="flex-1">{team.name}</span>
                                         </Tooltip>
                                     ),
                                 })) ?? []
                             }
                             loading={allTeamsLoading}
-                            placeholder="All teams"
+                            placeholder="All projects"
                         />
                     </Field>
 

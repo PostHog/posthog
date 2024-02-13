@@ -1,13 +1,14 @@
 import { LemonDialog } from '@posthog/lemon-ui'
-import { actions, afterMount, kea, listeners, path, reducers, selectors } from 'kea'
+import { actions, afterMount, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { forms } from 'kea-forms'
 import { loaders } from 'kea-loaders'
 import api from 'lib/api'
 import { CodeSnippet } from 'lib/components/CodeSnippet'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
+import { userLogic } from 'scenes/userLogic'
 
-import { PersonalAPIKeyType, TeamBasicType } from '~/types'
+import { OrganizationBasicType, PersonalAPIKeyType, TeamBasicType } from '~/types'
 
 import type { personalAPIKeysLogicType } from './personalAPIKeysLogicType'
 
@@ -83,6 +84,9 @@ export const APIScopes: APIScope[] = [
 
 export const personalAPIKeysLogic = kea<personalAPIKeysLogicType>([
     path(['lib', 'components', 'PersonalAPIKeys', 'personalAPIKeysLogic']),
+    connect({
+        values: [userLogic, ['user']],
+    }),
     actions({
         setEditingKeyId: (id: PersonalAPIKeyType['id'] | null) => ({ id }),
         loadKeys: true,
@@ -176,6 +180,13 @@ export const personalAPIKeysLogic = kea<personalAPIKeysLogicType>([
             (s) => [s.editingKey],
             (editingKey): boolean => {
                 return editingKey.scopes.includes('*')
+            },
+        ],
+
+        allOrganizations: [
+            (s) => [s.user],
+            (user): OrganizationBasicType[] => {
+                return user?.organizations ?? []
             },
         ],
     })),
