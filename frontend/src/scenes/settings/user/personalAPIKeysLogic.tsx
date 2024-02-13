@@ -189,6 +189,16 @@ export const personalAPIKeysLogic = kea<personalAPIKeysLogicType>([
                 return user?.organizations ?? []
             },
         ],
+
+        teamsWithinSelectedOrganizations: [
+            (s) => [s.allTeams, s.editingKey],
+            (allTeams, editingKey): TeamBasicType[] => {
+                if (!editingKey?.scoped_organizations?.length) {
+                    return allTeams ?? []
+                }
+                return allTeams?.filter((team) => editingKey.scoped_organizations?.includes(team.organization)) ?? []
+            },
+        ],
     })),
     listeners(({ actions, values }) => ({
         setEditingKeyValue: async ({ name, value }) => {
@@ -207,6 +217,11 @@ export const personalAPIKeysLogic = kea<personalAPIKeysLogicType>([
                 if (preset?.scopes.join(',') !== value.join(',')) {
                     actions.setEditingKeyValue('preset', undefined)
                 }
+            }
+
+            // When the user changes the list of valid orgs, clear the teams
+            if (key === 'scoped_organizations' && values.editingKey.scoped_teams) {
+                actions.setEditingKeyValue('scoped_teams', undefined)
             }
         },
 

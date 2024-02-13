@@ -31,7 +31,7 @@ function EditKeyModal(): JSX.Element {
         editingKeyChanged,
         formScopeRadioValues,
         allAccessSelected,
-        allTeams,
+        teamsWithinSelectedOrganizations,
         allTeamsLoading,
         allOrganizations,
     } = useValues(personalAPIKeysLogic)
@@ -80,7 +80,7 @@ function EditKeyModal(): JSX.Element {
                             mode="multiple"
                             data-attr="organizations"
                             options={
-                                allOrganizations?.map((org) => ({
+                                allOrganizations.map((org) => ({
                                     key: `${org.id}`,
                                     label: org.name,
                                     labelComponent: (
@@ -110,7 +110,7 @@ function EditKeyModal(): JSX.Element {
                             mode="multiple"
                             data-attr="teams"
                             options={
-                                allTeams?.map((team) => ({
+                                teamsWithinSelectedOrganizations.map((team) => ({
                                     key: `${team.id}`,
                                     label: team.name,
                                     labelComponent: (
@@ -122,7 +122,7 @@ function EditKeyModal(): JSX.Element {
                                                         Token: {team.api_token}
                                                     </div>
                                                     <div className="text-xs whitespace-nowrap">
-                                                        Organization: {team.organization}
+                                                        Organization ID: {team.organization}
                                                     </div>
                                                 </div>
                                             }
@@ -133,7 +133,7 @@ function EditKeyModal(): JSX.Element {
                                 })) ?? []
                             }
                             loading={allTeamsLoading}
-                            placeholder="All projects"
+                            placeholder="All projects permitted"
                         />
                     </Field>
 

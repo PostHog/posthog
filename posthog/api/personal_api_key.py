@@ -5,6 +5,7 @@ from rest_framework import response, serializers, viewsets
 from posthog.models import PersonalAPIKey, User
 from posthog.models.organization import OrganizationMembership
 from posthog.models.personal_api_key import API_SCOPE_ACTIONS, API_SCOPE_OBJECTS, hash_key_value
+from posthog.models.team.team import Team
 from posthog.models.utils import generate_random_token_personal
 from posthog.user_permissions import UserPermissions
 
@@ -62,6 +63,7 @@ class PersonalAPIKeySerializer(serializers.ModelSerializer):
         requesting_user: User = self.context["request"].user
         user_permissions = UserPermissions(requesting_user)
 
+        # TODO: Fix this
         for team in scoped_teams.split(","):
             if user_permissions.team(team).effective_membership_level is None:
                 raise serializers.ValidationError(f"You must be a member of all teams that you are scoping the key to.")
@@ -73,6 +75,7 @@ class PersonalAPIKeySerializer(serializers.ModelSerializer):
         user_permissions = UserPermissions(requesting_user)
         org_memberships = user_permissions.organization_memberships
 
+        # TODO: Fix this
         for organization in scoped_organizations.split(","):
             if scoped_organizations not in org_memberships or not org_memberships[organization].level:
                 raise serializers.ValidationError(
