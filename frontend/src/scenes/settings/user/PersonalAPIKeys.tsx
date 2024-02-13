@@ -70,7 +70,7 @@ function EditKeyModal(): JSX.Element {
                         <LemonInput placeholder='for example "Zapier"' maxLength={40} />
                     </Field>
 
-                    <LemonLabel>Team & Organization access</LemonLabel>
+                    <LemonLabel>Project & Organization access</LemonLabel>
 
                     <Field name="team_access">
                         <LemonSelectMultiple
