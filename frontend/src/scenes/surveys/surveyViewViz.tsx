@@ -71,7 +71,7 @@ export function UsersStackedBar({ surveyUserStats }: { surveyUserStats: SurveyUs
                         {[
                             {
                                 count: seen,
-                                label: 'Viewed',
+                                label: 'Shown',
                                 classes: `rounded-l ${dismissed === 0 && sent === 0 ? 'rounded-r' : ''}`,
                                 style: { backgroundColor: '#1D4AFF', width: `${seenPercentage}%` },
                             },
@@ -87,7 +87,7 @@ export function UsersStackedBar({ surveyUserStats }: { surveyUserStats: SurveyUs
                             },
                             {
                                 count: sent,
-                                label: 'Submitted',
+                                label: 'Sent',
                                 classes: `rounded-r ${seen === 0 && dismissed === 0 ? 'rounded-l' : ''}`,
                                 style: {
                                     backgroundColor: '#529B08',
