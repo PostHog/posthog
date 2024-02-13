@@ -13,10 +13,11 @@ import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { capitalizeFirstLetter, pluralize } from 'lib/utils'
 import { useEffect, useState } from 'react'
+import { urls } from 'scenes/urls'
 
 import { Query } from '~/queries/Query/Query'
 import { NodeKind } from '~/queries/schema'
-import { PropertyFilterType, PropertyOperator, Survey, SurveyQuestionType, SurveyType } from '~/types'
+import { InsightType, PropertyFilterType, PropertyOperator, Survey, SurveyQuestionType, SurveyType } from '~/types'
 
 import { SURVEY_EVENT_NAME } from './constants'
 import { SurveyReleaseSummary } from './Survey'
@@ -316,6 +317,29 @@ export function SurveyResult({ disableEventsTable }: { disableEventsTable?: bool
                     }
                 })}
             </>
+            <div className="max-w-40 mb-4">
+                <LemonButton
+                    type="primary"
+                    to={urls.insightNew({
+                        insight: InsightType.TRENDS,
+                        events: [
+                            { id: 'survey sent', name: 'survey sent', type: 'events' },
+                            { id: 'survey shown', name: 'survey shown', type: 'events' },
+                            { id: 'survey dismissed', name: 'survey dismissed', type: 'events' },
+                        ],
+                        properties: [
+                            {
+                                key: '$survey_id',
+                                value: survey.id,
+                                operator: PropertyOperator.Exact,
+                                type: PropertyFilterType.Event,
+                            },
+                        ],
+                    })}
+                >
+                    Explore results
+                </LemonButton>
+            </div>
             {!disableEventsTable && (surveyLoading ? <LemonSkeleton /> : <Query query={dataTableQuery} />)}
         </>
     )

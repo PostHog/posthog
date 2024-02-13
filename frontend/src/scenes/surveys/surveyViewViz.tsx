@@ -36,8 +36,8 @@ const formatCount = (count: number, total: number): string => {
 export function UsersCount({ surveyUserStats }: { surveyUserStats: SurveyUserStats }): JSX.Element {
     const { seen, dismissed, sent } = surveyUserStats
     const total = seen + dismissed + sent
-    const labelTotal = total === 1 ? 'Unique user viewed' : 'Unique users viewed'
-    const labelSent = sent === 1 ? 'Response submitted' : 'Responses submitted'
+    const labelTotal = total === 1 ? 'Unique user shown' : 'Unique users shown'
+    const labelSent = sent === 1 ? 'Response sent' : 'Responses sent'
 
     return (
         <div className="inline-flex mb-4">
