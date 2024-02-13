@@ -26,8 +26,7 @@ export interface TooltipProps {
     offset?: number
     placement?: Placement
     className?: string
-    open?: boolean
-    setOpen?: (open: boolean) => void
+    visible?: boolean
 }
 
 export function Tooltip({
@@ -37,20 +36,17 @@ export function Tooltip({
     placement = 'top',
     offset = 8,
     delayMs = 500,
-    open: controlledOpen,
-    setOpen: setControlledOpen,
+    visible: controlledOpen,
 }: TooltipProps): JSX.Element {
     const [uncontrolledOpen, setUncontrolledOpen] = useState(false)
+    const caretRef = useRef(null)
 
     const open = controlledOpen ?? uncontrolledOpen
-    const setOpen = setControlledOpen ?? setUncontrolledOpen
-
-    const caretRef = useRef(null)
 
     const { context, refs } = useFloating({
         placement,
         open,
-        onOpenChange: setOpen,
+        onOpenChange: setUncontrolledOpen,
         whileElementsMounted: autoUpdate,
         middleware: [
             offsetFunc(offset),

@@ -130,7 +130,7 @@ export const NavbarButton: FunctionComponent<NavbarButtonProps> = React.forwardR
                         title={<SidebarChangeNoticeContent notices={notices} onAcknowledged={onAcknowledged} />}
                         placement={notices[0].placement ?? 'right'}
                         delayMs={0}
-                        open={true}
+                        visible={true}
                     >
                         {buttonContent}
                     </Tooltip>
@@ -145,7 +145,7 @@ export const NavbarButton: FunctionComponent<NavbarButtonProps> = React.forwardR
                         }
                         placement="right"
                         delayMs={0}
-                        open={hasBeenClicked ? false : undefined} // Force-hide tooltip after button click
+                        visible={hasBeenClicked ? false : undefined} // Force-hide tooltip after button click
                     >
                         {buttonContent}
                     </Tooltip>
