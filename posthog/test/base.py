@@ -246,7 +246,7 @@ class PostHogTestCase(SimpleTestCase):
 
     @contextmanager
     def is_cloud(self, value: bool):
-        with self.settings(REGION="US" if value else None):
+        with self.settings(CLOUD_DEPLOYMENT="US" if value else None):
             yield value
 
     @contextmanager

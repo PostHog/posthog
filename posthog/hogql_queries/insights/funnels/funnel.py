@@ -33,7 +33,7 @@ class Funnel(FunnelBase):
     def get_query(self):
         max_steps = self.context.max_steps
 
-        breakdown_exprs = self._get_breakdown_expr()
+        breakdown_exprs = self._get_breakdown_prop_expr()
 
         select: List[ast.Expr] = [
             *self._get_count_columns(max_steps),
@@ -50,7 +50,7 @@ class Funnel(FunnelBase):
 
     def get_step_counts_query(self):
         max_steps = self.context.max_steps
-        breakdown_exprs = self._get_breakdown_expr()
+        breakdown_exprs = self._get_breakdown_prop_expr()
         inner_timestamps, outer_timestamps = self._get_timestamp_selects()
         person_and_group_properties = self._get_person_and_group_properties()
 
@@ -104,7 +104,7 @@ class Funnel(FunnelBase):
             raise ValidationError("Funnels require at least two steps before calculating.")
 
         formatted_query = self._build_step_subquery(2, max_steps)
-        breakdown_exprs = self._get_breakdown_expr()
+        breakdown_exprs = self._get_breakdown_prop_expr()
 
         select: List[ast.Expr] = [
             ast.Field(chain=["*"]),
@@ -120,11 +120,13 @@ class Funnel(FunnelBase):
             ast.CompareOperation(
                 left=ast.Field(chain=["step_0"]), right=ast.Constant(value=1), op=ast.CompareOperationOp.Eq
             ),
-            ast.CompareOperation(
-                left=ast.Field(chain=["exclusion"]), right=ast.Constant(value=0), op=ast.CompareOperationOp.Eq
-            )
-            if self._get_exclusion_condition() != []
-            else None,
+            (
+                ast.CompareOperation(
+                    left=ast.Field(chain=["exclusion"]), right=ast.Constant(value=0), op=ast.CompareOperationOp.Eq
+                )
+                if self._get_exclusion_condition() != []
+                else None
+            ),
         ]
         where = ast.And(exprs=[expr for expr in where_exprs if expr is not None])
 
@@ -142,7 +144,7 @@ class Funnel(FunnelBase):
             select = [
                 *select,
                 *self._get_partition_cols(1, max_steps),
-                *self._get_breakdown_expr(group_remaining=True),
+                *self._get_breakdown_prop_expr(group_remaining=True),
                 *self._get_person_and_group_properties(),
             ]
 
@@ -153,13 +155,13 @@ class Funnel(FunnelBase):
             outer_select = [
                 *select,
                 *self._get_partition_cols(level_index, max_steps),
-                *self._get_breakdown_expr(),
+                *self._get_breakdown_prop_expr(),
                 *self._get_person_and_group_properties(),
             ]
             inner_select = [
                 *select,
                 *self._get_comparison_cols(level_index, max_steps),
-                *self._get_breakdown_expr(),
+                *self._get_breakdown_prop_expr(),
                 *self._get_person_and_group_properties(),
             ]
 
