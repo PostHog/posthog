@@ -168,3 +168,13 @@ class TestAutocomplete(ClickhouseTestMixin, APIBaseTest):
         results = self._query_response(query=query, start=7, end=7)
         assert len(results.suggestions) != 0
         assert results.suggestions[0].label == "e"
+
+    def test_autocomplete_complete_list(self):
+        query = "select event from events"
+        results = self._query_response(query=query, start=7, end=12)
+        assert results.incomplete_list is False
+
+    def test_autocomplete_incomplete_list(self):
+        query = "select properties. from events"
+        results = self._query_response(query=query, start=18, end=18)
+        assert results.incomplete_list is True

@@ -256,7 +256,7 @@ PROPERTY_DEFINITION_LIMIT = 220
 
 # TODO: Support ast.SelectUnionQuery nodes
 def get_hogql_autocomplete(query: HogQLAutocomplete, team: Team) -> HogQLAutocompleteResponse:
-    response = HogQLAutocompleteResponse(suggestions=[])
+    response = HogQLAutocompleteResponse(suggestions=[], incomplete_list=False)
 
     database = create_hogql_database(team_id=team.pk, team_arg=team)
     context = HogQLContext(team_id=team.pk, team=team, database=database)
@@ -371,6 +371,7 @@ def get_hogql_autocomplete(query: HogQLAutocomplete, team: Team) -> HogQLAutocom
                                     suggestions=response.suggestions,
                                     details=[prop["property_type"] for prop in properties],
                                 )
+                                response.incomplete_list = True
                         elif isinstance(field, VirtualTable) or isinstance(field, LazyTable):
                             fields = list(last_table.fields.items())
                             extend_responses(
