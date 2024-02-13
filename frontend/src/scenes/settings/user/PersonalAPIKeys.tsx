@@ -12,9 +12,9 @@ import {
 } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
-import { Field } from 'lib/forms/Field'
 import { IconPlus } from 'lib/lemon-ui/icons'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
+import { LemonField } from 'lib/lemon-ui/LemonField'
 import { capitalizeFirstLetter, humanFriendlyDetailedTime } from 'lib/utils'
 import { Fragment, useEffect } from 'react'
 
@@ -57,12 +57,12 @@ function EditKeyModal(): JSX.Element {
                 }
             >
                 <div className="space-y-2">
-                    <Field name="label" label="Label">
+                    <LemonField name="label" label="Label">
                         <LemonInput placeholder='for example "Zapier"' maxLength={40} />
-                    </Field>
+                    </LemonField>
 
                     <LemonLabel>Scopes</LemonLabel>
-                    <Field name="scopes">
+                    <LemonField name="scopes">
                         {({ error }) => (
                             <>
                                 <p>
@@ -74,14 +74,14 @@ function EditKeyModal(): JSX.Element {
                                     <div className="flex-1">
                                         {error && <span className="text-danger">{error}</span>}
                                     </div>
-                                    <Field name="preset">
+                                    <LemonField name="preset">
                                         <LemonSelect
                                             placeholder="Select a preset"
                                             options={API_KEY_SCOPE_PRESETS}
                                             dropdownMatchSelectWidth={false}
                                             dropdownPlacement="bottom-end"
                                         />
-                                    </Field>
+                                    </LemonField>
                                 </div>
 
                                 {allAccessSelected ? (
@@ -137,7 +137,7 @@ function EditKeyModal(): JSX.Element {
                                 )}
                             </>
                         )}
-                    </Field>
+                    </LemonField>
                 </div>
             </LemonModal>
         </Form>
