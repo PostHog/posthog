@@ -309,7 +309,7 @@
   FROM "posthog_person"
   WHERE (UPPER(("posthog_person"."properties" ->> 'urls')::text) LIKE UPPER('%["abcd"]%')
          AND "posthog_person"."properties" ? 'urls'
-         AND NOT (("posthog_person"."properties" -> 'urls') = 'null')
+         AND NOT (("posthog_person"."properties" -> 'urls') = 'null'::jsonb)
          AND "posthog_person"."team_id" = 2)
   '''
 # ---
@@ -328,7 +328,7 @@
   FROM "posthog_person"
   WHERE (UPPER(("posthog_person"."properties" ->> '$key')::text) LIKE UPPER('%[''red'']%')
          AND "posthog_person"."properties" ? '$key'
-         AND NOT (("posthog_person"."properties" -> '$key') = 'null')
+         AND NOT (("posthog_person"."properties" -> '$key') = 'null'::jsonb)
          AND "posthog_person"."team_id" = 2)
   '''
 # ---
@@ -338,7 +338,7 @@
   FROM "posthog_person"
   WHERE (UPPER(("posthog_person"."properties" ->> '$key')::text) LIKE UPPER('%red%')
          AND "posthog_person"."properties" ? '$key'
-         AND NOT (("posthog_person"."properties" -> '$key') = 'null')
+         AND NOT (("posthog_person"."properties" -> '$key') = 'null'::jsonb)
          AND "posthog_person"."team_id" = 2)
   '''
 # ---
@@ -346,9 +346,9 @@
   '''
   SELECT "posthog_person"."uuid"
   FROM "posthog_person"
-  WHERE (("posthog_person"."properties" -> '$key') > '["2"]'
+  WHERE (("posthog_person"."properties" -> '$key') > '["2"]'::jsonb
          AND "posthog_person"."properties" ? '$key'
-         AND NOT (("posthog_person"."properties" -> '$key') = 'null')
+         AND NOT (("posthog_person"."properties" -> '$key') = 'null'::jsonb)
          AND "posthog_person"."team_id" = 2)
   '''
 # ---
@@ -359,7 +359,7 @@
   INNER JOIN "posthog_persondistinctid" ON ("posthog_person"."id" = "posthog_persondistinctid"."person_id")
   WHERE ("posthog_persondistinctid"."distinct_id" = 'example_id'
          AND "posthog_person"."team_id" = 2
-         AND ("posthog_person"."properties" -> 'created_at') > '["2m", "3d"]')
+         AND ("posthog_person"."properties" -> 'created_at') > '["2m", "3d"]'::jsonb)
   LIMIT 1
   '''
 # ---
@@ -370,7 +370,7 @@
   INNER JOIN "posthog_persondistinctid" ON ("posthog_person"."id" = "posthog_persondistinctid"."person_id")
   WHERE ("posthog_persondistinctid"."distinct_id" = 'example_id'
          AND "posthog_person"."team_id" = 2
-         AND ("posthog_person"."properties" -> 'created_at') > '"bazinga"')
+         AND ("posthog_person"."properties" -> 'created_at') > '"bazinga"'::jsonb)
   LIMIT 1
   '''
 # ---
@@ -414,21 +414,21 @@
          "posthog_person"."uuid",
          "posthog_person"."version"
   FROM "posthog_person"
-  WHERE (((("posthog_person"."properties" -> 'url') = '"https://whatever.com"'
+  WHERE (((("posthog_person"."properties" -> 'url') = '"https://whatever.com"'::jsonb
            AND "posthog_person"."properties" ? 'url'
-           AND NOT (("posthog_person"."properties" -> 'url') = 'null')
-           AND ("posthog_person"."properties" -> 'bla') = '1'
+           AND NOT (("posthog_person"."properties" -> 'url') = 'null'::jsonb)
+           AND ("posthog_person"."properties" -> 'bla') = '1'::jsonb
            AND "posthog_person"."properties" ? 'bla'
-           AND NOT (("posthog_person"."properties" -> 'bla') = 'null')
-           AND ((("posthog_person"."properties" -> 'bla') = '1'
+           AND NOT (("posthog_person"."properties" -> 'bla') = 'null'::jsonb)
+           AND ((("posthog_person"."properties" -> 'bla') = '1'::jsonb
                  AND "posthog_person"."properties" ? 'bla'
-                 AND NOT (("posthog_person"."properties" -> 'bla') = 'null'))
-                OR (("posthog_person"."properties" -> 'bla') = '2'
+                 AND NOT (("posthog_person"."properties" -> 'bla') = 'null'::jsonb))
+                OR (("posthog_person"."properties" -> 'bla') = '2'::jsonb
                     AND "posthog_person"."properties" ? 'bla'
-                    AND NOT (("posthog_person"."properties" -> 'bla') = 'null'))))
-          OR (("posthog_person"."properties" -> 'bla') = '3'
+                    AND NOT (("posthog_person"."properties" -> 'bla') = 'null'::jsonb))))
+          OR (("posthog_person"."properties" -> 'bla') = '3'::jsonb
               AND "posthog_person"."properties" ? 'bla'
-              AND NOT (("posthog_person"."properties" -> 'bla') = 'null')))
+              AND NOT (("posthog_person"."properties" -> 'bla') = 'null'::jsonb)))
          AND "posthog_person"."team_id" = 2)
   '''
 # ---
@@ -490,21 +490,21 @@
          "posthog_person"."uuid",
          "posthog_person"."version"
   FROM "posthog_person"
-  WHERE (((("posthog_person"."properties" -> 'url') = '"https://whatever.com"'
+  WHERE (((("posthog_person"."properties" -> 'url') = '"https://whatever.com"'::jsonb
            AND "posthog_person"."properties" ? 'url'
-           AND NOT (("posthog_person"."properties" -> 'url') = 'null')
-           AND ("posthog_person"."properties" -> 'bla') = '1'
+           AND NOT (("posthog_person"."properties" -> 'url') = 'null'::jsonb)
+           AND ("posthog_person"."properties" -> 'bla') = '1'::jsonb
            AND "posthog_person"."properties" ? 'bla'
-           AND NOT (("posthog_person"."properties" -> 'bla') = 'null')
-           AND ("posthog_person"."properties" -> 'bla') = '1'
+           AND NOT (("posthog_person"."properties" -> 'bla') = 'null'::jsonb)
+           AND ("posthog_person"."properties" -> 'bla') = '1'::jsonb
            AND "posthog_person"."properties" ? 'bla'
-           AND NOT (("posthog_person"."properties" -> 'bla') = 'null')
-           AND ("posthog_person"."properties" -> 'bla') = '2'
+           AND NOT (("posthog_person"."properties" -> 'bla') = 'null'::jsonb)
+           AND ("posthog_person"."properties" -> 'bla') = '2'::jsonb
            AND "posthog_person"."properties" ? 'bla'
-           AND NOT (("posthog_person"."properties" -> 'bla') = 'null'))
-          OR (("posthog_person"."properties" -> 'bla') = '3'
+           AND NOT (("posthog_person"."properties" -> 'bla') = 'null'::jsonb))
+          OR (("posthog_person"."properties" -> 'bla') = '3'::jsonb
               AND "posthog_person"."properties" ? 'bla'
-              AND NOT (("posthog_person"."properties" -> 'bla') = 'null')))
+              AND NOT (("posthog_person"."properties" -> 'bla') = 'null'::jsonb)))
          AND "posthog_person"."team_id" = 2)
   '''
 # ---
@@ -638,21 +638,21 @@
          "posthog_person"."uuid",
          "posthog_person"."version"
   FROM "posthog_person"
-  WHERE (NOT (((("posthog_person"."properties" -> 'bla') = '1'
-                AND "posthog_person"."properties" ? 'bla'
-                AND NOT (("posthog_person"."properties" -> 'bla') = 'null'))
-               OR (("posthog_person"."properties" -> 'bla') = '2'
+  WHERE (NOT ((("posthog_person"."properties" -> 'bla') = '1'::jsonb
+               AND "posthog_person"."properties" ? 'bla'
+               AND NOT (("posthog_person"."properties" -> 'bla') = 'null'::jsonb))
+              OR (("posthog_person"."properties" -> 'bla') = '2'::jsonb
+                  AND "posthog_person"."properties" ? 'bla'
+                  AND NOT (("posthog_person"."properties" -> 'bla') = 'null'::jsonb)))
+         AND NOT ((("posthog_person"."properties" -> 'bla') = '3'::jsonb
                    AND "posthog_person"."properties" ? 'bla'
-                   AND NOT (("posthog_person"."properties" -> 'bla') = 'null'))))
-         AND NOT (((("posthog_person"."properties" -> 'bla') = '3'
-                    AND "posthog_person"."properties" ? 'bla'
-                    AND NOT (("posthog_person"."properties" -> 'bla') = 'null'))
-                   OR (("posthog_person"."properties" -> 'bla') = '4'
-                       AND "posthog_person"."properties" ? 'bla'
-                       AND NOT (("posthog_person"."properties" -> 'bla') = 'null'))))
-         AND ("posthog_person"."properties" -> 'other') = '1'
+                   AND NOT (("posthog_person"."properties" -> 'bla') = 'null'::jsonb))
+                  OR (("posthog_person"."properties" -> 'bla') = '4'::jsonb
+                      AND "posthog_person"."properties" ? 'bla'
+                      AND NOT (("posthog_person"."properties" -> 'bla') = 'null'::jsonb)))
+         AND ("posthog_person"."properties" -> 'other') = '1'::jsonb
          AND "posthog_person"."properties" ? 'other'
-         AND NOT (("posthog_person"."properties" -> 'other') = 'null')
+         AND NOT (("posthog_person"."properties" -> 'other') = 'null'::jsonb)
          AND "posthog_person"."team_id" = 2)
   '''
 # ---
