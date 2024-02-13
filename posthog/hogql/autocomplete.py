@@ -97,6 +97,8 @@ def convert_field_or_table_to_type_string(field_or_table: FieldOrTable) -> str |
         return "Date"
     if isinstance(field_or_table, ast.StringJSONDatabaseField):
         return "Object"
+    if isinstance(field_or_table, ast.ExpressionField):
+        return "Expression"
     if isinstance(field_or_table, (ast.Table, ast.LazyJoin)):
         return "Table"
 
