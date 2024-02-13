@@ -26,6 +26,7 @@ export interface TooltipProps {
     children: JSX.Element
     delayMs?: number
     offset?: number
+    arrowOffset?: number
     placement?: Placement
     className?: string
     visible?: boolean
@@ -37,6 +38,7 @@ export function Tooltip({
     className = '',
     placement = 'top',
     offset = 8,
+    arrowOffset,
     delayMs = 500,
     visible: controlledOpen,
 }: TooltipProps): JSX.Element {
@@ -126,6 +128,7 @@ export function Tooltip({
                                 context={context}
                                 width={8}
                                 height={4}
+                                staticOffset={arrowOffset}
                                 fill="var(--tooltip-bg)"
                             />
                         </div>

@@ -109,7 +109,7 @@ export function TimelineSeekbar({
                                         </span>
                                     }
                                     placement="top-start"
-                                    offset={0}
+                                    arrowOffset={7}
                                     delayMs={0}
                                 >
                                     <div
