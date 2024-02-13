@@ -18,6 +18,7 @@ export const OnboardingStep = ({
     onSkip,
     continueAction,
     continueOverride,
+    hideHeader,
 }: {
     stepKey: OnboardingStepKey
     title: string
@@ -28,6 +29,7 @@ export const OnboardingStep = ({
     onSkip?: () => void
     continueAction?: () => void
     continueOverride?: JSX.Element
+    hideHeader?: boolean
 }): JSX.Element => {
     const { hasNextStep, onboardingStepNames, currentOnboardingStep } = useValues(onboardingLogic)
     const { completeOnboarding, goToNextStep, setStepKey } = useActions(onboardingLogic)
@@ -40,7 +42,7 @@ export const OnboardingStep = ({
     return (
         <>
             <div className="pb-2">
-                <div className="grid onboardingHeader">
+                <div className={`grid onboardingHeader ${hideHeader && 'hidden'}`}>
                     <h1 className="font-bold m-0 pl-2">
                         {title || stepKeyToTitle(currentOnboardingStep?.props.stepKey)}
                     </h1>
@@ -68,8 +70,8 @@ export const OnboardingStep = ({
                     </div>
                 </div>
             </div>
-            <div className="p-2 max-w-screen-lg">
-                <p>{subtitle}</p>
+            <div className={`p-2 ${stepKey !== 'product_intro' && 'max-w-screen-lg'}`}>
+                {subtitle && <p>{subtitle}</p>}
                 {children}
                 <div className="mt-8 flex justify-end gap-x-2">
                     {showHelpButton && (
