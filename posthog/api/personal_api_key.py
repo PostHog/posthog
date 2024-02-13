@@ -1,9 +1,9 @@
 from typing import cast
+import uuid
 
 from rest_framework import response, serializers, viewsets
 
 from posthog.models import PersonalAPIKey, User
-from posthog.models.organization import OrganizationMembership
 from posthog.models.personal_api_key import API_SCOPE_ACTIONS, API_SCOPE_OBJECTS, hash_key_value
 from posthog.models.team.team import Team
 from posthog.models.utils import generate_random_token_personal
@@ -18,9 +18,17 @@ class StringListField(serializers.Field):
         return ",".join(data)
 
 
+class StringListIntsField(serializers.Field):
+    def to_representation(self, value):
+        return [int(x) for x in value.split(",")] if value else None
+
+    def to_internal_value(self, data):
+        return ",".join(str(x) for x in data)
+
+
 class PersonalAPIKeySerializer(serializers.ModelSerializer):
     scopes = StringListField(required=True)
-    scoped_teams = StringListField(required=False)
+    scoped_teams = StringListIntsField(required=False)
     scoped_organizations = StringListField(required=False)
 
     # Specifying method name because the serializer class already has a get_value method
@@ -63,8 +71,13 @@ class PersonalAPIKeySerializer(serializers.ModelSerializer):
         requesting_user: User = self.context["request"].user
         user_permissions = UserPermissions(requesting_user)
 
-        # TODO: Fix this
-        for team in scoped_teams.split(","):
+        scoped_teams_list = scoped_teams.split(",")
+        teams = Team.objects.filter(pk__in=scoped_teams_list)
+
+        if len(teams) != len(scoped_teams_list):
+            raise serializers.ValidationError(f"You must be a member of all teams that you are scoping the key to.")
+
+        for team in teams:
             if user_permissions.team(team).effective_membership_level is None:
                 raise serializers.ValidationError(f"You must be a member of all teams that you are scoping the key to.")
 
@@ -75,12 +88,16 @@ class PersonalAPIKeySerializer(serializers.ModelSerializer):
         user_permissions = UserPermissions(requesting_user)
         org_memberships = user_permissions.organization_memberships
 
-        # TODO: Fix this
-        for organization in scoped_organizations.split(","):
-            if scoped_organizations not in org_memberships or not org_memberships[organization].level:
-                raise serializers.ValidationError(
-                    f"You must be a member of all organizations that you are scoping the key to."
-                )
+        try:
+            organization_uuids = [uuid.UUID(organization_id) for organization_id in scoped_organizations.split(",")]
+
+            for organization_id in organization_uuids:
+                if organization_id not in org_memberships or not org_memberships[organization_id].level:
+                    raise serializers.ValidationError(
+                        f"You must be a member of all organizations that you are scoping the key to."
+                    )
+        except ValueError:
+            raise serializers.ValidationError("Invalid organization UUID")
 
         return scoped_organizations
 

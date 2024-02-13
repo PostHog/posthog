@@ -3,7 +3,9 @@ from datetime import timedelta
 from rest_framework import status
 
 from posthog.jwt import PosthogJwtAudience, encode_jwt
+from posthog.models.organization import Organization, OrganizationMembership
 from posthog.models.personal_api_key import PersonalAPIKey, hash_key_value
+from posthog.models.team.team import Team
 from posthog.models.utils import generate_random_token_personal
 from posthog.test.base import APIBaseTest
 
@@ -143,6 +145,43 @@ class TestPersonalAPIKeysAPI(APIBaseTest):
         assert response.status_code == 404
         response_data = response.json()
         assert response_data, self.not_found_response()
+
+    def test_organization_scoping(self):
+        response = self.client.post(
+            "/api/personal_api_keys/",
+            {"label": "test", "scopes": ["*"], "scoped_organizations": [str(self.organization.id)]},
+        )
+        assert response.status_code == 201, response.json()
+        assert response.json()["scoped_organizations"] == [str(self.organization.id)]
+
+    def test_organization_scoping_forbids_other(self):
+        other_org = Organization.objects.create(name="other org")
+        response = self.client.post(
+            "/api/personal_api_keys/",
+            {
+                "label": "test",
+                "scopes": ["*"],
+                "scoped_organizations": [str(self.organization.id), str(other_org.id)],
+            },
+        )
+        assert response.status_code == 400, response.json()
+        assert response.json()["detail"] == "You must be a member of all organizations that you are scoping the key to."
+
+    def test_team_scoping(self):
+        response = self.client.post(
+            "/api/personal_api_keys/", {"label": "test", "scopes": ["*"], "scoped_teams": [self.team.id]}
+        )
+        assert response.status_code == 201, response.json()
+        assert response.json()["scoped_teams"] == [self.team.id]
+
+    def test_team_scoping_forbids_other(self):
+        other_org = Organization.objects.create(name="other org")
+        other_team = Team.objects.create(organization=other_org, name="other team")
+        response = self.client.post(
+            "/api/personal_api_keys/", {"label": "test", "scopes": ["*"], "scoped_teams": [self.team.id, other_team.id]}
+        )
+        assert response.status_code == 400, response.json()
+        assert response.json()["detail"] == "You must be a member of all teams that you are scoping the key to."
 
 
 class TestPersonalAPIKeysAPIAuthentication(APIBaseTest):
