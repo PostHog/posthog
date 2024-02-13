@@ -19,7 +19,6 @@ from rest_framework.parsers import JSONParser
 from rest_framework.response import Response
 from rest_framework.settings import api_settings
 from rest_framework_csv import renderers as csvrenderers
-from sentry_sdk import capture_exception
 
 from posthog import schema
 from posthog.api.documentation import extend_schema
@@ -813,12 +812,6 @@ Using the correct cache and enriching the response with dashboard specific confi
     @action(methods=["GET", "POST"], detail=False)
     def trend(self, request: request.Request, *args: Any, **kwargs: Any):
         timings = HogQLTimings()
-
-        try:
-            serializer = TrendSerializer(request=request)
-            serializer.is_valid(raise_exception=True)
-        except Exception as e:
-            capture_exception(e)
         try:
             with timings.measure("calculate"):
                 result = self.calculate_trends(request)
@@ -905,11 +898,6 @@ Using the correct cache and enriching the response with dashboard specific confi
     @action(methods=["GET", "POST"], detail=False)
     def funnel(self, request: request.Request, *args: Any, **kwargs: Any) -> Response:
         timings = HogQLTimings()
-        try:
-            serializer = FunnelSerializer(request=request)
-            serializer.is_valid(raise_exception=True)
-        except Exception as e:
-            capture_exception(e)
         try:
             with timings.measure("calculate"):
                 funnel = self.calculate_funnel(request)
