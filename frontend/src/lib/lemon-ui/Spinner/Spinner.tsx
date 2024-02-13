@@ -43,7 +43,7 @@ export function SpinnerOverlay({
     return (
         <div className={clsx('SpinnerOverlay', sceneLevel && 'SpinnerOverlay--scene-level')} aria-hidden={!visible}>
             {mode === 'waiting' ? (
-                <IconSchedule className="text-5xl" />
+                <IconSchedule className="text-5xl text-primary z-10 animate-pulse drop-shadow-xl" />
             ) : (
                 <Spinner className={clsx('text-5xl', className)} {...spinnerProps} />
             )}

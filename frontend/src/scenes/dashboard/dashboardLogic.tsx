@@ -77,7 +77,7 @@ export interface DashboardLogicProps {
 
 export interface RefreshStatus {
     /** Insight is about to be loaded */
-    called?: boolean
+    queued?: boolean
     /** Insight is currently loading */
     loading?: boolean
     refreshed?: boolean
@@ -168,11 +168,11 @@ export const dashboardLogic = kea<dashboardLogicType>([
         }),
         setProperties: (properties: AnyPropertyFilter[]) => ({ properties }),
         setAutoRefresh: (enabled: boolean, interval: number) => ({ enabled, interval }),
-        setRefreshStatus: (shortId: InsightShortId, loading = false, called = false) => ({ shortId, loading, called }),
-        setRefreshStatuses: (shortIds: InsightShortId[], loading = false, called = false) => ({
+        setRefreshStatus: (shortId: InsightShortId, loading = false, queued = false) => ({ shortId, loading, queued }),
+        setRefreshStatuses: (shortIds: InsightShortId[], loading = false, queued = false) => ({
             shortIds,
             loading,
-            called,
+            queued,
         }),
         setRefreshError: (shortId: InsightShortId) => ({ shortId }),
         reportDashboardViewed: true, // Reports `viewed dashboard` and `dashboard analyzed` events
@@ -506,22 +506,22 @@ export const dashboardLogic = kea<dashboardLogicType>([
         refreshStatus: [
             {} as Record<string, RefreshStatus>,
             {
-                setRefreshStatus: (state, { shortId, loading, called }) => ({
+                setRefreshStatus: (state, { shortId, loading, queued }) => ({
                     ...state,
                     [shortId]: loading
-                        ? { loading: true, called: true, timer: new Date() }
-                        : called
-                        ? { loading: false, called: true, timer: null }
+                        ? { loading: true, queued: true, timer: new Date() }
+                        : queued
+                        ? { loading: false, queued: true, timer: null }
                         : { refreshed: true, timer: state[shortId]?.timer || null },
                 }),
-                setRefreshStatuses: (state, { shortIds, loading, called }) =>
+                setRefreshStatuses: (state, { shortIds, loading, queued }) =>
                     Object.fromEntries(
                         shortIds.map((shortId) => [
                             shortId,
                             loading
-                                ? { loading: true, called: true, timer: new Date() }
-                                : called
-                                ? { loading: false, called: true, timer: null }
+                                ? { loading: true, queued: true, timer: new Date() }
+                                : queued
+                                ? { loading: false, queued: true, timer: null }
                                 : { refreshed: true, timer: state[shortId]?.timer || null },
                         ])
                     ) as Record<string, RefreshStatus>,
@@ -669,7 +669,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 return dashboardLoading || Object.values(refreshStatus).some((s) => s.loading)
             },
         ],
-        isCalled: [(s) => [s.refreshStatus], (refreshStatus) => (id: string) => !!refreshStatus[id]?.called],
+        isRefreshingQueued: [(s) => [s.refreshStatus], (refreshStatus) => (id: string) => !!refreshStatus[id]?.queued],
         isRefreshing: [(s) => [s.refreshStatus], (refreshStatus) => (id: string) => !!refreshStatus[id]?.loading],
         highlightedInsightId: [
             () => [router.selectors.searchParams],

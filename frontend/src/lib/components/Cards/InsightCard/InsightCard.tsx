@@ -129,7 +129,7 @@ export interface InsightCardProps extends Resizeable, React.HTMLAttributes<HTMLD
     /** id of the dashboard the card is on (when the card is being displayed on a dashboard) **/
     dashboardId?: DashboardType['id']
     /** Whether the insight has been called to load. */
-    called?: boolean
+    loadingQueued?: boolean
     /** Whether the insight is loading. */
     loading?: boolean
     /** Whether an error occurred on the server. */
@@ -164,7 +164,7 @@ function VizComponentFallback(): JSX.Element {
 }
 
 export interface FilterBasedCardContentProps
-    extends Pick<InsightCardProps, 'insight' | 'called' | 'loading' | 'apiErrored' | 'timedOut' | 'style'> {
+    extends Pick<InsightCardProps, 'insight' | 'loadingQueued' | 'loading' | 'apiErrored' | 'timedOut' | 'style'> {
     insightProps: InsightLogicProps
     tooFewFunnelSteps?: boolean
     validationError?: string | null
@@ -177,7 +177,7 @@ export interface FilterBasedCardContentProps
 export function FilterBasedCardContent({
     insight,
     insightProps,
-    called,
+    loadingQueued,
     loading,
     setAreDetailsShown,
     apiErrored,
@@ -209,7 +209,7 @@ export function FilterBasedCardContent({
                 }
             >
                 {loading && <SpinnerOverlay />}
-                {called && !loading && <SpinnerOverlay mode="waiting" />}
+                {loadingQueued && !loading && <SpinnerOverlay mode="waiting" />}
                 {tooFewFunnelSteps ? (
                     <FunnelSingleStepState actionable={false} />
                 ) : validationError ? (
@@ -233,7 +233,7 @@ function InsightCardInternal(
         insight,
         dashboardId,
         ribbonColor,
-        called,
+        loadingQueued,
         loading,
         apiErrored,
         timedOut,
@@ -331,7 +331,7 @@ function InsightCardInternal(
                     <FilterBasedCardContent
                         insight={insight}
                         insightProps={insightLogicProps}
-                        called={called}
+                        loadingQueued={loadingQueued}
                         loading={loading}
                         apiErrored={apiErrored}
                         timedOut={timedOut}
