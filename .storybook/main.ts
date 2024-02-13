@@ -1,5 +1,6 @@
 import { createEntry } from '../webpack.config'
 import { StorybookConfig } from '@storybook/react-webpack5'
+const SurveysJSPlugin = require('posthog-js/dist/surveys.esm')
 
 const config: StorybookConfig = {
     stories: ['../frontend/src/**/*.stories.@(js|jsx|ts|tsx|mdx)'],
@@ -17,6 +18,7 @@ const config: StorybookConfig = {
 
     webpackFinal: (config) => {
         const mainConfig = createEntry('main')
+        config.plugins.push(SurveysJSPlugin)
         return {
             ...config,
             resolve: {
