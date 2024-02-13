@@ -231,6 +231,13 @@ class SharingTokenPermission(BasePermission):
         ), "SharingTokenPermission requires the `sharing_enabled_actions` attribute to be set in the view"
 
         if isinstance(request.successful_authenticator, SharingAccessTokenAuthentication):
+            try:
+                view.team  # noqa: B018
+                if request.successful_authenticator.sharing_configuration.team != view.team:
+                    return False
+            except Team.DoesNotExist:
+                return False
+
             return view.action in view.sharing_enabled_actions
 
         return False
