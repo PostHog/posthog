@@ -740,7 +740,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
             (refreshStatus) => {
                 const total = Object.keys(refreshStatus).length ?? 0
                 return {
-                    completed: total - (Object.values(refreshStatus).filter((s) => s.loading).length ?? 0),
+                    completed: total - (Object.values(refreshStatus).filter((s) => s.loading || s.queued).length ?? 0),
                     total,
                 }
             },
