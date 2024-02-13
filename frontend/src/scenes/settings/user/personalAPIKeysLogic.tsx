@@ -1,5 +1,5 @@
 import { LemonDialog } from '@posthog/lemon-ui'
-import { actions, kea, listeners, path, reducers, selectors } from 'kea'
+import { actions, afterMount, kea, listeners, path, reducers, selectors } from 'kea'
 import { forms } from 'kea-forms'
 import { loaders } from 'kea-loaders'
 import api from 'lib/api'
@@ -7,7 +7,7 @@ import { CodeSnippet } from 'lib/components/CodeSnippet'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
 
-import { PersonalAPIKeyType } from '~/types'
+import { PersonalAPIKeyType, TeamBasicType } from '~/types'
 
 import type { personalAPIKeysLogicType } from './personalAPIKeysLogicType'
 
@@ -91,6 +91,7 @@ export const personalAPIKeysLogic = kea<personalAPIKeysLogicType>([
         deleteKey: (id: PersonalAPIKeyType['id']) => ({ id }),
         setScopeRadioValue: (key: string, action: string) => ({ key, action }),
         resetScopes: true,
+        loadAllTeams: true,
     }),
 
     reducers({
@@ -111,6 +112,15 @@ export const personalAPIKeysLogic = kea<personalAPIKeysLogicType>([
                 deleteKey: async ({ id }) => {
                     await api.personalApiKeys.delete(id)
                     return values.keys.filter((filteredKey) => filteredKey.id != id)
+                },
+            },
+        ],
+
+        allTeams: [
+            null as TeamBasicType[] | null,
+            {
+                loadAllTeams: async () => {
+                    return await api.loadPaginatedResults('api/projects')
                 },
             },
         ],
@@ -245,4 +255,8 @@ export const personalAPIKeysLogic = kea<personalAPIKeysLogicType>([
             lemonToast.success(`Personal API key deleted`)
         },
     })),
+
+    afterMount(({ actions }) => {
+        actions.loadAllTeams()
+    }),
 ])
