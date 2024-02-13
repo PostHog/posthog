@@ -30,7 +30,7 @@ export function SpinnerOverlay({
     sceneLevel,
     visible = true,
     className,
-    mode = 'waiting',
+    mode = 'spinning',
     ...spinnerProps
 }: SpinnerProps & {
     /** @default false */
