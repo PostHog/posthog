@@ -71,6 +71,7 @@ class DataWarehouseSavedQuerySerializer(serializers.ModelSerializer):
         _is_valid_view = is_valid_view(select_ast)
         if not _is_valid_view:
             raise exceptions.ValidationError(detail="Ensure all fields are aliased")
+
         try:
             print_ast(
                 node=select_ast,
