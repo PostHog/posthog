@@ -55,6 +55,14 @@ class PersonalAPIKey(models.Model):
     def scopes_list(self) -> list[str]:
         return self.scopes.split(",") if self.scopes else []
 
+    @property
+    def scoped_organizations_list(self) -> list[str]:
+        return self.scoped_organizations.split(",") if self.scoped_organizations else []
+
+    @property
+    def scoped_teams_list(self) -> list[int]:
+        return [int(x) for x in self.scoped_teams.split(",")] if self.scoped_teams else []
+
 
 ## API Scopes
 # These are the scopes that are used to define the permissions of the API tokens.
