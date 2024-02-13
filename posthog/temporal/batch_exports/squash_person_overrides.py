@@ -6,7 +6,6 @@ from datetime import datetime, timedelta, timezone
 from typing import AsyncIterator, Iterable, NamedTuple, Sequence
 from uuid import UUID
 
-import psycopg2
 from temporalio import activity, workflow
 from temporalio.common import RetryPolicy
 
@@ -529,31 +528,6 @@ async def delete_squashed_person_overrides_from_clickhouse(inputs: QueryInputs) 
         )
 
 
-@activity.defn
-async def delete_squashed_person_overrides_from_postgres(inputs: QueryInputs) -> None:
-    """Execute the query to delete from Postgres persons that have been squashed.
-
-    We cannot use the Django ORM in an async context without enabling unsafe behavior.
-    This may be a good excuse to unshackle ourselves from the ORM.
-    """
-
-    from django.conf import settings
-
-    activity.logger.info("Deleting squashed persons from Postgres")
-    with psycopg2.connect(
-        dbname=settings.DATABASES["default"]["NAME"],
-        user=settings.DATABASES["default"]["USER"],
-        password=settings.DATABASES["default"]["PASSWORD"],
-        host=settings.DATABASES["default"]["HOST"],
-        port=settings.DATABASES["default"]["PORT"],
-        **settings.DATABASES["default"].get("SSL_OPTIONS", {}),
-    ) as connection:
-        overrides_manager = FlatPostgresPersonOverridesManager(connection)
-        for person_override_to_delete in inputs.iter_person_overides_to_delete():
-            activity.logger.debug("%s", person_override_to_delete)
-            overrides_manager.delete(person_override_to_delete, inputs.dry_run)
-
-
 @contextlib.asynccontextmanager
 async def person_overrides_dictionary(
     workflow, query_inputs: QueryInputs, retry_policy: RetryPolicy
@@ -727,13 +701,6 @@ class SquashPersonOverridesWorkflow(PostHogWorkflow):
 
             await workflow.execute_activity(
                 delete_squashed_person_overrides_from_clickhouse,
-                query_inputs,
-                start_to_close_timeout=timedelta(seconds=300),
-                retry_policy=retry_policy,
-            )
-
-            await workflow.execute_activity(
-                delete_squashed_person_overrides_from_postgres,
                 query_inputs,
                 start_to_close_timeout=timedelta(seconds=300),
                 retry_policy=retry_policy,

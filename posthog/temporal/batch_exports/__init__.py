@@ -1,5 +1,3 @@
-from typing import Callable, Sequence
-
 from posthog.temporal.batch_exports.backfill_batch_export import (
     BackfillBatchExportWorkflow,
     backfill_schedule,
@@ -55,7 +53,6 @@ ACTIVITIES = [
     create_batch_export_backfill_model,
     create_export_run,
     delete_squashed_person_overrides_from_clickhouse,
-    delete_squashed_person_overrides_from_postgres,
     drop_dictionary,
     get_schedule_frequency,
     insert_into_bigquery_activity,
