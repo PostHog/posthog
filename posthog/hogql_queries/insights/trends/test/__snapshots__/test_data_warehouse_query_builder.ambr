@@ -1,0 +1,26 @@
+# name: TestDataWarehouseQueryBuilder.test_trends_data_warehouse
+  '
+  SELECT groupArray(day_start) AS date,
+         groupArray(count) AS total
+  FROM
+    (SELECT sum(total) AS count,
+            day_start AS day_start
+     FROM
+       (SELECT 0 AS total,
+               minus(toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2023-01-07 23:59:59', 6, 'UTC'))), toIntervalDay(numbers.number)) AS day_start
+        FROM numbers(coalesce(dateDiff('day', assumeNotNull(parseDateTime64BestEffortOrNull('2023-01-01 00:00:00', 6, 'UTC')), assumeNotNull(parseDateTime64BestEffortOrNull('2023-01-07 23:59:59', 6, 'UTC'))), 0)) AS numbers
+        UNION ALL SELECT 0 AS total,
+                         toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2023-01-01 00:00:00', 6, 'UTC'))) AS day_start
+        UNION ALL SELECT count(e.id) AS total,
+                         toStartOfDay(toDateTime(toTimeZone(e.created, 'UTC'), 'UTC')) AS day_start
+        FROM s3Cluster('posthog', 'http://host.docker.internal:19000/posthog/test_storage_bucket-posthog.hogql.datawarehouse.trendquery/*.parquet', 'object_storage_root_user', 'object_storage_root_password', 'Parquet', 'id String, created DateTime64(3, \'UTC\')') AS e
+        WHERE and(ifNull(greaterOrEquals(toDateTime(toTimeZone(e.created, 'UTC'), 'UTC'), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2023-01-01 00:00:00', 6, 'UTC')))), 0), ifNull(lessOrEquals(toDateTime(toTimeZone(e.created, 'UTC'), 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2023-01-07 23:59:59', 6, 'UTC'))), 0))
+        GROUP BY day_start)
+     GROUP BY day_start
+     ORDER BY day_start ASC)
+  ORDER BY sum(count) DESC
+  LIMIT 100 SETTINGS readonly=2,
+                     max_execution_time=60,
+                     allow_experimental_object_type=1
+  '
+---

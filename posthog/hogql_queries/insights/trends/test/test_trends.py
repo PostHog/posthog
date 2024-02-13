@@ -35,8 +35,6 @@ from posthog.models import (
     Person,
 )
 
-from posthog.warehouse.models import DataWarehouseTable, DataWarehouseCredential
-
 from posthog.models.group.util import create_group
 from posthog.models.instance_setting import (
     get_instance_setting,
@@ -48,7 +46,6 @@ from posthog.schema import (
     ActionsNode,
     BreakdownFilter,
     DateRange,
-    DataWarehouseNode,
     EventsNode,
     PropertyGroupFilter,
     SeriesType,
@@ -129,7 +126,6 @@ def convert_filter_to_trends_query(filter: Filter) -> TrendsQuery:
 
     events: List[EventsNode] = []
     actions: List[ActionsNode] = []
-    data_warehouse_entities: List[DataWarehouseNode] = []
 
     for event in filter.events:
         if isinstance(event._data.get("properties", None), List):
@@ -175,30 +171,7 @@ def convert_filter_to_trends_query(filter: Filter) -> TrendsQuery:
             )
         )
 
-    for entity in filter.data_warehouse_entities:
-        if isinstance(entity._data.get("properties", None), List):
-            properties = clean_entity_properties(entity._data.get("properties", None))
-        elif entity._data.get("properties", None) is not None:
-            values = entity._data.get("properties", None).get("values", None)
-            properties = clean_entity_properties(values)
-        else:
-            properties = None
-
-        data_warehouse_entities.append(
-            DataWarehouseNode(
-                table_name=entity.id,
-                id_field=entity.id_field,
-                timestamp_field=entity.timestamp_field,
-                custom_name=entity.custom_name,
-                math=entity.math,
-                math_property=entity.math_property,
-                math_hogql=entity.math_hogql,
-                math_group_type_index=entity.math_group_type_index,
-                properties=properties,
-            )
-        )
-
-    series: List[SeriesType] = [*events, *actions, *data_warehouse_entities]
+    series: List[SeriesType] = [*events, *actions]
 
     tq = TrendsQuery(
         series=series,
@@ -512,45 +485,6 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(response[0]["data"][4], 3.0)
         self.assertEqual(response[0]["labels"][5], "2-Jan-2020")
         self.assertEqual(response[0]["data"][5], 1.0)
-
-    @snapshot_clickhouse_queries
-    def test_trends_data_warehouse(self):
-        self._create_events()
-
-        credential = DataWarehouseCredential.objects.create(access_key="test", access_secret="test", team=self.team)
-        DataWarehouseTable.objects.create(
-            name="stripe_charges",
-            url_pattern="https://databeach-hackathon.s3.amazonaws.com/tim_test/test_events6.pqt",
-            format=DataWarehouseTable.TableFormat.Parquet,
-            team=self.team,
-            columns={
-                "id": "String",
-                "created": "DateTime64(3, 'UTC')",
-                "mrr": "Nullable(Int64)",
-                "offset": "UInt32",
-            },
-            credential=credential,
-        )
-
-        with freeze_time("2020-01-04T13:00:01Z"):
-            # with self.assertNumQueries(16):
-            self._run(
-                Filter(
-                    team=self.team,
-                    data={
-                        "date_from": "-7d",
-                        "data_warehouse_entities": [
-                            {
-                                "id": "stripe_charges",
-                                "id_field": "id",
-                                "timestamp_field": "created",
-                                "type": "data_warehouse",
-                            }
-                        ],
-                    },
-                ),
-                self.team,
-            )
 
     # just make sure this doesn't error
     def test_no_props(self):
