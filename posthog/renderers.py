@@ -1,5 +1,7 @@
 import math
 from typing import Dict, Tuple
+
+from orjson import orjson
 from rest_framework.renderers import JSONRenderer
 
 CleaningMarker = bool | Dict[int, "CleaningMarker"]
@@ -42,5 +44,7 @@ def clean_data_for_json(data) -> Tuple[CleaningMarker, CleaningMarker]:
 
 class SafeJSONRenderer(JSONRenderer):
     def render(self, data, accepted_media_type=None, renderer_context=None):
-        clean_data_for_json(data)
-        return super().render(data, accepted_media_type, renderer_context)
+        if data is None:
+            return b""
+
+        return orjson.dumps(data)
