@@ -48,9 +48,9 @@ export const OnboardingStep = ({
                     <div className="flex items-center">
                         {onboardingStepNames.map((stepName, idx) => {
                             return (
-                                <React.Fragment key={idx}>
+                                <React.Fragment key={`stepKey-${idx}`}>
                                     <div
-                                        className={`onboardingCrumb ${
+                                        className={`text-sm onboardingCrumb ${
                                             currentOnboardingStep?.props.stepKey === stepName && 'font-bold'
                                         }`}
                                         data-text={stepKeyToTitle(stepName)}
