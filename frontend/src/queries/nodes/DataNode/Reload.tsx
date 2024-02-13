@@ -35,6 +35,7 @@ export function ReloadAll(): JSX.Element {
     return (
         <LemonButton
             type="secondary"
+            size="small"
             onClick={() => {
                 reloadAll()
             }}

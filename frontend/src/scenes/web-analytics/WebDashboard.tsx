@@ -42,7 +42,10 @@ const Filters = (): JSX.Element => {
                     setWebAnalyticsFilters={setWebAnalyticsFilters}
                     webAnalyticsFilters={webAnalyticsFilters}
                 />
-                <DateFilter dateFrom={dateFrom} dateTo={dateTo} onChange={setDates} />
+                <div className="flex-1">
+                    <DateFilter dateFrom={dateFrom} dateTo={dateTo} onChange={setDates} />
+                </div>
+                <ReloadAll />
             </div>
             <div className="bg-border h-px w-full mt-2" />
         </div>
@@ -246,7 +249,6 @@ export const WebAnalyticsDashboard = (): JSX.Element => {
     return (
         <BindLogic logic={webAnalyticsLogic} props={{}}>
             <BindLogic logic={dataNodeCollectionLogic} props={{ key: 'web-analytics' }}>
-                <ReloadAll />
                 <WebAnalyticsModal />
                 <WebAnalyticsNotice />
                 <div className="WebAnalyticsDashboard w-full flex flex-col">
