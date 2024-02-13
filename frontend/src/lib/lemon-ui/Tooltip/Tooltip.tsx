@@ -1,3 +1,5 @@
+import './Tooltip.scss'
+
 import {
     arrow,
     autoUpdate,
@@ -105,7 +107,7 @@ export function Tooltip({
                 <FloatingPortal>
                     <div
                         ref={refs.setFloating}
-                        className="z-[var(--z-tooltip)]"
+                        className="Tooltip max-w-sm"
                         // eslint-disable-next-line react/forbid-dom-props
                         style={{ ...context.floatingStyles }}
                         {...getFloatingProps()}
