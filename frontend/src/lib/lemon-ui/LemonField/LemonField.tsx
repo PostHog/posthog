@@ -3,7 +3,7 @@ import { Field as KeaField, FieldProps as KeaFieldProps } from 'kea-forms/lib/co
 import { IconErrorOutline } from 'lib/lemon-ui/icons'
 import { LemonLabel } from 'lib/lemon-ui/LemonLabel/LemonLabel'
 
-export type PureFieldProps = {
+export type LemonPureFieldProps = {
     /** The label name to be displayed */
     label?: React.ReactNode
     /** Will show a muted (optional) next to the label */
@@ -25,8 +25,7 @@ export type PureFieldProps = {
     htmlFor?: string
 }
 
-/** A "Pure" field - used when you want the Field styles without the Kea form functionality */
-export const PureField = ({
+const LemonPureField = ({
     label,
     info,
     error,
@@ -38,7 +37,7 @@ export const PureField = ({
     children,
     inline,
     onClick,
-}: PureFieldProps): JSX.Element => {
+}: LemonPureFieldProps): JSX.Element => {
     return (
         <div
             onClick={onClick}
@@ -68,9 +67,10 @@ export const PureField = ({
     )
 }
 
-export type FieldProps = Omit<PureFieldProps, 'children' | 'error'> & Pick<KeaFieldProps, 'children' | 'name'>
+export type LemonFieldProps = Omit<LemonPureFieldProps, 'children' | 'error'> & Pick<KeaFieldProps, 'children' | 'name'>
 
-export const Field = ({
+/** A field for use within a Kea form. Outside a form use `LemonField.Pure`. */
+export const LemonField = ({
     name,
     help,
     className,
@@ -78,11 +78,10 @@ export const Field = ({
     inline,
     info,
     ...keaFieldProps
-}: FieldProps): JSX.Element => {
-    /** Drop-in replacement antd template for kea forms */
+}: LemonFieldProps): JSX.Element => {
     const template: KeaFieldProps['template'] = ({ label, kids, error }) => {
         return (
-            <PureField
+            <LemonPureField
                 label={label}
                 error={error}
                 help={help}
@@ -92,8 +91,11 @@ export const Field = ({
                 info={info}
             >
                 {kids}
-            </PureField>
+            </LemonPureField>
         )
     }
     return <KeaField {...keaFieldProps} name={name} template={template} noStyle />
 }
+
+/** A field without Kea form functionality. Within a form use `LemonField`. */
+LemonField.Pure = LemonPureField

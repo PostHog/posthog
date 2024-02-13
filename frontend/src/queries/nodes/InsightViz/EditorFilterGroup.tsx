@@ -1,9 +1,9 @@
 import './EditorFilterGroup.scss'
 
-import { PureField } from 'lib/forms/Field'
 import { IconUnfoldLess, IconUnfoldMore } from 'lib/lemon-ui/icons'
 import { LemonBadge } from 'lib/lemon-ui/LemonBadge/LemonBadge'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
+import { LemonField } from 'lib/lemon-ui/LemonField'
 import { slugify } from 'lib/utils'
 import { Fragment, useState } from 'react'
 
@@ -49,13 +49,13 @@ export function EditorFilterGroup({ insightProps, editorFilterGroup }: EditorFil
                         }
                         return (
                             <Fragment key={key}>
-                                <PureField
+                                <LemonField.Pure
                                     label={typeof Label === 'function' ? <Label insightProps={insightProps} /> : Label}
                                     info={tooltip}
                                     showOptional={showOptional}
                                 >
                                     {Component ? <Component insightProps={insightProps} /> : null}
-                                </PureField>
+                                </LemonField.Pure>
                             </Fragment>
                         )
                     })}
