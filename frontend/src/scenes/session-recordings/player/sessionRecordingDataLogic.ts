@@ -657,6 +657,14 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
                 },
             },
         ],
+        similarRecordings: [
+            [] as [string, number][] | null,
+            {
+                fetchSimilarRecordings: async () => {
+                    return await api.recordings.similarRecordings(props.sessionRecordingId)
+                },
+            },
+        ],
     })),
     selectors({
         sessionPlayerData: [

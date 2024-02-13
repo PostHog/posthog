@@ -515,12 +515,10 @@ class SessionRecordingViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             )
         return r
 
-    @action(methods=["GET"], detail=False)
+    @action(methods=["GET"], detail=True)
     def similar_sessions(self, request: request.Request, **kwargs):
         if not request.user.is_authenticated:
             raise exceptions.NotAuthenticated()
-
-        user = cast(User, request.user)
 
         cache_key = f'similar_sessions_{self.team.pk}_{self.kwargs["pk"]}'
         # Check if the response is cached
@@ -533,16 +531,11 @@ class SessionRecordingViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         if not SessionReplayEvents().exists(session_id=str(recording.session_id), team=self.team):
             raise exceptions.NotFound("Recording not found")
 
-        summary = similar_recordings(recording, user, self.team)
-        timings = summary.pop("timings", None)
-        cache.set(cache_key, summary, timeout=30)
+        recordings = similar_recordings(recording, self.team)
+        cache.set(cache_key, recordings, timeout=30)
 
         # let the browser cache for half the time we cache on the server
-        r = Response(summary, headers={"Cache-Control": "max-age=15"})
-        if timings:
-            r.headers["Server-Timing"] = ", ".join(
-                f"{key};dur={round(duration, ndigits=2)}" for key, duration in timings.items()
-            )
+        r = Response(recordings, headers={"Cache-Control": "max-age=15"})
         return r
 
 
