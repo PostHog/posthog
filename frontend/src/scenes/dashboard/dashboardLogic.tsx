@@ -1076,6 +1076,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
             if (values.autoRefresh.enabled) {
                 // Refresh right now after enabling if we haven't refreshed recently
                 if (
+                    !values.itemsLoading &&
                     values.lastRefreshed &&
                     values.lastRefreshed.isBefore(now().subtract(values.autoRefresh.interval, 'seconds'))
                 ) {
