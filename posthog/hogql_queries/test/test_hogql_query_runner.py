@@ -17,7 +17,7 @@ class TestHogQLQueryRunner(ClickhouseTestMixin, APIBaseTest):
     random_uuid: str
 
     def _create_random_persons(self) -> str:
-        random_uuid = str(UUIDT())
+        random_uuid = f"RANDOM_TEST_ID::{UUIDT()}"
         for index in range(10):
             _create_person(
                 properties={
@@ -56,6 +56,16 @@ class TestHogQLQueryRunner(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(clear_locations(query), expected)
         response = runner.calculate()
         self.assertEqual(response.results[0][0], 10)
+
+        self.assertEqual(response.hasMore, False)
+        self.assertIsNotNone(response.limit)
+
+    def test_default_hogql_query_with_limit(self):
+        runner = self._create_runner(HogQLQuery(query="select event from events limit 5"))
+        response = runner.calculate()
+        assert response.results is not None
+        self.assertEqual(len(response.results), 5)
+        self.assertNotIn("hasMore", response)
 
     def test_hogql_query_filters(self):
         runner = self._create_runner(

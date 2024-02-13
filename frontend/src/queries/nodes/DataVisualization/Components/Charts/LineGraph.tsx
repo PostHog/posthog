@@ -28,7 +28,7 @@ export const LineGraph = (): JSX.Element => {
 
     // TODO: Extract this logic out of this component and inject values in
     // via props. Make this a purely presentational component
-    const { xData, yData, presetChartHeight, visualizationType } = useValues(dataVisualizationLogic)
+    const { xData, yData, presetChartHeight, visualizationType, showEditingUI } = useValues(dataVisualizationLogic)
     const isBarChart = visualizationType === ChartDisplayType.ActionsBar
 
     const { goalLines } = useValues(displayLogic)
@@ -39,7 +39,7 @@ export const LineGraph = (): JSX.Element => {
         }
 
         const data: ChartData = {
-            labels: xData,
+            labels: xData.data,
             datasets: yData.map(({ data }, index) => {
                 const color = getSeriesColor(index)
 
@@ -166,20 +166,19 @@ export const LineGraph = (): JSX.Element => {
                         tooltipEl.classList.remove('above', 'below', 'no-transform')
                         tooltipEl.classList.add(tooltip.yAlign || 'no-transform')
                         tooltipEl.style.opacity = '1'
-                        tooltipEl.style.display = 'initial'
 
                         if (tooltip.body) {
                             const referenceDataPoint = tooltip.dataPoints[0] // Use this point as reference to get the date
                             tooltipRoot.render(
                                 <div className="InsightTooltip">
                                     <LemonTable
-                                        dataSource={yData.map(({ data, name: seriesLabel }) => ({
-                                            series: seriesLabel,
+                                        dataSource={yData.map(({ data, column }) => ({
+                                            series: column.name,
                                             data: data[referenceDataPoint.dataIndex],
                                         }))}
                                         columns={[
                                             {
-                                                title: xData[referenceDataPoint.dataIndex],
+                                                title: xData.data[referenceDataPoint.dataIndex],
                                                 dataIndex: 'series',
                                                 render: (value) => {
                                                     return (
@@ -225,8 +224,8 @@ export const LineGraph = (): JSX.Element => {
                                 ? chartClientLeft + tooltip.caretX - tooltipEl.clientWidth - 8 // If tooltip is too large (or close to the edge), show it to the left of the data point instead
                                 : defaultOffsetLeft
 
-                        tooltipEl.style.top = Math.min(tooltipClientTop, window.innerHeight) + 'px'
-                        tooltipEl.style.left = Math.min(tooltipClientLeft, window.innerWidth) + 'px'
+                        tooltipEl.style.top = tooltipClientTop + 'px'
+                        tooltipEl.style.left = tooltipClientLeft + 'px'
                     },
                 },
             },
@@ -274,6 +273,8 @@ export const LineGraph = (): JSX.Element => {
         <div
             className={clsx('rounded bg-bg-light relative flex flex-1 flex-col p-2', {
                 DataVisualization__LineGraph: presetChartHeight,
+                'h-full': !presetChartHeight,
+                border: showEditingUI,
             })}
         >
             <div className="flex flex-1 w-full h-full overflow-hidden">

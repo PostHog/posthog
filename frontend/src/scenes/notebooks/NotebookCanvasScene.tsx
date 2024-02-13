@@ -1,10 +1,11 @@
 import './NotebookScene.scss'
 
-import { LemonBanner } from '@posthog/lemon-ui'
+import { IconEllipsis } from '@posthog/icons'
+import { LemonBanner, LemonButton, LemonMenu, lemonToast } from '@posthog/lemon-ui'
 import { useActions } from 'kea'
-import { NotFound } from 'lib/components/NotFound'
-import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
+import { PageHeader } from 'lib/components/PageHeader'
 import { uuid } from 'lib/utils'
+import { getTextFromFile, selectFiles } from 'lib/utils/file-utils'
 import { useMemo } from 'react'
 import { SceneExport } from 'scenes/sceneTypes'
 
@@ -23,34 +24,65 @@ export function NotebookCanvas(): JSX.Element {
         mode: 'canvas',
     }
 
-    const { duplicateNotebook } = useActions(notebookLogic(logicProps))
-
-    const is3000 = useFeatureFlag('POSTHOG_3000', 'test')
-
-    if (!is3000) {
-        return <NotFound object="canvas" caption={<>Canvas mode requires PostHog 3000</>} />
-    }
-
-    // TODO: The absolute positioning doesn't work so well in non-3000 mode
+    const { duplicateNotebook, exportJSON, setLocalContent } = useActions(notebookLogic(logicProps))
 
     return (
-        <div className="flex flex-col flex-1">
-            <LemonBanner
-                type="info"
-                action={{
-                    onClick: duplicateNotebook,
-                    children: 'Save as Notebook',
-                }}
-                className="mx-2 mt-2"
-            >
-                <b>This is a canvas.</b> You can change anything you like and it is persisted to the URL for easy
-                sharing.
-            </LemonBanner>
-            <div className="relative flex-1">
-                <div className="absolute inset-0 p-3 flex flex-column overflow-y-auto">
-                    <Notebook {...logicProps} />
+        <>
+            <PageHeader
+                buttons={
+                    <>
+                        <LemonMenu
+                            items={[
+                                {
+                                    label: 'Clear canvas',
+                                    onClick: () => setLocalContent({ type: 'doc', content: [] }, true),
+                                },
+                                {
+                                    label: 'Export as JSON',
+                                    onClick: () => exportJSON(),
+                                },
+                                {
+                                    label: 'Load from JSON',
+                                    onClick: () => {
+                                        void selectFiles({
+                                            contentType: 'application/json',
+                                            multiple: false,
+                                        })
+                                            .then((files) => getTextFromFile(files[0]))
+                                            .then((text) => {
+                                                const data = JSON.parse(text)
+                                                if (data.type !== 'doc') {
+                                                    throw new Error('Not a notebook')
+                                                }
+                                                // Looks like a notebook
+                                                setLocalContent(data, true)
+                                            })
+                                            .catch((e) => {
+                                                lemonToast.error(e.message)
+                                            })
+                                    },
+                                },
+                            ]}
+                        >
+                            <LemonButton icon={<IconEllipsis />} size="small" />
+                        </LemonMenu>
+                        <LemonButton type="primary" onClick={duplicateNotebook}>
+                            Save as Notebook
+                        </LemonButton>
+                    </>
+                }
+            />
+            <div className="flex flex-col flex-1">
+                <div className="relative flex-1">
+                    <div className="absolute inset-0 p-3 flex flex-col overflow-y-auto">
+                        <LemonBanner type="info" className="mb-4">
+                            <b>This is a canvas.</b> You can change anything you like and it is persisted to the URL for
+                            easy sharing.
+                        </LemonBanner>
+                        <Notebook {...logicProps} />
+                    </div>
                 </div>
             </div>
-        </div>
+        </>
     )
 }

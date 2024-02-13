@@ -1,8 +1,7 @@
-import { LemonBanner, LemonDivider, LemonTable, Tooltip } from '@posthog/lemon-ui'
+import { LemonBanner, LemonDivider, LemonMenu, LemonTable, LemonTag, Tooltip } from '@posthog/lemon-ui'
 import { Popconfirm } from 'antd'
 import { useActions, useValues } from 'kea'
-import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
-import { IconDelete, IconLock, IconLockOpen } from 'lib/lemon-ui/icons'
+import { IconCloudDownload, IconDelete, IconLock, IconLockOpen, IconRefresh } from 'lib/lemon-ui/icons'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonInput } from 'lib/lemon-ui/LemonInput'
 import { Link } from 'lib/lemon-ui/Link'
@@ -11,7 +10,9 @@ import { SceneExport } from 'scenes/sceneTypes'
 
 import { PluginInstallationType, PluginType } from '~/types'
 
+import { AppCode } from './AppCode'
 import { appsManagementLogic } from './appsManagementLogic'
+import { SourcePluginKind } from './sourceAppInitialCode'
 import { RenderApp } from './utils'
 
 export const scene: SceneExport = {
@@ -20,6 +21,11 @@ export const scene: SceneExport = {
 }
 
 export function AppsManagement(): JSX.Element {
+    // NOTE: We don't want to unmount appsManagementLogic once it's mounted. This is a memoization technique for
+    // `checkForUpdates`, as otherwise leaving the page and coming back to it would result in us checking for updates
+    // each time. Normally such a hack is a bit of a smell, but this is a staff-only page, so totally fine.
+    appsManagementLogic.mount()
+
     const {
         canInstallPlugins,
         canGloballyManagePlugins,
@@ -28,6 +34,7 @@ export function AppsManagement(): JSX.Element {
         shouldNotBeGlobalPlugins,
         globalPlugins,
         localPlugins,
+        pluginsLoading,
     } = useValues(appsManagementLogic)
     const { isDev, isCloudOrDev } = useValues(preflightLogic)
 
@@ -37,7 +44,10 @@ export function AppsManagement(): JSX.Element {
 
     return (
         <div className="pipeline-apps-management-scene">
+            {/* When plugins are still loading we don't know yet if any apps are out of sync
+            with the global state, so skip this section for smooter user experience */}
             {isCloudOrDev &&
+                !pluginsLoading &&
                 (missingGlobalPlugins.length > 0 ||
                     shouldBeGlobalPlugins.length > 0 ||
                     shouldNotBeGlobalPlugins.length > 0) && <OutOfSyncApps />}
@@ -49,6 +59,7 @@ export function AppsManagement(): JSX.Element {
             <LemonDivider className="my-6" />
 
             <h2>Installed apps</h2>
+            <AppsToUpdate />
             {globalPlugins && (
                 <>
                     <h3 className="mt-3">Global apps</h3>
@@ -72,12 +83,39 @@ type RenderAppsTable = {
     plugins: PluginType[]
 }
 
+function AppsToUpdate(): JSX.Element {
+    const { updatablePlugins, pluginsNeedingUpdates, checkingForUpdates } = useValues(appsManagementLogic)
+    const { checkForUpdates } = useActions(appsManagementLogic)
+
+    return (
+        <>
+            {updatablePlugins && (
+                <LemonButton
+                    type="secondary"
+                    icon={<IconRefresh />}
+                    onClick={checkForUpdates}
+                    loading={checkingForUpdates}
+                >
+                    {checkingForUpdates
+                        ? `Checking ${Object.keys(updatablePlugins).length} apps for updates`
+                        : // we by default already check all apps for updates on initial load
+                          'Check again for updates'}
+                </LemonButton>
+            )}
+            {pluginsNeedingUpdates.length > 0 && (
+                <>
+                    <h3 className="mt-3">Apps to update</h3>
+                    <p>These apps have newer commits in the repository they link to.</p>
+                    <AppsTable plugins={pluginsNeedingUpdates} />
+                </>
+            )}
+        </>
+    )
+}
+
 function AppsTable({ plugins }: RenderAppsTable): JSX.Element {
     const { unusedPlugins } = useValues(appsManagementLogic)
-    const { uninstallPlugin, patchPlugin } = useActions(appsManagementLogic)
-    const is3000 = useFeatureFlag('POSTHOG_3000', 'test')
-
-    // TODO: row expansion to show the source code and allow updating source apps
+    const { uninstallPlugin, patchPlugin, updatePlugin } = useActions(appsManagementLogic)
 
     const data = plugins.map((plugin) => ({ ...plugin, key: plugin.id }))
     return (
@@ -98,6 +136,13 @@ function AppsTable({ plugins }: RenderAppsTable): JSX.Element {
                                 <>
                                     <div className="flex gap-2 items-center">
                                         <span className="font-semibold truncate">{plugin.name}</span>
+                                        {plugin.latest_tag && plugin.tag && plugin.latest_tag !== plugin.tag && (
+                                            <Link
+                                                to={plugin.url + '/compare/' + plugin.tag + '...' + plugin.latest_tag}
+                                            >
+                                                <LemonTag type="completion">See update diff</LemonTag>
+                                            </Link>
+                                        )}
                                     </div>
                                     <div className="text-sm">{plugin.description}</div>
                                 </>
@@ -129,6 +174,16 @@ function AppsTable({ plugins }: RenderAppsTable): JSX.Element {
                         render: function RenderAccess(_, plugin) {
                             return (
                                 <div className="flex items-center gap-2 justify-end">
+                                    {plugin.latest_tag && plugin.tag != plugin.latest_tag && (
+                                        <LemonButton
+                                            type="secondary"
+                                            size="small"
+                                            icon={<IconCloudDownload />}
+                                            onClick={() => updatePlugin(plugin.id)}
+                                        >
+                                            Update
+                                        </LemonButton>
+                                    )}
                                     {plugin.is_global ? (
                                         <Tooltip
                                             title={
@@ -176,7 +231,7 @@ function AppsTable({ plugins }: RenderAppsTable): JSX.Element {
                                         className="Plugins__Popconfirm"
                                     >
                                         <LemonButton
-                                            type={is3000 ? 'secondary' : 'primary'}
+                                            type="secondary"
                                             status="danger"
                                             size="small"
                                             icon={<IconDelete />}
@@ -195,6 +250,12 @@ function AppsTable({ plugins }: RenderAppsTable): JSX.Element {
                         },
                     },
                 ]}
+                expandable={{
+                    // TODO: how to handle expanding multiple rows?
+                    expandedRowRender: function Render(plugin: PluginType) {
+                        return <AppCode pluginId={plugin.id} pluginType={plugin.plugin_type} />
+                    },
+                }}
             />
         </>
     )
@@ -360,8 +421,15 @@ function InstallLocalApp(): JSX.Element {
 }
 
 function InstallSourceApp(): JSX.Element {
-    const { sourcePluginName } = useValues(appsManagementLogic)
-    const { setSourcePluginName, installPlugin } = useActions(appsManagementLogic)
+    const { sourcePluginName, sourcePluginKind } = useValues(appsManagementLogic)
+    const { setSourcePluginName, installPlugin, setSourcePluginKind } = useActions(appsManagementLogic)
+
+    const menuItems = Object.values(SourcePluginKind).map((kind) => ({
+        label: kind,
+        onClick: () => {
+            setSourcePluginKind(kind)
+        },
+    }))
 
     return (
         <div>
@@ -380,6 +448,9 @@ function InstallSourceApp(): JSX.Element {
                     placeholder="Hello World App"
                     className="flex-1"
                 />
+                <LemonMenu items={menuItems} placement="bottom-end">
+                    <LemonButton size="small">{sourcePluginKind}</LemonButton>
+                </LemonMenu>
                 <LemonButton
                     disabledReason={!sourcePluginName ? 'Please enter a name' : undefined}
                     type="primary"

@@ -11,7 +11,7 @@ from posthog.hogql import ast
 from posthog.hogql.errors import SyntaxException, HogQLException
 from posthog.hogql.property import property_to_expr
 from posthog.hogql.query import execute_hogql_query
-from posthog.hogql.test.utils import pretty_print_in_tests
+from posthog.hogql.test.utils import pretty_print_in_tests, pretty_print_response_in_tests
 from posthog.models import Cohort
 from posthog.models.cohort.util import recalculate_cohortpeople
 from posthog.models.utils import UUIDT
@@ -33,7 +33,7 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
     maxDiff = None
 
     def _create_random_events(self) -> str:
-        random_uuid = str(UUIDT())
+        random_uuid = f"RANDOM_TEST_ID::{UUIDT()}"
         _create_person(
             properties={"sneaky_mail": "tim@posthog.com", "random_uuid": random_uuid},
             team=self.team,
@@ -64,12 +64,9 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
                 "select count(), event from events where properties.random_uuid = {random_uuid} group by event",
                 placeholders={"random_uuid": ast.Constant(value=random_uuid)},
                 team=self.team,
+                pretty=False,
             )
-            assert pretty_print_in_tests(response.clickhouse, self.team.pk) == self.snapshot
-            self.assertEqual(
-                response.hogql,
-                f"SELECT count(), event FROM events WHERE equals(properties.random_uuid, '{random_uuid}') GROUP BY event LIMIT 100",
-            )
+            assert pretty_print_response_in_tests(response, self.team.pk) == self.snapshot
             self.assertEqual(response.results, [(2, "random event")])
 
     @pytest.mark.usefixtures("unittest_snapshot")
@@ -81,12 +78,9 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
                 "select count, event from (select count() as count, event from events where properties.random_uuid = {random_uuid} group by event) group by count, event",
                 placeholders={"random_uuid": ast.Constant(value=random_uuid)},
                 team=self.team,
+                pretty=False,
             )
-            assert pretty_print_in_tests(response.clickhouse, self.team.pk) == self.snapshot
-            self.assertEqual(
-                response.hogql,
-                f"SELECT count, event FROM (SELECT count() AS count, event FROM events WHERE equals(properties.random_uuid, '{random_uuid}') GROUP BY event) GROUP BY count, event LIMIT 100",
-            )
+            assert pretty_print_response_in_tests(response, self.team.pk) == self.snapshot
             self.assertEqual(response.results, [(2, "random event")])
 
     @pytest.mark.usefixtures("unittest_snapshot")
@@ -98,12 +92,9 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
                 "select count, event from (select count(*) as count, event from events where properties.random_uuid = {random_uuid} group by event) as c group by count, event",
                 placeholders={"random_uuid": ast.Constant(value=random_uuid)},
                 team=self.team,
+                pretty=False,
             )
-            assert pretty_print_in_tests(response.clickhouse, self.team.pk) == self.snapshot
-            self.assertEqual(
-                response.hogql,
-                f"SELECT count, event FROM (SELECT count(*) AS count, event FROM events WHERE equals(properties.random_uuid, '{random_uuid}') GROUP BY event) AS c GROUP BY count, event LIMIT 100",
-            )
+            assert pretty_print_response_in_tests(response, self.team.pk) == self.snapshot
             self.assertEqual(response.results, [(2, "random event")])
 
     @pytest.mark.usefixtures("unittest_snapshot")
@@ -115,12 +106,9 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
                 "select distinct properties.sneaky_mail from persons where properties.random_uuid = {random_uuid}",
                 placeholders={"random_uuid": ast.Constant(value=random_uuid)},
                 team=self.team,
+                pretty=False,
             )
-            assert pretty_print_in_tests(response.clickhouse, self.team.pk) == self.snapshot
-            self.assertEqual(
-                response.hogql,
-                f"SELECT DISTINCT properties.sneaky_mail FROM persons WHERE equals(properties.random_uuid, '{random_uuid}') LIMIT 100",
-            )
+            assert pretty_print_response_in_tests(response, self.team.pk) == self.snapshot
             self.assertEqual(response.results, [("tim@posthog.com",)])
 
     @pytest.mark.usefixtures("unittest_snapshot")
@@ -130,12 +118,9 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
             response = execute_hogql_query(
                 f"select distinct person_id, distinct_id from person_distinct_ids",
                 self.team,
+                pretty=False,
             )
-            assert pretty_print_in_tests(response.clickhouse, self.team.pk) == self.snapshot
-            self.assertEqual(
-                response.hogql,
-                "SELECT DISTINCT person_id, distinct_id FROM person_distinct_ids LIMIT 100",
-            )
+            assert pretty_print_response_in_tests(response, self.team.pk) == self.snapshot
             self.assertTrue(len(response.results) > 0)
 
     def test_query_timings(self):
@@ -145,6 +130,7 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
                 "select count(), event from events where properties.random_uuid = {random_uuid} group by event",
                 placeholders={"random_uuid": ast.Constant(value=random_uuid)},
                 team=self.team,
+                pretty=False,
             )
             self.assertTrue(isinstance(response.timings, list) and len(response.timings) > 0)
             self.assertTrue(isinstance(response.timings[0], QueryTiming))
@@ -165,12 +151,9 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
                 ON p.id = pdi.person_id
                 """,
                 self.team,
+                pretty=False,
             )
-            assert pretty_print_in_tests(response.clickhouse, self.team.pk) == self.snapshot
-            self.assertEqual(
-                response.hogql,
-                "SELECT event, timestamp, pdi.distinct_id, p.id, p.properties.sneaky_mail FROM events AS e LEFT JOIN person_distinct_ids AS pdi ON equals(pdi.distinct_id, e.distinct_id) LEFT JOIN persons AS p ON equals(p.id, pdi.person_id) LIMIT 100",
-            )
+            assert pretty_print_response_in_tests(response, self.team.pk) == self.snapshot
             self.assertEqual(response.results[0][0], "random event")
             self.assertEqual(response.results[0][2], "bla")
             self.assertEqual(response.results[0][4], "tim@posthog.com")
@@ -193,13 +176,10 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
                     ON e.distinct_id = pdi.distinct_id
                     """,
                 self.team,
+                pretty=False,
             )
 
-            assert pretty_print_in_tests(response.clickhouse, self.team.pk) == self.snapshot
-            self.assertEqual(
-                response.hogql,
-                "SELECT event, timestamp, pdi.person_id FROM events AS e INNER JOIN (SELECT distinct_id, argMax(person_id, version) AS person_id FROM raw_person_distinct_ids GROUP BY distinct_id HAVING equals(argMax(is_deleted, version), 0)) AS pdi ON equals(e.distinct_id, pdi.distinct_id) LIMIT 100",
-            )
+            assert pretty_print_response_in_tests(response, self.team.pk) == self.snapshot
             self.assertTrue(len(response.results) > 0)
 
     @pytest.mark.usefixtures("unittest_snapshot")
@@ -210,12 +190,9 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
             response = execute_hogql_query(
                 "SELECT event, timestamp, pdi.distinct_id, pdi.person_id FROM events LIMIT 10",
                 self.team,
+                pretty=False,
             )
-            assert pretty_print_in_tests(response.clickhouse, self.team.pk) == self.snapshot
-            self.assertEqual(
-                response.hogql,
-                "SELECT event, timestamp, pdi.distinct_id, pdi.person_id FROM events LIMIT 10",
-            )
+            assert pretty_print_response_in_tests(response, self.team.pk) == self.snapshot
             self.assertEqual(response.results[0][0], "random event")
             self.assertEqual(response.results[0][2], "bla")
             self.assertEqual(response.results[0][3], UUID("00000000-0000-4000-8000-000000000000"))
@@ -228,12 +205,13 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
             response = execute_hogql_query(
                 "SELECT event, e.timestamp, e.pdi.distinct_id, pdi.person_id FROM events e LIMIT 10",
                 self.team,
+                pretty=False,
             )
             self.assertEqual(
                 response.hogql,
                 "SELECT event, e.timestamp, e.pdi.distinct_id, pdi.person_id FROM events AS e LIMIT 10",
             )
-            assert pretty_print_in_tests(response.clickhouse, self.team.pk) == self.snapshot
+            assert pretty_print_response_in_tests(response, self.team.pk) == self.snapshot
             self.assertEqual(response.results[0][0], "random event")
             self.assertEqual(response.results[0][2], "bla")
             self.assertEqual(response.results[0][3], UUID("00000000-0000-4000-8000-000000000000"))
@@ -246,12 +224,13 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
             response = execute_hogql_query(
                 "SELECT pdi.distinct_id, pdi.person.created_at FROM person_distinct_ids pdi LIMIT 10",
                 self.team,
+                pretty=False,
             )
             self.assertEqual(
                 response.hogql,
                 "SELECT pdi.distinct_id, pdi.person.created_at FROM person_distinct_ids AS pdi LIMIT 10",
             )
-            assert pretty_print_in_tests(response.clickhouse, self.team.pk) == self.snapshot
+            assert pretty_print_response_in_tests(response, self.team.pk) == self.snapshot
             self.assertEqual(response.results[0][0], "bla")
             self.assertEqual(
                 response.results[0][1],
@@ -266,12 +245,13 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
             response = execute_hogql_query(
                 "SELECT pdi.distinct_id, pdi.person.properties.sneaky_mail FROM person_distinct_ids pdi LIMIT 10",
                 self.team,
+                pretty=False,
             )
             self.assertEqual(
                 response.hogql,
                 "SELECT pdi.distinct_id, pdi.person.properties.sneaky_mail FROM person_distinct_ids AS pdi LIMIT 10",
             )
-            assert pretty_print_in_tests(response.clickhouse, self.team.pk) == self.snapshot
+            assert pretty_print_response_in_tests(response, self.team.pk) == self.snapshot
             self.assertEqual(response.results[0][0], "bla")
             self.assertEqual(response.results[0][1], "tim@posthog.com")
 
@@ -283,12 +263,9 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
             response = execute_hogql_query(
                 "SELECT event, timestamp, pdi.distinct_id, pdi.person.id FROM events LIMIT 10",
                 self.team,
+                pretty=False,
             )
-            assert pretty_print_in_tests(response.clickhouse, self.team.pk) == self.snapshot
-            self.assertEqual(
-                response.hogql,
-                "SELECT event, timestamp, pdi.distinct_id, pdi.person.id FROM events LIMIT 10",
-            )
+            assert pretty_print_response_in_tests(response, self.team.pk) == self.snapshot
             self.assertEqual(response.results[0][0], "random event")
             self.assertEqual(response.results[0][2], "bla")
             self.assertEqual(response.results[0][3], UUID("00000000-0000-4000-8000-000000000000"))
@@ -302,12 +279,9 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
             response = execute_hogql_query(
                 "SELECT event, timestamp, pdi.distinct_id, pdi.person.properties.sneaky_mail FROM events LIMIT 10",
                 self.team,
+                pretty=False,
             )
-            assert pretty_print_in_tests(response.clickhouse, self.team.pk) == self.snapshot
-            self.assertEqual(
-                response.hogql,
-                "SELECT event, timestamp, pdi.distinct_id, pdi.person.properties.sneaky_mail FROM events LIMIT 10",
-            )
+            assert pretty_print_response_in_tests(response, self.team.pk) == self.snapshot
             self.assertEqual(response.results[0][0], "random event")
             self.assertEqual(response.results[0][2], "bla")
             self.assertEqual(response.results[0][3], "tim@posthog.com")
@@ -320,12 +294,9 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
             response = execute_hogql_query(
                 "SELECT event, e.timestamp, pdi.distinct_id, e.pdi.person.properties.sneaky_mail FROM events e LIMIT 10",
                 self.team,
+                pretty=False,
             )
-            assert pretty_print_in_tests(response.clickhouse, self.team.pk) == self.snapshot
-            self.assertEqual(
-                response.hogql,
-                "SELECT event, e.timestamp, pdi.distinct_id, e.pdi.person.properties.sneaky_mail FROM events AS e LIMIT 10",
-            )
+            assert pretty_print_response_in_tests(response, self.team.pk) == self.snapshot
             self.assertEqual(response.results[0][0], "random event")
             self.assertEqual(response.results[0][2], "bla")
             self.assertEqual(response.results[0][3], "tim@posthog.com")
@@ -338,12 +309,9 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
             response = execute_hogql_query(
                 "SELECT event, e.timestamp, e.pdi.person.properties.sneaky_mail FROM events e LIMIT 10",
                 self.team,
+                pretty=False,
             )
-            assert pretty_print_in_tests(response.clickhouse, self.team.pk) == self.snapshot
-            self.assertEqual(
-                response.hogql,
-                "SELECT event, e.timestamp, e.pdi.person.properties.sneaky_mail FROM events AS e LIMIT 10",
-            )
+            assert pretty_print_response_in_tests(response, self.team.pk) == self.snapshot
             self.assertEqual(response.results[0][0], "random event")
             self.assertEqual(response.results[0][2], "tim@posthog.com")
 
@@ -354,12 +322,9 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
             response = execute_hogql_query(
                 "SELECT s.pdi.person.properties.sneaky_mail, count() FROM events s GROUP BY s.pdi.person.properties.sneaky_mail LIMIT 10",
                 self.team,
+                pretty=False,
             )
-            assert pretty_print_in_tests(response.clickhouse, self.team.pk) == self.snapshot
-            self.assertEqual(
-                response.hogql,
-                "SELECT s.pdi.person.properties.sneaky_mail, count() FROM events AS s GROUP BY s.pdi.person.properties.sneaky_mail LIMIT 10",
-            )
+            assert pretty_print_response_in_tests(response, self.team.pk) == self.snapshot
             self.assertEqual(response.results[0][0], "tim@posthog.com")
 
     @pytest.mark.usefixtures("unittest_snapshot")
@@ -369,12 +334,9 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
             response = execute_hogql_query(
                 "SELECT poe.properties.sneaky_mail, count() FROM events s GROUP BY poe.properties.sneaky_mail LIMIT 10",
                 self.team,
+                pretty=False,
             )
-            assert pretty_print_in_tests(response.clickhouse, self.team.pk) == self.snapshot
-            self.assertEqual(
-                response.hogql,
-                "SELECT poe.properties.sneaky_mail, count() FROM events AS s GROUP BY poe.properties.sneaky_mail LIMIT 10",
-            )
+            assert pretty_print_response_in_tests(response, self.team.pk) == self.snapshot
             self.assertEqual(response.results[0][0], "tim@posthog.com")
 
     @pytest.mark.usefixtures("unittest_snapshot")
@@ -386,12 +348,9 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
             response = execute_hogql_query(
                 "SELECT event, timestamp, person.id, person.properties.sneaky_mail FROM events LIMIT 10",
                 self.team,
+                pretty=False,
             )
-            assert pretty_print_in_tests(response.clickhouse, self.team.pk) == self.snapshot
-            self.assertEqual(
-                response.hogql,
-                "SELECT event, timestamp, person.id, person.properties.sneaky_mail FROM events LIMIT 10",
-            )
+            assert pretty_print_response_in_tests(response, self.team.pk) == self.snapshot
             self.assertEqual(response.results[0][0], "random event")
             self.assertEqual(response.results[0][2], UUID("00000000-0000-4000-8000-000000000000"))
             self.assertEqual(response.results[0][3], "tim@posthog.com")
@@ -405,16 +364,14 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
             response = execute_hogql_query(
                 "SELECT event, timestamp, person.id, person.properties.sneaky_mail FROM events LIMIT 10",
                 self.team,
+                pretty=False,
             )
-            assert pretty_print_in_tests(response.clickhouse, self.team.pk) == self.snapshot
-            self.assertEqual(
-                response.hogql,
-                "SELECT event, timestamp, person.id, person.properties.sneaky_mail FROM events LIMIT 10",
-            )
+            assert pretty_print_response_in_tests(response, self.team.pk) == self.snapshot
             self.assertEqual(response.results[0][0], "random event")
             self.assertEqual(response.results[0][2], UUID("00000000-0000-4000-8000-000000000000"))
             self.assertEqual(response.results[0][3], "tim@posthog.com")
 
+    @pytest.mark.usefixtures("unittest_snapshot")
     def test_prop_cohort_basic(self):
         with freeze_time("2020-01-10"):
             _create_person(
@@ -466,11 +423,9 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
                             self.team,
                         )
                     },
+                    pretty=False,
                 )
-                self.assertEqual(
-                    response.clickhouse,
-                    f"SELECT events.event, count() FROM events INNER JOIN (SELECT argMax(person_distinct_id2.person_id, person_distinct_id2.version) AS person_id, person_distinct_id2.distinct_id AS distinct_id FROM person_distinct_id2 WHERE equals(person_distinct_id2.team_id, {self.team.pk}) GROUP BY person_distinct_id2.distinct_id HAVING ifNull(equals(argMax(person_distinct_id2.is_deleted, person_distinct_id2.version), 0), 0)) AS events__pdi ON equals(events.distinct_id, events__pdi.distinct_id) WHERE and(equals(events.team_id, {self.team.pk}), ifNull(in(events__pdi.person_id, (SELECT cohortpeople.person_id FROM cohortpeople WHERE and(equals(cohortpeople.team_id, {self.team.pk}), equals(cohortpeople.cohort_id, {cohort.pk})) GROUP BY cohortpeople.person_id, cohortpeople.cohort_id, cohortpeople.version HAVING ifNull(greater(sum(cohortpeople.sign), 0), 0))), 0)) GROUP BY events.event LIMIT 100 SETTINGS readonly=2, max_execution_time=60, allow_experimental_object_type=1",
-                )
+                assert pretty_print_response_in_tests(response, self.team.pk) == self.snapshot
                 self.assertEqual(response.results, [("$pageview", 2)])
 
             with override_settings(PERSON_ON_EVENTS_OVERRIDE=True, PERSON_ON_EVENTS_V2_OVERRIDE=False):
@@ -483,16 +438,12 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
                             self.team,
                         )
                     },
+                    pretty=False,
                 )
-                self.assertEqual(
-                    response.clickhouse,
-                    f"SELECT events.event, count(*) FROM events WHERE and(equals(events.team_id, {self.team.pk}), in(events.person_id, "
-                    f"(SELECT cohortpeople.person_id FROM cohortpeople WHERE and(equals(cohortpeople.team_id, {self.team.pk}), "
-                    f"equals(cohortpeople.cohort_id, {cohort.pk})) GROUP BY cohortpeople.person_id, cohortpeople.cohort_id, "
-                    f"cohortpeople.version HAVING ifNull(greater(sum(cohortpeople.sign), 0), 0)))) GROUP BY events.event LIMIT 100 SETTINGS readonly=2, max_execution_time=60, allow_experimental_object_type=1",
-                )
+                assert pretty_print_response_in_tests(response, self.team.pk) == self.snapshot
                 self.assertEqual(response.results, [("$pageview", 2)])
 
+    @pytest.mark.usefixtures("unittest_snapshot")
     def test_prop_cohort_static(self):
         with freeze_time("2020-01-10"):
             _create_person(
@@ -531,13 +482,10 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
                             self.team,
                         )
                     },
+                    pretty=False,
                 )
                 self.assertEqual(response.results, [("$pageview", 1)])
-
-                self.assertEqual(
-                    response.clickhouse,
-                    f"SELECT events.event, count() FROM events INNER JOIN (SELECT argMax(person_distinct_id2.person_id, person_distinct_id2.version) AS person_id, person_distinct_id2.distinct_id AS distinct_id FROM person_distinct_id2 WHERE equals(person_distinct_id2.team_id, {self.team.pk}) GROUP BY person_distinct_id2.distinct_id HAVING ifNull(equals(argMax(person_distinct_id2.is_deleted, person_distinct_id2.version), 0), 0)) AS events__pdi ON equals(events.distinct_id, events__pdi.distinct_id) WHERE and(equals(events.team_id, {self.team.pk}), ifNull(in(events__pdi.person_id, (SELECT person_static_cohort.person_id FROM person_static_cohort WHERE and(equals(person_static_cohort.team_id, {self.team.pk}), equals(person_static_cohort.cohort_id, {cohort.pk})))), 0)) GROUP BY events.event LIMIT 100 SETTINGS readonly=2, max_execution_time=60, allow_experimental_object_type=1",
-                )
+                assert pretty_print_response_in_tests(response, self.team.pk) == self.snapshot
 
             with override_settings(PERSON_ON_EVENTS_OVERRIDE=True, PERSON_ON_EVENTS_V2_OVERRIDE=False):
                 response = execute_hogql_query(
@@ -549,13 +497,12 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
                             self.team,
                         )
                     },
+                    pretty=False,
                 )
-                self.assertEqual(
-                    response.clickhouse,
-                    f"SELECT events.event, count(*) FROM events WHERE and(equals(events.team_id, {self.team.pk}), in(events.person_id, (SELECT person_static_cohort.person_id FROM person_static_cohort WHERE and(equals(person_static_cohort.team_id, {self.team.pk}), equals(person_static_cohort.cohort_id, {cohort.pk}))))) GROUP BY events.event LIMIT 100 SETTINGS readonly=2, max_execution_time=60, allow_experimental_object_type=1",
-                )
+                assert pretty_print_response_in_tests(response, self.team.pk) == self.snapshot
                 self.assertEqual(response.results, [("$pageview", 1)])
 
+    @pytest.mark.usefixtures("unittest_snapshot")
     def test_join_with_property_materialized_session_id(self):
         with freeze_time("2020-01-10"):
             _create_person(
@@ -585,23 +532,22 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
             response = execute_hogql_query(
                 "select e.event, s.session_id from events e left join session_replay_events s on s.session_id = e.properties.$session_id where e.properties.$session_id is not null limit 10",
                 team=self.team,
+                pretty=False,
             )
-            self.assertEqual(
-                response.clickhouse,
-                f"SELECT e.event, s.session_id FROM events AS e LEFT JOIN session_replay_events AS s ON equals(s.session_id, nullIf(nullIf(e.`$session_id`, ''), 'null')) WHERE and(equals(s.team_id, {self.team.pk}), equals(e.team_id, {self.team.pk}), isNotNull(nullIf(nullIf(e.`$session_id`, ''), 'null'))) LIMIT 10 SETTINGS readonly=2, max_execution_time=60, allow_experimental_object_type=1",
-            )
+            assert pretty_print_response_in_tests(response, self.team.pk) == self.snapshot
+            assert pretty_print_in_tests(response.hogql, self.team.pk) == self.snapshot
             self.assertEqual(response.results, [("$pageview", "111"), ("$pageview", "111")])
 
             response = execute_hogql_query(
                 "select e.event, s.session_id from session_replay_events s left join events e on e.properties.$session_id = s.session_id where e.properties.$session_id is not null limit 10",
                 team=self.team,
+                pretty=False,
             )
-            self.assertEqual(
-                response.clickhouse,
-                f"SELECT e.event, s.session_id FROM session_replay_events AS s LEFT JOIN events AS e ON equals(nullIf(nullIf(e.`$session_id`, ''), 'null'), s.session_id) WHERE and(equals(e.team_id, {self.team.pk}), equals(s.team_id, {self.team.pk}), isNotNull(nullIf(nullIf(e.`$session_id`, ''), 'null'))) LIMIT 10 SETTINGS readonly=2, max_execution_time=60, allow_experimental_object_type=1",
-            )
+            assert pretty_print_response_in_tests(response, self.team.pk) == self.snapshot
+            assert pretty_print_in_tests(response.hogql, self.team.pk) == self.snapshot
             self.assertEqual(response.results, [("$pageview", "111"), ("$pageview", "111")])
 
+    @pytest.mark.usefixtures("unittest_snapshot")
     def test_join_with_property_not_materialized(self):
         with freeze_time("2020-01-10"):
             _create_person(
@@ -631,21 +577,19 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
             response = execute_hogql_query(
                 "select e.event, s.session_id from events e left join session_replay_events s on s.session_id = e.properties.$$$session_id where e.properties.$$$session_id is not null limit 10",
                 team=self.team,
+                pretty=False,
             )
-            self.assertEqual(
-                response.clickhouse,
-                f"SELECT e.event, s.session_id FROM events AS e LEFT JOIN session_replay_events AS s ON equals(s.session_id, replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, %(hogql_val_0)s), ''), 'null'), '^\"|\"$', '')) WHERE and(equals(s.team_id, {self.team.pk}), equals(e.team_id, {self.team.pk}), isNotNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, %(hogql_val_1)s), ''), 'null'), '^\"|\"$', ''))) LIMIT 10 SETTINGS readonly=2, max_execution_time=60, allow_experimental_object_type=1",
-            )
+            assert pretty_print_response_in_tests(response, self.team.pk) == self.snapshot
+            assert pretty_print_in_tests(response.hogql, self.team.pk) == self.snapshot
             self.assertEqual(response.results, [("$pageview", "111"), ("$pageview", "111")])
 
             response = execute_hogql_query(
                 "select e.event, s.session_id from session_replay_events s left join events e on e.properties.$$$session_id = s.session_id where e.properties.$$$session_id is not null limit 10",
                 team=self.team,
+                pretty=False,
             )
-            self.assertEqual(
-                response.clickhouse,
-                f"SELECT e.event, s.session_id FROM session_replay_events AS s LEFT JOIN events AS e ON equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, %(hogql_val_0)s), ''), 'null'), '^\"|\"$', ''), s.session_id) WHERE and(equals(e.team_id, {self.team.pk}), equals(s.team_id, {self.team.pk}), isNotNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, %(hogql_val_1)s), ''), 'null'), '^\"|\"$', ''))) LIMIT 10 SETTINGS readonly=2, max_execution_time=60, allow_experimental_object_type=1",
-            )
+            assert pretty_print_response_in_tests(response, self.team.pk) == self.snapshot
+            assert pretty_print_in_tests(response.hogql, self.team.pk) == self.snapshot
             self.assertEqual(response.results, [("$pageview", "111"), ("$pageview", "111")])
 
     @pytest.mark.usefixtures("unittest_snapshot")
@@ -654,9 +598,10 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
             response = execute_hogql_query(
                 "SELECT arrayMap(x -> x * 2, [1, 2, 3]), 1",
                 team=self.team,
+                pretty=False,
             )
             self.assertEqual(response.results, [([2, 4, 6], 1)])
-            assert pretty_print_in_tests(response.clickhouse, self.team.pk) == self.snapshot
+            assert pretty_print_response_in_tests(response, self.team.pk) == self.snapshot
 
     @pytest.mark.usefixtures("unittest_snapshot")
     def test_hogql_arrays(self):
@@ -664,10 +609,11 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
             response = execute_hogql_query(
                 "SELECT [1, 2, 3], [10,11,12][1]",
                 team=self.team,
+                pretty=False,
             )
             # Following SQL tradition, ClickHouse array indexes start at 1, not from zero.
             self.assertEqual(response.results, [([1, 2, 3], 10)])
-            assert pretty_print_in_tests(response.clickhouse, self.team.pk) == self.snapshot
+            assert pretty_print_response_in_tests(response, self.team.pk) == self.snapshot
 
     @pytest.mark.usefixtures("unittest_snapshot")
     def test_tuple_access(self):
@@ -691,12 +637,13 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
             response = execute_hogql_query(
                 query,
                 team=self.team,
+                pretty=False,
             )
             self.assertEqual(
                 response.results,
                 [("0", [("random event", 1)]), ("1", [("random event", 1)])],
             )
-            assert pretty_print_in_tests(response.clickhouse, self.team.pk) == self.snapshot
+            assert pretty_print_response_in_tests(response, self.team.pk) == self.snapshot
 
     def test_null_properties(self):
         with freeze_time("2020-01-10"):
@@ -741,7 +688,7 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
             )
 
     def test_window_functions_simple(self):
-        random_uuid = str(UUIDT())
+        random_uuid = f"RANDOM_TEST_ID::{UUIDT()}"
         for person in range(5):
             distinct_id = f"person_{person}_{random_uuid}"
             with freeze_time("2020-01-10 00:00:00"):
@@ -816,7 +763,7 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(response.results, expected)
 
     def test_window_functions_with_window(self):
-        random_uuid = str(UUIDT())
+        random_uuid = f"RANDOM_TEST_ID::{UUIDT()}"
         for person in range(5):
             distinct_id = f"person_{person}_{random_uuid}"
             with freeze_time("2020-01-10 00:00:00"):
@@ -955,12 +902,13 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
             response = execute_hogql_query(
                 query,
                 team=self.team,
+                pretty=False,
             )
             self.assertEqual(
                 response.results,
                 [("0", [("random event", 1)]), ("1", [("random event", 1)])],
             )
-            assert pretty_print_in_tests(response.clickhouse, self.team.pk) == self.snapshot
+            assert pretty_print_response_in_tests(response, self.team.pk) == self.snapshot
 
     @pytest.mark.usefixtures("unittest_snapshot")
     def test_with_pivot_table_2_levels(self):
@@ -994,16 +942,17 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
             response = execute_hogql_query(
                 query,
                 team=self.team,
+                pretty=False,
             )
             self.assertEqual(
                 response.results,
                 [("0", [("random event", 1)]), ("1", [("random event", 1)])],
             )
-            assert pretty_print_in_tests(response.clickhouse, self.team.pk) == self.snapshot
+            assert pretty_print_response_in_tests(response, self.team.pk) == self.snapshot
 
     def test_property_access_with_arrays(self):
         with freeze_time("2020-01-10"):
-            random_uuid = str(UUIDT())
+            random_uuid = f"RANDOM_TEST_ID::{UUIDT()}"
             _create_person(team=self.team, distinct_ids=[f"P{random_uuid}"], is_identified=True)
             _create_event(
                 distinct_id=f"P{random_uuid}",
@@ -1039,7 +988,11 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
             ]
             columns = ",".join(alternatives)
             query = f"SELECT {columns} FROM events WHERE properties.string = '{random_uuid}'"
-            response = execute_hogql_query(query, team=self.team)
+            response = execute_hogql_query(
+                query,
+                team=self.team,
+                pretty=False,
+            )
             self.assertEqual(
                 response.clickhouse,
                 f"SELECT "
@@ -1227,6 +1180,7 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
         response = execute_hogql_query(
             query,
             team=self.team,
+            pretty=False,
         )
 
         self.assertEqual(
@@ -1400,6 +1354,7 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
 
         self.assertEqual(response.results, [("bla",), ("bla",), ("bla",), ("bla",)])
 
+    @pytest.mark.usefixtures("unittest_snapshot")
     def test_hogql_query_filters(self):
         with freeze_time("2020-01-10"):
             random_uuid = self._create_random_events()
@@ -1415,27 +1370,27 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
                 properties=[EventPropertyFilter(key="index", operator="exact", value="4", type="event")]
             )
             placeholders = {"distinct_id": ast.Constant(value=random_uuid)}
-            response = execute_hogql_query(query, team=self.team, filters=filters, placeholders=placeholders)
-            self.assertEqual(
-                response.hogql,
-                f"SELECT event, distinct_id FROM events WHERE and(equals(distinct_id, '{random_uuid}'), equals(properties.index, '4')) LIMIT 100",
+            response = execute_hogql_query(
+                query,
+                team=self.team,
+                filters=filters,
+                placeholders=placeholders,
+                pretty=False,
             )
-            self.assertEqual(
-                response.clickhouse,
-                f"SELECT events.event, events.distinct_id FROM events WHERE and(equals(events.team_id, {self.team.pk}), equals(events.distinct_id, %(hogql_val_0)s), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, %(hogql_val_1)s), ''), 'null'), '^\"|\"$', ''), %(hogql_val_2)s), 0)) LIMIT 100 SETTINGS readonly=2, max_execution_time=60, allow_experimental_object_type=1",
-            )
+            assert pretty_print_response_in_tests(response, self.team.pk) == self.snapshot
+            assert pretty_print_in_tests(response.hogql, self.team.pk) == self.snapshot
             self.assertEqual(len(response.results), 1)
 
             filters.dateRange = DateRange(date_from="2020-01-01", date_to="2020-01-02")
-            response = execute_hogql_query(query, team=self.team, filters=filters, placeholders=placeholders)
-            self.assertEqual(
-                response.hogql,
-                f"SELECT event, distinct_id FROM events WHERE and(equals(distinct_id, '{random_uuid}'), and(equals(properties.index, '4'), less(timestamp, toDateTime('2020-01-02 00:00:00.000000')), greaterOrEquals(timestamp, toDateTime('2020-01-01 00:00:00.000000')))) LIMIT 100",
+            response = execute_hogql_query(
+                query,
+                team=self.team,
+                filters=filters,
+                placeholders=placeholders,
+                pretty=False,
             )
-            self.assertEqual(
-                response.clickhouse,
-                f"SELECT events.event, events.distinct_id FROM events WHERE and(equals(events.team_id, {self.team.pk}), equals(events.distinct_id, %(hogql_val_0)s), and(ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, %(hogql_val_1)s), ''), 'null'), '^\"|\"$', ''), %(hogql_val_2)s), 0), less(toTimeZone(events.timestamp, %(hogql_val_3)s), toDateTime64('2020-01-02 00:00:00.000000', 6, 'UTC')), greaterOrEquals(toTimeZone(events.timestamp, %(hogql_val_4)s), toDateTime64('2020-01-01 00:00:00.000000', 6, 'UTC')))) LIMIT 100 SETTINGS readonly=2, max_execution_time=60, allow_experimental_object_type=1",
-            )
+            assert pretty_print_response_in_tests(response, self.team.pk) == self.snapshot
+            assert pretty_print_in_tests(response.hogql, self.team.pk) == self.snapshot
             self.assertEqual(len(response.results), 0)
 
             filters.dateRange = DateRange(date_from="2020-01-01", date_to="2020-02-02")
@@ -1444,7 +1399,11 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
 
     def test_hogql_query_filters_empty_true(self):
         query = "SELECT event from events where {filters}"
-        response = execute_hogql_query(query, team=self.team)
+        response = execute_hogql_query(
+            query,
+            team=self.team,
+            pretty=False,
+        )
         self.assertEqual(response.hogql, "SELECT event FROM events WHERE true LIMIT 100")
 
     def test_hogql_query_filters_double_error(self):
@@ -1475,23 +1434,32 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
                     )
                 ]
             )
-            response = execute_hogql_query(query, team=self.team, filters=filters)
+            response = execute_hogql_query(
+                query,
+                team=self.team,
+                filters=filters,
+                pretty=False,
+            )
             self.assertEqual(
                 response.hogql,
                 f"SELECT event, distinct_id FROM events AS e WHERE equals(properties.random_uuid, '{random_uuid}') LIMIT 100",
             )
-            assert pretty_print_in_tests(response.clickhouse, self.team.pk) == self.snapshot
+            assert pretty_print_response_in_tests(response, self.team.pk) == self.snapshot
             self.assertEqual(len(response.results), 2)
 
     @pytest.mark.usefixtures("unittest_snapshot")
     def test_hogql_union_all_limits(self):
         query = "SELECT event FROM events UNION ALL SELECT event FROM events"
-        response = execute_hogql_query(query, team=self.team)
+        response = execute_hogql_query(
+            query,
+            team=self.team,
+            pretty=False,
+        )
         self.assertEqual(
             response.hogql,
             f"SELECT event FROM events LIMIT 100 UNION ALL SELECT event FROM events LIMIT 100",
         )
-        assert pretty_print_in_tests(response.clickhouse, self.team.pk) == self.snapshot
+        assert pretty_print_response_in_tests(response, self.team.pk) == self.snapshot
 
     def test_events_sessions_table(self):
         with freeze_time("2020-01-10 12:00:00"):

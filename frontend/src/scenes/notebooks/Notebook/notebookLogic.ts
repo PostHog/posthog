@@ -4,15 +4,26 @@ import { loaders } from 'kea-loaders'
 import { router, urlToAction } from 'kea-router'
 import { subscriptions } from 'kea-subscriptions'
 import api from 'lib/api'
-import { downloadFile, slugify } from 'lib/utils'
+import { base64Decode, base64Encode, downloadFile, slugify } from 'lib/utils'
 import posthog from 'posthog-js'
+import { commentsLogic } from 'scenes/comments/commentsLogic'
 import {
     buildTimestampCommentContent,
     NotebookNodeReplayTimestampAttrs,
 } from 'scenes/notebooks/Nodes/NotebookNodeReplayTimestamp'
+import { urls } from 'scenes/urls'
 
+import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
 import { notebooksModel, openNotebook, SCRATCHPAD_NOTEBOOK } from '~/models/notebooksModel'
-import { NotebookNodeType, NotebookSyncStatus, NotebookTarget, NotebookType } from '~/types'
+import {
+    ActivityScope,
+    CommentType,
+    NotebookNodeType,
+    NotebookSyncStatus,
+    NotebookTarget,
+    NotebookType,
+    SidePanelTab,
+} from '~/types'
 
 import { notebookNodeLogicType } from '../Nodes/notebookNodeLogicType'
 import { migrate, NOTEBOOKS_VERSION } from './migrations/migrate'
@@ -56,9 +67,27 @@ export const notebookLogic = kea<notebookLogicType>([
     props({} as NotebookLogicProps),
     path((key) => ['scenes', 'notebooks', 'Notebook', 'notebookLogic', key]),
     key(({ shortId, mode }) => `${shortId}-${mode}`),
-    connect(() => ({
-        values: [notebooksModel, ['scratchpadNotebook', 'notebookTemplates']],
-        actions: [notebooksModel, ['receiveNotebookUpdate']],
+    connect((props: NotebookLogicProps) => ({
+        values: [
+            notebooksModel,
+            ['scratchpadNotebook', 'notebookTemplates'],
+            commentsLogic({
+                scope: ActivityScope.NOTEBOOK,
+                item_id: props.shortId,
+            }),
+            ['comments', 'itemContext'],
+        ],
+        actions: [
+            notebooksModel,
+            ['receiveNotebookUpdate'],
+            sidePanelStateLogic,
+            ['openSidePanel'],
+            commentsLogic({
+                scope: ActivityScope.NOTEBOOK,
+                item_id: props.shortId,
+            }),
+            ['setItemContext', 'maybeLoadComments'],
+        ],
     })),
     actions({
         setEditor: (editor: NotebookEditor) => ({ editor }),
@@ -102,6 +131,8 @@ export const notebookLogic = kea<notebookLogicType>([
         setShowHistory: (showHistory: boolean) => ({ showHistory }),
         setTextSelection: (selection: number | EditorRange) => ({ selection }),
         setContainerSize: (containerSize: 'small' | 'medium') => ({ containerSize }),
+        insertComment: (context: Record<string, any>) => ({ context }),
+        selectComment: (itemContextId: string) => ({ itemContextId }),
     }),
     reducers(({ props }) => ({
         localContent: [
@@ -500,7 +531,7 @@ export const notebookLogic = kea<notebookLogicType>([
 
             if (values.mode === 'canvas') {
                 // TODO: We probably want this to be configurable
-                cache.lastState = btoa(JSON.stringify(jsonContent))
+                cache.lastState = base64Encode(JSON.stringify(jsonContent))
                 router.actions.replace(
                     router.values.currentLocation.pathname,
                     router.values.currentLocation.searchParams,
@@ -549,7 +580,10 @@ export const notebookLogic = kea<notebookLogicType>([
         },
 
         saveNotebookSuccess: actions.scheduleNotebookRefresh,
-        loadNotebookSuccess: actions.scheduleNotebookRefresh,
+        loadNotebookSuccess: () => {
+            actions.scheduleNotebookRefresh()
+            actions.maybeLoadComments()
+        },
 
         exportJSON: () => {
             const file = new File(
@@ -590,9 +624,35 @@ export const notebookLogic = kea<notebookLogicType>([
                 actions.loadNotebook()
             }, NOTEBOOK_REFRESH_MS)
         },
+
+        // Comments
+        insertComment: ({ context }) => {
+            actions.openSidePanel(SidePanelTab.Discussion)
+
+            actions.setItemContext(context, (result) => {
+                if (!result.sent && values.editor) {
+                    const pos = values.editor.findCommentPosition(context.id)
+                    if (pos) {
+                        values.editor.removeComment(pos)
+                    }
+                }
+            })
+            if (router.values.currentLocation.pathname !== urls.notebook(values.shortId)) {
+                router.actions.push(urls.notebook(values.shortId))
+            }
+        },
+        selectComment: ({ itemContextId }) => {
+            const commentId = values.comments?.find((x) => x.item_context?.id === itemContextId)?.id
+
+            actions.openSidePanel(SidePanelTab.Discussion, commentId)
+
+            if (router.values.currentLocation.pathname !== urls.notebook(values.shortId)) {
+                router.actions.push(urls.notebook(values.shortId))
+            }
+        },
     })),
 
-    subscriptions(({ actions }) => ({
+    subscriptions(({ values, actions }) => ({
         notebook: (notebook?: NotebookType) => {
             // Keep the list logic up to date with any changes
             if (notebook && notebook.short_id !== SCRATCHPAD_NOTEBOOK.short_id) {
@@ -600,6 +660,20 @@ export const notebookLogic = kea<notebookLogicType>([
             }
             // If the notebook ever changes, we want to reset the scheduled refresh
             actions.scheduleNotebookRefresh()
+        },
+        comments: (comments: CommentType[] | undefined | null) => {
+            if (comments && values.editor) {
+                const { editor } = values
+                const commentMarkIds = comments
+                    .filter((comment) => comment.item_context?.type === 'mark')
+                    .map((comment) => comment.item_context?.id)
+
+                editor.getMarks('comment').forEach((mark) => {
+                    if (!commentMarkIds.includes(mark.id) && values.itemContext?.context?.id !== mark.id) {
+                        editor.removeComment(mark.pos)
+                    }
+                })
+            }
         },
     })),
 
@@ -610,7 +684,7 @@ export const notebookLogic = kea<notebookLogicType>([
                     return
                 }
 
-                actions.setLocalContent(JSON.parse(atob(hashParams['🦔'])))
+                actions.setLocalContent(JSON.parse(base64Decode(hashParams['🦔'])))
             }
         },
     })),

@@ -2,18 +2,34 @@
     display: inline-flex;
     gap: 0.5rem;
     align-items: center;
+    height: 2rem;
+    padding: 0.25rem 1rem;
     overflow: hidden;
-    text-shadow: none;
+    color: var(--default);
+    white-space: nowrap;
+    user-select: none;
     background: var(--border);
-    border-color: transparent;
-    box-shadow: none;
-    transition-duration: 200ms; // Shorten from Ant's 300ms
+    border: 1px solid transparent;
+    border-radius: 2rem;
+    outline: 0;
+    transition: all 0.2s cubic-bezier(0.645, 0.045, 0.355, 1);
 
     &:hover,
     &:focus {
-        color: var(--text-default);
-        background: var(--border);
         border-color: var(--border);
+    }
+
+    &:not(.PropertyFilterButton--clickable) {
+        border-color: transparent;
+    }
+
+    &.PropertyFilterButton--clickable {
+        touch-action: manipulation; // faster clicks
+        cursor: pointer;
+    }
+
+    &.PropertyFilterButton--closable {
+        padding-right: 0.5rem;
     }
 
     > :not(.PropertyFilterButton-content) {
@@ -24,5 +40,29 @@
         flex: 1;
         overflow: hidden;
         text-overflow: ellipsis;
+    }
+
+    // Close button
+    .LemonButton {
+        margin-left: -0.25rem;
+    }
+
+    .LemonButton__chrome {
+        height: 22px !important;
+        min-height: auto !important;
+        padding: 0 4px !important;
+    }
+}
+
+.posthog-3000 {
+    .PropertyFilterButton {
+        &:hover,
+        &:focus {
+            border-color: var(--border-bold);
+        }
+
+        &:not(.PropertyFilterButton--clickable) {
+            border-color: transparent;
+        }
     }
 }

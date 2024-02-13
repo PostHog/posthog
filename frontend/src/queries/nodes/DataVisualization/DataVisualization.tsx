@@ -1,5 +1,7 @@
 import { LemonDivider } from '@posthog/lemon-ui'
 import { BindLogic, useValues } from 'kea'
+import { AnimationType } from 'lib/animations/animations'
+import { Animation } from 'lib/components/Animation/Animation'
 import { useCallback, useState } from 'react'
 import { insightLogic } from 'scenes/insights/insightLogic'
 
@@ -44,7 +46,6 @@ export function DataTableVisualization(props: DataTableVisualizationProps): JSX.
         setQuery: props.setQuery,
         cachedResults: props.cachedResults,
     }
-    const builtDataVisualizationLogic = dataVisualizationLogic(dataVisualizationLogicProps)
 
     const dataNodeLogicProps: DataNodeLogicProps = {
         query: props.query.source,
@@ -52,8 +53,20 @@ export function DataTableVisualization(props: DataTableVisualizationProps): JSX.
         cachedResults: props.cachedResults,
     }
 
-    const { query, visualizationType, showEditingUI, showResultControls, sourceFeatures } =
-        useValues(builtDataVisualizationLogic)
+    return (
+        <BindLogic logic={dataNodeLogic} props={dataNodeLogicProps}>
+            <BindLogic logic={dataVisualizationLogic} props={dataVisualizationLogicProps}>
+                <BindLogic logic={displayLogic} props={{ key: dataVisualizationLogicProps.key }}>
+                    <InternalDataTableVisualization {...props} uniqueKey={key} />
+                </BindLogic>
+            </BindLogic>
+        </BindLogic>
+    )
+}
+
+function InternalDataTableVisualization(props: DataTableVisualizationProps): JSX.Element {
+    const { query, visualizationType, showEditingUI, showResultControls, sourceFeatures, response, responseLoading } =
+        useValues(dataVisualizationLogic)
 
     const setQuerySource = useCallback(
         (source: HogQLQuery) => props.setQuery?.({ ...props.query, source }),
@@ -61,10 +74,17 @@ export function DataTableVisualization(props: DataTableVisualizationProps): JSX.
     )
 
     let component: JSX.Element | null = null
-    if (visualizationType === ChartDisplayType.ActionsTable) {
+    if (!response && responseLoading && !showEditingUI) {
+        return (
+            <div className="flex flex-col flex-1 justify-center items-center border rounded bg-bg-light">
+                <Animation type={AnimationType.LaptopHog} />
+            </div>
+        )
+    } else if (visualizationType === ChartDisplayType.ActionsTable) {
         component = (
             <DataTable
-                uniqueKey={key}
+                uniqueKey={props.uniqueKey}
+                dataNodeLogicKey={props.uniqueKey?.toString()}
                 query={{ kind: NodeKind.DataTableNode, source: query.source }}
                 cachedResults={props.cachedResults}
                 context={{
@@ -81,48 +101,42 @@ export function DataTableVisualization(props: DataTableVisualizationProps): JSX.
     }
 
     return (
-        <BindLogic logic={dataNodeLogic} props={dataNodeLogicProps}>
-            <BindLogic logic={dataVisualizationLogic} props={dataVisualizationLogicProps}>
-                <BindLogic logic={displayLogic} props={{ key: dataVisualizationLogicProps.key }}>
-                    <div className="DataVisualization flex flex-1">
-                        <div className="relative w-full flex flex-col gap-4 flex-1 overflow-hidden">
-                            {showEditingUI && (
-                                <>
-                                    <HogQLQueryEditor query={query.source} setQuery={setQuerySource} embedded />
-                                    {sourceFeatures.has(QueryFeature.dateRangePicker) && (
-                                        <div className="flex gap-4 items-center flex-wrap">
-                                            <DateRange
-                                                key="date-range"
-                                                query={query.source}
-                                                setQuery={(query) => {
-                                                    if (query.kind === NodeKind.HogQLQuery) {
-                                                        setQuerySource(query)
-                                                    }
-                                                }}
-                                            />
-                                        </div>
-                                    )}
-                                </>
-                            )}
-                            {showResultControls && (
-                                <>
-                                    <LemonDivider className="my-0" />
-                                    <div className="flex gap-4 justify-between flex-wrap">
-                                        <div className="flex gap-4 items-center">
-                                            <Reload />
-                                            <ElapsedTime />
-                                        </div>
-                                        <div className="flex gap-4 items-center">
-                                            <TableDisplay />
-                                        </div>
-                                    </div>
-                                </>
-                            )}
-                            {component}
+        <div className="DataVisualization flex flex-1">
+            <div className="relative w-full flex flex-col gap-4 flex-1 overflow-hidden">
+                {showEditingUI && (
+                    <>
+                        <HogQLQueryEditor query={query.source} setQuery={setQuerySource} embedded />
+                        {sourceFeatures.has(QueryFeature.dateRangePicker) && (
+                            <div className="flex gap-4 items-center flex-wrap">
+                                <DateRange
+                                    key="date-range"
+                                    query={query.source}
+                                    setQuery={(query) => {
+                                        if (query.kind === NodeKind.HogQLQuery) {
+                                            setQuerySource(query)
+                                        }
+                                    }}
+                                />
+                            </div>
+                        )}
+                    </>
+                )}
+                {showResultControls && (
+                    <>
+                        <LemonDivider className="my-0" />
+                        <div className="flex gap-4 justify-between flex-wrap">
+                            <div className="flex gap-4 items-center">
+                                <Reload />
+                                <ElapsedTime />
+                            </div>
+                            <div className="flex gap-4 items-center">
+                                <TableDisplay />
+                            </div>
                         </div>
-                    </div>
-                </BindLogic>
-            </BindLogic>
-        </BindLogic>
+                    </>
+                )}
+                {component}
+            </div>
+        </div>
     )
 }

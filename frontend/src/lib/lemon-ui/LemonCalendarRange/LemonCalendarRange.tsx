@@ -17,7 +17,7 @@ export function LemonCalendarRange({ value, onChange, onClose, months }: LemonCa
     // Keep a sanitised and cached copy of the selected range
     const [[rangeStart, rangeEnd], setRange] = useState([
         value?.[0] ? value[0].startOf('day') : null,
-        value?.[1] ? value[1].startOf('day') : null,
+        value?.[1] ? value[1].endOf('day') : null,
     ])
 
     return (
@@ -25,14 +25,7 @@ export function LemonCalendarRange({ value, onChange, onClose, months }: LemonCa
             <div className="flex justify-between border-b p-2 pb-4">
                 <h3 className="text-base mb-0">Select a date range</h3>
                 {onClose && (
-                    <LemonButton
-                        icon={<IconClose />}
-                        size="small"
-                        noPadding
-                        status="stealth"
-                        onClick={onClose}
-                        aria-label="close"
-                    />
+                    <LemonButton icon={<IconClose />} size="small" noPadding onClick={onClose} aria-label="close" />
                 )}
             </div>
             <div className="p-2">

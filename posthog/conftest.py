@@ -5,7 +5,7 @@ from django.conf import settings
 from infi.clickhouse_orm import Database
 
 from posthog.client import sync_execute
-from posthog.test.base import TestMixin, run_clickhouse_statement_in_parallel
+from posthog.test.base import PostHogTestCase, run_clickhouse_statement_in_parallel
 
 
 def create_clickhouse_tables(num_tables: int):
@@ -14,6 +14,8 @@ def create_clickhouse_tables(num_tables: int):
     from posthog.clickhouse.schema import (
         CREATE_DISTRIBUTED_TABLE_QUERIES,
         CREATE_MERGETREE_TABLE_QUERIES,
+        CREATE_DATA_QUERIES,
+        CREATE_DICTIONARY_QUERIES,
         build_query,
     )
 
@@ -24,8 +26,14 @@ def create_clickhouse_tables(num_tables: int):
     if num_tables == len(CREATE_TABLE_QUERIES):
         return
 
-    queries = list(map(build_query, CREATE_TABLE_QUERIES))
-    run_clickhouse_statement_in_parallel(queries)
+    table_queries = list(map(build_query, CREATE_TABLE_QUERIES))
+    run_clickhouse_statement_in_parallel(table_queries)
+
+    data_queries = list(map(build_query, CREATE_DATA_QUERIES))
+    run_clickhouse_statement_in_parallel(data_queries)
+
+    dictionary_queries = list(map(build_query, CREATE_DICTIONARY_QUERIES))
+    run_clickhouse_statement_in_parallel(dictionary_queries)
 
 
 def reset_clickhouse_tables():
@@ -51,6 +59,7 @@ def reset_clickhouse_tables():
     from posthog.session_recordings.sql.session_recording_event_sql import (
         TRUNCATE_SESSION_RECORDING_EVENTS_TABLE_SQL,
     )
+    from posthog.models.channel_type.sql import TRUNCATE_CHANNEL_DEFINITION_TABLE_SQL
 
     # REMEMBER TO ADD ANY NEW CLICKHOUSE TABLES TO THIS ARRAY!
     TABLES_TO_CREATE_DROP = [
@@ -66,9 +75,16 @@ def reset_clickhouse_tables():
         TRUNCATE_GROUPS_TABLE_SQL,
         TRUNCATE_APP_METRICS_TABLE_SQL,
         TRUNCATE_PERFORMANCE_EVENTS_TABLE_SQL,
+        TRUNCATE_CHANNEL_DEFINITION_TABLE_SQL,
     ]
 
     run_clickhouse_statement_in_parallel(TABLES_TO_CREATE_DROP)
+
+    from posthog.clickhouse.schema import (
+        CREATE_DATA_QUERIES,
+    )
+
+    run_clickhouse_statement_in_parallel(list(CREATE_DATA_QUERIES))
 
 
 @pytest.fixture(scope="package")
@@ -108,7 +124,7 @@ def django_db_setup(django_db_setup, django_db_keepdb):
 
 @pytest.fixture
 def base_test_mixin_fixture():
-    kls = TestMixin()
+    kls = PostHogTestCase()
     kls.setUp()
     kls.setUpTestData()
 

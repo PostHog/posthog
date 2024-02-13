@@ -15,7 +15,7 @@ export function TaxonomicBreakdownButton(): JSX.Element {
     return (
         <TaxonomicBreakdownPopover open={open} setOpen={setOpen}>
             <LemonButton
-                type={'secondary'}
+                type="secondary"
                 icon={<IconPlusMini color="var(--primary)" />}
                 data-attr="add-breakdown-button"
                 onClick={() => setOpen(!open)}

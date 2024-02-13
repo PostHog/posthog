@@ -18,6 +18,7 @@ class UserBasicSerializer(serializers.ModelSerializer):
             "uuid",
             "distinct_id",
             "first_name",
+            "last_name",
             "email",
             "is_email_verified",
         ]

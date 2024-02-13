@@ -2,17 +2,15 @@ import { LemonButton, LemonLabel, LemonSelect } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { IconDelete, IconPlusMini } from 'lib/lemon-ui/icons'
 
-import { dataNodeLogic } from '../../DataNode/dataNodeLogic'
 import { dataVisualizationLogic } from '../dataVisualizationLogic'
 
 export const SeriesTab = (): JSX.Element => {
-    const { columns, selectedXIndex, selectedYIndexes } = useValues(dataVisualizationLogic)
-    const { responseLoading } = useValues(dataNodeLogic)
-    const { updateXSeries, updateYSeries, addYSeries, deletedYSeries } = useActions(dataVisualizationLogic)
+    const { columns, xData, yData, responseLoading } = useValues(dataVisualizationLogic)
+    const { updateXSeries, updateYSeries, addYSeries, deleteYSeries } = useActions(dataVisualizationLogic)
 
-    const options = columns.map(({ name, type }) => ({
+    const options = columns.map(({ name, label }) => ({
         value: name,
-        label: `${name} - ${type}`,
+        label,
     }))
 
     return (
@@ -20,34 +18,38 @@ export const SeriesTab = (): JSX.Element => {
             <LemonLabel>X-axis</LemonLabel>
             <LemonSelect
                 className="w-full"
-                value={selectedXIndex !== null ? options[selectedXIndex]?.label : 'None'}
+                value={xData !== null ? xData.column.label : 'None'}
                 options={options}
                 disabledReason={responseLoading ? 'Query loading...' : undefined}
                 onChange={(value) => {
-                    const columnIndex = options.findIndex((n) => n.value === value)
-                    updateXSeries(columnIndex)
+                    const column = columns.find((n) => n.name === value)
+                    if (column) {
+                        updateXSeries(column.name)
+                    }
                 }}
             />
             <LemonLabel className="mt-4">Y-axis</LemonLabel>
-            {(selectedYIndexes ?? [null]).map((selectedYIndex, index) => (
-                <div className="flex gap-1 mb-1" key={selectedYIndex}>
+            {(yData ?? [null]).map((series, index) => (
+                <div className="flex gap-1 mb-1" key={series?.column.name}>
                     <LemonSelect
                         className="grow"
-                        value={selectedYIndex !== null ? options[selectedYIndex]?.label : 'None'}
+                        value={series !== null ? series.column.label : 'None'}
                         options={options}
                         disabledReason={responseLoading ? 'Query loading...' : undefined}
                         onChange={(value) => {
-                            const columnIndex = options.findIndex((n) => n.value === value)
-                            updateYSeries(index, columnIndex)
+                            const column = columns.find((n) => n.name === value)
+                            if (column) {
+                                updateYSeries(index, column.name)
+                            }
                         }}
                     />
                     <LemonButton
                         key="delete"
                         icon={<IconDelete />}
-                        status="primary-alt"
+                        status="danger"
                         title="Delete Y-series"
                         noPadding
-                        onClick={() => deletedYSeries(index)}
+                        onClick={() => deleteYSeries(index)}
                     />
                 </div>
             ))}

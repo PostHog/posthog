@@ -1,9 +1,10 @@
 import { actions, connect, kea, listeners, path } from 'kea'
+import { BarStatus, ResultType } from 'lib/components/CommandBar/types'
 import { convertPropertyGroupToProperties, isGroupPropertyFilter } from 'lib/components/PropertyFilters/utils'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import type { Dayjs } from 'lib/dayjs'
 import { now } from 'lib/dayjs'
-import { isPostHogProp, keyMappingKeys } from 'lib/taxonomy'
+import { isCoreFilter, PROPERTY_KEYS } from 'lib/taxonomy'
 import posthog from 'posthog-js'
 import {
     isFilterWithDisplay,
@@ -104,7 +105,7 @@ interface RecordingViewedProps {
 function flattenProperties(properties: AnyPropertyFilter[]): string[] {
     const output = []
     for (const prop of properties || []) {
-        if (prop.key && isPostHogProp(prop.key)) {
+        if (prop.key && isCoreFilter(prop.key)) {
             output.push(prop.key)
         } else {
             output.push('redacted') // Custom property names are not reported
@@ -445,6 +446,8 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
         reportFailedToCreateFeatureFlagWithCohort: (code: string, detail: string) => ({ code, detail }),
         reportFeatureFlagCopySuccess: true,
         reportFeatureFlagCopyFailure: (error) => ({ error }),
+        reportFeatureFlagScheduleSuccess: true,
+        reportFeatureFlagScheduleFailure: (error) => ({ error }),
         reportInviteMembersButtonClicked: true,
         reportDashboardLoadingTime: (loadingMilliseconds: number, dashboardId: number) => ({
             loadingMilliseconds,
@@ -488,9 +491,21 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
         reportSurveyTemplateClicked: (template: SurveyTemplateType) => ({ template }),
         reportProductUnsubscribed: (product: string) => ({ product }),
         // onboarding
-        reportOnboardingProductSelected: (productKey: string) => ({ productKey }),
+        reportOnboardingProductSelected: (
+            productKey: string,
+            includeFirstOnboardingProductOnUserProperties: boolean
+        ) => ({
+            productKey,
+            includeFirstOnboardingProductOnUserProperties,
+        }),
         reportOnboardingCompleted: (productKey: string) => ({ productKey }),
         reportSubscribedDuringOnboarding: (productKey: string) => ({ productKey }),
+        // command bar
+        reportCommandBarStatusChanged: (status: BarStatus) => ({ status }),
+        reportCommandBarSearch: (queryLength: number) => ({ queryLength }),
+        reportCommandBarSearchResultOpened: (type: ResultType) => ({ type }),
+        reportCommandBarActionSearch: (query: string) => ({ query }),
+        reportCommandBarActionResultExecuted: (resultDisplay) => ({ resultDisplay }),
     }),
     listeners(({ values }) => ({
         reportAxisUnitsChanged: (properties) => {
@@ -518,7 +533,7 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
             let custom_properties_count = 0
             let posthog_properties_count = 0
             for (const prop of Object.keys(person.properties)) {
-                if (keyMappingKeys.includes(prop)) {
+                if (PROPERTY_KEYS.includes(prop)) {
                     posthog_properties_count += 1
                 } else {
                     custom_properties_count += 1
@@ -826,16 +841,16 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
             // @ts-expect-error
             const eventIndex = new EventIndex(playerData?.snapshots || [])
             const payload: Partial<RecordingViewedProps> = {
-                snapshots_load_time: durations.snapshots?.duration,
-                metadata_load_time: durations.metadata?.duration,
-                events_load_time: durations.events?.duration,
-                first_paint_load_time: durations.firstPaint?.duration,
+                snapshots_load_time: durations.snapshots,
+                metadata_load_time: durations.metadata,
+                events_load_time: durations.events,
+                first_paint_load_time: durations.firstPaint,
                 duration: eventIndex.getDuration(),
                 start_time: playerData.start?.valueOf() ?? 0,
                 end_time: playerData.end?.valueOf() ?? 0,
                 page_change_events_length: eventIndex.pageChangeEvents().length,
                 recording_width: eventIndex.getRecordingScreenMetadata(0)[0]?.width,
-                load_time: durations.firstPaint?.duration ?? 0, // TODO: DEPRECATED field. Keep around so dashboards don't break
+                load_time: durations.firstPaint ?? 0, // TODO: DEPRECATED field. Keep around so dashboards don't break
             }
             posthog.capture(`recording ${type}`, payload)
         },
@@ -1056,6 +1071,12 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
         reportFeatureFlagCopyFailure: ({ error }) => {
             posthog.capture('feature flag copy failure', { error })
         },
+        reportFeatureFlagScheduleSuccess: () => {
+            posthog.capture('feature flag scheduled')
+        },
+        reportFeatureFlagScheduleFailure: ({ error }) => {
+            posthog.capture('feature flag schedule failure', { error })
+        },
         reportInviteMembersButtonClicked: () => {
             posthog.capture('invite members button clicked')
         },
@@ -1185,9 +1206,14 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
             })
         },
         // onboarding
-        reportOnboardingProductSelected: ({ productKey }) => {
+        reportOnboardingProductSelected: ({ productKey, includeFirstOnboardingProductOnUserProperties }) => {
             posthog.capture('onboarding product selected', {
                 product_key: productKey,
+                $set_once: {
+                    first_onboarding_product_selected: includeFirstOnboardingProductOnUserProperties
+                        ? productKey
+                        : undefined,
+                },
             })
         },
         reportOnboardingCompleted: ({ productKey }) => {
@@ -1199,6 +1225,22 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
             posthog.capture('subscribed during onboarding', {
                 product_key: productKey,
             })
+        },
+        // command bar
+        reportCommandBarStatusChanged: ({ status }) => {
+            posthog.capture('command bar status changed', { status })
+        },
+        reportCommandBarSearch: ({ queryLength }) => {
+            posthog.capture('command bar search', { queryLength })
+        },
+        reportCommandBarSearchResultOpened: ({ type }) => {
+            posthog.capture('command bar search result opened', { type })
+        },
+        reportCommandBarActionSearch: ({ query }) => {
+            posthog.capture('command bar action search', { query })
+        },
+        reportCommandBarActionResultExecuted: ({ resultDisplay }) => {
+            posthog.capture('command bar search result executed', { resultDisplay })
         },
     })),
 ])

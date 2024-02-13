@@ -6,8 +6,10 @@ from django.conf import settings
 from posthog.clickhouse.client import sync_execute
 from posthog.cloud_utils import is_cloud
 from posthog.constants import AvailableFeature
+
 from posthog.models.instance_setting import get_instance_setting
 from posthog.models.team import Team
+
 from posthog.session_recordings.models.metadata import (
     RecordingMetadata,
 )
@@ -101,6 +103,40 @@ class SessionReplayEvents:
             console_warn_count=replay[10],
             console_error_count=replay[11],
         )
+
+    def get_events(
+        self, session_id: str, team: Team, metadata: RecordingMetadata, events_to_ignore: List[str] | None
+    ) -> Tuple[List | None, List | None]:
+        from posthog.schema import HogQLQuery, HogQLQueryResponse
+        from posthog.hogql_queries.hogql_query_runner import HogQLQueryRunner
+
+        q = """
+            select event, timestamp, elements_chain, properties.$window_id, properties.$current_url, properties.$event_type
+            from events
+            where timestamp >= {start_time} and timestamp <= {end_time}
+            and $session_id = {session_id}
+            """
+        if events_to_ignore:
+            q += " and event not in {events_to_ignore}"
+
+        q += " order by timestamp asc"
+
+        hq = HogQLQuery(
+            query=q,
+            values={
+                "start_time": metadata["start_time"],
+                "end_time": metadata["end_time"],
+                "session_id": session_id,
+                "events_to_ignore": events_to_ignore,
+            },
+        )
+
+        result: HogQLQueryResponse = HogQLQueryRunner(
+            team=team,
+            query=hq,
+        ).calculate()
+
+        return result.columns, result.results
 
 
 def ttl_days(team: Team) -> int:

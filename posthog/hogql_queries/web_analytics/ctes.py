@@ -4,19 +4,20 @@
 
 PATHNAME_SCROLL_CTE = """
 SELECT
-    events.properties.`$prev_pageview_pathname` AS $pathname,
+    events.properties.`$prev_pageview_pathname` AS pathname,
     avg(CASE
         WHEN toFloat(JSONExtractRaw(events.properties, '$prev_pageview_max_content_percentage')) IS NULL THEN NULL
-        WHEN toFloat(JSONExtractRaw(events.properties, '$prev_pageview_max_content_percentage')) > 0.8 THEN 100
+        WHEN toFloat(JSONExtractRaw(events.properties, '$prev_pageview_max_content_percentage')) > 0.8 THEN 1
         ELSE 0
     END) AS scroll_gt80_percentage,
     avg(toFloat(JSONExtractRaw(events.properties, '$prev_pageview_max_scroll_percentage'))) as average_scroll_percentage
 FROM
     events
+SAMPLE {sample_rate}
 WHERE
     (event = '$pageview' OR event = '$pageleave') AND events.properties.`$prev_pageview_pathname` IS NOT NULL
     AND ({pathname_scroll_where})
-GROUP BY $pathname
+GROUP BY pathname
 """
 
 COUNTS_CTE = """
@@ -26,6 +27,7 @@ SELECT
     uniq(events.person_id) as unique_visitors
 FROM
     events
+SAMPLE {sample_rate}
 WHERE
     (event = '$pageview')
     AND ({counts_where})
@@ -47,6 +49,7 @@ SESSION_CTE = """
         (num_autocaptures == 0 AND num_pageviews <= 1 AND duration_s < 10) AS is_bounce
     FROM
         events
+    SAMPLE {sample_rate}
     WHERE
         session_id IS NOT NULL
         AND (events.event == '$pageview' OR events.event == '$autocapture' OR events.event == '$pageleave')

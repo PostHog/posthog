@@ -122,7 +122,7 @@ class SessionsTimelineQueryRunner(QueryRunner):
             )
         return cast(ast.SelectQuery, select_query)
 
-    def to_persons_query(self):
+    def to_actors_query(self):
         return parse_select(
             """SELECT DISTINCT person_id FROM {events_subquery}""", {"events_subquery": self._get_events_subquery()}
         )

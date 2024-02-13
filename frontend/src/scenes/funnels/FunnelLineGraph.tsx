@@ -28,7 +28,7 @@ export function FunnelLineGraph({
     showPersonsModal = true,
 }: Omit<ChartParams, 'filters'>): JSX.Element | null {
     const { insightProps } = useValues(insightLogic)
-    const { steps, aggregationTargetLabel, incompletenessOffsetFromEnd, interval, querySource, insightData } =
+    const { indexedSteps, aggregationTargetLabel, incompletenessOffsetFromEnd, interval, querySource, insightData } =
         useValues(funnelDataLogic(insightProps))
 
     if (!isInsightQueryNode(querySource)) {
@@ -42,8 +42,8 @@ export function FunnelLineGraph({
             <LineGraph
                 data-attr="trend-line-graph-funnel"
                 type={GraphType.Line}
-                datasets={steps as unknown as GraphDataset[] /* TODO: better typing */}
-                labels={steps?.[0]?.labels ?? ([] as string[])}
+                datasets={indexedSteps as unknown as GraphDataset[] /* TODO: better typing */}
+                labels={indexedSteps?.[0]?.labels ?? ([] as string[])}
                 isInProgress={incompletenessOffsetFromEnd < 0}
                 inSharedMode={!!inSharedMode}
                 showPersonsModal={showPersonsModal}
@@ -51,11 +51,11 @@ export function FunnelLineGraph({
                     showHeader: false,
                     hideColorCol: true,
                     renderSeries: (_, datum) => {
-                        if (!steps?.[0]?.days) {
+                        if (!indexedSteps?.[0]?.days) {
                             return 'Trend'
                         }
                         return (
-                            getFormattedDate(steps[0].days?.[datum.dataIndex], interval ?? undefined) +
+                            getFormattedDate(indexedSteps[0].days?.[datum.dataIndex], interval ?? undefined) +
                             ' ' +
                             (insightData?.timezone ? shortTimeZone(insightData.timezone) : 'UTC')
                         )
@@ -64,7 +64,7 @@ export function FunnelLineGraph({
                         return `${count}%`
                     },
                 }}
-                trendsFilter={{ aggregation_axis_format: 'percentage' } as TrendsFilter}
+                trendsFilter={{ aggregationAxisFormat: 'percentage' } as TrendsFilter}
                 labelGroupType={aggregationGroupTypeIndex ?? 'people'}
                 incompletenessOffsetFromEnd={incompletenessOffsetFromEnd}
                 onClick={

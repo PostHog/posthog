@@ -78,7 +78,7 @@ export function PropertyDefinitionsTable(): JSX.Element {
                     Click here!
                 </Link>
             </LemonBanner>
-            <div className="flex justify-between mb-4">
+            <div className="flex justify-between mb-4 gap-2 flex-wrap">
                 <LemonInput
                     type="search"
                     placeholder="Search for properties"

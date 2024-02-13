@@ -1,16 +1,37 @@
-# name: TestLifecycleQueryRunner.test_sampling
-  '
+# serializer version: 1
+# name: TestLifecycleQueryRunner.test_cohort_filter
+  '''
+  
+  SELECT count(DISTINCT person_id)
+  FROM cohortpeople
+  WHERE team_id = 2
+    AND cohort_id = 2
+    AND version = NULL
+  '''
+# ---
+# name: TestLifecycleQueryRunner.test_cohort_filter.1
+  '''
+  
+  SELECT count(DISTINCT person_id)
+  FROM cohortpeople
+  WHERE team_id = 2
+    AND cohort_id = 2
+    AND version = 0
+  '''
+# ---
+# name: TestLifecycleQueryRunner.test_cohort_filter.2
+  '''
   SELECT groupArray(start_of_period) AS date,
-         groupArray(round(multiply(counts, divide(1, 0.1)))) AS total,
-         status
+         groupArray(counts) AS total,
+         status AS status
   FROM
     (SELECT if(ifNull(equals(status, 'dormant'), 0), negate(sum(counts)), negate(negate(sum(counts)))) AS counts,
-            start_of_period,
-            status
+            start_of_period AS start_of_period,
+            status AS status
      FROM
        (SELECT periods.start_of_period AS start_of_period,
                0 AS counts,
-               sec.status
+               sec.status AS status
         FROM
           (SELECT minus(toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-19 23:59:59', 6, 'UTC'))), toIntervalDay(numbers.number)) AS start_of_period
            FROM numbers(dateDiff('day', toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-12 00:00:00', 6, 'UTC'))), toStartOfDay(plus(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-19 23:59:59', 6, 'UTC')), toIntervalDay(1))))) AS numbers) AS periods
@@ -20,9 +41,85 @@
              (SELECT 1) ARRAY
            JOIN ['new', 'returning', 'resurrecting', 'dormant'] AS status) AS sec
         ORDER BY sec.status ASC, start_of_period ASC
-        UNION ALL SELECT start_of_period,
+        UNION ALL SELECT start_of_period AS start_of_period,
                          count(DISTINCT person_id) AS counts,
-                         status
+                         status AS status
+        FROM
+          (SELECT events__pdi__person.id AS person_id,
+                  min(toTimeZone(events__pdi__person.created_at, 'UTC')) AS created_at,
+                  arraySort(groupUniqArray(toStartOfDay(toTimeZone(events.timestamp, 'UTC')))) AS all_activity,
+                  arrayPopBack(arrayPushFront(all_activity, toStartOfDay(created_at))) AS previous_activity,
+                  arrayPopFront(arrayPushBack(all_activity, toStartOfDay(parseDateTime64BestEffortOrNull('1970-01-01 00:00:00', 6, 'UTC')))) AS following_activity,
+                  arrayMap((previous, current, index) -> if(ifNull(equals(previous, current), isNull(previous)
+                                                                   and isNull(current)), 'new', if(and(ifNull(equals(minus(current, toIntervalDay(1)), previous), isNull(minus(current, toIntervalDay(1)))
+                                                                                                              and isNull(previous)), ifNull(notEquals(index, 1), 1)), 'returning', 'resurrecting')), previous_activity, all_activity, arrayEnumerate(all_activity)) AS initial_status,
+                  arrayMap((current, next) -> if(ifNull(equals(plus(current, toIntervalDay(1)), next), isNull(plus(current, toIntervalDay(1)))
+                                                        and isNull(next)), '', 'dormant'), all_activity, following_activity) AS dormant_status,
+                  arrayMap(x -> plus(x, toIntervalDay(1)), arrayFilter((current, is_dormant) -> ifNull(equals(is_dormant, 'dormant'), 0), all_activity, dormant_status)) AS dormant_periods,
+                  arrayMap(x -> 'dormant', dormant_periods) AS dormant_label,
+                  arrayConcat(arrayZip(all_activity, initial_status), arrayZip(dormant_periods, dormant_label)) AS temp_concat,
+                  arrayJoin(temp_concat) AS period_status_pairs,
+                  period_status_pairs.1 AS start_of_period,
+                  period_status_pairs.2 AS status
+           FROM events
+           INNER JOIN
+             (SELECT argMax(person_distinct_id2.person_id, person_distinct_id2.version) AS person_id,
+                     person_distinct_id2.distinct_id AS distinct_id
+              FROM person_distinct_id2
+              WHERE equals(person_distinct_id2.team_id, 2)
+              GROUP BY person_distinct_id2.distinct_id
+              HAVING ifNull(equals(argMax(person_distinct_id2.is_deleted, person_distinct_id2.version), 0), 0)) AS events__pdi ON equals(events.distinct_id, events__pdi.distinct_id)
+           INNER JOIN
+             (SELECT argMax(person.created_at, person.version) AS created_at,
+                     person.id AS id
+              FROM person
+              WHERE equals(person.team_id, 2)
+              GROUP BY person.id
+              HAVING ifNull(equals(argMax(person.is_deleted, person.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__pdi__person ON equals(events__pdi.person_id, events__pdi__person.id)
+           WHERE and(equals(events.team_id, 2), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), minus(toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-12 00:00:00', 6, 'UTC'))), toIntervalDay(1))), less(toTimeZone(events.timestamp, 'UTC'), plus(toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-19 23:59:59', 6, 'UTC'))), toIntervalDay(1))), ifNull(in(person_id,
+                                                                                                                                                                                                                                                                                                                                                                                                            (SELECT cohortpeople.person_id AS person_id
+                                                                                                                                                                                                                                                                                                                                                                                                             FROM cohortpeople
+                                                                                                                                                                                                                                                                                                                                                                                                             WHERE and(equals(cohortpeople.team_id, 2), equals(cohortpeople.cohort_id, 3))
+                                                                                                                                                                                                                                                                                                                                                                                                             GROUP BY cohortpeople.person_id, cohortpeople.cohort_id, cohortpeople.version
+                                                                                                                                                                                                                                                                                                                                                                                                             HAVING ifNull(greater(sum(cohortpeople.sign), 0), 0))), 0), equals(events.event, '$pageview'))
+           GROUP BY person_id)
+        GROUP BY start_of_period,
+                 status)
+     WHERE and(ifNull(lessOrEquals(start_of_period, toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-19 23:59:59', 6, 'UTC')))), 0), ifNull(greaterOrEquals(start_of_period, toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-12 00:00:00', 6, 'UTC')))), 0))
+     GROUP BY start_of_period,
+              status
+     ORDER BY start_of_period ASC)
+  GROUP BY status
+  LIMIT 100 SETTINGS readonly=2,
+                     max_execution_time=60,
+                     allow_experimental_object_type=1
+  '''
+# ---
+# name: TestLifecycleQueryRunner.test_sampling
+  '''
+  SELECT groupArray(start_of_period) AS date,
+         groupArray(round(multiply(counts, divide(1, 0.1)))) AS total,
+         status AS status
+  FROM
+    (SELECT if(ifNull(equals(status, 'dormant'), 0), negate(sum(counts)), negate(negate(sum(counts)))) AS counts,
+            start_of_period AS start_of_period,
+            status AS status
+     FROM
+       (SELECT periods.start_of_period AS start_of_period,
+               0 AS counts,
+               sec.status AS status
+        FROM
+          (SELECT minus(toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-19 23:59:59', 6, 'UTC'))), toIntervalDay(numbers.number)) AS start_of_period
+           FROM numbers(dateDiff('day', toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-12 00:00:00', 6, 'UTC'))), toStartOfDay(plus(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-19 23:59:59', 6, 'UTC')), toIntervalDay(1))))) AS numbers) AS periods
+        CROSS JOIN
+          (SELECT status
+           FROM
+             (SELECT 1) ARRAY
+           JOIN ['new', 'returning', 'resurrecting', 'dormant'] AS status) AS sec
+        ORDER BY sec.status ASC, start_of_period ASC
+        UNION ALL SELECT start_of_period AS start_of_period,
+                         count(DISTINCT person_id) AS counts,
+                         status AS status
         FROM
           (SELECT events__pdi__person.id AS person_id,
                   min(toTimeZone(events__pdi__person.created_at, 'UTC')) AS created_at,
@@ -67,21 +164,21 @@
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
                      allow_experimental_object_type=1
-  '
----
+  '''
+# ---
 # name: TestLifecycleQueryRunner.test_timezones
-  '
+  '''
   SELECT groupArray(start_of_period) AS date,
          groupArray(counts) AS total,
-         status
+         status AS status
   FROM
     (SELECT if(ifNull(equals(status, 'dormant'), 0), negate(sum(counts)), negate(negate(sum(counts)))) AS counts,
-            start_of_period,
-            status
+            start_of_period AS start_of_period,
+            status AS status
      FROM
        (SELECT periods.start_of_period AS start_of_period,
                0 AS counts,
-               sec.status
+               sec.status AS status
         FROM
           (SELECT minus(toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-19 23:59:59', 6, 'UTC'))), toIntervalDay(numbers.number)) AS start_of_period
            FROM numbers(dateDiff('day', toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-12 00:00:00', 6, 'UTC'))), toStartOfDay(plus(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-19 23:59:59', 6, 'UTC')), toIntervalDay(1))))) AS numbers) AS periods
@@ -91,9 +188,9 @@
              (SELECT 1) ARRAY
            JOIN ['new', 'returning', 'resurrecting', 'dormant'] AS status) AS sec
         ORDER BY sec.status ASC, start_of_period ASC
-        UNION ALL SELECT start_of_period,
+        UNION ALL SELECT start_of_period AS start_of_period,
                          count(DISTINCT person_id) AS counts,
-                         status
+                         status AS status
         FROM
           (SELECT events__pdi__person.id AS person_id,
                   min(toTimeZone(events__pdi__person.created_at, 'UTC')) AS created_at,
@@ -138,21 +235,21 @@
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
                      allow_experimental_object_type=1
-  '
----
+  '''
+# ---
 # name: TestLifecycleQueryRunner.test_timezones.1
-  '
+  '''
   SELECT groupArray(start_of_period) AS date,
          groupArray(counts) AS total,
-         status
+         status AS status
   FROM
     (SELECT if(ifNull(equals(status, 'dormant'), 0), negate(sum(counts)), negate(negate(sum(counts)))) AS counts,
-            start_of_period,
-            status
+            start_of_period AS start_of_period,
+            status AS status
      FROM
        (SELECT periods.start_of_period AS start_of_period,
                0 AS counts,
-               sec.status
+               sec.status AS status
         FROM
           (SELECT minus(toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-19 23:59:59', 6, 'US/Pacific'))), toIntervalDay(numbers.number)) AS start_of_period
            FROM numbers(dateDiff('day', toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-12 00:00:00', 6, 'US/Pacific'))), toStartOfDay(plus(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-19 23:59:59', 6, 'US/Pacific')), toIntervalDay(1))))) AS numbers) AS periods
@@ -162,9 +259,9 @@
              (SELECT 1) ARRAY
            JOIN ['new', 'returning', 'resurrecting', 'dormant'] AS status) AS sec
         ORDER BY sec.status ASC, start_of_period ASC
-        UNION ALL SELECT start_of_period,
+        UNION ALL SELECT start_of_period AS start_of_period,
                          count(DISTINCT person_id) AS counts,
-                         status
+                         status AS status
         FROM
           (SELECT events__pdi__person.id AS person_id,
                   min(toTimeZone(events__pdi__person.created_at, 'US/Pacific')) AS created_at,
@@ -209,5 +306,5 @@
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
                      allow_experimental_object_type=1
-  '
----
+  '''
+# ---

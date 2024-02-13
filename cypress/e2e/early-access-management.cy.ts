@@ -5,20 +5,17 @@ describe('Early Access Management', () => {
 
     it('Early access feature new and list', () => {
         // load an empty early access feature page
-        cy.get('h1').should('contain', 'Early Access Management')
+        cy.get('h1').should('contain', 'Early access features')
         cy.title().should('equal', 'Early access features • PostHog')
-        cy.get('h2').should('contain', 'Create your first feature')
+        cy.contains('Create your first feature').should('exist')
         cy.get('[data-attr="product-introduction-docs-link"]').should('contain', 'Learn more')
 
         // go to create a new feature
         cy.get('[data-attr="create-feature"]').click()
 
-        // New Feature Release page
-        cy.get('h1').should('contain', 'New feature release')
-
         // cancel new feature
         cy.get('[data-attr="cancel-feature"]').click()
-        cy.get('h1').should('contain', 'Early Access Management')
+        cy.get('h1').should('contain', 'Early access features')
 
         // set feature name & description
         cy.get('[data-attr="create-feature"]').click()
@@ -32,7 +29,7 @@ describe('Early Access Management', () => {
         // back to features
         cy.visit('/early_access_features')
         cy.get('tbody').contains('Test Feature')
-        cy.get('h2').should('not.have.text', 'Create your first feature')
+        cy.contains('Create your first feature').should('not.exist')
 
         // edit feature
         cy.get('a.Link').contains('.row-name', 'Test Feature').click()

@@ -24,7 +24,7 @@ export const FlagsToolbarMenu = (): JSX.Element => {
                     autoFocus
                     placeholder="Search"
                     fullWidth
-                    type={'search'}
+                    type="search"
                     value={searchTerm}
                     onChange={(s) => setSearchTerm(s)}
                 />
@@ -96,7 +96,7 @@ export const FlagsToolbarMenu = (): JSX.Element => {
                             </div>
                         ))
                     ) : (
-                        <div className={'flex flex-row items-center px-2 py-1'}>
+                        <div className="flex flex-row items-center px-2 py-1">
                             {userFlagsLoading ? (
                                 <span className="flex-1 flex justify-center items-center p-4">
                                     <Spinner className="text-2xl" />

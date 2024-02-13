@@ -104,7 +104,7 @@ export function InfiniteSelectResults({
                     )
                 })}
             </div>
-            <div className={'taxonomic-group-title with-border'}>
+            <div className="taxonomic-group-title with-border">
                 {taxonomicGroups.find((g) => g.type === openTab)?.name || openTab}
             </div>
             {taxonomicGroupTypes.map((groupType) => {

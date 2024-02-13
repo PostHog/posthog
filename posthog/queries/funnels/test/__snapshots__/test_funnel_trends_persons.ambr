@@ -1,5 +1,6 @@
+# serializer version: 1
 # name: TestFunnelTrendsPersons.test_funnel_trend_persons_returns_recordings
-  '
+  '''
   
   SELECT aggregation_target AS actor_id,
          step_1_matching_events as matching_events
@@ -99,7 +100,7 @@
                    (SELECT e.timestamp as timestamp,
                            pdi.person_id as aggregation_target,
                            e.uuid AS uuid,
-                           pdi.person_id as person_id ,
+                           pdi.person_id as person_id,
                            if(event = 'step one', 1, 0) as step_0,
                            if(step_0 = 1, timestamp, null) as latest_0,
                            if(step_0 = 1, "uuid", null) as "uuid_0",
@@ -121,6 +122,13 @@
                               argMax(person_id, version) as person_id
                        FROM person_distinct_id2
                        WHERE team_id = 2
+                         AND distinct_id IN
+                           (SELECT distinct_id
+                            FROM events
+                            WHERE team_id = 2
+                              AND event IN ['step one', 'step three', 'step two']
+                              AND toTimeZone(timestamp, 'UTC') >= toDateTime('2021-05-01 00:00:00', 'UTC')
+                              AND toTimeZone(timestamp, 'UTC') <= toDateTime('2021-05-07 23:59:59', 'UTC') )
                        GROUP BY distinct_id
                        HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
                     WHERE team_id = 2
@@ -137,11 +145,12 @@
   WHERE steps_completed >= 2
   ORDER BY aggregation_target
   LIMIT 100
-  OFFSET 0
-  '
----
+  OFFSET 0 SETTINGS max_ast_elements=1000000,
+                    max_expanded_ast_elements=1000000
+  '''
+# ---
 # name: TestFunnelTrendsPersons.test_funnel_trend_persons_returns_recordings.1
-  '
+  '''
   
   SELECT DISTINCT session_id
   FROM session_replay_events
@@ -149,21 +158,10 @@
     and session_id in ['s1b']
     AND min_first_timestamp >= '2021-04-30 00:00:00'
     AND max_last_timestamp <= '2021-05-08 23:59:59'
-  '
----
-# name: TestFunnelTrendsPersons.test_funnel_trend_persons_returns_recordings.2
-  '
-  
-  SELECT DISTINCT session_id
-  FROM session_replay_events
-  WHERE team_id = 2
-    and session_id in ['s1b']
-    AND min_first_timestamp >= '2021-04-30 00:00:00'
-    AND max_last_timestamp <= '2021-05-08 23:59:59'
-  '
----
+  '''
+# ---
 # name: TestFunnelTrendsPersons.test_funnel_trend_persons_with_drop_off
-  '
+  '''
   
   SELECT aggregation_target AS actor_id,
          final_matching_events as matching_events
@@ -263,7 +261,7 @@
                    (SELECT e.timestamp as timestamp,
                            pdi.person_id as aggregation_target,
                            e.uuid AS uuid,
-                           pdi.person_id as person_id ,
+                           pdi.person_id as person_id,
                            if(event = 'step one', 1, 0) as step_0,
                            if(step_0 = 1, timestamp, null) as latest_0,
                            if(step_0 = 1, "uuid", null) as "uuid_0",
@@ -285,6 +283,13 @@
                               argMax(person_id, version) as person_id
                        FROM person_distinct_id2
                        WHERE team_id = 2
+                         AND distinct_id IN
+                           (SELECT distinct_id
+                            FROM events
+                            WHERE team_id = 2
+                              AND event IN ['step one', 'step three', 'step two']
+                              AND toTimeZone(timestamp, 'UTC') >= toDateTime('2021-05-01 00:00:00', 'UTC')
+                              AND toTimeZone(timestamp, 'UTC') <= toDateTime('2021-05-07 23:59:59', 'UTC') )
                        GROUP BY distinct_id
                        HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
                     WHERE team_id = 2
@@ -302,11 +307,12 @@
     AND steps_completed < 3
   ORDER BY aggregation_target
   LIMIT 100
-  OFFSET 0
-  '
----
+  OFFSET 0 SETTINGS max_ast_elements=1000000,
+                    max_expanded_ast_elements=1000000
+  '''
+# ---
 # name: TestFunnelTrendsPersons.test_funnel_trend_persons_with_drop_off.1
-  '
+  '''
   
   SELECT DISTINCT session_id
   FROM session_replay_events
@@ -314,21 +320,10 @@
     and session_id in ['s1a']
     AND min_first_timestamp >= '2021-04-30 00:00:00'
     AND max_last_timestamp <= '2021-05-08 23:59:59'
-  '
----
-# name: TestFunnelTrendsPersons.test_funnel_trend_persons_with_drop_off.2
-  '
-  
-  SELECT DISTINCT session_id
-  FROM session_replay_events
-  WHERE team_id = 2
-    and session_id in ['s1a']
-    AND min_first_timestamp >= '2021-04-30 00:00:00'
-    AND max_last_timestamp <= '2021-05-08 23:59:59'
-  '
----
+  '''
+# ---
 # name: TestFunnelTrendsPersons.test_funnel_trend_persons_with_no_to_step
-  '
+  '''
   
   SELECT aggregation_target AS actor_id,
          final_matching_events as matching_events
@@ -428,7 +423,7 @@
                    (SELECT e.timestamp as timestamp,
                            pdi.person_id as aggregation_target,
                            e.uuid AS uuid,
-                           pdi.person_id as person_id ,
+                           pdi.person_id as person_id,
                            if(event = 'step one', 1, 0) as step_0,
                            if(step_0 = 1, timestamp, null) as latest_0,
                            if(step_0 = 1, "uuid", null) as "uuid_0",
@@ -450,6 +445,13 @@
                               argMax(person_id, version) as person_id
                        FROM person_distinct_id2
                        WHERE team_id = 2
+                         AND distinct_id IN
+                           (SELECT distinct_id
+                            FROM events
+                            WHERE team_id = 2
+                              AND event IN ['step one', 'step three', 'step two']
+                              AND toTimeZone(timestamp, 'UTC') >= toDateTime('2021-05-01 00:00:00', 'UTC')
+                              AND toTimeZone(timestamp, 'UTC') <= toDateTime('2021-05-07 23:59:59', 'UTC') )
                        GROUP BY distinct_id
                        HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
                     WHERE team_id = 2
@@ -466,11 +468,12 @@
   WHERE steps_completed >= 3
   ORDER BY aggregation_target
   LIMIT 100
-  OFFSET 0
-  '
----
+  OFFSET 0 SETTINGS max_ast_elements=1000000,
+                    max_expanded_ast_elements=1000000
+  '''
+# ---
 # name: TestFunnelTrendsPersons.test_funnel_trend_persons_with_no_to_step.1
-  '
+  '''
   
   SELECT DISTINCT session_id
   FROM session_replay_events
@@ -478,16 +481,5 @@
     and session_id in ['s1c']
     AND min_first_timestamp >= '2021-04-30 00:00:00'
     AND max_last_timestamp <= '2021-05-08 23:59:59'
-  '
----
-# name: TestFunnelTrendsPersons.test_funnel_trend_persons_with_no_to_step.2
-  '
-  
-  SELECT DISTINCT session_id
-  FROM session_replay_events
-  WHERE team_id = 2
-    and session_id in ['s1c']
-    AND min_first_timestamp >= '2021-04-30 00:00:00'
-    AND max_last_timestamp <= '2021-05-08 23:59:59'
-  '
----
+  '''
+# ---

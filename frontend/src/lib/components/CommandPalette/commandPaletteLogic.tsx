@@ -23,7 +23,6 @@ import {
     IconLive,
     IconNight,
     IconNotebook,
-    IconPageChart,
     IconPeople,
     IconPeopleFilled,
     IconPieChart,
@@ -62,8 +61,7 @@ import { userLogic } from 'scenes/userLogic'
 import { SIDE_PANEL_TABS } from '~/layout/navigation-3000/sidepanel/SidePanel'
 import { sidePanelLogic } from '~/layout/navigation-3000/sidepanel/sidePanelLogic'
 import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
-import { dashboardsModel } from '~/models/dashboardsModel'
-import { DashboardType, InsightType } from '~/types'
+import { InsightType } from '~/types'
 
 import { personalAPIKeysLogic } from '../../../scenes/settings/user/personalAPIKeysLogic'
 import { commandBarLogic } from '../CommandBar/commandBarLogic'
@@ -235,7 +233,7 @@ export const commandPaletteLogic = kea<commandPaletteLogicType>([
                 backFlow: (currentFlow) => currentFlow?.previousFlow ?? null,
             },
         ],
-        rawCommandRegistrations: [
+        commandRegistrations: [
             {} as CommandRegistrations,
             {
                 registerCommand: (commands, { command }) => {
@@ -249,10 +247,6 @@ export const commandPaletteLogic = kea<commandPaletteLogicType>([
         ],
     }),
     selectors({
-        isUsingCmdKSearch: [
-            (selectors) => [selectors.featureFlags],
-            (featureFlags) => featureFlags[FEATURE_FLAGS.POSTHOG_3000] === 'test',
-        ],
         isSqueak: [
             (selectors) => [selectors.input],
             (input: string) => {
@@ -263,41 +257,6 @@ export const commandPaletteLogic = kea<commandPaletteLogicType>([
             (selectors) => [selectors.keyboardResultIndex, selectors.hoverResultIndex],
             (keyboardResultIndex: number, hoverResultIndex: number | null) => {
                 return hoverResultIndex ?? keyboardResultIndex
-            },
-        ],
-        commandRegistrations: [
-            (selectors) => [
-                selectors.rawCommandRegistrations,
-                selectors.isUsingCmdKSearch,
-                dashboardsModel.selectors.nameSortedDashboards,
-                teamLogic.selectors.currentTeam,
-            ],
-            (
-                rawCommandRegistrations: CommandRegistrations,
-                isUsingCmdKSearch,
-                dashboards: DashboardType[]
-            ): CommandRegistrations => {
-                if (isUsingCmdKSearch) {
-                    // do not add dashboards to commands, as they can be navigated to via search
-                    return rawCommandRegistrations
-                }
-
-                return {
-                    ...rawCommandRegistrations,
-                    custom_dashboards: {
-                        key: 'custom_dashboards',
-                        resolver: dashboards.map((dashboard: DashboardType) => ({
-                            key: `dashboard_${dashboard.id}`,
-                            icon: IconPageChart,
-                            display: `Go to dashboard: ${dashboard.name}`,
-                            executor: () => {
-                                const { push } = router.actions
-                                push(urls.dashboard(dashboard.id))
-                            },
-                        })),
-                        scope: GLOBAL_COMMAND_SCOPE,
-                    },
-                }
             },
         ],
         regexpCommandPairs: [
@@ -689,9 +648,7 @@ export const commandPaletteLogic = kea<commandPaletteLogicType>([
                         },
                     },
                     {
-                        icon: () => (
-                            <ProfilePicture name={values.user?.first_name} email={values.user?.email} size="xs" />
-                        ),
+                        icon: () => <ProfilePicture user={values.user} size="xs" />,
                         display: 'Go to User settings',
                         synonyms: ['account', 'profile'],
                         executor: () => {
@@ -927,7 +884,7 @@ export const commandPaletteLogic = kea<commandPaletteLogicType>([
                                 icon: IconLaptop,
                                 display: 'Sync with system preferences',
                                 executor: () => {
-                                    actions.updateUser({ theme_mode: null })
+                                    actions.updateUser({ theme_mode: 'system' })
                                 },
                             },
                         ],
@@ -1008,12 +965,10 @@ export const commandPaletteLogic = kea<commandPaletteLogicType>([
             actions.registerCommand(createDashboard)
             actions.registerCommand(shareFeedback)
             actions.registerCommand(debugCopySessionRecordingURL)
-            if (values.featureFlags[FEATURE_FLAGS.POSTHOG_3000] === 'test') {
-                actions.registerCommand(toggleTheme)
-                actions.registerCommand(toggleHedgehogMode)
-                actions.registerCommand(shortcuts)
-                actions.registerCommand(sidepanel)
-            }
+            actions.registerCommand(toggleTheme)
+            actions.registerCommand(toggleHedgehogMode)
+            actions.registerCommand(shortcuts)
+            actions.registerCommand(sidepanel)
         },
         beforeUnmount: () => {
             actions.deregisterCommand('go-to')

@@ -30,4 +30,4 @@ PG_PASSWORD="${PGPASSWORD:=posthog}"
 PG_PORT="${PGPORT:=5432}"
 PGOPTIONS='--client-min-messages=warning' psql posthog -d "postgres://${PG_USER}:${PG_PASSWORD}@${PG_HOST}:${PG_PORT}" -c "drop database if exists test_posthog" 1> /dev/null
 
-nodemon -w ./posthog -w ./ee --ext py --exec "OBJC_DISABLE_INITIALIZE_FORK_SAFETY=YES pytest --reuse-db --durations-min=2.0 ${MIGRATIONS} -s $* --snapshot-update; mypy -p posthog --exclude bin/migrate_kafka_data.py --exclude posthog/hogql/grammar/HogQLParser.py --exclude gunicorn.config.py --exclude posthog/batch_exports/models.py"
+nodemon -w ./posthog -w ./ee --ext py --exec "OBJC_DISABLE_INITIALIZE_FORK_SAFETY=YES pytest --reuse-db --durations-min=2.0 ${MIGRATIONS} -s $* --snapshot-update; mypy -p posthog | mypy-baseline filter"

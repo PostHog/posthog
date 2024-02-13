@@ -18,7 +18,7 @@ from django.db.models import Exists, OuterRef, Q, Value
 from rest_framework.exceptions import ValidationError
 
 from posthog.constants import PropertyOperatorType
-from posthog.models.cohort import Cohort, CohortPeople
+from posthog.models.cohort import Cohort, CohortPeople, CohortOrEmpty
 from posthog.models.filters.filter import Filter
 from posthog.models.filters.path_filter import PathFilter
 from posthog.models.property import (
@@ -172,27 +172,20 @@ def match_property(property: Property, override_property_values: Dict[str, Any])
         else:
             return compare(str(override_value), str(value), operator)
 
-    if operator in ["is_date_before", "is_date_after", "is_relative_date_before", "is_relative_date_after"]:
-        try:
-            if operator in ["is_relative_date_before", "is_relative_date_after"]:
-                parsed_date = relative_date_parse_for_feature_flag_matching(str(value))
-            else:
-                parsed_date = parser.parse(str(value))
-                parsed_date = convert_to_datetime_aware(parsed_date)
-        except Exception:
-            return False
+    if operator in ["is_date_before", "is_date_after"]:
+        parsed_date = determine_parsed_date_for_property_matching(value)
 
         if not parsed_date:
             return False
 
         if isinstance(override_value, datetime.datetime):
             override_date = convert_to_datetime_aware(override_value)
-            if operator in ("is_date_before", "is_relative_date_before"):
+            if operator == "is_date_before":
                 return override_date < parsed_date
             else:
                 return override_date > parsed_date
         elif isinstance(override_value, datetime.date):
-            if operator in ("is_date_before", "is_relative_date_before"):
+            if operator == "is_date_before":
                 return override_value < parsed_date.date()
             else:
                 return override_value > parsed_date.date()
@@ -200,7 +193,7 @@ def match_property(property: Property, override_property_values: Dict[str, Any])
             try:
                 override_date = parser.parse(override_value)
                 override_date = convert_to_datetime_aware(override_date)
-                if operator in ("is_date_before", "is_relative_date_before"):
+                if operator == "is_date_before":
                     return override_date < parsed_date
                 else:
                     return override_date > parsed_date
@@ -208,6 +201,20 @@ def match_property(property: Property, override_property_values: Dict[str, Any])
                 return False
 
     return False
+
+
+def determine_parsed_date_for_property_matching(value: ValueT):
+    parsed_date = None
+    try:
+        parsed_date = relative_date_parse_for_feature_flag_matching(str(value))
+
+        if not parsed_date:
+            parsed_date = parser.parse(str(value))
+            parsed_date = convert_to_datetime_aware(parsed_date)
+    except Exception:
+        return None
+
+    return parsed_date
 
 
 def empty_or_null_with_value_q(
@@ -265,9 +272,10 @@ def lookup_q(key: str, value: Any) -> Q:
 
 
 def property_to_Q(
+    team_id: int,
     property: Property,
     override_property_values: Dict[str, Any] = {},
-    cohorts_cache: Optional[Dict[int, Cohort]] = None,
+    cohorts_cache: Optional[Dict[int, CohortOrEmpty]] = None,
     using_database: str = "default",
 ) -> Q:
     if property.type not in ["person", "group", "cohort", "event"]:
@@ -279,10 +287,18 @@ def property_to_Q(
         cohort_id = int(cast(Union[str, int], value))
         if cohorts_cache is not None:
             if cohorts_cache.get(cohort_id) is None:
-                cohorts_cache[cohort_id] = Cohort.objects.using(using_database).get(pk=cohort_id)
+                queried_cohort = (
+                    Cohort.objects.using(using_database).filter(pk=cohort_id, team_id=team_id, deleted=False).first()
+                )
+                cohorts_cache[cohort_id] = queried_cohort or ""
+
             cohort = cohorts_cache[cohort_id]
         else:
-            cohort = Cohort.objects.using(using_database).get(pk=cohort_id)
+            cohort = Cohort.objects.using(using_database).filter(pk=cohort_id, team_id=team_id, deleted=False).first()
+
+        if not cohort:
+            # Don't match anything if cohort doesn't exist
+            return Q(pk__isnull=True)
 
         if cohort.is_static:
             return Q(
@@ -300,6 +316,7 @@ def property_to_Q(
             # :TRICKY: This has potential to create an infinite loop if the cohort is recursive.
             # But, this shouldn't happen because we check for cyclic cohorts on creation.
             return property_group_to_Q(
+                team_id,
                 cohort.properties,
                 override_property_values,
                 cohorts_cache,
@@ -340,16 +357,13 @@ def property_to_Q(
             negated=True,
         )
 
-    if property.operator in ("is_date_after", "is_date_before", "is_relative_date_before", "is_relative_date_after"):
-        effective_operator = "gt" if property.operator in ("is_date_after", "is_relative_date_after") else "lt"
+    if property.operator in ("is_date_after", "is_date_before"):
+        effective_operator = "gt" if property.operator == "is_date_after" else "lt"
         effective_value = value
-        if property.operator in ("is_relative_date_before", "is_relative_date_after"):
-            relative_date = relative_date_parse_for_feature_flag_matching(str(value))
-            if relative_date:
-                effective_value = relative_date.isoformat()
-            else:
-                # Return no data for invalid relative dates
-                return Q(pk=-1)
+
+        relative_date = relative_date_parse_for_feature_flag_matching(str(value))
+        if relative_date:
+            effective_value = relative_date.isoformat()
 
         return Q(**{f"{column}__{property.key}__{effective_operator}": effective_value})
 
@@ -362,9 +376,10 @@ def property_to_Q(
 
 
 def property_group_to_Q(
+    team_id: int,
     property_group: PropertyGroup,
     override_property_values: Dict[str, Any] = {},
-    cohorts_cache: Optional[Dict[int, Cohort]] = None,
+    cohorts_cache: Optional[Dict[int, CohortOrEmpty]] = None,
     using_database: str = "default",
 ) -> Q:
     filters = Q()
@@ -375,6 +390,7 @@ def property_group_to_Q(
     if isinstance(property_group.values[0], PropertyGroup):
         for group in property_group.values:
             group_filter = property_group_to_Q(
+                team_id,
                 cast(PropertyGroup, group),
                 override_property_values,
                 cohorts_cache,
@@ -387,7 +403,7 @@ def property_group_to_Q(
     else:
         for property in property_group.values:
             property = cast(Property, property)
-            property_filter = property_to_Q(property, override_property_values, cohorts_cache, using_database)
+            property_filter = property_to_Q(team_id, property, override_property_values, cohorts_cache, using_database)
             if property_group.type == PropertyOperatorType.OR:
                 if property.negation:
                     filters |= ~property_filter
@@ -403,9 +419,10 @@ def property_group_to_Q(
 
 
 def properties_to_Q(
+    team_id: int,
     properties: List[Property],
     override_property_values: Dict[str, Any] = {},
-    cohorts_cache: Optional[Dict[int, Cohort]] = None,
+    cohorts_cache: Optional[Dict[int, CohortOrEmpty]] = None,
     using_database: str = "default",
 ) -> Q:
     """
@@ -418,6 +435,7 @@ def properties_to_Q(
         return filters
 
     return property_group_to_Q(
+        team_id,
         PropertyGroup(type=PropertyOperatorType.AND, values=properties),
         override_property_values,
         cohorts_cache,
@@ -435,11 +453,16 @@ def is_truthy_or_falsy_property_value(value: Any) -> bool:
 
 
 def relative_date_parse_for_feature_flag_matching(value: str) -> Optional[datetime.datetime]:
-    regex = r"(?P<number>[0-9]+)(?P<interval>[a-z])"
+    regex = r"^-?(?P<number>[0-9]+)(?P<interval>[a-z])$"
     match = re.search(regex, value)
     parsed_dt = datetime.datetime.now(tz=ZoneInfo("UTC"))
     if match:
         number = int(match.group("number"))
+
+        if number >= 10_000:
+            # Guard against overflow, disallow numbers greater than 10_000
+            return None
+
         interval = match.group("interval")
         if interval == "h":
             parsed_dt = parsed_dt - relativedelta(hours=number)

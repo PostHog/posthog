@@ -1,29 +1,21 @@
 from datetime import timedelta
 from typing import Any, Dict
 
-import celery
-import requests.exceptions
 import structlog
 from django.http import HttpResponse
 from django.utils.timezone import now
 from rest_framework import mixins, serializers, viewsets
-from rest_framework.authentication import BasicAuthentication, SessionAuthentication
 from rest_framework.decorators import action
 from rest_framework.exceptions import ValidationError
-from rest_framework.permissions import IsAuthenticated
 from rest_framework.request import Request
 
-from posthog.api.routing import StructuredViewSetMixin
-from posthog.auth import PersonalAPIKeyAuthentication
+from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.event_usage import report_user_action
 from posthog.models import Insight, User
 from posthog.models.activity_logging.activity_log import Change, Detail, log_activity
 from posthog.models.exported_asset import ExportedAsset, get_content_response
-from posthog.permissions import (
-    ProjectMembershipNecessaryPermissions,
-    TeamMemberAccessPermission,
-)
 from posthog.tasks import exporter
+from loginas.utils import is_impersonated_session
 
 logger = structlog.get_logger(__name__)
 
@@ -67,24 +59,29 @@ class ExportedAssetSerializer(serializers.ModelSerializer):
         return data
 
     def synthetic_create(self, reason: str, *args: Any, **kwargs: Any) -> ExportedAsset:
-        return self._create_asset(self.validated_data, user=None, asset_generation_timeout=0.01, reason=reason)
+        return self._create_asset(self.validated_data, user=None, reason=reason)
 
     def create(self, validated_data: Dict, *args: Any, **kwargs: Any) -> ExportedAsset:
         request = self.context["request"]
-        return self._create_asset(validated_data, user=request.user, asset_generation_timeout=10, reason=None)
+        return self._create_asset(validated_data, user=request.user, reason=None)
 
     def _create_asset(
         self,
         validated_data: Dict,
         user: User | None,
-        asset_generation_timeout: float,
         reason: str | None,
     ) -> ExportedAsset:
         if user is not None:
             validated_data["created_by"] = user
 
         instance: ExportedAsset = super().create(validated_data)
-        self.generate_export_sync(instance, timeout=asset_generation_timeout)
+
+        if instance.export_format not in ExportedAsset.SUPPORTED_FORMATS:
+            raise serializers.ValidationError(
+                {"export_format": [f"Export format {instance.export_format} is not supported."]}
+            )
+
+        exporter.export_asset.delay(instance.id)
 
         if user is not None:
             report_user_action(user, "export created", instance.get_analytics_metadata())
@@ -99,6 +96,9 @@ class ExportedAssetSerializer(serializers.ModelSerializer):
                     organization_id=insight.team.organization.id,
                     team_id=self.context["team_id"],
                     user=user,
+                    was_impersonated=is_impersonated_session(self.context["request"])
+                    if "request" in self.context
+                    else False,
                     item_id=insight_id,  # Type: ignore
                     scope="Insight",
                     activity="exported" if reason is None else f"exported for {reason}",
@@ -124,44 +124,15 @@ class ExportedAssetSerializer(serializers.ModelSerializer):
                 pass
         return instance
 
-    @staticmethod
-    def generate_export_sync(instance: ExportedAsset, timeout: float = 10) -> None:
-        task = exporter.export_asset.delay(instance.id)
-        try:
-            task.get(timeout=timeout)
-            instance.refresh_from_db()
-        except celery.exceptions.TimeoutError:
-            # If the rendering times out - fine, the frontend will poll instead for the response
-            pass
-        except requests.exceptions.MissingSchema:
-            # regression test see https://github.com/PostHog/posthog/issues/11204
-            pass
-        except NotImplementedError as ex:
-            logger.error("exporters.unsupported_export_type", exception=ex, exc_info=True)
-            raise serializers.ValidationError(
-                {"export_format": ["This type of export is not supported for this resource."]}
-            )
-
 
 class ExportedAssetViewSet(
+    TeamAndOrgViewSetMixin,
     mixins.RetrieveModelMixin,
     mixins.CreateModelMixin,
-    StructuredViewSetMixin,
     viewsets.GenericViewSet,
 ):
     queryset = ExportedAsset.objects.order_by("-created_at")
     serializer_class = ExportedAssetSerializer
-
-    authentication_classes = [
-        PersonalAPIKeyAuthentication,
-        SessionAuthentication,
-        BasicAuthentication,
-    ]
-    permission_classes = [
-        IsAuthenticated,
-        ProjectMembershipNecessaryPermissions,
-        TeamMemberAccessPermission,
-    ]
 
     # TODO: This should be removed as it is only used by frontend exporter and can instead use the api/sharing.py endpoint
     @action(methods=["GET"], detail=True)

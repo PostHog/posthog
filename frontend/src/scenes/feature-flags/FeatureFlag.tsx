@@ -1,11 +1,11 @@
 import './FeatureFlag.scss'
 
-import { Card, Popconfirm, Radio, Skeleton } from 'antd'
+import { LemonSegmentedButton, LemonSkeleton } from '@posthog/lemon-ui'
+import { Popconfirm } from 'antd'
 import { useActions, useValues } from 'kea'
 import { Form, Group } from 'kea-forms'
 import { router } from 'kea-router'
 import { ActivityLog } from 'lib/components/ActivityLog/ActivityLog'
-import { ActivityScope } from 'lib/components/ActivityLog/humanizeActivity'
 import { CopyToClipboardInline } from 'lib/components/CopyToClipboard'
 import { NotFound } from 'lib/components/NotFound'
 import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
@@ -25,8 +25,6 @@ import { LemonTag } from 'lib/lemon-ui/LemonTag/LemonTag'
 import { LemonTextArea } from 'lib/lemon-ui/LemonTextArea/LemonTextArea'
 import { Lettermark, LettermarkColor } from 'lib/lemon-ui/Lettermark'
 import { Link } from 'lib/lemon-ui/Link'
-import { SpinnerOverlay } from 'lib/lemon-ui/Spinner/Spinner'
-import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { featureFlagLogic as enabledFeaturesLogic } from 'lib/logic/featureFlagLogic'
 import { alphabet, capitalizeFirstLetter } from 'lib/utils'
 import { PostHogFeature } from 'posthog-js/react'
@@ -49,6 +47,7 @@ import { defaultDataTableColumns } from '~/queries/nodes/DataTable/utils'
 import { Query } from '~/queries/Query/Query'
 import { NodeKind } from '~/queries/schema'
 import {
+    ActivityScope,
     AnyPropertyFilter,
     AvailableFeature,
     DashboardPlacement,
@@ -120,12 +119,16 @@ export function FeatureFlag({ id }: { id?: string } = {}): JSX.Element {
     const isNewFeatureFlag = id === 'new' || id === undefined
 
     if (featureFlagMissing) {
-        return <NotFound object={'feature flag'} />
+        return <NotFound object="feature flag" />
     }
     if (featureFlagLoading) {
         return (
-            // TODO: This should be skeleton loaders
-            <SpinnerOverlay sceneLevel />
+            <div className="space-y-2">
+                <LemonSkeleton active className="h-4 w-2/5" />
+                <LemonSkeleton active className="h-4 w-full" />
+                <LemonSkeleton active className="h-4 w-full" />
+                <LemonSkeleton active className="h-4 w-3/5" />
+            </div>
         )
     }
 
@@ -135,8 +138,8 @@ export function FeatureFlag({ id }: { id?: string } = {}): JSX.Element {
             key: FeatureFlagsTab.OVERVIEW,
             content: (
                 <>
-                    <div className="flex space-x-4">
-                        <div className="flex-7">
+                    <div className="flex gap-4 flex-wrap">
+                        <div className="flex-1">
                             <FeatureFlagRollout readOnly />
                             {featureFlag.filters.super_groups && <FeatureFlagReleaseConditions readOnly isSuper />}
                             <FeatureFlagReleaseConditions readOnly />
@@ -144,7 +147,7 @@ export function FeatureFlag({ id }: { id?: string } = {}): JSX.Element {
                                 <FeatureFlagAutoRollback readOnly />
                             )}
                         </div>
-                        <div className="flex-6">
+                        <div className="max-w-120 w-full">
                             <RecentFeatureFlagInsights />
                             <div className="my-4" />
                         </div>
@@ -169,6 +172,14 @@ export function FeatureFlag({ id }: { id?: string } = {}): JSX.Element {
             label: 'Projects',
             key: FeatureFlagsTab.PROJECTS,
             content: <FeatureFlagProjects />,
+        })
+    }
+
+    if (featureFlags[FEATURE_FLAGS.SCHEDULED_CHANGES_FEATURE_FLAGS]) {
+        tabs.push({
+            label: 'Schedule',
+            key: FeatureFlagsTab.SCHEDULE,
+            content: <FeatureFlagSchedule />,
         })
     }
 
@@ -222,14 +233,6 @@ export function FeatureFlag({ id }: { id?: string } = {}): JSX.Element {
         })
     }
 
-    if (featureFlags[FEATURE_FLAGS.SCHEDULED_CHANGES_FEATURE_FLAGS]) {
-        tabs.push({
-            label: 'Schedule',
-            key: FeatureFlagsTab.SCHEDULE,
-            content: <FeatureFlagSchedule />,
-        })
-    }
-
     return (
         <>
             <div className="feature-flag">
@@ -243,7 +246,6 @@ export function FeatureFlag({ id }: { id?: string } = {}): JSX.Element {
                         className="space-y-4"
                     >
                         <PageHeader
-                            title={isNewFeatureFlag ? 'New feature flag' : featureFlag.key || 'Untitled'}
                             buttons={
                                 <div className="flex items-center gap-2">
                                     <LemonButton
@@ -323,9 +325,7 @@ export function FeatureFlag({ id }: { id?: string } = {}): JSX.Element {
                                                 autoCorrect="off"
                                                 spellCheck={false}
                                             />
-                                            <span style={{ fontSize: 13 }} className="text-muted">
-                                                Feature flag keys must be unique
-                                            </span>
+                                            <span className="text-muted text-sm">Feature flag keys must be unique</span>
                                         </>
                                     )}
                                 </Field>
@@ -405,7 +405,6 @@ export function FeatureFlag({ id }: { id?: string } = {}): JSX.Element {
                                 <div>
                                     <LemonButton
                                         fullWidth
-                                        status="stealth"
                                         onClick={() => setAdvancedSettingsExpanded(!advancedSettingsExpanded)}
                                         sideIcon={advancedSettingsExpanded ? <IconUnfoldLess /> : <IconUnfoldMore />}
                                     >
@@ -423,23 +422,27 @@ export function FeatureFlag({ id }: { id?: string } = {}): JSX.Element {
                                             <FeatureFlagAutoRollback />
                                         )}
                                         {featureFlags[FEATURE_FLAGS.ROLE_BASED_ACCESS] && (
-                                            <Card title="Permissions" className="mb-4">
-                                                <PayGateMini feature={AvailableFeature.ROLE_BASED_ACCESS}>
-                                                    <ResourcePermission
-                                                        resourceType={Resource.FEATURE_FLAGS}
-                                                        onChange={(roleIds) => setRolesToAdd(roleIds)}
-                                                        rolesToAdd={rolesToAdd}
-                                                        addableRoles={addableRoles}
-                                                        addableRolesLoading={unfilteredAddableRolesLoading}
-                                                        onAdd={() => addAssociatedRoles()}
-                                                        roles={derivedRoles}
-                                                        deleteAssociatedRole={(id) =>
-                                                            deleteAssociatedRole({ roleId: id })
-                                                        }
-                                                        canEdit={featureFlag.can_edit}
-                                                    />
-                                                </PayGateMini>
-                                            </Card>
+                                            <div className="border rounded bg-bg-light">
+                                                <h3 className="p-2 mb-0">Permissions</h3>
+                                                <LemonDivider className="my-0" />
+                                                <div className="p-3">
+                                                    <PayGateMini feature={AvailableFeature.ROLE_BASED_ACCESS}>
+                                                        <ResourcePermission
+                                                            resourceType={Resource.FEATURE_FLAGS}
+                                                            onChange={(roleIds) => setRolesToAdd(roleIds)}
+                                                            rolesToAdd={rolesToAdd}
+                                                            addableRoles={addableRoles}
+                                                            addableRolesLoading={unfilteredAddableRolesLoading}
+                                                            onAdd={() => addAssociatedRoles()}
+                                                            roles={derivedRoles}
+                                                            deleteAssociatedRole={(id) =>
+                                                                deleteAssociatedRole({ roleId: id })
+                                                            }
+                                                            canEdit={featureFlag.can_edit}
+                                                        />
+                                                    </PayGateMini>
+                                                </div>
+                                            </div>
                                         )}
                                     </>
                                 )}
@@ -475,147 +478,116 @@ export function FeatureFlag({ id }: { id?: string } = {}): JSX.Element {
                     </Form>
                 ) : (
                     <>
-                        {featureFlagLoading ? (
-                            <Skeleton active />
-                        ) : (
-                            <>
-                                <PageHeader
-                                    notebookProps={{
-                                        href: urls.featureFlag(id),
-                                    }}
-                                    title={
-                                        <div className="flex items-center gap-2 mb-2">
-                                            {featureFlag.key || 'Untitled'}
-                                            <CopyToClipboardInline
-                                                explicitValue={featureFlag.key}
-                                                iconStyle={{ color: 'var(--muted-alt)' }}
-                                            />
-                                            <div className="flex">
-                                                {featureFlag.active ? (
-                                                    <LemonTag type="success" className="uppercase">
-                                                        Enabled
-                                                    </LemonTag>
-                                                ) : (
-                                                    <LemonTag type="default" className="uppercase">
-                                                        Disabled
-                                                    </LemonTag>
-                                                )}
-                                            </div>
-                                        </div>
-                                    }
-                                    caption={
+                        <PageHeader
+                            notebookProps={{
+                                href: urls.featureFlag(id),
+                            }}
+                            caption={
+                                <>
+                                    <span>{featureFlag.name || <i>Description (optional)</i>}</span>
+                                    {featureFlag?.tags && (
                                         <>
-                                            <span>{featureFlag.name || <i>Description (optional)</i>}</span>
-                                            {featureFlag?.tags && (
+                                            {featureFlag.can_edit ? (
+                                                <ObjectTags
+                                                    tags={featureFlag.tags}
+                                                    onChange={(_, tags) => {
+                                                        triggerFeatureFlagUpdate({ tags })
+                                                    }}
+                                                    saving={featureFlagLoading}
+                                                    tagsAvailable={tags.filter(
+                                                        (tag) => !featureFlag.tags?.includes(tag)
+                                                    )}
+                                                    className="mt-2"
+                                                />
+                                            ) : featureFlag.tags.length ? (
+                                                <ObjectTags
+                                                    tags={featureFlag.tags}
+                                                    saving={featureFlagLoading}
+                                                    staticOnly
+                                                    className="mt-2"
+                                                />
+                                            ) : null}
+                                        </>
+                                    )}
+                                </>
+                            }
+                            buttons={
+                                <>
+                                    <div className="flex items-center gap-2">
+                                        <More
+                                            loading={newCohortLoading}
+                                            overlay={
                                                 <>
-                                                    {featureFlag.can_edit ? (
-                                                        <ObjectTags
-                                                            tags={featureFlag.tags}
-                                                            onChange={(_, tags) => {
-                                                                triggerFeatureFlagUpdate({ tags })
+                                                    <LemonButton
+                                                        to={urls.replay(ReplayTabs.Recent, recordingFilterForFlag)}
+                                                        fullWidth
+                                                    >
+                                                        View Recordings
+                                                    </LemonButton>
+                                                    {featureFlags[FEATURE_FLAGS.FEATURE_FLAG_COHORT_CREATION] && (
+                                                        <LemonButton
+                                                            loading={newCohortLoading}
+                                                            onClick={() => {
+                                                                createStaticCohort()
                                                             }}
-                                                            saving={featureFlagLoading}
-                                                            tagsAvailable={tags.filter(
-                                                                (tag) => !featureFlag.tags?.includes(tag)
-                                                            )}
-                                                            className="mt-2"
-                                                        />
-                                                    ) : featureFlag.tags.length ? (
-                                                        <ObjectTags
-                                                            tags={featureFlag.tags}
-                                                            saving={featureFlagLoading}
-                                                            staticOnly
-                                                            className="mt-2"
-                                                        />
-                                                    ) : null}
+                                                            fullWidth
+                                                        >
+                                                            Create Cohort
+                                                        </LemonButton>
+                                                    )}
+                                                    <LemonDivider />
+                                                    <LemonButton
+                                                        data-attr="delete-feature-flag"
+                                                        status="danger"
+                                                        fullWidth
+                                                        onClick={() => {
+                                                            deleteFeatureFlag(featureFlag)
+                                                        }}
+                                                        disabledReason={
+                                                            featureFlagLoading
+                                                                ? 'Loading...'
+                                                                : !featureFlag.can_edit
+                                                                ? "You have only 'View' access for this feature flag. To make changes, please contact the flag's creator."
+                                                                : (featureFlag.features?.length || 0) > 0
+                                                                ? 'This feature flag is in use with an early access feature. Delete the early access feature to delete this flag'
+                                                                : (featureFlag.experiment_set?.length || 0) > 0
+                                                                ? 'This feature flag is linked to an experiment. Delete the experiment to delete this flag'
+                                                                : null
+                                                        }
+                                                    >
+                                                        Delete feature flag
+                                                    </LemonButton>
                                                 </>
-                                            )}
-                                        </>
-                                    }
-                                    buttons={
-                                        <>
-                                            <div className="flex items-center gap-2">
-                                                <More
-                                                    loading={newCohortLoading}
-                                                    overlay={
-                                                        <>
-                                                            <LemonButton
-                                                                to={urls.replay(
-                                                                    ReplayTabs.Recent,
-                                                                    recordingFilterForFlag
-                                                                )}
-                                                                fullWidth
-                                                            >
-                                                                View Recordings
-                                                            </LemonButton>
-                                                            {featureFlags[
-                                                                FEATURE_FLAGS.FEATURE_FLAG_COHORT_CREATION
-                                                            ] && (
-                                                                <LemonButton
-                                                                    loading={newCohortLoading}
-                                                                    onClick={() => {
-                                                                        createStaticCohort()
-                                                                    }}
-                                                                    fullWidth
-                                                                >
-                                                                    Create Cohort
-                                                                </LemonButton>
-                                                            )}
-                                                            <LemonDivider />
-                                                            <LemonButton
-                                                                data-attr="delete-feature-flag"
-                                                                status="danger"
-                                                                fullWidth
-                                                                onClick={() => {
-                                                                    deleteFeatureFlag(featureFlag)
-                                                                }}
-                                                                disabledReason={
-                                                                    featureFlagLoading
-                                                                        ? 'Loading...'
-                                                                        : !featureFlag.can_edit
-                                                                        ? "You have only 'View' access for this feature flag. To make changes, please contact the flag's creator."
-                                                                        : (featureFlag.features?.length || 0) > 0
-                                                                        ? 'This feature flag is in use with an early access feature. Delete the early access feature to delete this flag'
-                                                                        : (featureFlag.experiment_set?.length || 0) > 0
-                                                                        ? 'This feature flag is linked to an experiment. Delete the experiment to delete this flag'
-                                                                        : null
-                                                                }
-                                                            >
-                                                                Delete feature flag
-                                                            </LemonButton>
-                                                        </>
-                                                    }
-                                                />
-                                                <LemonDivider vertical />
-                                                <NotebookSelectButton
-                                                    resource={{
-                                                        type: NotebookNodeType.FeatureFlag,
-                                                        attrs: { id: featureFlag.id },
-                                                    }}
-                                                    type="secondary"
-                                                />
-                                                <LemonButton
-                                                    data-attr="edit-feature-flag"
-                                                    type="secondary"
-                                                    tooltip={
-                                                        featureFlags[FEATURE_FLAGS.ROLE_BASED_ACCESS] &&
-                                                        !featureFlag.can_edit &&
-                                                        "You have only 'View' access for this feature flag. To make changes, please contact the flag's creator."
-                                                    }
-                                                    onClick={() => {
-                                                        editFeatureFlag(true)
-                                                    }}
-                                                    disabled={featureFlagLoading || !featureFlag.can_edit}
-                                                >
-                                                    Edit
-                                                </LemonButton>
-                                            </div>
-                                        </>
-                                    }
-                                />
-                                <LemonTabs activeKey={activeTab} onChange={setActiveTab} tabs={tabs} />
-                            </>
-                        )}
+                                            }
+                                        />
+                                        <LemonDivider vertical />
+                                        <NotebookSelectButton
+                                            resource={{
+                                                type: NotebookNodeType.FeatureFlag,
+                                                attrs: { id: featureFlag.id },
+                                            }}
+                                            type="secondary"
+                                        />
+                                        <LemonButton
+                                            data-attr="edit-feature-flag"
+                                            type="secondary"
+                                            tooltip={
+                                                featureFlags[FEATURE_FLAGS.ROLE_BASED_ACCESS] &&
+                                                !featureFlag.can_edit &&
+                                                "You have only 'View' access for this feature flag. To make changes, please contact the flag's creator."
+                                            }
+                                            onClick={() => {
+                                                editFeatureFlag(true)
+                                            }}
+                                            disabled={featureFlagLoading || !featureFlag.can_edit}
+                                        >
+                                            Edit
+                                        </LemonButton>
+                                    </div>
+                                </>
+                            }
+                        />
+                        <LemonTabs activeKey={activeTab} onChange={setActiveTab} tabs={tabs} />
                     </>
                 )}
             </div>
@@ -676,11 +648,14 @@ function UsageTab({ featureFlag }: { id: string; featureFlag: FeatureFlagType })
             ) : (
                 <div>
                     <b>Dashboard</b>
-                    <div className="text-muted mb-2">{`There is currently no connected dashboard to this feature flag. If there was previously a connected dashboard, it may have been deleted.`}</div>
+                    <div className="text-muted mb-2">
+                        There is currently no connected dashboard to this feature flag. If there was previously a
+                        connected dashboard, it may have been deleted.
+                    </div>
                     {featureFlagLoading ? (
                         <EmptyDashboardComponent loading={true} canEdit={false} />
                     ) : (
-                        <LemonButton type={'primary'} onClick={() => generateUsageDashboard()}>
+                        <LemonButton type="primary" onClick={() => generateUsageDashboard()}>
                             Generate Usage Dashboard
                         </LemonButton>
                     )}
@@ -830,54 +805,41 @@ function FeatureFlagRollout({ readOnly }: { readOnly?: boolean }): JSX.Element {
                             okText="OK"
                             cancelText="Cancel"
                         >
-                            <Radio.Group
+                            <LemonSegmentedButton
+                                size="small"
                                 options={[
                                     {
                                         label: 'Release toggle (boolean)',
-                                        value: false,
-                                        disabled: !!(
+                                        value: 'boolean',
+                                        disabledReason:
                                             featureFlag.experiment_set && featureFlag.experiment_set?.length > 0
-                                        ),
+                                                ? 'This feature flag is associated with an experiment.'
+                                                : undefined,
                                     },
                                     {
-                                        label: (
-                                            <Tooltip
-                                                title={
-                                                    hasAvailableFeature(AvailableFeature.MULTIVARIATE_FLAGS)
-                                                        ? ''
-                                                        : 'This feature is not available on your current plan.'
-                                                }
-                                            >
-                                                <div>
-                                                    {!hasAvailableFeature(AvailableFeature.MULTIVARIATE_FLAGS) && (
-                                                        <Link to={upgradeLink} target="_blank">
-                                                            <IconLock
-                                                                style={{
-                                                                    marginRight: 4,
-                                                                    color: 'var(--warning)',
-                                                                }}
-                                                            />
-                                                        </Link>
-                                                    )}
-                                                    Multiple variants with rollout percentages (A/B test)
-                                                </div>
-                                            </Tooltip>
+                                        label: !hasAvailableFeature(AvailableFeature.MULTIVARIATE_FLAGS) ? (
+                                            <Link to={upgradeLink} target="_blank">
+                                                <IconLock className="mr-1 text-warning" />
+                                                Multiple variants with rollout percentages (A/B test)
+                                            </Link>
+                                        ) : (
+                                            <span>Multiple variants with rollout percentages (A/B test)</span>
                                         ),
-                                        value: true,
-                                        disabled: !hasAvailableFeature(AvailableFeature.MULTIVARIATE_FLAGS),
+                                        value: 'multivariate',
+                                        disabledReason: !hasAvailableFeature(AvailableFeature.MULTIVARIATE_FLAGS)
+                                            ? 'This feature is not available on your current plan.'
+                                            : undefined,
                                     },
                                 ]}
-                                onChange={(e) => {
-                                    const { value } = e.target
-                                    if (value === false && nonEmptyVariants.length) {
+                                onChange={(value) => {
+                                    if (value === 'boolean' && nonEmptyVariants.length) {
                                         setShowVariantDiscardWarning(true)
                                     } else {
-                                        setMultivariateEnabled(value)
+                                        setMultivariateEnabled(value === 'multivariate')
                                         focusVariantKeyField(0)
                                     }
                                 }}
-                                value={multivariateEnabled}
-                                optionType="button"
+                                value={multivariateEnabled ? 'multivariate' : 'boolean'}
                             />
                         </Popconfirm>
                     </div>
@@ -944,9 +906,7 @@ function FeatureFlagRollout({ readOnly }: { readOnly?: boolean }): JSX.Element {
                             </div>
                             <div className="col-span-4 flex items-center gap-1">
                                 <span>Rollout</span>
-                                <LemonButton type="tertiary" onClick={distributeVariantsEqually}>
-                                    (Redistribute)
-                                </LemonButton>
+                                <LemonButton onClick={distributeVariantsEqually}>(Redistribute)</LemonButton>
                             </div>
                         </div>
                         {variants.map((variant, index) => (
@@ -1007,8 +967,11 @@ function FeatureFlagRollout({ readOnly }: { readOnly?: boolean }): JSX.Element {
                                                         max={100}
                                                         value={value}
                                                         onChange={(changedValue) => {
-                                                            if (changedValue !== null && changedValue !== undefined) {
-                                                                const valueInt = parseInt(changedValue.toString())
+                                                            if (changedValue !== null) {
+                                                                const valueInt =
+                                                                    changedValue !== undefined
+                                                                        ? parseInt(changedValue.toString())
+                                                                        : 0
                                                                 if (!isNaN(valueInt)) {
                                                                     onChange(valueInt)
                                                                 }
@@ -1017,7 +980,7 @@ function FeatureFlagRollout({ readOnly }: { readOnly?: boolean }): JSX.Element {
                                                     />
                                                     {filterGroups.filter((group) => group.variant === variant.key)
                                                         .length > 0 && (
-                                                        <span style={{ fontSize: 11 }} className="text-muted">
+                                                        <span className="text-muted text-xs">
                                                             Overridden by{' '}
                                                             <strong>
                                                                 {variantConcatWithPunctuation(
@@ -1047,7 +1010,6 @@ function FeatureFlagRollout({ readOnly }: { readOnly?: boolean }): JSX.Element {
                                         {variants.length > 1 && (
                                             <LemonButton
                                                 icon={<IconDelete />}
-                                                status="primary-alt"
                                                 data-attr={`delete-prop-filter-${index}`}
                                                 noPadding
                                                 onClick={() => removeVariant(index)}

@@ -163,47 +163,10 @@ export const billingProductLogic = kea<billingProductLogicType>([
             },
         ],
         billingGaugeItems: [
-            (s, p) => [p.product, s.freeTier, s.billingLimitAsUsage],
-            (product, freeTier, billingLimitAsUsage): BillingGaugeItemType[] => {
+            (s, p) => [p.product, s.billing, s.freeTier, s.billingLimitAsUsage],
+            (product, billing, freeTier, billingLimitAsUsage): BillingGaugeItemType[] => {
                 return [
-                    freeTier
-                        ? {
-                              type: BillingGaugeItemKind.FreeTier,
-                              text: 'Free tier limit',
-                              value: freeTier,
-                              top: true,
-                          }
-                        : undefined,
-                    {
-                        type: BillingGaugeItemKind.CurrentUsage,
-                        text: 'Current',
-                        value: product.current_usage || 0,
-                        top: false,
-                    },
-                    product.projected_usage && product.projected_usage > (product.current_usage || 0)
-                        ? {
-                              type: BillingGaugeItemKind.ProjectedUsage,
-                              text: 'Projected',
-                              value: product.projected_usage || 0,
-                              top: false,
-                          }
-                        : undefined,
-                    billingLimitAsUsage
-                        ? {
-                              type: BillingGaugeItemKind.BillingLimit,
-                              text: 'Billing limit',
-                              top: true,
-                              value: billingLimitAsUsage || 0,
-                          }
-                        : (undefined as any),
-                ].filter(Boolean)
-            },
-        ],
-        billingGaugeItems3000: [
-            (s, p) => [p.product, s.freeTier, s.billingLimitAsUsage],
-            (product, freeTier, billingLimitAsUsage): BillingGaugeItemType[] => {
-                return [
-                    billingLimitAsUsage
+                    billingLimitAsUsage && billing?.discount_percent !== 100
                         ? {
                               type: BillingGaugeItemKind.BillingLimit,
                               text: 'Billing limit',

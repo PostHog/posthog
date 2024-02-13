@@ -1,6 +1,4 @@
-import { LemonDivider } from '@posthog/lemon-ui'
-import { UploadFile } from 'antd/es/upload/interface'
-import Dragger from 'antd/lib/upload/Dragger'
+import { LemonDivider, LemonFileInput } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
 import { router } from 'kea-router'
@@ -43,7 +41,6 @@ export function CohortEdit({ id }: CohortLogicProps): JSX.Element {
         <div className="cohort">
             <Form id="cohort" logic={cohortEditLogic} props={logicProps} formKey="cohort" enableFormOnSubmit>
                 <PageHeader
-                    title={isNewCohort ? 'New cohort' : cohort.name || 'Untitled'}
                     buttons={
                         <div className="flex items-center gap-2">
                             {isNewCohort ? (
@@ -102,7 +99,6 @@ export function CohortEdit({ id }: CohortLogicProps): JSX.Element {
                                     }
                                 />
                             )}
-                            <LemonDivider vertical />
                             {!isNewCohort && (
                                 <NotebookSelectButton
                                     type="secondary"
@@ -171,38 +167,36 @@ export function CohortEdit({ id }: CohortLogicProps): JSX.Element {
                                         single column with the user’s distinct ID. The very first row (the header) will
                                         be skipped during import.
                                     </span>
-                                    <Dragger
-                                        name="file"
-                                        multiple={false}
-                                        fileList={cohort.csv ? [cohort.csv] : []}
+                                    <LemonFileInput
                                         accept=".csv"
-                                        showUploadList={false}
-                                        beforeUpload={(file: UploadFile) => {
-                                            onChange(file)
-                                            return false
-                                        }}
-                                        className="cohort-csv-dragger"
-                                    >
-                                        {cohort.csv ? (
-                                            <>
-                                                <IconUploadFile
-                                                    style={{ fontSize: '3rem', color: 'var(--muted-alt)' }}
-                                                />
-                                                <div className="ant-upload-text">
-                                                    {cohort.csv?.name ?? 'File chosen'}
-                                                </div>
-                                            </>
-                                        ) : (
-                                            <>
-                                                <IconUploadFile
-                                                    style={{ fontSize: '3rem', color: 'var(--muted-alt)' }}
-                                                />
-                                                <div className="ant-upload-text">
-                                                    Drag a file here or click to browse for a file
-                                                </div>
-                                            </>
-                                        )}
-                                    </Dragger>
+                                        multiple={false}
+                                        value={cohort.csv ? [cohort.csv] : []}
+                                        onChange={(files) => onChange(files[0])}
+                                        showUploadedFiles={false}
+                                        callToAction={
+                                            <div className="flex flex-col items-center justify-center flex-1 cohort-csv-dragger text-default space-y-1">
+                                                {cohort.csv ? (
+                                                    <>
+                                                        <IconUploadFile
+                                                            style={{ fontSize: '3rem', color: 'var(--muted-alt)' }}
+                                                        />
+                                                        <div className="ant-upload-text">
+                                                            {cohort.csv?.name ?? 'File chosen'}
+                                                        </div>
+                                                    </>
+                                                ) : (
+                                                    <>
+                                                        <IconUploadFile
+                                                            style={{ fontSize: '3rem', color: 'var(--muted-alt)' }}
+                                                        />
+                                                        <div className="ant-upload-text">
+                                                            Drag a file here or click to browse for a file
+                                                        </div>
+                                                    </>
+                                                )}
+                                            </div>
+                                        }
+                                    />
                                 </>
                             )}
                         </Field>

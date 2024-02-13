@@ -1,5 +1,5 @@
 // copied from rrweb-snapshot, not included in rrweb types
-import { customEvent, EventType } from '@rrweb/types'
+import { customEvent, EventType, IncrementalSource, removedNodeMutation } from '@rrweb/types'
 
 export enum NodeType {
     Document = 0,
@@ -73,6 +73,8 @@ export type MobileNodeType =
     | 'input'
     | 'div'
     | 'radio_group'
+    | 'status_bar'
+    | 'navigation_bar'
 
 export type MobileStyles = {
     /**
@@ -83,6 +85,14 @@ export type MobileStyles = {
      * @description maps to CSS background-color. Accepts any valid CSS color value. Expects a #RGB value e.g. #000 or #000000
      */
     backgroundColor?: string
+    /**
+     * @description if provided this will be used as a base64 encoded image source for the backgroundImage css property, with no other attributes it is assumed to be a PNG
+     */
+    backgroundImage?: string
+    /**
+     * @description can be used alongside the background image property to specify how the image is rendered. Accepts a subset of the valid values for CSS background-size property. If not provided (and backgroundImage is present) defaults to 'auto'
+     */
+    backgroundSize?: 'contain' | 'cover' | 'auto'
     /**
      * @description if borderWidth is present, then border style is assumed to be solid
      */
@@ -118,12 +128,15 @@ type wireframeBase = {
     /**
      * @description x and y are the top left corner of the element, if they are present then the element is absolutely positioned, if they are not present this is equivalent to setting them to 0
      */
-    x: number
-    y: number
+    x?: number
+    y?: number
     /*
-     * @description width and height are the dimensions of the element, the only accepted units is pixels. You can omit the unit.
+     * @description the width dimension of the element, either '100vw' i.e. viewport width. Or a value in pixels. You can omit the unit when specifying pixels.
      */
-    width: number
+    width: number | '100vw'
+    /*
+     * @description the height dimension of the element, the only accepted units is pixels. You can omit the unit.
+     */
     height: number
     childWireframes?: wireframe[]
     type: MobileNodeType
@@ -193,15 +206,15 @@ export type wireframeButton = wireframeInputBase & {
 export type wireframeProgress = wireframeInputBase & {
     inputType: 'progress'
     /**
-     * @description This attribute specifies how much of the task that has been completed. It must be a valid floating point number between 0 and max, or between 0 and 1 if max is omitted. If there is no value attribute, the progress bar is indeterminate; this indicates that an activity is ongoing with no indication of how long it is expected to take.
+     * @description This attribute specifies how much of the task that has been completed. It must be a valid floating point number between 0 and max, or between 0 and 1 if max is omitted. If there is no value attribute, the progress bar is indeterminate; this indicates that an activity is ongoing with no indication of how long it is expected to take. When bar style is rating this is the number of filled stars.
      */
     value?: number
     /**
-     * @description The max attribute, if present, must have a value greater than 0 and be a valid floating point number. The default value is 1.
+     * @description The max attribute, if present, must have a value greater than 0 and be a valid floating point number. The default value is 1. When bar style is rating this is the number of stars.
      */
     max?: number
     style?: MobileStyles & {
-        bar: 'horizontal' | 'circular'
+        bar: 'horizontal' | 'circular' | 'rating'
     }
 }
 
@@ -224,9 +237,9 @@ export type wireframeText = wireframeBase & {
 export type wireframeImage = wireframeBase & {
     type: 'image'
     /**
-     * @description this will be used as base64 encoded image source, with no other attributes it is assumed to be a PNG
+     * @description this will be used as base64 encoded image source, with no other attributes it is assumed to be a PNG, if omitted a placeholder is rendered
      */
-    base64: string
+    base64?: string
 }
 
 export type wireframeRectangle = wireframeBase & {
@@ -235,6 +248,7 @@ export type wireframeRectangle = wireframeBase & {
 
 export type wireframeWebView = wireframeBase & {
     type: 'web_view'
+    url?: string
 }
 
 export type wireframePlaceholder = wireframeBase & {
@@ -249,6 +263,20 @@ export type wireframeDiv = wireframeBase & {
     type: 'div'
 }
 
+/**
+ * @description the status bar respects styling and positioning, but it is expected to be at the top of the screen with limited styling and no child elements
+ */
+export type wireframeStatusBar = wireframeBase & {
+    type: 'status_bar'
+}
+
+/**
+ * @description the navigation bar respects styling and positioning, but it is expected to be at the bottom of the screen with limited styling and no child elements
+ */
+export type wireframeNavigationBar = wireframeBase & {
+    type: 'navigation_bar'
+}
+
 export type wireframe =
     | wireframeText
     | wireframeImage
@@ -258,6 +286,8 @@ export type wireframe =
     | wireframeRadioGroup
     | wireframeWebView
     | wireframePlaceholder
+    | wireframeStatusBar
+    | wireframeNavigationBar
 
 // the rrweb full snapshot event type, but it contains wireframes not html
 export type fullSnapshotEvent = {
@@ -274,9 +304,37 @@ export type fullSnapshotEvent = {
     }
 }
 
-export type incrementalSnapshotEvent = {
+export type incrementalSnapshotEvent =
+    | {
+          type: EventType.IncrementalSnapshot
+          data: any // keeps a loose incremental type so that we can accept any rrweb incremental snapshot event type
+      }
+    | MobileIncrementalSnapshotEvent
+
+export type MobileNodeMutation = {
+    parentId: number
+    wireframe: wireframe
+}
+
+export type MobileNodeMutationData = {
+    source: IncrementalSource.Mutation
+    /**
+     * @description An update is implemented as a remove and then an add, so the updates array contains the ID of the removed node and the wireframe for the added node
+     */
+    updates?: MobileNodeMutation[]
+    adds?: MobileNodeMutation[]
+    /**
+     * @description A mobile remove is identical to a web remove
+     */
+    removes?: removedNodeMutation[]
+}
+
+export type MobileIncrementalSnapshotEvent = {
     type: EventType.IncrementalSnapshot
-    data: any // TODO: this will change as we implement incremental snapshots
+    /**
+     * @description This sits alongside the RRWeb incremental snapshot event type, mobile replay can send any of the RRWeb incremental snapshot event types, which will be passed unchanged to the player - for example to send touch events. removed node mutations are passed unchanged to the player.
+     */
+    data: MobileNodeMutationData
 }
 
 export type metaEvent = {
@@ -288,7 +346,34 @@ export type metaEvent = {
     }
 }
 
-export type mobileEvent = fullSnapshotEvent | metaEvent | customEvent | incrementalSnapshotEvent
+// this is a custom event _but_ rrweb only types tag as string, and we want to be more specific
+export type keyboardEvent = {
+    type: EventType.Custom
+    data: {
+        tag: 'keyboard'
+        payload:
+            | {
+                  open: true
+                  styles?: MobileStyles
+                  /**
+                   * @description x and y are the top left corner of the element, if they are present then the element is absolutely positioned, if they are not present then the keyboard is at the bottom of the screen
+                   */
+                  x?: number
+                  y?: number
+                  /*
+                   * @description the height dimension of the keyboard, the only accepted units is pixels. You can omit the unit.
+                   */
+                  height: number
+                  /*
+                   * @description the width dimension of the keyboard, the only accepted units is pixels. You can omit the unit. If not present defaults to width of the viewport
+                   */
+                  width?: number
+              }
+            | { open: false }
+    }
+}
+
+export type mobileEvent = fullSnapshotEvent | metaEvent | customEvent | incrementalSnapshotEvent | keyboardEvent
 
 export type mobileEventWithTime = mobileEvent & {
     timestamp: number

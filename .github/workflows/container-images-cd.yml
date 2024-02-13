@@ -33,8 +33,10 @@ jobs:
               with:
                   fetch-depth: 2
 
-            - name: Update git SHA
-              run: echo "GIT_SHA = '${GITHUB_SHA}'" > posthog/gitsha.py
+            - name: Override git.py
+              run: >
+                  echo "def get_git_commit(): return '${GITHUB_SHA}'" > posthog/git.py
+                  echo "def get_git_branch(): return '${GITHUB_REF_NAME}'" >> posthog/git.py
 
             - name: Set up Docker Buildx
               uses: docker/setup-buildx-action@v2
@@ -46,13 +48,13 @@ jobs:
               uses: depot/setup-action@v1
 
             - name: Login to DockerHub
-              uses: docker/login-action@v2
+              uses: docker/login-action@v3
               with:
                   username: ${{ secrets.DOCKERHUB_USERNAME }}
                   password: ${{ secrets.DOCKERHUB_TOKEN }}
 
             - name: Configure AWS credentials
-              uses: aws-actions/configure-aws-credentials@v1
+              uses: aws-actions/configure-aws-credentials@v4
               with:
                   aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
                   aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
@@ -60,7 +62,7 @@ jobs:
 
             - name: Login to Amazon ECR
               id: aws-ecr
-              uses: aws-actions/amazon-ecr-login@v1
+              uses: aws-actions/amazon-ecr-login@v2
 
             - name: Build and push container image
               id: build
@@ -69,17 +71,6 @@ jobs:
                   buildx-fallback: false # the fallback is so slow it's better to just fail
                   push: true
                   tags: posthog/posthog:${{ github.sha }},posthog/posthog:latest,${{ steps.aws-ecr.outputs.registry }}/posthog-cloud:master
-                  platforms: linux/arm64,linux/amd64
-                  build-args: COMMIT_HASH=${{ github.sha }}
-
-            - name: Build and push unit container image
-              id: build-unit
-              uses: depot/build-push-action@v1
-              with:
-                  buildx-fallback: false # the fallback is so slow it's better to just fail
-                  push: true
-                  file: production-unit.Dockerfile
-                  tags: ${{ steps.aws-ecr.outputs.registry }}/posthog-cloud:unit
                   platforms: linux/arm64,linux/amd64
                   build-args: COMMIT_HASH=${{ github.sha }}
 
@@ -102,17 +93,29 @@ jobs:
                   message: |
                       {
                         "image_tag": "${{ steps.build.outputs.digest }}",
-                        "image_tag_unit": "${{ steps.build-unit.outputs.digest }}",
+                        "image_tag_unit": "${{ steps.build.outputs.digest }}",
                         "context": ${{ toJson(github) }}
+                      }
+
+            - name: Trigger PostHog Cloud deployment from Charts
+              uses: mvasigh/dispatch-action@main
+              with:
+                  token: ${{ steps.deployer.outputs.token }}
+                  repo: charts
+                  owner: PostHog
+                  event_type: posthog_deploy
+                  message: |
+                      {
+                        "image_tag": "${{ steps.build.outputs.digest }}"
                       }
 
             - name: Check for changes in plugins directory
               id: check_changes_plugins
               run: |
-                  echo "::set-output name=changed::$(git diff --name-only HEAD^ HEAD | grep '^plugin-server/' || true)"
+                  echo "changed=$((git diff --name-only HEAD^ HEAD | grep -q '^plugin-server/' && echo true) || echo false)" >> $GITHUB_OUTPUT
 
             - name: Trigger Ingestion Cloud deployment
-              if: steps.check_changes_plugins.outputs.changed != ''
+              if: steps.check_changes_plugins.outputs.changed == 'true'
               uses: mvasigh/dispatch-action@main
               with:
                   token: ${{ steps.deployer.outputs.token }}
@@ -127,10 +130,10 @@ jobs:
             - name: Check for changes that affect batch exports temporal worker
               id: check_changes_batch_exports_temporal_worker
               run: |
-                  echo "::set-output name=changed::$(git diff --name-only HEAD^ HEAD | grep -E '^posthog/temporal/common|^posthog/temporal/batch_exports|^posthog/batch_exports/|^posthog/management/commands/start_temporal_worker.py$' || true)"
+                  echo "changed=$((git diff --name-only HEAD^ HEAD | grep -qE '^posthog/temporal/common|^posthog/temporal/batch_exports|^posthog/batch_exports/|^posthog/management/commands/start_temporal_worker.py$' && echo true) || echo false)" >> $GITHUB_OUTPUT
 
             - name: Trigger Batch Exports Temporal Worker Cloud deployment
-              if: steps.check_changes_batch_exports_temporal_worker.outputs.changed != ''
+              if: steps.check_changes_batch_exports_temporal_worker.outputs.changed == 'true'
               uses: mvasigh/dispatch-action@main
               with:
                   token: ${{ steps.deployer.outputs.token }}
@@ -146,10 +149,10 @@ jobs:
             - name: Check for changes that affect data warehouse temporal worker
               id: check_changes_data_warehouse_temporal_worker
               run: |
-                  echo "::set-output name=changed::$(git diff --name-only HEAD^ HEAD | grep -E '^posthog/temporal/common|^posthog/temporal/data_imports|^posthog/warehouse/|^posthog/management/commands/start_temporal_worker.py$' || true)"
+                  echo "changed=$((git diff --name-only HEAD^ HEAD | grep -qE '^posthog/temporal/common|^posthog/temporal/data_imports|^posthog/warehouse/|^posthog/management/commands/start_temporal_worker.py$' && echo true) || echo false)" >> $GITHUB_OUTPUT
 
             - name: Trigger Data Warehouse Temporal Worker Cloud deployment
-              if: steps.check_changes_data_warehouse_temporal_worker.outputs.changed != ''
+              if: steps.check_changes_data_warehouse_temporal_worker.outputs.changed == 'true'
               uses: mvasigh/dispatch-action@main
               with:
                   token: ${{ steps.deployer.outputs.token }}

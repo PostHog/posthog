@@ -154,7 +154,7 @@ export function InWrapper(): JSX.Element {
     useMountedLogic(cohortsModel)
 
     return (
-        <div style={{ minHeight: 200 }}>
+        <div className="min-h-50">
             <div className="InsightTooltipWrapper">
                 <InsightTooltip
                     date={data.date}
@@ -175,7 +175,7 @@ export function InWrapper(): JSX.Element {
                             </div>
                         )
                     }}
-                    groupTypeLabel={'people'}
+                    groupTypeLabel="people"
                 />
             </div>
         </div>

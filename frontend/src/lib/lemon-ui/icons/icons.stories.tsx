@@ -38,7 +38,7 @@ interface IconDefinition {
 }
 
 const allIcons: IconDefinition[] = Object.entries(icons)
-    .filter(([key]) => key !== 'IconWithCount')
+    .filter(([key]) => key !== 'IconWithCount' && key !== 'IconWithBadge')
     .map(([key, Icon]) => ({ name: key, icon: Icon }))
     .sort((a, b) => a.name.localeCompare(b.name))
 

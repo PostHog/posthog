@@ -97,7 +97,7 @@ function DebugCHQueries(): JSX.Element {
                                 size="small"
                                 onClick={() => (pathFilter === path ? setPathFilter(null) : setPathFilter(path))}
                             >
-                                {path} ({count})
+                                {path} <span className="ml-0.5 text-muted ligatures-none">({count})</span>
                             </LemonButton>
                         ))}
                     </div>

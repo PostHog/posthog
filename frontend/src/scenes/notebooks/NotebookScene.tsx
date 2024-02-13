@@ -5,8 +5,6 @@ import { LemonButton, LemonTag } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { NotFound } from 'lib/components/NotFound'
 import { UserActivityIndicator } from 'lib/components/UserActivityIndicator/UserActivityIndicator'
-import { FEATURE_FLAGS } from 'lib/constants'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { useEffect } from 'react'
 import { SceneExport } from 'scenes/sceneTypes'
 
@@ -41,9 +39,6 @@ export function NotebookScene(): JSX.Element {
     )
     const { selectNotebook, closeSidePanel } = useActions(notebookPanelLogic)
     const { selectedNotebook, visibility } = useValues(notebookPanelLogic)
-
-    const { featureFlags } = useValues(featureFlagLogic)
-    const buttonSize = featureFlags[FEATURE_FLAGS.POSTHOG_3000] === 'test' ? 'small' : 'medium'
 
     useEffect(() => {
         if (notebookId === 'new') {
@@ -97,7 +92,7 @@ export function NotebookScene(): JSX.Element {
                     <LemonButton
                         type="secondary"
                         icon={<IconInfo />}
-                        size={buttonSize}
+                        size="small"
                         onClick={() => {
                             if (selectedNotebook === LOCAL_NOTEBOOK_TEMPLATES[0].short_id && visibility === 'visible') {
                                 closeSidePanel()
@@ -111,10 +106,10 @@ export function NotebookScene(): JSX.Element {
                             : ''}
                         Guide
                     </LemonButton>
-                    <NotebookExpandButton type="secondary" size={buttonSize} />
+                    <NotebookExpandButton type="secondary" size="small" />
                     <LemonButton
                         type="secondary"
-                        size={buttonSize}
+                        size="small"
                         onClick={() => {
                             selectNotebook(notebookId)
                         }}

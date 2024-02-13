@@ -6,7 +6,6 @@ from django.db import connection
 from django.db.models import Prefetch
 from rest_framework import (
     mixins,
-    permissions,
     serializers,
     viewsets,
     status,
@@ -18,7 +17,7 @@ from rest_framework.exceptions import ValidationError
 from rest_framework.pagination import LimitOffsetPagination
 
 from posthog.api.documentation import extend_schema
-from posthog.api.routing import StructuredViewSetMixin
+from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.tagged_item import TaggedItemSerializerMixin, TaggedItemViewSetMixin
 from posthog.constants import GROUP_TYPES_LIMIT, AvailableFeature
 from posthog.event_usage import report_user_action
@@ -27,10 +26,7 @@ from posthog.filters import TermSearchFilterBackend, term_search_filter_sql
 from posthog.models import PropertyDefinition, TaggedItem, User, EventProperty
 from posthog.models.activity_logging.activity_log import log_activity, Detail
 from posthog.models.utils import UUIDT
-from posthog.permissions import (
-    OrganizationMemberPermissions,
-    TeamMemberAccessPermission,
-)
+from loginas.utils import is_impersonated_session
 
 
 class SeenTogetherQuerySerializer(serializers.Serializer):
@@ -445,8 +441,8 @@ class NotCountingLimitOffsetPaginator(LimitOffsetPagination):
 
 
 class PropertyDefinitionViewSet(
+    TeamAndOrgViewSetMixin,
     TaggedItemViewSetMixin,
-    StructuredViewSetMixin,
     mixins.ListModelMixin,
     mixins.RetrieveModelMixin,
     mixins.UpdateModelMixin,
@@ -454,11 +450,6 @@ class PropertyDefinitionViewSet(
     viewsets.GenericViewSet,
 ):
     serializer_class = PropertyDefinitionSerializer
-    permission_classes = [
-        permissions.IsAuthenticated,
-        OrganizationMemberPermissions,
-        TeamMemberAccessPermission,
-    ]
     lookup_field = "id"
     filter_backends = [TermSearchFilterBackend]
     ordering = "name"
@@ -470,13 +461,13 @@ class PropertyDefinitionViewSet(
 
         property_definition_fields = ", ".join(
             [
-                f'posthog_propertydefinition."{f.column}"'  # type: ignore
+                f'posthog_propertydefinition."{f.column}"'
                 for f in PropertyDefinition._meta.get_fields()
                 if hasattr(f, "column")
             ]
         )
 
-        use_enterprise_taxonomy = self.request.user.organization.is_feature_available(  # type: ignore
+        use_enterprise_taxonomy = self.request.user.organization.is_feature_available(
             AvailableFeature.INGESTION_TAXONOMY
         )
         order_by_verified = False
@@ -487,9 +478,9 @@ class PropertyDefinitionViewSet(
                 # Prevent fetching deprecated `tags` field. Tags are separately fetched in TaggedItemSerializerMixin
                 property_definition_fields = ", ".join(
                     [
-                        f'{f.cached_col.alias}."{f.column}"'  # type: ignore
+                        f'{f.cached_col.alias}."{f.column}"'
                         for f in EnterprisePropertyDefinition._meta.get_fields()
-                        if hasattr(f, "column") and f.column not in ["deprecated_tags", "tags"]  # type: ignore
+                        if hasattr(f, "column") and f.column not in ["deprecated_tags", "tags"]
                     ]
                 )
 
@@ -504,8 +495,8 @@ class PropertyDefinitionViewSet(
             except ImportError:
                 use_enterprise_taxonomy = False
 
-        limit = self.paginator.get_limit(self.request)  # type: ignore
-        offset = self.paginator.get_offset(self.request)  # type: ignore
+        limit = self.paginator.get_limit(self.request)
+        offset = self.paginator.get_offset(self.request)
 
         query = PropertyDefinitionQuerySerializer(data=self.request.query_params)
         query.is_valid(raise_exception=True)
@@ -549,13 +540,13 @@ class PropertyDefinitionViewSet(
             cursor.execute(query_context.as_count_sql(), query_context.params)
             full_count = cursor.fetchone()[0]
 
-        self.paginator.set_count(full_count)  # type: ignore
+        self.paginator.set_count(full_count)
 
         return queryset.raw(query_context.as_sql(order_by_verified), params=query_context.params)
 
     def get_serializer_class(self) -> Type[serializers.ModelSerializer]:
         serializer_class = self.serializer_class
-        if self.request.user.organization.is_feature_available(AvailableFeature.INGESTION_TAXONOMY):  # type: ignore
+        if self.request.user.organization.is_feature_available(AvailableFeature.INGESTION_TAXONOMY):
             try:
                 from ee.api.ee_property_definition import (
                     EnterprisePropertyDefinitionSerializer,
@@ -563,28 +554,28 @@ class PropertyDefinitionViewSet(
             except ImportError:
                 pass
             else:
-                serializer_class = EnterprisePropertyDefinitionSerializer  # type: ignore
+                serializer_class = EnterprisePropertyDefinitionSerializer
         return serializer_class
 
     def get_object(self):
         id = self.kwargs["id"]
-        if self.request.user.organization.is_feature_available(AvailableFeature.INGESTION_TAXONOMY):  # type: ignore
+        if self.request.user.organization.is_feature_available(AvailableFeature.INGESTION_TAXONOMY):
             try:
                 from ee.models.property_definition import EnterprisePropertyDefinition
             except ImportError:
                 pass
             else:
-                enterprise_property = EnterprisePropertyDefinition.objects.filter(id=id).first()
+                enterprise_property = EnterprisePropertyDefinition.objects.filter(id=id, team_id=self.team_id).first()
                 if enterprise_property:
                     return enterprise_property
-                non_enterprise_property = PropertyDefinition.objects.get(id=id)
+                non_enterprise_property = PropertyDefinition.objects.get(id=id, team_id=self.team_id)
                 new_enterprise_property = EnterprisePropertyDefinition(
                     propertydefinition_ptr_id=non_enterprise_property.id, description=""
                 )
                 new_enterprise_property.__dict__.update(non_enterprise_property.__dict__)
                 new_enterprise_property.save()
                 return new_enterprise_property
-        return PropertyDefinition.objects.get(id=id)
+        return PropertyDefinition.objects.get(id=id, team_id=self.team_id)
 
     @extend_schema(parameters=[PropertyDefinitionQuerySerializer])
     def list(self, request, *args, **kwargs):
@@ -627,6 +618,7 @@ class PropertyDefinitionViewSet(
             organization_id=cast(UUIDT, self.organization_id),
             team_id=self.team_id,
             user=cast(User, request.user),
+            was_impersonated=is_impersonated_session(self.request),
             item_id=instance_id,
             scope="PropertyDefinition",
             activity="deleted",

@@ -15,5 +15,5 @@ export function SettingsScene(): JSX.Element {
     const { location } = useValues(router)
     useAnchor(location.hash)
 
-    return <Settings logicKey={'settingsScene'} />
+    return <Settings logicKey="settingsScene" />
 }

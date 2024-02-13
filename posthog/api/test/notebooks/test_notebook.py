@@ -100,7 +100,7 @@ class TestNotebooks(APIBaseTest, QueryMatchingTest):
 
         self.assert_notebook_activity(
             [
-                self.created_activity(item_id=response.json()["id"], short_id=response.json()["short_id"]),
+                self.created_activity(item_id=response.json()["short_id"], short_id=response.json()["short_id"]),
             ],
         )
 
@@ -134,7 +134,7 @@ class TestNotebooks(APIBaseTest, QueryMatchingTest):
 
         self.assert_notebook_activity(
             [
-                self.created_activity(item_id=response.json()["id"], short_id=response.json()["short_id"]),
+                self.created_activity(item_id=response.json()["short_id"], short_id=response.json()["short_id"]),
                 {
                     "activity": "updated",
                     "created_at": mock.ANY,
@@ -167,7 +167,7 @@ class TestNotebooks(APIBaseTest, QueryMatchingTest):
                         "trigger": None,
                         "type": None,
                     },
-                    "item_id": response.json()["id"],
+                    "item_id": response.json()["short_id"],
                     "scope": "Notebook",
                     "user": {
                         "email": self.user.email,

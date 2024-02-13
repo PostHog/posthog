@@ -1,5 +1,5 @@
 import { createPostHogWidgetNode } from 'scenes/notebooks/Nodes/NodeWrapper'
-import { FilterType, NotebookNodeType, RecordingFilters } from '~/types'
+import { FilterType, NotebookNodeType, RecordingFilters, ReplayTabs } from '~/types'
 import {
     SessionRecordingPlaylistLogicProps,
     addedAdvancedFilters,
@@ -8,7 +8,6 @@ import {
 } from 'scenes/session-recordings/playlist/sessionRecordingsPlaylistLogic'
 import { BuiltLogic, useActions, useValues } from 'kea'
 import { useEffect, useMemo, useState } from 'react'
-import { fromParamsGivenUrl } from 'lib/utils'
 import { urls } from 'scenes/urls'
 import { notebookNodeLogic } from './notebookNodeLogic'
 import { JSONContent, NotebookNodeProps, NotebookNodeAttributeProperties } from '../Notebook/utils'
@@ -167,10 +166,11 @@ export const NotebookNodePlaylist = createPostHogWidgetNode<NotebookNodePlaylist
         },
     },
     pasteOptions: {
-        find: urls.replay() + '(.+)',
+        find: urls.replay(ReplayTabs.Recent) + '(.*)',
         getAttributes: async (match) => {
-            const searchParams = fromParamsGivenUrl(match[1].split('?')[1] || '')
-            return { filters: searchParams.filters }
+            const url = new URL(match[0])
+            const filters = url.searchParams.get('filters')
+            return { filters: filters ? JSON.parse(filters) : {}, pinned: [] }
         },
     },
     Settings,

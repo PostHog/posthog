@@ -42,12 +42,7 @@ function FeatureFlagDashboardsTableContainer(): JSX.Element {
             <DashboardsTable
                 extraActions={
                     <div className="flex items-center gap-2">
-                        <LemonButton
-                            type="primary"
-                            onClick={() => {
-                                showNewDashboardModal()
-                            }}
-                        >
+                        <LemonButton type="primary" onClick={showNewDashboardModal}>
                             New dashboard
                         </LemonButton>
                     </div>

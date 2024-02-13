@@ -11,7 +11,7 @@ export function ChangePassword(): JSX.Element {
 
     return (
         <Form logic={changePasswordLogic} formKey="changePassword" enableFormOnSubmit className="space-y-4 max-w-160">
-            <Field name="current_password" label={'Current Password'}>
+            <Field name="current_password" label="Current Password">
                 <LemonInput
                     autoComplete="current-password"
                     type="password"

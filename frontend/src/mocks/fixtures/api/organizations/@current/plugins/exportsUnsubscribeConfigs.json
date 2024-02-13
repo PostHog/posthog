@@ -1,0 +1,24 @@
+[
+    {
+        "id": 2,
+        "plugin": 4,
+        "enabled": true,
+        "order": 2,
+        "config": {
+            "host": "eu.posthog.com",
+            "replication": "1",
+            "disable_geoip": "No",
+            "project_api_key": "sdsdd",
+            "events_to_ignore": ""
+        },
+        "error": null,
+        "team_id": 2,
+        "plugin_info": null,
+        "delivery_rate_24h": null,
+        "created_at": "2023-12-22T18:23:03.907137Z",
+        "updated_at": "2023-12-22T18:42:54.074571Z",
+        "name": "Replicator",
+        "description": "Replicate PostHog event stream in another PostHog instance",
+        "deleted": false
+    }
+]

@@ -154,14 +154,14 @@ describe('cleanFilters', () => {
         expect(cleanedFilters).toHaveProperty('breakdown_type', undefined)
     })
 
-    it('does not include breakdown properties if funnel is not type steps', () => {
+    it('does not include breakdown properties if funnel is time to convert', () => {
         const cleanedFilters = cleanFilters({
             breakdowns: [{ property: 'any', type: 'event' }],
             breakdown: 'something',
             breakdown_type: 'event',
             breakdown_group_type_index: 1,
             insight: InsightType.FUNNELS,
-            funnel_viz_type: FunnelVizType.Trends,
+            funnel_viz_type: FunnelVizType.TimeToConvert,
         } as FunnelsFilterType)
 
         expect(cleanedFilters).toHaveProperty('breakdowns', undefined)

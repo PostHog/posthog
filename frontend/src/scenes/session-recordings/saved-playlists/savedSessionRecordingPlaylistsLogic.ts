@@ -8,6 +8,7 @@ import { Sorting } from 'lib/lemon-ui/LemonTable'
 import { PaginationManual } from 'lib/lemon-ui/PaginationControl'
 import { objectClean, objectsEqual, toParams } from 'lib/utils'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
+import { removeProjectIdIfPresent } from 'lib/utils/router-utils'
 import { urls } from 'scenes/urls'
 
 import { ReplayTabs, SessionRecordingPlaylistType } from '~/types'
@@ -215,7 +216,7 @@ export const savedSessionRecordingPlaylistsLogic = kea<savedSessionRecordingPlay
                   }
               ]
             | void => {
-            if (router.values.location.pathname === urls.replay(ReplayTabs.Playlists)) {
+            if (removeProjectIdIfPresent(router.values.location.pathname) === urls.replay(ReplayTabs.Playlists)) {
                 const nextValues = values.filters
                 const urlValues = objectClean(router.values.searchParams)
                 if (!objectsEqual(nextValues, urlValues)) {

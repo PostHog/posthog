@@ -1,8 +1,9 @@
 from typing import Any, Callable, List, Optional, cast
+from posthog.models.instance_setting import get_instance_setting
 from urllib.parse import urlparse
 
 from django.conf import settings
-from django.http import HttpRequest, HttpResponse, HttpResponseServerError
+from django.http import HttpRequest, HttpResponse, HttpResponseServerError, HttpResponseRedirect
 from django.template import loader
 from django.urls import URLPattern, include, path, re_path
 from django.views.decorators.csrf import (
@@ -17,6 +18,7 @@ from drf_spectacular.views import (
     SpectacularSwaggerView,
 )
 from revproxy.views import ProxyView
+from django.utils.http import url_has_allowed_host_and_scheme
 from sentry_sdk import last_event_id
 from two_factor.urls import urlpatterns as tf_urls
 
@@ -39,7 +41,6 @@ from posthog.api import (
 )
 from posthog.api.decide import hostname_in_allowed_url_list
 from posthog.api.early_access_feature import early_access_features
-from posthog.api.prompt import prompt_webhook
 from posthog.api.survey import surveys
 from posthog.demo.legacy import demo_route
 from posthog.models import User
@@ -53,6 +54,7 @@ from .views import (
     stats,
 )
 from .year_in_posthog import year_in_posthog
+from posthog.constants import PERMITTED_FORUM_DOMAINS
 
 import structlog
 
@@ -90,6 +92,10 @@ def handler500(request):
 
 @ensure_csrf_cookie
 def home(request, *args, **kwargs):
+    if request.get_host().split(":")[0] == "app.posthog.com" and get_instance_setting("REDIRECT_APP_TO_US"):
+        url = "https://us.posthog.com{}".format(request.get_full_path())
+        if url_has_allowed_host_and_scheme(url, "us.posthog.com", True):
+            return HttpResponseRedirect(url)
     return render_template("index.html", request)
 
 
@@ -102,8 +108,13 @@ def authorize_and_redirect(request: HttpRequest) -> HttpResponse:
     current_team = cast(User, request.user).team
     referer_url = urlparse(request.META["HTTP_REFERER"])
     redirect_url = urlparse(request.GET["redirect"])
+    is_forum_login = request.GET.get("forum_login", "").lower() == "true"
 
-    if not current_team or not hostname_in_allowed_url_list(current_team.app_urls, redirect_url.hostname):
+    if (
+        not current_team
+        or (redirect_url.hostname not in PERMITTED_FORUM_DOMAINS and is_forum_login)
+        or (not is_forum_login and not hostname_in_allowed_url_list(current_team.app_urls, redirect_url.hostname))
+    ):
         return HttpResponse(f"Can only redirect to a permitted domain.", status=403)
 
     if referer_url.hostname != redirect_url.hostname:
@@ -125,9 +136,10 @@ def authorize_and_redirect(request: HttpRequest) -> HttpResponse:
         )
 
     return render_template(
-        "authorize_and_redirect.html",
+        "authorize_and_link.html" if is_forum_login else "authorize_and_redirect.html",
         request=request,
         context={
+            "email": request.user,
             "domain": redirect_url.hostname,
             "redirect_url": request.GET["redirect"],
         },
@@ -167,8 +179,8 @@ urlpatterns = [
     path("api/", include(router.urls)),
     path("", include(tf_urls)),
     opt_slash_path("api/user/redirect_to_site", user.redirect_to_site),
+    opt_slash_path("api/user/redirect_to_website", user.redirect_to_website),
     opt_slash_path("api/user/test_slack_webhook", user.test_slack_webhook),
-    opt_slash_path("api/prompts/webhook", prompt_webhook),
     opt_slash_path("api/early_access_features", early_access_features),
     opt_slash_path("api/surveys", surveys),
     opt_slash_path("api/signup", signup.SignupViewset.as_view()),

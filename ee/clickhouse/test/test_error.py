@@ -11,7 +11,7 @@ from posthog.errors import wrap_query_error
         (
             ServerException("Estimated query execution time (34.5 seconds) is too long. Aborting query"),
             "EstimatedQueryExecutionTimeTooLong",
-            "Estimated query execution time (34.5 seconds) is too long.",
+            "Estimated query execution time (34.5 seconds) is too long. Try reducing its scope by changing the time range.",
             None,
         ),
         (
@@ -25,6 +25,15 @@ from posthog.errors import wrap_query_error
             "CHQueryErrorUnknownException",
             "Code: 9999.\nSyntax error",
             9999,
+        ),
+        (
+            ServerException(
+                "Memory limit (for query) exceeded: would use 42.00 GiB (attempt to allocate chunk of 16757643 bytes), maximum: 42.00 GiB.",
+                code=241,
+            ),
+            "CHQueryErrorMemoryLimitExceeded",
+            "Query exceeds memory limits. Try reducing its scope by changing the time range.",
+            241,
         ),
     ],
 )

@@ -31,7 +31,6 @@ export function TestAccountFilter({ query, setQuery }: TestAccountFilterProps): 
                     <LemonButton
                         icon={<IconSettings />}
                         to={urls.settings('project', 'internal-user-filtering')}
-                        status="stealth"
                         size="small"
                         noPadding
                         className="ml-1"

@@ -11,7 +11,7 @@ describe('Surveys', () => {
         cy.get('h1').should('contain', 'Surveys')
         cy.title().should('equal', 'Surveys • PostHog')
 
-        cy.get('h2').should('contain', 'Create your first survey')
+        cy.contains('Create your first survey').should('exist')
 
         // go to create a new survey
         cy.get('[data-attr="create-survey"]').click()
@@ -26,7 +26,7 @@ describe('Surveys', () => {
         // back to surveys
         cy.clickNavMenu('surveys')
         cy.get('[data-attr=surveys-table]').should('contain', name)
-        cy.get('h2').should('not.have.text', 'Create your first survey')
+        cy.contains('Create your first survey').should('not.exist')
 
         // back into survey
         cy.get(`[data-row-key="${name}"]`).contains(name).click()
@@ -96,7 +96,7 @@ describe('Surveys', () => {
         cy.get('[data-attr=prop-val] .ant-select-selector').click({ force: true })
         cy.get('[data-attr=prop-val-0]').click({ force: true })
 
-        cy.get('.ant-input-number-input-wrap>input').type('{backspace}')
+        cy.get('[data-attr="rollout-percentage"]').type('100')
 
         // save
         cy.get('[data-attr="save-survey"]').click()

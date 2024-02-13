@@ -22,6 +22,7 @@
     transform: translate(-50%, -50%);
 
     > .LemonBadge {
+        border-color: var(--bg-light); // Matching the chart background
         transition: transform 200ms ease; // Same as LemonBadge's transition
         // Override .LemonBadge--position-self-centered
         transform: scale(var(--annotations-badge-scale));
@@ -38,17 +39,10 @@
     .LemonModal {
         min-width: var(--annotations-popover-width);
         max-width: var(--annotations-popover-width);
+        min-height: 100%;
         margin: 0;
         border: none;
         box-shadow: none;
-    }
-
-    .Popover__box {
-        padding: 0;
-    }
-
-    ul {
-        max-height: calc(4 * 6.75rem + 3 * 0.5rem); // Fit in 4 one-line annotations without scrolling
     }
 }
 

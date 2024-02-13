@@ -25,7 +25,7 @@ export function TaxonomicFilter({
     onClose,
     taxonomicGroupTypes,
     optionsFromProp,
-    hogQLTable,
+    metadataSource,
     eventNames,
     height,
     width,
@@ -54,7 +54,7 @@ export function TaxonomicFilter({
         popoverEnabled,
         selectFirstItem,
         excludedProperties,
-        hogQLTable,
+        metadataSource,
         propertyAllowList,
     }
 

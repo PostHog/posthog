@@ -206,9 +206,15 @@ export function ItemPerformanceEvent({
         }
 
         if (
-            ['response_headers', 'request_headers', 'request_body', 'response_body', 'response_status', 'raw'].includes(
-                key
-            )
+            [
+                'response_headers',
+                'request_headers',
+                'request_body',
+                'response_body',
+                'response_status',
+                'raw',
+                'server_timings',
+            ].includes(key)
         ) {
             return acc
         }
@@ -225,13 +231,7 @@ export function ItemPerformanceEvent({
 
     return (
         <div>
-            <LemonButton
-                noPadding
-                onClick={() => setExpanded(!expanded)}
-                status={'primary-alt'}
-                fullWidth
-                data-attr={'item-performance-event'}
-            >
+            <LemonButton noPadding onClick={() => setExpanded(!expanded)} fullWidth data-attr="item-performance-event">
                 <div className="flex-1 overflow-hidden">
                     <div
                         className="absolute bg-primary rounded-sm opacity-75"
@@ -325,7 +325,7 @@ export function ItemPerformanceEvent({
                                 {sizeInfo.isFromLocalCache ? (
                                     <>
                                         {' '}
-                                        <span className={'text-muted'}>(from local cache)</span>
+                                        <span className="text-muted">(from local cache)</span>
                                     </>
                                 ) : null}
                                 {sizeInfo.formattedCompressionPercentage && sizeInfo.encodedBodySize ? (
@@ -374,7 +374,7 @@ export function ItemPerformanceEvent({
                                                 <BodyDisplay
                                                     content={item.request_body}
                                                     headers={item.request_headers}
-                                                    emptyMessage={'No request body captured'}
+                                                    emptyMessage="No request body captured"
                                                 />
                                             ),
                                         },
@@ -386,7 +386,7 @@ export function ItemPerformanceEvent({
                                                       <BodyDisplay
                                                           content={item.response_body}
                                                           headers={item.response_headers}
-                                                          emptyMessage={'No response body captured'}
+                                                          emptyMessage="No response body captured"
                                                       />
                                                   ),
                                               }
@@ -465,12 +465,12 @@ function HeadersDisplay({
         <div className="flex flex-col w-full">
             <div>
                 <h4 className="font-semibold">Request Headers</h4>
-                <SimpleKeyValueList item={request || {}} emptyMessage={'No headers captured'} />
+                <SimpleKeyValueList item={request || {}} emptyMessage="No headers captured" />
             </div>
             <LemonDivider dashed />
             <div>
                 <h4 className="font-semibold">Response Headers</h4>
-                <SimpleKeyValueList item={response || {}} emptyMessage={'No headers captured'} />
+                <SimpleKeyValueList item={response || {}} emptyMessage="No headers captured" />
             </div>
         </div>
     )
@@ -500,7 +500,7 @@ function StatusRow({ item }: { item: PerformanceEvent }): JSX.Element | null {
                 <div className="font-semibold">Status code</div>
                 <div>
                     <LemonTag type={statusType}>{statusDescription}</LemonTag>
-                    {fromDiskCache && <span className={'text-muted'}> (from cache)</span>}
+                    {fromDiskCache && <span className="text-muted"> (from cache)</span>}
                 </div>
             </div>
         )
@@ -510,7 +510,7 @@ function StatusRow({ item }: { item: PerformanceEvent }): JSX.Element | null {
         methodRow = (
             <div className="flex gap-4 items-center justify-between overflow-hidden">
                 <div className="font-semibold">Request method</div>
-                <div className={'uppercase font-semibold'}>{item.method}</div>
+                <div className="uppercase font-semibold">{item.method}</div>
             </div>
         )
     }

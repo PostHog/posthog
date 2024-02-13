@@ -1,7 +1,6 @@
 import { IconOpenSidebar } from '@posthog/icons'
 import { useActions } from 'kea'
-import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
-import { IconClose, IconOpenInNew, IconPlus } from 'lib/lemon-ui/icons'
+import { IconClose, IconPlus } from 'lib/lemon-ui/icons'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { userLogic } from 'scenes/userLogic'
 
@@ -9,6 +8,12 @@ import { ProductKey } from '~/types'
 
 import { BuilderHog3, DetectiveHog } from '../hedgehogs'
 
+/**
+ * A component to introduce new users to a product, and to show something
+ * other than an empty table when there are no items.
+ * Not to be confused with the `OnboardingProductIntroduction` scene,
+ * which is shown when a team has yet to go through onboarding for the product.
+ */
 export const ProductIntroduction = ({
     productName,
     productKey,
@@ -39,17 +44,14 @@ export const ProductIntroduction = ({
     customHog?: React.ComponentType<{ className?: string }>
 }): JSX.Element => {
     const { updateHasSeenProductIntroFor } = useActions(userLogic)
-    const is3000 = useFeatureFlag('POSTHOG_3000', 'test')
     const actionable = action || actionElementOverride
     return (
-        <div className="border-2 border-dashed border-border w-full p-8 justify-center rounded-md mt-2 mb-4">
+        <div className="border-2 border-dashed border-border w-full p-8 justify-center rounded mt-2 mb-4">
             {!isEmpty && (
                 <div className="flex justify-end -mb-6 -mt-2 -mr-2">
                     <div>
                         <LemonButton
                             icon={<IconClose />}
-                            type="tertiary"
-                            status="stealth"
                             onClick={() => {
                                 updateHasSeenProductIntroFor(productKey, true)
                             }}
@@ -57,7 +59,7 @@ export const ProductIntroduction = ({
                     </div>
                 </div>
             )}
-            <div className="flex items-center gap-x-8 w-full justify-center flex-wrap">
+            <div className="flex items-center gap-8 w-full justify-center flex-wrap">
                 <div>
                     <div className="w-50 mx-auto mb-4">
                         {CustomHog ? (
@@ -105,14 +107,7 @@ export const ProductIntroduction = ({
                         {docsURL && (
                             <LemonButton
                                 type={actionable ? 'tertiary' : 'secondary'}
-                                status="muted"
-                                sideIcon={
-                                    is3000 ? (
-                                        <IconOpenSidebar className="w-4 h-4" />
-                                    ) : (
-                                        <IconOpenInNew className="w-4 h-4" />
-                                    )
-                                }
+                                sideIcon={<IconOpenSidebar className="w-4 h-4" />}
                                 to={`${docsURL}?utm_medium=in-product&utm_campaign=empty-state-docs-link`}
                                 data-attr="product-introduction-docs-link"
                                 targetBlank

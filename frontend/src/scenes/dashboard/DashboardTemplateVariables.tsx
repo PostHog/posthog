@@ -17,7 +17,7 @@ export function DashboardTemplateVariables(): JSX.Element {
     const { setVariable } = useActions(theDashboardTemplateVariablesLogic)
 
     return (
-        <div className="mb-4 DashboardTemplateVariables max-w-md">
+        <div className="mb-4 DashboardTemplateVariables max-w-192">
             {variables.map((variable, index) => (
                 <div key={index} className="mb-6">
                     <div className="mb-2">
@@ -36,7 +36,6 @@ export function DashboardTemplateVariables(): JSX.Element {
                                 setVariable(variable.name, filters)
                             }}
                             typeKey={'variable_' + variable.name}
-                            buttonCopy={''}
                             hideDeleteBtn={true}
                             hideRename={true}
                             hideDuplicate={true}

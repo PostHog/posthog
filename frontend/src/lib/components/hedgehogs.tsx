@@ -17,6 +17,7 @@ import laptopHogEU from 'public/hedgehog/laptop-hog-eu.png'
 import listHog from 'public/hedgehog/list-hog.png'
 import mailHog from 'public/hedgehog/mail-hog.png'
 import microphoneHog from 'public/hedgehog/microphone-hog.png'
+import phonePairHogs from 'public/hedgehog/phone-pair-hogs.png'
 import policeHog from 'public/hedgehog/police-hog.png'
 import professorHog from 'public/hedgehog/professor-hog.png'
 import readingHog from 'public/hedgehog/reading-hog.png'
@@ -28,6 +29,7 @@ import supportHeroHog from 'public/hedgehog/support-hero-hog.png'
 import surprisedHog from 'public/hedgehog/surprised-hog.png'
 import tronHog from 'public/hedgehog/tron-hog.png'
 import warningHog from 'public/hedgehog/warning-hog.png'
+import wavingHog from 'public/hedgehog/waving-hog.png'
 import xRayHog from 'public/hedgehog/x-ray-hog.png'
 import xRayHog2 from 'public/hedgehog/x-ray-hogs-02.png'
 import { ImgHTMLAttributes } from 'react'
@@ -130,9 +132,15 @@ export const ListHog = (props: HedgehogProps): JSX.Element => {
 export const WarningHog = (props: HedgehogProps): JSX.Element => {
     return <SquaredHedgehog src={warningHog} {...props} />
 }
+export const WavingHog = (props: HedgehogProps): JSX.Element => {
+    return <SquaredHedgehog src={wavingHog} {...props} />
+}
 export const ReadingHog = (props: HedgehogProps): JSX.Element => {
     return <SquaredHedgehog src={readingHog} {...props} />
 }
 export const MicrophoneHog = (props: HedgehogProps): JSX.Element => {
     return <SquaredHedgehog src={microphoneHog} {...props} />
+}
+export const PhonePairHogs = (props: HedgehogProps): JSX.Element => {
+    return <SquaredHedgehog src={phonePairHogs} {...props} />
 }

@@ -45,7 +45,7 @@ function StackTrace({ rawTrace }: { rawTrace: string }): JSX.Element | null {
     } catch (e: any) {
         //very meta
         posthog.capture('Cannot parse stack trace in Exception event', { tag: 'error-display-stack-trace', e })
-        return <LemonTag type={'caution'}>Error parsing stack trace</LemonTag>
+        return <LemonTag type="caution">Error parsing stack trace</LemonTag>
     }
 }
 
@@ -59,7 +59,7 @@ function TitledSnack({
     type?: 'default' | 'success'
 }): JSX.Element {
     return (
-        <div className={'flex flex-row items-center'}>
+        <div className="flex flex-row items-center">
             <span
                 className={clsx(
                     'pl-1.5 pr-1 py-1 max-w-full',
@@ -90,14 +90,11 @@ function ActiveFlags({ flags }: { flags: string[] }): JSX.Element {
     return (
         <>
             {flags && flags.length ? (
-                <div className={'flex flex-row gap-2 flex-wrap'}>
+                <div className="flex flex-row gap-2 flex-wrap">
                     {flags.map((flag, index) => {
                         return (
-                            <div
-                                key={index}
-                                className={'border rounded px-1.5 py-1 bg-primary-alt-highlight text-muted'}
-                            >
-                                <IconFlag className={'pr-1'} />
+                            <div key={index} className="border rounded px-1.5 py-1 bg-primary-alt-highlight text-muted">
+                                <IconFlag className="pr-1" />
 
                                 {flag}
                             </div>
@@ -131,20 +128,20 @@ export function ErrorDisplay({ event }: { event: EventType | RecordingEventType 
         $sentry_url,
     } = event.properties
     return (
-        <div className={'flex flex-col space-y-2 pr-4 pb-2'}>
-            <h1 className={'mb-0 text-xl'}>{$exception_message}</h1>
-            <div className={'flex flex-row gap-2 flex-wrap'}>
-                <LemonTag type={'caution'}>{$exception_type}</LemonTag>
+        <div className="flex flex-col space-y-2 pr-4 pb-2">
+            <h1 className="mb-0 text-xl">{$exception_message}</h1>
+            <div className="flex flex-row gap-2 flex-wrap">
+                <LemonTag type="caution">{$exception_type}</LemonTag>
                 <TitledSnack
-                    type={'success'}
-                    title={'captured by'}
+                    type="success"
+                    title="captured by"
                     value={
                         <>
                             {$sentry_url ? (
                                 <Link
-                                    className={'text-primary-alt hover:underline decoration-primary-alt cursor-pointer'}
+                                    className="text-primary-alt hover:underline decoration-primary-alt cursor-pointer"
                                     to={$sentry_url}
-                                    target={'_blank'}
+                                    target="_blank"
                                 >
                                     Sentry
                                 </Link>
@@ -154,19 +151,19 @@ export function ErrorDisplay({ event }: { event: EventType | RecordingEventType 
                         </>
                     }
                 />
-                <TitledSnack title={'synthetic'} value={$exception_synthetic ? 'true' : 'false'} />
-                <TitledSnack title={'library'} value={`${$lib} ${$lib_version}`} />
-                <TitledSnack title={'browser'} value={`${$browser} ${$browser_version}`} />
-                <TitledSnack title={'os'} value={`${$os} ${$os_version}`} />
+                <TitledSnack title="synthetic" value={$exception_synthetic ? 'true' : 'false'} />
+                <TitledSnack title="library" value={`${$lib} ${$lib_version}`} />
+                <TitledSnack title="browser" value={`${$browser} ${$browser_version}`} />
+                <TitledSnack title="os" value={`${$os} ${$os_version}`} />
             </div>
             {!!$exception_stack_trace_raw?.length && (
-                <div className={'flex flex-col gap-1 mt-6'}>
+                <div className="flex flex-col gap-1 mt-6">
                     <h2>Stack Trace</h2>
                     <StackTrace rawTrace={$exception_stack_trace_raw} />
                 </div>
             )}
-            <div className={'flex flex-col gap-1 mt-6'}>
-                <h2 className={'text-sm'}>Active Feature Flags</h2>
+            <div className="flex flex-col gap-1 mt-6">
+                <h2 className="text-sm">Active Feature Flags</h2>
                 <ActiveFlags flags={$active_feature_flags} />
             </div>
         </div>

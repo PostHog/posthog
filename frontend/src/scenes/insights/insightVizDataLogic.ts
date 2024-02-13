@@ -17,7 +17,7 @@ import { sceneLogic } from 'scenes/sceneLogic'
 import { filterTestAccountsDefaultsLogic } from 'scenes/settings/project/filterTestAccountDefaultsLogic'
 import { BASE_MATH_DEFINITIONS } from 'scenes/trends/mathsLogic'
 
-import { queryNodeToFilter } from '~/queries/nodes/InsightQuery/utils/queryNodeToFilter'
+import { queryNodeToFilter, seriesNodeToFilter } from '~/queries/nodes/InsightQuery/utils/queryNodeToFilter'
 import {
     getBreakdown,
     getCompare,
@@ -33,6 +33,7 @@ import {
 import {
     BreakdownFilter,
     DateRange,
+    FunnelExclusionSteps,
     FunnelsQuery,
     InsightFilter,
     InsightQueryNode,
@@ -55,15 +56,7 @@ import {
     isTrendsQuery,
     nodeKindToFilterProperty,
 } from '~/queries/utils'
-import {
-    BaseMathType,
-    ChartDisplayType,
-    FilterType,
-    FunnelExclusion,
-    InsightLogicProps,
-    IntervalType,
-    TrendsFilterType,
-} from '~/types'
+import { BaseMathType, ChartDisplayType, FilterType, InsightLogicProps, IntervalType } from '~/types'
 
 import { insightLogic } from './insightLogic'
 import type { insightVizDataLogicType } from './insightVizDataLogicType'
@@ -97,7 +90,7 @@ export const insightVizDataLogic = kea<insightVizDataLogicType>([
         updateQuerySource: (querySource: QuerySourceUpdate) => ({ querySource }),
         updateInsightFilter: (insightFilter: InsightFilter) => ({ insightFilter }),
         updateDateRange: (dateRange: DateRange) => ({ dateRange }),
-        updateBreakdown: (breakdown: BreakdownFilter) => ({ breakdown }),
+        updateBreakdownFilter: (breakdownFilter: BreakdownFilter) => ({ breakdownFilter }),
         updateDisplay: (display: ChartDisplayType | undefined) => ({ display }),
         setTimedOutQueryId: (id: string | null) => ({ id }),
     }),
@@ -157,7 +150,7 @@ export const insightVizDataLogic = kea<insightVizDataLogicType>([
         ],
 
         dateRange: [(s) => [s.querySource], (q) => (q ? q.dateRange : null)],
-        breakdown: [(s) => [s.querySource], (q) => (q ? getBreakdown(q) : null)],
+        breakdownFilter: [(s) => [s.querySource], (q) => (q ? getBreakdown(q) : null)],
         display: [(s) => [s.querySource], (q) => (q ? getDisplay(q) : null)],
         compare: [(s) => [s.querySource], (q) => (q ? getCompare(q) : null)],
         formula: [(s) => [s.querySource], (q) => (q ? getFormula(q) : null)],
@@ -179,9 +172,9 @@ export const insightVizDataLogic = kea<insightVizDataLogicType>([
         lifecycleFilter: [(s) => [s.querySource], (q) => (isLifecycleQuery(q) ? q.lifecycleFilter : null)],
 
         isUsingSessionAnalysis: [
-            (s) => [s.series, s.breakdown, s.properties],
-            (series, breakdown, properties) => {
-                const using_session_breakdown = breakdown?.breakdown_type === 'session'
+            (s) => [s.series, s.breakdownFilter, s.properties],
+            (series, breakdownFilter, properties) => {
+                const using_session_breakdown = breakdownFilter?.breakdown_type === 'session'
                 const using_session_math = series?.some((entity) => entity.math === 'unique_session')
                 const using_session_property_math = series?.some((entity) => {
                     // Should be made more generic is we ever add more session properties
@@ -213,9 +206,9 @@ export const insightVizDataLogic = kea<insightVizDataLogicType>([
         ],
 
         isSingleSeries: [
-            (s) => [s.isTrends, s.formula, s.series, s.breakdown],
-            (isTrends, formula, series, breakdown): boolean => {
-                return ((isTrends && !!formula) || (series || []).length <= 1) && !breakdown?.breakdown
+            (s) => [s.isTrends, s.formula, s.series, s.breakdownFilter],
+            (isTrends, formula, series, breakdownFilter): boolean => {
+                return ((isTrends && !!formula) || (series || []).length <= 1) && !breakdownFilter?.breakdown
             },
         ],
 
@@ -224,11 +217,11 @@ export const insightVizDataLogic = kea<insightVizDataLogicType>([
             (isTrends, isStickiness, isLifecycle, insightFilter): boolean => {
                 return !!(
                     ((isTrends || isStickiness || isLifecycle) &&
-                        (insightFilter as TrendsFilterType)?.show_values_on_series) ||
+                        (insightFilter as TrendsFilter)?.showValuesOnSeries) ||
                     // pie charts have value checked by default
                     (isTrends &&
-                        (insightFilter as TrendsFilterType)?.display === ChartDisplayType.ActionsPie &&
-                        (insightFilter as TrendsFilterType)?.show_values_on_series === undefined)
+                        (insightFilter as TrendsFilter)?.display === ChartDisplayType.ActionsPie &&
+                        (insightFilter as TrendsFilter)?.showValuesOnSeries === undefined)
                 )
             },
         ],
@@ -280,6 +273,15 @@ export const insightVizDataLogic = kea<insightVizDataLogicType>([
                 return insightDataError?.queryId || null
             },
         ],
+        validationError: [
+            (s) => [s.insightDataError],
+            (insightDataError): string | null => {
+                // We use 512 for query timeouts
+                return insightDataError?.status === 400 || insightDataError?.status === 512
+                    ? insightDataError.detail.replace('Try ', 'Try ') // Add unbreakable space for better line breaking
+                    : null
+            },
+        ],
 
         timezone: [(s) => [s.insightData], (insightData) => insightData?.timezone || 'UTC'],
 
@@ -296,22 +298,21 @@ export const insightVizDataLogic = kea<insightVizDataLogicType>([
         // Exclusion filters
         exclusionDefaultStepRange: [
             (s) => [s.querySource],
-            (querySource: FunnelsQuery): Omit<FunnelExclusion, 'id' | 'name'> => ({
-                funnel_from_step: 0,
-                funnel_to_step: (querySource.series || []).length > 1 ? querySource.series.length - 1 : 1,
+            (querySource: FunnelsQuery): FunnelExclusionSteps => ({
+                funnelFromStep: 0,
+                funnelToStep: (querySource.series || []).length > 1 ? querySource.series.length - 1 : 1,
             }),
         ],
         exclusionFilters: [
             (s) => [s.funnelsFilter],
             (funnelsFilter): FilterType => ({
-                events: funnelsFilter?.exclusions,
+                events: funnelsFilter?.exclusions?.map(({ funnelFromStep, funnelToStep, ...rest }, index) => ({
+                    funnel_from_step: funnelFromStep,
+                    funnel_to_step: funnelToStep,
+                    order: index,
+                    ...seriesNodeToFilter(rest),
+                })),
             }),
-        ],
-        areExclusionFiltersValid: [
-            (s) => [s.insightDataError],
-            (insightDataError): boolean => {
-                return !(insightDataError?.status === 400 && insightDataError?.type === 'validation_error')
-            },
         ],
     }),
 
@@ -319,8 +320,10 @@ export const insightVizDataLogic = kea<insightVizDataLogicType>([
         updateDateRange: ({ dateRange }) => {
             actions.updateQuerySource({ dateRange: { ...values.dateRange, ...dateRange } })
         },
-        updateBreakdown: ({ breakdown }) => {
-            actions.updateQuerySource({ breakdown: { ...values.breakdown, ...breakdown } } as Partial<TrendsQuery>)
+        updateBreakdownFilter: ({ breakdownFilter }) => {
+            actions.updateQuerySource({
+                breakdownFilter: { ...values.breakdownFilter, ...breakdownFilter },
+            } as Partial<TrendsQuery>)
         },
         updateInsightFilter: ({ insightFilter }) => {
             const filterProperty = filterKeyForQuery(values.localQuerySource)
@@ -354,7 +357,7 @@ export const insightVizDataLogic = kea<insightVizDataLogicType>([
         loadData: async ({ queryId }, breakpoint) => {
             actions.setTimedOutQueryId(null)
 
-            await breakpoint(SHOW_TIMEOUT_MESSAGE_AFTER)
+            await breakpoint(SHOW_TIMEOUT_MESSAGE_AFTER) // By timeout we just mean long loading time here
 
             if (values.insightDataLoading) {
                 actions.setTimedOutQueryId(queryId)
@@ -429,6 +432,8 @@ const handleQuerySourceUpdateSideEffects = (
      * Date range change side effects.
      */
     if (
+        !isRetentionQuery(currentState) &&
+        !isPathsQuery(currentState) && // TODO: Apply side logic more elegantly
         update.dateRange &&
         update.dateRange.date_from &&
         (update.dateRange.date_from !== currentState.dateRange?.date_from ||
@@ -477,7 +482,7 @@ const handleQuerySourceUpdateSideEffects = (
     ) {
         const math = (maybeChangedSeries || (currentState as TrendsQuery).series)?.[0].math
 
-        mergedUpdate['breakdown'] = {
+        mergedUpdate['breakdownFilter'] = {
             breakdown: '$geoip_country_code',
             breakdown_type: ['dau', 'weekly_active', 'monthly_active'].includes(math || '') ? 'person' : 'event',
         }

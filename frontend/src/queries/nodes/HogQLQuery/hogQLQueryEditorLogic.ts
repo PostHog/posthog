@@ -85,7 +85,7 @@ export const hogQLQueryEditorLogic = kea<hogQLQueryEditorLogicType>([
         ],
         aiAvailable: [() => [preflightLogic.selectors.preflight], (preflight) => preflight?.openai_available],
     }),
-    listeners(({ actions, asyncActions, props, values }) => ({
+    listeners(({ actions, props, values }) => ({
         saveQuery: () => {
             const query = values.queryInput
             // TODO: Is below line necessary if the only way for queryInput to change is already through setQueryInput?
@@ -181,7 +181,7 @@ export const hogQLQueryEditorLogic = kea<hogQLQueryEditorLogicType>([
                 kind: NodeKind.HogQLQuery,
                 query: values.queryInput,
             }
-            await asyncActions.createDataWarehouseSavedQuery({ name, query })
+            await dataWarehouseSavedQueriesLogic.asyncActions.createDataWarehouseSavedQuery({ name, query })
         },
     })),
 ])

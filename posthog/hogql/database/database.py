@@ -1,4 +1,4 @@
-from typing import Any, ClassVar, Dict, List, Literal, Optional, TypedDict
+from typing import TYPE_CHECKING, Any, ClassVar, Dict, List, Literal, Optional, TypedDict
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 from pydantic import ConfigDict, BaseModel
 
@@ -19,6 +19,7 @@ from posthog.hogql.database.models import (
     FunctionCallTable,
     ExpressionField,
 )
+from posthog.hogql.database.schema.channel_type import create_initial_channel_type, create_initial_domain_type
 from posthog.hogql.database.schema.log_entries import (
     LogEntriesTable,
     ReplayConsoleLogsLogEntriesTable,
@@ -48,6 +49,10 @@ from posthog.hogql.parser import parse_expr
 from posthog.models.group_type_mapping import GroupTypeMapping
 from posthog.models.team.team import WeekStartDay
 from posthog.schema import HogQLQueryModifiers, PersonsOnEventsMode
+
+
+if TYPE_CHECKING:
+    from posthog.models import Team
 
 
 class Database(BaseModel):
@@ -81,7 +86,7 @@ class Database(BaseModel):
     _table_names: ClassVar[List[str]] = [
         "events",
         "groups",
-        "person",
+        "persons",
         "person_distinct_id2",
         "person_overrides",
         "session_replay_events",
@@ -89,6 +94,8 @@ class Database(BaseModel):
         "person_static_cohort",
         "log_entries",
     ]
+
+    _warehouse_table_names: List[str] = []
 
     _timezone: Optional[str]
     _week_start_day: Optional[WeekStartDay]
@@ -115,12 +122,18 @@ class Database(BaseModel):
             return getattr(self, table_name)
         raise HogQLException(f'Table "{table_name}" not found in database')
 
+    def get_all_tables(self) -> List[str]:
+        return self._table_names + self._warehouse_table_names
+
     def add_warehouse_tables(self, **field_definitions: Any):
         for f_name, f_def in field_definitions.items():
             setattr(self, f_name, f_def)
+            self._warehouse_table_names.append(f_name)
 
 
-def create_hogql_database(team_id: int, modifiers: Optional[HogQLQueryModifiers] = None) -> Database:
+def create_hogql_database(
+    team_id: int, modifiers: Optional[HogQLQueryModifiers] = None, team_arg: Optional["Team"] = None
+) -> Database:
     from posthog.models import Team
     from posthog.hogql.query import create_default_modifiers_for_team
     from posthog.warehouse.models import (
@@ -129,7 +142,7 @@ def create_hogql_database(team_id: int, modifiers: Optional[HogQLQueryModifiers]
         DataWarehouseViewLink,
     )
 
-    team = Team.objects.get(pk=team_id)
+    team = team_arg or Team.objects.get(pk=team_id)
     modifiers = create_default_modifiers_for_team(team, modifiers)
     database = Database(timezone=team.timezone, week_start_day=team.week_start_day)
 
@@ -166,6 +179,11 @@ def create_hogql_database(team_id: int, modifiers: Optional[HogQLQueryModifiers]
         )
         database.events.fields["poe"].fields["id"] = database.events.fields["person_id"]
         database.events.fields["person"] = FieldTraverser(chain=["poe"])
+
+    database.persons.fields["$virt_initial_referring_domain_type"] = create_initial_domain_type(
+        "$virt_initial_referring_domain_type"
+    )
+    database.persons.fields["$virt_initial_channel_type"] = create_initial_channel_type("$virt_initial_channel_type")
 
     for mapping in GroupTypeMapping.objects.filter(team=team):
         if database.events.fields.get(mapping.group_type) is None:

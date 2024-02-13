@@ -9,27 +9,27 @@ import { useState } from 'react'
 export function YearInHogButton({ url }: { url: string | null }): JSX.Element | null {
     const [isHovering, setIsHovering] = useState<boolean | null>(null)
     return url ? (
-        <div className={'relative'}>
+        <div className="relative">
             <HeartHog
-                width={'36'}
-                height={'36'}
+                width="36"
+                height="36"
                 className={clsx(
                     'CheekyHog',
                     isHovering && 'CheekyHog--peek',
                     isHovering === false && 'CheekyHog--hide'
                 )}
             />
-            <div className={'absolute top-0 left-0 w-full h-full YearInHog__mask'} />
+            <div className="absolute top-0 left-0 w-full h-full YearInHog__mask" />
             <LemonButton
                 icon={<XmasTree />}
-                type={'secondary'}
+                type="secondary"
                 to={url}
                 targetBlank={true}
-                size={'small'}
+                size="small"
                 onMouseEnter={() => setIsHovering(true)}
                 onMouseLeave={() => setIsHovering(false)}
             >
-                PostHog unwrapped
+                PostHog Unwrapped
             </LemonButton>
         </div>
     ) : null

@@ -19,6 +19,7 @@ import { DashboardType, NotebookListItemType, NotebookNodeType, NotebookTarget }
 import type { notebooksModelType } from './notebooksModelType'
 
 export const SCRATCHPAD_NOTEBOOK: NotebookListItemType = {
+    id: 'scratchpad',
     short_id: 'scratchpad',
     title: 'My scratchpad',
     created_at: '',
@@ -36,7 +37,7 @@ export const openNotebook = async (
     const thePanelLogic = notebookPanelLogic.findMounted()
 
     if (thePanelLogic && target === NotebookTarget.Popover) {
-        notebookPanelLogic.actions.selectNotebook(notebookId, { autofocus })
+        thePanelLogic.actions.selectNotebook(notebookId, { autofocus })
     } else {
         if (router.values.location.pathname === urls.notebook('new')) {
             router.actions.replace(urls.notebook(notebookId))
@@ -86,9 +87,7 @@ export const notebooksModel = kea<notebooksModelType>([
         notebooks: [
             [] as NotebookListItemType[],
             {
-                createNotebook: async ({ title, location, content, onCreate }, breakpoint) => {
-                    await breakpoint(100)
-
+                createNotebook: async ({ title, location, content, onCreate }) => {
                     const notebook = await api.notebooks.create({
                         title,
                         content: defaultNotebookContent(title, content),

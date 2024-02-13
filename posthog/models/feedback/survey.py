@@ -7,6 +7,7 @@ from posthog.models.utils import UUIDModel
 class Survey(UUIDModel):
     class SurveyType(models.TextChoices):
         POPOVER = "popover", "popover"
+        WIDGET = "widget", "widget"
         BUTTON = "button", "button"
         EMAIL = "email", "email"
         FULL_SCREEN = "full_screen", "full screen"

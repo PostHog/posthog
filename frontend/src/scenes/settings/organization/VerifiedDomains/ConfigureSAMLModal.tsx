@@ -33,7 +33,7 @@ export function ConfigureSAMLModal(): JSX.Element {
                 </LemonModal.Header>
                 <LemonModal.Content className="space-y-2">
                     <p>
-                        <Link to={'https://posthog.com/docs/data/sso#setting-up-saml'} target="_blank" targetBlankIcon>
+                        <Link to="https://posthog.com/docs/data/sso#setting-up-saml" target="_blank" targetBlankIcon>
                             Read the docs
                         </Link>
                     </p>

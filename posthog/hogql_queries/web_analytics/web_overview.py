@@ -36,6 +36,7 @@ WITH pages_query AS (
         uniq(if(timestamp >= {start} AND timestamp < {mid}, events.properties.$session_id, NULL)) AS previous_unique_sessions
     FROM
         events
+    SAMPLE {sample_rate}
     WHERE
         event = '$pageview' AND
         timestamp >= {start} AND
@@ -44,10 +45,10 @@ WITH pages_query AS (
     ),
 sessions_query AS (
     SELECT
-        avg(if(min_timestamp > {mid}, duration_s, NULL)) AS avg_duration_s,
-        avg(if(min_timestamp <= {mid}, duration_s, NULL)) AS prev_avg_duration_s,
-        avg(if(min_timestamp > {mid}, is_bounce, NULL)) AS bounce_rate,
-        avg(if(min_timestamp <= {mid}, is_bounce, NULL)) AS prev_bounce_rate
+        avg(if(min_timestamp >= {mid}, duration_s, NULL)) AS avg_duration_s,
+        avg(if(min_timestamp < {mid}, duration_s, NULL)) AS prev_avg_duration_s,
+        avg(if(min_timestamp >= {mid}, is_bounce, NULL)) AS bounce_rate,
+        avg(if(min_timestamp < {mid}, is_bounce, NULL)) AS prev_bounce_rate
     FROM (SELECT
             events.properties.`$session_id` AS session_id,
             min(events.timestamp) AS min_timestamp,
@@ -60,6 +61,7 @@ sessions_query AS (
             (num_autocaptures == 0 AND num_pageviews <= 1 AND duration_s < 10) AS is_bounce
         FROM
             events
+        SAMPLE {sample_rate}
         WHERE
             session_id IS NOT NULL
             AND (events.event == '$pageview' OR events.event == '$autocapture' OR events.event == '$pageleave')
@@ -92,6 +94,8 @@ CROSS JOIN sessions_query
                     "event_properties": self.event_properties(),
                     "session_where": self.session_where(include_previous_period=True),
                     "session_having": self.session_having(include_previous_period=True),
+                    "sample_rate": self._sample_ratio,
+                    "sample_expr": ast.SampleExpr(sample_value=self._sample_ratio),
                 },
                 backend="cpp",
             )
@@ -106,17 +110,19 @@ CROSS JOIN sessions_query
             timings=self.timings,
             modifiers=self.modifiers,
         )
+        assert response.results
 
         row = response.results[0]
 
         return WebOverviewQueryResponse(
             results=[
-                to_data("visitors", "unit", row[0], row[1]),
-                to_data("views", "unit", row[2], row[3]),
-                to_data("sessions", "unit", row[4], row[5]),
+                to_data("visitors", "unit", self._unsample(row[0]), self._unsample(row[1])),
+                to_data("views", "unit", self._unsample(row[2]), self._unsample(row[3])),
+                to_data("sessions", "unit", self._unsample(row[4]), self._unsample(row[5])),
                 to_data("session duration", "duration_s", row[6], row[7]),
                 to_data("bounce rate", "percentage", row[8], row[9], is_increase_bad=True),
             ],
+            samplingRate=self._sample_rate,
         )
 
     @cached_property
@@ -129,7 +135,7 @@ CROSS JOIN sessions_query
         )
 
     def event_properties(self) -> ast.Expr:
-        return property_to_expr(self.query.properties, team=self.team)
+        return property_to_expr(self.query.properties + self._test_account_filters, team=self.team)
 
 
 def to_data(

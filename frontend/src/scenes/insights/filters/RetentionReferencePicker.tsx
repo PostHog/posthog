@@ -8,15 +8,15 @@ export function RetentionReferencePicker(): JSX.Element {
     const { retentionFilter } = useValues(insightVizDataLogic(insightProps))
     const { updateInsightFilter } = useActions(insightVizDataLogic(insightProps))
 
-    const { retention_reference } = retentionFilter || {}
+    const { retentionReference } = retentionFilter || {}
 
     return (
         <LemonSelect
             className="w-60"
             size="small"
-            value={retention_reference || 'total'}
-            onChange={(retention_reference) => {
-                updateInsightFilter({ retention_reference })
+            value={retentionReference || 'total'}
+            onChange={(retentionReference) => {
+                updateInsightFilter({ retentionReference })
             }}
             options={[
                 {

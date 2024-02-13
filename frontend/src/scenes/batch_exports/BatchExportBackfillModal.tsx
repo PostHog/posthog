@@ -4,10 +4,17 @@ import { Field } from 'lib/forms/Field'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonCalendarSelectInput } from 'lib/lemon-ui/LemonCalendar/LemonCalendarSelect'
 import { LemonModal } from 'lib/lemon-ui/LemonModal'
+import { userLogic } from 'scenes/userLogic'
+
+import { AvailableFeature } from '~/types'
 
 import { batchExportLogic } from './batchExportLogic'
 
 export function BatchExportBackfillModal(): JSX.Element {
+    const { hasAvailableFeature } = useValues(userLogic)
+    if (!hasAvailableFeature(AvailableFeature.DATA_PIPELINES)) {
+        return <></>
+    }
     const { batchExportConfig, isBackfillModalOpen, isBackfillFormSubmitting } = useValues(batchExportLogic)
     const { closeBackfillModal } = useActions(batchExportLogic)
 
@@ -16,7 +23,7 @@ export function BatchExportBackfillModal(): JSX.Element {
             title="Export historical data"
             onClose={closeBackfillModal}
             isOpen={isBackfillModalOpen}
-            width={'30rem'}
+            width="30rem"
             footer={
                 <>
                     <LemonButton

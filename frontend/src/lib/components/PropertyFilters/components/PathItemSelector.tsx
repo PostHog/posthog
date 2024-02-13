@@ -25,7 +25,7 @@ export function PathItemSelector({
     return (
         <Popover
             visible={visible}
-            placement={'bottom-end'}
+            placement="bottom-end"
             onClickOutside={() => setVisible(false)}
             overlay={
                 <TaxonomicFilter

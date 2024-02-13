@@ -7,10 +7,7 @@ import { PostgresUse } from '../../../src/utils/db/postgres'
 import { posthog } from '../../../src/utils/posthog'
 import { UUIDT } from '../../../src/utils/utils'
 import { GroupTypeManager } from '../../../src/worker/ingestion/group-type-manager'
-import {
-    dateTimePropertyTypeFormatPatterns,
-    isNumericString,
-} from '../../../src/worker/ingestion/property-definitions-auto-discovery'
+import { dateTimePropertyTypeFormatPatterns } from '../../../src/worker/ingestion/property-definitions-auto-discovery'
 import { NULL_AFTER_PROPERTY_TYPE_DETECTION } from '../../../src/worker/ingestion/property-definitions-cache'
 import { PropertyDefinitionsManager } from '../../../src/worker/ingestion/property-definitions-manager'
 import { createOrganization, createOrganizationMembership, createTeam, createUser } from '../../helpers/sql'
@@ -516,20 +513,19 @@ describe('PropertyDefinitionsManager()', () => {
                 ])
             })
 
-            it('identifies a numeric type sent as a string', async () => {
+            it('identifies a numeric type sent as a string... as a string', async () => {
                 await manager.updateEventNamesAndProperties(teamId, 'another_test_event', {
                     some_number: String(randomInteger()),
                 })
 
-                expect(manager.propertyDefinitionsCache.get(teamId)?.peek('1some_number')).toEqual('Numeric')
+                expect(manager.propertyDefinitionsCache.get(teamId)?.peek('1some_number')).toEqual('String')
 
                 expect(await hub.db.fetchPropertyDefinitions(teamId)).toEqual([
                     expect.objectContaining({
                         id: expect.any(String),
                         team_id: teamId,
                         name: 'some_number',
-                        is_numerical: true,
-                        property_type: 'Numeric',
+                        property_type: 'String',
                     }),
                 ])
             })
@@ -574,17 +570,17 @@ describe('PropertyDefinitionsManager()', () => {
                 {
                     propertyKey: 'unix timestamp with fractional seconds as a string',
                     date: '1234567890.123',
-                    expectedPropertyType: PropertyType.DateTime,
+                    expectedPropertyType: PropertyType.String,
                 },
                 {
                     propertyKey: 'unix timestamp with five decimal places of fractional seconds as a string',
                     date: '1234567890.12345',
-                    expectedPropertyType: PropertyType.DateTime,
+                    expectedPropertyType: PropertyType.String,
                 },
                 {
                     propertyKey: 'unix timestamp as a string',
                     date: '1234567890',
-                    expectedPropertyType: PropertyType.DateTime,
+                    expectedPropertyType: PropertyType.String,
                 },
                 {
                     propertyKey: 'unix timestamp in milliseconds as a number',
@@ -594,7 +590,7 @@ describe('PropertyDefinitionsManager()', () => {
                 {
                     propertyKey: 'unix timestamp in milliseconds as a string',
                     date: '1234567890123',
-                    expectedPropertyType: PropertyType.DateTime,
+                    expectedPropertyType: PropertyType.String,
                 },
             ].flatMap((testcase) => {
                 const toEdit = testcase
@@ -607,7 +603,7 @@ describe('PropertyDefinitionsManager()', () => {
                 const toNotMatch = {
                     ...toEdit,
                     propertyKey: toEdit.propertyKey.replace('timestamp', 'as a string'),
-                    expectedPropertyType: isNumericString(toEdit.date) ? PropertyType.Numeric : PropertyType.String,
+                    expectedPropertyType: typeof toEdit.date === 'number' ? PropertyType.Numeric : PropertyType.String,
                 }
 
                 return [testcase, toMatchWithJustTimeInName, toNotMatch]

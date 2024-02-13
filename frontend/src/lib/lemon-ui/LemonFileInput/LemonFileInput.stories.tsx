@@ -26,7 +26,7 @@ const Template: StoryFn<typeof LemonFileInput> = (props) => {
     const additionalDragTarget = createRef<HTMLDivElement>()
 
     return (
-        <div className={'flex flex-col gap-4'}>
+        <div className="flex flex-col gap-4">
             <div>
                 <h5>Single file input</h5>
                 <LemonFileInput
@@ -49,7 +49,7 @@ const Template: StoryFn<typeof LemonFileInput> = (props) => {
             </div>
             <div>
                 <h5>Extra drag and drop target</h5>
-                <div ref={additionalDragTarget} className={'h-12 w-full border flex items-center justify-center'}>
+                <div ref={additionalDragTarget} className="h-12 w-full border flex items-center justify-center">
                     This area is also a drag target
                 </div>
                 <LemonFileInput

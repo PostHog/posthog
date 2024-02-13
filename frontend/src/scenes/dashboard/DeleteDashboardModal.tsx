@@ -12,7 +12,7 @@ export function DeleteDashboardModal(): JSX.Element {
 
     return (
         <LemonModal
-            title={'Delete dashboard'}
+            title="Delete dashboard"
             onClose={hideDeleteDashboardModal}
             isOpen={deleteDashboardModalVisible}
             footer={
@@ -29,8 +29,8 @@ export function DeleteDashboardModal(): JSX.Element {
                     <LemonButton
                         form="delete-dashboard-form"
                         htmlType="submit"
-                        type="primary"
-                        status={'danger'}
+                        type="secondary"
+                        status="danger"
                         data-attr="dashboard-delete-submit"
                         loading={isDeleteDashboardSubmitting}
                         disabled={isDeleteDashboardSubmitting}
@@ -53,7 +53,7 @@ export function DeleteDashboardModal(): JSX.Element {
                 >
                     {({ value, onChange }) => (
                         <LemonCheckbox
-                            data-attr={'delete-dashboard-insights-checkbox'}
+                            data-attr="delete-dashboard-insights-checkbox"
                             checked={value}
                             label="Delete this dashboard's insights"
                             onChange={onChange}

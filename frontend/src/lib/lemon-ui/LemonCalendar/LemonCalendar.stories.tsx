@@ -38,7 +38,6 @@ CustomStyles.args = {
         return {
             ...props,
             active: date.day() % 2 === 0,
-            status: date.date() % 10 === 0 ? 'primary' : 'stealth',
             type: date.date() % 10 === 0 ? 'primary' : undefined,
         }
     },

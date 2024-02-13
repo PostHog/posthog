@@ -1,8 +1,8 @@
 import operator
 import random
-from collections import defaultdict, namedtuple
+from collections import defaultdict
 from datetime import datetime, timedelta
-from typing import TypedDict
+from typing import Iterator, TypedDict
 from uuid import UUID, uuid4
 
 import psycopg
@@ -23,6 +23,8 @@ from posthog.models.person_overrides.sql import (
     PERSON_OVERRIDES_CREATE_TABLE_SQL,
 )
 from posthog.temporal.batch_exports.squash_person_overrides import (
+    FlatPostgresPersonOverridesManager,
+    PersonOverrideTuple,
     QueryInputs,
     SerializablePersonOverrideToDelete,
     SquashPersonOverridesInputs,
@@ -69,7 +71,7 @@ def activity_environment():
 
 
 @pytest.fixture
-def person_overrides_table(query_inputs):
+def person_overrides_table():
     """Manage person_overrides tables for testing."""
     sync_execute(PERSON_OVERRIDES_CREATE_TABLE_SQL)
     sync_execute(KAFKA_PERSON_OVERRIDES_TABLE_SQL)
@@ -81,9 +83,6 @@ def person_overrides_table(query_inputs):
     sync_execute(DROP_KAFKA_PERSON_OVERRIDES_TABLE_SQL)
     sync_execute(DROP_PERSON_OVERRIDES_CREATE_MATERIALIZED_VIEW_SQL)
     sync_execute("DROP TABLE person_overrides")
-
-
-PersonOverrideTuple = namedtuple("PersonOverrideTuple", ("old_person_id", "override_person_id"))
 
 
 OVERRIDES_CREATED_AT = datetime.fromisoformat("2020-01-02T00:00:00.123123+00:00")
@@ -129,9 +128,7 @@ def person_overrides_data(person_overrides_table):
 @pytest.fixture
 def query_inputs():
     """A default set of QueryInputs to use in all tests."""
-    query_inputs = QueryInputs()
-
-    return query_inputs
+    return QueryInputs()
 
 
 @pytest.mark.django_db
@@ -928,7 +925,7 @@ def team_id(query_inputs, organization_uuid, pg_connection):
                 """,
                 {"organization_uuid": organization_uuid},
             )
-            team_id = cursor.fetchone()
+            [team_id] = cursor.fetchone()
 
     yield team_id
 
@@ -938,80 +935,32 @@ def team_id(query_inputs, organization_uuid, pg_connection):
 
 
 @pytest.fixture
-def person_overrides(query_inputs, team_id, pg_connection):
+def postgres_person_override(team_id, pg_connection) -> Iterator[PersonOverrideTuple]:
     """Create a PersonOverrideMapping and a PersonOverride.
 
     We cannot use the Django ORM safely in an async context, so we INSERT INTO directly
     on the database. This means we need to clean up after ourselves, which we do after
     yielding.
     """
-    old_person_id = uuid4()
-    override_person_id = uuid4()
-    person_override = PersonOverrideTuple(old_person_id, override_person_id)
+    override = PersonOverrideTuple(uuid4(), uuid4())
 
     with pg_connection:
-        with pg_connection.cursor() as cursor:
-            person_ids = []
-            for person_uuid in (override_person_id, old_person_id):
-                cursor.execute(
-                    """
-                    INSERT INTO posthog_personoverridemapping(
-                        team_id,
-                        uuid
-                    )
-                    VALUES (
-                        %(team_id)s,
-                        %(uuid)s
-                    )
-                    ON CONFLICT("team_id", "uuid") DO NOTHING
-                    RETURNING id
-                    """,
-                    {"team_id": team_id, "uuid": person_uuid},
-                )
-                person_ids.append(cursor.fetchone())
+        FlatPostgresPersonOverridesManager(pg_connection).insert(team_id, override)
 
-            cursor.execute(
-                """
-                INSERT INTO posthog_personoverride(
-                    team_id,
-                    old_person_id,
-                    override_person_id,
-                    oldest_event,
-                    version
-                )
-                VALUES (
-                    %(team_id)s,
-                    %(old_person_id)s,
-                    %(override_person_id)s,
-                    NOW(),
-                    1
-                );
-                """,
-                {
-                    "team_id": team_id,
-                    "old_person_id": person_ids[1],
-                    "override_person_id": person_ids[0],
-                },
-            )
-
-    yield person_override
+    yield override
 
     with pg_connection:
-        with pg_connection.cursor() as cursor:
-            cursor.execute(
-                "DELETE FROM posthog_personoverride WHERE team_id = %s AND old_person_id = %s",
-                [team_id, person_ids[1]],
-            )
-            cursor.execute(
-                "DELETE FROM posthog_personoverridemapping WHERE team_id = %s AND (uuid = %s OR uuid = %s)",
-                [team_id, old_person_id, override_person_id],
-            )
+        FlatPostgresPersonOverridesManager(pg_connection).clear(team_id)
 
 
 @pytest.mark.django_db
 @pytest.mark.asyncio
 async def test_delete_squashed_person_overrides_from_postgres(
-    query_inputs, activity_environment, team_id, person_overrides, pg_connection
+    query_inputs,
+    activity_environment,
+    team_id,
+    postgres_person_override: PersonOverrideTuple,
+    pg_connection,
 ):
     """Test we can delete person overrides that have already been squashed.
 
@@ -1021,20 +970,13 @@ async def test_delete_squashed_person_overrides_from_postgres(
     # These are sanity checks to ensure the fixtures are working properly.
     # If any assertions fail here, its likely a test setup issue.
     with pg_connection:
-        with pg_connection.cursor() as cursor:
-            cursor.execute("SELECT id, team_id, uuid FROM posthog_personoverridemapping")
-            mappings = cursor.fetchall()
-            assert len(mappings) == 2
-
-            cursor.execute("SELECT * FROM posthog_personoverride")
-            overrides = cursor.fetchall()
-            assert len(overrides) == 1
+        assert FlatPostgresPersonOverridesManager(pg_connection).fetchall(team_id) == [postgres_person_override]
 
     person_overrides_to_delete = [
         SerializablePersonOverrideToDelete(
             team_id,
-            person_overrides.old_person_id,
-            person_overrides.override_person_id,
+            postgres_person_override.old_person_id,
+            postgres_person_override.override_person_id,
             OVERRIDES_CREATED_AT.isoformat(),
             1,
             OLDEST_EVENT_AT.isoformat(),
@@ -1046,40 +988,29 @@ async def test_delete_squashed_person_overrides_from_postgres(
     await activity_environment.run(delete_squashed_person_overrides_from_postgres, query_inputs)
 
     with pg_connection:
-        with pg_connection.cursor() as cursor:
-            cursor.execute("SELECT team_id, uuid FROM posthog_personoverridemapping")
-            mappings = cursor.fetchall()
-            assert len(mappings) == 1
-            assert mappings[0][1] == person_overrides.override_person_id
-
-            cursor.execute("SELECT * FROM posthog_personoverride")
-            overrides = cursor.fetchall()
-            assert len(overrides) == 0
+        assert FlatPostgresPersonOverridesManager(pg_connection).fetchall(team_id) == []
 
 
 @pytest.mark.django_db
 @pytest.mark.asyncio
 async def test_delete_squashed_person_overrides_from_postgres_dry_run(
-    query_inputs, activity_environment, team_id, person_overrides, pg_connection
+    query_inputs,
+    activity_environment,
+    team_id,
+    postgres_person_override: PersonOverrideTuple,
+    pg_connection,
 ):
     """Test we do not delete person overrides when dry_run=True."""
     # These are sanity checks to ensure the fixtures are working properly.
     # If any assertions fail here, its likely a test setup issue.
     with pg_connection:
-        with pg_connection.cursor() as cursor:
-            cursor.execute("SELECT id, team_id, uuid FROM posthog_personoverridemapping")
-            mappings = cursor.fetchall()
-            assert len(mappings) == 2
-
-            cursor.execute("SELECT * FROM posthog_personoverride")
-            overrides = cursor.fetchall()
-            assert len(overrides) == 1
+        assert FlatPostgresPersonOverridesManager(pg_connection).fetchall(team_id) == [postgres_person_override]
 
     person_overrides_to_delete = [
         SerializablePersonOverrideToDelete(
             team_id,
-            person_overrides.old_person_id,
-            person_overrides.override_person_id,
+            postgres_person_override.old_person_id,
+            postgres_person_override.override_person_id,
             OVERRIDES_CREATED_AT.isoformat(),
             1,
             OLDEST_EVENT_AT.isoformat(),
@@ -1091,110 +1022,15 @@ async def test_delete_squashed_person_overrides_from_postgres_dry_run(
     await activity_environment.run(delete_squashed_person_overrides_from_postgres, query_inputs)
 
     with pg_connection:
-        with pg_connection.cursor() as cursor:
-            cursor.execute("SELECT team_id, uuid FROM posthog_personoverridemapping")
-            mappings = cursor.fetchall()
-            assert len(mappings) == 2
-            assert mappings[0][1] == person_overrides.override_person_id
-
-            cursor.execute("SELECT * FROM posthog_personoverride")
-            overrides = cursor.fetchall()
-            assert len(overrides) == 1
-
-
-@pytest.mark.django_db
-@pytest.mark.asyncio
-async def test_delete_squashed_person_overrides_from_postgres_with_newer_override(
-    query_inputs, activity_environment, team_id, person_overrides, pg_connection
-):
-    """Test we do not delete a newer mapping from Postgres.
-
-    For the purposes of this unit test, we take the person overrides as given. A
-    comprehensive test will cover the entire worflow end-to-end.
-    """
-    # These are sanity checks to ensure the fixtures are working properly.
-    # If any assertions fail here, its likely a test setup issue.
-    with pg_connection:
-        with pg_connection.cursor() as cursor:
-            cursor.execute("SELECT id, team_id, uuid FROM posthog_personoverridemapping")
-            mappings = cursor.fetchall()
-            assert len(mappings) == 2
-
-            cursor.execute("SELECT team_id, old_person_id, override_person_id FROM posthog_personoverride")
-            overrides = cursor.fetchall()
-            assert len(overrides) == 1
-
-    with pg_connection:
-        with pg_connection.cursor() as cursor:
-            # Let's insert a newer mapping that arrives while we are running the squash job.
-            # Since only one mapping can exist per old_person_id, we'll bump the version number.
-            cursor.execute(
-                """
-                UPDATE posthog_personoverride
-                SET version = version + 1
-                WHERE
-                    team_id = %(team_id)s
-                    AND old_person_id = %(old_person_id)s
-                """,
-                {
-                    "team_id": team_id,
-                    "old_person_id": [
-                        mapping[0] for mapping in mappings if mapping[2] == person_overrides.old_person_id
-                    ][0],
-                },
-            )
-
-    person_overrides_to_delete = [
-        # We are schedulling for deletion an override with lower version number, so nothing should happen.
-        SerializablePersonOverrideToDelete(
-            team_id,
-            person_overrides.old_person_id,
-            person_overrides.override_person_id,
-            OVERRIDES_CREATED_AT.isoformat(),
-            1,
-            OLDEST_EVENT_AT.isoformat(),
-        )
-    ]
-    query_inputs.person_overrides_to_delete = person_overrides_to_delete
-    query_inputs.dry_run = False
-
-    await activity_environment.run(delete_squashed_person_overrides_from_postgres, query_inputs)
-
-    with pg_connection:
-        with pg_connection.cursor() as cursor:
-            cursor.execute("SELECT id, team_id, uuid FROM posthog_personoverridemapping")
-            mappings = cursor.fetchall()
-
-            # Nothing was deleted from mappings table
-            assert len(mappings) == 2
-            assert person_overrides.override_person_id in [mapping[2] for mapping in mappings]
-            assert person_overrides.old_person_id in [mapping[2] for mapping in mappings]
-
-            cursor.execute("SELECT team_id, old_person_id, override_person_id, version FROM posthog_personoverride")
-            overrides = cursor.fetchall()
-
-            # And nothing was deleted from overrides table
-            assert len(overrides) == 1
-
-            team_id, old_person_id, override_person_id, version = overrides[0]
-            assert team_id == team_id
-            assert (
-                old_person_id == [mapping[0] for mapping in mappings if mapping[2] == person_overrides.old_person_id][0]
-            )
-            assert (
-                override_person_id
-                == [mapping[0] for mapping in mappings if mapping[2] == person_overrides.override_person_id][0]
-            )
-            assert version == 2
+        assert FlatPostgresPersonOverridesManager(pg_connection).fetchall(team_id) == [postgres_person_override]
 
 
 @pytest.mark.django_db
 @pytest.mark.asyncio
 async def test_squash_person_overrides_workflow(
-    query_inputs,
     events_to_override,
     person_overrides_data,
-    person_overrides,
+    postgres_person_override: PersonOverrideTuple,
     person_overrides_table,
 ):
     """Test the squash_person_overrides workflow end-to-end."""
@@ -1240,10 +1076,9 @@ async def test_squash_person_overrides_workflow(
 @pytest.mark.django_db
 @pytest.mark.asyncio
 async def test_squash_person_overrides_workflow_with_newer_overrides(
-    query_inputs,
     events_to_override,
     person_overrides_data,
-    person_overrides,
+    postgres_person_override: PersonOverrideTuple,
     newer_overrides,
 ):
     """Test the squash_person_overrides workflow end-to-end with newer overrides."""
@@ -1286,7 +1121,9 @@ async def test_squash_person_overrides_workflow_with_newer_overrides(
 @pytest.mark.django_db
 @pytest.mark.asyncio
 async def test_squash_person_overrides_workflow_with_limited_team_ids(
-    query_inputs, events_to_override, person_overrides_data, person_overrides
+    events_to_override,
+    person_overrides_data,
+    postgres_person_override: PersonOverrideTuple,
 ):
     """Test the squash_person_overrides workflow end-to-end."""
     client = await Client.connect(

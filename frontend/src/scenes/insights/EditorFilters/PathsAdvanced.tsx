@@ -1,13 +1,9 @@
-import { LemonDivider } from '@posthog/lemon-ui'
-import { InputNumber } from 'antd'
+import { LemonDivider, LemonInput } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { PayGateMini } from 'lib/components/PayGateMini/PayGateMini'
-import { IconSettings } from 'lib/lemon-ui/icons'
 import { LemonLabel } from 'lib/lemon-ui/LemonLabel/LemonLabel'
-import { Link } from 'lib/lemon-ui/Link'
 import { useState } from 'react'
 import { pathsDataLogic } from 'scenes/paths/pathsDataLogic'
-import { urls } from 'scenes/urls'
 
 import { AvailableFeature, EditorFilterProps, PathEdgeParameters } from '~/types'
 
@@ -17,19 +13,19 @@ export function PathsAdvanced({ insightProps, ...rest }: EditorFilterProps): JSX
     const { pathsFilter } = useValues(pathsDataLogic(insightProps))
     const { updateInsightFilter } = useActions(pathsDataLogic(insightProps))
 
-    const { edge_limit, min_edge_weight, max_edge_weight } = pathsFilter || {}
+    const { edgeLimit, minEdgeWeight, maxEdgeWeight } = pathsFilter || {}
 
     const [localEdgeParameters, setLocalEdgeParameters] = useState<PathEdgeParameters>({
-        edge_limit: edge_limit,
-        min_edge_weight: min_edge_weight,
-        max_edge_weight: max_edge_weight,
+        edgeLimit,
+        minEdgeWeight,
+        maxEdgeWeight,
     })
 
     const updateEdgeParameters = (): void => {
         if (
-            localEdgeParameters.edge_limit !== edge_limit ||
-            localEdgeParameters.min_edge_weight !== min_edge_weight ||
-            localEdgeParameters.max_edge_weight !== max_edge_weight
+            localEdgeParameters.edgeLimit !== edgeLimit ||
+            localEdgeParameters.minEdgeWeight !== minEdgeWeight ||
+            localEdgeParameters.maxEdgeWeight !== maxEdgeWeight
         ) {
             updateInsightFilter({ ...localEdgeParameters })
         }
@@ -42,14 +38,15 @@ export function PathsAdvanced({ insightProps, ...rest }: EditorFilterProps): JSX
                 <LemonLabel info="Determines the maximum number of path nodes that can be generated. If necessary certain items will be grouped.">
                     Maximum number of paths
                 </LemonLabel>
-                <InputNumber
+                <LemonInput
+                    type="number"
                     min={0}
                     max={1000}
                     defaultValue={50}
                     onChange={(value): void =>
                         setLocalEdgeParameters((state) => ({
                             ...state,
-                            edge_limit: Number(value),
+                            edgeLimit: Number(value),
                         }))
                     }
                     onBlur={updateEdgeParameters}
@@ -61,26 +58,28 @@ export function PathsAdvanced({ insightProps, ...rest }: EditorFilterProps): JSX
                 >
                     Number of people on each path
                 </LemonLabel>
-                <div>
+                <div className="flex items-baseline">
                     <span className="mr-2">Between</span>
-                    <InputNumber
+                    <LemonInput
+                        type="number"
                         min={0}
                         max={100000}
                         onChange={(value): void =>
                             setLocalEdgeParameters((state) => ({
                                 ...state,
-                                min_edge_weight: Number(value),
+                                minEdgeWeight: Number(value),
                             }))
                         }
                         onBlur={updateEdgeParameters}
                         onPressEnter={updateEdgeParameters}
                     />
                     <span className="mx-2">and</span>
-                    <InputNumber
+                    <LemonInput
+                        type="number"
                         onChange={(value): void =>
                             setLocalEdgeParameters((state) => ({
                                 ...state,
-                                max_edge_weight: Number(value),
+                                maxEdgeWeight: Number(value),
                             }))
                         }
                         min={0}
@@ -93,7 +92,6 @@ export function PathsAdvanced({ insightProps, ...rest }: EditorFilterProps): JSX
                 <div>
                     <div className="flex items-center my-2">
                         <LemonLabel
-                            showOptional
                             info={
                                 <>
                                     Cleaning rules are an advanced feature that uses regex to normalize URLS for paths
@@ -104,13 +102,6 @@ export function PathsAdvanced({ insightProps, ...rest }: EditorFilterProps): JSX
                         >
                             Path Cleaning Rules
                         </LemonLabel>
-                        <Link
-                            className="flex items-center ml-2"
-                            to={urls.settings('project-product-analytics', 'path-cleaning')}
-                        >
-                            <IconSettings fontSize="16" className="mr-0.5" />
-                            Configure Project Rules
-                        </Link>
                     </div>
                     <PathCleaningFilter insightProps={insightProps} {...rest} />
                 </div>

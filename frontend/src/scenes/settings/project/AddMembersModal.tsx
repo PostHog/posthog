@@ -36,8 +36,8 @@ export function AddMembersModalWithButton({ isRestricted }: RestrictedComponentP
             >
                 Add members to project
             </LemonButton>
-            <LemonModal title={''} onClose={closeModal} isOpen={isVisible} simple>
-                <Form logic={teamMembersLogic} formKey={'addMembers'} enableFormOnSubmit>
+            <LemonModal title="" onClose={closeModal} isOpen={isVisible} simple>
+                <Form logic={teamMembersLogic} formKey="addMembers" enableFormOnSubmit>
                     <LemonModal.Header>
                         <h3>{`Adding members${currentTeam?.name ? ` to project ${currentTeam.name}` : ''}`}</h3>
                     </LemonModal.Header>

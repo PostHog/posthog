@@ -4,7 +4,6 @@ import * as scaffold from '@posthog/plugin-scaffold'
 import * as AWS from 'aws-sdk'
 import crypto from 'crypto'
 import * as genericPool from 'generic-pool'
-import * as pg from 'pg'
 import { PassThrough } from 'stream'
 import * as url from 'url'
 
@@ -25,7 +24,6 @@ export const AVAILABLE_IMPORTS = {
     'generic-pool': genericPool,
     'node-fetch': trackedFetch,
     crypto: crypto,
-    pg: pg,
     stream: { PassThrough },
     url: url,
 }

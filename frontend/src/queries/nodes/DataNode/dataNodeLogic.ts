@@ -1,5 +1,4 @@
 import clsx from 'clsx'
-import equal from 'fast-deep-equal'
 import {
     actions,
     afterMount,
@@ -16,11 +15,12 @@ import {
 } from 'kea'
 import { loaders } from 'kea-loaders'
 import { subscriptions } from 'kea-subscriptions'
-import api, { ApiMethodOptions, getJSONOrThrow } from 'lib/api'
+import api, { ApiMethodOptions } from 'lib/api'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { objectsEqual, shouldCancelQuery, uuid } from 'lib/utils'
+import { ConcurrencyController } from 'lib/utils/concurrencyController'
 import { UNSAVED_INSIGHT_MIN_REFRESH_INTERVAL_MINUTES } from 'scenes/insights/insightLogic'
 import { compareInsightQuery } from 'scenes/insights/utils/compareInsightQuery'
 import { teamLogic } from 'scenes/teamLogic'
@@ -29,6 +29,8 @@ import { userLogic } from 'scenes/userLogic'
 import { removeExpressionComment } from '~/queries/nodes/DataTable/utils'
 import { query } from '~/queries/query'
 import {
+    ActorsQuery,
+    ActorsQueryResponse,
     AnyResponseType,
     DataNode,
     EventsQuery,
@@ -36,22 +38,11 @@ import {
     InsightVizNode,
     NodeKind,
     PersonsNode,
-    PersonsQuery,
-    PersonsQueryResponse,
     QueryResponse,
     QueryTiming,
 } from '~/queries/schema'
-import {
-    isEventsQuery,
-    isInsightPersonsQuery,
-    isInsightQueryNode,
-    isLifecycleQuery,
-    isPersonsNode,
-    isPersonsQuery,
-    isTrendsQuery,
-} from '~/queries/utils'
+import { isActorsQuery, isEventsQuery, isInsightActorsQuery, isInsightQueryNode, isPersonsNode } from '~/queries/utils'
 
-import { filtersToQueryNode } from '../InsightQuery/utils/filtersToQueryNode'
 import type { dataNodeLogicType } from './dataNodeLogicType'
 
 export interface DataNodeLogicProps {
@@ -61,10 +52,16 @@ export interface DataNodeLogicProps {
     cachedResults?: AnyResponseType
     /** Disabled data fetching and only allow cached results. */
     doNotLoad?: boolean
+    /** Callback when data is successfully loader or provided from cache. */
+    onData?: (data: Record<string, unknown> | null | undefined) => void
+    /** Load priority. Higher priority (smaller number) queries will be loaded first. */
+    loadPriority?: number
 }
 
-const AUTOLOAD_INTERVAL = 30000
+export const AUTOLOAD_INTERVAL = 30000
 const LOAD_MORE_ROWS_LIMIT = 10000
+
+const concurrencyController = new ConcurrencyController(Infinity)
 
 const queryEqual = (a: DataNode, b: DataNode): boolean => {
     if (isInsightQueryNode(a) && isInsightQueryNode(b)) {
@@ -122,21 +119,6 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
                     if (props.doNotLoad) {
                         return props.cachedResults
                     }
-                    if (
-                        isInsightQueryNode(props.query) &&
-                        !(values.hogQLInsightsLifecycleFlagEnabled && isLifecycleQuery(props.query)) &&
-                        !(values.hogQLInsightsTrendsFlagEnabled && isTrendsQuery(props.query)) &&
-                        props.cachedResults &&
-                        props.cachedResults['id'] &&
-                        props.cachedResults['filters'] &&
-                        equal(props.query, filtersToQueryNode(props.cachedResults['filters']))
-                    ) {
-                        const url = `api/projects/${values.currentTeamId}/insights/${props.cachedResults['id']}?refresh=true`
-                        const fetchResponse = await api.getResponse(url)
-                        const data = await getJSONOrThrow(fetchResponse)
-                        breakpoint()
-                        return data
-                    }
 
                     if (props.cachedResults && !refresh) {
                         if (
@@ -159,24 +141,45 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
                     }
 
                     actions.abortAnyRunningQuery()
-                    cache.abortController = new AbortController()
+                    const abortController = new AbortController()
+                    cache.abortController = abortController
                     const methodOptions: ApiMethodOptions = {
                         signal: cache.abortController.signal,
                     }
-                    const now = performance.now()
+
                     try {
-                        const data = (await query<DataNode>(props.query, methodOptions, refresh, queryId)) ?? null
+                        const response = await concurrencyController.run({
+                            debugTag: props.query.kind,
+                            abortController,
+                            priority: props.loadPriority,
+                            fn: async (): Promise<{ duration: number; data: Record<string, any> }> => {
+                                const now = performance.now()
+                                try {
+                                    breakpoint()
+                                    const data =
+                                        (await query<DataNode>(props.query, methodOptions, refresh, queryId)) ?? null
+                                    const duration = performance.now() - now
+                                    return { data, duration }
+                                } catch (error: any) {
+                                    const duration = performance.now() - now
+                                    error.duration = duration
+                                    throw error
+                                }
+                            },
+                        })
                         breakpoint()
-                        actions.setElapsedTime(performance.now() - now)
-                        return data
-                    } catch (e: any) {
-                        actions.setElapsedTime(performance.now() - now)
-                        if (shouldCancelQuery(e)) {
+                        actions.setElapsedTime(response.duration)
+                        return response.data
+                    } catch (error: any) {
+                        if (error.duration) {
+                            actions.setElapsedTime(error.duration)
+                        }
+                        error.queryId = queryId
+                        if (shouldCancelQuery(error)) {
                             actions.abortQuery({ queryId })
                         }
                         breakpoint()
-                        e.queryId = queryId
-                        throw e
+                        throw error
                     }
                 },
                 loadNewData: async () => {
@@ -212,7 +215,7 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
                     }
                     // TODO: unify when we use the same backend endpoint for both
                     const now = performance.now()
-                    if (isEventsQuery(props.query) || isPersonsQuery(props.query)) {
+                    if (isEventsQuery(props.query) || isActorsQuery(props.query)) {
                         const newResponse = (await query(values.nextQuery)) ?? null
                         actions.setElapsedTime(performance.now() - now)
                         const queryResponse = values.response as QueryResponse
@@ -345,17 +348,9 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
             () => [(_, props) => props.cachedResults ?? null],
             (cachedResults: AnyResponseType | null): boolean => !!cachedResults,
         ],
-        hogQLInsightsLifecycleFlagEnabled: [
-            (s) => [s.featureFlags],
-            (featureFlags) => !!featureFlags[FEATURE_FLAGS.HOGQL_INSIGHTS_LIFECYCLE],
-        ],
         hogQLInsightsRetentionFlagEnabled: [
             (s) => [s.featureFlags],
             (featureFlags) => !!featureFlags[FEATURE_FLAGS.HOGQL_INSIGHTS_RETENTION],
-        ],
-        hogQLInsightsTrendsFlagEnabled: [
-            (s) => [s.featureFlags],
-            (featureFlags) => !!featureFlags[FEATURE_FLAGS.HOGQL_INSIGHTS_TRENDS],
         ],
         query: [(_, p) => [p.query], (query) => query],
         newQuery: [
@@ -396,8 +391,8 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
                     return null
                 }
 
-                if ((isEventsQuery(query) || isPersonsQuery(query)) && !responseError && !dataLoading) {
-                    if ((response as EventsQueryResponse | PersonsQueryResponse)?.hasMore) {
+                if ((isEventsQuery(query) || isActorsQuery(query)) && !responseError && !dataLoading) {
+                    if ((response as EventsQueryResponse | ActorsQueryResponse)?.hasMore) {
                         const sortKey = query.orderBy?.[0] ?? 'timestamp DESC'
                         const typedResults = (response as QueryResponse)?.results
                         if (isEventsQuery(query) && sortKey === 'timestamp DESC') {
@@ -423,7 +418,7 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
                                 ...query,
                                 offset: typedResults?.length || 0,
                                 limit: Math.max(100, Math.min(2 * (typedResults?.length || 100), LOAD_MORE_ROWS_LIMIT)),
-                            } as EventsQuery | PersonsQuery
+                            } as EventsQuery | ActorsQuery
                         }
                     }
                 }
@@ -443,10 +438,29 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
             (s) => [s.nextQuery, s.isShowingCachedResults],
             (nextQuery, isShowingCachedResults) => (isShowingCachedResults ? false : !!nextQuery),
         ],
+        hasMoreData: [
+            (s) => [s.response],
+            (response): boolean => {
+                if (!response?.hasMore) {
+                    return false
+                }
+                return response.hasMore
+            },
+        ],
+        dataLimit: [
+            // get limit from response
+            (s) => [s.response],
+            (response): number | null => {
+                if (!response?.limit) {
+                    return null
+                }
+                return response.limit
+            },
+        ],
         backToSourceQuery: [
             (s) => [s.query],
             (query): InsightVizNode | null => {
-                if (isPersonsQuery(query) && isInsightPersonsQuery(query.source) && !!query.source.source) {
+                if (isActorsQuery(query) && isInsightActorsQuery(query.source) && !!query.source.source) {
                     const insightQuery = query.source.source
                     const insightVizNode: InsightVizNode = {
                         kind: NodeKind.InsightVizNode,
@@ -521,7 +535,7 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
             },
         ],
     }),
-    listeners(({ actions, values, cache }) => ({
+    listeners(({ actions, values, cache, props }) => ({
         abortAnyRunningQuery: () => {
             if (cache.abortController) {
                 cache.abortController.abort()
@@ -539,6 +553,15 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
         cancelQuery: () => {
             actions.abortAnyRunningQuery()
         },
+        loadDataSuccess: ({ response }) => {
+            props.onData?.(response)
+        },
+        loadNewDataSuccess: ({ response }) => {
+            props.onData?.(response)
+        },
+        loadNextDataSuccess: ({ response }) => {
+            props.onData?.(response)
+        },
     })),
     subscriptions(({ actions, cache, values }) => ({
         autoLoadRunning: (autoLoadRunning) => {
@@ -553,6 +576,11 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
                         actions.loadNewData()
                     }
                 }, AUTOLOAD_INTERVAL)
+            }
+        },
+        featureFlags: (flags) => {
+            if (flags[FEATURE_FLAGS.DATANODE_CONCURRENCY_LIMIT]) {
+                concurrencyController.setConcurrencyLimit(1)
             }
         },
     })),

@@ -1,7 +1,7 @@
 from unittest import TestCase
 from unittest.mock import patch
 
-from posthog.celery import clickhouse_errors_count
+from posthog.tasks.tasks import clickhouse_errors_count
 
 
 class TestCeleryMetrics(TestCase):

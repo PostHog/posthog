@@ -4,6 +4,7 @@ import { actions, afterMount, connect, kea, key, listeners, path, props, reducer
 import { loaders } from 'kea-loaders'
 import { beforeUnload, router } from 'kea-router'
 import api from 'lib/api'
+import { sceneLogic } from 'scenes/sceneLogic'
 import { Scene } from 'scenes/sceneTypes'
 import {
     deletePlaylist,
@@ -30,7 +31,7 @@ export const sessionRecordingsPlaylistSceneLogic = kea<sessionRecordingsPlaylist
     props({} as SessionRecordingsPlaylistLogicProps),
     key((props) => props.shortId),
     connect({
-        values: [cohortsModel, ['cohortsById']],
+        values: [cohortsModel, ['cohortsById'], sceneLogic, ['activeScene']],
     }),
     actions({
         updatePlaylist: (properties?: Partial<SessionRecordingPlaylistType>, silent = false) => ({
@@ -126,7 +127,10 @@ export const sessionRecordingsPlaylistSceneLogic = kea<sessionRecordingsPlaylist
     })),
 
     beforeUnload(({ values, actions }) => ({
-        enabled: (newLocation) => values.hasChanges && newLocation?.pathname !== router.values.location.pathname,
+        enabled: (newLocation) =>
+            values.activeScene === Scene.ReplayPlaylist &&
+            values.hasChanges &&
+            newLocation?.pathname !== router.values.location.pathname,
         message: 'Leave playlist?\nChanges you made will be discarded.',
         onConfirm: () => {
             actions.setFilters(values.playlist?.filters || null)
@@ -148,7 +152,7 @@ export const sessionRecordingsPlaylistSceneLogic = kea<sessionRecordingsPlaylist
                     path: urls.replay(ReplayTabs.Playlists),
                 },
                 {
-                    key: playlist?.short_id || 'new',
+                    key: [Scene.ReplayPlaylist, playlist?.short_id || 'new'],
                     name: playlist?.name || playlist?.derived_name || 'Unnamed',
                     onRename: async (name: string) => {
                         if (!playlist) {

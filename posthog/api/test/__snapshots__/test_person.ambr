@@ -1,5 +1,6 @@
+# serializer version: 1
 # name: TestPerson.test_filter_person_email
-  '
+  '''
   /* user_id:0 request:_snapshot_ */
   SELECT id
   FROM person
@@ -10,10 +11,10 @@
   AND has(['another@gmail.com'], replaceRegexpAll(JSONExtractRaw(properties, 'email'), '^"|"$', ''))
   ORDER BY argMax(person.created_at, version) DESC, id DESC
   LIMIT 100 SETTINGS optimize_aggregation_in_order = 1
-  '
----
+  '''
+# ---
 # name: TestPerson.test_filter_person_email_materialized
-  '
+  '''
   /* user_id:0 request:_snapshot_ */
   SELECT id
   FROM person
@@ -24,10 +25,10 @@
   AND has(['another@gmail.com'], "pmat_email")
   ORDER BY argMax(person.created_at, version) DESC, id DESC
   LIMIT 100 SETTINGS optimize_aggregation_in_order = 1
-  '
----
+  '''
+# ---
 # name: TestPerson.test_filter_person_list
-  '
+  '''
   /* user_id:0 request:_snapshot_ */
   SELECT id
   FROM person
@@ -47,10 +48,10 @@
      where distinct_id = 'distinct_id' )
   ORDER BY argMax(person.created_at, version) DESC, id DESC
   LIMIT 100 SETTINGS optimize_aggregation_in_order = 1
-  '
----
+  '''
+# ---
 # name: TestPerson.test_filter_person_list.1
-  '
+  '''
   /* user_id:0 request:_snapshot_ */
   SELECT id
   FROM person
@@ -70,10 +71,10 @@
      where distinct_id = 'another_one' )
   ORDER BY argMax(person.created_at, version) DESC, id DESC
   LIMIT 100 SETTINGS optimize_aggregation_in_order = 1
-  '
----
+  '''
+# ---
 # name: TestPerson.test_filter_person_list.2
-  '
+  '''
   /* user_id:0 request:_snapshot_ */
   SELECT id
   FROM person
@@ -84,10 +85,10 @@
   AND has(['another@gmail.com'], replaceRegexpAll(JSONExtractRaw(properties, 'email'), '^"|"$', ''))
   ORDER BY argMax(person.created_at, version) DESC, id DESC
   LIMIT 100 SETTINGS optimize_aggregation_in_order = 1
-  '
----
+  '''
+# ---
 # name: TestPerson.test_filter_person_list.3
-  '
+  '''
   /* user_id:0 request:_snapshot_ */
   SELECT id
   FROM person
@@ -98,10 +99,10 @@
   AND has(['inexistent'], replaceRegexpAll(JSONExtractRaw(properties, 'email'), '^"|"$', ''))
   ORDER BY argMax(person.created_at, version) DESC, id DESC
   LIMIT 100 SETTINGS optimize_aggregation_in_order = 1
-  '
----
+  '''
+# ---
 # name: TestPerson.test_filter_person_list.4
-  '
+  '''
   /* user_id:0 request:_snapshot_ */
   SELECT id
   FROM person
@@ -121,10 +122,10 @@
      where distinct_id = 'inexistent' )
   ORDER BY argMax(person.created_at, version) DESC, id DESC
   LIMIT 100 SETTINGS optimize_aggregation_in_order = 1
-  '
----
+  '''
+# ---
 # name: TestPerson.test_filter_person_prop
-  '
+  '''
   /* user_id:0 request:_snapshot_ */
   SELECT id
   FROM person
@@ -140,10 +141,10 @@
   AND (has(['some_value'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, version), 'some_prop'), '^"|"$', '')))
   ORDER BY argMax(person.created_at, version) DESC, id DESC
   LIMIT 100 SETTINGS optimize_aggregation_in_order = 1
-  '
----
+  '''
+# ---
 # name: TestPerson.test_person_property_values
-  '
+  '''
   /* user_id:0 request:_snapshot_ */
   SELECT value,
          count(value)
@@ -159,10 +160,10 @@
   GROUP BY value
   ORDER BY count(value) DESC
   LIMIT 20
-  '
----
+  '''
+# ---
 # name: TestPerson.test_person_property_values.1
-  '
+  '''
   /* user_id:0 request:_snapshot_ */
   SELECT value,
          count(value)
@@ -177,10 +178,10 @@
   GROUP BY value
   ORDER BY count(value) DESC
   LIMIT 20
-  '
----
+  '''
+# ---
 # name: TestPerson.test_person_property_values_materialized
-  '
+  '''
   /* user_id:0 request:_snapshot_ */
   SELECT value,
          count(value)
@@ -196,10 +197,10 @@
   GROUP BY value
   ORDER BY count(value) DESC
   LIMIT 20
-  '
----
+  '''
+# ---
 # name: TestPerson.test_person_property_values_materialized.1
-  '
+  '''
   /* user_id:0 request:_snapshot_ */
   SELECT value,
          count(value)
@@ -214,10 +215,10 @@
   GROUP BY value
   ORDER BY count(value) DESC
   LIMIT 20
-  '
----
+  '''
+# ---
 # name: TestPerson.test_properties
-  '
+  '''
   /* user_id:0 request:_snapshot_ */
   SELECT id
   FROM person
@@ -233,10 +234,10 @@
   AND (JSONHas(argMax(person.properties, version), 'email'))
   ORDER BY argMax(person.created_at, version) DESC, id DESC
   LIMIT 100 SETTINGS optimize_aggregation_in_order = 1
-  '
----
+  '''
+# ---
 # name: TestPerson.test_properties.1
-  '
+  '''
   /* user_id:0 request:_snapshot_ */
   SELECT id
   FROM person
@@ -252,10 +253,10 @@
   AND (replaceRegexpAll(JSONExtractRaw(argMax(person.properties, version), 'email'), '^"|"$', '') ILIKE '%another@gm%')
   ORDER BY argMax(person.created_at, version) DESC, id DESC
   LIMIT 100 SETTINGS optimize_aggregation_in_order = 1
-  '
----
+  '''
+# ---
 # name: TestPerson.test_properties_materialized
-  '
+  '''
   /* user_id:0 request:_snapshot_ */
   SELECT id
   FROM person
@@ -271,10 +272,10 @@
   AND (notEmpty(argMax(person."pmat_email", version)))
   ORDER BY argMax(person.created_at, version) DESC, id DESC
   LIMIT 100 SETTINGS optimize_aggregation_in_order = 1
-  '
----
+  '''
+# ---
 # name: TestPerson.test_properties_materialized.1
-  '
+  '''
   /* user_id:0 request:_snapshot_ */
   SELECT id
   FROM person
@@ -290,10 +291,10 @@
   AND (argMax(person."pmat_email", version) ILIKE '%another@gm%')
   ORDER BY argMax(person.created_at, version) DESC, id DESC
   LIMIT 100 SETTINGS optimize_aggregation_in_order = 1
-  '
----
+  '''
+# ---
 # name: TestPerson.test_search
-  '
+  '''
   /* user_id:0 request:_snapshot_ */
   SELECT id
   FROM person
@@ -329,10 +330,10 @@
           WHERE distinct_id = 'another@gm' ))
   ORDER BY argMax(person.created_at, version) DESC, id DESC
   LIMIT 100 SETTINGS optimize_aggregation_in_order = 1
-  '
----
+  '''
+# ---
 # name: TestPerson.test_search.1
-  '
+  '''
   /* user_id:0 request:_snapshot_ */
   SELECT id
   FROM person
@@ -368,10 +369,10 @@
           WHERE distinct_id = 'distinct_id_3' ))
   ORDER BY argMax(person.created_at, version) DESC, id DESC
   LIMIT 100 SETTINGS optimize_aggregation_in_order = 1
-  '
----
+  '''
+# ---
 # name: TestPerson.test_search_materialized
-  '
+  '''
   /* user_id:0 request:_snapshot_ */
   SELECT id
   FROM person
@@ -407,10 +408,10 @@
           WHERE distinct_id = 'another@gm' ))
   ORDER BY argMax(person.created_at, version) DESC, id DESC
   LIMIT 100 SETTINGS optimize_aggregation_in_order = 1
-  '
----
+  '''
+# ---
 # name: TestPerson.test_search_materialized.1
-  '
+  '''
   /* user_id:0 request:_snapshot_ */
   SELECT id
   FROM person
@@ -446,10 +447,10 @@
           WHERE distinct_id = 'distinct_id_3' ))
   ORDER BY argMax(person.created_at, version) DESC, id DESC
   LIMIT 100 SETTINGS optimize_aggregation_in_order = 1
-  '
----
+  '''
+# ---
 # name: TestPerson.test_search_person_id
-  '
+  '''
   /* user_id:0 request:_snapshot_ */
   SELECT id
   FROM person
@@ -487,10 +488,10 @@
               WHERE distinct_id = '00000000-0000-4000-8000-000000000000' )))
   ORDER BY argMax(person.created_at, version) DESC, id DESC
   LIMIT 100 SETTINGS optimize_aggregation_in_order = 1
-  '
----
+  '''
+# ---
 # name: TestPerson.test_search_person_id_materialized
-  '
+  '''
   /* user_id:0 request:_snapshot_ */
   SELECT id
   FROM person
@@ -528,10 +529,10 @@
               WHERE distinct_id = '00000000-0000-4000-8000-000000000000' )))
   ORDER BY argMax(person.created_at, version) DESC, id DESC
   LIMIT 100 SETTINGS optimize_aggregation_in_order = 1
-  '
----
+  '''
+# ---
 # name: TestPersonFromClickhouse.test_filter_person_email
-  '
+  '''
   /* user_id:0 request:_snapshot_ */
   SELECT person.*,
          groupArray(pdi.distinct_id) as distinct_ids
@@ -558,10 +559,10 @@
   GROUP BY person.*
   ORDER BY created_at desc,
            id desc
-  '
----
+  '''
+# ---
 # name: TestPersonFromClickhouse.test_filter_person_email_materialized
-  '
+  '''
   /* user_id:0 request:_snapshot_ */
   SELECT person.*,
          groupArray(pdi.distinct_id) as distinct_ids
@@ -588,10 +589,10 @@
   GROUP BY person.*
   ORDER BY created_at desc,
            id desc
-  '
----
+  '''
+# ---
 # name: TestPersonFromClickhouse.test_filter_person_list
-  '
+  '''
   /* user_id:0 request:_snapshot_ */
   SELECT person.*,
          groupArray(pdi.distinct_id) as distinct_ids
@@ -627,10 +628,10 @@
   GROUP BY person.*
   ORDER BY created_at desc,
            id desc
-  '
----
+  '''
+# ---
 # name: TestPersonFromClickhouse.test_filter_person_list.1
-  '
+  '''
   /* user_id:0 request:_snapshot_ */
   SELECT person.*,
          groupArray(pdi.distinct_id) as distinct_ids
@@ -666,10 +667,10 @@
   GROUP BY person.*
   ORDER BY created_at desc,
            id desc
-  '
----
+  '''
+# ---
 # name: TestPersonFromClickhouse.test_filter_person_list.2
-  '
+  '''
   /* user_id:0 request:_snapshot_ */
   SELECT person.*,
          groupArray(pdi.distinct_id) as distinct_ids
@@ -696,10 +697,10 @@
   GROUP BY person.*
   ORDER BY created_at desc,
            id desc
-  '
----
+  '''
+# ---
 # name: TestPersonFromClickhouse.test_filter_person_list.3
-  '
+  '''
   /* user_id:0 request:_snapshot_ */
   SELECT person.*,
          groupArray(pdi.distinct_id) as distinct_ids
@@ -726,10 +727,10 @@
   GROUP BY person.*
   ORDER BY created_at desc,
            id desc
-  '
----
+  '''
+# ---
 # name: TestPersonFromClickhouse.test_filter_person_list.4
-  '
+  '''
   /* user_id:0 request:_snapshot_ */
   SELECT person.*,
          groupArray(pdi.distinct_id) as distinct_ids
@@ -765,10 +766,10 @@
   GROUP BY person.*
   ORDER BY created_at desc,
            id desc
-  '
----
+  '''
+# ---
 # name: TestPersonFromClickhouse.test_filter_person_prop
-  '
+  '''
   /* user_id:0 request:_snapshot_ */
   SELECT person.*,
          groupArray(pdi.distinct_id) as distinct_ids
@@ -800,10 +801,10 @@
   GROUP BY person.*
   ORDER BY created_at desc,
            id desc
-  '
----
+  '''
+# ---
 # name: TestPersonFromClickhouse.test_person_property_values
-  '
+  '''
   /* user_id:0 request:_snapshot_ */
   SELECT value,
          count(value)
@@ -819,10 +820,10 @@
   GROUP BY value
   ORDER BY count(value) DESC
   LIMIT 20
-  '
----
+  '''
+# ---
 # name: TestPersonFromClickhouse.test_person_property_values.1
-  '
+  '''
   /* user_id:0 request:_snapshot_ */
   SELECT value,
          count(value)
@@ -837,10 +838,10 @@
   GROUP BY value
   ORDER BY count(value) DESC
   LIMIT 20
-  '
----
+  '''
+# ---
 # name: TestPersonFromClickhouse.test_person_property_values_materialized
-  '
+  '''
   /* user_id:0 request:_snapshot_ */
   SELECT value,
          count(value)
@@ -856,10 +857,10 @@
   GROUP BY value
   ORDER BY count(value) DESC
   LIMIT 20
-  '
----
+  '''
+# ---
 # name: TestPersonFromClickhouse.test_person_property_values_materialized.1
-  '
+  '''
   /* user_id:0 request:_snapshot_ */
   SELECT value,
          count(value)
@@ -874,10 +875,10 @@
   GROUP BY value
   ORDER BY count(value) DESC
   LIMIT 20
-  '
----
+  '''
+# ---
 # name: TestPersonFromClickhouse.test_properties
-  '
+  '''
   /* user_id:0 request:_snapshot_ */
   SELECT person.*,
          groupArray(pdi.distinct_id) as distinct_ids
@@ -909,10 +910,10 @@
   GROUP BY person.*
   ORDER BY created_at desc,
            id desc
-  '
----
+  '''
+# ---
 # name: TestPersonFromClickhouse.test_properties.1
-  '
+  '''
   /* user_id:0 request:_snapshot_ */
   SELECT person.*,
          groupArray(pdi.distinct_id) as distinct_ids
@@ -944,10 +945,10 @@
   GROUP BY person.*
   ORDER BY created_at desc,
            id desc
-  '
----
+  '''
+# ---
 # name: TestPersonFromClickhouse.test_properties_materialized
-  '
+  '''
   /* user_id:0 request:_snapshot_ */
   SELECT person.*,
          groupArray(pdi.distinct_id) as distinct_ids
@@ -979,10 +980,10 @@
   GROUP BY person.*
   ORDER BY created_at desc,
            id desc
-  '
----
+  '''
+# ---
 # name: TestPersonFromClickhouse.test_properties_materialized.1
-  '
+  '''
   /* user_id:0 request:_snapshot_ */
   SELECT person.*,
          groupArray(pdi.distinct_id) as distinct_ids
@@ -1014,10 +1015,10 @@
   GROUP BY person.*
   ORDER BY created_at desc,
            id desc
-  '
----
+  '''
+# ---
 # name: TestPersonFromClickhouse.test_search
-  '
+  '''
   /* user_id:0 request:_snapshot_ */
   SELECT person.*,
          groupArray(pdi.distinct_id) as distinct_ids
@@ -1069,10 +1070,10 @@
   GROUP BY person.*
   ORDER BY created_at desc,
            id desc
-  '
----
+  '''
+# ---
 # name: TestPersonFromClickhouse.test_search.1
-  '
+  '''
   /* user_id:0 request:_snapshot_ */
   SELECT person.*,
          groupArray(pdi.distinct_id) as distinct_ids
@@ -1124,10 +1125,10 @@
   GROUP BY person.*
   ORDER BY created_at desc,
            id desc
-  '
----
+  '''
+# ---
 # name: TestPersonFromClickhouse.test_search_materialized
-  '
+  '''
   /* user_id:0 request:_snapshot_ */
   SELECT person.*,
          groupArray(pdi.distinct_id) as distinct_ids
@@ -1179,10 +1180,10 @@
   GROUP BY person.*
   ORDER BY created_at desc,
            id desc
-  '
----
+  '''
+# ---
 # name: TestPersonFromClickhouse.test_search_materialized.1
-  '
+  '''
   /* user_id:0 request:_snapshot_ */
   SELECT person.*,
          groupArray(pdi.distinct_id) as distinct_ids
@@ -1234,10 +1235,10 @@
   GROUP BY person.*
   ORDER BY created_at desc,
            id desc
-  '
----
+  '''
+# ---
 # name: TestPersonFromClickhouse.test_search_person_id
-  '
+  '''
   /* user_id:0 request:_snapshot_ */
   SELECT person.*,
          groupArray(pdi.distinct_id) as distinct_ids
@@ -1291,10 +1292,10 @@
   GROUP BY person.*
   ORDER BY created_at desc,
            id desc
-  '
----
+  '''
+# ---
 # name: TestPersonFromClickhouse.test_search_person_id_materialized
-  '
+  '''
   /* user_id:0 request:_snapshot_ */
   SELECT person.*,
          groupArray(pdi.distinct_id) as distinct_ids
@@ -1348,5 +1349,5 @@
   GROUP BY person.*
   ORDER BY created_at desc,
            id desc
-  '
----
+  '''
+# ---

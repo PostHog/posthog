@@ -56,13 +56,17 @@ class BaseFilter(BaseParamMixin):
         # Set the HogQL context for the request
         self.hogql_context = self.kwargs.get(
             "hogql_context",
-            HogQLContext(within_non_hogql_query=True, team_id=self.team.pk if self.team else None),
+            HogQLContext(
+                within_non_hogql_query=True,
+                team_id=self.team.pk if self.team else None,
+                team=self.team if self.team else None,
+            ),
         )
         if self.team:
             self.hogql_context.person_on_events_mode = self.team.person_on_events_mode
 
         if self.team and hasattr(self, "simplify") and not getattr(self, "is_simplified", False):
-            simplified_filter = self.simplify(self.team)  # type: ignore
+            simplified_filter = self.simplify(self.team)
             self._data = simplified_filter._data
 
     def to_dict(self) -> Dict[str, Any]:

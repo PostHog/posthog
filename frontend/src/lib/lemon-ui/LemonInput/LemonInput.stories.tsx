@@ -1,5 +1,6 @@
+import { IconChevronDown } from '@posthog/icons'
 import { Meta, StoryFn, StoryObj } from '@storybook/react'
-import { IconArrowDropDown, IconCalendar } from 'lib/lemon-ui/icons'
+import { IconCalendar } from 'lib/lemon-ui/icons'
 import { LemonButtonWithDropdown } from 'lib/lemon-ui/LemonButton'
 import { useState } from 'react'
 
@@ -34,7 +35,7 @@ WithPrefixAndSuffixAction.args = {
                 overlay: 'Surprise! 😱',
             }}
             type="tertiary"
-            icon={<IconArrowDropDown />}
+            icon={<IconChevronDown />}
         />
     ),
 }

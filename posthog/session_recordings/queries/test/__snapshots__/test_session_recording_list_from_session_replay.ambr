@@ -1,5 +1,6 @@
+# serializer version: 1
 # name: TestClickhouseSessionRecordingsListFromSessionReplay.test_action_filter
-  '
+  '''
   
   SELECT s.session_id,
          any(s.team_id),
@@ -29,9 +30,9 @@
           FROM events e PREWHERE team_id = 2
           AND e.timestamp >= '2022-12-14 00:00:00'
           AND e.timestamp <= now()
+          AND timestamp >= '2022-12-27 12:00:00'
+          AND timestamp <= '2023-01-04 12:00:00'
           WHERE notEmpty(`$session_id`)
-            AND timestamp >= '2022-12-27 12:00:00'
-            AND timestamp <= '2023-01-04 12:00:00'
             AND (((event = 'custom-event'
                    AND (has(['Firefox'], replaceRegexpAll(JSONExtractRaw(properties, '$browser'), '^"|"$', ''))
                         AND has(['test_action_filter-session-one'], "$session_id")
@@ -44,10 +45,10 @@
   ORDER BY start_time DESC
   LIMIT 51
   OFFSET 0
-  '
----
+  '''
+# ---
 # name: TestClickhouseSessionRecordingsListFromSessionReplay.test_action_filter.1
-  '
+  '''
   
   SELECT s.session_id,
          any(s.team_id),
@@ -77,9 +78,9 @@
           FROM events e PREWHERE team_id = 2
           AND e.timestamp >= '2022-12-14 00:00:00'
           AND e.timestamp <= now()
+          AND timestamp >= '2022-12-27 12:00:00'
+          AND timestamp <= '2023-01-04 12:00:00'
           WHERE notEmpty(`$session_id`)
-            AND timestamp >= '2022-12-27 12:00:00'
-            AND timestamp <= '2023-01-04 12:00:00'
             AND (((event = 'custom-event'
                    AND (has(['test_action_filter-session-one'], "$session_id")
                         AND has(['test_action_filter-window-id'], "$window_id")))))
@@ -91,10 +92,10 @@
   ORDER BY start_time DESC
   LIMIT 51
   OFFSET 0
-  '
----
+  '''
+# ---
 # name: TestClickhouseSessionRecordingsListFromSessionReplay.test_action_filter.2
-  '
+  '''
   
   SELECT s.session_id,
          any(s.team_id),
@@ -124,9 +125,9 @@
           FROM events e PREWHERE team_id = 2
           AND e.timestamp >= '2022-12-14 00:00:00'
           AND e.timestamp <= now()
+          AND timestamp >= '2022-12-27 12:00:00'
+          AND timestamp <= '2023-01-04 12:00:00'
           WHERE notEmpty(`$session_id`)
-            AND timestamp >= '2022-12-27 12:00:00'
-            AND timestamp <= '2023-01-04 12:00:00'
             AND (((event = 'custom-event'
                    AND (has(['test_action_filter-session-one'], "$session_id")
                         AND has(['test_action_filter-window-id'], "$window_id"))))
@@ -139,10 +140,10 @@
   ORDER BY start_time DESC
   LIMIT 51
   OFFSET 0
-  '
----
+  '''
+# ---
 # name: TestClickhouseSessionRecordingsListFromSessionReplay.test_action_filter.3
-  '
+  '''
   
   SELECT s.session_id,
          any(s.team_id),
@@ -172,9 +173,9 @@
           FROM events e PREWHERE team_id = 2
           AND e.timestamp >= '2022-12-14 00:00:00'
           AND e.timestamp <= now()
+          AND timestamp >= '2022-12-27 12:00:00'
+          AND timestamp <= '2023-01-04 12:00:00'
           WHERE notEmpty(`$session_id`)
-            AND timestamp >= '2022-12-27 12:00:00'
-            AND timestamp <= '2023-01-04 12:00:00'
             AND (((event = 'custom-event'
                    AND (has(['test_action_filter-session-one'], "$session_id")
                         AND has(['test_action_filter-window-id'], "$window_id"))))
@@ -187,10 +188,10 @@
   ORDER BY start_time DESC
   LIMIT 51
   OFFSET 0
-  '
----
+  '''
+# ---
 # name: TestClickhouseSessionRecordingsListFromSessionReplay.test_all_filters_at_once
-  '
+  '''
   
   SELECT s.session_id,
          any(s.team_id),
@@ -216,12 +217,17 @@
       (select distinct_id
        from
          (SELECT distinct_id,
-                 argMax(person_id, version) as person_id
+                 argMax(person_id, version) as current_person_id
           FROM person_distinct_id2 as pdi
           WHERE team_id = 2
+            AND distinct_id IN
+              (SELECT distinct_id
+               FROM person_distinct_id2
+               WHERE team_id = 2
+                 AND person_id = '00000000-0000-0000-0000-000000000000') as all_distinct_ids_that_might_match_a_person
           GROUP BY distinct_id
           HAVING argMax(is_deleted, version) = 0
-          and person_id = '00000000-0000-0000-0000-000000000000') as session_persons_sub_query)
+          AND current_person_id = '00000000-0000-0000-0000-000000000000') as session_persons_sub_query)
     AND s.session_id in
       (select `$session_id` as session_id
        from
@@ -230,21 +236,26 @@
           FROM events e PREWHERE team_id = 2
           AND e.timestamp >= '2020-12-11 13:46:23'
           AND e.timestamp <= now()
+          AND timestamp >= '2020-12-21 12:00:00'
+          AND timestamp <= '2021-01-05 11:59:59'
           WHERE notEmpty(`$session_id`)
-            AND timestamp >= '2020-12-21 12:00:00'
-            AND timestamp <= '2021-01-05 11:59:59'
             AND ((event = '$pageview')
                  OR ((event = 'custom-event')))
             AND e.distinct_id in
               (select distinct_id
                from
                  (SELECT distinct_id,
-                         argMax(person_id, version) as person_id
+                         argMax(person_id, version) as current_person_id
                   FROM person_distinct_id2 as pdi
                   WHERE team_id = 2
+                    AND distinct_id IN
+                      (SELECT distinct_id
+                       FROM person_distinct_id2
+                       WHERE team_id = 2
+                         AND person_id = '00000000-0000-0000-0000-000000000000') as all_distinct_ids_that_might_match_a_person
                   GROUP BY distinct_id
                   HAVING argMax(is_deleted, version) = 0
-                  and person_id = '00000000-0000-0000-0000-000000000000') as events_persons_sub_query)
+                  AND current_person_id = '00000000-0000-0000-0000-000000000000') as events_persons_sub_query)
           GROUP BY `$session_id`
           HAVING 1=1
           AND hasAll(event_names, ['$pageview', 'custom-event'])) as session_events_sub_query)
@@ -254,10 +265,10 @@
   ORDER BY start_time DESC
   LIMIT 51
   OFFSET 0
-  '
----
+  '''
+# ---
 # name: TestClickhouseSessionRecordingsListFromSessionReplay.test_any_event_filter_with_properties
-  '
+  '''
   
   SELECT s.session_id,
          any(s.team_id),
@@ -286,9 +297,9 @@
           FROM events e PREWHERE team_id = 2
           AND e.timestamp >= '2020-12-31 20:00:00'
           AND e.timestamp <= now()
+          AND timestamp >= '2021-01-13 12:00:00'
+          AND timestamp <= '2021-01-22 08:00:00'
           WHERE notEmpty(`$session_id`)
-            AND timestamp >= '2021-01-13 12:00:00'
-            AND timestamp <= '2021-01-22 08:00:00'
             AND (1 = 1)
           GROUP BY `$session_id`
           HAVING 1=1) as session_events_sub_query)
@@ -297,10 +308,10 @@
   ORDER BY start_time DESC
   LIMIT 51
   OFFSET 0
-  '
----
+  '''
+# ---
 # name: TestClickhouseSessionRecordingsListFromSessionReplay.test_any_event_filter_with_properties.1
-  '
+  '''
   
   SELECT s.session_id,
          any(s.team_id),
@@ -329,9 +340,9 @@
           FROM events e PREWHERE team_id = 2
           AND e.timestamp >= '2020-12-31 20:00:00'
           AND e.timestamp <= now()
+          AND timestamp >= '2021-01-13 12:00:00'
+          AND timestamp <= '2021-01-22 08:00:00'
           WHERE notEmpty(`$session_id`)
-            AND timestamp >= '2021-01-13 12:00:00'
-            AND timestamp <= '2021-01-22 08:00:00'
             AND (1 = 1
                  AND (has(['Chrome'], replaceRegexpAll(JSONExtractRaw(properties, '$browser'), '^"|"$', ''))))
           GROUP BY `$session_id`
@@ -341,10 +352,10 @@
   ORDER BY start_time DESC
   LIMIT 51
   OFFSET 0
-  '
----
+  '''
+# ---
 # name: TestClickhouseSessionRecordingsListFromSessionReplay.test_any_event_filter_with_properties.2
-  '
+  '''
   
   SELECT s.session_id,
          any(s.team_id),
@@ -373,9 +384,9 @@
           FROM events e PREWHERE team_id = 2
           AND e.timestamp >= '2020-12-31 20:00:00'
           AND e.timestamp <= now()
+          AND timestamp >= '2021-01-13 12:00:00'
+          AND timestamp <= '2021-01-22 08:00:00'
           WHERE notEmpty(`$session_id`)
-            AND timestamp >= '2021-01-13 12:00:00'
-            AND timestamp <= '2021-01-22 08:00:00'
             AND (1 = 1
                  AND (has(['Firefox'], replaceRegexpAll(JSONExtractRaw(properties, '$browser'), '^"|"$', ''))))
           GROUP BY `$session_id`
@@ -385,10 +396,10 @@
   ORDER BY start_time DESC
   LIMIT 51
   OFFSET 0
-  '
----
+  '''
+# ---
 # name: TestClickhouseSessionRecordingsListFromSessionReplay.test_any_event_filter_with_properties_materialized
-  '
+  '''
   
   SELECT s.session_id,
          any(s.team_id),
@@ -417,9 +428,9 @@
           FROM events e PREWHERE team_id = 2
           AND e.timestamp >= '2020-12-31 20:00:00'
           AND e.timestamp <= now()
+          AND timestamp >= '2021-01-13 12:00:00'
+          AND timestamp <= '2021-01-22 08:00:00'
           WHERE notEmpty(`$session_id`)
-            AND timestamp >= '2021-01-13 12:00:00'
-            AND timestamp <= '2021-01-22 08:00:00'
             AND (1 = 1)
           GROUP BY `$session_id`
           HAVING 1=1) as session_events_sub_query)
@@ -428,10 +439,10 @@
   ORDER BY start_time DESC
   LIMIT 51
   OFFSET 0
-  '
----
+  '''
+# ---
 # name: TestClickhouseSessionRecordingsListFromSessionReplay.test_any_event_filter_with_properties_materialized.1
-  '
+  '''
   
   SELECT s.session_id,
          any(s.team_id),
@@ -460,9 +471,9 @@
           FROM events e PREWHERE team_id = 2
           AND e.timestamp >= '2020-12-31 20:00:00'
           AND e.timestamp <= now()
+          AND timestamp >= '2021-01-13 12:00:00'
+          AND timestamp <= '2021-01-22 08:00:00'
           WHERE notEmpty(`$session_id`)
-            AND timestamp >= '2021-01-13 12:00:00'
-            AND timestamp <= '2021-01-22 08:00:00'
             AND (1 = 1
                  AND (has(['Chrome'], "mat_$browser")))
           GROUP BY `$session_id`
@@ -472,10 +483,10 @@
   ORDER BY start_time DESC
   LIMIT 51
   OFFSET 0
-  '
----
+  '''
+# ---
 # name: TestClickhouseSessionRecordingsListFromSessionReplay.test_any_event_filter_with_properties_materialized.2
-  '
+  '''
   
   SELECT s.session_id,
          any(s.team_id),
@@ -504,9 +515,9 @@
           FROM events e PREWHERE team_id = 2
           AND e.timestamp >= '2020-12-31 20:00:00'
           AND e.timestamp <= now()
+          AND timestamp >= '2021-01-13 12:00:00'
+          AND timestamp <= '2021-01-22 08:00:00'
           WHERE notEmpty(`$session_id`)
-            AND timestamp >= '2021-01-13 12:00:00'
-            AND timestamp <= '2021-01-22 08:00:00'
             AND (1 = 1
                  AND (has(['Firefox'], "mat_$browser")))
           GROUP BY `$session_id`
@@ -516,10 +527,10 @@
   ORDER BY start_time DESC
   LIMIT 51
   OFFSET 0
-  '
----
+  '''
+# ---
 # name: TestClickhouseSessionRecordingsListFromSessionReplay.test_basic_query
-  '
+  '''
   
   SELECT s.session_id,
          any(s.team_id),
@@ -546,10 +557,10 @@
   ORDER BY start_time DESC
   LIMIT 51
   OFFSET 0
-  '
----
+  '''
+# ---
 # name: TestClickhouseSessionRecordingsListFromSessionReplay.test_basic_query_active_sessions
-  '
+  '''
   
   SELECT s.session_id,
          any(s.team_id),
@@ -577,10 +588,10 @@
   ORDER BY start_time DESC
   LIMIT 51
   OFFSET 0
-  '
----
+  '''
+# ---
 # name: TestClickhouseSessionRecordingsListFromSessionReplay.test_basic_query_active_sessions.1
-  '
+  '''
   
   SELECT s.session_id,
          any(s.team_id),
@@ -608,10 +619,10 @@
   ORDER BY start_time DESC
   LIMIT 51
   OFFSET 0
-  '
----
+  '''
+# ---
 # name: TestClickhouseSessionRecordingsListFromSessionReplay.test_basic_query_active_sessions.2
-  '
+  '''
   
   SELECT s.session_id,
          any(s.team_id),
@@ -639,10 +650,10 @@
   ORDER BY start_time DESC
   LIMIT 51
   OFFSET 0
-  '
----
+  '''
+# ---
 # name: TestClickhouseSessionRecordingsListFromSessionReplay.test_basic_query_with_paging
-  '
+  '''
   
   SELECT s.session_id,
          any(s.team_id),
@@ -669,10 +680,10 @@
   ORDER BY start_time DESC
   LIMIT 2
   OFFSET 0
-  '
----
+  '''
+# ---
 # name: TestClickhouseSessionRecordingsListFromSessionReplay.test_basic_query_with_paging.1
-  '
+  '''
   
   SELECT s.session_id,
          any(s.team_id),
@@ -699,10 +710,10 @@
   ORDER BY start_time DESC
   LIMIT 2
   OFFSET 1
-  '
----
+  '''
+# ---
 # name: TestClickhouseSessionRecordingsListFromSessionReplay.test_basic_query_with_paging.2
-  '
+  '''
   
   SELECT s.session_id,
          any(s.team_id),
@@ -729,10 +740,10 @@
   ORDER BY start_time DESC
   LIMIT 2
   OFFSET 2
-  '
----
+  '''
+# ---
 # name: TestClickhouseSessionRecordingsListFromSessionReplay.test_date_from_filter
-  '
+  '''
   
   SELECT s.session_id,
          any(s.team_id),
@@ -759,10 +770,10 @@
   ORDER BY start_time DESC
   LIMIT 51
   OFFSET 0
-  '
----
+  '''
+# ---
 # name: TestClickhouseSessionRecordingsListFromSessionReplay.test_date_from_filter.1
-  '
+  '''
   
   SELECT s.session_id,
          any(s.team_id),
@@ -789,10 +800,10 @@
   ORDER BY start_time DESC
   LIMIT 51
   OFFSET 0
-  '
----
+  '''
+# ---
 # name: TestClickhouseSessionRecordingsListFromSessionReplay.test_date_from_filter_cannot_search_before_ttl
-  '
+  '''
   
   SELECT s.session_id,
          any(s.team_id),
@@ -819,10 +830,10 @@
   ORDER BY start_time DESC
   LIMIT 51
   OFFSET 0
-  '
----
+  '''
+# ---
 # name: TestClickhouseSessionRecordingsListFromSessionReplay.test_date_from_filter_cannot_search_before_ttl.1
-  '
+  '''
   
   SELECT s.session_id,
          any(s.team_id),
@@ -849,10 +860,10 @@
   ORDER BY start_time DESC
   LIMIT 51
   OFFSET 0
-  '
----
+  '''
+# ---
 # name: TestClickhouseSessionRecordingsListFromSessionReplay.test_date_from_filter_cannot_search_before_ttl.2
-  '
+  '''
   
   SELECT s.session_id,
          any(s.team_id),
@@ -879,10 +890,10 @@
   ORDER BY start_time DESC
   LIMIT 51
   OFFSET 0
-  '
----
+  '''
+# ---
 # name: TestClickhouseSessionRecordingsListFromSessionReplay.test_date_to_filter
-  '
+  '''
   
   SELECT s.session_id,
          any(s.team_id),
@@ -909,10 +920,10 @@
   ORDER BY start_time DESC
   LIMIT 51
   OFFSET 0
-  '
----
+  '''
+# ---
 # name: TestClickhouseSessionRecordingsListFromSessionReplay.test_date_to_filter.1
-  '
+  '''
   
   SELECT s.session_id,
          any(s.team_id),
@@ -939,10 +950,10 @@
   ORDER BY start_time DESC
   LIMIT 51
   OFFSET 0
-  '
----
+  '''
+# ---
 # name: TestClickhouseSessionRecordingsListFromSessionReplay.test_duration_filter
-  '
+  '''
   
   SELECT s.session_id,
          any(s.team_id),
@@ -970,10 +981,10 @@
   ORDER BY start_time DESC
   LIMIT 51
   OFFSET 0
-  '
----
+  '''
+# ---
 # name: TestClickhouseSessionRecordingsListFromSessionReplay.test_duration_filter.1
-  '
+  '''
   
   SELECT s.session_id,
          any(s.team_id),
@@ -1001,10 +1012,10 @@
   ORDER BY start_time DESC
   LIMIT 51
   OFFSET 0
-  '
----
+  '''
+# ---
 # name: TestClickhouseSessionRecordingsListFromSessionReplay.test_event_filter
-  '
+  '''
   
   SELECT s.session_id,
          any(s.team_id),
@@ -1034,9 +1045,9 @@
           FROM events e PREWHERE team_id = 2
           AND e.timestamp >= '2020-12-11 13:46:23'
           AND e.timestamp <= now()
+          AND timestamp >= '2020-12-24 12:00:00'
+          AND timestamp <= '2021-01-02 01:46:23'
           WHERE notEmpty(`$session_id`)
-            AND timestamp >= '2020-12-24 12:00:00'
-            AND timestamp <= '2021-01-02 01:46:23'
             AND (event = '$pageview')
           GROUP BY `$session_id`
           HAVING 1=1
@@ -1046,10 +1057,10 @@
   ORDER BY start_time DESC
   LIMIT 51
   OFFSET 0
-  '
----
+  '''
+# ---
 # name: TestClickhouseSessionRecordingsListFromSessionReplay.test_event_filter.1
-  '
+  '''
   
   SELECT s.session_id,
          any(s.team_id),
@@ -1079,9 +1090,9 @@
           FROM events e PREWHERE team_id = 2
           AND e.timestamp >= '2020-12-11 13:46:23'
           AND e.timestamp <= now()
+          AND timestamp >= '2020-12-24 12:00:00'
+          AND timestamp <= '2021-01-02 01:46:23'
           WHERE notEmpty(`$session_id`)
-            AND timestamp >= '2020-12-24 12:00:00'
-            AND timestamp <= '2021-01-02 01:46:23'
             AND (event = '$autocapture')
           GROUP BY `$session_id`
           HAVING 1=1
@@ -1091,10 +1102,10 @@
   ORDER BY start_time DESC
   LIMIT 51
   OFFSET 0
-  '
----
+  '''
+# ---
 # name: TestClickhouseSessionRecordingsListFromSessionReplay.test_event_filter_has_ttl_applied_too
-  '
+  '''
   
   SELECT s.session_id,
          any(s.team_id),
@@ -1124,9 +1135,9 @@
           FROM events e PREWHERE team_id = 2
           AND e.timestamp >= '2020-12-11 13:46:23'
           AND e.timestamp <= now()
+          AND timestamp >= '2020-12-24 12:00:00'
+          AND timestamp <= '2021-01-02 01:46:23'
           WHERE notEmpty(`$session_id`)
-            AND timestamp >= '2020-12-24 12:00:00'
-            AND timestamp <= '2021-01-02 01:46:23'
             AND (event = '$pageview')
           GROUP BY `$session_id`
           HAVING 1=1
@@ -1136,10 +1147,10 @@
   ORDER BY start_time DESC
   LIMIT 51
   OFFSET 0
-  '
----
+  '''
+# ---
 # name: TestClickhouseSessionRecordingsListFromSessionReplay.test_event_filter_has_ttl_applied_too.1
-  '
+  '''
   
   SELECT s.session_id,
          any(s.team_id),
@@ -1166,10 +1177,10 @@
   ORDER BY start_time DESC
   LIMIT 51
   OFFSET 0
-  '
----
+  '''
+# ---
 # name: TestClickhouseSessionRecordingsListFromSessionReplay.test_event_filter_with_active_sessions
-  '
+  '''
   
   SELECT s.session_id,
          any(s.team_id),
@@ -1199,9 +1210,9 @@
           FROM events e PREWHERE team_id = 2
           AND e.timestamp >= '2020-12-11 13:46:23'
           AND e.timestamp <= now()
+          AND timestamp >= '2020-12-24 12:00:00'
+          AND timestamp <= '2021-01-02 01:46:23'
           WHERE notEmpty(`$session_id`)
-            AND timestamp >= '2020-12-24 12:00:00'
-            AND timestamp <= '2021-01-02 01:46:23'
             AND (event = '$pageview')
           GROUP BY `$session_id`
           HAVING 1=1
@@ -1212,10 +1223,10 @@
   ORDER BY start_time DESC
   LIMIT 51
   OFFSET 0
-  '
----
+  '''
+# ---
 # name: TestClickhouseSessionRecordingsListFromSessionReplay.test_event_filter_with_active_sessions.1
-  '
+  '''
   
   SELECT s.session_id,
          any(s.team_id),
@@ -1245,9 +1256,9 @@
           FROM events e PREWHERE team_id = 2
           AND e.timestamp >= '2020-12-11 13:46:23'
           AND e.timestamp <= now()
+          AND timestamp >= '2020-12-24 12:00:00'
+          AND timestamp <= '2021-01-02 01:46:23'
           WHERE notEmpty(`$session_id`)
-            AND timestamp >= '2020-12-24 12:00:00'
-            AND timestamp <= '2021-01-02 01:46:23'
             AND (event = '$pageview')
           GROUP BY `$session_id`
           HAVING 1=1
@@ -1258,10 +1269,10 @@
   ORDER BY start_time DESC
   LIMIT 51
   OFFSET 0
-  '
----
+  '''
+# ---
 # name: TestClickhouseSessionRecordingsListFromSessionReplay.test_event_filter_with_group_filter
-  '
+  '''
   
   SELECT s.session_id,
          any(s.team_id),
@@ -1298,9 +1309,9 @@
              GROUP BY group_key) groups_1 ON "$group_1" == groups_1.group_key PREWHERE team_id = 2
           AND e.timestamp >= '2020-12-31 20:00:00'
           AND e.timestamp <= now()
+          AND timestamp >= '2021-01-13 12:00:00'
+          AND timestamp <= '2021-01-22 08:00:00'
           WHERE notEmpty(`$session_id`)
-            AND timestamp >= '2021-01-13 12:00:00'
-            AND timestamp <= '2021-01-22 08:00:00'
             AND (event = '$pageview'
                  AND (has(['org one'], replaceRegexpAll(JSONExtractRaw(group_properties_1, 'name'), '^"|"$', ''))))
           GROUP BY `$session_id`
@@ -1311,10 +1322,10 @@
   ORDER BY start_time DESC
   LIMIT 51
   OFFSET 0
-  '
----
+  '''
+# ---
 # name: TestClickhouseSessionRecordingsListFromSessionReplay.test_event_filter_with_hogql_event_properties_test_accounts_excluded
-  '
+  '''
   
   SELECT s.session_id,
          any(s.team_id),
@@ -1344,9 +1355,9 @@
           FROM events e PREWHERE team_id = 2
           AND e.timestamp >= '2020-12-31 20:00:00'
           AND e.timestamp <= now()
+          AND timestamp >= '2021-01-13 12:00:00'
+          AND timestamp <= '2021-01-22 08:00:00'
           WHERE notEmpty(`$session_id`)
-            AND timestamp >= '2021-01-13 12:00:00'
-            AND timestamp <= '2021-01-22 08:00:00'
             AND (event = '$pageview')
           GROUP BY `$session_id`
           HAVING 1=1
@@ -1356,10 +1367,10 @@
   ORDER BY start_time DESC
   LIMIT 51
   OFFSET 0
-  '
----
+  '''
+# ---
 # name: TestClickhouseSessionRecordingsListFromSessionReplay.test_event_filter_with_hogql_event_properties_test_accounts_excluded.1
-  '
+  '''
   
   SELECT s.session_id,
          any(s.team_id),
@@ -1385,7 +1396,7 @@
       (select distinct_id
        from
          (SELECT distinct_id,
-                 argMax(person_id, version) as person_id ,
+                 argMax(person_id, version) as current_person_id ,
                  argMax(person_props, version) as person_props
           FROM person_distinct_id2 as pdi
           INNER JOIN
@@ -1407,15 +1418,15 @@
           FROM events e PREWHERE team_id = 2
           AND e.timestamp >= '2020-12-31 20:00:00'
           AND e.timestamp <= now()
+          AND timestamp >= '2021-01-13 12:00:00'
+          AND timestamp <= '2021-01-22 08:00:00'
           WHERE notEmpty(`$session_id`)
-            AND timestamp >= '2021-01-13 12:00:00'
-            AND timestamp <= '2021-01-22 08:00:00'
             AND (event = '$pageview')
             AND e.distinct_id in
               (select distinct_id
                from
                  (SELECT distinct_id,
-                         argMax(person_id, version) as person_id ,
+                         argMax(person_id, version) as current_person_id ,
                          argMax(person_props, version) as person_props
                   FROM person_distinct_id2 as pdi
                   INNER JOIN
@@ -1437,10 +1448,10 @@
   ORDER BY start_time DESC
   LIMIT 51
   OFFSET 0
-  '
----
+  '''
+# ---
 # name: TestClickhouseSessionRecordingsListFromSessionReplay.test_event_filter_with_hogql_event_properties_test_accounts_excluded.2
-  '
+  '''
   
   SELECT s.session_id,
          any(s.team_id),
@@ -1466,7 +1477,7 @@
       (select distinct_id
        from
          (SELECT distinct_id,
-                 argMax(person_id, version) as person_id ,
+                 argMax(person_id, version) as current_person_id ,
                  argMax(person_props, version) as person_props
           FROM person_distinct_id2 as pdi
           INNER JOIN
@@ -1487,15 +1498,15 @@
           FROM events e PREWHERE team_id = 2
           AND e.timestamp >= '2020-12-31 20:00:00'
           AND e.timestamp <= now()
+          AND timestamp >= '2021-01-13 12:00:00'
+          AND timestamp <= '2021-01-22 08:00:00'
           WHERE notEmpty(`$session_id`)
-            AND timestamp >= '2021-01-13 12:00:00'
-            AND timestamp <= '2021-01-22 08:00:00'
             AND (ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(properties, '$browser'), ''), 'null'), '^"|"$', ''), 'Chrome'), 0))
             AND e.distinct_id in
               (select distinct_id
                from
                  (SELECT distinct_id,
-                         argMax(person_id, version) as person_id ,
+                         argMax(person_id, version) as current_person_id ,
                          argMax(person_props, version) as person_props
                   FROM person_distinct_id2 as pdi
                   INNER JOIN
@@ -1516,10 +1527,10 @@
   ORDER BY start_time DESC
   LIMIT 51
   OFFSET 0
-  '
----
+  '''
+# ---
 # name: TestClickhouseSessionRecordingsListFromSessionReplay.test_event_filter_with_hogql_event_properties_test_accounts_excluded_materialized
-  '
+  '''
   
   SELECT s.session_id,
          any(s.team_id),
@@ -1549,9 +1560,9 @@
           FROM events e PREWHERE team_id = 2
           AND e.timestamp >= '2020-12-31 20:00:00'
           AND e.timestamp <= now()
+          AND timestamp >= '2021-01-13 12:00:00'
+          AND timestamp <= '2021-01-22 08:00:00'
           WHERE notEmpty(`$session_id`)
-            AND timestamp >= '2021-01-13 12:00:00'
-            AND timestamp <= '2021-01-22 08:00:00'
             AND (event = '$pageview')
           GROUP BY `$session_id`
           HAVING 1=1
@@ -1561,10 +1572,10 @@
   ORDER BY start_time DESC
   LIMIT 51
   OFFSET 0
-  '
----
+  '''
+# ---
 # name: TestClickhouseSessionRecordingsListFromSessionReplay.test_event_filter_with_hogql_event_properties_test_accounts_excluded_materialized.1
-  '
+  '''
   
   SELECT s.session_id,
          any(s.team_id),
@@ -1590,7 +1601,7 @@
       (select distinct_id
        from
          (SELECT distinct_id,
-                 argMax(person_id, version) as person_id
+                 argMax(person_id, version) as current_person_id
           FROM person_distinct_id2 as pdi
           INNER JOIN
             (SELECT id,
@@ -1611,15 +1622,15 @@
           FROM events e PREWHERE team_id = 2
           AND e.timestamp >= '2020-12-31 20:00:00'
           AND e.timestamp <= now()
+          AND timestamp >= '2021-01-13 12:00:00'
+          AND timestamp <= '2021-01-22 08:00:00'
           WHERE notEmpty(`$session_id`)
-            AND timestamp >= '2021-01-13 12:00:00'
-            AND timestamp <= '2021-01-22 08:00:00'
             AND (event = '$pageview')
             AND e.distinct_id in
               (select distinct_id
                from
                  (SELECT distinct_id,
-                         argMax(person_id, version) as person_id
+                         argMax(person_id, version) as current_person_id
                   FROM person_distinct_id2 as pdi
                   INNER JOIN
                     (SELECT id,
@@ -1640,10 +1651,10 @@
   ORDER BY start_time DESC
   LIMIT 51
   OFFSET 0
-  '
----
+  '''
+# ---
 # name: TestClickhouseSessionRecordingsListFromSessionReplay.test_event_filter_with_hogql_event_properties_test_accounts_excluded_materialized.2
-  '
+  '''
   
   SELECT s.session_id,
          any(s.team_id),
@@ -1669,7 +1680,7 @@
       (select distinct_id
        from
          (SELECT distinct_id,
-                 argMax(person_id, version) as person_id
+                 argMax(person_id, version) as current_person_id
           FROM person_distinct_id2 as pdi
           INNER JOIN
             (SELECT id,
@@ -1689,15 +1700,15 @@
           FROM events e PREWHERE team_id = 2
           AND e.timestamp >= '2020-12-31 20:00:00'
           AND e.timestamp <= now()
+          AND timestamp >= '2021-01-13 12:00:00'
+          AND timestamp <= '2021-01-22 08:00:00'
           WHERE notEmpty(`$session_id`)
-            AND timestamp >= '2021-01-13 12:00:00'
-            AND timestamp <= '2021-01-22 08:00:00'
             AND (ifNull(equals(nullIf(nullIf(events.`mat_$browser`, ''), 'null'), 'Chrome'), 0))
             AND e.distinct_id in
               (select distinct_id
                from
                  (SELECT distinct_id,
-                         argMax(person_id, version) as person_id
+                         argMax(person_id, version) as current_person_id
                   FROM person_distinct_id2 as pdi
                   INNER JOIN
                     (SELECT id,
@@ -1717,10 +1728,10 @@
   ORDER BY start_time DESC
   LIMIT 51
   OFFSET 0
-  '
----
+  '''
+# ---
 # name: TestClickhouseSessionRecordingsListFromSessionReplay.test_event_filter_with_hogql_person_properties
-  '
+  '''
   
   SELECT s.session_id,
          any(s.team_id),
@@ -1746,7 +1757,7 @@
       (select distinct_id
        from
          (SELECT distinct_id,
-                 argMax(person_id, version) as person_id ,
+                 argMax(person_id, version) as current_person_id ,
                  argMax(person_props, version) as person_props
           FROM person_distinct_id2 as pdi
           INNER JOIN
@@ -1767,7 +1778,7 @@
           FROM events e
           JOIN
             (SELECT distinct_id,
-                    argMax(person_id, version) as person_id ,
+                    argMax(person_id, version) as current_person_id ,
                     argMax(person_props, version) as person_props
              FROM person_distinct_id2 as pdi
              INNER JOIN
@@ -1782,9 +1793,9 @@
              HAVING argMax(is_deleted, version) = 0) as pdi on pdi.distinct_id = e.distinct_id PREWHERE team_id = 2
           AND e.timestamp >= '2020-12-11 13:46:23'
           AND e.timestamp <= now()
+          AND timestamp >= '2020-12-24 12:00:00'
+          AND timestamp <= '2021-01-02 01:46:23'
           WHERE notEmpty(`$session_id`)
-            AND timestamp >= '2020-12-24 12:00:00'
-            AND timestamp <= '2021-01-02 01:46:23'
             AND (event = '$pageview'
                  AND (ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person_props, 'email'), ''), 'null'), '^"|"$', ''), 'bla'), 0)))
           GROUP BY `$session_id`
@@ -1795,10 +1806,10 @@
   ORDER BY start_time DESC
   LIMIT 51
   OFFSET 0
-  '
----
+  '''
+# ---
 # name: TestClickhouseSessionRecordingsListFromSessionReplay.test_event_filter_with_hogql_person_properties.1
-  '
+  '''
   
   SELECT s.session_id,
          any(s.team_id),
@@ -1824,7 +1835,7 @@
       (select distinct_id
        from
          (SELECT distinct_id,
-                 argMax(person_id, version) as person_id ,
+                 argMax(person_id, version) as current_person_id ,
                  argMax(person_props, version) as person_props
           FROM person_distinct_id2 as pdi
           INNER JOIN
@@ -1845,7 +1856,7 @@
           FROM events e
           JOIN
             (SELECT distinct_id,
-                    argMax(person_id, version) as person_id ,
+                    argMax(person_id, version) as current_person_id ,
                     argMax(person_props, version) as person_props
              FROM person_distinct_id2 as pdi
              INNER JOIN
@@ -1860,9 +1871,9 @@
              HAVING argMax(is_deleted, version) = 0) as pdi on pdi.distinct_id = e.distinct_id PREWHERE team_id = 2
           AND e.timestamp >= '2020-12-11 13:46:23'
           AND e.timestamp <= now()
+          AND timestamp >= '2020-12-24 12:00:00'
+          AND timestamp <= '2021-01-02 01:46:23'
           WHERE notEmpty(`$session_id`)
-            AND timestamp >= '2020-12-24 12:00:00'
-            AND timestamp <= '2021-01-02 01:46:23'
             AND (event = '$pageview'
                  AND (ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person_props, 'email'), ''), 'null'), '^"|"$', ''), 'something else'), 0)))
           GROUP BY `$session_id`
@@ -1873,10 +1884,10 @@
   ORDER BY start_time DESC
   LIMIT 51
   OFFSET 0
-  '
----
+  '''
+# ---
 # name: TestClickhouseSessionRecordingsListFromSessionReplay.test_event_filter_with_hogql_properties
-  '
+  '''
   
   SELECT s.session_id,
          any(s.team_id),
@@ -1906,9 +1917,9 @@
           FROM events e PREWHERE team_id = 2
           AND e.timestamp >= '2020-12-11 13:46:23'
           AND e.timestamp <= now()
+          AND timestamp >= '2020-12-24 12:00:00'
+          AND timestamp <= '2021-01-02 01:46:23'
           WHERE notEmpty(`$session_id`)
-            AND timestamp >= '2020-12-24 12:00:00'
-            AND timestamp <= '2021-01-02 01:46:23'
             AND (event = '$pageview'
                  AND (ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(properties, '$browser'), ''), 'null'), '^"|"$', ''), 'Chrome'), 0)))
           GROUP BY `$session_id`
@@ -1919,10 +1930,10 @@
   ORDER BY start_time DESC
   LIMIT 51
   OFFSET 0
-  '
----
+  '''
+# ---
 # name: TestClickhouseSessionRecordingsListFromSessionReplay.test_event_filter_with_hogql_properties.1
-  '
+  '''
   
   SELECT s.session_id,
          any(s.team_id),
@@ -1952,9 +1963,9 @@
           FROM events e PREWHERE team_id = 2
           AND e.timestamp >= '2020-12-11 13:46:23'
           AND e.timestamp <= now()
+          AND timestamp >= '2020-12-24 12:00:00'
+          AND timestamp <= '2021-01-02 01:46:23'
           WHERE notEmpty(`$session_id`)
-            AND timestamp >= '2020-12-24 12:00:00'
-            AND timestamp <= '2021-01-02 01:46:23'
             AND (event = '$pageview'
                  AND (ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(properties, '$browser'), ''), 'null'), '^"|"$', ''), 'Firefox'), 0)))
           GROUP BY `$session_id`
@@ -1965,10 +1976,10 @@
   ORDER BY start_time DESC
   LIMIT 51
   OFFSET 0
-  '
----
+  '''
+# ---
 # name: TestClickhouseSessionRecordingsListFromSessionReplay.test_event_filter_with_hogql_properties_materialized
-  '
+  '''
   
   SELECT s.session_id,
          any(s.team_id),
@@ -1998,9 +2009,9 @@
           FROM events e PREWHERE team_id = 2
           AND e.timestamp >= '2020-12-11 13:46:23'
           AND e.timestamp <= now()
+          AND timestamp >= '2020-12-24 12:00:00'
+          AND timestamp <= '2021-01-02 01:46:23'
           WHERE notEmpty(`$session_id`)
-            AND timestamp >= '2020-12-24 12:00:00'
-            AND timestamp <= '2021-01-02 01:46:23'
             AND (event = '$pageview'
                  AND (ifNull(equals(nullIf(nullIf(events.`mat_$browser`, ''), 'null'), 'Chrome'), 0)))
           GROUP BY `$session_id`
@@ -2011,10 +2022,10 @@
   ORDER BY start_time DESC
   LIMIT 51
   OFFSET 0
-  '
----
+  '''
+# ---
 # name: TestClickhouseSessionRecordingsListFromSessionReplay.test_event_filter_with_hogql_properties_materialized.1
-  '
+  '''
   
   SELECT s.session_id,
          any(s.team_id),
@@ -2044,9 +2055,9 @@
           FROM events e PREWHERE team_id = 2
           AND e.timestamp >= '2020-12-11 13:46:23'
           AND e.timestamp <= now()
+          AND timestamp >= '2020-12-24 12:00:00'
+          AND timestamp <= '2021-01-02 01:46:23'
           WHERE notEmpty(`$session_id`)
-            AND timestamp >= '2020-12-24 12:00:00'
-            AND timestamp <= '2021-01-02 01:46:23'
             AND (event = '$pageview'
                  AND (ifNull(equals(nullIf(nullIf(events.`mat_$browser`, ''), 'null'), 'Firefox'), 0)))
           GROUP BY `$session_id`
@@ -2057,10 +2068,10 @@
   ORDER BY start_time DESC
   LIMIT 51
   OFFSET 0
-  '
----
+  '''
+# ---
 # name: TestClickhouseSessionRecordingsListFromSessionReplay.test_event_filter_with_matching_on_session_id
-  '
+  '''
   
   SELECT s.session_id,
          any(s.team_id),
@@ -2090,9 +2101,9 @@
           FROM events e PREWHERE team_id = 2
           AND e.timestamp >= '2020-12-11 13:46:23'
           AND e.timestamp <= now()
+          AND timestamp >= '2020-12-24 12:00:00'
+          AND timestamp <= '2021-01-02 01:46:23'
           WHERE notEmpty(`$session_id`)
-            AND timestamp >= '2020-12-24 12:00:00'
-            AND timestamp <= '2021-01-02 01:46:23'
             AND (event = '$pageview')
           GROUP BY `$session_id`
           HAVING 1=1
@@ -2102,10 +2113,10 @@
   ORDER BY start_time DESC
   LIMIT 51
   OFFSET 0
-  '
----
+  '''
+# ---
 # name: TestClickhouseSessionRecordingsListFromSessionReplay.test_event_filter_with_matching_on_session_id.1
-  '
+  '''
   
   SELECT s.session_id,
          any(s.team_id),
@@ -2135,9 +2146,9 @@
           FROM events e PREWHERE team_id = 2
           AND e.timestamp >= '2020-12-11 13:46:23'
           AND e.timestamp <= now()
+          AND timestamp >= '2020-12-24 12:00:00'
+          AND timestamp <= '2021-01-02 01:46:23'
           WHERE notEmpty(`$session_id`)
-            AND timestamp >= '2020-12-24 12:00:00'
-            AND timestamp <= '2021-01-02 01:46:23'
             AND (event = '$autocapture')
           GROUP BY `$session_id`
           HAVING 1=1
@@ -2147,10 +2158,10 @@
   ORDER BY start_time DESC
   LIMIT 51
   OFFSET 0
-  '
----
+  '''
+# ---
 # name: TestClickhouseSessionRecordingsListFromSessionReplay.test_event_filter_with_person_properties
-  '
+  '''
   
   SELECT s.session_id,
          any(s.team_id),
@@ -2176,7 +2187,7 @@
       (select distinct_id
        from
          (SELECT distinct_id,
-                 argMax(person_id, version) as person_id
+                 argMax(person_id, version) as current_person_id
           FROM person_distinct_id2 as pdi
           INNER JOIN
             (SELECT id
@@ -2198,10 +2209,10 @@
   ORDER BY start_time DESC
   LIMIT 51
   OFFSET 0
-  '
----
+  '''
+# ---
 # name: TestClickhouseSessionRecordingsListFromSessionReplay.test_event_filter_with_properties
-  '
+  '''
   
   SELECT s.session_id,
          any(s.team_id),
@@ -2231,9 +2242,9 @@
           FROM events e PREWHERE team_id = 2
           AND e.timestamp >= '2020-12-11 13:46:23'
           AND e.timestamp <= now()
+          AND timestamp >= '2020-12-24 12:00:00'
+          AND timestamp <= '2021-01-02 01:46:23'
           WHERE notEmpty(`$session_id`)
-            AND timestamp >= '2020-12-24 12:00:00'
-            AND timestamp <= '2021-01-02 01:46:23'
             AND (event = '$pageview'
                  AND (has(['Chrome'], replaceRegexpAll(JSONExtractRaw(properties, '$browser'), '^"|"$', ''))))
           GROUP BY `$session_id`
@@ -2244,10 +2255,10 @@
   ORDER BY start_time DESC
   LIMIT 51
   OFFSET 0
-  '
----
+  '''
+# ---
 # name: TestClickhouseSessionRecordingsListFromSessionReplay.test_event_filter_with_properties.1
-  '
+  '''
   
   SELECT s.session_id,
          any(s.team_id),
@@ -2277,9 +2288,9 @@
           FROM events e PREWHERE team_id = 2
           AND e.timestamp >= '2020-12-11 13:46:23'
           AND e.timestamp <= now()
+          AND timestamp >= '2020-12-24 12:00:00'
+          AND timestamp <= '2021-01-02 01:46:23'
           WHERE notEmpty(`$session_id`)
-            AND timestamp >= '2020-12-24 12:00:00'
-            AND timestamp <= '2021-01-02 01:46:23'
             AND (event = '$pageview'
                  AND (has(['Firefox'], replaceRegexpAll(JSONExtractRaw(properties, '$browser'), '^"|"$', ''))))
           GROUP BY `$session_id`
@@ -2290,10 +2301,10 @@
   ORDER BY start_time DESC
   LIMIT 51
   OFFSET 0
-  '
----
+  '''
+# ---
 # name: TestClickhouseSessionRecordingsListFromSessionReplay.test_event_filter_with_properties_materialized
-  '
+  '''
   
   SELECT s.session_id,
          any(s.team_id),
@@ -2323,9 +2334,9 @@
           FROM events e PREWHERE team_id = 2
           AND e.timestamp >= '2020-12-11 13:46:23'
           AND e.timestamp <= now()
+          AND timestamp >= '2020-12-24 12:00:00'
+          AND timestamp <= '2021-01-02 01:46:23'
           WHERE notEmpty(`$session_id`)
-            AND timestamp >= '2020-12-24 12:00:00'
-            AND timestamp <= '2021-01-02 01:46:23'
             AND (event = '$pageview'
                  AND (has(['Chrome'], "mat_$browser")))
           GROUP BY `$session_id`
@@ -2336,10 +2347,10 @@
   ORDER BY start_time DESC
   LIMIT 51
   OFFSET 0
-  '
----
+  '''
+# ---
 # name: TestClickhouseSessionRecordingsListFromSessionReplay.test_event_filter_with_properties_materialized.1
-  '
+  '''
   
   SELECT s.session_id,
          any(s.team_id),
@@ -2369,9 +2380,9 @@
           FROM events e PREWHERE team_id = 2
           AND e.timestamp >= '2020-12-11 13:46:23'
           AND e.timestamp <= now()
+          AND timestamp >= '2020-12-24 12:00:00'
+          AND timestamp <= '2021-01-02 01:46:23'
           WHERE notEmpty(`$session_id`)
-            AND timestamp >= '2020-12-24 12:00:00'
-            AND timestamp <= '2021-01-02 01:46:23'
             AND (event = '$pageview'
                  AND (has(['Firefox'], "mat_$browser")))
           GROUP BY `$session_id`
@@ -2382,10 +2393,10 @@
   ORDER BY start_time DESC
   LIMIT 51
   OFFSET 0
-  '
----
+  '''
+# ---
 # name: TestClickhouseSessionRecordingsListFromSessionReplay.test_event_filter_with_test_accounts_excluded
-  '
+  '''
   
   SELECT s.session_id,
          any(s.team_id),
@@ -2411,7 +2422,7 @@
       (select distinct_id
        from
          (SELECT distinct_id,
-                 argMax(person_id, version) as person_id
+                 argMax(person_id, version) as current_person_id
           FROM person_distinct_id2 as pdi
           INNER JOIN
             (SELECT id
@@ -2436,9 +2447,9 @@
           FROM events e PREWHERE team_id = 2
           AND e.timestamp >= '2020-12-31 20:00:00'
           AND e.timestamp <= now()
+          AND timestamp >= '2021-01-13 12:00:00'
+          AND timestamp <= '2021-01-22 08:00:00'
           WHERE notEmpty(`$session_id`)
-            AND timestamp >= '2021-01-13 12:00:00'
-            AND timestamp <= '2021-01-22 08:00:00'
             AND (event = '$pageview')
             AND (has(['false'], replaceRegexpAll(JSONExtractRaw(e.properties, 'is_internal_user'), '^"|"$', ''))
                  AND ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(properties, '$browser'), ''), 'null'), '^"|"$', ''), 'Chrome'), 0))
@@ -2446,7 +2457,7 @@
               (select distinct_id
                from
                  (SELECT distinct_id,
-                         argMax(person_id, version) as person_id
+                         argMax(person_id, version) as current_person_id
                   FROM person_distinct_id2 as pdi
                   INNER JOIN
                     (SELECT id
@@ -2471,10 +2482,10 @@
   ORDER BY start_time DESC
   LIMIT 51
   OFFSET 0
-  '
----
+  '''
+# ---
 # name: TestClickhouseSessionRecordingsListFromSessionReplay.test_event_filter_with_test_accounts_excluded.1
-  '
+  '''
   
   SELECT s.session_id,
          any(s.team_id),
@@ -2504,9 +2515,9 @@
           FROM events e PREWHERE team_id = 2
           AND e.timestamp >= '2020-12-31 20:00:00'
           AND e.timestamp <= now()
+          AND timestamp >= '2021-01-13 12:00:00'
+          AND timestamp <= '2021-01-22 08:00:00'
           WHERE notEmpty(`$session_id`)
-            AND timestamp >= '2021-01-13 12:00:00'
-            AND timestamp <= '2021-01-22 08:00:00'
             AND (event = '$pageview')
           GROUP BY `$session_id`
           HAVING 1=1
@@ -2516,10 +2527,10 @@
   ORDER BY start_time DESC
   LIMIT 51
   OFFSET 0
-  '
----
+  '''
+# ---
 # name: TestClickhouseSessionRecordingsListFromSessionReplay.test_event_filter_with_test_accounts_excluded_materialized
-  '
+  '''
   
   SELECT s.session_id,
          any(s.team_id),
@@ -2545,7 +2556,7 @@
       (select distinct_id
        from
          (SELECT distinct_id,
-                 argMax(person_id, version) as person_id
+                 argMax(person_id, version) as current_person_id
           FROM person_distinct_id2 as pdi
           INNER JOIN
             (SELECT id
@@ -2570,17 +2581,17 @@
           FROM events e PREWHERE team_id = 2
           AND e.timestamp >= '2020-12-31 20:00:00'
           AND e.timestamp <= now()
+          AND timestamp >= '2021-01-13 12:00:00'
+          AND timestamp <= '2021-01-22 08:00:00'
           WHERE notEmpty(`$session_id`)
-            AND timestamp >= '2021-01-13 12:00:00'
-            AND timestamp <= '2021-01-22 08:00:00'
             AND (event = '$pageview')
-            AND (has(['false'], "mat_is_internal_user")
+            AND (has(['false'], replaceRegexpAll(JSONExtractRaw(e.properties, 'is_internal_user'), '^"|"$', ''))
                  AND ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(properties, '$browser'), ''), 'null'), '^"|"$', ''), 'Chrome'), 0))
             AND e.distinct_id in
               (select distinct_id
                from
                  (SELECT distinct_id,
-                         argMax(person_id, version) as person_id
+                         argMax(person_id, version) as current_person_id
                   FROM person_distinct_id2 as pdi
                   INNER JOIN
                     (SELECT id
@@ -2605,10 +2616,10 @@
   ORDER BY start_time DESC
   LIMIT 51
   OFFSET 0
-  '
----
+  '''
+# ---
 # name: TestClickhouseSessionRecordingsListFromSessionReplay.test_event_filter_with_test_accounts_excluded_materialized.1
-  '
+  '''
   
   SELECT s.session_id,
          any(s.team_id),
@@ -2638,9 +2649,9 @@
           FROM events e PREWHERE team_id = 2
           AND e.timestamp >= '2020-12-31 20:00:00'
           AND e.timestamp <= now()
+          AND timestamp >= '2021-01-13 12:00:00'
+          AND timestamp <= '2021-01-22 08:00:00'
           WHERE notEmpty(`$session_id`)
-            AND timestamp >= '2021-01-13 12:00:00'
-            AND timestamp <= '2021-01-22 08:00:00'
             AND (event = '$pageview')
           GROUP BY `$session_id`
           HAVING 1=1
@@ -2650,10 +2661,10 @@
   ORDER BY start_time DESC
   LIMIT 51
   OFFSET 0
-  '
----
+  '''
+# ---
 # name: TestClickhouseSessionRecordingsListFromSessionReplay.test_event_filter_with_two_events_and_multiple_teams
-  '
+  '''
   
   SELECT s.session_id,
          any(s.team_id),
@@ -2683,9 +2694,9 @@
           FROM events e PREWHERE team_id = 2
           AND e.timestamp >= '2020-12-31 20:00:00'
           AND e.timestamp <= now()
+          AND timestamp >= '2021-01-13 12:00:00'
+          AND timestamp <= '2021-01-22 08:00:00'
           WHERE notEmpty(`$session_id`)
-            AND timestamp >= '2021-01-13 12:00:00'
-            AND timestamp <= '2021-01-22 08:00:00'
             AND ((event = '$pageview')
                  OR event = '$pageleave')
           GROUP BY `$session_id`
@@ -2696,10 +2707,10 @@
   ORDER BY start_time DESC
   LIMIT 51
   OFFSET 0
-  '
----
+  '''
+# ---
 # name: TestClickhouseSessionRecordingsListFromSessionReplay.test_filter_for_recordings_by_console_text
-  '
+  '''
   
   SELECT s.session_id,
          any(s.team_id),
@@ -2738,10 +2749,10 @@
   ORDER BY start_time DESC
   LIMIT 51
   OFFSET 0
-  '
----
+  '''
+# ---
 # name: TestClickhouseSessionRecordingsListFromSessionReplay.test_filter_for_recordings_by_console_text.1
-  '
+  '''
   
   SELECT s.session_id,
          any(s.team_id),
@@ -2780,10 +2791,10 @@
   ORDER BY start_time DESC
   LIMIT 51
   OFFSET 0
-  '
----
+  '''
+# ---
 # name: TestClickhouseSessionRecordingsListFromSessionReplay.test_filter_for_recordings_by_console_text.2
-  '
+  '''
   
   SELECT s.session_id,
          any(s.team_id),
@@ -2822,10 +2833,10 @@
   ORDER BY start_time DESC
   LIMIT 51
   OFFSET 0
-  '
----
+  '''
+# ---
 # name: TestClickhouseSessionRecordingsListFromSessionReplay.test_filter_for_recordings_by_console_text.3
-  '
+  '''
   
   SELECT s.session_id,
          any(s.team_id),
@@ -2863,10 +2874,10 @@
   ORDER BY start_time DESC
   LIMIT 51
   OFFSET 0
-  '
----
+  '''
+# ---
 # name: TestClickhouseSessionRecordingsListFromSessionReplay.test_filter_for_recordings_by_console_text.4
-  '
+  '''
   
   SELECT s.session_id,
          any(s.team_id),
@@ -2904,135 +2915,10 @@
   ORDER BY start_time DESC
   LIMIT 51
   OFFSET 0
-  '
----
-# name: TestClickhouseSessionRecordingsListFromSessionReplay.test_filter_for_recordings_by_console_text.5
-  '
-  
-  SELECT s.session_id,
-         any(s.team_id),
-         any(s.distinct_id),
-         min(s.min_first_timestamp) as start_time,
-         max(s.max_last_timestamp) as end_time,
-         dateDiff('SECOND', start_time, end_time) as duration,
-         argMinMerge(s.first_url) as first_url,
-         sum(s.click_count),
-         sum(s.keypress_count),
-         sum(s.mouse_activity_count),
-         sum(s.active_milliseconds)/1000 as active_seconds,
-         duration-active_seconds as inactive_seconds,
-         sum(s.console_log_count) as console_log_count,
-         sum(s.console_warn_count) as console_warn_count,
-         sum(s.console_error_count) as console_error_count
-  FROM session_replay_events s
-  WHERE s.team_id = 2
-    AND s.min_first_timestamp >= '2020-12-31 20:00:00'
-    AND s.min_first_timestamp >= '2021-01-14 00:00:00'
-    AND s.max_last_timestamp <= '2021-01-21 20:00:00'
-    AND "session_id" in ['with-warns-session']
-  GROUP BY session_id
-  HAVING 1=1
-  AND (console_warn_count > 0
-       OR console_error_count > 0)
-  ORDER BY start_time DESC
-  LIMIT 51
-  OFFSET 0
-  '
----
-# name: TestClickhouseSessionRecordingsListFromSessionReplay.test_filter_for_recordings_by_console_text.6
-  '
-  
-  SELECT distinct log_source_id as session_id
-  FROM log_entries PREWHERE team_id = 2
-  AND timestamp >= '2020-12-31 20:00:00'
-  AND timestamp <= now()
-  AND timestamp >= '2021-01-13 12:00:00'
-  AND timestamp <= '2021-01-22 08:00:00'
-  WHERE 1=1
-    AND level in ['log']
-    AND positionCaseInsensitive(message, 'message 5') > 0
-  '
----
-# name: TestClickhouseSessionRecordingsListFromSessionReplay.test_filter_for_recordings_by_console_text.7
-  '
-  
-  SELECT s.session_id,
-         any(s.team_id),
-         any(s.distinct_id),
-         min(s.min_first_timestamp) as start_time,
-         max(s.max_last_timestamp) as end_time,
-         dateDiff('SECOND', start_time, end_time) as duration,
-         argMinMerge(s.first_url) as first_url,
-         sum(s.click_count),
-         sum(s.keypress_count),
-         sum(s.mouse_activity_count),
-         sum(s.active_milliseconds)/1000 as active_seconds,
-         duration-active_seconds as inactive_seconds,
-         sum(s.console_log_count) as console_log_count,
-         sum(s.console_warn_count) as console_warn_count,
-         sum(s.console_error_count) as console_error_count
-  FROM session_replay_events s
-  WHERE s.team_id = 2
-    AND s.min_first_timestamp >= '2020-12-31 20:00:00'
-    AND s.min_first_timestamp >= '2021-01-14 00:00:00'
-    AND s.max_last_timestamp <= '2021-01-21 20:00:00'
-    AND "session_id" in []
-  GROUP BY session_id
-  HAVING 1=1
-  AND (console_log_count > 0)
-  ORDER BY start_time DESC
-  LIMIT 51
-  OFFSET 0
-  '
----
-# name: TestClickhouseSessionRecordingsListFromSessionReplay.test_filter_for_recordings_by_console_text.8
-  '
-  
-  SELECT distinct log_source_id as session_id
-  FROM log_entries PREWHERE team_id = 2
-  AND timestamp >= '2020-12-31 20:00:00'
-  AND timestamp <= now()
-  AND timestamp >= '2021-01-13 12:00:00'
-  AND timestamp <= '2021-01-22 08:00:00'
-  WHERE 1=1
-    AND level in ['log']
-    AND positionCaseInsensitive(message, 'message 5') > 0
-  '
----
-# name: TestClickhouseSessionRecordingsListFromSessionReplay.test_filter_for_recordings_by_console_text.9
-  '
-  
-  SELECT s.session_id,
-         any(s.team_id),
-         any(s.distinct_id),
-         min(s.min_first_timestamp) as start_time,
-         max(s.max_last_timestamp) as end_time,
-         dateDiff('SECOND', start_time, end_time) as duration,
-         argMinMerge(s.first_url) as first_url,
-         sum(s.click_count),
-         sum(s.keypress_count),
-         sum(s.mouse_activity_count),
-         sum(s.active_milliseconds)/1000 as active_seconds,
-         duration-active_seconds as inactive_seconds,
-         sum(s.console_log_count) as console_log_count,
-         sum(s.console_warn_count) as console_warn_count,
-         sum(s.console_error_count) as console_error_count
-  FROM session_replay_events s
-  WHERE s.team_id = 2
-    AND s.min_first_timestamp >= '2020-12-31 20:00:00'
-    AND s.min_first_timestamp >= '2021-01-14 00:00:00'
-    AND s.max_last_timestamp <= '2021-01-21 20:00:00'
-    AND "session_id" in []
-  GROUP BY session_id
-  HAVING 1=1
-  AND (console_log_count > 0)
-  ORDER BY start_time DESC
-  LIMIT 51
-  OFFSET 0
-  '
----
+  '''
+# ---
 # name: TestClickhouseSessionRecordingsListFromSessionReplay.test_filter_for_recordings_with_console_errors
-  '
+  '''
   
   SELECT s.session_id,
          any(s.team_id),
@@ -3060,10 +2946,10 @@
   ORDER BY start_time DESC
   LIMIT 51
   OFFSET 0
-  '
----
+  '''
+# ---
 # name: TestClickhouseSessionRecordingsListFromSessionReplay.test_filter_for_recordings_with_console_errors.1
-  '
+  '''
   
   SELECT s.session_id,
          any(s.team_id),
@@ -3091,10 +2977,10 @@
   ORDER BY start_time DESC
   LIMIT 51
   OFFSET 0
-  '
----
+  '''
+# ---
 # name: TestClickhouseSessionRecordingsListFromSessionReplay.test_filter_for_recordings_with_console_errors.2
-  '
+  '''
   
   SELECT s.session_id,
          any(s.team_id),
@@ -3122,10 +3008,10 @@
   ORDER BY start_time DESC
   LIMIT 51
   OFFSET 0
-  '
----
+  '''
+# ---
 # name: TestClickhouseSessionRecordingsListFromSessionReplay.test_filter_for_recordings_with_console_logs
-  '
+  '''
   
   SELECT s.session_id,
          any(s.team_id),
@@ -3153,10 +3039,10 @@
   ORDER BY start_time DESC
   LIMIT 51
   OFFSET 0
-  '
----
+  '''
+# ---
 # name: TestClickhouseSessionRecordingsListFromSessionReplay.test_filter_for_recordings_with_console_logs.1
-  '
+  '''
   
   SELECT s.session_id,
          any(s.team_id),
@@ -3184,10 +3070,10 @@
   ORDER BY start_time DESC
   LIMIT 51
   OFFSET 0
-  '
----
+  '''
+# ---
 # name: TestClickhouseSessionRecordingsListFromSessionReplay.test_filter_for_recordings_with_console_logs.2
-  '
+  '''
   
   SELECT s.session_id,
          any(s.team_id),
@@ -3215,10 +3101,10 @@
   ORDER BY start_time DESC
   LIMIT 51
   OFFSET 0
-  '
----
+  '''
+# ---
 # name: TestClickhouseSessionRecordingsListFromSessionReplay.test_filter_for_recordings_with_console_warns
-  '
+  '''
   
   SELECT s.session_id,
          any(s.team_id),
@@ -3246,10 +3132,10 @@
   ORDER BY start_time DESC
   LIMIT 51
   OFFSET 0
-  '
----
+  '''
+# ---
 # name: TestClickhouseSessionRecordingsListFromSessionReplay.test_filter_for_recordings_with_console_warns.1
-  '
+  '''
   
   SELECT s.session_id,
          any(s.team_id),
@@ -3277,10 +3163,10 @@
   ORDER BY start_time DESC
   LIMIT 51
   OFFSET 0
-  '
----
+  '''
+# ---
 # name: TestClickhouseSessionRecordingsListFromSessionReplay.test_filter_for_recordings_with_console_warns.2
-  '
+  '''
   
   SELECT s.session_id,
          any(s.team_id),
@@ -3308,10 +3194,10 @@
   ORDER BY start_time DESC
   LIMIT 51
   OFFSET 0
-  '
----
+  '''
+# ---
 # name: TestClickhouseSessionRecordingsListFromSessionReplay.test_filter_for_recordings_with_mixed_console_counts
-  '
+  '''
   
   SELECT s.session_id,
          any(s.team_id),
@@ -3340,10 +3226,10 @@
   ORDER BY start_time DESC
   LIMIT 51
   OFFSET 0
-  '
----
+  '''
+# ---
 # name: TestClickhouseSessionRecordingsListFromSessionReplay.test_filter_for_recordings_with_mixed_console_counts.1
-  '
+  '''
   
   SELECT s.session_id,
          any(s.team_id),
@@ -3371,10 +3257,10 @@
   ORDER BY start_time DESC
   LIMIT 51
   OFFSET 0
-  '
----
+  '''
+# ---
 # name: TestClickhouseSessionRecordingsListFromSessionReplay.test_filter_for_recordings_with_mixed_console_counts.2
-  '
+  '''
   
   SELECT s.session_id,
          any(s.team_id),
@@ -3402,30 +3288,30 @@
   ORDER BY start_time DESC
   LIMIT 51
   OFFSET 0
-  '
----
+  '''
+# ---
 # name: TestClickhouseSessionRecordingsListFromSessionReplay.test_filter_with_cohort_properties
-  '
+  '''
   
   SELECT count(DISTINCT person_id)
   FROM cohortpeople
   WHERE team_id = 2
     AND cohort_id = 2
     AND version = NULL
-  '
----
+  '''
+# ---
 # name: TestClickhouseSessionRecordingsListFromSessionReplay.test_filter_with_cohort_properties.1
-  '
+  '''
   
   SELECT count(DISTINCT person_id)
   FROM cohortpeople
   WHERE team_id = 2
     AND cohort_id = 2
     AND version = 0
-  '
----
+  '''
+# ---
 # name: TestClickhouseSessionRecordingsListFromSessionReplay.test_filter_with_cohort_properties.2
-  '
+  '''
   
   SELECT s.session_id,
          any(s.team_id),
@@ -3451,7 +3337,7 @@
       (select distinct_id
        from
          (SELECT distinct_id,
-                 argMax(person_id, version) as person_id
+                 argMax(person_id, version) as current_person_id
           FROM person_distinct_id2 as pdi
           INNER JOIN
             (SELECT id
@@ -3473,30 +3359,30 @@
   ORDER BY start_time DESC
   LIMIT 51
   OFFSET 0
-  '
----
+  '''
+# ---
 # name: TestClickhouseSessionRecordingsListFromSessionReplay.test_filter_with_events_and_cohorts
-  '
+  '''
   
   SELECT count(DISTINCT person_id)
   FROM cohortpeople
   WHERE team_id = 2
     AND cohort_id = 2
     AND version = NULL
-  '
----
+  '''
+# ---
 # name: TestClickhouseSessionRecordingsListFromSessionReplay.test_filter_with_events_and_cohorts.1
-  '
+  '''
   
   SELECT count(DISTINCT person_id)
   FROM cohortpeople
   WHERE team_id = 2
     AND cohort_id = 2
     AND version = 0
-  '
----
+  '''
+# ---
 # name: TestClickhouseSessionRecordingsListFromSessionReplay.test_filter_with_events_and_cohorts.2
-  '
+  '''
   
   SELECT s.session_id,
          any(s.team_id),
@@ -3522,7 +3408,7 @@
       (select distinct_id
        from
          (SELECT distinct_id,
-                 argMax(person_id, version) as person_id
+                 argMax(person_id, version) as current_person_id
           FROM person_distinct_id2 as pdi
           INNER JOIN
             (SELECT id
@@ -3547,15 +3433,15 @@
           FROM events e PREWHERE team_id = 2
           AND e.timestamp >= '2021-07-31 20:00:00'
           AND e.timestamp <= now()
+          AND timestamp >= '2021-08-13 12:00:00'
+          AND timestamp <= '2021-08-22 08:00:00'
           WHERE notEmpty(`$session_id`)
-            AND timestamp >= '2021-08-13 12:00:00'
-            AND timestamp <= '2021-08-22 08:00:00'
             AND (event = '$pageview')
             AND e.distinct_id in
               (select distinct_id
                from
                  (SELECT distinct_id,
-                         argMax(person_id, version) as person_id
+                         argMax(person_id, version) as current_person_id
                   FROM person_distinct_id2 as pdi
                   INNER JOIN
                     (SELECT id
@@ -3580,10 +3466,10 @@
   ORDER BY start_time DESC
   LIMIT 51
   OFFSET 0
-  '
----
+  '''
+# ---
 # name: TestClickhouseSessionRecordingsListFromSessionReplay.test_filter_with_events_and_cohorts.3
-  '
+  '''
   
   SELECT s.session_id,
          any(s.team_id),
@@ -3609,7 +3495,7 @@
       (select distinct_id
        from
          (SELECT distinct_id,
-                 argMax(person_id, version) as person_id
+                 argMax(person_id, version) as current_person_id
           FROM person_distinct_id2 as pdi
           INNER JOIN
             (SELECT id
@@ -3634,15 +3520,15 @@
           FROM events e PREWHERE team_id = 2
           AND e.timestamp >= '2021-07-31 20:00:00'
           AND e.timestamp <= now()
+          AND timestamp >= '2021-08-13 12:00:00'
+          AND timestamp <= '2021-08-22 08:00:00'
           WHERE notEmpty(`$session_id`)
-            AND timestamp >= '2021-08-13 12:00:00'
-            AND timestamp <= '2021-08-22 08:00:00'
             AND (event = 'custom_event')
             AND e.distinct_id in
               (select distinct_id
                from
                  (SELECT distinct_id,
-                         argMax(person_id, version) as person_id
+                         argMax(person_id, version) as current_person_id
                   FROM person_distinct_id2 as pdi
                   INNER JOIN
                     (SELECT id
@@ -3667,10 +3553,10 @@
   ORDER BY start_time DESC
   LIMIT 51
   OFFSET 0
-  '
----
+  '''
+# ---
 # name: TestClickhouseSessionRecordingsListFromSessionReplay.test_multiple_event_filters
-  '
+  '''
   
   SELECT s.session_id,
          any(s.team_id),
@@ -3700,9 +3586,9 @@
           FROM events e PREWHERE team_id = 2
           AND e.timestamp >= '2020-12-11 13:46:23'
           AND e.timestamp <= now()
+          AND timestamp >= '2020-12-24 12:00:00'
+          AND timestamp <= '2021-01-02 01:46:23'
           WHERE notEmpty(`$session_id`)
-            AND timestamp >= '2020-12-24 12:00:00'
-            AND timestamp <= '2021-01-02 01:46:23'
             AND ((event = '$pageview')
                  OR event = 'new-event')
           GROUP BY `$session_id`
@@ -3713,10 +3599,10 @@
   ORDER BY start_time DESC
   LIMIT 51
   OFFSET 0
-  '
----
+  '''
+# ---
 # name: TestClickhouseSessionRecordingsListFromSessionReplay.test_multiple_event_filters.1
-  '
+  '''
   
   SELECT s.session_id,
          any(s.team_id),
@@ -3746,9 +3632,9 @@
           FROM events e PREWHERE team_id = 2
           AND e.timestamp >= '2020-12-11 13:46:23'
           AND e.timestamp <= now()
+          AND timestamp >= '2020-12-24 12:00:00'
+          AND timestamp <= '2021-01-02 01:46:23'
           WHERE notEmpty(`$session_id`)
-            AND timestamp >= '2020-12-24 12:00:00'
-            AND timestamp <= '2021-01-02 01:46:23'
             AND ((event = '$pageview')
                  OR event = 'new-event2')
           GROUP BY `$session_id`
@@ -3759,10 +3645,10 @@
   ORDER BY start_time DESC
   LIMIT 51
   OFFSET 0
-  '
----
+  '''
+# ---
 # name: TestClickhouseSessionRecordingsListFromSessionReplay.test_person_id_filter
-  '
+  '''
   
   SELECT s.session_id,
          any(s.team_id),
@@ -3788,21 +3674,26 @@
       (select distinct_id
        from
          (SELECT distinct_id,
-                 argMax(person_id, version) as person_id
+                 argMax(person_id, version) as current_person_id
           FROM person_distinct_id2 as pdi
           WHERE team_id = 2
+            AND distinct_id IN
+              (SELECT distinct_id
+               FROM person_distinct_id2
+               WHERE team_id = 2
+                 AND person_id = '00000000-0000-0000-0000-000000000000') as all_distinct_ids_that_might_match_a_person
           GROUP BY distinct_id
           HAVING argMax(is_deleted, version) = 0
-          and person_id = '00000000-0000-0000-0000-000000000000') as session_persons_sub_query)
+          AND current_person_id = '00000000-0000-0000-0000-000000000000') as session_persons_sub_query)
   GROUP BY session_id
   HAVING 1=1
   ORDER BY start_time DESC
   LIMIT 51
   OFFSET 0
-  '
----
+  '''
+# ---
 # name: TestClickhouseSessionRecordingsListFromSessionReplay.test_top_level_event_property_test_account_filter
-  '
+  '''
   
   SELECT s.session_id,
          any(s.team_id),
@@ -3832,9 +3723,9 @@
           FROM events e PREWHERE team_id = 2
           AND e.timestamp >= '2020-12-31 20:00:00'
           AND e.timestamp <= now()
+          AND timestamp >= '2021-01-13 12:00:00'
+          AND timestamp <= '2021-01-22 08:00:00'
           WHERE notEmpty(`$session_id`)
-            AND timestamp >= '2021-01-13 12:00:00'
-            AND timestamp <= '2021-01-22 08:00:00'
             AND (event = '$pageview')
           GROUP BY `$session_id`
           HAVING 1=1
@@ -3844,10 +3735,10 @@
   ORDER BY start_time DESC
   LIMIT 51
   OFFSET 0
-  '
----
+  '''
+# ---
 # name: TestClickhouseSessionRecordingsListFromSessionReplay.test_top_level_event_property_test_account_filter.1
-  '
+  '''
   
   SELECT s.session_id,
          any(s.team_id),
@@ -3876,9 +3767,9 @@
           FROM events e PREWHERE team_id = 2
           AND e.timestamp >= '2020-12-31 20:00:00'
           AND e.timestamp <= now()
+          AND timestamp >= '2021-01-13 12:00:00'
+          AND timestamp <= '2021-01-22 08:00:00'
           WHERE notEmpty(`$session_id`)
-            AND timestamp >= '2021-01-13 12:00:00'
-            AND timestamp <= '2021-01-22 08:00:00'
             AND (has(['false'], replaceRegexpAll(JSONExtractRaw(e.properties, 'is_internal_user'), '^"|"$', '')))
           GROUP BY `$session_id`
           HAVING 1=1) as session_events_sub_query)
@@ -3887,10 +3778,10 @@
   ORDER BY start_time DESC
   LIMIT 51
   OFFSET 0
-  '
----
-# name: TestClickhouseSessionRecordingsListFromSessionReplay.test_top_level_event_property_test_account_filter_materialized
-  '
+  '''
+# ---
+# name: TestClickhouseSessionRecordingsListFromSessionReplay.test_top_level_event_property_test_account_filter_allowing_denormalized_props
+  '''
   
   SELECT s.session_id,
          any(s.team_id),
@@ -3920,9 +3811,9 @@
           FROM events e PREWHERE team_id = 2
           AND e.timestamp >= '2020-12-31 20:00:00'
           AND e.timestamp <= now()
+          AND timestamp >= '2021-01-13 12:00:00'
+          AND timestamp <= '2021-01-22 08:00:00'
           WHERE notEmpty(`$session_id`)
-            AND timestamp >= '2021-01-13 12:00:00'
-            AND timestamp <= '2021-01-22 08:00:00'
             AND (event = '$pageview')
           GROUP BY `$session_id`
           HAVING 1=1
@@ -3932,10 +3823,10 @@
   ORDER BY start_time DESC
   LIMIT 51
   OFFSET 0
-  '
----
-# name: TestClickhouseSessionRecordingsListFromSessionReplay.test_top_level_event_property_test_account_filter_materialized.1
-  '
+  '''
+# ---
+# name: TestClickhouseSessionRecordingsListFromSessionReplay.test_top_level_event_property_test_account_filter_allowing_denormalized_props.1
+  '''
   
   SELECT s.session_id,
          any(s.team_id),
@@ -3964,9 +3855,97 @@
           FROM events e PREWHERE team_id = 2
           AND e.timestamp >= '2020-12-31 20:00:00'
           AND e.timestamp <= now()
+          AND timestamp >= '2021-01-13 12:00:00'
+          AND timestamp <= '2021-01-22 08:00:00'
           WHERE notEmpty(`$session_id`)
-            AND timestamp >= '2021-01-13 12:00:00'
-            AND timestamp <= '2021-01-22 08:00:00'
+            AND (has(['false'], replaceRegexpAll(JSONExtractRaw(e.properties, 'is_internal_user'), '^"|"$', '')))
+          GROUP BY `$session_id`
+          HAVING 1=1) as session_events_sub_query)
+  GROUP BY session_id
+  HAVING 1=1
+  ORDER BY start_time DESC
+  LIMIT 51
+  OFFSET 0
+  '''
+# ---
+# name: TestClickhouseSessionRecordingsListFromSessionReplay.test_top_level_event_property_test_account_filter_allowing_denormalized_props_materialized
+  '''
+  
+  SELECT s.session_id,
+         any(s.team_id),
+         any(s.distinct_id),
+         min(s.min_first_timestamp) as start_time,
+         max(s.max_last_timestamp) as end_time,
+         dateDiff('SECOND', start_time, end_time) as duration,
+         argMinMerge(s.first_url) as first_url,
+         sum(s.click_count),
+         sum(s.keypress_count),
+         sum(s.mouse_activity_count),
+         sum(s.active_milliseconds)/1000 as active_seconds,
+         duration-active_seconds as inactive_seconds,
+         sum(s.console_log_count) as console_log_count,
+         sum(s.console_warn_count) as console_warn_count,
+         sum(s.console_error_count) as console_error_count
+  FROM session_replay_events s
+  WHERE s.team_id = 2
+    AND s.min_first_timestamp >= '2020-12-31 20:00:00'
+    AND s.min_first_timestamp >= '2021-01-14 00:00:00'
+    AND s.max_last_timestamp <= '2021-01-21 20:00:00'
+    AND s.session_id in
+      (select `$session_id` as session_id
+       from
+         (SELECT groupUniqArray(event) as event_names,
+                 `$session_id`
+          FROM events e PREWHERE team_id = 2
+          AND e.timestamp >= '2020-12-31 20:00:00'
+          AND e.timestamp <= now()
+          AND timestamp >= '2021-01-13 12:00:00'
+          AND timestamp <= '2021-01-22 08:00:00'
+          WHERE notEmpty(`$session_id`)
+            AND (event = '$pageview')
+          GROUP BY `$session_id`
+          HAVING 1=1
+          AND hasAll(event_names, ['$pageview'])) as session_events_sub_query)
+  GROUP BY session_id
+  HAVING 1=1
+  ORDER BY start_time DESC
+  LIMIT 51
+  OFFSET 0
+  '''
+# ---
+# name: TestClickhouseSessionRecordingsListFromSessionReplay.test_top_level_event_property_test_account_filter_allowing_denormalized_props_materialized.1
+  '''
+  
+  SELECT s.session_id,
+         any(s.team_id),
+         any(s.distinct_id),
+         min(s.min_first_timestamp) as start_time,
+         max(s.max_last_timestamp) as end_time,
+         dateDiff('SECOND', start_time, end_time) as duration,
+         argMinMerge(s.first_url) as first_url,
+         sum(s.click_count),
+         sum(s.keypress_count),
+         sum(s.mouse_activity_count),
+         sum(s.active_milliseconds)/1000 as active_seconds,
+         duration-active_seconds as inactive_seconds,
+         sum(s.console_log_count) as console_log_count,
+         sum(s.console_warn_count) as console_warn_count,
+         sum(s.console_error_count) as console_error_count
+  FROM session_replay_events s
+  WHERE s.team_id = 2
+    AND s.min_first_timestamp >= '2020-12-31 20:00:00'
+    AND s.min_first_timestamp >= '2021-01-14 00:00:00'
+    AND s.max_last_timestamp <= '2021-01-21 20:00:00'
+    AND s.session_id in
+      (select `$session_id` as session_id
+       from
+         (SELECT `$session_id`
+          FROM events e PREWHERE team_id = 2
+          AND e.timestamp >= '2020-12-31 20:00:00'
+          AND e.timestamp <= now()
+          AND timestamp >= '2021-01-13 12:00:00'
+          AND timestamp <= '2021-01-22 08:00:00'
+          WHERE notEmpty(`$session_id`)
             AND (has(['false'], "mat_is_internal_user"))
           GROUP BY `$session_id`
           HAVING 1=1) as session_events_sub_query)
@@ -3975,10 +3954,10 @@
   ORDER BY start_time DESC
   LIMIT 51
   OFFSET 0
-  '
----
-# name: TestClickhouseSessionRecordingsListFromSessionReplay.test_top_level_hogql_event_property_test_account_filter
-  '
+  '''
+# ---
+# name: TestClickhouseSessionRecordingsListFromSessionReplay.test_top_level_event_property_test_account_filter_materialized
+  '''
   
   SELECT s.session_id,
          any(s.team_id),
@@ -4008,9 +3987,9 @@
           FROM events e PREWHERE team_id = 2
           AND e.timestamp >= '2020-12-31 20:00:00'
           AND e.timestamp <= now()
+          AND timestamp >= '2021-01-13 12:00:00'
+          AND timestamp <= '2021-01-22 08:00:00'
           WHERE notEmpty(`$session_id`)
-            AND timestamp >= '2021-01-13 12:00:00'
-            AND timestamp <= '2021-01-22 08:00:00'
             AND (event = '$pageview')
           GROUP BY `$session_id`
           HAVING 1=1
@@ -4020,10 +3999,10 @@
   ORDER BY start_time DESC
   LIMIT 51
   OFFSET 0
-  '
----
-# name: TestClickhouseSessionRecordingsListFromSessionReplay.test_top_level_hogql_event_property_test_account_filter.1
-  '
+  '''
+# ---
+# name: TestClickhouseSessionRecordingsListFromSessionReplay.test_top_level_event_property_test_account_filter_materialized.1
+  '''
   
   SELECT s.session_id,
          any(s.team_id),
@@ -4052,9 +4031,97 @@
           FROM events e PREWHERE team_id = 2
           AND e.timestamp >= '2020-12-31 20:00:00'
           AND e.timestamp <= now()
+          AND timestamp >= '2021-01-13 12:00:00'
+          AND timestamp <= '2021-01-22 08:00:00'
           WHERE notEmpty(`$session_id`)
-            AND timestamp >= '2021-01-13 12:00:00'
-            AND timestamp <= '2021-01-22 08:00:00'
+            AND (has(['false'], replaceRegexpAll(JSONExtractRaw(e.properties, 'is_internal_user'), '^"|"$', '')))
+          GROUP BY `$session_id`
+          HAVING 1=1) as session_events_sub_query)
+  GROUP BY session_id
+  HAVING 1=1
+  ORDER BY start_time DESC
+  LIMIT 51
+  OFFSET 0
+  '''
+# ---
+# name: TestClickhouseSessionRecordingsListFromSessionReplay.test_top_level_hogql_event_property_test_account_filter
+  '''
+  
+  SELECT s.session_id,
+         any(s.team_id),
+         any(s.distinct_id),
+         min(s.min_first_timestamp) as start_time,
+         max(s.max_last_timestamp) as end_time,
+         dateDiff('SECOND', start_time, end_time) as duration,
+         argMinMerge(s.first_url) as first_url,
+         sum(s.click_count),
+         sum(s.keypress_count),
+         sum(s.mouse_activity_count),
+         sum(s.active_milliseconds)/1000 as active_seconds,
+         duration-active_seconds as inactive_seconds,
+         sum(s.console_log_count) as console_log_count,
+         sum(s.console_warn_count) as console_warn_count,
+         sum(s.console_error_count) as console_error_count
+  FROM session_replay_events s
+  WHERE s.team_id = 2
+    AND s.min_first_timestamp >= '2020-12-31 20:00:00'
+    AND s.min_first_timestamp >= '2021-01-14 00:00:00'
+    AND s.max_last_timestamp <= '2021-01-21 20:00:00'
+    AND s.session_id in
+      (select `$session_id` as session_id
+       from
+         (SELECT groupUniqArray(event) as event_names,
+                 `$session_id`
+          FROM events e PREWHERE team_id = 2
+          AND e.timestamp >= '2020-12-31 20:00:00'
+          AND e.timestamp <= now()
+          AND timestamp >= '2021-01-13 12:00:00'
+          AND timestamp <= '2021-01-22 08:00:00'
+          WHERE notEmpty(`$session_id`)
+            AND (event = '$pageview')
+          GROUP BY `$session_id`
+          HAVING 1=1
+          AND hasAll(event_names, ['$pageview'])) as session_events_sub_query)
+  GROUP BY session_id
+  HAVING 1=1
+  ORDER BY start_time DESC
+  LIMIT 51
+  OFFSET 0
+  '''
+# ---
+# name: TestClickhouseSessionRecordingsListFromSessionReplay.test_top_level_hogql_event_property_test_account_filter.1
+  '''
+  
+  SELECT s.session_id,
+         any(s.team_id),
+         any(s.distinct_id),
+         min(s.min_first_timestamp) as start_time,
+         max(s.max_last_timestamp) as end_time,
+         dateDiff('SECOND', start_time, end_time) as duration,
+         argMinMerge(s.first_url) as first_url,
+         sum(s.click_count),
+         sum(s.keypress_count),
+         sum(s.mouse_activity_count),
+         sum(s.active_milliseconds)/1000 as active_seconds,
+         duration-active_seconds as inactive_seconds,
+         sum(s.console_log_count) as console_log_count,
+         sum(s.console_warn_count) as console_warn_count,
+         sum(s.console_error_count) as console_error_count
+  FROM session_replay_events s
+  WHERE s.team_id = 2
+    AND s.min_first_timestamp >= '2020-12-31 20:00:00'
+    AND s.min_first_timestamp >= '2021-01-14 00:00:00'
+    AND s.max_last_timestamp <= '2021-01-21 20:00:00'
+    AND s.session_id in
+      (select `$session_id` as session_id
+       from
+         (SELECT `$session_id`
+          FROM events e PREWHERE team_id = 2
+          AND e.timestamp >= '2020-12-31 20:00:00'
+          AND e.timestamp <= now()
+          AND timestamp >= '2021-01-13 12:00:00'
+          AND timestamp <= '2021-01-22 08:00:00'
+          WHERE notEmpty(`$session_id`)
             AND (ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(properties, 'is_internal_user'), ''), 'null'), '^"|"$', ''), 'true'), 0))
           GROUP BY `$session_id`
           HAVING 1=1) as session_events_sub_query)
@@ -4063,10 +4130,10 @@
   ORDER BY start_time DESC
   LIMIT 51
   OFFSET 0
-  '
----
+  '''
+# ---
 # name: TestClickhouseSessionRecordingsListFromSessionReplay.test_top_level_hogql_event_property_test_account_filter_materialized
-  '
+  '''
   
   SELECT s.session_id,
          any(s.team_id),
@@ -4096,9 +4163,9 @@
           FROM events e PREWHERE team_id = 2
           AND e.timestamp >= '2020-12-31 20:00:00'
           AND e.timestamp <= now()
+          AND timestamp >= '2021-01-13 12:00:00'
+          AND timestamp <= '2021-01-22 08:00:00'
           WHERE notEmpty(`$session_id`)
-            AND timestamp >= '2021-01-13 12:00:00'
-            AND timestamp <= '2021-01-22 08:00:00'
             AND (event = '$pageview')
           GROUP BY `$session_id`
           HAVING 1=1
@@ -4108,10 +4175,10 @@
   ORDER BY start_time DESC
   LIMIT 51
   OFFSET 0
-  '
----
+  '''
+# ---
 # name: TestClickhouseSessionRecordingsListFromSessionReplay.test_top_level_hogql_event_property_test_account_filter_materialized.1
-  '
+  '''
   
   SELECT s.session_id,
          any(s.team_id),
@@ -4140,9 +4207,9 @@
           FROM events e PREWHERE team_id = 2
           AND e.timestamp >= '2020-12-31 20:00:00'
           AND e.timestamp <= now()
+          AND timestamp >= '2021-01-13 12:00:00'
+          AND timestamp <= '2021-01-22 08:00:00'
           WHERE notEmpty(`$session_id`)
-            AND timestamp >= '2021-01-13 12:00:00'
-            AND timestamp <= '2021-01-22 08:00:00'
             AND (ifNull(equals(nullIf(nullIf(events.mat_is_internal_user, ''), 'null'), 'true'), 0))
           GROUP BY `$session_id`
           HAVING 1=1) as session_events_sub_query)
@@ -4151,10 +4218,10 @@
   ORDER BY start_time DESC
   LIMIT 51
   OFFSET 0
-  '
----
+  '''
+# ---
 # name: TestClickhouseSessionRecordingsListFromSessionReplay.test_top_level_hogql_person_property_test_account_filter
-  '
+  '''
   
   SELECT s.session_id,
          any(s.team_id),
@@ -4184,9 +4251,9 @@
           FROM events e PREWHERE team_id = 2
           AND e.timestamp >= '2020-12-31 20:00:00'
           AND e.timestamp <= now()
+          AND timestamp >= '2021-01-13 12:00:00'
+          AND timestamp <= '2021-01-22 08:00:00'
           WHERE notEmpty(`$session_id`)
-            AND timestamp >= '2021-01-13 12:00:00'
-            AND timestamp <= '2021-01-22 08:00:00'
             AND (event = '$pageview')
           GROUP BY `$session_id`
           HAVING 1=1
@@ -4196,10 +4263,10 @@
   ORDER BY start_time DESC
   LIMIT 51
   OFFSET 0
-  '
----
+  '''
+# ---
 # name: TestClickhouseSessionRecordingsListFromSessionReplay.test_top_level_hogql_person_property_test_account_filter.1
-  '
+  '''
   
   SELECT s.session_id,
          any(s.team_id),
@@ -4225,7 +4292,7 @@
       (select distinct_id
        from
          (SELECT distinct_id,
-                 argMax(person_id, version) as person_id ,
+                 argMax(person_id, version) as current_person_id ,
                  argMax(person_props, version) as person_props
           FROM person_distinct_id2 as pdi
           INNER JOIN
@@ -4244,10 +4311,10 @@
   ORDER BY start_time DESC
   LIMIT 51
   OFFSET 0
-  '
----
+  '''
+# ---
 # name: TestClickhouseSessionRecordingsListFromSessionReplay.test_top_level_hogql_person_property_test_account_filter_materialized
-  '
+  '''
   
   SELECT s.session_id,
          any(s.team_id),
@@ -4277,9 +4344,9 @@
           FROM events e PREWHERE team_id = 2
           AND e.timestamp >= '2020-12-31 20:00:00'
           AND e.timestamp <= now()
+          AND timestamp >= '2021-01-13 12:00:00'
+          AND timestamp <= '2021-01-22 08:00:00'
           WHERE notEmpty(`$session_id`)
-            AND timestamp >= '2021-01-13 12:00:00'
-            AND timestamp <= '2021-01-22 08:00:00'
             AND (event = '$pageview')
           GROUP BY `$session_id`
           HAVING 1=1
@@ -4289,10 +4356,10 @@
   ORDER BY start_time DESC
   LIMIT 51
   OFFSET 0
-  '
----
+  '''
+# ---
 # name: TestClickhouseSessionRecordingsListFromSessionReplay.test_top_level_hogql_person_property_test_account_filter_materialized.1
-  '
+  '''
   
   SELECT s.session_id,
          any(s.team_id),
@@ -4318,7 +4385,7 @@
       (select distinct_id
        from
          (SELECT distinct_id,
-                 argMax(person_id, version) as person_id
+                 argMax(person_id, version) as current_person_id
           FROM person_distinct_id2 as pdi
           INNER JOIN
             (SELECT id,
@@ -4336,10 +4403,10 @@
   ORDER BY start_time DESC
   LIMIT 51
   OFFSET 0
-  '
----
+  '''
+# ---
 # name: TestClickhouseSessionRecordingsListFromSessionReplay.test_top_level_person_property_test_account_filter
-  '
+  '''
   
   SELECT s.session_id,
          any(s.team_id),
@@ -4369,9 +4436,9 @@
           FROM events e PREWHERE team_id = 2
           AND e.timestamp >= '2020-12-31 20:00:00'
           AND e.timestamp <= now()
+          AND timestamp >= '2021-01-13 12:00:00'
+          AND timestamp <= '2021-01-22 08:00:00'
           WHERE notEmpty(`$session_id`)
-            AND timestamp >= '2021-01-13 12:00:00'
-            AND timestamp <= '2021-01-22 08:00:00'
             AND (event = '$pageview')
           GROUP BY `$session_id`
           HAVING 1=1
@@ -4381,10 +4448,10 @@
   ORDER BY start_time DESC
   LIMIT 51
   OFFSET 0
-  '
----
+  '''
+# ---
 # name: TestClickhouseSessionRecordingsListFromSessionReplay.test_top_level_person_property_test_account_filter.1
-  '
+  '''
   
   SELECT s.session_id,
          any(s.team_id),
@@ -4410,7 +4477,7 @@
       (select distinct_id
        from
          (SELECT distinct_id,
-                 argMax(person_id, version) as person_id
+                 argMax(person_id, version) as current_person_id
           FROM person_distinct_id2 as pdi
           INNER JOIN
             (SELECT id
@@ -4432,10 +4499,10 @@
   ORDER BY start_time DESC
   LIMIT 51
   OFFSET 0
-  '
----
+  '''
+# ---
 # name: TestClickhouseSessionRecordingsListFromSessionReplay.test_top_level_person_property_test_account_filter_materialized
-  '
+  '''
   
   SELECT s.session_id,
          any(s.team_id),
@@ -4465,9 +4532,9 @@
           FROM events e PREWHERE team_id = 2
           AND e.timestamp >= '2020-12-31 20:00:00'
           AND e.timestamp <= now()
+          AND timestamp >= '2021-01-13 12:00:00'
+          AND timestamp <= '2021-01-22 08:00:00'
           WHERE notEmpty(`$session_id`)
-            AND timestamp >= '2021-01-13 12:00:00'
-            AND timestamp <= '2021-01-22 08:00:00'
             AND (event = '$pageview')
           GROUP BY `$session_id`
           HAVING 1=1
@@ -4477,10 +4544,10 @@
   ORDER BY start_time DESC
   LIMIT 51
   OFFSET 0
-  '
----
+  '''
+# ---
 # name: TestClickhouseSessionRecordingsListFromSessionReplay.test_top_level_person_property_test_account_filter_materialized.1
-  '
+  '''
   
   SELECT s.session_id,
          any(s.team_id),
@@ -4506,7 +4573,7 @@
       (select distinct_id
        from
          (SELECT distinct_id,
-                 argMax(person_id, version) as person_id
+                 argMax(person_id, version) as current_person_id
           FROM person_distinct_id2 as pdi
           INNER JOIN
             (SELECT id
@@ -4528,5 +4595,5 @@
   ORDER BY start_time DESC
   LIMIT 51
   OFFSET 0
-  '
----
+  '''
+# ---

@@ -3,6 +3,8 @@ from urllib.parse import quote
 
 from django.test.client import Client
 from rest_framework import status
+from posthog.api.test.test_organization import create_organization
+from posthog.api.test.test_team import create_team
 
 from posthog.models import Action, Cohort, Dashboard, FeatureFlag, Insight
 from posthog.models.organization import Organization
@@ -111,6 +113,7 @@ class TestAutoProjectMiddleware(APIBaseTest):
     # How many queries are made in the base app
     # On Cloud there's an additional multi_tenancy_organizationbilling query
     second_team: Team
+    no_access_team: Team
     base_app_num_queries: int
 
     @classmethod
@@ -118,7 +121,9 @@ class TestAutoProjectMiddleware(APIBaseTest):
         super().setUpTestData()
         cls.base_app_num_queries = 41
         # Create another team that the user does have access to
-        cls.second_team = Team.objects.create(organization=cls.organization, name="Second Life")
+        cls.second_team = create_team(organization=cls.organization, name="Second Life")
+        other_org = create_organization(name="test org")
+        cls.no_access_team = create_team(organization=other_org)
 
     def setUp(self):
         super().setUp()
@@ -272,9 +277,42 @@ class TestAutoProjectMiddleware(APIBaseTest):
         self.assertEqual(response_users_api.status_code, 200)
         self.assertEqual(response_users_api_data.get("team", {}).get("id"), self.team.id)
 
+    def test_project_switched_when_accessing_another_project_by_id(self):
+        project_1_request = self.client.get(f"/project/{self.team.pk}/home")
+        response_users_api = self.client.get(f"/api/users/@me/")
+        assert project_1_request.status_code == 200
+        assert response_users_api.json().get("team", {}).get("id") == self.team.id
 
+        project_2_request = self.client.get(f"/project/{self.second_team.pk}/home")
+        response_users_api = self.client.get(f"/api/users/@me/")
+        assert project_2_request.status_code == 200
+        assert response_users_api.json().get("team", {}).get("id") == self.second_team.id
+
+    def test_project_unchanged_when_accessing_inaccessible_project_by_id(self):
+        project_1_request = self.client.get(f"/project/{self.team.pk}/home")
+        response_users_api = self.client.get(f"/api/users/@me/")
+        assert project_1_request.status_code == 200
+        assert response_users_api.json().get("team", {}).get("id") == self.team.id
+
+        project_2_request = self.client.get(f"/project/{self.no_access_team.pk}/home")
+        response_users_api = self.client.get(f"/api/users/@me/")
+        assert project_2_request.status_code == 200
+        assert response_users_api.json().get("team", {}).get("id") == self.team.id
+
+    def test_project_unchanged_when_accessing_missing_project_by_id(self):
+        project_1_request = self.client.get(f"/project/{self.team.pk}/home")
+        response_users_api = self.client.get(f"/api/users/@me/")
+        assert project_1_request.status_code == 200
+        assert response_users_api.json().get("team", {}).get("id") == self.team.id
+
+        project_2_request = self.client.get(f"/project/999999/home")
+        response_users_api = self.client.get(f"/api/users/@me/")
+        assert project_2_request.status_code == 200
+        assert response_users_api.json().get("team", {}).get("id") == self.team.id
+
+
+@override_settings(CLOUD_DEPLOYMENT="US")  # As PostHog Cloud
 class TestPostHogTokenCookieMiddleware(APIBaseTest):
-    initial_cloud_mode = True
     CONFIG_AUTO_LOGIN = False
 
     def test_logged_out_client(self):

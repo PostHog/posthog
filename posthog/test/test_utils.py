@@ -281,16 +281,16 @@ class TestRelativeDateParse(TestCase):
 
 class TestDefaultEventName(BaseTest):
     def test_no_events(self):
-        self.assertEqual(get_default_event_name(), "$pageview")
+        self.assertEqual(get_default_event_name(self.team), "$pageview")
 
     def test_take_screen(self):
         EventDefinition.objects.create(name="$screen", team=self.team)
-        self.assertEqual(get_default_event_name(), "$screen")
+        self.assertEqual(get_default_event_name(self.team), "$screen")
 
     def test_prefer_pageview(self):
         EventDefinition.objects.create(name="$pageview", team=self.team)
         EventDefinition.objects.create(name="$screen", team=self.team)
-        self.assertEqual(get_default_event_name(), "$pageview")
+        self.assertEqual(get_default_event_name(self.team), "$pageview")
 
 
 class TestLoadDataFromRequest(TestCase):

@@ -1,9 +1,9 @@
 import { Node } from '~/queries/schema'
 import {
+    isActorsQuery,
     isEventsQuery,
     isHogQLQuery,
     isPersonsNode,
-    isPersonsQuery,
     isWebOverviewQuery,
     isWebStatsTableQuery,
     isWebTopClicksQuery,
@@ -22,6 +22,7 @@ export enum QueryFeature {
     resultIsArrayOfArrays,
     selectAndOrderByColumns,
     displayResponseError,
+    hideLoadNextButton,
 }
 
 export function getQueryFeatures(query: Node): Set<QueryFeature> {
@@ -43,11 +44,11 @@ export function getQueryFeatures(query: Node): Set<QueryFeature> {
         features.add(QueryFeature.selectAndOrderByColumns)
     }
 
-    if (isPersonsNode(query) || isPersonsQuery(query)) {
+    if (isPersonsNode(query) || isActorsQuery(query)) {
         features.add(QueryFeature.personPropertyFilters)
         features.add(QueryFeature.personsSearch)
 
-        if (isPersonsQuery(query)) {
+        if (isActorsQuery(query)) {
             features.add(QueryFeature.selectAndOrderByColumns)
             features.add(QueryFeature.columnsInResponse)
             features.add(QueryFeature.resultIsArrayOfArrays)
@@ -57,6 +58,7 @@ export function getQueryFeatures(query: Node): Set<QueryFeature> {
     if (isWebOverviewQuery(query) || isWebTopClicksQuery(query) || isWebStatsTableQuery(query)) {
         features.add(QueryFeature.columnsInResponse)
         features.add(QueryFeature.resultIsArrayOfArrays)
+        features.add(QueryFeature.hideLoadNextButton)
     }
 
     return features

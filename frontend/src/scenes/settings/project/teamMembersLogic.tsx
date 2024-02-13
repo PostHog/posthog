@@ -3,7 +3,7 @@ import { forms } from 'kea-forms'
 import { loaders } from 'kea-loaders'
 import api from 'lib/api'
 import { OrganizationMembershipLevel, TeamMembershipLevel } from 'lib/constants'
-import { lemonToast } from 'lib/lemon-ui/lemonToast'
+import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { membershipLevelToName } from 'lib/utils/permissioning'
 import { membersLogic } from 'scenes/organization/membersLogic'
 

@@ -20,6 +20,7 @@ from .annotation import Annotation
 from .async_deletion import AsyncDeletion, DeletionType
 from .async_migration import AsyncMigration, AsyncMigrationError, MigrationStatus
 from .cohort import Cohort, CohortPeople
+from .comment import Comment
 from .dashboard import Dashboard
 from .dashboard_tile import DashboardTile, Text
 from .early_access_feature import EarlyAccessFeature
@@ -33,6 +34,7 @@ from .event_property import EventProperty
 from .experiment import Experiment
 from .exported_asset import ExportedAsset
 from .feature_flag import FeatureFlag
+from .scheduled_change import ScheduledChange
 from .feedback.survey import Survey
 from .filters import Filter, RetentionFilter
 from .group import Group
@@ -54,7 +56,6 @@ from .plugin import (
     PluginLogEntry,
     PluginSourceFile,
 )
-from .prompt.prompt import Prompt, PromptSequence, UserPromptState
 from .property import Property
 from .property_definition import PropertyDefinition
 from .sharing_configuration import SharingConfiguration
@@ -65,6 +66,8 @@ from .team import Team
 from .uploaded_media import UploadedMedia
 from .user import User, UserManager
 from .user_scene_personalisation import UserScenePersonalisation
+
+from ._deprecated_prompts import Prompt, PromptSequence, UserPromptState
 
 __all__ = [
     "Action",
@@ -119,8 +122,6 @@ __all__ = [
     "PluginConfig",
     "PluginLogEntry",
     "PluginSourceFile",
-    "Prompt",
-    "PromptSequence",
     "Property",
     "PropertyDefinition",
     "RetentionFilter",
@@ -138,6 +139,10 @@ __all__ = [
     "User",
     "UserScenePersonalisation",
     "UserManager",
-    "UserPromptState",
     "DataWarehouseTable",
+    "ScheduledChange",
+    # Deprecated models here for backwards compatibility
+    "Prompt",
+    "PromptSequence",
+    "UserPromptState",
 ]

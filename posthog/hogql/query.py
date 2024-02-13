@@ -20,9 +20,9 @@ from posthog.hogql.visitor import clone_expr
 from posthog.models.team import Team
 from posthog.clickhouse.query_tagging import tag_queries
 from posthog.client import sync_execute
-from posthog.schema import HogQLQueryResponse, HogQLFilters, HogQLQueryModifiers
+from posthog.schema import HogQLQueryResponse, HogQLFilters, HogQLQueryModifiers, HogQLMetadata, HogQLMetadataResponse
 
-EXPORT_CONTEXT_MAX_EXECUTION_TIME = 600
+INCREASED_MAX_EXECUTION_TIME = 600
 
 
 def execute_hogql_query(
@@ -37,9 +37,12 @@ def execute_hogql_query(
     limit_context: Optional[LimitContext] = LimitContext.QUERY,
     timings: Optional[HogQLTimings] = None,
     explain: Optional[bool] = False,
+    pretty: Optional[bool] = True,
 ) -> HogQLQueryResponse:
     if timings is None:
         timings = HogQLTimings()
+
+    query_modifiers = create_default_modifiers_for_team(team, modifiers)
 
     with timings.measure("query"):
         if isinstance(query, ast.SelectQuery) or isinstance(query, ast.SelectUnionQuery):
@@ -77,10 +80,10 @@ def execute_hogql_query(
 
     # Get printed HogQL query, and returned columns. Using a cloned query.
     with timings.measure("hogql"):
-        query_modifiers = create_default_modifiers_for_team(team, modifiers)
         with timings.measure("prepare_ast"):
             hogql_query_context = HogQLContext(
                 team_id=team.pk,
+                team=team,
                 enable_select_queries=True,
                 timings=timings,
                 modifiers=query_modifiers,
@@ -93,7 +96,9 @@ def execute_hogql_query(
             )
 
         with timings.measure("print_ast"):
-            hogql = print_prepared_ast(select_query_hogql, hogql_query_context, "hogql")
+            hogql = print_prepared_ast(
+                select_query_hogql, hogql_query_context, "hogql", pretty=pretty if pretty is not None else True
+            )
             print_columns = []
             columns_query = (
                 select_query_hogql.select_queries[0]
@@ -114,13 +119,14 @@ def execute_hogql_query(
                     )
 
     settings = settings or HogQLGlobalSettings()
-    if limit_context == LimitContext.EXPORT or limit_context == LimitContext.COHORT_CALCULATION:
-        settings.max_execution_time = EXPORT_CONTEXT_MAX_EXECUTION_TIME
+    if limit_context in (LimitContext.EXPORT, LimitContext.COHORT_CALCULATION, LimitContext.QUERY_ASYNC):
+        settings.max_execution_time = INCREASED_MAX_EXECUTION_TIME
 
     # Print the ClickHouse SQL query
     with timings.measure("print_ast"):
         clickhouse_context = HogQLContext(
             team_id=team.pk,
+            team=team,
             enable_select_queries=True,
             timings=timings,
             modifiers=query_modifiers,
@@ -130,6 +136,7 @@ def execute_hogql_query(
             context=clickhouse_context,
             dialect="clickhouse",
             settings=settings,
+            pretty=pretty if pretty is not None else True,
         )
 
     timings_dict = timings.to_dict()
@@ -155,13 +162,14 @@ def execute_hogql_query(
         except Exception as e:
             if explain:
                 results, types = None, None
-                if isinstance(e, ExposedCHQueryError) or isinstance(e, HogQLException):
+                if isinstance(e, (ExposedCHQueryError, HogQLException)):
                     error = str(e)
                 else:
                     error = "Unknown error"
             else:
                 raise e
 
+    metadata: Optional[HogQLMetadataResponse] = None
     if explain and error is None:  # If the query errored, explain will fail as well.
         with timings.measure("explain"):
             explain_results = sync_execute(
@@ -173,6 +181,10 @@ def execute_hogql_query(
                 readonly=True,
             )
             explain_output = [str(r[0]) for r in explain_results[0]]
+        with timings.measure("metadata"):
+            from posthog.hogql.metadata import get_hogql_metadata
+
+            metadata = get_hogql_metadata(HogQLMetadata(select=hogql, debug=True), team)
     else:
         explain_output = None
 
@@ -187,4 +199,5 @@ def execute_hogql_query(
         types=types,
         modifiers=query_modifiers,
         explain=explain_output,
+        metadata=metadata,
     )

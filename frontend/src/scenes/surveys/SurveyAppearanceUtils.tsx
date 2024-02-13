@@ -57,6 +57,7 @@ export const posthogLogoSVG = (
         <g clipPath="url(#clip0_2415_6911)">
             <mask
                 id="mask0_2415_6911"
+                // eslint-disable-next-line react/forbid-dom-props
                 style={{ maskType: 'luminance' }}
                 maskUnits="userSpaceOnUse"
                 x="0"
@@ -100,7 +101,7 @@ export const posthogLogoSVG = (
         </defs>
     </svg>
 )
-export function getTextColor(el: never): string {
+export function getTextColor(el: Element): 'white' | 'black' {
     const backgroundColor = window.getComputedStyle(el).backgroundColor
     if (backgroundColor === 'rgba(0, 0, 0, 0)') {
         return 'black'
@@ -114,6 +115,10 @@ export function getTextColor(el: never): string {
         b = parseInt(colorMatch[3]),
         hsp = Math.sqrt(0.299 * (r * r) + 0.587 * (g * g) + 0.114 * (b * b))
     return hsp > 127.5 ? 'black' : 'white'
+}
+/** Return the rgb-components for usage within css rgb(). */
+export function getTextColorComponents(color: 'white' | 'black'): string {
+    return color === 'white' ? '255, 255, 255' : '0, 0, 0'
 }
 
 export function PresentationTypeCard({
@@ -134,9 +139,9 @@ export function PresentationTypeCard({
     return (
         <div
             // eslint-disable-next-line react/forbid-dom-props
-            style={{ height: 230, width: 260 }}
+            style={{ height: 180, width: 200 }}
             className={clsx(
-                'border rounded-md relative px-4 py-2 overflow-hidden',
+                'border rounded relative px-4 py-2 overflow-hidden',
                 active ? 'border-primary' : 'border-border'
             )}
         >

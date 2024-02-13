@@ -7,8 +7,8 @@ import {
     RETENTION_FIRST_TIME,
     ShownAsValue,
 } from 'lib/constants'
+import { clamp } from 'lib/utils'
 import { getDefaultEventName } from 'lib/utils/getAppContext'
-import { deepCleanFunnelExclusionEvents, getClampedStepRangeFilter, isStepsUndefined } from 'scenes/funnels/funnelUtils'
 import { isURLNormalizeable } from 'scenes/insights/filters/BreakdownFilter/taxonomicBreakdownFilterUtils'
 import {
     isFunnelsFilter,
@@ -26,6 +26,7 @@ import {
     Entity,
     EntityTypes,
     FilterType,
+    FunnelExclusionLegacy,
     FunnelsFilterType,
     FunnelVizType,
     InsightType,
@@ -51,6 +52,60 @@ export function getDefaultEvent(): Entity {
     }
 }
 
+export const isStepsUndefined = (filters: FunnelsFilterType): boolean =>
+    typeof filters.events === 'undefined' && (typeof filters.actions === 'undefined' || filters.actions.length === 0)
+
+const findFirstNumber = (candidates: (number | undefined)[]): number | undefined =>
+    candidates.find((s) => typeof s === 'number')
+
+export const getClampedStepRangeFilter = ({
+    stepRange,
+    filters,
+}: {
+    stepRange?: FunnelExclusionLegacy | { funnel_from_step?: number; funnel_to_step?: number }
+    filters: FunnelsFilterType
+}): FunnelExclusionLegacy | { funnel_from_step?: number; funnel_to_step?: number } => {
+    const maxStepIndex = Math.max((filters.events?.length || 0) + (filters.actions?.length || 0) - 1, 1)
+
+    let funnel_from_step = findFirstNumber([stepRange?.funnel_from_step, filters.funnel_from_step])
+    let funnel_to_step = findFirstNumber([stepRange?.funnel_to_step, filters.funnel_to_step])
+
+    const funnelFromStepIsSet = typeof funnel_from_step === 'number'
+    const funnelToStepIsSet = typeof funnel_to_step === 'number'
+
+    if (funnelFromStepIsSet && funnelToStepIsSet) {
+        funnel_from_step = clamp(funnel_from_step ?? 0, 0, maxStepIndex)
+        funnel_to_step = clamp(funnel_to_step ?? maxStepIndex, funnel_from_step + 1, maxStepIndex)
+    }
+
+    return {
+        ...(stepRange || {}),
+        funnel_from_step,
+        funnel_to_step,
+    }
+}
+
+export const deepCleanFunnelExclusionEvents = (filters: FunnelsFilterType): FunnelExclusionLegacy[] | undefined => {
+    if (!filters.exclusions) {
+        return undefined
+    }
+
+    const lastIndex = Math.max((filters.events?.length || 0) + (filters.actions?.length || 0) - 1, 1)
+    const exclusions = filters.exclusions.map((event) => {
+        const funnel_from_step = event.funnel_from_step ? clamp(event.funnel_from_step, 0, lastIndex - 1) : 0
+        return {
+            ...event,
+            ...{ funnel_from_step },
+            ...{
+                funnel_to_step: event.funnel_to_step
+                    ? clamp(event.funnel_to_step, funnel_from_step + 1, lastIndex)
+                    : lastIndex,
+            },
+        }
+    })
+    return exclusions.length > 0 ? exclusions : undefined
+}
+
 /** Take the first series from filters and, based on it, apply the most relevant breakdown type to cleanedParams. */
 const useMostRelevantBreakdownType = (cleanedParams: Partial<FilterType>, filters: Partial<FilterType>): void => {
     const series: LocalFilter | undefined = toLocalFilters(filters)[0]
@@ -72,8 +127,9 @@ function cleanBreakdownNormalizeURL(
 
 const cleanBreakdownParams = (cleanedParams: Partial<FilterType>, filters: Partial<FilterType>): void => {
     const isStepsFunnel = isFunnelsFilter(filters) && filters.funnel_viz_type === FunnelVizType.Steps
+    const isTrendsFunnel = isFunnelsFilter(filters) && filters.funnel_viz_type === FunnelVizType.Trends
     const isTrends = isTrendsFilter(filters)
-    const canBreakdown = isStepsFunnel || isTrends
+    const canBreakdown = isStepsFunnel || isTrendsFunnel || isTrends
 
     const canMultiPropertyBreakdown = isStepsFunnel
 
@@ -312,7 +368,7 @@ export function cleanFilters(
                     stepRange: e,
                     filters: funnelsFilter,
                 })
-            ),
+            ) as FunnelExclusionLegacy[],
         }
         return returnedParams
     } else if (isPathsFilter(filters)) {

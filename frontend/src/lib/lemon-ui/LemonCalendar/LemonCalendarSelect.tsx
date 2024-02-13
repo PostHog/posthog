@@ -21,14 +21,7 @@ export function LemonCalendarSelect({ value, onChange, months, onClose }: LemonC
             <div className="flex justify-between border-b p-2 pb-4">
                 <h3 className="text-base mb-0">Select a date</h3>
                 {onClose && (
-                    <LemonButton
-                        icon={<IconClose />}
-                        size="small"
-                        status="stealth"
-                        onClick={onClose}
-                        aria-label="close"
-                        noPadding
-                    />
+                    <LemonButton icon={<IconClose />} size="small" onClick={onClose} aria-label="close" noPadding />
                 )}
             </div>
             <div className="p-2">
@@ -38,7 +31,7 @@ export function LemonCalendarSelect({ value, onChange, months, onClose }: LemonC
                     months={months}
                     getLemonButtonProps={({ date, props }) => {
                         if (date.isSame(selectValue, 'd')) {
-                            return { ...props, status: 'primary', type: 'primary' }
+                            return { ...props, status: 'default', type: 'primary' }
                         }
                         return props
                     }}
@@ -96,7 +89,6 @@ export function LemonCalendarSelectInput(
             <LemonButton
                 onClick={() => setVisible(true)}
                 type="secondary"
-                status="stealth"
                 fullWidth
                 sideAction={
                     showClear

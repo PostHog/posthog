@@ -31,7 +31,7 @@ export const _PureFields = (): JSX.Element => {
     return (
         <div className="space-y-4">
             <PureField
-                label={'Text input label'}
+                label="Text input label"
                 showOptional
                 help={
                     <>
@@ -43,7 +43,7 @@ export const _PureFields = (): JSX.Element => {
                 <LemonInput placeholder="Optional descriptive placeholder text" />
             </PureField>
 
-            <PureField label={'Select label'} info={<>With info!</>}>
+            <PureField label="Select label" info={<>With info!</>}>
                 <LemonSelect options={[{ value: 'foo', label: 'bar' }]} fullWidth />
             </PureField>
 
@@ -129,7 +129,7 @@ export const _FieldsWithKeaForm = (): JSX.Element => {
                     <LemonInput placeholder="Jon Snow" />
                 </Field>
 
-                <Field name="select" label={'Select label'} info={<>With info!</>}>
+                <Field name="select" label="Select label" info={<>With info!</>}>
                     <LemonSelect options={[{ value: 'foo', label: 'bar' }]} fullWidth />
                 </Field>
 

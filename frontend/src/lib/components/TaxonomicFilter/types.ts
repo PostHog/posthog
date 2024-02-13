@@ -1,10 +1,19 @@
 import Fuse from 'fuse.js'
 import { LogicWrapper } from 'kea'
 
-import { ActionType, CohortType, EventDefinition, PersonProperty, PropertyDefinition } from '~/types'
+import { AnyDataNode } from '~/queries/schema'
+import {
+    ActionType,
+    CohortType,
+    EventDefinition,
+    PersonProperty,
+    PropertyDefinition,
+    PropertyFilterType,
+} from '~/types'
 
 export interface SimpleOption {
     name: string
+    propertyFilterType?: PropertyFilterType
 }
 
 export interface TaxonomicFilterProps {
@@ -22,8 +31,8 @@ export interface TaxonomicFilterProps {
     selectFirstItem?: boolean
     /** use to filter results in a group by name, currently only working for EventProperties */
     excludedProperties?: { [key in TaxonomicFilterGroupType]?: TaxonomicFilterValue[] }
-    propertyAllowList?: { [key in TaxonomicFilterGroupType]?: string[] } // only return properties in this list, currently only working for EventProperties
-    hogQLTable?: string
+    propertyAllowList?: { [key in TaxonomicFilterGroupType]?: string[] } // only return properties in this list, currently only working for EventProperties and PersonProperties
+    metadataSource?: AnyDataNode
 }
 
 export interface TaxonomicFilterLogicProps extends TaxonomicFilterProps {
@@ -65,6 +74,8 @@ export interface TaxonomicFilterGroup {
 }
 
 export enum TaxonomicFilterGroupType {
+    // Person and event metadata that isn't present in properties
+    Metadata = 'metadata',
     Actions = 'actions',
     Cohorts = 'cohorts',
     CohortsWithAllUsers = 'cohorts_with_all',

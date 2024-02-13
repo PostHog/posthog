@@ -14,14 +14,6 @@ export function processEvent(event, { config }) {
 // Runs when the plugin is loaded, allows for preparing it as needed
 export function setupPlugin (meta) {
     console.log(\`The date is \${new Date().toDateString()}\`)
-}
-
-// Runs every hour on the hour
-export async function runEveryHour(meta) {
-    const response = await fetch('https://palabras-aleatorias-public-api.herokuapp.com/random')
-    const data = await response.json()
-    const randomSpanishWord = data.body.Word
-    console.log(\`¡\${randomSpanishWord.toUpperCase()}!\`)
 }`,
     'frontend.tsx': `import React from "react"
 

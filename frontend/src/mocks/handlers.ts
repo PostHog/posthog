@@ -9,7 +9,6 @@ import {
     MOCK_DEFAULT_USER,
     MOCK_PERSON_PROPERTIES,
     MOCK_SECOND_ORGANIZATION_MEMBER,
-    MOCK_TEAM_ID,
 } from 'lib/api.mock'
 
 import { getAvailableFeatures } from '~/mocks/features'
@@ -33,6 +32,7 @@ export const defaultMocks: Mocks = {
         '/api/projects/:team_id/event_definitions/': EMPTY_PAGINATED_RESPONSE,
         '/api/projects/:team_id/cohorts/': toPaginatedResponse([MOCK_DEFAULT_COHORT]),
         '/api/projects/:team_id/dashboards/': EMPTY_PAGINATED_RESPONSE,
+        '/api/projects/:team_id/dashboard_templates': EMPTY_PAGINATED_RESPONSE,
         '/api/projects/:team_id/dashboard_templates/repository/': [],
         '/api/projects/:team_id/notebooks': () => {
             // this was matching on `?contains=query` but that made MSW unhappy and seems unnecessary
@@ -73,8 +73,7 @@ export const defaultMocks: Mocks = {
         '/api/organizations/@current/plugins/repository/': [],
         '/api/organizations/@current/plugins/unused/': [],
         '/api/plugin_config/': toPaginatedResponse([MOCK_DEFAULT_PLUGIN_CONFIG]),
-        [`/api/projects/${MOCK_TEAM_ID}/plugin_configs/${MOCK_DEFAULT_PLUGIN_CONFIG.id}/`]: MOCK_DEFAULT_PLUGIN_CONFIG,
-        '/api/projects/@current/persons/properties/': toPaginatedResponse(MOCK_PERSON_PROPERTIES),
+        [`/api/projects/:team_id/plugin_configs/${MOCK_DEFAULT_PLUGIN_CONFIG.id}/`]: MOCK_DEFAULT_PLUGIN_CONFIG,
         '/api/projects/:team_id/persons': EMPTY_PAGINATED_RESPONSE,
         '/api/projects/:team_id/persons/properties/': toPaginatedResponse(MOCK_PERSON_PROPERTIES),
         '/api/personal_api_keys/': [],
@@ -87,6 +86,8 @@ export const defaultMocks: Mocks = {
         ],
         '/api/projects/@current/': MOCK_DEFAULT_TEAM,
         '/api/billing-v2/': (): MockSignature => [200, {}],
+        '/api/projects/:team_id/comments/count': { count: 0 },
+        '/api/projects/:team_id/comments': { results: [] },
         '/_preflight': require('./fixtures/_preflight.json'),
         '/_system_status': require('./fixtures/_system_status.json'),
         '/api/instance_status': require('./fixtures/_instance_status.json'),
@@ -109,9 +110,6 @@ export const defaultMocks: Mocks = {
         '/decide/': (): MockSignature => [200, 'ok'],
         'https://app.posthog.com/engage/': (): MockSignature => [200, 'ok'],
         '/api/projects/:team_id/insights/:insight_id/viewed/': (): MockSignature => [201, null],
-    },
-    patch: {
-        '/api/prompts/my_prompts': (): MockSignature => [200, {}],
     },
 }
 export const handlers = mocksToHandlers(defaultMocks)

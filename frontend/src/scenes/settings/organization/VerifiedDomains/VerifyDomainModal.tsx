@@ -43,7 +43,7 @@ export function VerifyDomainModal(): JSX.Element {
                             <PureField label="Name">
                                 <div className="flex items-center gap-2">
                                     <div className="border rounded p-2 h-10 flex-1">{challengeName}</div>
-                                    <CopyToClipboardInline explicitValue={challengeName} />
+                                    <CopyToClipboardInline explicitValue={challengeName} selectable={true} />
                                 </div>
                             </PureField>
 
@@ -55,6 +55,7 @@ export function VerifyDomainModal(): JSX.Element {
                                     {domainBeingVerified && (
                                         <CopyToClipboardInline
                                             explicitValue={domainBeingVerified.verification_challenge}
+                                            selectable={true}
                                         />
                                     )}
                                 </div>
@@ -62,7 +63,7 @@ export function VerifyDomainModal(): JSX.Element {
                             <PureField label="TTL">
                                 <div className="flex items-center gap-2">
                                     <div className="border rounded p-2 h-10 flex-1">Default or 3600</div>
-                                    <CopyToClipboardInline explicitValue="3600" />
+                                    <CopyToClipboardInline explicitValue="3600" selectable={true} />
                                 </div>
                             </PureField>
                         </div>

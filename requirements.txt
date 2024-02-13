@@ -15,7 +15,6 @@ aiohttp==3.9.0
     #   -r requirements.in
     #   aiobotocore
     #   geoip2
-    #   openai
     #   s3fs
 aioitertools==0.11.0
     # via aiobotocore
@@ -31,6 +30,10 @@ annotated-types==0.5.0
     # via pydantic
 antlr4-python3-runtime==4.13.1
     # via -r requirements.in
+anyio==4.2.0
+    # via
+    #   httpx
+    #   openai
 asgiref==3.7.2
     # via django
 asn1crypto==1.5.1
@@ -48,11 +51,12 @@ async-timeout==4.0.2
     #   aiohttp
     #   aiokafka
     #   redis
-attrs==21.4.0
+attrs==23.2.0
     # via
     #   aiohttp
     #   jsonschema
     #   outcome
+    #   referencing
     #   trio
 backoff==2.2.1
     # via posthoganalytics
@@ -83,6 +87,8 @@ celery-redbeat==2.1.1
     # via -r requirements.in
 certifi==2019.11.28
     # via
+    #   httpcore
+    #   httpx
     #   requests
     #   sentry-sdk
     #   snowflake-connector-python
@@ -136,8 +142,8 @@ defusedxml==0.6.0
     #   -r requirements.in
     #   python3-openid
     #   social-auth-core
-deprecated==1.2.14
-    # via dlt
+distro==1.9.0
+    # via openai
 dj-database-url==0.5.0
     # via -r requirements.in
 django==4.2.8
@@ -210,7 +216,7 @@ djangorestframework-csv==2.1.1
     # via -r requirements.in
 djangorestframework-dataclasses==1.2.0
     # via -r requirements.in
-dlt==0.3.24
+dlt==0.4.3
     # via -r requirements.in
 dnspython==2.2.1
     # via -r requirements.in
@@ -218,8 +224,10 @@ drf-exceptions-hog==0.4.0
     # via -r requirements.in
 drf-extensions==0.7.0
     # via -r requirements.in
-drf-spectacular==0.24.2
+drf-spectacular==0.27.1
     # via -r requirements.in
+exceptiongroup==1.2.0
+    # via anyio
 filelock==3.12.0
     # via snowflake-connector-python
 frozenlist==1.3.0
@@ -233,6 +241,8 @@ fsspec==2023.10.0
 future==0.18.3
     # via lzstring
 geoip2==4.6.0
+    # via -r requirements.in
+gevent==23.9.1
     # via -r requirements.in
 gitdb==4.0.11
     # via gitpython
@@ -262,6 +272,8 @@ googleapis-common-protos==1.60.0
     # via
     #   google-api-core
     #   grpcio-status
+greenlet==3.0.3
+    # via gevent
 grpcio==1.57.0
     # via
     #   google-api-core
@@ -272,16 +284,24 @@ grpcio-status==1.57.0
 gunicorn==20.1.0
     # via -r requirements.in
 h11==0.13.0
-    # via wsproto
+    # via
+    #   httpcore
+    #   wsproto
 hexbytes==1.0.0
     # via dlt
-hogql-parser==1.0.2
+hogql-parser==1.0.3
     # via -r requirements.in
+httpcore==1.0.2
+    # via httpx
+httpx==0.26.0
+    # via openai
 humanize==4.9.0
     # via dlt
 idna==2.8
     # via
     #   -r requirements.in
+    #   anyio
+    #   httpx
     #   requests
     #   snowflake-connector-python
     #   trio
@@ -303,8 +323,17 @@ jmespath==1.0.0
     #   botocore
 jsonpath-ng==1.6.0
     # via dlt
-jsonschema==4.4.0
-    # via drf-spectacular
+jsonschema==4.20.0
+    # via
+    #   drf-spectacular
+    #   openapi-schema-validator
+    #   openapi-spec-validator
+jsonschema-path==0.3.2
+    # via openapi-spec-validator
+jsonschema-specifications==2023.12.1
+    # via
+    #   jsonschema
+    #   openapi-schema-validator
 kafka-helper==0.2
     # via -r requirements.in
 kafka-python==2.0.2
@@ -315,6 +344,8 @@ kombu==5.3.2
     # via
     #   -r requirements.in
     #   celery
+lazy-object-proxy==1.10.0
+    # via openapi-spec-validator
 lxml==4.6.5
     # via
     #   python3-saml
@@ -348,7 +379,11 @@ oauthlib==3.1.0
     # via
     #   requests-oauthlib
     #   social-auth-core
-openai==0.27.8
+openai==1.10.0
+    # via -r requirements.in
+openapi-schema-validator==0.6.2
+    # via openapi-spec-validator
+openapi-spec-validator==0.7.1
     # via -r requirements.in
 orjson==3.9.10
     # via dlt
@@ -366,6 +401,8 @@ packaging==23.1
     #   webdriver-manager
 parso==0.8.1
     # via -r requirements.in
+pathable==0.4.3
+    # via jsonschema-path
 pathvalidate==3.2.0
     # via dlt
 pendulum==2.1.2
@@ -376,13 +413,13 @@ phonenumberslite==8.13.6
     # via -r requirements.in
 pickleshare==0.7.5
     # via -r requirements.in
-pillow==9.2.0
+pillow==10.2.0
     # via -r requirements.in
 ply==3.11
     # via jsonpath-ng
-posthoganalytics==3.0.1
+posthoganalytics==3.3.4
     # via -r requirements.in
-prance==0.22.2.22.0
+prance==23.6.21.0
     # via -r requirements.in
 prometheus-client==0.14.1
     # via django-prometheus
@@ -418,9 +455,11 @@ pycparser==2.20
     # via cffi
 pycryptodomex==3.18.0
     # via snowflake-connector-python
-pydantic==2.3.0
-    # via -r requirements.in
-pydantic-core==2.6.3
+pydantic==2.5.3
+    # via
+    #   -r requirements.in
+    #   openai
+pydantic-core==2.14.6
     # via pydantic
 pyjwt==2.4.0
     # via
@@ -433,8 +472,6 @@ pyopenssl==22.0.0
     #   urllib3
 pypng==0.20220715.0
     # via qrcode
-pyrsistent==0.18.1
-    # via jsonschema
 pysocks==1.7.1
     # via urllib3
 python-dateutil==2.8.2
@@ -466,10 +503,11 @@ pytz==2023.3
     #   tzlocal
 pytzdata==2020.1
     # via pendulum
-pyyaml==6.0
+pyyaml==6.0.1
     # via
     #   dlt
     #   drf-spectacular
+    #   jsonschema-path
 qrcode==7.4.2
     # via django-two-factor-auth
 redis==4.5.4
@@ -477,7 +515,12 @@ redis==4.5.4
     #   -r requirements.in
     #   celery-redbeat
     #   django-redis
-requests==2.28.1
+referencing==0.31.1
+    # via
+    #   jsonschema
+    #   jsonschema-path
+    #   jsonschema-specifications
+requests==2.31.0
     # via
     #   -r requirements.in
     #   dlt
@@ -485,7 +528,7 @@ requests==2.28.1
     #   google-api-core
     #   google-cloud-bigquery
     #   infi-clickhouse-orm
-    #   openai
+    #   jsonschema-path
     #   posthoganalytics
     #   prance
     #   requests-oauthlib
@@ -501,6 +544,12 @@ requirements-parser==0.5.0
     # via dlt
 retry==0.9.2
     # via -r requirements.in
+rfc3339-validator==0.1.4
+    # via openapi-schema-validator
+rpds-py==0.16.2
+    # via
+    #   jsonschema
+    #   referencing
 rsa==4.9
     # via google-auth
 ruamel-yaml==0.17.21
@@ -530,12 +579,17 @@ six==1.16.0
     #   posthoganalytics
     #   prance
     #   python-dateutil
+    #   rfc3339-validator
 slack-sdk==3.17.1
     # via -r requirements.in
 smmap==5.0.1
     # via gitdb
 sniffio==1.2.0
-    # via trio
+    # via
+    #   anyio
+    #   httpx
+    #   openai
+    #   trio
 snowflake-connector-python==3.0.4
     # via -r requirements.in
 social-auth-app-django==5.0.0
@@ -594,8 +648,10 @@ types-setuptools==69.0.0.0
     # via requirements-parser
 typing-extensions==4.7.1
     # via
+    #   anyio
     #   asgiref
     #   dlt
+    #   openai
     #   psycopg
     #   pydantic
     #   pydantic-core
@@ -614,8 +670,9 @@ unicodecsv==0.14.1
     # via djangorestframework-csv
 uritemplate==4.1.1
     # via drf-spectacular
-urllib3[secure,socks]==1.26.13
+urllib3[secure,socks]==1.26.18
     # via
+    #   -r requirements.in
     #   botocore
     #   django-revproxy
     #   geoip2
@@ -640,9 +697,7 @@ wheel==0.42.0
 whitenoise==6.5.0
     # via -r requirements.in
 wrapt==1.15.0
-    # via
-    #   aiobotocore
-    #   deprecated
+    # via aiobotocore
 wsproto==1.1.0
     # via trio-websocket
 xmlsec==1.3.13
@@ -651,6 +706,10 @@ yarl==1.7.2
     # via aiohttp
 zipp==3.17.0
     # via importlib-metadata
+zope-event==5.0
+    # via gevent
+zope-interface==6.1
+    # via gevent
 
 # The following packages are considered to be unsafe in a requirements file:
 # setuptools

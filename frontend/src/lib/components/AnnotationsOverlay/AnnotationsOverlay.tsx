@@ -158,9 +158,14 @@ const AnnotationsBadge = React.memo(function AnnotationsBadgeRaw({ index, date }
             }
         >
             {annotations.length ? (
-                <LemonBadge.Number count={annotations.length} size="small" active={active && isDateLocked} />
+                <LemonBadge.Number
+                    count={annotations.length}
+                    status="data"
+                    size="small"
+                    active={active && isDateLocked}
+                />
             ) : (
-                <LemonBadge content={<IconPlusMini />} size="small" active={active && isDateLocked} />
+                <LemonBadge content={<IconPlusMini />} status="data" size="small" active={active && isDateLocked} />
             )}
         </button>
     )
@@ -193,6 +198,7 @@ function AnnotationsPopover({
             visible={isPopoverShown}
             onClickOutside={closePopover}
             showArrow
+            padded={false}
             overlay={
                 <LemonModal
                     inline
@@ -243,23 +249,24 @@ function AnnotationCard({ annotation }: { annotation: AnnotationType }): JSX.Ele
                 <LemonButton
                     size="small"
                     icon={<IconEdit />}
-                    status="muted"
                     tooltip="Edit this annotation"
                     onClick={() => openModalToEditAnnotation(annotation, insightId)}
+                    noPadding
                 />
                 <LemonButton
                     size="small"
                     icon={<IconDelete />}
-                    status="muted"
                     tooltip="Delete this annotation"
                     onClick={() => deleteAnnotation(annotation)}
+                    noPadding
                 />
             </div>
             <div className="mt-1">{annotation.content}</div>
             <div className="leading-6 mt-2">
                 <ProfilePicture
-                    name={annotation.creation_type === 'GIT' ? 'GitHub automation' : annotation.created_by?.first_name}
-                    email={annotation.creation_type === 'GIT' ? undefined : annotation.created_by?.email}
+                    user={
+                        annotation.creation_type === 'GIT' ? { first_name: 'GitHub automation' } : annotation.created_by
+                    }
                     showName
                     size="md"
                     type={annotation.creation_type === 'GIT' ? 'bot' : 'person'}

@@ -1,6 +1,7 @@
 import './PlanComparison.scss'
 
 import { LemonButton, LemonModal, LemonTag, Link } from '@posthog/lemon-ui'
+import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { IconCheckmark, IconClose, IconWarning } from 'lib/lemon-ui/icons'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
@@ -27,11 +28,11 @@ export function PlanIcon({
         <div className="flex items-center text-xs text-muted">
             {!feature ? (
                 <>
-                    <IconClose className={`text-danger mx-4 ${className}`} />
+                    <IconClose className={clsx('text-danger mx-4', className)} />
                 </>
             ) : feature.limit ? (
                 <>
-                    <IconWarning className={`text-warning mx-4 shrink-0 ${className}`} />
+                    <IconWarning className={clsx('text-warning mx-4 shrink-0', className)} />
                     {feature.limit &&
                         `${convertLargeNumberToWords(feature.limit, null)} ${feature.unit && feature.unit}${
                             timeDenominator ? `/${timeDenominator}` : ''
@@ -40,7 +41,7 @@ export function PlanIcon({
                 </>
             ) : (
                 <>
-                    <IconCheckmark className={`text-success mx-4 shrink-0 ${className}`} />
+                    <IconCheckmark className={clsx('text-success mx-4 shrink-0', className)} />
                     {feature.note}
                 </>
             )}
@@ -64,7 +65,10 @@ const getProductTiers = (
                 tiers?.map((tier, i) => (
                     <div
                         key={`${plan.plan_key}-${product.type}-${tier.up_to}`}
-                        className={`flex ${width && width < 100 ? 'flex-col mb-2' : ' justify-between items-center'}`}
+                        className={clsx(
+                            'flex',
+                            width && width < 100 ? 'flex-col mb-2' : 'justify-between items-center'
+                        )}
                         ref={tiersRef}
                     >
                         <span className="text-xs">
@@ -80,7 +84,7 @@ const getProductTiers = (
             ) : product?.free_allocation ? (
                 <div
                     key={`${plan.plan_key}-${product.type}-tiers`}
-                    className={`flex ${width && width < 100 ? 'flex-col mb-2' : ' justify-between items-center'}`}
+                    className={clsx('flex', width && width < 100 ? 'flex-col mb-2' : ' justify-between items-center')}
                     ref={tiersRef}
                 >
                     <span className="text-xs">
@@ -115,6 +119,7 @@ export const PlanComparison = ({
                 <LemonButton
                     to={getUpgradeProductLink(product, plan.plan_key || '', redirectPath, includeAddons)}
                     type={plan.current_plan ? 'secondary' : 'primary'}
+                    status={plan.current_plan ? 'default' : 'alt'}
                     fullWidth
                     center
                     disableClientSideRouting
@@ -125,7 +130,7 @@ export const PlanComparison = ({
                         }
                     }}
                 >
-                    {plan.current_plan ? 'Current plan' : 'Upgrade'}
+                    {plan.current_plan ? 'Current plan' : 'Subscribe'}
                 </LemonButton>
                 {!plan.current_plan && includeAddons && product.addons?.length > 0 && (
                     <p className="text-center ml-0 mt-2 mb-0">
@@ -134,7 +139,7 @@ export const PlanComparison = ({
                             className="text-muted text-xs"
                             disableClientSideRouting
                         >
-                            or upgrade without addons
+                            or subscribe without addons
                         </Link>
                     </p>
                 )}
@@ -173,14 +178,14 @@ export const PlanComparison = ({
                     ))}
                 </tr>
 
-                <tr className={'PlanTable__tr__border'}>
+                <tr className="PlanTable__tr__border">
                     <th scope="row">
                         {includeAddons && product.addons?.length > 0 && (
                             <p className="ml-0">
                                 <span className="font-bold">{product.name}</span>
                             </p>
                         )}
-                        <p className="ml-0 text-xs text-muted mt-1">Priced per {product.unit}</p>
+                        <p className="ml-0 text-xs mt-1">Priced per {product.unit}</p>
                     </th>
                     {plans?.map((plan) => (
                         <td key={`${plan.plan_key}-tiers-td`}>{getProductTiers(plan, product)}</td>
@@ -190,7 +195,7 @@ export const PlanComparison = ({
                 {includeAddons &&
                     product.addons?.map((addon) => {
                         return addon.tiered ? (
-                            <tr key={addon.name + 'pricing-row'} className={'PlanTable__tr__border'}>
+                            <tr key={addon.name + 'pricing-row'} className="PlanTable__tr__border">
                                 <th scope="row">
                                     <p className="ml-0">
                                         <span className="font-bold">{addon.name}</span>
@@ -241,9 +246,11 @@ export const PlanComparison = ({
                         }
                     >
                         <th
-                            className={`text-muted PlanTable__th__feature ${
-                                width && width < 600 && 'PlanTable__th__feature--reduced_padding'
-                            } ${i == fullyFeaturedPlan?.features?.length - 1 ? 'PlanTable__th__last-feature' : ''}`}
+                            className={clsx(
+                                'PlanTable__th__feature',
+                                width && width < 600 && 'PlanTable__th__feature--reduced_padding',
+                                i == fullyFeaturedPlan?.features?.length - 1 && 'PlanTable__th__last-feature'
+                            )}
                         >
                             <Tooltip title={feature.description}>{feature.name}</Tooltip>
                         </th>
@@ -253,7 +260,7 @@ export const PlanComparison = ({
                                     feature={plan.features?.find(
                                         (thisPlanFeature) => feature.key === thisPlanFeature.key
                                     )}
-                                    className={'text-base'}
+                                    className="text-base"
                                 />
                             </td>
                         ))}
@@ -293,21 +300,21 @@ export const PlanComparison = ({
                                         ?.features?.map((feature, i) => (
                                             <tr key={`tr-${feature.key}`}>
                                                 <th
-                                                    className={`text-muted PlanTable__th__feature ${
+                                                    className={clsx(
+                                                        'text-muted PlanTable__th__feature',
                                                         width &&
-                                                        width < 600 &&
-                                                        'PlanTable__th__feature--reduced_padding'
-                                                    } ${
+                                                            width < 600 &&
+                                                            'PlanTable__th__feature--reduced_padding',
                                                         // If this is the last feature in the list, add a class to add padding to the bottom of
                                                         // the cell (which makes the whole row have the padding)
                                                         i ==
-                                                        (includedProduct.plans.find(
-                                                            (plan) => plan.included_if == 'has_subscription'
-                                                        )?.features?.length || 0) -
-                                                            1
+                                                            (includedProduct.plans.find(
+                                                                (plan) => plan.included_if == 'has_subscription'
+                                                            )?.features?.length || 0) -
+                                                                1
                                                             ? 'PlanTable__th__last-feature'
                                                             : ''
-                                                    }`}
+                                                    )}
                                                 >
                                                     <Tooltip title={feature.description}>{feature.name}</Tooltip>
                                                 </th>
@@ -319,7 +326,7 @@ export const PlanComparison = ({
                                                                     */}
                                                         {includedProduct.plans?.length === 1 && (
                                                             <td>
-                                                                <PlanIcon feature={undefined} className={'text-base'} />
+                                                                <PlanIcon feature={undefined} className="text-base" />
                                                             </td>
                                                         )}
                                                         <td>
@@ -328,7 +335,7 @@ export const PlanComparison = ({
                                                                     (thisPlanFeature) =>
                                                                         feature.key === thisPlanFeature.key
                                                                 )}
-                                                                className={'text-base'}
+                                                                className="text-base"
                                                             />
                                                         </td>
                                                     </React.Fragment>
@@ -358,7 +365,7 @@ export const PlanComparisonModal = ({
     return (
         <LemonModal isOpen={modalOpen} onClose={onClose}>
             <div className="PlanComparisonModal flex w-full h-full justify-center p-8">
-                <div className="text-left bg-bg-light rounded-md relative w-full">
+                <div className="text-left bg-bg-light rounded relative w-full">
                     <h2>{product.name} plans</h2>
                     <PlanComparison product={product} includeAddons={includeAddons} />
                 </div>

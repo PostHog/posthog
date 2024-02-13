@@ -8,7 +8,6 @@ import { SceneDashboardChoiceModal } from 'lib/components/SceneDashboardChoice/S
 import { sceneDashboardChoiceModalLogic } from 'lib/components/SceneDashboardChoice/sceneDashboardChoiceModalLogic'
 import { SceneDashboardChoiceRequired } from 'lib/components/SceneDashboardChoice/SceneDashboardChoiceRequired'
 import { FEATURE_FLAGS } from 'lib/constants'
-import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
 import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
@@ -16,8 +15,8 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { Dashboard } from 'scenes/dashboard/Dashboard'
 import { dashboardLogic } from 'scenes/dashboard/dashboardLogic'
 import { projectHomepageLogic } from 'scenes/project-homepage/projectHomepageLogic'
-import { NewInsightButton } from 'scenes/saved-insights/SavedInsights'
 import { Scene, SceneExport } from 'scenes/sceneTypes'
+import { AndroidRecordingsPromptBanner } from 'scenes/session-recordings/mobile-replay/AndroidRecordingPromptBanner'
 import { inviteLogic } from 'scenes/settings/organization/inviteLogic'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
@@ -39,13 +38,19 @@ export function ProjectHomepage(): JSX.Element {
     )
     const { featureFlags } = useValues(featureFlagLogic)
 
-    const is3000 = useFeatureFlag('POSTHOG_3000', 'test')
-
     const headerButtons = (
         <>
-            {is3000 && !!featureFlags[FEATURE_FLAGS.YEAR_IN_HOG] && window.POSTHOG_APP_CONTEXT?.year_in_hog_url && (
+            {!!featureFlags[FEATURE_FLAGS.YEAR_IN_HOG] && window.POSTHOG_APP_CONTEXT?.year_in_hog_url && (
                 <YearInHogButton url={`${window.location.origin}${window.POSTHOG_APP_CONTEXT.year_in_hog_url}`} />
             )}
+            <LemonButton
+                type="secondary"
+                size="small"
+                data-attr="project-home-customize-homepage"
+                onClick={showSceneDashboardChoiceModal}
+            >
+                Customize homepage
+            </LemonButton>
             <LemonButton
                 data-attr="project-home-invite-team-members"
                 onClick={() => {
@@ -55,13 +60,13 @@ export function ProjectHomepage(): JSX.Element {
             >
                 Invite members
             </LemonButton>
-            {!is3000 && <NewInsightButton dataAttr="project-home-new-insight" />}
         </>
     )
 
     return (
         <div className="ProjectHomepage">
-            <PageHeader title={currentTeam?.name || ''} delimited buttons={headerButtons} />
+            <PageHeader delimited buttons={headerButtons} />
+            <AndroidRecordingsPromptBanner context="home" />
             <div className="ProjectHomepage__lists">
                 <RecentInsights />
                 <RecentPersons />
@@ -84,18 +89,8 @@ export function ProjectHomepage(): JSX.Element {
                                 </>
                             )}
                         </div>
-                        <div className="flex items-center gap-2">
-                            <LemonButton
-                                type="secondary"
-                                size={is3000 ? 'small' : undefined}
-                                data-attr="project-home-change-dashboard"
-                                onClick={showSceneDashboardChoiceModal}
-                            >
-                                Change dashboard
-                            </LemonButton>
-                        </div>
                     </div>
-                    <LemonDivider className={is3000 ? 'mt-3 mb-4' : 'my-4'} />
+                    <LemonDivider className="mt-3 mb-4" />
                     <Dashboard
                         id={currentTeam.primary_dashboard.toString()}
                         placement={DashboardPlacement.ProjectHomepage}

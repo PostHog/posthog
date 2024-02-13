@@ -297,7 +297,7 @@ export function SingleChoiceQuestionPieChart({
                 <div className="mb-8">
                     <div className="font-semibold text-muted-alt">Single choice</div>
                     <div className="text-xl font-bold mb-2">{question.question}</div>
-                    <div className="h-80 border rounded pt-4 pb-2 flex">
+                    <div className="h-80 overflow-y-auto border rounded pt-4 pb-2 flex">
                         <div className="relative h-full w-80">
                             <BindLogic logic={insightLogic} props={insightProps}>
                                 <PieChart
@@ -325,16 +325,17 @@ export function SingleChoiceQuestionPieChart({
                             </BindLogic>
                         </div>
                         <div
-                            className={`grid h-full pl-4 py-${(() => {
+                            className={`grid h-full pl-4 ${(() => {
                                 const dataLength = surveySingleChoiceResults[questionIndex].data.length
+                                // We need to return the whole class for Tailwind to see them when scanning code
                                 if (dataLength < 5) {
-                                    return 20
+                                    return 'py-20'
                                 } else if (dataLength < 7) {
-                                    return 15
+                                    return 'py-15'
                                 } else if (dataLength < 10) {
-                                    return 10
+                                    return 'py-10'
                                 } else {
-                                    return 5
+                                    return 'py-5'
                                 }
                             })()} grid-cols-${Math.ceil(surveySingleChoiceResults[questionIndex].data.length / 10)}`}
                         >

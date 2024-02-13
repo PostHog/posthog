@@ -17,10 +17,10 @@ from loginas.utils import is_impersonated_session
 from rest_framework import renderers, request, serializers, status, viewsets
 from rest_framework.decorators import action, renderer_classes
 from rest_framework.exceptions import NotFound, PermissionDenied, ValidationError
-from rest_framework.permissions import SAFE_METHODS, BasePermission, IsAuthenticated
+from rest_framework.permissions import SAFE_METHODS, BasePermission
 from rest_framework.response import Response
 
-from posthog.api.routing import StructuredViewSetMixin
+from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.models import Plugin, PluginAttachment, PluginConfig, User
 from posthog.models.activity_logging.activity_log import (
     ActivityPage,
@@ -40,15 +40,12 @@ from posthog.models.plugin import (
     validate_plugin_job_payload,
 )
 from posthog.models.utils import UUIDT, generate_random_token
-from posthog.permissions import (
-    OrganizationMemberPermissions,
-    ProjectMembershipNecessaryPermissions,
-    TeamMemberAccessPermission,
-)
 from posthog.plugins import can_configure_plugins, can_install_plugins, parse_url
 from posthog.plugins.access import can_globally_manage_plugins
 from posthog.queries.app_metrics.app_metrics import TeamPluginsDeliveryRateQuery
+from posthog.redis import get_client
 from posthog.utils import format_query_params_absolute_url
+
 
 # Keep this in sync with: frontend/scenes/plugins/utils.ts
 SECRET_FIELD_VALUE = "**************** POSTHOG SECRET FIELD ****************"
@@ -59,11 +56,11 @@ def _update_plugin_attachments(request: request.Request, plugin_config: PluginCo
     for key, file in request.FILES.items():
         match = re.match(r"^add_attachment\[([^]]+)\]$", key)
         if match:
-            _update_plugin_attachment(plugin_config, match.group(1), file, user)
+            _update_plugin_attachment(request, plugin_config, match.group(1), file, user)
     for key, _file in request.POST.items():
         match = re.match(r"^remove_attachment\[([^]]+)\]$", key)
         if match:
-            _update_plugin_attachment(plugin_config, match.group(1), None, user)
+            _update_plugin_attachment(request, plugin_config, match.group(1), None, user)
 
 
 def get_plugin_config_changes(old_config: Dict[str, Any], new_config: Dict[str, Any], secret_fields=[]) -> List[Change]:
@@ -81,13 +78,16 @@ def get_plugin_config_changes(old_config: Dict[str, Any], new_config: Dict[str, 
     return config_changes
 
 
-def log_enabled_change_activity(new_plugin_config: PluginConfig, old_enabled: bool, user: User, changes=[]):
+def log_enabled_change_activity(
+    new_plugin_config: PluginConfig, old_enabled: bool, user: User, was_impersonated: bool, changes=[]
+):
     if old_enabled != new_plugin_config.enabled:
         log_activity(
             organization_id=new_plugin_config.team.organization.id,
             # Users in an org but not yet in a team can technically manage plugins via the API
             team_id=new_plugin_config.team.id,
             user=user,
+            was_impersonated=was_impersonated,
             item_id=new_plugin_config.id,
             scope="PluginConfig",
             activity="enabled" if not old_enabled else "disabled",
@@ -101,6 +101,7 @@ def log_config_update_activity(
     secret_fields: Set[str],
     old_enabled: bool,
     user: User,
+    was_impersonated: bool,
 ):
     config_changes = get_plugin_config_changes(
         old_config=old_config,
@@ -114,16 +115,21 @@ def log_config_update_activity(
             # Users in an org but not yet in a team can technically manage plugins via the API
             team_id=new_plugin_config.team.id,
             user=user,
+            was_impersonated=was_impersonated,
             item_id=new_plugin_config.id,
             scope="PluginConfig",
             activity="config_updated",
             detail=Detail(name=new_plugin_config.plugin.name, changes=config_changes),
         )
 
-    log_enabled_change_activity(new_plugin_config=new_plugin_config, old_enabled=old_enabled, user=user)
+    log_enabled_change_activity(
+        new_plugin_config=new_plugin_config, old_enabled=old_enabled, user=user, was_impersonated=was_impersonated
+    )
 
 
-def _update_plugin_attachment(plugin_config: PluginConfig, key: str, file: Optional[UploadedFile], user: User):
+def _update_plugin_attachment(
+    request: request.Request, plugin_config: PluginConfig, key: str, file: Optional[UploadedFile], user: User
+):
     try:
         plugin_attachment = PluginAttachment.objects.get(team=plugin_config.team, plugin_config=plugin_config, key=key)
         if file:
@@ -169,6 +175,7 @@ def _update_plugin_attachment(plugin_config: PluginConfig, key: str, file: Optio
         organization_id=plugin_config.team.organization.id,
         team_id=plugin_config.team.id,
         user=user,
+        was_impersonated=is_impersonated_session(request),
         item_id=plugin_config.id,
         scope="PluginConfig",
         activity=activity,
@@ -289,13 +296,10 @@ class PluginSerializer(serializers.ModelSerializer):
         return super().update(plugin, validated_data)
 
 
-class PluginViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
+class PluginViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     queryset = Plugin.objects.all()
     serializer_class = PluginSerializer
     permission_classes = [
-        IsAuthenticated,
-        ProjectMembershipNecessaryPermissions,
-        OrganizationMemberPermissions,
         PluginsAccessLevelPermission,
         PluginOwnershipPermission,
     ]
@@ -328,7 +332,7 @@ class PluginViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
                 | Q(is_global=True)
                 | Q(
                     id__in=PluginConfig.objects.filter(  # If a config exists the org can see the plugin
-                        team__organization_id=self.organization_id
+                        team__organization_id=self.organization_id, deleted=False
                     ).values_list("plugin_id", flat=True)
                 )
             )
@@ -347,6 +351,17 @@ class PluginViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
             id__in=PluginConfig.objects.filter(enabled=True).values_list("plugin_id", flat=True)
         ).values_list("id", flat=True)
         return Response(ids)
+
+    @action(methods=["GET"], detail=False)
+    def exports_unsubscribe_configs(self, request: request.Request, **kwargs):
+        # return all the plugin_configs for the org that are not global transformation/filter plugins
+        allowed_plugins_q = Q(plugin__is_global=True) & (
+            Q(plugin__capabilities__methods__contains=["processEvent"]) | Q(plugin__capabilities={})
+        )
+        plugin_configs = PluginConfig.objects.filter(
+            Q(team__organization_id=self.organization_id, enabled=True) & ~allowed_plugins_q
+        )
+        return Response(PluginConfigSerializer(plugin_configs, many=True).data)
 
     @action(methods=["GET"], detail=True)
     def check_for_updates(self, request: request.Request, **kwargs):
@@ -439,6 +454,11 @@ class PluginViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
         if performed_changes:
             plugin.updated_at = now()
             plugin.save()
+        # Trigger capabilities update in plugin server, in case the app source changed the methods etc
+        get_client().publish(
+            "populate-plugin-capabilities",
+            json.dumps({"plugin_id": str(plugin.id)}),
+        )
         return Response(response)
 
     @action(methods=["POST"], detail=True)
@@ -470,6 +490,7 @@ class PluginViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
             # Users in an org but not yet in a team can technically manage plugins via the API
             team_id=user.team.id if user.team else 0,  # type: ignore
             user=user,  # type: ignore
+            was_impersonated=is_impersonated_session(self.request),
             item_id=instance_id,
             scope="Plugin",
             activity="uninstalled",
@@ -488,6 +509,7 @@ class PluginViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
             # Users in an org but not yet in a team can technically manage plugins via the API
             team_id=user.team.id if user.team else 0,
             user=user,
+            was_impersonated=is_impersonated_session(self.request),
             item_id=serializer.instance.id,
             scope="Plugin",
             activity="installed",
@@ -537,7 +559,7 @@ class PluginConfigSerializer(serializers.ModelSerializer):
         model = PluginConfig
         fields = [
             "id",
-            "plugin",
+            "plugin",  # TODO: Rename to plugin_id for consistency with team_id
             "enabled",
             "order",
             "config",
@@ -594,8 +616,14 @@ class PluginConfigSerializer(serializers.ModelSerializer):
 
         return new_plugin_config
 
+    def to_representation(self, instance: Any) -> Any:
+        representation = super().to_representation(instance)
+        representation["name"] = representation["name"] or instance.plugin.name
+        representation["description"] = representation["description"] or instance.plugin.description
+        return representation
+
     def get_plugin_info(self, plugin_config: PluginConfig):
-        if "view" in self.context and self.context["view"].action == "retrieve":
+        if "view" in self.context and self.context["view"].action != "list":
             return PluginSerializer(instance=plugin_config.plugin).data
         else:
             return None
@@ -634,6 +662,7 @@ class PluginConfigSerializer(serializers.ModelSerializer):
                 secret_fields=_get_secret_fields_for_plugin(plugin_config.plugin),
             ),
             user=self.context["request"].user,
+            was_impersonated=is_impersonated_session(self.context["request"]),
         )
 
         _update_plugin_attachments(self.context["request"], plugin_config)
@@ -671,21 +700,16 @@ class PluginConfigSerializer(serializers.ModelSerializer):
             old_enabled=old_enabled,
             secret_fields=secret_fields,
             user=self.context["request"].user,
+            was_impersonated=is_impersonated_session(self.context["request"]),
         )
 
         _update_plugin_attachments(self.context["request"], plugin_config)
         return response
 
 
-class PluginConfigViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
+class PluginConfigViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     queryset = PluginConfig.objects.all()
     serializer_class = PluginConfigSerializer
-    permission_classes = [
-        IsAuthenticated,
-        ProjectMembershipNecessaryPermissions,
-        OrganizationMemberPermissions,
-        TeamMemberAccessPermission,
-    ]
 
     def get_queryset(self):
         if not can_configure_plugins(self.team.organization_id):
@@ -731,6 +755,7 @@ class PluginConfigViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
                     # Users in an org but not yet in a team can technically manage plugins via the API
                     team_id=self.team.id,
                     user=request.user,  # type: ignore
+                    was_impersonated=is_impersonated_session(self.request),
                     item_id=plugin_config.id,
                     scope="Plugin",  # use the type plugin so we can also provide unified history
                     activity="order_changed",
@@ -797,6 +822,7 @@ class PluginConfigViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
             # Users in an org but not yet in a team can technically manage plugins via the API
             team_id=self.team.pk,
             user=request.user,  # type: ignore
+            was_impersonated=is_impersonated_session(self.request),
             item_id=plugin_config_id,
             scope="PluginConfig",  # use the type plugin so we can also provide unified history
             activity="job_triggered",
@@ -837,7 +863,7 @@ def _get_secret_fields_for_plugin(plugin: Plugin) -> Set[str]:
 
 
 class LegacyPluginConfigViewSet(PluginConfigViewSet):
-    legacy_team_compatibility = True
+    derive_current_team_from_user_only = True
 
 
 class PipelineTransformationsViewSet(PluginViewSet):
@@ -851,4 +877,25 @@ class PipelineTransformationsConfigsViewSet(PluginConfigViewSet):
         queryset = super().get_queryset()
         return queryset.filter(
             Q(plugin__capabilities__has_key="methods") & Q(plugin__capabilities__methods__contains=["processEvent"])
+        )
+
+
+class PipelineDestinationsViewSet(PluginViewSet):
+    def get_queryset(self):
+        queryset = super().get_queryset()
+        return queryset.filter(
+            Q(capabilities__has_key="methods")
+            & (Q(capabilities__methods__contains=["onEvent"]) | Q(capabilities__methods__contains=["composeWebhook"]))
+        )
+
+
+class PipelineDestinationsConfigsViewSet(PluginConfigViewSet):
+    def get_queryset(self):
+        queryset = super().get_queryset()
+        return queryset.filter(
+            Q(plugin__capabilities__has_key="methods")
+            & (
+                Q(plugin__capabilities__methods__contains=["onEvent"])
+                | Q(plugin__capabilities__methods__contains=["composeWebhook"])
+            )
         )

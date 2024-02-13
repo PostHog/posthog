@@ -30,7 +30,7 @@ jobs:
 
             - name: Check if hogql_parser/ has changed
               id: changed-files
-              uses: tj-actions/changed-files@v39
+              uses: tj-actions/changed-files@v42
               with:
                   since_last_remote_commit: true
                   files_yaml: |
@@ -52,7 +52,7 @@ jobs:
                       curl -s -u posthog-bot:${{ secrets.POSTHOG_BOT_GITHUB_TOKEN || secrets.GITHUB_TOKEN }} -X POST -d "{ \"body\": \"$message_body\" }" "https://api.github.com/repos/${{ github.repository }}/issues/${{ github.event.pull_request.number }}/comments"
                     fi
                   fi
-                  echo "::set-output name=parser-release-needed::$parser_release_needed"
+                  echo "parser-release-needed=$parser_release_needed" >> $GITHUB_OUTPUT
 
     build-wheels:
         name: Build wheels on ${{ matrix.os }}

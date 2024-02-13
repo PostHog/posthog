@@ -3,7 +3,7 @@ import json
 from collections.abc import Iterator
 from dataclasses import asdict, dataclass, field
 from datetime import datetime, timedelta, timezone
-from typing import AsyncIterator, Iterable, NamedTuple
+from typing import AsyncIterator, Iterable, NamedTuple, Sequence
 from uuid import UUID
 
 import psycopg
@@ -87,35 +87,6 @@ WHERE
     AND created_at >= 0;
 """
 
-SELECT_ID_FROM_OVERRIDE_UUID = """
-SELECT
-    id
-FROM
-    posthog_personoverridemapping
-WHERE
-    team_id = %(team_id)s
-    AND uuid = %(uuid)s;
-"""
-
-DELETE_FROM_PERSON_OVERRIDES = """
-DELETE FROM
-    posthog_personoverride
-WHERE
-    team_id = %(team_id)s
-    AND old_person_id = %(old_person_id)s
-    AND override_person_id = %(override_person_id)s
-    AND version = %(latest_version)s
-RETURNING
-    old_person_id;
-"""
-
-DELETE_FROM_PERSON_OVERRIDE_MAPPINGS = """
-DELETE FROM
-    posthog_personoverridemapping
-WHERE
-    id = %(id)s;
-"""
-
 
 class PersonOverrideToDelete(NamedTuple):
     """A person override that should be deleted after squashing.
@@ -159,6 +130,93 @@ class SerializablePersonOverrideToDelete(NamedTuple):
     latest_created_at: str
     latest_version: int
     oldest_event_at: str
+
+
+class PersonOverrideTuple(NamedTuple):
+    old_person_id: UUID
+    override_person_id: UUID
+
+
+class FlatPostgresPersonOverridesManager:
+    def __init__(self, connection):
+        self.connection = connection
+
+    def fetchall(self, team_id: int) -> Sequence[PersonOverrideTuple]:
+        with self.connection.cursor() as cursor:
+            cursor.execute(
+                """
+                SELECT
+                    old_person_id,
+                    override_person_id
+                FROM posthog_flatpersonoverride
+                WHERE team_id = %(team_id)s
+                """,
+                {"team_id": team_id},
+            )
+            return [PersonOverrideTuple(*row) for row in cursor.fetchall()]
+
+    def insert(self, team_id: int, override: PersonOverrideTuple) -> None:
+        with self.connection.cursor() as cursor:
+            cursor.execute(
+                """
+                INSERT INTO posthog_flatpersonoverride(
+                    team_id,
+                    old_person_id,
+                    override_person_id,
+                    oldest_event,
+                    version
+                )
+                VALUES (
+                    %(team_id)s,
+                    %(old_person_id)s,
+                    %(override_person_id)s,
+                    NOW(),
+                    1
+                );
+                """,
+                {
+                    "team_id": team_id,
+                    "old_person_id": override.old_person_id,
+                    "override_person_id": override.override_person_id,
+                },
+            )
+
+    def delete(self, person_override: SerializablePersonOverrideToDelete, dry_run: bool = False) -> None:
+        query = """
+            DELETE FROM
+                posthog_flatpersonoverride
+            WHERE
+                team_id = %(team_id)s
+                AND old_person_id = %(old_person_id)s
+                AND override_person_id = %(override_person_id)s
+                AND version = %(latest_version)s
+        """
+
+        parameters = {
+            "team_id": person_override.team_id,
+            "old_person_id": person_override.old_person_id,
+            "override_person_id": person_override.override_person_id,
+            "latest_version": person_override.latest_version,
+        }
+
+        if dry_run is True:
+            activity.logger.info("This is a DRY RUN so nothing will be deleted.")
+            activity.logger.info(
+                "Would have run query: %s with parameters %s",
+                query,
+                parameters,
+            )
+            return
+
+        with self.connection.cursor() as cursor:
+            cursor.execute(query, parameters)
+
+    def clear(self, team_id: int) -> None:
+        with self.connection.cursor() as cursor:
+            cursor.execute(
+                "DELETE FROM posthog_flatpersonoverride WHERE team_id = %s",
+                [team_id],
+            )
 
 
 @dataclass
@@ -454,68 +512,10 @@ async def delete_squashed_person_overrides_from_postgres(inputs: QueryInputs) ->
         port=settings.DATABASES["default"]["PORT"],
         **settings.DATABASES["default"].get("SSL_OPTIONS", {}),
     ) as connection:
-        with connection.cursor() as cursor:
-            for person_override_to_delete in inputs.iter_person_overides_to_delete():
-                activity.logger.debug("%s", person_override_to_delete)
-
-                cursor.execute(
-                    SELECT_ID_FROM_OVERRIDE_UUID,
-                    {
-                        "team_id": person_override_to_delete.team_id,
-                        "uuid": person_override_to_delete.old_person_id,
-                    },
-                )
-
-                row = cursor.fetchone()
-                if not row:
-                    continue
-                old_person_id = row[0]
-
-                cursor.execute(
-                    SELECT_ID_FROM_OVERRIDE_UUID,
-                    {
-                        "team_id": person_override_to_delete.team_id,
-                        "uuid": person_override_to_delete.override_person_id,
-                    },
-                )
-
-                row = cursor.fetchone()
-                if not row:
-                    continue
-
-                override_person_id = row[0]
-
-                parameters = {
-                    "team_id": person_override_to_delete.team_id,
-                    "old_person_id": old_person_id,
-                    "override_person_id": override_person_id,
-                    "latest_version": person_override_to_delete.latest_version,
-                }
-
-                if inputs.dry_run is True:
-                    activity.logger.info("This is a DRY RUN so nothing will be deleted.")
-                    activity.logger.info(
-                        "Would have run query: %s with parameters %s",
-                        DELETE_FROM_PERSON_OVERRIDES,
-                        parameters,
-                    )
-                    continue
-
-                cursor.execute(DELETE_FROM_PERSON_OVERRIDES, parameters)
-
-                row = cursor.fetchone()
-                if not row:
-                    # There is no existing mapping for this (old_person_id, override_person_id) pair.
-                    # It could be that a newer one was added (with a later version).
-                    continue
-                deleted_id = row[0]
-
-                cursor.execute(
-                    DELETE_FROM_PERSON_OVERRIDE_MAPPINGS,
-                    {
-                        "id": deleted_id,
-                    },
-                )
+        overrides_manager = FlatPostgresPersonOverridesManager(connection)
+        for person_override_to_delete in inputs.iter_person_overides_to_delete():
+            activity.logger.debug("%s", person_override_to_delete)
+            overrides_manager.delete(person_override_to_delete, inputs.dry_run)
 
 
 @contextlib.asynccontextmanager
@@ -613,66 +613,21 @@ class SquashPersonOverridesInputs:
 class SquashPersonOverridesWorkflow(PostHogWorkflow):
     """Workflow to squash outstanding person overrides into events.
 
-    Squashing refers to the process of updating the person_id associated with an event
-    to match the new id assigned via a person override. This process must be done
-    regularly to control the size of the person_overrides table.
+    Squashing refers to the process of updating the person ID of existing
+    ClickHouse event records on disk to reflect their most up-to-date person ID.
 
-    For example, let's imagine the initial state of tables as:
+    The persons associated with existing events can change as a result of
+    actions such as person merges. To account for this, we keep a record of what
+    new person ID should be used in place of (or "override") a previously used
+    person ID. The ``posthog_flatpersonoverride`` table is the primary
+    representation of this data in Postgres. The ``person_overrides`` table in
+    ClickHouse contains a replica of the data stored in Postgres, and can be
+    joined onto the events table to get the most up-to-date person for an event.
 
-    posthog_personoverridesmapping
-
-    | id      | uuid                                   |
-    | ------- + -------------------------------------- |
-    | 1       | '179bed4d-0cf9-49a5-8826-b4c36348fae4' |
-    | 2       | 'ced21432-7528-4045-bc22-855cbe69a6c1' |
-
-    posthog_personoverride
-
-    | old_person_id | override_person_id |
-    | ------------- + ------------------ |
-    | 1             | 2                  |
-
-    The activity select_persons_to_delete will select the uuid with id 1 as safe to delete
-    as its the only old_person_id at the time of starting.
-
-    While executing this job, a new override (2->3) may be inserted, leaving both tables as:
-
-    posthog_personoverridesmapping
-
-    | id      | uuid                                   |
-    | ------- + -------------------------------------- |
-    | 1       | '179bed4d-0cf9-49a5-8826-b4c36348fae4' |
-    | 2       | 'ced21432-7528-4045-bc22-855cbe69a6c1' |
-    | 3       | 'b57de46b-55ad-4126-9a92-966fac570ec4' |
-
-    posthog_personoverride
-
-    | old_person_id | override_person_id |
-    | ------------- + ------------------ |
-    | 1             | 3                  |
-    | 2             | 3                  |
-
-    Upon executing the squash_events_partition events with person_id 1 or 2 will be correctly
-    updated to reference person_id 3.
-
-    At the end, we'll cleanup the tables by deleting the old_person_ids we deemed safe to do
-    so (1) from both tables:
-
-    posthog_personoverridesmapping
-
-    | id      | uuid                                   |
-    | ------- + -------------------------------------- |
-    | 2       | 'ced21432-7528-4045-bc22-855cbe69a6c1' |
-    | 3       | 'b57de46b-55ad-4126-9a92-966fac570ec4' |
-
-    posthog_personoverride
-
-    | old_person_id | override_person_id |
-    | ------------- + ------------------ |
-    | 2             | 3                  |
-
-    Any overrides that arrived during the job will be left there for the next job run to clean
-    up. These will be a no-op for the next job run as the override will already have been applied.
+    This process must be done regularly to control the size of the person
+    overrides tables -- both to reduce the amount of storage required for these
+    tables, as well as ensuring that the join mentioned previously does not
+    become prohibitively large to evaluate.
     """
 
     @staticmethod

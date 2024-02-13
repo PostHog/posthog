@@ -8,21 +8,21 @@ export function PropertyFilterIcon({ type }: { type?: PropertyFilterType }): JSX
     switch (type) {
         case 'event':
             iconElement = (
-                <Tooltip title={'Event property'}>
+                <Tooltip title="Event property">
                     <IconUnverifiedEvent />
                 </Tooltip>
             )
             break
         case 'person':
             iconElement = (
-                <Tooltip title={'Person property'}>
+                <Tooltip title="Person property">
                     <IconPerson />
                 </Tooltip>
             )
             break
         case 'cohort':
             iconElement = (
-                <Tooltip title={'Cohort filter'}>
+                <Tooltip title="Cohort filter">
                     <IconCohort />
                 </Tooltip>
             )

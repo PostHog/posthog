@@ -209,7 +209,7 @@ describe('eachBatchX', () => {
                 queue.pluginsServer.postgres,
                 queue.pluginsServer.teamManager,
                 queue.pluginsServer.organizationManager,
-                new Set(),
+                queue.pluginsServer.rustyHook,
                 queue.pluginsServer.appMetrics,
                 queue.pluginsServer.EXTERNAL_REQUEST_TIMEOUT_MS
             )

@@ -1,10 +1,11 @@
 import { actions, afterMount, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import api, { ApiConfig } from 'lib/api'
+import { PROPERTY_FILTER_TYPE_TO_TAXONOMIC_FILTER_GROUP_TYPE } from 'lib/components/PropertyFilters/utils'
 import { OrganizationMembershipLevel } from 'lib/constants'
 import { IconSwapHoriz } from 'lib/lemon-ui/icons'
-import { lemonToast } from 'lib/lemon-ui/lemonToast'
-import { getPropertyLabel } from 'lib/taxonomy'
+import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
+import { getFilterLabel } from 'lib/taxonomy'
 import { identifierToHuman, isUserLoggedIn, resolveWebhookService } from 'lib/utils'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { getAppContext } from 'lib/utils/getAppContext'
@@ -39,7 +40,7 @@ export interface FrequentMistakeAdvice {
 export const teamLogic = kea<teamLogicType>([
     path(['scenes', 'teamLogic']),
     connect(() => ({
-        actions: [userLogic, ['loadUser']],
+        actions: [userLogic, ['loadUser', 'switchTeam']],
     })),
     actions({
         deleteTeam: (team: TeamType) => ({ team }),
@@ -110,8 +111,9 @@ export const teamLogic = kea<teamLogicType>([
 
                     return patchedTeam
                 },
-                createTeam: async ({ name, is_demo }: { name: string; is_demo: boolean }): Promise<TeamType> =>
-                    await api.create('api/projects/', { name, is_demo }),
+                createTeam: async ({ name, is_demo }: { name: string; is_demo: boolean }) => {
+                    return await api.create('api/projects/', { name, is_demo })
+                },
                 resetToken: async () => await api.update(`api/projects/${values.currentTeamId}/reset_token`, {}),
             },
         ],
@@ -178,9 +180,10 @@ export const teamLogic = kea<teamLogicType>([
                         // person properties can be checked for a label as if they were event properties
                         // so, we can check each acceptable type and see if it returns a value
                         return (
-                            getPropertyLabel(filter.key, 'event') ||
-                            getPropertyLabel(filter.key, 'element') ||
-                            filter.key
+                            getFilterLabel(
+                                filter.key,
+                                PROPERTY_FILTER_TYPE_TO_TAXONOMIC_FILTER_GROUP_TYPE[filter.type]
+                            ) || filter.key
                         )
                     } else {
                         return filter.key
@@ -215,8 +218,10 @@ export const teamLogic = kea<teamLogicType>([
                 ApiConfig.setCurrentTeamId(currentTeam.id)
             }
         },
-        createTeamSuccess: () => {
-            organizationLogic.actions.loadCurrentOrganization()
+        createTeamSuccess: ({ currentTeam }) => {
+            if (currentTeam) {
+                actions.switchTeam(currentTeam.id)
+            }
         },
         deleteTeam: async ({ team }) => {
             try {
@@ -239,7 +244,7 @@ export const teamLogic = kea<teamLogicType>([
             lemonToast.info(<>You've switched to&nbsp;project {currentTeam?.name}</>, {
                 button: {
                     label: 'Switch back',
-                    action: () => userLogic.actions.updateCurrentTeam(switchedTeam),
+                    action: () => actions.switchTeam(switchedTeam),
                 },
                 icon: <IconSwapHoriz />,
             })

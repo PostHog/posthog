@@ -15,12 +15,10 @@ import {
 import { LemonSelectOptions } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { ActivityLog } from 'lib/components/ActivityLog/ActivityLog'
-import { ActivityScope } from 'lib/components/ActivityLog/humanizeActivity'
 import { InsightCard } from 'lib/components/Cards/InsightCard'
 import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
 import { PageHeader } from 'lib/components/PageHeader'
 import { TZLabel } from 'lib/components/TZLabel'
-import { FEATURE_FLAGS } from 'lib/constants'
 import {
     IconAction,
     IconBarChart,
@@ -33,7 +31,7 @@ import {
     IconSelectEvents,
     IconTableChart,
 } from 'lib/lemon-ui/icons'
-import { LemonButton, LemonButtonWithSideActionProps } from 'lib/lemon-ui/LemonButton'
+import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { More } from 'lib/lemon-ui/LemonButton/More'
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
 import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
@@ -44,7 +42,6 @@ import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
 import { Link } from 'lib/lemon-ui/Link'
 import { PaginationControl, usePagination } from 'lib/lemon-ui/PaginationControl'
 import { SpinnerOverlay } from 'lib/lemon-ui/Spinner/Spinner'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { deleteWithUndo } from 'lib/utils/deleteWithUndo'
 import { SavedInsightsEmptyState } from 'scenes/insights/EmptyStates'
 import { summarizeInsight } from 'scenes/insights/summarizeInsight'
@@ -59,7 +56,7 @@ import { cohortsModel } from '~/models/cohortsModel'
 import { groupsModel } from '~/models/groupsModel'
 import { NodeKind } from '~/queries/schema'
 import { isInsightVizNode } from '~/queries/utils'
-import { InsightModel, InsightType, LayoutView, SavedInsightsTabs } from '~/types'
+import { ActivityScope, InsightModel, InsightType, LayoutView, SavedInsightsTabs } from '~/types'
 
 import { teamLogic } from '../teamLogic'
 import { INSIGHTS_PER_PAGE, savedInsightsLogic } from './savedInsightsLogic'
@@ -141,7 +138,7 @@ export const QUERY_TYPES_METADATA: Record<NodeKind, InsightTypeMetadata> = {
     },
     [NodeKind.RetentionQuery]: {
         name: 'Retention',
-        description: 'See how many users return on subsequent days after an intial action',
+        description: 'See how many users return on subsequent days after an initial action',
         icon: IconRetention,
         inMenu: true,
     },
@@ -187,15 +184,21 @@ export const QUERY_TYPES_METADATA: Record<NodeKind, InsightTypeMetadata> = {
         icon: IconPerson,
         inMenu: true,
     },
-    [NodeKind.PersonsQuery]: {
+    [NodeKind.ActorsQuery]: {
         name: 'Persons',
         description: 'List of persons matching specified conditions',
         icon: IconPerson,
         inMenu: false,
     },
-    [NodeKind.InsightPersonsQuery]: {
+    [NodeKind.InsightActorsQuery]: {
         name: 'Persons',
         description: 'List of persons matching specified conditions, derived from an insight',
+        icon: IconPerson,
+        inMenu: false,
+    },
+    [NodeKind.InsightActorsQueryOptions]: {
+        name: 'Persons',
+        description: 'Options for InsightActorsQueryt',
         icon: IconPerson,
         inMenu: false,
     },
@@ -265,6 +268,12 @@ export const QUERY_TYPES_METADATA: Record<NodeKind, InsightTypeMetadata> = {
         icon: IconHogQL,
         inMenu: true,
     },
+    [NodeKind.HogQLAutocomplete]: {
+        name: 'HogQL Autocomplete',
+        description: 'Autocomplete for the HogQL query editor',
+        icon: IconHogQL,
+        inMenu: false,
+    },
     [NodeKind.DatabaseSchemaQuery]: {
         name: 'Database Schema',
         description: 'Introspect the PostHog database schema',
@@ -318,16 +327,6 @@ export function InsightIcon({ insight }: { insight: InsightModel }): JSX.Element
 }
 
 export function NewInsightButton({ dataAttr }: NewInsightButtonProps): JSX.Element {
-    const { featureFlags } = useValues(featureFlagLogic)
-
-    const overrides3000: Partial<LemonButtonWithSideActionProps> =
-        featureFlags[FEATURE_FLAGS.POSTHOG_3000] === 'test'
-            ? {
-                  size: 'small',
-                  icon: <IconPlusMini />,
-              }
-            : {}
-
     return (
         <LemonButton
             type="primary"
@@ -342,7 +341,8 @@ export function NewInsightButton({ dataAttr }: NewInsightButtonProps): JSX.Eleme
                 'data-attr': 'saved-insights-new-insight-dropdown',
             }}
             data-attr="saved-insights-new-insight-button"
-            {...overrides3000}
+            size="small"
+            icon={<IconPlusMini />}
         >
             New insight
         </LemonButton>
@@ -372,7 +372,7 @@ function SavedInsightsGrid(): JSX.Element {
                                 callback: loadInsights,
                             })
                         }
-                        placement={'SavedInsightGrid'}
+                        placement="SavedInsightGrid"
                     />
                 ))}
                 {insightsLoading && (
@@ -475,7 +475,7 @@ export function SavedInsights(): JSX.Element {
             dataIndex: 'last_modified_at',
             render: function renderLastModified(last_modified_at: string) {
                 return (
-                    <div className={'whitespace-nowrap'}>{last_modified_at && <TZLabel time={last_modified_at} />}</div>
+                    <div className="whitespace-nowrap">{last_modified_at && <TZLabel time={last_modified_at} />}</div>
                 )
             },
         },
@@ -486,15 +486,14 @@ export function SavedInsights(): JSX.Element {
                     <More
                         overlay={
                             <>
-                                <LemonButton status="stealth" to={urls.insightView(insight.short_id)} fullWidth>
+                                <LemonButton to={urls.insightView(insight.short_id)} fullWidth>
                                     View
                                 </LemonButton>
                                 <LemonDivider />
-                                <LemonButton status="stealth" to={urls.insightEdit(insight.short_id)} fullWidth>
+                                <LemonButton to={urls.insightEdit(insight.short_id)} fullWidth>
                                     Edit
                                 </LemonButton>
                                 <LemonButton
-                                    status="stealth"
                                     onClick={() => renameInsight(insight)}
                                     data-attr={`insight-item-${insight.short_id}-dropdown-rename`}
                                     fullWidth
@@ -502,9 +501,8 @@ export function SavedInsights(): JSX.Element {
                                     Rename
                                 </LemonButton>
                                 <LemonButton
-                                    status="stealth"
                                     onClick={() => duplicateInsight(insight)}
-                                    data-attr={`duplicate-insight-from-list-view`}
+                                    data-attr="duplicate-insight-from-list-view"
                                     fullWidth
                                 >
                                     Duplicate
@@ -534,10 +532,7 @@ export function SavedInsights(): JSX.Element {
 
     return (
         <div className="saved-insights">
-            <PageHeader
-                title="Product analytics"
-                buttons={<NewInsightButton dataAttr="saved-insights-create-new-insight" />}
-            />
+            <PageHeader buttons={<NewInsightButton dataAttr="saved-insights-create-new-insight" />} />
             <LemonTabs
                 activeKey={tab}
                 onChange={(tab) => setSavedInsightsFilters({ tab })}
@@ -555,7 +550,7 @@ export function SavedInsights(): JSX.Element {
                 <>
                     <SavedInsightsFilters />
                     <LemonDivider className="my-4" />
-                    <div className="flex justify-between mb-4 mt-2 items-center">
+                    <div className="flex justify-between mb-4 gap-2 flex-wrap mt-2 items-center">
                         <span className="text-muted-alt">
                             {count
                                 ? `${startCount}${endCount - startCount > 1 ? '-' + endCount : ''} of ${count} insight${

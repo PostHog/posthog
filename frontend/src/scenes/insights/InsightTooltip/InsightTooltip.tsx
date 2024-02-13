@@ -1,5 +1,6 @@
 import './InsightTooltip.scss'
 
+import clsx from 'clsx'
 import { useValues } from 'kea'
 import { InsightLabel } from 'lib/components/InsightLabel'
 import { IconHandClick } from 'lib/lemon-ui/icons'
@@ -78,6 +79,7 @@ export function InsightTooltip({
     altRightTitle,
     renderSeries,
     renderCount,
+    embedded = false,
     hideColorCol = false,
     hideInspectActorsSection = false,
     entitiesAsColumnsOverride,
@@ -171,7 +173,7 @@ export function InsightTooltip({
         }
 
         return (
-            <div className="InsightTooltip">
+            <div className={clsx('InsightTooltip', embedded && 'InsightTooltip--embedded')}>
                 <LemonTable
                     dataSource={dataSource.slice(0, rowCutoff)}
                     columns={columns}
@@ -232,7 +234,7 @@ export function InsightTooltip({
     })
 
     return (
-        <div className="InsightTooltip">
+        <div className={clsx('InsightTooltip', embedded && 'InsightTooltip--embedded')}>
             <LemonTable
                 dataSource={dataSource.slice(0, rowCutoff)}
                 columns={columns}

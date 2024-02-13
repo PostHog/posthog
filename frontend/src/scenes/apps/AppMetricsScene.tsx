@@ -1,7 +1,6 @@
 import { LemonButton } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { ActivityLog } from 'lib/components/ActivityLog/ActivityLog'
-import { ActivityScope } from 'lib/components/ActivityLog/humanizeActivity'
 import { PageHeader } from 'lib/components/PageHeader'
 import { IconSettings } from 'lib/lemon-ui/icons'
 import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
@@ -9,10 +8,9 @@ import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
 import { appMetricsSceneLogic } from 'scenes/apps/appMetricsSceneLogic'
 import { PluginImage } from 'scenes/plugins/plugin/PluginImage'
 import { pluginsLogic } from 'scenes/plugins/pluginsLogic'
-import { PluginTags } from 'scenes/plugins/tabs/apps/components'
 import { SceneExport } from 'scenes/sceneTypes'
 
-import { AppMetricsTab } from '~/types'
+import { ActivityScope, AppMetricsTab } from '~/types'
 
 import { AppLogsTab } from './AppLogsTab'
 import { ErrorDetailsModal } from './ErrorDetailsModal'
@@ -40,16 +38,6 @@ export function AppMetrics(): JSX.Element {
                 )}
                 <div className="flex-1">
                     <PageHeader
-                        title={
-                            pluginConfig ? (
-                                <span className="flex items-center gap-2">
-                                    {pluginConfig.plugin_info.name}
-                                    <PluginTags plugin={pluginConfig.plugin_info} />
-                                </span>
-                            ) : (
-                                <LemonSkeleton />
-                            )
-                        }
                         caption={pluginConfig ? 'An overview of metrics and exports for this app.' : undefined}
                         buttons={
                             pluginConfig?.plugin ? (

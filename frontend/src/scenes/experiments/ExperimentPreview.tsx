@@ -1,5 +1,4 @@
-import { LemonButton, LemonDivider, LemonModal, Tooltip } from '@posthog/lemon-ui'
-import { InputNumber, Slider } from 'antd'
+import { LemonButton, LemonDivider, LemonInput, LemonModal, Tooltip } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { Field, Form } from 'kea-forms'
 import { InsightLabel } from 'lib/components/InsightLabel'
@@ -7,6 +6,7 @@ import { PropertyFilterButton } from 'lib/components/PropertyFilters/components/
 import { TZLabel } from 'lib/components/TZLabel'
 import { dayjs } from 'lib/dayjs'
 import { IconInfo } from 'lib/lemon-ui/icons'
+import { LemonSlider } from 'lib/lemon-ui/LemonSlider'
 import { humanFriendlyNumber } from 'lib/utils'
 import { groupFilters } from 'scenes/feature-flags/FeatureFlags'
 import { urls } from 'scenes/urls'
@@ -108,40 +108,33 @@ export function ExperimentPreview({
                     <div className="mb-4 experiment-preview-row">
                         <div className="flex items-center">
                             <b>Minimum acceptable improvement</b>
-                            <Tooltip
-                                title={
-                                    'Minimum acceptable improvement is a calculation that estimates the smallest significant improvement you are willing to accept.'
-                                }
-                            >
+                            <Tooltip title="Minimum acceptable improvement is a calculation that estimates the smallest significant improvement you are willing to accept.">
                                 <IconInfo className="ml-1 text-muted text-xl" />
                             </Tooltip>
                         </div>
-                        <div className="flex mde-slider">
-                            <div className="w-1/3">
-                                <Slider
-                                    defaultValue={5}
-                                    value={minimumDetectableChange}
-                                    min={1}
-                                    max={sliderMaxValue}
-                                    trackStyle={{ background: 'var(--primary-3000)' }}
-                                    handleStyle={{ background: 'var(--primary-3000)' }}
-                                    onChange={(value) => {
-                                        setExperiment({
-                                            parameters: {
-                                                ...experiment.parameters,
-                                                minimum_detectable_effect: value,
-                                            },
-                                        })
-                                    }}
-                                    tipFormatter={(value) => `${value}%`}
-                                />
-                            </div>
-                            <InputNumber
+                        <div className="flex gap-2">
+                            <LemonSlider
+                                value={minimumDetectableChange ?? 5}
+                                min={1}
+                                max={sliderMaxValue}
+                                step={1}
+                                onChange={(value) => {
+                                    setExperiment({
+                                        parameters: {
+                                            ...experiment.parameters,
+                                            minimum_detectable_effect: value,
+                                        },
+                                    })
+                                }}
+                                className="w-1/3"
+                            />
+                            <LemonInput
+                                data-attr="min-acceptable-improvement"
+                                type="number"
                                 min={1}
                                 max={sliderMaxValue}
                                 defaultValue={5}
-                                formatter={(value) => `${value}%`}
-                                style={{ margin: '0 16px' }}
+                                suffix={<span>%</span>}
                                 value={minimumDetectableChange}
                                 onChange={(value) => {
                                     setExperiment({
@@ -325,8 +318,8 @@ export function ExperimentPreview({
                                                     {experiment.parameters?.custom_exposure_filter && (
                                                         <LemonButton
                                                             type="secondary"
-                                                            size="small"
                                                             status="danger"
+                                                            size="small"
                                                             className="mr-2"
                                                             onClick={() => updateExperimentExposure(null)}
                                                         >
@@ -352,7 +345,7 @@ export function ExperimentPreview({
                 isOpen={isExperimentGoalModalOpen}
                 onClose={closeExperimentGoalModal}
                 width={1000}
-                title={'Change experiment goal'}
+                title="Change experiment goal"
                 footer={
                     <div className="flex items-center gap-2">
                         <LemonButton
@@ -396,7 +389,7 @@ export function ExperimentPreview({
                 isOpen={isExperimentExposureModalOpen}
                 onClose={closeExperimentExposureModal}
                 width={1000}
-                title={'Change experiment exposure'}
+                title="Change experiment exposure"
                 footer={
                     <div className="flex items-center gap-2">
                         <LemonButton
@@ -463,9 +456,11 @@ export function MetricDisplay({ filters }: { filters?: FilterType }): JSX.Elemen
                                 />
                             </b>
                         </div>
-                        {event.properties?.map((prop: AnyPropertyFilter) => (
-                            <PropertyFilterButton key={prop.key} item={prop} />
-                        ))}
+                        <div className="space-y-1">
+                            {event.properties?.map((prop: AnyPropertyFilter) => (
+                                <PropertyFilterButton key={prop.key} item={prop} />
+                            ))}
+                        </div>
                     </div>
                 ))}
         </>

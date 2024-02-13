@@ -6,6 +6,7 @@ from rest_framework import exceptions, permissions, serializers, viewsets
 from rest_framework.request import Request
 
 from posthog import settings
+from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import TeamBasicSerializer
 from posthog.cloud_utils import is_cloud
 from posthog.constants import AvailableFeature
@@ -18,7 +19,6 @@ from posthog.models.team.util import delete_bulky_postgres_data
 from posthog.permissions import (
     CREATE_METHODS,
     OrganizationAdminWritePermissions,
-    OrganizationMemberPermissions,
     extract_organization,
 )
 from posthog.user_permissions import UserPermissions, UserPermissionsSerializerMixin
@@ -114,12 +114,8 @@ class OrganizationSerializer(serializers.ModelSerializer, UserPermissionsSeriali
         return membership.level if membership is not None else None
 
     def get_teams(self, instance: Organization) -> List[Dict[str, Any]]:
-        teams = cast(
-            List[Dict[str, Any]],
-            TeamBasicSerializer(instance.teams.all(), context=self.context, many=True).data,
-        )
-        visible_team_ids = set(self.user_permissions.team_ids_visible_for_user)
-        return [team for team in teams if team["id"] in visible_team_ids]
+        visible_teams = instance.teams.filter(id__in=self.user_permissions.team_ids_visible_for_user)
+        return TeamBasicSerializer(visible_teams, context=self.context, many=True).data  # type: ignore
 
     def get_metadata(self, instance: Organization) -> Dict[str, Union[str, int, object]]:
         return {
@@ -127,13 +123,9 @@ class OrganizationSerializer(serializers.ModelSerializer, UserPermissionsSeriali
         }
 
 
-class OrganizationViewSet(viewsets.ModelViewSet):
+class OrganizationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     serializer_class = OrganizationSerializer
-    permission_classes = [
-        permissions.IsAuthenticated,
-        OrganizationMemberPermissions,
-        OrganizationPermissionsWithDelete,
-    ]
+    permission_classes = [OrganizationPermissionsWithDelete]
     queryset = Organization.objects.none()
     lookup_field = "id"
     ordering = "-created_by"
@@ -141,7 +133,7 @@ class OrganizationViewSet(viewsets.ModelViewSet):
     def get_permissions(self):
         if self.request.method == "POST":
             # Cannot use `OrganizationMemberPermissions` or `OrganizationAdminWritePermissions`
-            # because they require an existing org, unneded anyways because permissions are organization-based
+            # because they require an existing org, unneeded anyways because permissions are organization-based
             return [
                 permission()
                 for permission in [

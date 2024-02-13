@@ -17,6 +17,7 @@ import { Kafka } from 'kafkajs'
 import { DateTime } from 'luxon'
 import { Job } from 'node-schedule'
 import { VM } from 'vm2'
+import { RustyHook } from 'worker/rusty-hook'
 
 import { ObjectStorage } from './main/services/object_storage'
 import { DB } from './utils/db/db'
@@ -170,7 +171,6 @@ export interface PluginsServerConfig {
     PISCINA_USE_ATOMICS: boolean // corresponds to the piscina useAtomics config option (https://github.com/piscinajs/piscina#constructor-new-piscinaoptions)
     PISCINA_ATOMICS_TIMEOUT: number // (advanced) corresponds to the length of time a piscina worker should block for when looking for tasks
     SITE_URL: string | null
-    MAX_PENDING_PROMISES_PER_WORKER: number // (advanced) maximum number of promises that a worker can have running at once in the background. currently only targets the exportEvents buffer.
     KAFKA_PARTITIONS_CONSUMED_CONCURRENTLY: number // (advanced) how many kafka partitions the plugin server should consume from concurrently
     RECORDING_PARTITIONS_CONSUMED_CONCURRENTLY: number
     CONVERSION_BUFFER_ENABLED: boolean
@@ -199,8 +199,12 @@ export interface PluginsServerConfig {
     DROP_EVENTS_BY_TOKEN_DISTINCT_ID: string
     DROP_EVENTS_BY_TOKEN: string
     POE_EMBRACE_JOIN_FOR_TEAMS: string
-    POE_DEFERRED_WRITES_ENABLED: boolean
+    POE_WRITES_ENABLED_MAX_TEAM_ID: number
+    POE_WRITES_EXCLUDE_TEAMS: string
     RELOAD_PLUGIN_JITTER_MAX_MS: number
+    RUSTY_HOOK_FOR_TEAMS: string
+    RUSTY_HOOK_ROLLOUT_PERCENTAGE: number
+    RUSTY_HOOK_URL: string
     SKIP_UPDATE_EVENT_AND_PROPERTIES_STEP: boolean
 
     // dump profiles to disk, covering the first N seconds of runtime
@@ -223,7 +227,7 @@ export interface PluginsServerConfig {
     SESSION_RECORDING_CONSOLE_LOGS_INGESTION_ENABLED: boolean
     // a single partition which will output many more log messages to the console
     // useful when that partition is lagging unexpectedly
-    SESSION_RECORDING_DEBUG_PARTITION: number | undefined
+    SESSION_RECORDING_DEBUG_PARTITION: string | undefined
 
     // Dedicated infra values
     SESSION_RECORDING_KAFKA_HOSTS: string | undefined
@@ -264,6 +268,7 @@ export interface Hub extends PluginsServerConfig {
     rootAccessManager: RootAccessManager
     eventsProcessor: EventsProcessor
     appMetrics: AppMetrics
+    rustyHook: RustyHook
     // geoip database, setup in workers
     mmdb?: ReaderModel
     // diagnostics
@@ -276,6 +281,7 @@ export interface Hub extends PluginsServerConfig {
     // ValueMatchers used for various opt-in/out features
     pluginConfigsToSkipElementsParsing: ValueMatcher<number>
     poeEmbraceJoinForTeams: ValueMatcher<number>
+    poeWritesExcludeTeams: ValueMatcher<number>
     // lookups
     eventsToDropByToken: Map<string, string[]>
 }
@@ -292,7 +298,7 @@ export interface PluginServerCapabilities {
     processAsyncWebhooksHandlers?: boolean
     sessionRecordingBlobIngestion?: boolean
     personOverrides?: boolean
-    transpileFrontendApps?: boolean // TODO: move this away from pod startup, into a graphile job
+    appManagementSingleton?: boolean
     preflightSchedules?: boolean // Used for instance health checks on hobby deploy, not useful on cloud
     http?: boolean
     mmdb?: boolean

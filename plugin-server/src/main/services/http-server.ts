@@ -92,7 +92,7 @@ export function createHttpServer(
                 res.statusCode = 503
                 res.end(JSON.stringify(responseBody))
             }
-        } else if (req.url === '/_metrics') {
+        } else if (req.url === '/_metrics' || req.url === '/metrics') {
             prometheus.register
                 .metrics()
                 .then((metrics) => {

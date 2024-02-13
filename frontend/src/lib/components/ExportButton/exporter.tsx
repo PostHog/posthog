@@ -2,7 +2,7 @@ import { AnimationType } from 'lib/animations/animations'
 import api from 'lib/api'
 import { Animation } from 'lib/components/Animation/Animation'
 import { dayjs } from 'lib/dayjs'
-import { lemonToast } from 'lib/lemon-ui/lemonToast'
+import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { Spinner } from 'lib/lemon-ui/Spinner/Spinner'
 import { delay } from 'lib/utils'
 import posthog from 'posthog-js'
@@ -92,14 +92,23 @@ export async function triggerExport(asset: TriggerExportProps): Promise<void> {
 
                     await delay(POLL_DELAY_MS)
 
-                    exportedAsset = await api.exports.get(exportedAsset.id)
+                    // Keep polling for pure network errors, but not any HTTP errors
+                    // Example: `NetworkError when attempting to fetch resource`
+                    try {
+                        exportedAsset = await api.exports.get(exportedAsset.id)
+                    } catch (e: any) {
+                        if (e.name === 'NetworkError' || e.message?.message?.startsWith('NetworkError')) {
+                            continue
+                        }
+                        throw e
+                    }
                 }
 
                 reject('Content not loaded in time...')
             } catch (e: any) {
                 trackingProperties.total_time_ms = performance.now() - startTime
                 posthog.capture('export failed', trackingProperties)
-                reject(`Export failed: ${JSON.stringify(e)}`)
+                reject(new Error(`Export failed: ${JSON.stringify(e.detail ?? e)}`))
             }
         })
         await lemonToast.promise(

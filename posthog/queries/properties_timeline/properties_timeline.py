@@ -104,7 +104,7 @@ class PropertiesTimeline:
         event_query_sql, event_query_params = event_query.get_query()
 
         crucial_property_keys = self.extract_crucial_property_keys(filter)
-        crucial_property_columns = get_single_or_multi_property_string_expr(
+        crucial_property_columns, crucial_property_params = get_single_or_multi_property_string_expr(
             crucial_property_keys,
             query_alias=None,
             table="events",
@@ -127,6 +127,7 @@ class PropertiesTimeline:
 
         params = {
             **event_query_params,
+            **crucial_property_params,
             "actor_id": actor.uuid if isinstance(actor, Person) else actor.group_key,
         }
         raw_query_result = insight_sync_execute(

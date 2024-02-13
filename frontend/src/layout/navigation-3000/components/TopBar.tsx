@@ -1,17 +1,18 @@
 import './TopBar.scss'
 
+import { IconChevronDown } from '@posthog/icons'
 import { LemonButton, LemonSkeleton } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { EditableField } from 'lib/components/EditableField/EditableField'
-import { IconArrowDropDown, IconMenu } from 'lib/lemon-ui/icons'
+import { IconMenu } from 'lib/lemon-ui/icons'
 import { Link } from 'lib/lemon-ui/Link'
 import { Popover } from 'lib/lemon-ui/Popover/Popover'
 import React, { useLayoutEffect, useState } from 'react'
 
 import { breadcrumbsLogic } from '~/layout/navigation/Breadcrumbs/breadcrumbsLogic'
 import { navigationLogic } from '~/layout/navigation/navigationLogic'
-import { FinalizedBreadcrumb } from '~/types'
+import { Breadcrumb as IBreadcrumb } from '~/types'
 
 import { navigation3000Logic } from '../navigationLogic'
 
@@ -87,17 +88,13 @@ export function TopBar(): JSX.Element | null {
                 <div className="TopBar3000__breadcrumbs">
                     {breadcrumbs.length > 1 && (
                         <div className="TopBar3000__trail">
-                            {breadcrumbs.slice(0, -1).map((breadcrumb, index) => (
-                                <React.Fragment key={breadcrumb.name || '…'}>
-                                    <Breadcrumb breadcrumb={breadcrumb} index={index} />
+                            {breadcrumbs.slice(0, -1).map((breadcrumb) => (
+                                <React.Fragment key={joinBreadcrumbKey(breadcrumb.key)}>
+                                    <Breadcrumb breadcrumb={breadcrumb} />
                                     <div className="TopBar3000__separator" />
                                 </React.Fragment>
                             ))}
-                            <Breadcrumb
-                                breadcrumb={breadcrumbs[breadcrumbs.length - 1]}
-                                index={breadcrumbs.length - 1}
-                                here
-                            />
+                            <Breadcrumb breadcrumb={breadcrumbs[breadcrumbs.length - 1]} here />
                         </div>
                     )}
                     <Here breadcrumb={breadcrumbs[breadcrumbs.length - 1]} />
@@ -109,30 +106,31 @@ export function TopBar(): JSX.Element | null {
 }
 
 interface BreadcrumbProps {
-    breadcrumb: FinalizedBreadcrumb
-    index: number
+    breadcrumb: IBreadcrumb
     here?: boolean
 }
 
-function Breadcrumb({ breadcrumb, index, here }: BreadcrumbProps): JSX.Element {
+function Breadcrumb({ breadcrumb, here }: BreadcrumbProps): JSX.Element {
     const { renameState } = useValues(breadcrumbsLogic)
     const { tentativelyRename, finishRenaming } = useActions(breadcrumbsLogic)
     const [popoverShown, setPopoverShown] = useState(false)
+
+    const joinedKey = joinBreadcrumbKey(breadcrumb.key)
 
     let nameElement: JSX.Element
     if (breadcrumb.name != null && breadcrumb.onRename) {
         nameElement = (
             <EditableField
                 name="item-name-small"
-                value={renameState && renameState[0] === breadcrumb.globalKey ? renameState[1] : breadcrumb.name}
-                onChange={(newName) => tentativelyRename(breadcrumb.globalKey, newName)}
+                value={renameState && renameState[0] === joinedKey ? renameState[1] : breadcrumb.name}
+                onChange={(newName) => tentativelyRename(joinedKey, newName)}
                 onSave={(newName) => {
                     void breadcrumb.onRename?.(newName)
                 }}
-                mode={renameState && renameState[0] === breadcrumb.globalKey ? 'edit' : 'view'}
+                mode={renameState && renameState[0] === joinedKey ? 'edit' : 'view'}
                 onModeToggle={(newMode) => {
                     if (newMode === 'edit') {
-                        tentativelyRename(breadcrumb.globalKey, breadcrumb.name as string)
+                        tentativelyRename(joinedKey, breadcrumb.name as string)
                     } else {
                         finishRenaming()
                     }
@@ -159,11 +157,11 @@ function Breadcrumb({ breadcrumb, index, here }: BreadcrumbProps): JSX.Element {
             onClick={() => {
                 breadcrumb.popover && setPopoverShown(!popoverShown)
             }}
-            data-attr={`breadcrumb-${index}`}
+            data-attr={`breadcrumb-${joinedKey}`}
             to={breadcrumb.path}
         >
             {nameElement}
-            {breadcrumb.popover && <IconArrowDropDown />}
+            {breadcrumb.popover && <IconChevronDown />}
         </Component>
     )
 
@@ -192,23 +190,25 @@ function Breadcrumb({ breadcrumb, index, here }: BreadcrumbProps): JSX.Element {
 }
 
 interface HereProps {
-    breadcrumb: FinalizedBreadcrumb
+    breadcrumb: IBreadcrumb
 }
 
 function Here({ breadcrumb }: HereProps): JSX.Element {
     const { renameState } = useValues(breadcrumbsLogic)
     const { tentativelyRename, finishRenaming } = useActions(breadcrumbsLogic)
 
+    const joinedKey = joinBreadcrumbKey(breadcrumb.key)
+
     return (
-        <h1 className="TopBar3000__here">
+        <h1 className="TopBar3000__here" data-attr="top-bar-name">
             {breadcrumb.name == null ? (
                 <LemonSkeleton className="w-40 h-4" />
             ) : breadcrumb.onRename ? (
                 <EditableField
                     name="item-name-large"
-                    value={renameState && renameState[0] === breadcrumb.globalKey ? renameState[1] : breadcrumb.name}
+                    value={renameState && renameState[0] === joinedKey ? renameState[1] : breadcrumb.name}
                     onChange={(newName) => {
-                        tentativelyRename(breadcrumb.globalKey, newName)
+                        tentativelyRename(joinedKey, newName)
                         if (breadcrumb.forceEditMode) {
                             // In this case there's no "Save" button, we update on input
                             void breadcrumb.onRename?.(newName)
@@ -217,16 +217,12 @@ function Here({ breadcrumb }: HereProps): JSX.Element {
                     onSave={(newName) => {
                         void breadcrumb.onRename?.(newName)
                     }}
-                    mode={
-                        breadcrumb.forceEditMode || (renameState && renameState[0] === breadcrumb.globalKey)
-                            ? 'edit'
-                            : 'view'
-                    }
+                    mode={breadcrumb.forceEditMode || (renameState && renameState[0] === joinedKey) ? 'edit' : 'view'}
                     onModeToggle={
                         !breadcrumb.forceEditMode
                             ? (newMode) => {
                                   if (newMode === 'edit') {
-                                      tentativelyRename(breadcrumb.globalKey, breadcrumb.name as string)
+                                      tentativelyRename(joinedKey, breadcrumb.name as string)
                                   } else {
                                       finishRenaming()
                                   }
@@ -236,10 +232,15 @@ function Here({ breadcrumb }: HereProps): JSX.Element {
                     placeholder="Unnamed"
                     compactButtons="xsmall"
                     editingIndication="underlined"
+                    autoFocus
                 />
             ) : (
                 <span>{breadcrumb.name}</span>
             )}
         </h1>
     )
+}
+
+function joinBreadcrumbKey(key: IBreadcrumb['key']): string {
+    return Array.isArray(key) ? key.map(String).join(':') : String(key)
 }

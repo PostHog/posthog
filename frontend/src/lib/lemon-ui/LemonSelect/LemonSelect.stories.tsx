@@ -21,7 +21,7 @@ export default meta
 const Template: StoryFn<typeof LemonSelect> = (props: LemonSelectProps<any>) => {
     return (
         <div className="flex flex-row items-center w-full border p-4 gap-2">
-            {(['small', undefined] as const).map((size, index) => (
+            {(['small', 'medium', 'large', undefined] as const).map((size, index) => (
                 <div className="flex flex-col" key={index}>
                     <h5>size={capitalizeFirstLetter(size || 'unspecified')}</h5>
                     <LemonSelect {...props} size={size} />
@@ -131,7 +131,7 @@ CustomElement.args = {
 export const FullWidth: StoryFn<typeof LemonSelect> = (props: LemonSelectProps<any>) => {
     return (
         <div className="items-center w-full border p-4 gap-2">
-            <LemonSelect {...props} fullWidth={true} allowClear={true} value={'poodle'} />
+            <LemonSelect {...props} fullWidth={true} allowClear={true} value="poodle" />
         </div>
     )
 }

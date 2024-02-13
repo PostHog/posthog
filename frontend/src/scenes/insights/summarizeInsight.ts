@@ -1,6 +1,7 @@
 import { useValues } from 'kea'
+import { PROPERTY_FILTER_TYPE_TO_TAXONOMIC_FILTER_GROUP_TYPE } from 'lib/components/PropertyFilters/utils'
 import { RETENTION_FIRST_TIME } from 'lib/constants'
-import { KEY_MAPPING } from 'lib/taxonomy'
+import { CORE_FILTER_DEFINITIONS_BY_GROUP, getCoreFilterDefinition } from 'lib/taxonomy'
 import { alphabet, capitalizeFirstLetter } from 'lib/utils'
 import { toLocalFilters } from 'scenes/insights/filters/ActionFilter/entityFilterLogic'
 import {
@@ -64,9 +65,16 @@ function summarizeBreakdown(filters: Partial<FilterType> | BreakdownFilter, cont
                 breakdown_type !== 'group'
                     ? breakdown_type
                     : context.aggregationLabel(breakdown_group_type_index, true).singular
-            return `${noun}'s ${
-                (breakdown as string) in KEY_MAPPING.event ? KEY_MAPPING.event[breakdown as string].label : breakdown
-            }`
+            const propertyLabel =
+                typeof breakdown === 'string' &&
+                breakdown_type &&
+                breakdown_type in PROPERTY_FILTER_TYPE_TO_TAXONOMIC_FILTER_GROUP_TYPE
+                    ? getCoreFilterDefinition(
+                          breakdown,
+                          PROPERTY_FILTER_TYPE_TO_TAXONOMIC_FILTER_GROUP_TYPE[breakdown_type]
+                      )?.label || breakdown
+                    : breakdown
+            return `${noun}'s ${propertyLabel}`
         }
     }
     return null
@@ -144,7 +152,8 @@ function summarizeInsightFilters(filters: AnyPartialFilterType, context: Summary
                     series = `${getDisplayNameFromEntityFilter(localFilter)} count per user ${mathDefinition.shortName}`
                 } else if (mathDefinition?.category === MathCategory.PropertyValue) {
                     series = `${getDisplayNameFromEntityFilter(localFilter)}'s ${
-                        KEY_MAPPING.event[localFilter.math_property as string]?.label || localFilter.math_property
+                        CORE_FILTER_DEFINITIONS_BY_GROUP.event_properties[localFilter.math_property as string]?.label ||
+                        localFilter.math_property
                     } ${
                         mathDefinition
                             ? mathDefinition.shortName
@@ -193,7 +202,8 @@ export function summarizeInsightQuery(query: InsightQueryNode, context: SummaryC
                     series = `${getDisplayNameFromEntityNode(s)} count per user ${mathDefinition.shortName}`
                 } else if (mathDefinition?.category === MathCategory.PropertyValue) {
                     series = `${getDisplayNameFromEntityNode(s)}'s ${
-                        KEY_MAPPING.event[s.math_property as string]?.label || s.math_property
+                        CORE_FILTER_DEFINITIONS_BY_GROUP.event_properties[s.math_property as string]?.label ||
+                        s.math_property
                     } ${
                         mathDefinition
                             ? mathDefinition.shortName
@@ -217,8 +227,8 @@ export function summarizeInsightQuery(query: InsightQueryNode, context: SummaryC
             })
             .join(' & ')
 
-        if (query.breakdown?.breakdown_type) {
-            summary += `${query.series.length > 1 ? ',' : ''} by ${summarizeBreakdown(query.breakdown, context)}`
+        if (query.breakdownFilter?.breakdown_type) {
+            summary += `${query.series.length > 1 ? ',' : ''} by ${summarizeBreakdown(query.breakdownFilter, context)}`
         }
         if (query.trendsFilter?.formula) {
             summary = `${query.trendsFilter.formula} on ${summary}`
@@ -228,50 +238,50 @@ export function summarizeInsightQuery(query: InsightQueryNode, context: SummaryC
     } else if (isFunnelsQuery(query)) {
         let summary
         const linkSymbol =
-            query.funnelsFilter?.funnel_order_type === StepOrderValue.STRICT
+            query.funnelsFilter?.funnelOrderType === StepOrderValue.STRICT
                 ? '⇉'
-                : query.funnelsFilter?.funnel_order_type === StepOrderValue.UNORDERED
+                : query.funnelsFilter?.funnelOrderType === StepOrderValue.UNORDERED
                 ? '&'
                 : '→'
         summary = `${query.series.map((s) => getDisplayNameFromEntityNode(s)).join(` ${linkSymbol} `)} ${
             context.aggregationLabel(query.aggregation_group_type_index, true).singular
         } conversion`
-        if (query.funnelsFilter?.funnel_viz_type === FunnelVizType.TimeToConvert) {
+        if (query.funnelsFilter?.funnelVizType === FunnelVizType.TimeToConvert) {
             summary += ' time'
-        } else if (query.funnelsFilter?.funnel_viz_type === FunnelVizType.Trends) {
+        } else if (query.funnelsFilter?.funnelVizType === FunnelVizType.Trends) {
             summary += ' trend'
         } else {
             // Steps are the default viz type
             summary += ' rate'
         }
-        if (query.breakdown?.breakdown_type) {
-            summary += ` by ${summarizeBreakdown(query.breakdown, context)}`
+        if (query.breakdownFilter?.breakdown_type) {
+            summary += ` by ${summarizeBreakdown(query.breakdownFilter, context)}`
         }
         return summary
     } else if (isRetentionQuery(query)) {
         const areTargetAndReturningIdentical =
-            query.retentionFilter?.returning_entity?.id === query.retentionFilter?.target_entity?.id &&
-            query.retentionFilter?.returning_entity?.type === query.retentionFilter?.target_entity?.type
+            query.retentionFilter?.returningEntity?.id === query.retentionFilter?.targetEntity?.id &&
+            query.retentionFilter?.returningEntity?.type === query.retentionFilter?.targetEntity?.type
         return (
             `Retention of ${context.aggregationLabel(query.aggregation_group_type_index, true).plural}` +
             ` based on doing ${getDisplayNameFromEntityFilter(
-                (query.retentionFilter?.target_entity || {}) as EntityFilter
+                (query.retentionFilter?.targetEntity || {}) as EntityFilter
             )}` +
-            ` ${retentionOptions[query.retentionFilter?.retention_type || RETENTION_FIRST_TIME]} and returning with ` +
+            ` ${retentionOptions[query.retentionFilter?.retentionType || RETENTION_FIRST_TIME]} and returning with ` +
             (areTargetAndReturningIdentical
                 ? 'the same event'
-                : getDisplayNameFromEntityFilter((query.retentionFilter?.returning_entity || {}) as EntityFilter))
+                : getDisplayNameFromEntityFilter((query.retentionFilter?.returningEntity || {}) as EntityFilter))
         )
     } else if (isPathsQuery(query)) {
         // Sync format with PathsSummary in InsightDetails
-        let summary = `User paths based on ${humanizePathsEventTypes(query.pathsFilter?.include_event_types).join(
+        let summary = `User paths based on ${humanizePathsEventTypes(query.pathsFilter?.includeEventTypes).join(
             ' and '
         )}`
-        if (query.pathsFilter?.start_point) {
-            summary += ` starting at ${query.pathsFilter?.start_point}`
+        if (query.pathsFilter?.startPoint) {
+            summary += ` starting at ${query.pathsFilter?.startPoint}`
         }
-        if (query.pathsFilter?.end_point) {
-            summary += `${query.pathsFilter?.start_point ? ' and' : ''} ending at ${query.pathsFilter?.end_point}`
+        if (query.pathsFilter?.endPoint) {
+            summary += `${query.pathsFilter?.startPoint ? ' and' : ''} ending at ${query.pathsFilter?.endPoint}`
         }
         return summary
     } else if (isStickinessQuery(query)) {
@@ -343,15 +353,14 @@ export interface SummaryContext {
 
 export function summarizeInsight(
     query: Node | undefined | null,
-    filters: Partial<FilterType>,
+    filters: Partial<FilterType> | undefined | null,
     context: SummaryContext
 ): string {
-    const hasFilters = Object.keys(filters || {}).length > 0
     return isInsightVizNode(query)
         ? summarizeInsightQuery(query.source, context)
         : !!query && !isInsightVizNode(query)
         ? summarizeQuery(query)
-        : hasFilters
+        : filters && Object.keys(filters).length > 0
         ? summarizeInsightFilters(filters, context)
         : ''
 }

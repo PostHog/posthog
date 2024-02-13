@@ -58,13 +58,13 @@ export function EditorFilters({ query, showing, embedded }: EditorFiltersProps):
         isLifecycle,
         isTrendsLike,
         display,
-        breakdown,
+        breakdownFilter,
         pathsFilter,
         querySource,
         shouldShowSessionAnalysisWarning,
         hasFormula,
     } = useValues(insightVizDataLogic(insightProps))
-    const { isStepsFunnel } = useValues(funnelDataLogic(insightProps))
+    const { isStepsFunnel, isTrendsFunnel } = useValues(funnelDataLogic(insightProps))
 
     if (!querySource) {
         return null
@@ -72,10 +72,11 @@ export function EditorFilters({ query, showing, embedded }: EditorFiltersProps):
 
     const hasBreakdown =
         (isTrends && !NON_BREAKDOWN_DISPLAY_TYPES.includes(display || ChartDisplayType.ActionsLineGraph)) ||
-        isStepsFunnel
+        isStepsFunnel ||
+        isTrendsFunnel
     const hasPathsAdvanced = availableFeatures.includes(AvailableFeature.PATHS_ADVANCED)
     const hasAttribution = isStepsFunnel
-    const hasPathsHogQL = isPaths && pathsFilter?.include_event_types?.includes(PathType.HogQL)
+    const hasPathsHogQL = isPaths && pathsFilter?.includeEventTypes?.includes(PathType.HogQL)
 
     const editorFilters: InsightEditorFilterGroup[] = [
         {
@@ -172,7 +173,7 @@ export function EditorFilters({ query, showing, embedded }: EditorFiltersProps):
         },
         {
             title: 'Breakdown',
-            count: breakdown?.breakdowns?.length || (breakdown?.breakdown ? 1 : 0),
+            count: breakdownFilter?.breakdowns?.length || (breakdownFilter?.breakdown ? 1 : 0),
             editorFilters: filterFalsy([
                 hasBreakdown
                     ? {

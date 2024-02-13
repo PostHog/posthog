@@ -47,6 +47,7 @@ from posthog.constants import (
     TREND_FILTER_TYPE_EVENTS,
     TRENDS_WORLD_MAP,
     BreakdownAttributionType,
+    BREAKDOWN_HIDE_OTHER_AGGREGATION,
 )
 from posthog.models.entity import Entity, ExclusionEntity, MathType
 from posthog.models.filters.mixins.base import BaseParamMixin, BreakdownType
@@ -213,6 +214,15 @@ class BreakdownMixin(BaseParamMixin):
                 pass
         return None
 
+    @cached_property
+    def breakdown_hide_other_aggregation(self) -> Optional[bool]:
+        if BREAKDOWN_HIDE_OTHER_AGGREGATION in self._data:
+            try:
+                return self._data[BREAKDOWN_HIDE_OTHER_AGGREGATION] in ("True", "true", True)
+            except ValueError:
+                pass
+        return None
+
     @include_dict
     def breakdown_to_dict(self):
         result: Dict = {}
@@ -228,6 +238,8 @@ class BreakdownMixin(BaseParamMixin):
             result[BREAKDOWN_ATTRIBUTION_VALUE] = self.breakdown_attribution_value
         if self.breakdown_histogram_bin_count is not None:
             result[BREAKDOWN_HISTOGRAM_BIN_COUNT] = self.breakdown_histogram_bin_count
+        if self.breakdown_hide_other_aggregation is not None:
+            result[BREAKDOWN_HIDE_OTHER_AGGREGATION] = self.breakdown_hide_other_aggregation
         if self.breakdown_normalize_url is not None:
             result[BREAKDOWN_NORMALIZE_URL] = self.breakdown_normalize_url
         return result

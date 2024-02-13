@@ -7,7 +7,6 @@ from freezegun.api import freeze_time
 
 from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.log_entries import TRUNCATE_LOG_ENTRIES_TABLE_SQL
-from posthog.cloud_utils import TEST_clear_cloud_cache
 from posthog.constants import AvailableFeature
 from posthog.models import Person, Cohort, GroupTypeMapping
 from posthog.models.action import Action
@@ -690,7 +689,6 @@ class TestClickhouseSessionRecordingsListFromSessionReplay(ClickhouseTestMixin, 
     def test_ttl_days(self):
         assert ttl_days(self.team) == 21
 
-        TEST_clear_cloud_cache()
         with self.is_cloud(True):
             # Far enough in the future from `days_since_blob_ingestion` but not paid
             with freeze_time("2023-09-01T12:00:01Z"):
@@ -2698,7 +2696,9 @@ class TestClickhouseSessionRecordingsListFromSessionReplay(ClickhouseTestMixin, 
         (session_recordings, _) = session_recording_list_instance.run()
         self.assertEqual(len(session_recordings), 1)
 
-    @also_test_with_materialized_columns(event_properties=["is_internal_user"])
+    # TRICKY: we had to disable use of materialized columns for part of the query generation
+    # due to RAM usage issues on the EU cluster
+    @also_test_with_materialized_columns(event_properties=["is_internal_user"], verify_no_jsonextract=False)
     @freeze_time("2021-01-21T20:00:00.000Z")
     @snapshot_clickhouse_queries
     def test_top_level_event_property_test_account_filter(self):
@@ -2793,6 +2793,104 @@ class TestClickhouseSessionRecordingsListFromSessionReplay(ClickhouseTestMixin, 
         session_recording_list_instance = SessionRecordingListFromReplaySummary(filter=filter, team=self.team)
         (session_recordings, _) = session_recording_list_instance.run()
         self.assertEqual(len(session_recordings), 1)
+
+    # TRICKY: we had to disable use of materialized columns for part of the query generation
+    # due to RAM usage issues on the EU cluster
+    @also_test_with_materialized_columns(event_properties=["is_internal_user"], verify_no_jsonextract=True)
+    @freeze_time("2021-01-21T20:00:00.000Z")
+    @snapshot_clickhouse_queries
+    def test_top_level_event_property_test_account_filter_allowing_denormalized_props(self):
+        """
+        This is a duplicate of the test test_top_level_event_property_test_account_filter
+        but with denormalized props allowed
+        """
+
+        with self.settings(ALLOW_DENORMALIZED_PROPS_IN_LISTING=True):
+            self.team.test_account_filters = [
+                {
+                    "key": "is_internal_user",
+                    "value": ["false"],
+                    "operator": "exact",
+                    "type": "event",
+                },
+            ]
+            self.team.save()
+
+            Person.objects.create(team=self.team, distinct_ids=["user"], properties={"email": "bla"})
+            Person.objects.create(
+                team=self.team,
+                distinct_ids=["user2"],
+                properties={"email": "not-the-other-one"},
+            )
+
+            produce_replay_summary(
+                distinct_id="user",
+                session_id="1",
+                first_timestamp=self.base_time,
+                team_id=self.team.id,
+            )
+            self.create_event(
+                "user",
+                self.base_time,
+                properties={
+                    "$session_id": "1",
+                    "$window_id": "1",
+                    "is_internal_user": False,
+                },
+            )
+            produce_replay_summary(
+                distinct_id="user",
+                session_id="1",
+                first_timestamp=self.base_time + relativedelta(seconds=30),
+                team_id=self.team.id,
+            )
+
+            produce_replay_summary(
+                distinct_id="user2",
+                session_id="2",
+                first_timestamp=self.base_time,
+                team_id=self.team.id,
+            )
+            self.create_event(
+                "user2",
+                self.base_time,
+                properties={
+                    "$session_id": "2",
+                    "$window_id": "1",
+                    "is_internal_user": True,
+                },
+            )
+
+            # there are 2 pageviews
+            filter = SessionRecordingsFilter(
+                team=self.team,
+                data={
+                    # pageview that matches the hogql test_accounts filter
+                    "events": [
+                        {
+                            "id": "$pageview",
+                            "type": "events",
+                            "order": 0,
+                            "name": "$pageview",
+                        }
+                    ],
+                    "filter_test_accounts": False,
+                },
+            )
+            session_recording_list_instance = SessionRecordingListFromReplaySummary(filter=filter, team=self.team)
+            (session_recordings, _) = session_recording_list_instance.run()
+            self.assertEqual(len(session_recordings), 2)
+
+            filter = SessionRecordingsFilter(
+                team=self.team,
+                data={
+                    # only 1 pageview that matches the test_accounts filter
+                    "filter_test_accounts": True,
+                },
+            )
+            session_recording_list_instance = SessionRecordingListFromReplaySummary(filter=filter, team=self.team)
+            (session_recordings, _) = session_recording_list_instance.run()
+            self.assertEqual(len(session_recordings), 1)
 
     @also_test_with_materialized_columns(event_properties=["is_internal_user"])
     @freeze_time("2021-01-21T20:00:00.000Z")

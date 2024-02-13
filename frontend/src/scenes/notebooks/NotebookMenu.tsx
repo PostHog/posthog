@@ -1,9 +1,10 @@
 import './NotebookScene.scss'
 
+import { IconClock, IconEllipsis, IconShare } from '@posthog/icons'
 import { LemonButton } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
-import { IconDelete, IconEllipsis, IconExport, IconNotification, IconShare } from 'lib/lemon-ui/icons'
+import { IconDelete, IconExport } from 'lib/lemon-ui/icons'
 import { LemonMenu } from 'lib/lemon-ui/LemonMenu'
 import { urls } from 'scenes/urls'
 
@@ -20,39 +21,34 @@ export function NotebookMenu({ shortId }: NotebookLogicProps): JSX.Element {
         <LemonMenu
             items={[
                 {
-                    items: [
-                        {
-                            label: 'Export JSON',
-                            icon: <IconExport />,
-                            onClick: () => exportJSON(),
-                        },
-                        {
-                            label: 'History',
-                            icon: <IconNotification />,
-                            onClick: () => setShowHistory(!showHistory),
-                        },
-                        !isLocalOnly && {
-                            label: 'Share',
-                            icon: <IconShare />,
-                            onClick: () => openNotebookShareDialog({ shortId }),
-                        },
-                        !isLocalOnly &&
-                            !notebook?.is_template && {
-                                label: 'Delete',
-                                icon: <IconDelete />,
-                                status: 'danger',
-
-                                onClick: () => {
-                                    notebooksModel.actions.deleteNotebook(shortId, notebook?.title)
-                                    router.actions.push(urls.notebooks())
-                                },
-                            },
-                    ],
+                    label: 'Export JSON',
+                    icon: <IconExport />,
+                    onClick: () => exportJSON(),
                 },
+                {
+                    label: 'History',
+                    icon: <IconClock />,
+                    onClick: () => setShowHistory(!showHistory),
+                },
+                {
+                    label: 'Share',
+                    icon: <IconShare />,
+                    onClick: () => openNotebookShareDialog({ shortId }),
+                },
+                !isLocalOnly &&
+                    !notebook?.is_template && {
+                        label: 'Delete',
+                        icon: <IconDelete />,
+                        status: 'danger',
+
+                        onClick: () => {
+                            notebooksModel.actions.deleteNotebook(shortId, notebook?.title)
+                            router.actions.push(urls.notebooks())
+                        },
+                    },
             ]}
-            actionable
         >
-            <LemonButton aria-label="more" icon={<IconEllipsis />} status="stealth" size="small" />
+            <LemonButton aria-label="more" icon={<IconEllipsis />} size="small" />
         </LemonMenu>
     )
 }

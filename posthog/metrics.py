@@ -3,7 +3,7 @@ from contextlib import contextmanager
 
 import structlog
 from django.conf import settings
-from prometheus_client import CollectorRegistry, push_to_gateway
+from prometheus_client import CollectorRegistry, Counter, push_to_gateway
 from sentry_sdk import capture_exception
 
 logger = structlog.get_logger(__name__)
@@ -20,6 +20,12 @@ This module holds common labels, metrics and helpers for Prometheus instrumentat
 LABEL_PATH = "path"
 LABEL_RESOURCE_TYPE = "resource_type"
 LABEL_TEAM_ID = "team_id"
+
+KLUDGES_COUNTER = Counter(
+    "posthog_kludges_total",
+    "Tracking code paths eligible for deletion if they are not used.",
+    labelnames=["kludge"],
+)
 
 
 def _push(settings, job, registry):

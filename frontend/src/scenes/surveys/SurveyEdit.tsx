@@ -9,13 +9,16 @@ import {
     LemonDivider,
     LemonInput,
     LemonSelect,
+    LemonTag,
     LemonTextArea,
     Link,
 } from '@posthog/lemon-ui'
 import { BindLogic, useActions, useValues } from 'kea'
 import { FlagSelector } from 'lib/components/FlagSelector'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { Field, PureField } from 'lib/forms/Field'
 import { IconCancel, IconDelete, IconLock, IconPlus } from 'lib/lemon-ui/icons'
+import { featureFlagLogic as enabledFeaturesLogic } from 'lib/logic/featureFlagLogic'
 import { featureFlagLogic } from 'scenes/feature-flags/featureFlagLogic'
 import { FeatureFlagReleaseConditions } from 'scenes/feature-flags/FeatureFlagReleaseConditions'
 
@@ -23,7 +26,7 @@ import { LinkSurveyQuestion, RatingSurveyQuestion, SurveyQuestion, SurveyType, S
 
 import { defaultSurveyAppearance, defaultSurveyFieldValues, SurveyUrlMatchTypeLabels } from './constants'
 import { SurveyAPIEditor } from './SurveyAPIEditor'
-import { Customization, SurveyAppearance } from './SurveyAppearance'
+import { Customization, SurveyAppearance, WidgetCustomization } from './SurveyAppearance'
 import { HTMLEditor, PresentationTypeCard } from './SurveyAppearanceUtils'
 import { SurveyEditQuestionGroup, SurveyEditQuestionHeader } from './SurveyEditQuestionRow'
 import { SurveyFormAppearance } from './SurveyFormAppearance'
@@ -39,10 +42,12 @@ export default function SurveyEdit(): JSX.Element {
         hasTargetingSet,
         selectedQuestion,
         selectedSection,
+        isEditingSurvey,
     } = useValues(surveyLogic)
     const { setSurveyValue, setWritingHTMLDescription, resetTargeting, setSelectedQuestion, setSelectedSection } =
         useActions(surveyLogic)
     const { surveysMultipleQuestionsAvailable } = useValues(surveysLogic)
+    const { featureFlags } = useValues(enabledFeaturesLogic)
     const sortedItemIds = survey.questions.map((_, idx) => idx.toString())
 
     function onSortEnd({ oldIndex, newIndex }: { oldIndex: number; newIndex: number }): void {
@@ -73,6 +78,77 @@ export default function SurveyEdit(): JSX.Element {
                         setSelectedSection(section)
                     }}
                     panels={[
+                        {
+                            key: SurveyEditSection.Presentation,
+                            header: 'Presentation',
+                            content: (
+                                <Field name="type">
+                                    {({ onChange, value }) => {
+                                        return (
+                                            <div className="flex gap-4">
+                                                <PresentationTypeCard
+                                                    active={value === SurveyType.Popover}
+                                                    onClick={() => onChange(SurveyType.Popover)}
+                                                    title="Popover"
+                                                    description="Automatically appears when PostHog JS is installed"
+                                                    value={SurveyType.Popover}
+                                                >
+                                                    <div
+                                                        // eslint-disable-next-line react/forbid-dom-props
+                                                        style={{
+                                                            transform: 'scale(.8)',
+                                                            position: 'absolute',
+                                                            top: '-1rem',
+                                                            left: '-1rem',
+                                                        }}
+                                                    >
+                                                        <SurveyAppearance
+                                                            preview
+                                                            surveyType={survey.type}
+                                                            surveyQuestionItem={survey.questions[0]}
+                                                            appearance={{
+                                                                ...(survey.appearance || defaultSurveyAppearance),
+                                                                ...(survey.questions.length > 1
+                                                                    ? { submitButtonText: 'Next' }
+                                                                    : null),
+                                                            }}
+                                                        />
+                                                    </div>
+                                                </PresentationTypeCard>
+                                                <PresentationTypeCard
+                                                    active={value === SurveyType.API}
+                                                    onClick={() => onChange(SurveyType.API)}
+                                                    title="API"
+                                                    description="Use the PostHog API to show/hide your survey programmatically"
+                                                    value={SurveyType.API}
+                                                >
+                                                    <div
+                                                        className="absolute left-4"
+                                                        // eslint-disable-next-line react/forbid-dom-props
+                                                        style={{ width: 350 }}
+                                                    >
+                                                        <SurveyAPIEditor survey={survey} />
+                                                    </div>
+                                                </PresentationTypeCard>
+                                                {featureFlags[FEATURE_FLAGS.SURVEYS_WIDGETS] && (
+                                                    <PresentationTypeCard
+                                                        active={value === SurveyType.Widget}
+                                                        onClick={() => onChange(SurveyType.Widget)}
+                                                        title="Feedback button (beta)"
+                                                        description="Set up a survey based on your own custom button or our prebuilt feedback tab"
+                                                        value={SurveyType.Widget}
+                                                    >
+                                                        <LemonTag type="warning" className="uppercase ml-2">
+                                                            Beta
+                                                        </LemonTag>
+                                                    </PresentationTypeCard>
+                                                )}
+                                            </div>
+                                        )
+                                    }}
+                                </Field>
+                            ),
+                        },
                         {
                             key: SurveyEditSection.Steps,
                             header: 'Steps',
@@ -125,7 +201,7 @@ export default function SurveyEdit(): JSX.Element {
                                                             ),
                                                         })
                                                     ),
-                                                    ...(survey.appearance.displayThankYouMessage
+                                                    ...(survey.appearance?.displayThankYouMessage
                                                         ? [
                                                               {
                                                                   key: survey.questions.length,
@@ -134,8 +210,7 @@ export default function SurveyEdit(): JSX.Element {
                                                                           <b>Confirmation message</b>
                                                                           <LemonButton
                                                                               icon={<IconDelete />}
-                                                                              status="primary-alt"
-                                                                              data-attr={`delete-survey-confirmation`}
+                                                                              data-attr="delete-survey-confirmation"
                                                                               onClick={(e) => {
                                                                                   e.stopPropagation()
                                                                                   setSelectedQuestion(
@@ -242,12 +317,12 @@ export default function SurveyEdit(): JSX.Element {
                                                 Add question
                                             </LemonButton>
                                             {!surveysMultipleQuestionsAvailable && (
-                                                <Link to={'/organization/billing'} target="_blank" targetBlankIcon>
+                                                <Link to="/organization/billing" target="_blank" targetBlankIcon>
                                                     Subscribe
                                                 </Link>
                                             )}
                                         </div>
-                                        {!survey.appearance.displayThankYouMessage && (
+                                        {!survey.appearance?.displayThankYouMessage && (
                                             <LemonButton
                                                 type="secondary"
                                                 className="w-max mt-2"
@@ -267,59 +342,6 @@ export default function SurveyEdit(): JSX.Element {
                                 </>
                             ),
                         },
-                        {
-                            key: SurveyEditSection.Presentation,
-                            header: 'Presentation',
-                            content: (
-                                <Field name="type">
-                                    {({ onChange, value }) => {
-                                        return (
-                                            <div className="flex gap-4">
-                                                <PresentationTypeCard
-                                                    active={value === SurveyType.Popover}
-                                                    onClick={() => onChange(SurveyType.Popover)}
-                                                    title="Popover"
-                                                    description="Automatically appears when PostHog JS is installed"
-                                                    value={SurveyType.Popover}
-                                                >
-                                                    <div
-                                                        style={{
-                                                            transform: 'scale(.8)',
-                                                            position: 'absolute',
-                                                            top: '-1rem',
-                                                            left: '-1rem',
-                                                        }}
-                                                    >
-                                                        <SurveyAppearance
-                                                            preview
-                                                            type={survey.questions[0].type}
-                                                            surveyQuestionItem={survey.questions[0]}
-                                                            appearance={{
-                                                                ...(survey.appearance || defaultSurveyAppearance),
-                                                                ...(survey.questions.length > 1
-                                                                    ? { submitButtonText: 'Next' }
-                                                                    : null),
-                                                            }}
-                                                        />
-                                                    </div>
-                                                </PresentationTypeCard>
-                                                <PresentationTypeCard
-                                                    active={value === SurveyType.API}
-                                                    onClick={() => onChange(SurveyType.API)}
-                                                    title="API"
-                                                    description="Use the PostHog API to show/hide your survey programmatically"
-                                                    value={SurveyType.API}
-                                                >
-                                                    <div className="absolute left-4" style={{ width: 350 }}>
-                                                        <SurveyAPIEditor survey={survey} />
-                                                    </div>
-                                                </PresentationTypeCard>
-                                            </div>
-                                        )
-                                    }}
-                                </Field>
-                            ),
-                        },
                         ...(survey.type !== SurveyType.API
                             ? [
                                   {
@@ -328,13 +350,30 @@ export default function SurveyEdit(): JSX.Element {
                                       content: (
                                           <Field name="appearance" label="">
                                               {({ value, onChange }) => (
-                                                  <Customization
-                                                      appearance={value || defaultSurveyAppearance}
-                                                      surveyQuestionItem={survey.questions[0]}
-                                                      onAppearanceChange={(appearance) => {
-                                                          onChange(appearance)
-                                                      }}
-                                                  />
+                                                  <>
+                                                      {survey.type === SurveyType.Widget && (
+                                                          <>
+                                                              <div className="font-bold">
+                                                                  Feedback button customization
+                                                              </div>
+                                                              <WidgetCustomization
+                                                                  appearance={value || defaultSurveyAppearance}
+                                                                  onAppearanceChange={(appearance) => {
+                                                                      onChange(appearance)
+                                                                  }}
+                                                              />
+                                                              <LemonDivider className="mt-4" />
+                                                              <div className="font-bold">Survey customization</div>
+                                                          </>
+                                                      )}
+                                                      <Customization
+                                                          appearance={value || defaultSurveyAppearance}
+                                                          surveyQuestionItem={survey.questions[0]}
+                                                          onAppearanceChange={(appearance) => {
+                                                              onChange(appearance)
+                                                          }}
+                                                      />
+                                                  </>
                                               )}
                                           </Field>
                                       ),
@@ -387,7 +426,6 @@ export default function SurveyEdit(): JSX.Element {
                                                                 className="ml-2"
                                                                 icon={<IconCancel />}
                                                                 size="small"
-                                                                status="stealth"
                                                                 onClick={() => onChange(null)}
                                                                 aria-label="close"
                                                             />
@@ -539,6 +577,7 @@ export default function SurveyEdit(): JSX.Element {
                     activePreview={selectedQuestion || 0}
                     survey={survey}
                     setActivePreview={(preview) => setSelectedQuestion(preview)}
+                    isEditingSurvey={isEditingSurvey}
                 />
             </div>
         </div>

@@ -25,11 +25,15 @@ export function PathNodeCard({ insightProps, node }: PathNodeCardProps): JSX.Ele
         return null
     }
 
+    // Attention: targetLinks are the incoming links, sourceLinks are the outgoing links
     const isPathStart = node.targetLinks.length === 0
     const isPathEnd = node.sourceLinks.length === 0
     const continuingCount = node.sourceLinks.reduce((prev, curr) => prev + curr.value, 0)
     const dropOffCount = node.value - continuingCount
-    const averageConversionTime = !isPathStart ? node.targetLinks[0].average_conversion_time / 1000 : null
+    const averageConversionTime = !isPathStart
+        ? node.targetLinks.reduce((prev, curr) => prev + curr.average_conversion_time / 1000, 0) /
+          node.targetLinks.length
+        : null
 
     return (
         <Tooltip title={pageUrl(node)} placement="right">

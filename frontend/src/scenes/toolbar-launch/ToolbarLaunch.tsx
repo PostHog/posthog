@@ -39,7 +39,7 @@ function ToolbarLaunch(): JSX.Element {
 
     return (
         <div className="toolbar-launch-page">
-            <PageHeader title="Toolbar" caption="The toolbar launches PostHog right in your app or website." />
+            <PageHeader caption="The toolbar launches PostHog right in your app or website." />
             <LemonDivider />
 
             <h2 className="subtitle" id="urls">
@@ -49,7 +49,7 @@ function ToolbarLaunch(): JSX.Element {
                 Click on the URL to launch the toolbar.{' '}
                 {window.location.host === 'app.posthog.com' && 'Remember to disable your adblocker.'}
             </p>
-            <AuthorizedUrlList type={AuthorizedUrlListType.TOOLBAR_URLS} addText={'Add authorized URL'} />
+            <AuthorizedUrlList type={AuthorizedUrlListType.TOOLBAR_URLS} addText="Add authorized URL" />
 
             <div className="footer-caption text-muted mt-4 text-center">
                 Make sure you're using the <Link to={`${urls.settings('project')}#snippet`}>HTML snippet</Link> or the

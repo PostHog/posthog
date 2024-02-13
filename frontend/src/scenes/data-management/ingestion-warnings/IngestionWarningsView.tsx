@@ -3,8 +3,8 @@ import { ReadingHog } from 'lib/components/hedgehogs'
 import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductIntroduction'
 import { TZLabel } from 'lib/components/TZLabel'
 import { LemonTable } from 'lib/lemon-ui/LemonTable'
-import { TableCellSparkline } from 'lib/lemon-ui/LemonTable/TableCellSparkline'
 import { Link } from 'lib/lemon-ui/Link'
+import { Sparkline } from 'lib/lemon-ui/Sparkline'
 import { urls } from 'scenes/urls'
 
 import { ProductKey } from '~/types'
@@ -163,7 +163,7 @@ export function IngestionWarningsView(): JSX.Element {
                                                     .split(' ')
                                                     .join('-')}`}
                                             >
-                                                {'docs'})
+                                                docs)
                                             </Link>
                                         </>
                                     )
@@ -172,7 +172,7 @@ export function IngestionWarningsView(): JSX.Element {
                             {
                                 title: 'Graph',
                                 render: function Render(_, summary: IngestionWarningSummary) {
-                                    return <TableCellSparkline labels={dates} data={summaryDatasets[summary.type]} />
+                                    return <Sparkline labels={dates} data={summaryDatasets[summary.type]} />
                                 },
                             },
                             {

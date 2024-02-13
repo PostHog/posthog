@@ -22,7 +22,6 @@ export function More({
             aria-label="more"
             data-attr={dataAttr ?? 'more-button'}
             icon={<IconEllipsis />}
-            status="stealth"
             dropdown={{
                 placement,
                 actionable: true,

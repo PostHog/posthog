@@ -1,52 +1,16 @@
-import { actions, afterMount, connect, kea, path, reducers, selectors } from 'kea'
+import { actions, afterMount, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import api from 'lib/api'
-import { lemonToast } from 'lib/lemon-ui/lemonToast'
+import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import posthog from 'posthog-js'
 import { canGloballyManagePlugins, canInstallPlugins } from 'scenes/plugins/access'
-import { createDefaultPluginSource } from 'scenes/plugins/source/createDefaultPluginSource'
 import { userLogic } from 'scenes/userLogic'
 
 import { PluginInstallationType, PluginType } from '~/types'
 
 import type { appsManagementLogicType } from './appsManagementLogicType'
-import { loadPaginatedResults } from './utils'
-
-const GLOBAL_PLUGINS = new Set([
-    // frontend apps
-    'https://github.com/PostHog/bug-report-app',
-    'https://github.com/PostHog/early-access-features-app',
-    'https://github.com/PostHog/notification-bar-app',
-    'https://github.com/PostHog/pineapple-mode-app',
-    // filtering apps
-    'https://github.com/PostHog/downsampling-plugin',
-    'https://github.com/PostHog/posthog-filter-out-plugin',
-    // transformation apps
-    'https://github.com/PostHog/language-url-splitter-app',
-    'https://github.com/PostHog/posthog-app-url-parameters-to-event-properties',
-    'https://github.com/PostHog/posthog-plugin-geoip',
-    'https://github.com/PostHog/posthog-url-normalizer-plugin',
-    'https://github.com/PostHog/property-filter-plugin',
-    'https://github.com/PostHog/semver-flattener-plugin',
-    'https://github.com/PostHog/taxonomy-plugin',
-    'https://github.com/PostHog/timestamp-parser-plugin',
-    'https://github.com/PostHog/user-agent-plugin',
-    // export apps
-    'https://github.com/PostHog/customerio-plugin',
-    'https://github.com/PostHog/hubspot-plugin',
-    'https://github.com/PostHog/pace-posthog-integration',
-    'https://github.com/PostHog/posthog-avo-plugin',
-    'https://github.com/PostHog/posthog-engage-so-plugin',
-    'https://github.com/PostHog/posthog-intercom-plugin',
-    'https://github.com/PostHog/posthog-laudspeaker-app',
-    'https://github.com/PostHog/posthog-patterns-app',
-    'https://github.com/PostHog/posthog-twilio-plugin',
-    'https://github.com/PostHog/posthog-variance-plugin',
-    'https://github.com/PostHog/rudderstack-posthog-plugin',
-    'https://github.com/PostHog/salesforce-plugin',
-    'https://github.com/PostHog/sendgrid-plugin',
-    'https://github.com/posthog/posthog-plugin-replicator',
-])
+import { getInitialCode, SourcePluginKind } from './sourceAppInitialCode'
+import { GLOBAL_PLUGINS, loadPaginatedResults } from './utils'
 
 function capturePluginEvent(event: string, plugin: PluginType, type: PluginInstallationType): void {
     posthog.capture(event, {
@@ -55,6 +19,12 @@ function capturePluginEvent(event: string, plugin: PluginType, type: PluginInsta
         plugin_tag: plugin.tag,
         plugin_installation_type: type,
     })
+}
+export interface PluginUpdateStatusType {
+    latest_tag: string
+    upToDate: boolean
+    updated: boolean
+    error: string | null
 }
 
 export const appsManagementLogic = kea<appsManagementLogicType>([
@@ -66,12 +36,17 @@ export const appsManagementLogic = kea<appsManagementLogicType>([
         setPluginUrl: (pluginUrl: string) => ({ pluginUrl }),
         setLocalPluginPath: (localPluginPath: string) => ({ localPluginPath }),
         setSourcePluginName: (sourcePluginName: string) => ({ sourcePluginName }),
+        setSourcePluginKind: (sourcePluginKind: SourcePluginKind) => ({ sourcePluginKind }),
         uninstallPlugin: (id: number) => ({ id }),
         installPlugin: (pluginType: PluginInstallationType, url?: string) => ({ pluginType, url }),
         installPluginFromUrl: (url: string) => ({ url }),
         installSourcePlugin: (name: string) => ({ name }),
         installLocalPlugin: (path: string) => ({ path }),
         patchPlugin: (id: number, pluginChanges: Partial<PluginType> = {}) => ({ id, pluginChanges }),
+        updatePlugin: (id: number) => ({ id }),
+        checkForUpdates: true,
+        checkedForUpdates: true,
+        setPluginLatestTag: (id: number, latestTag: string) => ({ id, latestTag }),
     }),
     loaders(({ values }) => ({
         plugins: [
@@ -105,9 +80,10 @@ export const appsManagementLogic = kea<appsManagementLogicType>([
                     }
                     const response: PluginType = await api.create('api/organizations/@current/plugins', payload)
                     if (pluginType === PluginInstallationType.Source) {
-                        await api.update(`api/organizations/@current/plugins/${response.id}/update_source`, {
-                            'plugin.json': createDefaultPluginSource(values.sourcePluginName)['plugin.json'],
-                        })
+                        await api.update(
+                            `api/organizations/@current/plugins/${response.id}/update_source`,
+                            getInitialCode(values.sourcePluginName, values.sourcePluginKind)
+                        )
                     }
                     capturePluginEvent(`plugin installed`, response, pluginType)
                     return { ...values.plugins, [response.id]: response }
@@ -122,7 +98,23 @@ export const appsManagementLogic = kea<appsManagementLogicType>([
                     return rest
                 },
                 patchPlugin: async ({ id, pluginChanges }) => {
+                    if (!values.canGloballyManagePlugins) {
+                        lemonToast.error("You don't have permission to update apps.")
+                    }
                     const response = await api.update(`api/organizations/@current/plugins/${id}`, pluginChanges)
+                    return { ...values.plugins, [id]: response }
+                },
+                setPluginLatestTag: async ({ id, latestTag }) => {
+                    return { ...values.plugins, [id]: { ...values.plugins[id], latest_tag: latestTag } }
+                },
+                updatePlugin: async ({ id }) => {
+                    if (!values.canGloballyManagePlugins) {
+                        lemonToast.error("You don't have permission to update apps.")
+                    }
+                    // TODO: the update failed
+                    const response = await api.create(`api/organizations/@current/plugins/${id}/upgrade`)
+                    capturePluginEvent(`plugin updated`, values.plugins[id], values.plugins[id].plugin_type)
+                    lemonToast.success(`Plugin ${response.name} updated!`)
                     return { ...values.plugins, [id]: response }
                 },
             },
@@ -168,6 +160,20 @@ export const appsManagementLogic = kea<appsManagementLogicType>([
                 installPluginSuccess: () => '',
             },
         ],
+        sourcePluginKind: [
+            SourcePluginKind.FilterEvent as SourcePluginKind,
+            {
+                setSourcePluginKind: (_, { sourcePluginKind }) => sourcePluginKind,
+                installPluginSuccess: () => SourcePluginKind.FilterEvent,
+            },
+        ],
+        checkingForUpdates: [
+            false,
+            {
+                checkForUpdates: () => true,
+                checkedForUpdates: () => false,
+            },
+        ],
     }),
     selectors({
         canInstallPlugins: [(s) => [s.user], (user) => canInstallPlugins(user?.organization)],
@@ -197,9 +203,41 @@ export const appsManagementLogic = kea<appsManagementLogicType>([
                 )
             },
         ],
+        updatablePlugins: [
+            (s) => [s.plugins],
+            (plugins) =>
+                Object.values(plugins).filter(
+                    (plugin) => plugin.plugin_type !== PluginInstallationType.Source && !plugin.url?.startsWith('file:')
+                ),
+        ],
+        pluginsNeedingUpdates: [
+            (s) => [s.updatablePlugins],
+            (plugins) => {
+                return plugins.filter((plugin) => plugin.latest_tag && plugin.tag !== plugin.latest_tag)
+            },
+        ],
     }),
+    listeners(({ actions, values }) => ({
+        checkForUpdates: async () => {
+            await Promise.all(
+                values.updatablePlugins.map(async (plugin) => {
+                    try {
+                        const updates = await api.get(
+                            `api/organizations/@current/plugins/${plugin.id}/check_for_updates`
+                        )
+                        actions.setPluginLatestTag(plugin.id, updates.plugin.latest_tag)
+                    } catch (e) {
+                        lemonToast.error(`Error checking for updates for ${plugin.name}: ${JSON.stringify(e)}`)
+                    }
+                })
+            )
+
+            actions.checkedForUpdates()
+        },
+    })),
     afterMount(({ actions }) => {
         actions.loadPlugins()
         actions.loadUnusedPlugins()
+        actions.checkForUpdates()
     }),
 ])

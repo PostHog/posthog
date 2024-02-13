@@ -36,7 +36,7 @@ class TestS3Table(BaseTest):
 
         self.assertEqual(
             clickhouse,
-            "SELECT aapl_stock.Date, aapl_stock.Open, aapl_stock.High, aapl_stock.Low, aapl_stock.Close, aapl_stock.Volume, aapl_stock.OpenInt FROM s3Cluster('posthog', %(hogql_val_0_sensitive)s, %(hogql_val_1)s) AS aapl_stock LIMIT 10",
+            "SELECT aapl_stock.Date AS Date, aapl_stock.Open AS Open, aapl_stock.High AS High, aapl_stock.Low AS Low, aapl_stock.Close AS Close, aapl_stock.Volume AS Volume, aapl_stock.OpenInt AS OpenInt FROM s3Cluster('posthog', %(hogql_val_0_sensitive)s, %(hogql_val_1)s) AS aapl_stock LIMIT 10",
         )
 
     def test_s3_table_select_with_alias(self):
@@ -50,7 +50,7 @@ class TestS3Table(BaseTest):
         # Alias will completely override table name to prevent ambiguous table names that can be shared if the same table is joinedfrom multiple times
         self.assertEqual(
             clickhouse,
-            "SELECT a.High, a.Low FROM s3Cluster('posthog', %(hogql_val_0_sensitive)s, %(hogql_val_1)s) AS a LIMIT 10",
+            "SELECT a.High AS High, a.Low AS Low FROM s3Cluster('posthog', %(hogql_val_0_sensitive)s, %(hogql_val_1)s) AS a LIMIT 10",
         )
 
     def test_s3_table_select_join(self):
@@ -72,7 +72,7 @@ class TestS3Table(BaseTest):
 
         self.assertEqual(
             clickhouse,
-            "SELECT aapl_stock.High, aapl_stock.Low FROM (SELECT * FROM s3Cluster('posthog', %(hogql_val_0_sensitive)s, %(hogql_val_1)s)) AS aapl_stock JOIN (SELECT * FROM s3Cluster('posthog', %(hogql_val_3_sensitive)s, %(hogql_val_4)s)) AS aapl_stock_2 ON equals(aapl_stock.High, aapl_stock_2.High) LIMIT 10",
+            "SELECT aapl_stock.High AS High, aapl_stock.Low AS Low FROM (SELECT * FROM s3Cluster('posthog', %(hogql_val_0_sensitive)s, %(hogql_val_1)s)) AS aapl_stock JOIN (SELECT * FROM s3Cluster('posthog', %(hogql_val_3_sensitive)s, %(hogql_val_4)s)) AS aapl_stock_2 ON equals(aapl_stock.High, aapl_stock_2.High) LIMIT 10",
         )
 
     def test_s3_table_select_join_with_alias(self):
@@ -95,7 +95,7 @@ class TestS3Table(BaseTest):
         # Alias will completely override table name to prevent ambiguous table names that can be shared if the same table is joinedfrom multiple times
         self.assertEqual(
             clickhouse,
-            "SELECT a.High, a.Low FROM (SELECT * FROM s3Cluster('posthog', %(hogql_val_0_sensitive)s, %(hogql_val_1)s)) AS a JOIN (SELECT * FROM s3Cluster('posthog', %(hogql_val_3_sensitive)s, %(hogql_val_4)s)) AS b ON equals(a.High, b.High) LIMIT 10",
+            "SELECT a.High AS High, a.Low AS Low FROM (SELECT * FROM s3Cluster('posthog', %(hogql_val_0_sensitive)s, %(hogql_val_1)s)) AS a JOIN (SELECT * FROM s3Cluster('posthog', %(hogql_val_3_sensitive)s, %(hogql_val_4)s)) AS b ON equals(a.High, b.High) LIMIT 10",
         )
 
     def test_s3_table_select_and_non_s3_join(self):
@@ -117,7 +117,7 @@ class TestS3Table(BaseTest):
 
         self.assertEqual(
             clickhouse,
-            f"SELECT aapl_stock.High, aapl_stock.Low FROM (SELECT * FROM s3Cluster('posthog', %(hogql_val_0_sensitive)s, %(hogql_val_1)s)) AS aapl_stock JOIN events ON equals(aapl_stock.High, events.event) WHERE equals(events.team_id, {self.team.pk}) LIMIT 10",
+            f"SELECT aapl_stock.High AS High, aapl_stock.Low AS Low FROM (SELECT * FROM s3Cluster('posthog', %(hogql_val_0_sensitive)s, %(hogql_val_1)s)) AS aapl_stock JOIN events ON equals(aapl_stock.High, events.event) WHERE equals(events.team_id, {self.team.pk}) LIMIT 10",
         )
 
     def test_s3_table_select_and_non_s3_join_first(self):
@@ -139,7 +139,7 @@ class TestS3Table(BaseTest):
 
         self.assertEqual(
             clickhouse,
-            f"SELECT aapl_stock.High, aapl_stock.Low FROM events GLOBAL JOIN (SELECT * FROM s3Cluster('posthog', %(hogql_val_0_sensitive)s, %(hogql_val_1)s)) AS aapl_stock ON equals(aapl_stock.High, events.event) WHERE equals(events.team_id, {self.team.pk}) LIMIT 10",
+            f"SELECT aapl_stock.High AS High, aapl_stock.Low AS Low FROM events GLOBAL JOIN (SELECT * FROM s3Cluster('posthog', %(hogql_val_0_sensitive)s, %(hogql_val_1)s)) AS aapl_stock ON equals(aapl_stock.High, events.event) WHERE equals(events.team_id, {self.team.pk}) LIMIT 10",
         )
 
     def test_s3_table_select_alias_escaped(self):
@@ -167,7 +167,7 @@ class TestS3Table(BaseTest):
         # table name is escaped
         self.assertEqual(
             clickhouse,
-            f"SELECT `random as (SELECT * FROM events), SELECT * FROM events --`.High, `random as (SELECT * FROM events), SELECT * FROM events --`.Low FROM (SELECT * FROM s3Cluster('posthog', %(hogql_val_0_sensitive)s, %(hogql_val_1)s)) AS `random as (SELECT * FROM events), SELECT * FROM events --` JOIN events ON equals(`random as (SELECT * FROM events), SELECT * FROM events --`.High, events.event) WHERE equals(events.team_id, {self.team.pk}) LIMIT 10",
+            f"SELECT `random as (SELECT * FROM events), SELECT * FROM events --`.High AS High, `random as (SELECT * FROM events), SELECT * FROM events --`.Low AS Low FROM (SELECT * FROM s3Cluster('posthog', %(hogql_val_0_sensitive)s, %(hogql_val_1)s)) AS `random as (SELECT * FROM events), SELECT * FROM events --` JOIN events ON equals(`random as (SELECT * FROM events), SELECT * FROM events --`.High, events.event) WHERE equals(events.team_id, {self.team.pk}) LIMIT 10",
         )
 
     def test_s3_table_select_table_name_bad_character(self):
@@ -199,5 +199,5 @@ class TestS3Table(BaseTest):
 
         self.assertEqual(
             clickhouse,
-            f"SELECT events.uuid, events.event FROM events WHERE and(equals(events.team_id, {self.team.pk}), ifNull(globalIn(events.event, (SELECT aapl_stock.Date FROM s3Cluster('posthog', %(hogql_val_0_sensitive)s, %(hogql_val_1)s) AS aapl_stock)), 0)) LIMIT 10000",
+            f"SELECT events.uuid AS uuid, events.event AS event FROM events WHERE and(equals(events.team_id, {self.team.pk}), ifNull(globalIn(events.event, (SELECT aapl_stock.Date AS Date FROM s3Cluster('posthog', %(hogql_val_0_sensitive)s, %(hogql_val_1)s) AS aapl_stock)), 0)) LIMIT 10000",
         )

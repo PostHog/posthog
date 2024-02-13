@@ -1,7 +1,6 @@
 import './LemonSegmentedButton.scss'
 
 import clsx from 'clsx'
-import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import React from 'react'
 
 import { useSliderPositioning } from '../hooks'
@@ -44,13 +43,6 @@ export function LemonSegmentedButton<T extends React.Key>({
         HTMLDivElement,
         HTMLLIElement
     >(value, 200)
-    const is3000 = useFeatureFlag('POSTHOG_3000', 'test')
-
-    let buttonProps = {}
-
-    if (is3000) {
-        buttonProps = { status: 'stealth', type: 'secondary', motion: false }
-    }
 
     return (
         <div
@@ -93,6 +85,7 @@ export function LemonSegmentedButton<T extends React.Key>({
                         ref={option.value === value ? selectionRef : undefined}
                     >
                         <LemonButton
+                            type={option.value === value ? 'primary' : 'secondary'}
                             size={size}
                             fullWidth
                             disabledReason={option.disabledReason}
@@ -104,7 +97,6 @@ export function LemonSegmentedButton<T extends React.Key>({
                             icon={option.icon}
                             data-attr={option['data-attr']}
                             center
-                            {...buttonProps}
                         >
                             {option.label}
                         </LemonButton>

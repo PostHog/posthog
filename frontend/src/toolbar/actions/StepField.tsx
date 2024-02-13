@@ -65,7 +65,7 @@ export function StepField({ step, item, label, caption }: StepFieldProps): JSX.E
                                 <LemonSegmentedButton
                                     fullWidth
                                     className={clsx('mb-1', !selected && 'opacity-50')}
-                                    size={'small'}
+                                    size="small"
                                     options={[
                                         { value: StringMatching.Exact, label: 'Exact' },
                                         { value: StringMatching.Regex, label: 'Regex' },

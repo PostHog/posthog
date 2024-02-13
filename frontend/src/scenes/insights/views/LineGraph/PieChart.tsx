@@ -26,7 +26,7 @@ import {
     onChartClick,
     onChartHover,
 } from 'scenes/insights/views/LineGraph/LineGraph'
-import { lineGraphLogic } from 'scenes/insights/views/LineGraph/lineGraphLogic'
+import { createTooltipData } from 'scenes/insights/views/LineGraph/tooltip-data'
 
 import { areObjectValuesEmpty } from '~/lib/utils'
 import { groupsModel } from '~/models/groupsModel'
@@ -84,7 +84,6 @@ export function PieChart({
 
     let datasets = _datasets
 
-    const { createTooltipData } = useValues(lineGraphLogic)
     const { aggregationLabel } = useValues(groupsModel)
     const { highlightSeries } = useActions(insightLogic)
     const canvasRef = useRef<HTMLCanvasElement | null>(null)
@@ -191,7 +190,7 @@ export function PieChart({
                             const [tooltipRoot, tooltipEl] = ensureTooltip()
                             if (tooltip.opacity === 0) {
                                 // remove highlight from the legend
-                                if (trendsFilter?.show_legend) {
+                                if (trendsFilter?.showLegend) {
                                     highlightSeries(null)
                                 }
                                 tooltipEl.style.opacity = '0'
@@ -203,7 +202,6 @@ export function PieChart({
                             tooltipEl.classList.remove('above', 'below', 'no-transform')
                             tooltipEl.classList.add(tooltip.yAlign || 'no-transform')
                             tooltipEl.style.opacity = '1'
-                            tooltipEl.style.display = 'initial'
 
                             if (tooltip.body) {
                                 const referenceDataPoint = tooltip.dataPoints[0] // Use this point as reference to get the date

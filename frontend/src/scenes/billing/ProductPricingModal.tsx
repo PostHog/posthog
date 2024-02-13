@@ -30,7 +30,7 @@ export const ProductPricingModal = ({
     return (
         <LemonModal isOpen={modalOpen} onClose={onClose}>
             <div className="flex items-center w-full h-full justify-center p-8">
-                <div className="text-left bg-bg-light rounded-md relative w-full">
+                <div className="text-left bg-bg-light rounded relative w-full">
                     <h5 className="text-gray mb-1">{capitalizeFirstLetter(product.name)} pricing, starting at</h5>
                     <p className="mb-1">
                         <span className="font-bold text-base">

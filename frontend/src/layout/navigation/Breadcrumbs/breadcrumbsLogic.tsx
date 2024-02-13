@@ -1,5 +1,3 @@
-import './Breadcrumbs.scss'
-
 import { actions, connect, kea, listeners, path, props, reducers, selectors } from 'kea'
 import { subscriptions } from 'kea-subscriptions'
 import { Lettermark } from 'lib/lemon-ui/Lettermark'
@@ -13,7 +11,7 @@ import { userLogic } from 'scenes/userLogic'
 
 import { OrganizationSwitcherOverlay } from '~/layout/navigation/OrganizationSwitcher'
 import { ProjectSwitcherOverlay } from '~/layout/navigation/ProjectSwitcher'
-import { Breadcrumb, FinalizedBreadcrumb } from '~/types'
+import { Breadcrumb } from '~/types'
 
 import type { breadcrumbsLogicType } from './breadcrumbsLogicType'
 
@@ -69,20 +67,18 @@ export const breadcrumbsLogic = kea<breadcrumbsLogicType>([
             (s) => [
                 // We're effectively passing the selector through to the scene logic, and "recalculating"
                 // this every time it's rendered. Caching will happen within the scene's breadcrumb selector.
-                (state, props) => {
+                (state, props): Breadcrumb[] => {
                     const activeSceneLogic = sceneLogic.selectors.activeSceneLogic(state, props)
                     const activeScene = s.activeScene(state, props)
-                    const sceneConfig = s.sceneConfig(state, props)
                     if (activeSceneLogic && 'breadcrumbs' in activeSceneLogic.selectors) {
                         const activeLoadedScene = sceneLogic.selectors.activeLoadedScene(state, props)
                         return activeSceneLogic.selectors.breadcrumbs(
                             state,
                             activeLoadedScene?.paramsToProps?.(activeLoadedScene?.sceneParams) || props
                         )
-                    } else if (sceneConfig?.name) {
-                        return [{ name: sceneConfig.name }]
                     } else if (activeScene) {
-                        return [{ name: identifierToHuman(activeScene) }]
+                        const sceneConfig = s.sceneConfig(state, props)
+                        return [{ name: sceneConfig?.name ?? identifierToHuman(activeScene), key: activeScene }]
                     } else {
                         return []
                     }
@@ -114,7 +110,7 @@ export const breadcrumbsLogic = kea<breadcrumbsLogicType>([
                     breadcrumbs.push({
                         key: 'me',
                         name: user.first_name,
-                        symbol: <ProfilePicture name={user.first_name} email={user.email} size="md" />,
+                        symbol: <ProfilePicture user={user} size="md" />,
                     })
                 }
                 // Instance
@@ -141,7 +137,6 @@ export const breadcrumbsLogic = kea<breadcrumbsLogicType>([
                             otherOrganizations?.length || preflight?.can_create_org
                                 ? {
                                       overlay: <OrganizationSwitcherOverlay />,
-                                      actionable: true,
                                   }
                                 : undefined,
                     })
@@ -156,7 +151,6 @@ export const breadcrumbsLogic = kea<breadcrumbsLogicType>([
                         name: currentTeam.name,
                         popover: {
                             overlay: <ProjectSwitcherOverlay />,
-                            actionable: true,
                         },
                     })
                 }
@@ -170,24 +164,8 @@ export const breadcrumbsLogic = kea<breadcrumbsLogicType>([
         ],
         breadcrumbs: [
             (s) => [s.appBreadcrumbs, s.sceneBreadcrumbs],
-            (appBreadcrumbs, sceneBreadcrumbs): FinalizedBreadcrumb[] => {
-                const breadcrumbs = Array<FinalizedBreadcrumb>(appBreadcrumbs.length + sceneBreadcrumbs.length)
-                const globalPathSoFar: string[] = []
-                for (let i = 0; i < appBreadcrumbs.length; i++) {
-                    globalPathSoFar.push(String(appBreadcrumbs[i].key))
-                    breadcrumbs[i] = {
-                        ...appBreadcrumbs[i],
-                        globalKey: globalPathSoFar.join('.'),
-                    }
-                }
-                for (let i = 0; i < sceneBreadcrumbs.length; i++) {
-                    globalPathSoFar.push(String(sceneBreadcrumbs[i].key))
-                    breadcrumbs[i + appBreadcrumbs.length] = {
-                        ...sceneBreadcrumbs[i],
-                        globalKey: globalPathSoFar.join('.'),
-                    }
-                }
-                return breadcrumbs
+            (appBreadcrumbs, sceneBreadcrumbs): Breadcrumb[] => {
+                return appBreadcrumbs.concat(sceneBreadcrumbs)
             },
         ],
         firstBreadcrumb: [(s) => [s.breadcrumbs], (breadcrumbs) => breadcrumbs[0]],

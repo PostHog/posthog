@@ -25,9 +25,9 @@ export function LemonCalendarRangeInline({
     ])
 
     function setRange([rangeStart, rangeEnd, lastChanged]: RangeState): void {
-        _setRange([rangeStart, rangeEnd, lastChanged])
+        _setRange([rangeStart, rangeEnd ? rangeEnd.endOf('day') : null, lastChanged])
         if (rangeStart && rangeEnd) {
-            onChange([rangeStart, rangeEnd])
+            onChange([rangeStart, rangeEnd.endOf('day')])
         }
     }
 
@@ -102,11 +102,14 @@ export function LemonCalendarRangeInline({
                         className:
                             date.isSame(rangeStart, 'd') && date.isSame(rangeEnd, 'd')
                                 ? props.className
-                                : clsx(props.className, {
-                                      'rounded-r-none': date.isSame(rangeStart, 'd') && dayIndex < 6,
-                                      'rounded-l-none': date.isSame(rangeEnd, 'd') && dayIndex > 0,
-                                  }),
-                        status: 'primary',
+                                : clsx(
+                                      props.className,
+                                      {
+                                          'rounded-r-none': date.isSame(rangeStart, 'd') && dayIndex < 6,
+                                          'rounded-l-none': date.isSame(rangeEnd, 'd') && dayIndex > 0,
+                                      },
+                                      'LemonCalendar__range--boundary'
+                                  ),
                         type: 'primary',
                     }
                 } else if (rangeStart && rangeEnd && date > rangeStart && date < rangeEnd) {

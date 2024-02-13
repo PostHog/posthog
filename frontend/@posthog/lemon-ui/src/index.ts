@@ -1,8 +1,6 @@
 import '../../../src/styles/global.scss'
 
 export * from 'lib/lemon-ui/hooks'
-export * from 'lib/lemon-ui/lemonToast'
-
 export * from 'lib/lemon-ui/LemonActionableTooltip'
 export * from 'lib/lemon-ui/LemonBadge'
 export * from 'lib/lemon-ui/LemonBanner'
@@ -31,6 +29,7 @@ export * from 'lib/lemon-ui/LemonTable'
 export * from 'lib/lemon-ui/LemonTabs'
 export * from 'lib/lemon-ui/LemonTag'
 export * from 'lib/lemon-ui/LemonTextArea'
+export * from 'lib/lemon-ui/LemonToast'
 export * from 'lib/lemon-ui/LemonWidget'
 export * from 'lib/lemon-ui/Lettermark'
 export * from 'lib/lemon-ui/Link'

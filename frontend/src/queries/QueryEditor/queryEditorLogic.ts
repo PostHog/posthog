@@ -1,5 +1,5 @@
 import { actions, kea, key, listeners, path, props, propsChanged, reducers, selectors } from 'kea'
-import { lemonToast } from 'lib/lemon-ui/lemonToast'
+import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 
 import { QueryEditorProps } from '~/queries/QueryEditor/QueryEditor'
 import { Node } from '~/queries/schema'

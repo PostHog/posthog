@@ -25,7 +25,6 @@ const meta: Meta = {
         layout: 'fullscreen',
         viewMode: 'story',
         mockDate: '2023-02-01',
-        featureFlags: [FEATURE_FLAGS.POSTHOG_3000],
     },
 }
 export default meta
@@ -39,7 +38,7 @@ export function NavigationBase(): JSX.Element {
 }
 
 export function Navigation3000(): JSX.Element {
-    setFeatureFlags([FEATURE_FLAGS.POSTHOG_3000, FEATURE_FLAGS.POSTHOG_3000_NAV])
+    setFeatureFlags([FEATURE_FLAGS.POSTHOG_3000_NAV])
     useEffect(() => {
         router.actions.push(urls.projectHomepage())
     }, [])

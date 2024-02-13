@@ -36,7 +36,7 @@ export const notebookSceneLogic = kea<notebookSceneLogicType>([
                     path: urls.notebooks(),
                 },
                 {
-                    key: notebook?.short_id || 'new',
+                    key: [Scene.Notebook, notebook?.short_id || 'new'],
                     name: notebook ? notebook?.title || 'Unnamed' : loading ? null : 'Notebook not found',
                 },
             ],

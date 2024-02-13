@@ -1,4 +1,3 @@
-import { Card } from 'antd'
 import { useValues } from 'kea'
 
 import { AppMetricsTab } from '~/types'
@@ -11,33 +10,33 @@ export function HistoricalExport(props: HistoricalExportLogicProps): JSX.Element
     const { data, dataLoading } = useValues(historicalExportLogic(props))
 
     return (
-        <div className="mt-4 mb-4 mr-8">
-            <Card title="Overview">
-                <MetricsOverview
-                    tab={AppMetricsTab.HistoricalExports}
-                    metrics={data?.metrics ?? null}
-                    metricsLoading={dataLoading}
-                    exportDuration={data?.summary?.duration}
-                    exportFailureReason={data?.summary?.failure_reason}
-                />
-            </Card>
+        <div className="space-y-8">
+            <MetricsOverview
+                tab={AppMetricsTab.HistoricalExports}
+                metrics={data?.metrics ?? null}
+                metricsLoading={dataLoading}
+                exportDuration={data?.summary?.duration}
+                exportFailureReason={data?.summary?.failure_reason}
+            />
 
-            <Card title="Delivery trends" className="mt-4">
+            <div>
+                <h2>Delivery trends</h2>
                 <AppMetricsGraph
                     tab={AppMetricsTab.HistoricalExports}
                     metrics={data?.metrics ?? null}
                     metricsLoading={dataLoading}
                 />
-            </Card>
+            </div>
 
-            <Card title="Errors" className="mt-4">
+            <div>
+                <h2>Errors</h2>
                 <ErrorsOverview
                     errors={data?.errors || []}
                     loading={dataLoading}
                     category="exportEvents"
                     jobId={data?.summary?.job_id}
                 />
-            </Card>
+            </div>
         </div>
     )
 }

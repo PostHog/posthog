@@ -51,6 +51,11 @@ module.exports = {
         'import',
     ],
     rules: {
+        // PyCharm always adds curly braces, I guess vscode doesn't, PR reviewers often complain they are present on props that don't need them
+        // let's save the humans time and let the machines do the work
+        // "never" means if the prop does not need the curly braces, they will be removed/errored
+        // see https://github.com/jsx-eslint/eslint-plugin-react/blob/master/docs/rules/jsx-curly-brace-presence.md
+        'react/jsx-curly-brace-presence': ['error', { props: 'never', children: 'never', propElementValues: 'always' }],
         'no-console': ['error', { allow: ['warn', 'error'] }],
         'no-debugger': 'error',
         'no-only-tests/no-only-tests': 'error',
@@ -114,19 +119,14 @@ module.exports = {
                     },
                     {
                         name: 'antd',
-                        importNames: ['Tooltip'],
-                        message: 'Please use Tooltip from @posthog/lemon-ui instead.',
-                    },
-                    {
-                        name: 'antd',
-                        importNames: ['Alert'],
-                        message: 'Please use LemonBanner from @posthog/lemon-ui instead.',
+                        importNames: ['Card', 'Col', 'Row', 'Alert', 'Tooltip', 'Progress', 'Radio', 'Divider'],
+                        message: 'please use the Lemon equivalent instead',
                     },
                 ],
             },
         ],
         'react/forbid-dom-props': [
-            'warn',
+            'error',
             {
                 forbid: [
                     {
@@ -142,33 +142,12 @@ module.exports = {
             {
                 forbid: [
                     {
-                        element: 'Row',
-                        message:
-                            'use flex utility classes instead, e.g. <Row align="middle"> could be <div className="flex items-center">',
-                    },
-                    {
-                        element: 'Col',
-                        message: 'use flex utility classes instead - most of the time can simply be a plain <div>',
-                    },
-                    {
-                        element: 'Divider',
-                        message: 'use <LemonDivider> instead',
-                    },
-                    {
-                        element: 'Card',
-                        message: 'use utility classes instead',
-                    },
-                    {
                         element: 'Button',
                         message: 'use <LemonButton> instead',
                     },
                     {
                         element: 'Input',
                         message: 'use <LemonInput> instead',
-                    },
-                    {
-                        element: 'Skeleton',
-                        message: 'use <LemonSkeleton> instead',
                     },
                     {
                         element: 'Modal',
@@ -181,6 +160,10 @@ module.exports = {
                     {
                         element: 'LemonButtonWithDropdown',
                         message: 'use <LemonMenu> with a <LemonButton> child instead',
+                    },
+                    {
+                        element: 'Progress',
+                        message: 'use <LemonProgress> instead',
                     },
                 ],
             },
@@ -210,8 +193,16 @@ module.exports = {
                         message: 'use LemonBadge instead',
                     },
                     {
+                        element: 'InputNumber',
+                        message: 'use LemonInput with type="number" instead',
+                    },
+                    {
                         element: 'Collapse',
                         message: 'use <LemonCollapse> instead',
+                    },
+                    {
+                        element: 'Slider',
+                        message: 'use <LemonSlider> instead',
                     },
                     {
                         element: 'Checkbox',
@@ -240,12 +231,26 @@ module.exports = {
                     {
                         element: 'Tag',
                         message: 'use <LemonTag> instead',
+                    },
+                    {
                         element: 'Alert',
                         message: 'use <LemonBanner> instead',
                     },
                     {
                         element: 'ReactJson',
                         message: 'use <JSONViewer> for dark mode support instead',
+                    },
+                    {
+                        element: 'Radio',
+                        message: 'use <LemonRadio> instead',
+                    },
+                    {
+                        element: 'Skeleton',
+                        message: 'use <LemonSkeleton> instead',
+                    },
+                    {
+                        element: 'Divider',
+                        message: 'use <LemonDivider> instead',
                     },
                 ],
             },
@@ -254,6 +259,7 @@ module.exports = {
         'no-constant-condition': 'off',
         'no-prototype-builtins': 'off',
         'no-irregular-whitespace': 'off',
+        'no-useless-rename': 'error',
         'import/no-restricted-paths': [
             'error',
             {

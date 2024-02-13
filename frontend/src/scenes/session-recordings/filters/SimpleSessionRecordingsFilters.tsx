@@ -88,7 +88,7 @@ export const SimpleSessionRecordingsFilters = ({
                 />
                 {displayNameProperties.length === 0 && (
                     <Link to={urls.settings('project', 'person-display-name')}>
-                        <LemonButton type="tertiary" size="small" className="whitespace-nowrap" icon={<IconPlus />}>
+                        <LemonButton size="small" className="whitespace-nowrap" icon={<IconPlus />}>
                             Add person properties
                         </LemonButton>
                     </Link>
@@ -97,7 +97,7 @@ export const SimpleSessionRecordingsFilters = ({
 
             {personProperties && (
                 <PropertyFilters
-                    pageKey={'session-recordings'}
+                    pageKey="session-recordings"
                     taxonomicGroupTypes={[TaxonomicFilterGroupType.PersonProperties]}
                     propertyFilters={personProperties}
                     onChange={(properties) => setFilters({ properties })}
@@ -106,7 +106,7 @@ export const SimpleSessionRecordingsFilters = ({
             )}
             {pageviewEvent && (
                 <PropertyFilters
-                    pageKey={`session-recordings-$current_url`}
+                    pageKey="session-recordings-$current_url"
                     taxonomicGroupTypes={[TaxonomicFilterGroupType.EventProperties]}
                     propertyFilters={eventProperties}
                     onChange={(properties) => {
@@ -169,7 +169,7 @@ const SimpleSessionRecordingsFiltersInserter = ({
     return (
         <BindLogic logic={propertyFilterLogic} props={logicProps}>
             <Popover
-                className={'filter-row-popover'}
+                className="filter-row-popover"
                 visible={open}
                 onClickOutside={() => handleVisibleChange(false)}
                 overlay={
@@ -186,7 +186,7 @@ const SimpleSessionRecordingsFiltersInserter = ({
                 }
             >
                 <LemonButton
-                    data-attr={'simple-session-recordings-filter'}
+                    data-attr="simple-session-recordings-filter"
                     data-ph-capture-attribute-simple-filter-property-key={propertyKey}
                     onClick={() => handleVisibleChange(true)}
                     className="new-prop-filter"

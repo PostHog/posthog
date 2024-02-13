@@ -54,7 +54,7 @@ export function PersonsTable({
                       key: 'id',
                       render: function Render(_, person: PersonType) {
                           return (
-                              <div className={'overflow-hidden'}>
+                              <div className="overflow-hidden">
                                   {person.distinct_ids.length && (
                                       <CopyToClipboardInline
                                           explicitValue={person.distinct_ids[0]}

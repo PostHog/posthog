@@ -1,6 +1,7 @@
 import { useValues } from 'kea'
 import { getColorVar } from 'lib/colors'
 import { IconTrendingDown, IconTrendingFlat, IconTrendingUp } from 'lib/lemon-ui/icons'
+import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { Spinner } from 'lib/lemon-ui/Spinner/Spinner'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { humanFriendlyDuration, humanFriendlyLargeNumber, isNotNil } from 'lib/utils'
@@ -8,13 +9,19 @@ import { useState } from 'react'
 
 import { EvenlyDistributedRows } from '~/queries/nodes/WebOverview/EvenlyDistributedRows'
 import { AnyResponseType, WebOverviewItem, WebOverviewQuery, WebOverviewQueryResponse } from '~/queries/schema'
+import { QueryContext } from '~/queries/types'
 
 import { dataNodeLogic } from '../DataNode/dataNodeLogic'
 
 let uniqueNode = 0
-export function WebOverview(props: { query: WebOverviewQuery; cachedResults?: AnyResponseType }): JSX.Element | null {
+export function WebOverview(props: {
+    query: WebOverviewQuery
+    cachedResults?: AnyResponseType
+    context: QueryContext
+}): JSX.Element | null {
+    const { onData, loadPriority } = props.context.insightProps ?? {}
     const [key] = useState(() => `WebOverview.${uniqueNode++}`)
-    const logic = dataNodeLogic({ query: props.query, key, cachedResults: props.cachedResults })
+    const logic = dataNodeLogic({ query: props.query, key, cachedResults: props.cachedResults, loadPriority, onData })
     const { response, responseLoading } = useValues(logic)
 
     if (responseLoading) {
@@ -29,12 +36,24 @@ export function WebOverview(props: { query: WebOverviewQuery; cachedResults?: An
         return null
     }
 
-    const results = (response as WebOverviewQueryResponse | undefined)?.results
+    const webOverviewQueryResponse = response as WebOverviewQueryResponse | undefined
+
+    const samplingRate = webOverviewQueryResponse?.samplingRate
 
     return (
-        <EvenlyDistributedRows className="w-full gap-x-2 gap-y-8" minWidthRems={8}>
-            {results?.map((item) => <WebOverviewItemCell key={item.key} item={item} />) || []}
-        </EvenlyDistributedRows>
+        <>
+            <EvenlyDistributedRows className="w-full gap-x-2 gap-y-8" minWidthRems={8}>
+                {webOverviewQueryResponse?.results?.map((item) => <WebOverviewItemCell key={item.key} item={item} />) ||
+                    []}
+            </EvenlyDistributedRows>
+            {samplingRate && !(samplingRate.numerator === 1 && (samplingRate.denominator ?? 1) === 1) ? (
+                <LemonBanner type="info" className="my-4">
+                    These results using a sampling factor of {samplingRate.numerator}
+                    {samplingRate.denominator ?? 1 !== 1 ? `/${samplingRate.denominator}` : ''}. Sampling is currently
+                    in beta.
+                </LemonBanner>
+            ) : null}
+        </>
     )
 }
 
@@ -71,7 +90,7 @@ export const WebOverviewItemCell = ({ item }: { item: WebOverviewItem }): JSX.El
 
     return (
         <Tooltip title={tooltip}>
-            <div className="min-w-30 min-h-20 flex flex-col items-center text-center justify-between">
+            <div className="min-w-[7.5rem] min-h-20 flex flex-col items-center text-center justify-between">
                 <div className="font-bold uppercase text-xs">{label}</div>
                 <div className="w-full flex-1 flex items-center justify-center">
                     <div className="text-2xl">{formatItem(item.value, item.kind)}</div>

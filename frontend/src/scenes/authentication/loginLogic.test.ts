@@ -6,6 +6,19 @@ import { initKea } from '~/initKea'
 import { initKeaTests } from '~/test/init'
 
 describe('loginLogic', () => {
+    describe('redirect vulnerability', () => {
+        beforeEach(() => {
+            // Note, initKeaTests() is not called here because that uses a memory history, which doesn't throw on origin redirect
+            initKea({ beforePlugins: [testUtilsPlugin] })
+        })
+        it('should throw an exception on redirecting to a different origin', () => {
+            router.actions.push(`${origin}/login?next=//google.com`)
+            expect(() => {
+                handleLoginRedirect()
+            }).toThrow()
+        })
+    })
+
     describe('parseLoginRedirectURL', () => {
         let logic: ReturnType<typeof loginLogic.build>
 
@@ -47,18 +60,5 @@ describe('loginLogic', () => {
                 expect(newPath).toEqual(result)
             })
         }
-    })
-
-    describe('redirect vulnerability', () => {
-        beforeEach(() => {
-            // Note, initKeaTests() is not called here because that uses a memory history, which doesn't throw on origin redirect
-            initKea({ beforePlugins: [testUtilsPlugin] })
-        })
-        it('should throw an exception on redirecting to a different origin', () => {
-            router.actions.push(`${origin}/login?next=//google.com`)
-            expect(() => {
-                handleLoginRedirect()
-            }).toThrow()
-        })
     })
 })

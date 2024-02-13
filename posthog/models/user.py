@@ -118,6 +118,7 @@ def events_column_config_default() -> Dict[str, Any]:
 class ThemeMode(models.TextChoices):
     LIGHT = "light", "Light"
     DARK = "dark", "Dark"
+    SYSTEM = "system", "System"
 
 
 class User(AbstractUser, UUIDClassicModel):
@@ -142,6 +143,7 @@ class User(AbstractUser, UUIDClassicModel):
     is_email_verified: models.BooleanField = models.BooleanField(null=True, blank=True)
     requested_password_reset_at: models.DateTimeField = models.DateTimeField(null=True, blank=True)
     has_seen_product_intro_for: models.JSONField = models.JSONField(null=True, blank=True)
+    strapi_id: models.PositiveSmallIntegerField = models.PositiveSmallIntegerField(null=True, blank=True)
 
     # Preferences / configuration options
     email_opt_in: models.BooleanField = models.BooleanField(default=False, null=True, blank=True)
@@ -157,12 +159,12 @@ class User(AbstractUser, UUIDClassicModel):
     events_column_config: models.JSONField = models.JSONField(default=events_column_config_default)
 
     # Remove unused attributes from `AbstractUser`
-    username = None  # type: ignore
+    username = None
 
-    objects: UserManager = UserManager()  # type: ignore
+    objects: UserManager = UserManager()
 
     @property
-    def is_superuser(self) -> bool:  # type: ignore
+    def is_superuser(self) -> bool:
         return self.is_staff
 
     @cached_property
@@ -242,7 +244,7 @@ class User(AbstractUser, UUIDClassicModel):
     @property
     def notification_settings(self) -> Notifications:
         return {
-            **NOTIFICATION_DEFAULTS,  # type: ignore
+            **NOTIFICATION_DEFAULTS,
             **(self.partial_notification_settings if self.partial_notification_settings else {}),
         }
 
@@ -310,12 +312,13 @@ class User(AbstractUser, UUIDClassicModel):
             "project_setup_complete": project_setup_complete,
             "joined_at": self.date_joined,
             "has_password_set": self.has_usable_password(),
-            "has_social_auth": self.social_auth.exists(),  # type: ignore
-            "social_providers": list(self.social_auth.values_list("provider", flat=True)),  # type: ignore
+            "has_social_auth": self.social_auth.exists(),
+            "social_providers": list(self.social_auth.values_list("provider", flat=True)),
             "instance_url": SITE_URL,
             "instance_tag": INSTANCE_TAG,
             "is_email_verified": self.is_email_verified,
             "has_seen_product_intro_for": self.has_seen_product_intro_for,
+            "strapi_id": self.strapi_id,
         }
 
     __repr__ = sane_repr("email", "first_name", "distinct_id")

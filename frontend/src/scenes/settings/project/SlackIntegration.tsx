@@ -61,8 +61,8 @@ export function SlackIntegration(): JSX.Element {
                                     <UserActivityIndicator
                                         at={slackIntegration.created_at}
                                         by={slackIntegration.created_by}
-                                        prefix={'Updated'}
-                                        className={'text-muted'}
+                                        prefix="Updated"
+                                        className="text-muted"
                                     />
                                 ) : null}
                             </div>

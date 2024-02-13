@@ -27,6 +27,9 @@ from rest_framework.throttling import UserRateThrottle
 from two_factor.forms import TOTPDeviceForm
 from two_factor.utils import default_device
 
+import time
+import jwt
+from datetime import datetime, timedelta
 from posthog.api.decide import hostname_in_allowed_url_list
 from posthog.api.email_verification import EmailVerifier
 from posthog.api.organization import OrganizationSerializer
@@ -46,6 +49,7 @@ from posthog.tasks import user_identify
 from posthog.tasks.email import send_email_change_emails
 from posthog.user_permissions import UserPermissions
 from posthog.utils import get_js_url
+from posthog.constants import PERMITTED_FORUM_DOMAINS
 
 
 class UserAuthenticationThrottle(UserRateThrottle):
@@ -89,6 +93,7 @@ class UserSerializer(serializers.ModelSerializer):
             "uuid",
             "distinct_id",
             "first_name",
+            "last_name",
             "email",
             "pending_email",
             "email_opt_in",
@@ -128,7 +133,7 @@ class UserSerializer(serializers.ModelSerializer):
         return is_impersonated_session(self.context["request"])
 
     def get_has_social_auth(self, instance: User) -> bool:
-        return instance.social_auth.exists()  # type: ignore
+        return instance.social_auth.exists()
 
     def get_is_2fa_enabled(self, instance: User) -> bool:
         return default_device(instance) is not None
@@ -162,7 +167,7 @@ class UserSerializer(serializers.ModelSerializer):
                 raise serializers.ValidationError(
                     f"{value} is not a valid type for notification settings, should be {Notifications.__annotations__[key]}"
                 )
-        return {**NOTIFICATION_DEFAULTS, **notification_settings}  # type: ignore
+        return {**NOTIFICATION_DEFAULTS, **notification_settings}
 
     def validate_password_change(
         self, instance: User, current_password: Optional[str], password: Optional[str]
@@ -453,6 +458,58 @@ def redirect_to_site(request):
     state = urllib.parse.quote(json.dumps(params), safe="")
 
     return redirect("{}#__posthog={}".format(app_url, state))
+
+
+@authenticate_secondarily
+def redirect_to_website(request):
+    team = request.user.team
+    app_url = request.GET.get("appUrl") or (team.app_urls and team.app_urls[0])
+
+    if not app_url:
+        return HttpResponse(status=404)
+
+    if not team or urllib.parse.urlparse(app_url).hostname not in PERMITTED_FORUM_DOMAINS:
+        return HttpResponse(f"Can only redirect to a permitted domain.", status=403)
+
+    token = ""
+
+    # check if a strapi id is attached
+    if request.user.strapi_id is None:
+        response = requests.request(
+            "POST",
+            "https://squeak.posthog.cc/api/auth/local/register",
+            json={
+                "username": request.user.email,
+                "email": request.user.email,
+                "password": secrets.token_hex(32),
+                "firstName": request.user.first_name,
+                "lastName": request.user.last_name,
+            },
+            headers={"Content-Type": "application/json"},
+        )
+
+        if response.status_code == 200:
+            json_data = response.json()
+            token = json_data["jwt"]
+            strapi_id = json_data["user"]["id"]
+            request.user.strapi_id = strapi_id
+            request.user.save()
+    else:
+        token = jwt.encode(
+            {
+                "id": request.user.strapi_id,
+                "iat": int(time.time()),
+                "exp": int((datetime.now() + timedelta(days=30)).timestamp()),
+            },
+            os.environ.get("JWT_SECRET_STRAPI", "random_fallback_secret"),
+            algorithm="HS256",
+        )
+
+    # pass the empty string as the safe param so that `//` is encoded correctly.
+    # see https://github.com/PostHog/posthog/issues/9671
+    userData = urllib.parse.quote(json.dumps({"jwt": token}), safe="")
+
+    return redirect("{}?userData={}&redirect={}".format("https://posthog.com/auth", userData, app_url))
 
 
 @require_http_methods(["POST"])

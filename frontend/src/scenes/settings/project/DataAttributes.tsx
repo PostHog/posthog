@@ -38,7 +38,7 @@ export function DataAttributes(): JSX.Element {
                     onChange={(values: string[]) => setValue(values || [])}
                     value={value}
                     data-attr="data-attribute-select"
-                    placeholder={'data-attr, ...'}
+                    placeholder="data-attr, ..."
                     loading={currentTeamLoading}
                     disabled={currentTeamLoading}
                 />

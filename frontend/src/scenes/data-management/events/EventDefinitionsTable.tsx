@@ -84,7 +84,6 @@ export function EventDefinitionsTable(): JSX.Element {
                         overlay={
                             <>
                                 <LemonButton
-                                    status="stealth"
                                     to={
                                         combineUrl(urls.replay(), {
                                             filters: {

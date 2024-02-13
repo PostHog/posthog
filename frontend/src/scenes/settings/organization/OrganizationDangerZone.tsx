@@ -2,7 +2,6 @@ import { LemonButton, LemonInput, LemonModal } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { useRestrictedArea } from 'lib/components/RestrictedArea'
 import { OrganizationMembershipLevel } from 'lib/constants'
-import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { IconDelete } from 'lib/lemon-ui/icons'
 import { Dispatch, SetStateAction, useState } from 'react'
 import { organizationLogic } from 'scenes/organizationLogic'
@@ -16,7 +15,6 @@ export function DeleteOrganizationModal({
 }): JSX.Element {
     const { currentOrganization, organizationBeingDeleted } = useValues(organizationLogic)
     const { deleteOrganization } = useActions(organizationLogic)
-    const is3000 = useFeatureFlag('POSTHOG_3000', 'test')
 
     const [isDeletionConfirmed, setIsDeletionConfirmed] = useState(false)
     const isDeletionInProgress = !!currentOrganization && organizationBeingDeleted?.id === currentOrganization.id
@@ -31,11 +29,11 @@ export function DeleteOrganizationModal({
                         Cancel
                     </LemonButton>
                     <LemonButton
-                        type={is3000 ? 'secondary' : 'primary'}
+                        type="secondary"
+                        status="danger"
                         disabled={!isDeletionConfirmed}
                         loading={isDeletionInProgress}
                         data-attr="delete-organization-ok"
-                        status="danger"
                         onClick={currentOrganization ? () => deleteOrganization(currentOrganization) : undefined}
                     >{`Delete ${
                         currentOrganization ? currentOrganization.name : 'the current organization'
@@ -84,7 +82,7 @@ export function OrganizationDangerZone(): JSX.Element {
                     onClick={() => setIsModalVisible(true)}
                     data-attr="delete-organization-button"
                     icon={<IconDelete />}
-                    disabled={isRestricted}
+                    disabledReason={isRestricted && 'Restricted action'}
                 >
                     Delete {currentOrganization?.name || 'the current organization'}
                 </LemonButton>

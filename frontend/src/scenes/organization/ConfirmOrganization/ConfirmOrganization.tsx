@@ -94,11 +94,11 @@ export function ConfirmOrganization(): JSX.Element {
 
             <div className="text-center terms-and-conditions-text mt-4 text-muted">
                 By creating an account, you agree to our{' '}
-                <Link to={`https://posthog.com/terms`} target="_blank">
+                <Link to="https://posthog.com/terms" target="_blank">
                     Terms of Service
                 </Link>{' '}
                 and{' '}
-                <Link to={`https://posthog.com/privacy`} target="_blank">
+                <Link to="https://posthog.com/privacy" target="_blank">
                     Privacy Policy
                 </Link>
                 .
@@ -106,11 +106,11 @@ export function ConfirmOrganization(): JSX.Element {
             <LemonDivider thick dashed className="my-6" />
             <div className="text-center terms-and-conditions-text mt-4 text-muted">
                 Have questions?{' '}
-                <Link to={`https://posthog.com/support`} target="_blank">
+                <Link to="https://posthog.com/support" target="_blank">
                     Visit support
                 </Link>{' '}
                 or{' '}
-                <Link to={`https://posthog.com/docs`} target="_blank">
+                <Link to="https://posthog.com/docs" target="_blank">
                     read our documentation
                 </Link>
                 .

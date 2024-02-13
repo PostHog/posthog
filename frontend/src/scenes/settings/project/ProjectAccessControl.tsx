@@ -53,7 +53,7 @@ function LevelComponent(member: FusedTeamMemberType): JSX.Element | null {
 
     const levelButton = disallowedReason ? (
         <div className="border rounded px-3 py-2 flex inline-flex items-center">
-            {member.level === OrganizationMembershipLevel.Owner && <CrownFilled className={'mr-2'} />}
+            {member.level === OrganizationMembershipLevel.Owner && <CrownFilled className="mr-2" />}
             {levelName}
         </div>
     ) : (
@@ -140,7 +140,7 @@ export function ProjectTeamMembers(): JSX.Element | null {
         {
             key: 'user_profile_picture',
             render: function ProfilePictureRender(_, member) {
-                return <ProfilePicture name={member.user.first_name} email={member.user.email} />
+                return <ProfilePicture user={member.user} />
             },
             width: 32,
         },

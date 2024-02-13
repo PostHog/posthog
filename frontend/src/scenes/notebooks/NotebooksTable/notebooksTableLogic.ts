@@ -12,13 +12,13 @@ import type { notebooksTableLogicType } from './notebooksTableLogicType'
 export interface NotebooksListFilters {
     search: string
     // UUID of the user that created the notebook
-    createdBy: string
+    createdBy: string | null
     contains: NotebookNodeType[]
 }
 
 export const DEFAULT_FILTERS: NotebooksListFilters = {
     search: '',
-    createdBy: 'All users',
+    createdBy: null,
     contains: [],
 }
 
@@ -77,7 +77,7 @@ export const notebooksTableLogic = kea<notebooksTableLogicType>([
 
                     const res = await api.notebooks.list({
                         contains,
-                        created_by: createdByForQuery,
+                        created_by: createdByForQuery ?? undefined,
                         search: values.filters?.search || undefined,
                         order: values.sortValue ?? '-last_modified_at',
                         limit: RESULTS_PER_PAGE,

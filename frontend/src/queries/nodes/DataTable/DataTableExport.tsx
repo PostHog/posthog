@@ -16,14 +16,14 @@ import {
 } from '~/queries/nodes/DataTable/utils'
 import { getPersonsEndpoint } from '~/queries/query'
 import { DataNode, DataTableNode, NodeKind } from '~/queries/schema'
-import { isEventsQuery, isHogQLQuery, isPersonsNode } from '~/queries/utils'
+import { isActorsQuery, isEventsQuery, isHogQLQuery, isPersonsNode } from '~/queries/utils'
 import { ExporterFormat } from '~/types'
 
 import { dataTableLogic, DataTableRow } from './dataTableLogic'
 
-const EXPORT_MAX_LIMIT = 10000
+export const EXPORT_MAX_LIMIT = 10000
 
-async function startDownload(query: DataTableNode, onlySelectedColumns: boolean): Promise<void> {
+export async function startDownload(query: DataTableNode, onlySelectedColumns: boolean): Promise<void> {
     const exportContext = isPersonsNode(query.source)
         ? { path: getPersonsEndpoint(query.source) }
         : { source: query.source }
@@ -33,7 +33,7 @@ async function startDownload(query: DataTableNode, onlySelectedColumns: boolean)
 
     if (onlySelectedColumns) {
         exportContext['columns'] = (
-            (isEventsQuery(query.source) ? query.source.select : null) ??
+            (isEventsQuery(query.source) || isActorsQuery(query.source) ? query.source.select : null) ??
             query.columns ??
             defaultDataTableColumns(query.source.kind)
         )?.filter((c) => c !== 'person.$delete')
@@ -44,7 +44,7 @@ async function startDownload(query: DataTableNode, onlySelectedColumns: boolean)
             )
         } else if (isPersonsNode(query.source)) {
             exportContext['columns'] = exportContext['columns'].map((c: string) =>
-                removeExpressionComment(c) === 'person' ? 'properties.email' : c
+                removeExpressionComment(c) === 'person' ? 'email' : c
             )
         }
     }
@@ -201,16 +201,14 @@ export function DataTableExport({ query }: DataTableExportProps): JSX.Element | 
                 overlay: [
                     <ExportWithConfirmation
                         key={1}
-                        placement={'topRight'}
+                        placement="topRight"
                         onConfirm={() => {
                             void startDownload(query, true)
                         }}
                         actor={isPersonsNode(query.source) ? 'persons' : 'events'}
                         limit={EXPORT_MAX_LIMIT}
                     >
-                        <LemonButton fullWidth status="stealth">
-                            Export current columns
-                        </LemonButton>
+                        <LemonButton fullWidth>Export current columns</LemonButton>
                     </ExportWithConfirmation>,
                 ]
                     .concat(
@@ -218,14 +216,12 @@ export function DataTableExport({ query }: DataTableExportProps): JSX.Element | 
                             ? [
                                   <ExportWithConfirmation
                                       key={0}
-                                      placement={'topRight'}
+                                      placement="topRight"
                                       onConfirm={() => void startDownload(query, false)}
                                       actor={isPersonsNode(query.source) ? 'persons' : 'events'}
                                       limit={EXPORT_MAX_LIMIT}
                                   >
-                                      <LemonButton fullWidth status="stealth">
-                                          Export all columns
-                                      </LemonButton>
+                                      <LemonButton fullWidth>Export all columns</LemonButton>
                                   </ExportWithConfirmation>,
                               ]
                             : []
@@ -237,8 +233,7 @@ export function DataTableExport({ query }: DataTableExportProps): JSX.Element | 
                                   <LemonButton
                                       key={3}
                                       fullWidth
-                                      status="stealth"
-                                      data-attr={'copy-csv-to-clipboard'}
+                                      data-attr="copy-csv-to-clipboard"
                                       onClick={() => {
                                           if (dataTableRows) {
                                               copyTableToCsv(
@@ -254,8 +249,7 @@ export function DataTableExport({ query }: DataTableExportProps): JSX.Element | 
                                   <LemonButton
                                       key={4}
                                       fullWidth
-                                      status="stealth"
-                                      data-attr={'copy-json-to-clipboard'}
+                                      data-attr="copy-json-to-clipboard"
                                       onClick={() => {
                                           if (dataTableRows) {
                                               copyTableToJson(
@@ -278,8 +272,7 @@ export function DataTableExport({ query }: DataTableExportProps): JSX.Element | 
                                   <LemonButton
                                       key={6}
                                       fullWidth
-                                      status="stealth"
-                                      data-attr={'open-json-editor-button'}
+                                      data-attr="open-json-editor-button"
                                       to={
                                           query
                                               ? urls.insightNew(undefined, undefined, JSON.stringify(query))
@@ -298,8 +291,7 @@ export function DataTableExport({ query }: DataTableExportProps): JSX.Element | 
                                   <LemonButton
                                       key={8}
                                       fullWidth
-                                      status="stealth"
-                                      data-attr={'open-sql-editor-button'}
+                                      data-attr="open-sql-editor-button"
                                       to={urls.insightNew(
                                           undefined,
                                           undefined,

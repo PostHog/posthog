@@ -1,6 +1,7 @@
 import { LemonButton, LemonDivider } from '@posthog/lemon-ui'
 import { ErrorDisplay } from 'lib/components/Errors/ErrorDisplay'
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
+import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { IconOpenInNew } from 'lib/lemon-ui/icons'
 import { Spinner } from 'lib/lemon-ui/Spinner'
 import { autoCaptureEventToDescription, capitalizeFirstLetter } from 'lib/utils'
@@ -26,14 +27,15 @@ export function ItemEvent({ item, expanded, setExpanded }: ItemEventProps): JSX.
             : undefined
 
     return (
-        <div data-attr={'item-event'}>
-            <LemonButton noPadding onClick={() => setExpanded(!expanded)} status={'primary-alt'} fullWidth>
+        <div data-attr="item-event">
+            <LemonButton noPadding onClick={() => setExpanded(!expanded)} fullWidth>
                 <div className="flex gap-2 items-start p-2 text-xs cursor-pointer truncate">
                     <PropertyKeyInfo
                         className="font-medium shrink-0"
                         disablePopover
                         ellipsis={true}
                         value={capitalizeFirstLetter(autoCaptureEventToDescription(item.data))}
+                        type={TaxonomicFilterGroupType.Events}
                     />
                     {item.data.event === '$autocapture' ? <span className="text-muted-alt">(Autocapture)</span> : null}
                     {subValue ? (

@@ -1,4 +1,4 @@
-import { LemonDivider } from '@posthog/lemon-ui'
+import { LemonDivider, LemonTag } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { Field, Form, Group } from 'kea-forms'
 import { IconClose, IconDelete, IconEdit, IconMagnifier, IconMinusOutlined, IconPlus } from 'lib/lemon-ui/icons'
@@ -48,7 +48,7 @@ export const ActionsEditingToolbarMenu = (): JSX.Element => {
             <Form
                 name="action_step"
                 logic={actionsTabLogic}
-                formKey={'actionForm'}
+                formKey="actionForm"
                 enableFormOnSubmit
                 className="flex flex-col overflow-hidden flex-1"
             >
@@ -80,8 +80,7 @@ export const ActionsEditingToolbarMenu = (): JSX.Element => {
                                             {index > 0 ? 'OR ' : null}Element #{index + 1}
                                         </h3>
                                         <LemonButton
-                                            type={'tertiary'}
-                                            status={'muted'}
+                                            type="tertiary"
                                             size="small"
                                             onClick={() =>
                                                 setActionFormValue(
@@ -120,8 +119,8 @@ export const ActionsEditingToolbarMenu = (): JSX.Element => {
                                             />
                                             <div className="flex flex-row justify-end mb-2">
                                                 <LemonButton
-                                                    size={'small'}
-                                                    type={'secondary'}
+                                                    size="small"
+                                                    type="secondary"
                                                     icon={<IconEdit />}
                                                     onClick={(e) => {
                                                         e.stopPropagation()
@@ -145,13 +144,18 @@ export const ActionsEditingToolbarMenu = (): JSX.Element => {
                                                     </>
                                                 }
                                             />
+                                            <LemonTag type="highlight">
+                                                <span className="uppercase">and</span>
+                                            </LemonTag>
                                             <StepField
                                                 step={step}
                                                 item="text"
                                                 label="Text"
                                                 caption="Text content inside your element"
                                             />
-
+                                            <LemonTag type="highlight">
+                                                <span className="uppercase">and</span>
+                                            </LemonTag>
                                             <StepField
                                                 step={step}
                                                 item="url"
@@ -162,10 +166,9 @@ export const ActionsEditingToolbarMenu = (): JSX.Element => {
                                     ) : null}
 
                                     {index === (actionForm.steps?.length || 0) - 1 ? (
-                                        <div className={'text-right mt-4'}>
+                                        <div className="text-right mt-4">
                                             <LemonButton
                                                 type="secondary"
-                                                status={'muted'}
                                                 size="small"
                                                 sideIcon={<IconPlus />}
                                                 onClick={() =>
@@ -197,7 +200,6 @@ export const ActionsEditingToolbarMenu = (): JSX.Element => {
                     <span className="flex-1">
                         <LemonButton
                             type="secondary"
-                            status={'muted'}
                             size="small"
                             onClick={() => selectAction(null)}
                             sideIcon={<IconClose />}
@@ -210,7 +212,7 @@ export const ActionsEditingToolbarMenu = (): JSX.Element => {
                         action
                     </LemonButton>
                     {selectedActionId !== 'new' ? (
-                        <LemonButton type="secondary" status={'danger'} onClick={deleteAction} icon={<IconDelete />} />
+                        <LemonButton type="secondary" status="danger" onClick={deleteAction} icon={<IconDelete />} />
                     ) : null}
                 </ToolbarMenu.Footer>
             </Form>

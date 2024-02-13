@@ -32,7 +32,10 @@ describe('duplicating dashboards', () => {
                 cy.get('[data-attr="more-button"]').click()
             })
             duplicateDashboardFromMenu()
-            cy.get('h1.page-title').should('have.text', expectedCopiedDashboardName)
+            cy.get('[data-attr="top-bar-name"] .EditableField__display').should(
+                'have.text',
+                expectedCopiedDashboardName
+            )
 
             cy.wait('@createDashboard').then(() => {
                 cy.get('.CardMeta h4').should('have.text', insightName).should('not.have.text', '(Copy)')
@@ -50,7 +53,10 @@ describe('duplicating dashboards', () => {
                 cy.get('[data-attr="more-button"]').click()
             })
             duplicateDashboardFromMenu(true)
-            cy.get('h1.page-title').should('have.text', expectedCopiedDashboardName)
+            cy.get('[data-attr="top-bar-name"] .EditableField__display').should(
+                'have.text',
+                expectedCopiedDashboardName
+            )
 
             cy.wait('@createDashboard').then(() => {
                 cy.contains('h4', expectedCopiedInsightName).click()
@@ -69,7 +75,10 @@ describe('duplicating dashboards', () => {
 
             cy.get('[data-attr="dashboard-three-dots-options-menu"]').click()
             duplicateDashboardFromMenu()
-            cy.get('h1.page-title').should('have.text', expectedCopiedDashboardName)
+            cy.get('[data-attr="top-bar-name"] .EditableField__display').should(
+                'have.text',
+                expectedCopiedDashboardName
+            )
 
             cy.wait('@createDashboard').then(() => {
                 cy.get('.CardMeta h4').should('have.text', insightName).should('not.have.text', '(Copy)')
@@ -86,7 +95,10 @@ describe('duplicating dashboards', () => {
 
             cy.get('[data-attr="dashboard-three-dots-options-menu"]').click()
             duplicateDashboardFromMenu(true)
-            cy.get('h1.page-title').should('have.text', expectedCopiedDashboardName)
+            cy.get('[data-attr="top-bar-name"] .EditableField__display').should(
+                'have.text',
+                expectedCopiedDashboardName
+            )
 
             cy.wait('@createDashboard').then(() => {
                 cy.contains('h4', expectedCopiedInsightName).click()

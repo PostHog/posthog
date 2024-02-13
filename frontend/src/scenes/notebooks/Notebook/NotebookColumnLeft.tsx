@@ -80,7 +80,7 @@ export const NotebookNodeSettingsWidget = ({ logic }: { logic: BuiltLogic<notebo
             className="NotebookColumn__widget"
             actions={
                 <>
-                    <LemonButton size="small" status="primary" onClick={() => setEditingNodeId(null)}>
+                    <LemonButton size="small" onClick={() => setEditingNodeId(null)}>
                         Done
                     </LemonButton>
                 </>

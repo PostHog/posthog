@@ -1,5 +1,6 @@
+# serializer version: 1
 # name: TestFunnelPerson.test_funnel_actors_with_groups_search
-  '
+  '''
   /* user_id:0 request:_snapshot_ */
   SELECT aggregation_target AS actor_id
   FROM
@@ -54,7 +55,7 @@
                       (SELECT e.timestamp as timestamp,
                               e."$group_0" as aggregation_target,
                               pdi.person_id as person_id,
-                              person.person_props as person_props ,
+                              person.person_props as person_props,
                               if(event = 'step one', 1, 0) as step_0,
                               if(step_0 = 1, timestamp, null) as latest_0,
                               if(event = 'step two', 1, 0) as step_1,
@@ -67,6 +68,13 @@
                                  argMax(person_id, version) as person_id
                           FROM person_distinct_id2
                           WHERE team_id = 2
+                            AND distinct_id IN
+                              (SELECT distinct_id
+                               FROM events
+                               WHERE team_id = 2
+                                 AND event IN ['step one', 'step three', 'step two']
+                                 AND toTimeZone(timestamp, 'UTC') >= toDateTime('2021-05-01 00:00:00', 'UTC')
+                                 AND toTimeZone(timestamp, 'UTC') <= toDateTime('2021-05-10 23:59:59', 'UTC') )
                           GROUP BY distinct_id
                           HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
                        INNER JOIN
@@ -103,6 +111,7 @@
   WHERE steps IN [1, 2, 3]
   ORDER BY aggregation_target
   LIMIT 100
-  OFFSET 0
-  '
----
+  OFFSET 0 SETTINGS max_ast_elements=1000000,
+                    max_expanded_ast_elements=1000000
+  '''
+# ---

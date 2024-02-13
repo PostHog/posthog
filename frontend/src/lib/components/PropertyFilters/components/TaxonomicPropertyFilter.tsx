@@ -42,8 +42,10 @@ export function TaxonomicPropertyFilter({
     orFiltering,
     addText = 'Add filter',
     hasRowOperator,
-    hogQLTable,
+    metadataSource,
     propertyAllowList,
+    taxonomicFilterOptionsFromProp,
+    allowRelativeDateOptions,
 }: PropertyFilterInternalProps): JSX.Element {
     const pageKey = useMemo(() => pageKeyInput || `filter-${uniqueMemoizedIndex++}`, [pageKeyInput])
     const groupTypes = taxonomicGroupTypes || [
@@ -56,9 +58,10 @@ export function TaxonomicPropertyFilter({
     ]
     const taxonomicOnChange: (group: TaxonomicFilterGroup, value: TaxonomicFilterValue, item: any) => void = (
         taxonomicGroup,
-        value
+        value,
+        item
     ) => {
-        selectItem(taxonomicGroup, value)
+        selectItem(taxonomicGroup, value, item?.propertyFilterType)
         if (
             taxonomicGroup.type === TaxonomicFilterGroupType.Cohorts ||
             taxonomicGroup.type === TaxonomicFilterGroupType.HogQLExpression
@@ -105,9 +108,10 @@ export function TaxonomicPropertyFilter({
             value={cohortOrOtherValue}
             onChange={taxonomicOnChange}
             taxonomicGroupTypes={groupTypes}
-            hogQLTable={hogQLTable}
+            metadataSource={metadataSource}
             eventNames={eventNames}
             propertyAllowList={propertyAllowList}
+            optionsFromProp={taxonomicFilterOptionsFromProp}
         />
     )
 
@@ -167,15 +171,20 @@ export function TaxonomicPropertyFilter({
                         >
                             <LemonButton
                                 type="secondary"
-                                status={!valuePresent ? 'primary' : 'stealth'}
                                 icon={!valuePresent ? <IconPlusMini /> : undefined}
                                 data-attr={'property-select-toggle-' + index}
+                                sideIcon={null} // The null sideIcon is here on purpose - it prevents the dropdown caret
                                 onClick={() => (dropdownOpen ? closeDropdown() : openDropdown())}
                             >
                                 {filter?.type === 'cohort' ? (
                                     selectedCohortName || `Cohort #${filter?.value}`
                                 ) : filter?.key ? (
-                                    <PropertyKeyInfo value={filter.key} disablePopover ellipsis />
+                                    <PropertyKeyInfo
+                                        value={filter.key}
+                                        disablePopover
+                                        ellipsis
+                                        type={activeTaxonomicGroup?.type}
+                                    />
                                 ) : (
                                     addText || 'Add filter'
                                 )}
@@ -194,6 +203,7 @@ export function TaxonomicPropertyFilter({
                                 placeholder="Enter value..."
                                 endpoint={filter?.key && activeTaxonomicGroup?.valuesEndpoint?.(filter.key)}
                                 eventNames={eventNames}
+                                addRelativeDateTimeOptions={allowRelativeDateOptions}
                                 onChange={(newOperator, newValue) => {
                                     if (filter?.key && filter?.type) {
                                         setFilter(index, {

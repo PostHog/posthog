@@ -1,6 +1,5 @@
 import { PluginConfigSchema } from '@posthog/plugin-scaffold'
 import { eventWithTime } from '@rrweb/types'
-import { UploadFile } from 'antd/lib/upload/interface'
 import { ChartDataset, ChartType, InteractionItem } from 'chart.js'
 import { LogicWrapper } from 'kea'
 import { DashboardCompatibleScenes } from 'lib/components/SceneDashboardChoice/sceneDashboardChoiceModalLogic'
@@ -27,6 +26,8 @@ import { LogLevel } from 'rrweb'
 import { BehavioralFilterKey, BehavioralFilterType } from 'scenes/cohorts/CohortFilters/types'
 import { AggregationAxisFormat } from 'scenes/insights/aggregationAxisFormat'
 import { JSONContent } from 'scenes/notebooks/Notebook/utils'
+import { PipelineLogLevel } from 'scenes/pipeline/pipelineNodeLogsLogic'
+import { Scene } from 'scenes/sceneTypes'
 
 import { QueryContext } from '~/queries/types'
 
@@ -41,39 +42,54 @@ import { NodeKind } from './queries/schema'
 
 export type Optional<T, K extends string | number | symbol> = Omit<T, K> & { [K in keyof T]?: T[K] }
 
-// Keep this in sync with backend constants (constants.py)
+// Keep this in sync with backend constants/features/{product_name}.yml
 export enum AvailableFeature {
-    EVENTS = 'events',
-    TRACKED_USERS = 'tracked_users',
-    DATA_RETENTION = 'data_retention',
-    SUBSCRIPTIONS = 'subscriptions',
-    DASHBOARD_COLLABORATION = 'dashboard_collaboration',
-    DASHBOARD_PERMISSIONING = 'dashboard_permissioning',
-    INGESTION_TAXONOMY = 'ingestion_taxonomy',
-    PATHS_ADVANCED = 'paths_advanced',
-    CORRELATION_ANALYSIS = 'correlation_analysis',
-    GROUP_ANALYTICS = 'group_analytics',
-    TAGGING = 'tagging',
-    BEHAVIORAL_COHORT_FILTERING = 'behavioral_cohort_filtering',
-    SESSION_RECORDINGS = 'session_recordings',
-    RECORDINGS_PLAYLISTS = 'recordings_playlists',
-    RECORDINGS_PERFORMANCE = 'recordings_performance',
-    RECORDINGS_FILE_EXPORT = 'recordings_file_export',
-    BOOLEAN_FLAGS = 'boolean_flags',
-    MULTIVARIATE_FLAGS = 'multivariate_flags',
-    EXPERIMENTATION = 'experimentation',
     APPS = 'apps',
     SLACK_INTEGRATION = 'slack_integration',
     MICROSOFT_TEAMS_INTEGRATION = 'microsoft_teams_integration',
     DISCORD_INTEGRATION = 'discord_integration',
     ZAPIER = 'zapier',
     APP_METRICS = 'app_metrics',
+    DATA_PIPELINES = 'data_pipelines',
+    RECORDINGS_PLAYLISTS = 'recordings_playlists',
+    SESSION_REPLAY_DATA_RETENTION = 'session_replay_data_retention',
+    CONSOLE_LOGS = 'console_logs',
+    RECORDINGS_PERFORMANCE = 'recordings_performance',
+    SESSION_REPLAY_NETWORK_PAYLOADS = 'session_replay_network_payloads',
+    RECORDINGS_FILE_EXPORT = 'recordings_file_export',
+    SESSION_REPLAY_SAMPLING = 'session_replay_sampling',
+    REPLAY_RECORDING_DURATION_MINIMUM = 'replay_recording_duration_minimum',
+    REPLAY_FEATURE_FLAG_BASED_RECORDING = 'replay_feature_flag_based_recording',
+    REPLAY_MASK_SENSITIVE_DATA = 'replay_mask_sensitive_data',
+    REPLAY_SHARING_EMBEDDING = 'replay_sharing_embedding',
+    REPLAY_PRODUCT_ANALYTICS_INTEGRATION = 'replay_product_analytics_integration',
+    REPLAY_FILTER_PERSON_PROPERTIES = 'replay_filter_person_properties',
+    REPLAY_FILTER_EVENTS = 'replay_filter_events',
+    REPLAY_DOM_EXPLORER = 'replay_dom_explorer',
+    WORKS_WITH_POSTHOG_JS = 'works_with_posthog_js',
+    REPLAY_AUTOMATIC_PLAYLISTS = 'replay_automatic_playlists',
+    GROUP_ANALYTICS = 'group_analytics',
+    SURVEYS_UNLIMITED_SURVEYS = 'surveys_unlimited_surveys',
+    SURVEYS_ALL_QUESTION_TYPES = 'surveys_all_question_types',
+    SURVEYS_MULTIPLE_QUESTIONS = 'surveys_multiple_questions',
+    SURVEYS_USER_TARGETING = 'surveys_user_targeting',
+    SURVEYS_USER_SAMPLING = 'surveys_user_sampling',
+    SURVEYS_STYLING = 'surveys_styling',
+    SURVEYS_TEXT_HTML = 'surveys_text_html',
+    SURVEYS_API_MODE = 'surveys_api_mode',
+    SURVEYS_RESULTS_ANALYSIS = 'surveys_results_analysis',
+    SURVEYS_TEMPLATES = 'surveys_templates',
+    SURVEYS_DATA_RETENTION = 'surveys_data_retention',
+    SURVEYS_LINK_QUESTION_TYPE = 'surveys_link_question_type',
+    SURVEYS_SLACK_NOTIFICATIONS = 'surveys_slack_notifications',
+    SURVEYS_WAIT_PERIODS = 'surveys_wait_periods',
+    TRACKED_USERS = 'tracked_users',
     TEAM_MEMBERS = 'team_members',
     API_ACCESS = 'api_access',
     ORGANIZATIONS_PROJECTS = 'organizations_projects',
-    PROJECT_BASED_PERMISSIONING = 'project_based_permissioning',
     ROLE_BASED_ACCESS = 'role_based_access',
     SOCIAL_SSO = 'social_sso',
+    PROJECT_BASED_PERMISSIONING = 'project_based_permissioning',
     SAML = 'saml',
     SSO_ENFORCEMENT = 'sso_enforcement',
     WHITE_LABELLING = 'white_labelling',
@@ -88,10 +104,46 @@ export enum AvailableFeature {
     BESPOKE_PRICING = 'bespoke_pricing',
     INVOICE_PAYMENTS = 'invoice_payments',
     SUPPORT_SLAS = 'support_slas',
-    SURVEYS_STYLING = 'surveys_styling',
-    SURVEYS_TEXT_HTML = 'surveys_text_html',
-    SURVEYS_MULTIPLE_QUESTIONS = 'surveys_multiple_questions',
+    BOOLEAN_FLAGS = 'boolean_flags',
+    FEATURE_FLAGS_DATA_RETENTION = 'feature_flags_data_retention',
+    MULTIVARIATE_FLAGS = 'multivariate_flags',
+    PERSIST_FLAGS_CROSS_AUTHENTICATION = 'persist_flags_cross_authentication',
+    FEATURE_FLAG_PAYLOADS = 'feature_flag_payloads',
+    MULTIPLE_RELEASE_CONDITIONS = 'multiple_release_conditions',
+    RELEASE_CONDITION_OVERRIDES = 'release_condition_overrides',
+    TARGETING_BY_GROUP = 'targeting_by_group',
+    LOCAL_EVALUATION_AND_BOOTSTRAPPING = 'local_evaluation_and_bootstrapping',
+    FLAG_USAGE_STATS = 'flag_usage_stats',
+    MULTIPLE_ENVIRONMENTS = 'multiple_environments',
+    USER_OPT_IN = 'user_opt_in',
+    INSTANT_ROLLBACKS = 'instant_rollbacks',
+    EXPERIMENTATION = 'experimentation',
+    GROUP_EXPERIMENTS = 'group_experiments',
+    FUNNEL_EXPERIMENTS = 'funnel_experiments',
+    SECONDARY_METRICS = 'secondary_metrics',
+    STATISTICAL_ANALYSIS = 'statistical_analysis',
+    PRODUCT_ANALYTICS_DATA_RETENTION = 'product_analytics_data_retention',
+    DASHBOARDS = 'dashboards',
+    FUNNELS = 'funnels',
+    GRAPHS_TRENDS = 'graphs_trends',
+    PATHS = 'paths',
+    INSIGHTS = 'insights',
+    SUBSCRIPTIONS = 'subscriptions',
+    DASHBOARD_COLLABORATION = 'dashboard_collaboration',
+    DASHBOARD_PERMISSIONING = 'dashboard_permissioning',
+    INGESTION_TAXONOMY = 'ingestion_taxonomy',
+    PATHS_ADVANCED = 'paths_advanced',
+    CORRELATION_ANALYSIS = 'correlation_analysis',
+    TAGGING = 'tagging',
+    BEHAVIORAL_COHORT_FILTERING = 'behavioral_cohort_filtering',
+    PRODUCT_ANALYTICS_RETENTION = 'product_analytics_retention',
+    PRODUCT_ANALYTICS_STICKINESS = 'product_analytics_stickiness',
+    AUTOCAPTURE = 'autocapture',
+    DATA_VISUALIZATION = 'data_visualization',
+    PRODUCT_ANALYTICS_SQL_QUERIES = 'product_analytics_sql_queries',
 }
+
+type AvailableFeatureUnion = `${AvailableFeature}`
 
 export enum ProductKey {
     COHORTS = 'cohorts',
@@ -109,11 +161,20 @@ export enum ProductKey {
     EARLY_ACCESS_FEATURES = 'early_access_features',
     PRODUCT_ANALYTICS = 'product_analytics',
     PIPELINE_TRANSFORMATIONS = 'pipeline_transformations',
+    PIPELINE_DESTINATIONS = 'pipeline_destinations',
+    DATA_PIPELINES = 'data_pipelines',
+    GROUP_ANALYTICS = 'group_analytics',
+    INTEGRATIONS = 'integrations',
+    PLATFORM_AND_SUPPORT = 'platform_and_support',
 }
+
+type ProductKeyUnion = `${ProductKey}`
 
 export enum LicensePlan {
     Scale = 'scale',
     Enterprise = 'enterprise',
+    Dev = 'dev',
+    Cloud = 'cloud',
 }
 
 export enum Realm {
@@ -146,6 +207,7 @@ interface UserBaseType {
     uuid: string
     distinct_id: string
     first_name: string
+    last_name?: string
     email: string
 }
 
@@ -163,6 +225,8 @@ export interface SceneDashboardChoice {
     scene: DashboardCompatibleScenes
     dashboard: number | DashboardBasicType
 }
+
+export type UserTheme = 'light' | 'dark' | 'system'
 
 /** Full User model. */
 export interface UserType extends UserBaseType {
@@ -185,8 +249,7 @@ export interface UserType extends UserBaseType {
     has_social_auth: boolean
     has_seen_product_intro_for?: Record<string, boolean>
     scene_personalisation?: SceneDashboardChoice[]
-    /** Null means "sync with system". */
-    theme_mode: 'light' | 'dark' | null
+    theme_mode?: UserTheme | null
 }
 
 export interface NotificationSettings {
@@ -224,8 +287,8 @@ export interface OrganizationType extends OrganizationBasicType {
     created_at: string
     updated_at: string
     plugins_access_level: PluginsAccessLevel
-    teams: TeamBasicType[] | null
-    available_features: AvailableFeature[]
+    teams: TeamBasicType[]
+    available_features: AvailableFeatureUnion[]
     available_product_features: BillingV2FeatureType[]
     is_member_join_email_enabled: boolean
     customer_id: string | null
@@ -351,6 +414,7 @@ export interface TeamType extends TeamBasicType {
         | { recordHeaders?: boolean; recordBody?: boolean }
         | undefined
         | null
+    session_replay_config: { record_canvas?: boolean } | undefined | null
     autocapture_exceptions_opt_in: boolean
     surveys_opt_in?: boolean
     autocapture_exceptions_errors_to_ignore: string[]
@@ -516,17 +580,24 @@ export enum ExperimentsTabs {
     Archived = 'archived',
 }
 
-export enum PipelineTabs {
-    Filters = 'filters',
+export enum PipelineTab {
+    Overview = 'overview',
     Transformations = 'transformations',
     Destinations = 'destinations',
     AppsManagement = 'apps-management',
 }
 
-export enum PipelineAppTabs {
+export enum PipelineStage {
+    Filter = 'filter',
+    Transformation = 'transformation',
+    Destination = 'destination',
+}
+
+export enum PipelineNodeTab {
     Configuration = 'configuration',
     Logs = 'logs',
     Metrics = 'metrics',
+    History = 'history',
 }
 
 export enum ProgressStatus {
@@ -589,6 +660,7 @@ export interface SessionPropertyFilter extends BasePropertyFilter {
 export interface CohortPropertyFilter extends BasePropertyFilter {
     type: PropertyFilterType.Cohort
     key: 'id'
+    /**  @asType integer */
     value: number
 }
 
@@ -681,8 +753,19 @@ export type EncodedRecordingSnapshot = {
     data: eventWithTime[]
 }
 
+// we can duplicate the name SnapshotSourceType for the object and the type
+// since one only exists to be used in the other
+// this way if we want to reference one of the valid string values for SnapshotSourceType
+// we have a strongly typed way to do it
+export const SnapshotSourceType = {
+    blob: 'blob',
+    realtime: 'realtime',
+} as const
+
+export type SnapshotSourceType = (typeof SnapshotSourceType)[keyof typeof SnapshotSourceType]
+
 export interface SessionRecordingSnapshotSource {
-    source: 'blob' | 'realtime'
+    source: SnapshotSourceType
     start_timestamp?: string
     end_timestamp?: string
     blob_key?: string
@@ -702,6 +785,9 @@ export interface SessionPlayerSnapshotData {
     snapshots?: RecordingSnapshot[]
     sources?: SessionRecordingSnapshotSource[]
     blob_keys?: string[]
+    // used for a debug signal only for PostHog team, controlled by a feature flag
+    // DO NOT RELY ON THIS FOR NON DEBUG PURPOSES
+    untransformed_snapshots?: RecordingSnapshot[]
 }
 
 export interface SessionPlayerData {
@@ -726,6 +812,7 @@ export enum SessionRecordingPlayerTab {
     EVENTS = 'events',
     CONSOLE = 'console',
     NETWORK = 'network',
+    DOCTOR = 'doctor',
 }
 
 export enum SessionPlayerState {
@@ -803,9 +890,19 @@ export type EntityFilter = {
     order?: number
 }
 
-export interface FunnelExclusion extends Partial<EntityFilter> {
-    funnel_from_step?: number
-    funnel_to_step?: number
+export interface ActionFilter extends EntityFilter {
+    math?: string
+    math_property?: string
+    math_group_type_index?: number | null
+    math_hogql?: string
+    properties?: AnyPropertyFilter[]
+    type: EntityType
+    days?: string[] // TODO: why was this added here?
+}
+
+export interface FunnelExclusionLegacy extends Partial<EntityFilter> {
+    funnel_from_step: number
+    funnel_to_step: number
 }
 
 export type EntityFilterTypes = EntityFilter | ActionFilter | null
@@ -864,9 +961,10 @@ export interface MatchedRecording {
     events: MatchedRecordingEvent[]
 }
 
-interface CommonActorType {
+export interface CommonActorType {
     id: string | number
     properties: Record<string, any>
+    /** @format date-time */
     created_at: string
     matched_recordings: MatchedRecording[]
     value_at_data_point: number | null
@@ -949,7 +1047,7 @@ export interface CohortType {
     last_calculation?: string
     is_static?: boolean
     name?: string
-    csv?: UploadFile
+    csv?: File
     groups: CohortGroupType[] // To be deprecated once `filter` takes over
     filters: {
         properties: CohortCriteriaGroupFilter
@@ -1079,6 +1177,7 @@ export interface SessionRecordingType {
     console_error_count?: number
     /** Where this recording information was loaded from  */
     storage?: 'object_storage_lts' | 'object_storage'
+    summary?: string
 }
 
 export interface SessionRecordingPropertiesType {
@@ -1189,6 +1288,9 @@ export interface PerformanceEvent {
     //rrweb/network@1 - i.e. not in ClickHouse table
     is_initial?: boolean
     raw?: Record<string, any>
+
+    //server timings - reported as separate events but added back in here on the front end
+    server_timings?: PerformanceEvent[]
 }
 
 export interface CurrentBillCycleType {
@@ -1197,12 +1299,18 @@ export interface CurrentBillCycleType {
 }
 
 export type BillingV2FeatureType = {
-    key: AvailableFeature
+    key: AvailableFeatureUnion
     name: string
     description?: string | null
     limit?: number | null
     note?: string | null
     unit?: string | null
+    images?: {
+        light: string
+        dark: string
+    } | null
+    icon_key?: string | null
+    type?: 'primary' | 'secondary' | null
 }
 
 export interface BillingV2TierType {
@@ -1219,11 +1327,13 @@ export interface BillingProductV2Type {
     type: string
     usage_key: string | null
     name: string
+    headline: string | null
     description: string
     price_description?: string | null
     icon_key?: string | null
     image_url?: string | null
-    docs_url: string | null
+    screenshot_url: string | null
+    docs_url: string
     free_allocation?: number | null
     subscribed: boolean | null
     tiers?: BillingV2TierType[] | null
@@ -1241,8 +1351,8 @@ export interface BillingProductV2Type {
     plans: BillingV2PlanType[]
     contact_support: boolean
     inclusion_only: any
+    features: BillingV2FeatureType[]
     addons: BillingProductV2AddonType[]
-
     // addons-only: if this addon is included with the base product and not subscribed individually. for backwards compatibility.
     included_with_main_product?: boolean
 }
@@ -1268,7 +1378,7 @@ export interface BillingProductV2AddonType {
     projected_usage: number | null
     projected_amount_usd: string | null
     plans: BillingV2PlanType[]
-    usage_key: string
+    usage_key?: string
     free_allocation?: number | null
     percentage_usage?: number
 }
@@ -1306,6 +1416,11 @@ export interface BillingV2PlanType {
     description: string
     is_free?: boolean
     plan_key?: string
+    image_url: string | null
+    docs_url: string | null
+    note: string | null
+    unit: string | null
+    product_key: ProductKeyUnion
     current_plan?: any
     tiers?: BillingV2TierType[] | null
     included_if?: 'no_active_subscription' | 'has_subscription' | null
@@ -1423,6 +1538,8 @@ export interface DashboardBasicType {
 
 export interface DashboardTemplateListParams {
     scope?: DashboardTemplateScope
+    // matches on template name, description, and tags
+    search?: string
 }
 
 export type DashboardTemplateScope = 'team' | 'global' | 'feature_flag'
@@ -1506,7 +1623,7 @@ export interface PluginType {
     url?: string
     tag?: string
     icon?: string
-    latest_tag?: string
+    latest_tag?: string // apps management page: The latest git hash for the repo behind the url
     config_schema: Record<string, PluginConfigSchema> | PluginConfigSchema[]
     source?: string
     maintainer?: string
@@ -1553,6 +1670,7 @@ export interface JobSpec {
     payload?: Record<string, JobPayloadFieldOptions>
 }
 
+/** @deprecated in favor of PluginConfigTypeNew */
 export interface PluginConfigType {
     id?: number
     plugin: number
@@ -1566,21 +1684,28 @@ export interface PluginConfigType {
     created_at?: string
 }
 
-// TODO: Rename to PluginConfigType once the are removed from the frontend
+/** @deprecated in favor of PluginConfigWithPluginInfoNew */
+export interface PluginConfigWithPluginInfo extends PluginConfigType {
+    id: number
+    plugin_info: PluginType
+}
+
+// TODO: Rename to PluginConfigType once the legacy PluginConfigType are removed from the frontend
 export interface PluginConfigTypeNew {
     id: number
     plugin: number
     team_id: number
     enabled: boolean
     order: number
-    error?: PluginErrorType
     name: string
     description?: string
     updated_at: string
+    delivery_rate_24h?: number | null
+    config: Record<string, any>
 }
 
-export interface PluginConfigWithPluginInfo extends PluginConfigType {
-    id: number
+// TODO: Rename to PluginConfigWithPluginInfo once the are removed from the frontend
+export interface PluginConfigWithPluginInfoNew extends PluginConfigTypeNew {
     plugin_info: PluginType
 }
 
@@ -1612,20 +1737,12 @@ export interface PluginLogEntry {
     instance_id: string
 }
 
-export enum BatchExportLogEntryLevel {
-    Debug = 'DEBUG',
-    Log = 'LOG',
-    Info = 'INFO',
-    Warning = 'WARNING',
-    Error = 'ERROR',
-}
-
 export interface BatchExportLogEntry {
     team_id: number
     batch_export_id: number
     run_id: number
     timestamp: string
-    level: BatchExportLogEntryLevel
+    level: PipelineLogLevel
     message: string
 }
 
@@ -1755,6 +1872,7 @@ export interface FilterType {
     breakdown_normalize_url?: boolean
     breakdowns?: Breakdown[]
     breakdown_group_type_index?: number | null
+    breakdown_hide_other_aggregation?: boolean | null
     aggregation_group_type_index?: number // Groups aggregation
 }
 
@@ -1789,6 +1907,7 @@ export interface TrendsFilterType extends FilterType {
     aggregation_axis_format?: AggregationAxisFormat // a fixed format like duration that needs calculation
     aggregation_axis_prefix?: string // a prefix to add to the aggregation axis e.g. £
     aggregation_axis_postfix?: string // a postfix to add to the aggregation axis e.g. %
+    decimal_places?: number
     show_values_on_series?: boolean
     show_labels_on_series?: boolean
     show_percent_stack_view?: boolean
@@ -1819,7 +1938,7 @@ export interface FunnelsFilterType extends FilterType {
     funnel_window_interval_unit?: FunnelConversionWindowTimeUnit // minutes, days, weeks, etc. for conversion window
     funnel_window_interval?: number | undefined // length of conversion window
     funnel_order_type?: StepOrderValue
-    exclusions?: FunnelExclusion[] // used in funnel exclusion filters
+    exclusions?: FunnelExclusionLegacy[] // used in funnel exclusion filters
     funnel_aggregate_by_hogql?: string
 
     // frontend only
@@ -1846,11 +1965,15 @@ export interface PathsFilterType extends FilterType {
     funnel_paths?: FunnelPathType
     funnel_filter?: Record<string, any> // Funnel Filter used in Paths
     exclude_events?: string[] // Paths Exclusion type
+    /** @asType integer */
     step_limit?: number // Paths Step Limit
     path_replacements?: boolean
     local_path_cleaning_filters?: PathCleaningFilter[]
+    /** @asType integer */
     edge_limit?: number | undefined // Paths edge limit
+    /** @asType integer */
     min_edge_weight?: number | undefined // Paths
+    /** @asType integer */
     max_edge_weight?: number | undefined // Paths
 
     // persons only
@@ -1864,7 +1987,7 @@ export interface RetentionEntity {
     kind?: NodeKind.ActionsNode | NodeKind.EventsNode
     name?: string
     type?: EntityType
-    // @asType integer
+    /**  @asType integer */
     order?: number
     uuid?: string
     custom_name?: string
@@ -1873,8 +1996,10 @@ export interface RetentionEntity {
 export interface RetentionFilterType extends FilterType {
     retention_type?: RetentionType
     retention_reference?: 'total' | 'previous' // retention wrt cohort size or previous period
-    /** @asType integer */
-    total_intervals?: number // retention total intervals
+    /**
+     * @asType integer
+     */
+    total_intervals?: number
     returning_entity?: RetentionEntity
     target_entity?: RetentionEntity
     period?: RetentionPeriod
@@ -1992,14 +2117,6 @@ export interface SystemStatusAnalyzeResult {
     flamegraphs: Record<string, string>
 }
 
-export interface ActionFilter extends EntityFilter {
-    math?: string
-    math_property?: string
-    math_group_type_index?: number | null
-    math_hogql?: string
-    properties?: AnyPropertyFilter[]
-    type: EntityType
-}
 export interface TrendAPIResponse<ResultType = TrendResult[]> {
     type: 'Trends'
     is_cached: boolean
@@ -2083,8 +2200,8 @@ export interface FunnelTimeConversionMetrics {
 }
 
 export interface FunnelConversionWindow {
-    funnel_window_interval_unit: FunnelConversionWindowTimeUnit
-    funnel_window_interval: number
+    funnelWindowIntervalUnit: FunnelConversionWindowTimeUnit
+    funnelWindowInterval: number
 }
 
 // https://github.com/PostHog/posthog/blob/master/posthog/models/filters/mixins/funnel.py#L100
@@ -2190,6 +2307,8 @@ export interface InsightLogicProps {
     cachedInsight?: Partial<InsightModel> | null
     /** enable this to avoid API requests */
     doNotLoad?: boolean
+    loadPriority?: number
+    onData?: (data: Record<string, unknown> | null | undefined) => void
     /** query when used as ad-hoc insight */
     query?: InsightVizNode
     setQuery?: (node: InsightVizNode) => void
@@ -2236,7 +2355,7 @@ export enum SurveyUrlMatchType {
 
 export enum SurveyType {
     Popover = 'popover',
-    Button = 'button',
+    Widget = 'widget',
     FullScreen = 'full_screen',
     Email = 'email',
     API = 'api',
@@ -2257,6 +2376,11 @@ export interface SurveyAppearance {
     thankYouMessageDescription?: string
     autoDisappear?: boolean
     position?: string
+    // widget only
+    widgetType?: 'button' | 'tab' | 'selector'
+    widgetSelector?: string
+    widgetLabel?: string
+    widgetColor?: string
 }
 
 export interface SurveyQuestionBase {
@@ -2301,7 +2425,7 @@ export enum SurveyQuestionType {
 
 export interface FeatureFlagGroupType {
     properties?: AnyPropertyFilter[]
-    rollout_percentage: number | null
+    rollout_percentage?: number | null
     variant: string | null
     users_affected?: number
 }
@@ -2425,6 +2549,32 @@ export interface UserBlastRadiusType {
     total_users: number
 }
 
+export enum ScheduledChangeModels {
+    FeatureFlag = 'FeatureFlag',
+}
+
+export enum ScheduledChangeOperationType {
+    UpdateStatus = 'update_status',
+    AddReleaseCondition = 'add_release_condition',
+}
+
+export type ScheduledChangePayload =
+    | { operation: ScheduledChangeOperationType.UpdateStatus; value: boolean }
+    | { operation: ScheduledChangeOperationType.AddReleaseCondition; value: FeatureFlagFilters }
+
+export interface ScheduledChangeType {
+    id: number
+    team_id: number
+    record_id: number | string
+    model_name: ScheduledChangeModels
+    payload: ScheduledChangePayload
+    scheduled_at: string
+    executed_at: string | null
+    failure_reason: string | null
+    created_at: string | null
+    created_by: UserBasicType
+}
+
 export interface PrevalidatedInvite {
     id: string
     target_email: string
@@ -2465,6 +2615,11 @@ export interface PreflightStatus {
     slack_service: {
         available: boolean
         client_id?: string
+    }
+    data_warehouse_integrations: {
+        hubspot: {
+            client_id?: string
+        }
     }
     /** Whether PostHog is running in DEBUG mode. */
     is_debug?: boolean
@@ -2735,17 +2890,12 @@ export interface SelectOptionWithChildren extends SelectOption {
     key: string
 }
 
-export interface KeyMapping {
+export interface CoreFilterDefinition {
     label: string
     description?: string | JSX.Element
     examples?: (string | number)[]
     /** System properties are hidden in properties table by default. */
     system?: boolean
-}
-
-export interface KeyMappingInterface {
-    event: Record<string, KeyMapping>
-    element: Record<string, KeyMapping>
 }
 
 export interface TileParams {
@@ -2782,9 +2932,9 @@ export interface AppContext {
 export type StoredMetricMathOperations = 'max' | 'min' | 'sum'
 
 export interface PathEdgeParameters {
-    edge_limit?: number | undefined
-    min_edge_weight?: number | undefined
-    max_edge_weight?: number | undefined
+    edgeLimit?: number | undefined
+    minEdgeWeight?: number | undefined
+    maxEdgeWeight?: number | undefined
 }
 
 export enum SignificanceCode {
@@ -2813,14 +2963,14 @@ export interface DateMappingOption {
 }
 
 interface BreadcrumbBase {
-    /** E.g. scene identifier or item ID. Particularly important if `onRename` is used. */
-    key: string | number
+    /** E.g. scene, tab, or scene with item ID. Particularly important for `onRename`. */
+    key: string | number | [scene: Scene, key: string | number]
     /** Name to display. */
     name: string | null | undefined
     /** Symbol, e.g. a lettermark or a profile picture. */
     symbol?: React.ReactNode
     /** Whether to show a custom popover */
-    popover?: Pick<PopoverProps, 'overlay' | 'sameWidth' | 'actionable'>
+    popover?: Pick<PopoverProps, 'overlay' | 'sameWidth'>
 }
 interface LinkBreadcrumb extends BreadcrumbBase {
     /** Path to link to. */
@@ -2835,9 +2985,6 @@ interface RenamableBreadcrumb extends BreadcrumbBase {
     forceEditMode?: boolean
 }
 export type Breadcrumb = LinkBreadcrumb | RenamableBreadcrumb
-export type FinalizedBreadcrumb =
-    | (LinkBreadcrumb & { globalKey: string })
-    | (RenamableBreadcrumb & { globalKey: string })
 
 export enum GraphType {
     Bar = 'bar',
@@ -3169,16 +3316,11 @@ export interface OrganizationResourcePermissionType {
     created_by: UserBaseType | null
 }
 
-export interface RecordingReportLoadTimeRow {
-    size?: number
-    duration: number
-}
-
 export interface RecordingReportLoadTimes {
-    metadata: RecordingReportLoadTimeRow
-    snapshots: RecordingReportLoadTimeRow
-    events: RecordingReportLoadTimeRow
-    firstPaint: RecordingReportLoadTimeRow
+    metadata: number
+    snapshots: number
+    events: number
+    firstPaint: number
 }
 
 export type JsonType = string | number | boolean | null | { [key: string]: JsonType } | Array<JsonType>
@@ -3205,8 +3347,40 @@ export type PromptFlag = {
     tooltipCSS?: Partial<CSSStyleDeclaration>
 }
 
+// Should be kept in sync with "posthog/models/activity_logging/activity_log.py"
+export enum ActivityScope {
+    FEATURE_FLAG = 'FeatureFlag',
+    PERSON = 'Person',
+    INSIGHT = 'Insight',
+    PLUGIN = 'Plugin',
+    PLUGIN_CONFIG = 'PluginConfig',
+    DATA_MANAGEMENT = 'DataManagement',
+    EVENT_DEFINITION = 'EventDefinition',
+    PROPERTY_DEFINITION = 'PropertyDefinition',
+    NOTEBOOK = 'Notebook',
+    DASHBOARD = 'Dashboard',
+    REPLAY = 'Replay',
+    EXPERIMENT = 'Experiment',
+    SURVEY = 'Survey',
+    EARLY_ACCESS_FEATURE = 'EarlyAccessFeature',
+    COMMENT = 'Comment',
+    TEAM = 'Team',
+}
+
+export type CommentType = {
+    id: string
+    content: string
+    version: number
+    created_at: string
+    created_by: UserBasicType | null
+    source_comment?: string | null
+    scope: ActivityScope
+    item_id?: string
+    item_context: Record<string, any> | null
+}
+
 export type NotebookListItemType = {
-    // id: string
+    id: string
     short_id: string
     title?: string
     is_template?: boolean
@@ -3272,6 +3446,7 @@ export interface DataWarehouseTable {
     credential: DataWarehouseCredential
     columns: DatabaseSchemaQueryResponseField[]
     external_data_source?: ExternalDataStripeSource
+    external_schema?: SimpleExternalDataSourceSchema
 }
 
 export type DataWarehouseTableTypes = 'CSV' | 'Parquet'
@@ -3293,13 +3468,13 @@ export interface DataWarehouseViewLink {
     from_join_key?: string
 }
 
-export interface ExternalDataStripeSourceCreatePayload {
-    account_id: string
-    client_secret: string
-    prefix: string
-    source_type: string
-}
+export type ExternalDataSourceType = 'Stripe' | 'Hubspot' | 'Postgres'
 
+export interface ExternalDataSourceCreatePayload {
+    source_type: ExternalDataSourceType
+    prefix: string
+    payload: Record<string, any>
+}
 export interface ExternalDataStripeSource {
     id: string
     source_id: string
@@ -3308,6 +3483,28 @@ export interface ExternalDataStripeSource {
     source_type: string
     prefix: string
     last_run_at?: Dayjs
+    schemas: ExternalDataSourceSchema[]
+}
+export interface SimpleExternalDataSourceSchema {
+    id: string
+    name: string
+    should_sync: boolean
+    last_synced_at?: Dayjs
+}
+
+export interface ExternalDataPostgresSchema {
+    table: string
+    should_sync: boolean
+}
+
+export interface ExternalDataSourceSchema extends SimpleExternalDataSourceSchema {
+    table?: SimpleDataWarehouseTable
+}
+
+export interface SimpleDataWarehouseTable {
+    id: string
+    name: string
+    columns: DatabaseSchemaQueryResponseField[]
 }
 
 export type BatchExportDestinationS3 = {
@@ -3370,6 +3567,7 @@ export type BatchExportDestinationBigQuery = {
         table_id: string
         exclude_events: string[]
         include_events: string[]
+        use_json_type: boolean
     }
 }
 
@@ -3389,6 +3587,9 @@ export type BatchExportDestinationRedshift = {
     }
 }
 
+// When adding a new option here also add a icon for it to
+// src/scenes/pipeline/icons/
+// and update RenderBatchExportIcon
 export type BatchExportDestination =
     | BatchExportDestinationS3
     | BatchExportDestinationSnowflake
@@ -3400,6 +3601,7 @@ export type BatchExportConfiguration = {
     // User provided data for the export. This is the data that the user
     // provides when creating the export.
     id: string
+    team_id: number
     name: string
     destination: BatchExportDestination
     interval: 'hour' | 'day' | 'every 5 minutes'
@@ -3469,6 +3671,7 @@ export enum SDKKey {
     WORDPRESS = 'wordpress',
     SENTRY = 'sentry',
     RETOOL = 'retool',
+    HTML_SNIPPET = 'html',
 }
 
 export enum SDKTag {
@@ -3505,7 +3708,8 @@ export enum SidePanelTab {
     Docs = 'docs',
     Activation = 'activation',
     Settings = 'settings',
-    Welcome = 'welcome',
     FeaturePreviews = 'feature-previews',
     Activity = 'activity',
+    Discussion = 'discussion',
+    Status = 'status',
 }

@@ -142,6 +142,25 @@ describe('ingester', () => {
         )
     }
 
+    it('can parse debug partition config', () => {
+        const config = {
+            SESSION_RECORDING_DEBUG_PARTITION: '103',
+            KAFKA_HOSTS: 'localhost:9092',
+        } satisfies Partial<PluginsServerConfig> as PluginsServerConfig
+
+        const ingester = new SessionRecordingIngester(config, hub.postgres, hub.objectStorage)
+        expect(ingester['debugPartition']).toEqual(103)
+    })
+
+    it('can parse absence of debug partition config', () => {
+        const config = {
+            KAFKA_HOSTS: 'localhost:9092',
+        } satisfies Partial<PluginsServerConfig> as PluginsServerConfig
+
+        const ingester = new SessionRecordingIngester(config, hub.postgres, hub.objectStorage)
+        expect(ingester['debugPartition']).toBeUndefined()
+    })
+
     it('creates a new session manager if needed', async () => {
         const event = createIncomingRecordingMessage()
         await ingester.consume(event)

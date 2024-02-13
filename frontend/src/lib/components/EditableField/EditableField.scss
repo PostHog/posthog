@@ -26,6 +26,10 @@
         padding: 0.25rem; // Some padding to give the focus outline more breathing space
         margin: -0.25rem;
         overflow: auto;
+    }
+
+    .EditableField__display {
+        overflow: hidden;
         white-space: pre-wrap;
     }
 

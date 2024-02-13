@@ -13,11 +13,11 @@ function chooseFormativeElementValue(
     trendsFilter: TrendsFilter | null | undefined
 ): string {
     if (formativeElement === 'prefix') {
-        return trendsFilter?.aggregation_axis_prefix || ''
+        return trendsFilter?.aggregationAxisPrefix || ''
     }
 
     if (formativeElement === 'postfix') {
-        return trendsFilter?.aggregation_axis_postfix || ''
+        return trendsFilter?.aggregationAxisPostfix || ''
     }
 
     return ''

@@ -3,6 +3,7 @@ import re
 from datetime import datetime, timedelta
 from typing import Any, Dict, List, Literal, NamedTuple, Tuple, Union
 
+from django.conf import settings
 from sentry_sdk import capture_exception
 
 from posthog.client import sync_execute
@@ -85,8 +86,12 @@ class LogQuery:
     SELECT distinct log_source_id as session_id
     FROM log_entries
     PREWHERE team_id = %(team_id)s
+            -- regardless of what other filters are applied
+            -- limit by storage TTL
             AND timestamp >= %(clamped_to_storage_ttl)s
+            -- make sure we don't get the occasional unexpected future event
             AND timestamp <= now()
+            -- and then any time filter for the events query
             {events_timestamp_clause}
     WHERE 1=1
     {console_log_clause}
@@ -114,7 +119,7 @@ class LogQuery:
 
     @staticmethod
     def _get_console_log_clause(
-        console_logs_filter: List[Literal["error", "warn", "log"]]
+        console_logs_filter: List[Literal["error", "warn", "log"]],
     ) -> Tuple[str, Dict[str, Any]]:
         return (
             (
@@ -147,7 +152,7 @@ class LogQuery:
         }
 
 
-class PersonsQuery(EventQuery):
+class ActorsQuery(EventQuery):
     _filter: SessionRecordingsFilter
 
     # we have to implement this from EventQuery but don't need it
@@ -159,12 +164,13 @@ class PersonsQuery(EventQuery):
         pass
 
     _raw_persons_query = """
-        SELECT distinct_id, argMax(person_id, version) as person_id
+        SELECT distinct_id, argMax(person_id, version) as current_person_id
         {select_person_props}
         FROM person_distinct_id2 as pdi
             {filter_persons_clause}
         WHERE team_id = %(team_id)s
-        {prop_filter_clause}
+            {prop_filter_clause}
+            {all_distinct_ids_that_might_match_a_person}
         GROUP BY distinct_id
         HAVING
             argMax(is_deleted, version) = 0
@@ -190,7 +196,7 @@ class PersonsQuery(EventQuery):
                     g for g in self._filter.property_groups.flat if g.type == "hogql" and "person.properties" in g.key
                 ],
             ),
-            person_id_joined_alias=f"{self.DISTINCT_ID_TABLE_ALIAS}.person_id",
+            person_id_joined_alias=f"{self.DISTINCT_ID_TABLE_ALIAS}.current_person_id",
         )
 
         person_query, person_query_params = self._get_person_query()
@@ -200,7 +206,21 @@ class PersonsQuery(EventQuery):
             return "", {}
         else:
             filter_persons_clause = person_query or ""
-            filter_by_person_uuid_condition = "and person_id = %(person_uuid)s" if self._filter.person_uuid else ""
+            filter_by_person_uuid_condition = (
+                "and current_person_id = %(person_uuid)s" if self._filter.person_uuid else ""
+            )
+            all_distinct_ids_that_might_match_a_person = (
+                """
+                AND distinct_id IN (
+                    SELECT distinct_id
+                    FROM person_distinct_id2
+                    WHERE team_id = %(team_id)s
+                    AND person_id = %(person_uuid)s) as all_distinct_ids_that_might_match_a_person
+            """
+                if self._filter.person_uuid
+                else ""
+            )
+
             return self._raw_persons_query.format(
                 filter_persons_clause=filter_persons_clause,
                 select_person_props=", argMax(person_props, version) as person_props"
@@ -209,6 +229,7 @@ class PersonsQuery(EventQuery):
                 prop_filter_clause=prop_query,
                 prop_having_clause=having_prop_query,
                 filter_by_person_uuid_condition=filter_by_person_uuid_condition,
+                all_distinct_ids_that_might_match_a_person=all_distinct_ids_that_might_match_a_person,
             ), {
                 "team_id": self._team_id,
                 **person_query_params,
@@ -274,10 +295,12 @@ class SessionIdEventsQuery(EventQuery):
             -- regardless of what other filters are applied
             -- limit by storage TTL
             AND e.timestamp >= %(clamped_to_storage_ttl)s
+            -- make sure we don't get the occasional unexpected future event
             AND e.timestamp <= now()
+            -- and then any time filter for the events query
+            {events_timestamp_clause}
         WHERE
             notEmpty(`$session_id`)
-            {events_timestamp_clause}
             {event_filter_where_conditions}
             {prop_filter_clause}
             {provided_session_ids_clause}
@@ -419,6 +442,11 @@ class SessionIdEventsQuery(EventQuery):
                 ],
             ),
             person_id_joined_alias=f"{self.DISTINCT_ID_TABLE_ALIAS}.person_id",
+            # TRICKY: we saw unusual memory usage behavior in EU clickhouse cluster
+            # when allowing use of denormalized properties in this query
+            # it is likely this can be returned to the default of True in future
+            # but would need careful monitoring
+            allow_denormalized_props=settings.ALLOW_DENORMALIZED_PROPS_IN_LISTING,
         )
 
         (
@@ -453,7 +481,7 @@ class SessionIdEventsQuery(EventQuery):
         )
 
     def _persons_join_or_subquery(self, event_filters, prop_query):
-        persons_select, persons_select_params = PersonsQuery(filter=self._filter, team=self._team).get_query()
+        persons_select, persons_select_params = ActorsQuery(filter=self._filter, team=self._team).get_query()
         persons_join = ""
         persons_sub_query = ""
         if persons_select:
@@ -626,7 +654,7 @@ class SessionRecordingListFromReplaySummary(EventQuery):
         if events_select:
             events_select = f"AND s.session_id in (select `$session_id` as session_id from ({events_select}) as session_events_sub_query)"
 
-        persons_select, persons_select_params = PersonsQuery(filter=self._filter, team=self._team).get_query()
+        persons_select, persons_select_params = ActorsQuery(filter=self._filter, team=self._team).get_query()
         if persons_select:
             persons_select = (
                 f"AND s.distinct_id in (select distinct_id from ({persons_select}) as session_persons_sub_query)"

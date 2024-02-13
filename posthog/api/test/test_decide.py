@@ -2,6 +2,7 @@ import base64
 import json
 import random
 import time
+from typing import Optional
 from unittest.mock import patch
 
 import pytest
@@ -76,6 +77,7 @@ class TestDecide(BaseTest, QueryMatchingTest):
         geoip_disable=False,
         ip="127.0.0.1",
         disable_flags=False,
+        user_agent: Optional[str] = None,
     ):
         return self.client.post(
             f"/decide/?v={api_version}",
@@ -93,6 +95,7 @@ class TestDecide(BaseTest, QueryMatchingTest):
             },
             HTTP_ORIGIN=origin,
             REMOTE_ADDR=ip,
+            HTTP_USER_AGENT=user_agent or "PostHog test",
         )
 
     def _update_team(self, data, expected_status_code: int = status.HTTP_200_OK):
@@ -312,6 +315,31 @@ class TestDecide(BaseTest, QueryMatchingTest):
             expected_status_code=status.HTTP_400_BAD_REQUEST,
         )
 
+    def test_session_replay_config(self, *args):
+        # :TRICKY: Test for regression around caching
+
+        self._update_team(
+            {
+                "session_recording_opt_in": True,
+            }
+        )
+
+        response = self._post_decide().json()
+        assert "recordCanvas" not in response["sessionRecording"]
+        assert "canvasFps" not in response["sessionRecording"]
+        assert "canvasQuality" not in response["sessionRecording"]
+
+        self._update_team(
+            {
+                "session_replay_config": {"record_canvas": True},
+            }
+        )
+
+        response = self._post_decide().json()
+        self.assertEqual(response["sessionRecording"]["recordCanvas"], True)
+        self.assertEqual(response["sessionRecording"]["canvasFps"], 4)
+        self.assertEqual(response["sessionRecording"]["canvasQuality"], "0.6")
+
     def test_exception_autocapture_opt_in(self, *args):
         # :TRICKY: Test for regression around caching
         response = self._post_decide().json()
@@ -413,6 +441,20 @@ class TestDecide(BaseTest, QueryMatchingTest):
         self._update_team({"session_recording_opt_in": True, "recording_domains": []})
 
         response = self._post_decide(origin="any.site.com").json()
+        assert response["sessionRecording"] == {
+            "endpoint": "/s/",
+            "recorderVersion": "v2",
+            "consoleLogRecordingEnabled": False,
+            "sampleRate": None,
+            "linkedFlag": None,
+            "minimumDurationMilliseconds": None,
+            "networkPayloadCapture": None,
+        }
+
+    def test_user_session_recording_allowed_for_android(self, *args) -> None:
+        self._update_team({"session_recording_opt_in": True, "recording_domains": ["https://my-website.io"]})
+
+        response = self._post_decide(origin="any.site.com", user_agent="posthog-android/3.1.0").json()
         assert response["sessionRecording"] == {
             "endpoint": "/s/",
             "recorderVersion": "v2",
@@ -2139,6 +2181,198 @@ class TestDecide(BaseTest, QueryMatchingTest):
             self.assertEqual(response.json()["featureFlags"], {"cohort-flag": False})
             self.assertEqual(response.json()["errorsWhileComputingFlags"], False)
 
+    def test_flag_with_unknown_cohort(self, *args):
+        self.team.app_urls = ["https://example.com"]
+        self.team.save()
+        self.client.logout()
+
+        Person.objects.create(
+            team=self.team,
+            distinct_ids=["example_id_1"],
+            properties={"$some_prop_1": "something_1"},
+        )
+
+        FeatureFlag.objects.create(
+            team=self.team,
+            filters={"groups": [{"properties": [{"key": "id", "value": 99999, "type": "cohort"}]}]},
+            name="This is a cohort-based flag",
+            key="cohort-flag",
+            created_by=self.user,
+        )
+        FeatureFlag.objects.create(
+            team=self.team,
+            filters={"groups": [{"properties": [], "rollout_percentage": 100}]},
+            name="This is a regular flag",
+            key="simple-flag",
+            created_by=self.user,
+        )
+
+        with self.assertNumQueries(6):
+            response = self._post_decide(api_version=3, distinct_id="example_id_1")
+            self.assertEqual(response.json()["featureFlags"], {"cohort-flag": False, "simple-flag": True})
+            self.assertEqual(response.json()["errorsWhileComputingFlags"], False)
+
+    def test_flag_with_multiple_complex_unknown_cohort(self, *args):
+        self.team.app_urls = ["https://example.com"]
+        self.team.save()
+
+        other_team = Team.objects.create(
+            organization=self.organization,
+            api_token="bazinga_new",
+            name="New Team",
+        )
+        self.client.logout()
+
+        Person.objects.create(
+            team=self.team,
+            distinct_ids=["example_id_1"],
+            properties={"$some_prop_1": "something_1"},
+        )
+
+        deleted_cohort = Cohort.objects.create(
+            team=self.team,
+            groups=[
+                {
+                    "properties": [
+                        {
+                            "key": "$some_prop_1",
+                            "value": "something_1",
+                            "type": "person",
+                        }
+                    ]
+                },
+            ],
+            name="cohort1",
+            deleted=True,
+        )
+
+        cohort_from_other_team = Cohort.objects.create(
+            team=other_team,
+            groups=[
+                {
+                    "properties": [
+                        {
+                            "key": "$some_prop_1",
+                            "value": "something_1",
+                            "type": "person",
+                        }
+                    ]
+                },
+            ],
+            name="cohort1",
+        )
+
+        cohort_with_nested_invalid = Cohort.objects.create(
+            team=self.team,
+            groups=[
+                {
+                    "properties": [
+                        {
+                            "key": "$some_prop_1",
+                            "value": "something_1",
+                            "type": "person",
+                        },
+                        {
+                            "key": "id",
+                            "value": 99999,
+                            "type": "cohort",
+                        },
+                        {
+                            "key": "id",
+                            "value": deleted_cohort.pk,
+                            "type": "cohort",
+                        },
+                        {
+                            "key": "id",
+                            "value": cohort_from_other_team.pk,
+                            "type": "cohort",
+                        },
+                    ]
+                },
+            ],
+            name="cohort1",
+        )
+
+        cohort_valid = Cohort.objects.create(
+            team=self.team,
+            groups=[
+                {
+                    "properties": [
+                        {
+                            "key": "$some_prop_1",
+                            "value": "something_1",
+                            "type": "person",
+                        },
+                    ]
+                },
+            ],
+            name="cohort1",
+        )
+
+        FeatureFlag.objects.create(
+            team=self.team,
+            filters={"groups": [{"properties": [{"key": "id", "value": 99999, "type": "cohort"}]}]},
+            name="This is a cohort-based flag",
+            key="cohort-flag",
+            created_by=self.user,
+        )
+        FeatureFlag.objects.create(
+            team=self.team,
+            filters={
+                "groups": [{"properties": [{"key": "id", "value": cohort_with_nested_invalid.pk, "type": "cohort"}]}]
+            },
+            name="This is a cohort-based flag",
+            key="cohort-flag-2",
+            created_by=self.user,
+        )
+        FeatureFlag.objects.create(
+            team=self.team,
+            filters={"groups": [{"properties": [{"key": "id", "value": cohort_from_other_team.pk, "type": "cohort"}]}]},
+            name="This is a cohort-based flag",
+            key="cohort-flag-3",
+            created_by=self.user,
+        )
+        FeatureFlag.objects.create(
+            team=self.team,
+            filters={
+                "groups": [
+                    {"properties": [{"key": "id", "value": cohort_valid.pk, "type": "cohort"}]},
+                    {"properties": [{"key": "id", "value": cohort_with_nested_invalid.pk, "type": "cohort"}]},
+                    {"properties": [{"key": "id", "value": 99999, "type": "cohort"}]},
+                    {"properties": [{"key": "id", "value": deleted_cohort.pk, "type": "cohort"}]},
+                ]
+            },
+            name="This is a cohort-based flag",
+            key="cohort-flag-4",
+            created_by=self.user,
+        )
+        FeatureFlag.objects.create(
+            team=self.team,
+            filters={"groups": [{"properties": [], "rollout_percentage": 100}]},
+            name="This is a regular flag",
+            key="simple-flag",
+            created_by=self.user,
+        )
+
+        with self.assertNumQueries(8):
+            # Each invalid cohort is queried only once
+            # 1. Select all valid cohorts
+            # 2. Select 99999 cohort
+            # 3. Select deleted cohort
+            # 4. Select cohort from other team
+            response = self._post_decide(api_version=3, distinct_id="example_id_1")
+            self.assertEqual(
+                response.json()["featureFlags"],
+                {
+                    "cohort-flag": False,
+                    "simple-flag": True,
+                    "cohort-flag-2": False,
+                    "cohort-flag-3": False,
+                    "cohort-flag-4": True,
+                },
+            )
+            self.assertEqual(response.json()["errorsWhileComputingFlags"], False)
+
     @snapshot_postgres_queries
     def test_flag_with_behavioural_cohorts(self, *args):
         self.team.app_urls = ["https://example.com"]
@@ -3006,19 +3240,30 @@ class TestDecide(BaseTest, QueryMatchingTest):
             self.assertEqual(response.status_code, 200)
             self.assertFalse("analytics" in response.json())
 
+    @patch("posthog.models.feature_flag.flag_analytics.CACHE_BUCKET_SIZE", 10)
+    def test_decide_new_capture_domains(self, *args):
+        self.client.logout()
+        with self.settings(
+            NEW_CAPTURE_ENDPOINTS_INCLUDED_TEAM_IDS={str(self.team.id)}, NEW_CAPTURE_ENDPOINTS_SAMPLING_RATE=1.0
+        ):
+            response = self._post_decide(api_version=3)
+            assert response.status_code == 200
+            assert response.json()["__preview_ingestion_endpoints"] is True
+
+        with self.settings(NEW_CAPTURE_ENDPOINTS_INCLUDED_TEAM_IDS={str(999)}, NEW_CAPTURE_ENDPOINTS_SAMPLING_RATE=1.0):
+            response = self._post_decide(api_version=3)
+            assert response.status_code == 200
+            assert "__preview_ingestion_endpoints" not in response.json()
+
+        with self.settings(
+            NEW_CAPTURE_ENDPOINTS_INCLUDED_TEAM_IDS={str(self.team.id)}, NEW_CAPTURE_ENDPOINTS_SAMPLING_RATE=0.0
+        ):
+            response = self._post_decide(api_version=3)
+            assert response.status_code == 200
+            assert "__preview_ingestion_endpoints" not in response.json()
+
     def test_decide_element_chain_as_string(self, *args):
         self.client.logout()
-        with self.settings(ELEMENT_CHAIN_AS_STRING_TEAMS={str(self.team.id)}):
-            response = self._post_decide(api_version=3)
-            self.assertEqual(response.status_code, 200)
-            self.assertTrue("elementsChainAsString" in response.json())
-            self.assertTrue(response.json()["elementsChainAsString"])
-
-        with self.settings(ELEMENT_CHAIN_AS_STRING_TEAMS={"0"}):
-            response = self._post_decide(api_version=3)
-            self.assertEqual(response.status_code, 200)
-            self.assertFalse("elementsChainAsString" in response.json())
-
         with self.settings(
             ELEMENT_CHAIN_AS_STRING_TEAMS={str(self.team.id)}, ELEMENT_CHAIN_AS_STRING_EXCLUDED_TEAMS={"0"}
         ):

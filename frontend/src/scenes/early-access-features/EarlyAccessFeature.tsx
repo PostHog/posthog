@@ -23,9 +23,11 @@ import {
     EarlyAccessFeatureStage,
     EarlyAccessFeatureTabs,
     EarlyAccessFeatureType,
+    FilterType,
     PersonPropertyFilter,
     PropertyFilterType,
     PropertyOperator,
+    ReplayTabs,
 } from '~/types'
 
 import { earlyAccessFeatureLogic } from './earlyAccessFeatureLogic'
@@ -68,7 +70,6 @@ export function EarlyAccessFeature({ id }: { id?: string } = {}): JSX.Element {
     return (
         <Form id="early-access-feature" formKey="earlyAccessFeature" logic={earlyAccessFeatureLogic}>
             <PageHeader
-                title={isNewEarlyAccessFeature ? 'New feature release' : earlyAccessFeature.name}
                 buttons={
                     !earlyAccessFeatureLoading ? (
                         earlyAccessFeature.stage != EarlyAccessFeatureStage.GeneralAvailability &&
@@ -155,7 +156,7 @@ export function EarlyAccessFeature({ id }: { id?: string } = {}): JSX.Element {
                                 {earlyAccessFeature.stage == EarlyAccessFeatureStage.Draft && (
                                     <LemonButton
                                         onClick={() => updateStage(EarlyAccessFeatureStage.Beta)}
-                                        tooltip={'Make beta feature available'}
+                                        tooltip="Make beta feature available"
                                         type="primary"
                                     >
                                         Release beta
@@ -184,7 +185,7 @@ export function EarlyAccessFeature({ id }: { id?: string } = {}): JSX.Element {
                     isEditingFeature || isNewEarlyAccessFeature ? 'max-w-160' : null
                 )}
             >
-                <div className="flex flex-col gap-4 flex-2 min-w-60">
+                <div className="flex flex-col gap-4 flex-2 min-w-[15rem]">
                     {isNewEarlyAccessFeature && (
                         <Field name="name" label="Name">
                             <LemonInput data-attr="feature-name" />
@@ -219,7 +220,6 @@ export function EarlyAccessFeature({ id }: { id?: string } = {}): JSX.Element {
                                             className="ml-2"
                                             icon={<IconClose />}
                                             size="small"
-                                            status="stealth"
                                             onClick={() => onChange(undefined)}
                                             aria-label="close"
                                         />
@@ -286,7 +286,7 @@ export function EarlyAccessFeature({ id }: { id?: string } = {}): JSX.Element {
                     )}
                 </div>
                 {!isEditingFeature && !isNewEarlyAccessFeature && 'id' in earlyAccessFeature && (
-                    <div className="flex-3 min-w-60">
+                    <div className="flex-3 min-w-[15rem]">
                         <PersonList earlyAccessFeature={earlyAccessFeature} />
                     </div>
                 )}
@@ -297,6 +297,32 @@ export function EarlyAccessFeature({ id }: { id?: string } = {}): JSX.Element {
 
 interface PersonListProps {
     earlyAccessFeature: EarlyAccessFeatureType
+}
+
+function featureFlagEnrolmentFilter(earlyAccessFeature: EarlyAccessFeatureType, optedIn: boolean): Partial<FilterType> {
+    return {
+        events: [
+            {
+                type: 'events',
+                order: 0,
+                name: '$feature_enrollment_update',
+                properties: [
+                    {
+                        key: '$feature_enrollment',
+                        value: [optedIn ? 'true' : 'false'],
+                        operator: 'exact',
+                        type: 'event',
+                    },
+                    {
+                        key: '$feature_flag',
+                        value: [earlyAccessFeature.feature_flag.key],
+                        operator: 'exact',
+                        type: 'event',
+                    },
+                ],
+            },
+        ],
+    }
 }
 
 export function PersonList({ earlyAccessFeature }: PersonListProps): JSX.Element {
@@ -317,24 +343,27 @@ export function PersonList({ earlyAccessFeature }: PersonListProps): JSX.Element
                         key: EarlyAccessFeatureTabs.OptedIn,
                         label: 'Opted-In Users',
                         content: (
-                            <PersonsTableByFilter
-                                properties={[
-                                    {
-                                        key: key,
-                                        type: PropertyFilterType.Person,
-                                        operator: PropertyOperator.Exact,
-                                        value: ['true'],
-                                    },
-                                ]}
-                                emptyState={
-                                    <div>
-                                        No manual opt-ins. Manually opted-in people will appear here. Start by{' '}
-                                        <Link onClick={toggleImplementOptInInstructionsModal}>
-                                            implementing public opt-in
-                                        </Link>
-                                    </div>
-                                }
-                            />
+                            <>
+                                <PersonsTableByFilter
+                                    recordingsFilters={featureFlagEnrolmentFilter(earlyAccessFeature, true)}
+                                    properties={[
+                                        {
+                                            key: key,
+                                            type: PropertyFilterType.Person,
+                                            operator: PropertyOperator.Exact,
+                                            value: ['true'],
+                                        },
+                                    ]}
+                                    emptyState={
+                                        <div>
+                                            No manual opt-ins. Manually opted-in people will appear here. Start by{' '}
+                                            <Link onClick={toggleImplementOptInInstructionsModal}>
+                                                implementing public opt-in
+                                            </Link>
+                                        </div>
+                                    }
+                                />
+                            </>
                         ),
                     },
                     {
@@ -342,6 +371,7 @@ export function PersonList({ earlyAccessFeature }: PersonListProps): JSX.Element
                         label: 'Opted-Out Users',
                         content: (
                             <PersonsTableByFilter
+                                recordingsFilters={featureFlagEnrolmentFilter(earlyAccessFeature, false)}
                                 properties={[
                                     {
                                         key: key,
@@ -376,27 +406,32 @@ export function PersonList({ earlyAccessFeature }: PersonListProps): JSX.Element
 interface PersonsTableByFilterProps {
     properties: PersonPropertyFilter[]
     emptyState?: JSX.Element
+    recordingsFilters: Partial<FilterType>
 }
 
-export function PersonsTableByFilter({ properties, emptyState }: PersonsTableByFilterProps): JSX.Element {
+export function PersonsTableByFilter(props: PersonsTableByFilterProps): JSX.Element {
     const personsLogicProps: PersonsLogicProps = {
         cohort: undefined,
         syncWithUrl: false,
-        fixedProperties: properties,
+        fixedProperties: props.properties,
     }
 
     return (
         <BindLogic logic={personsLogic} props={personsLogicProps}>
-            <PersonsTableByFilterComponent emptyState={emptyState} />
+            <PersonsTableByFilterComponent {...props} />
         </BindLogic>
     )
 }
 
 interface PersonsTableByFilterComponentProps {
     emptyState?: JSX.Element
+    recordingsFilters: Partial<FilterType>
 }
 
-function PersonsTableByFilterComponent({ emptyState }: PersonsTableByFilterComponentProps): JSX.Element {
+function PersonsTableByFilterComponent({
+    emptyState,
+    recordingsFilters,
+}: PersonsTableByFilterComponentProps): JSX.Element {
     const { toggleImplementOptInInstructionsModal } = useActions(earlyAccessFeatureLogic)
 
     const { persons, personsLoading, listFilters } = useValues(personsLogic)
@@ -419,13 +454,27 @@ function PersonsTableByFilterComponent({ emptyState }: PersonsTableByFilterCompo
                     taxonomicGroupTypes={[TaxonomicFilterGroupType.PersonProperties]}
                     showConditionBadge
                 />
-                <LemonButton
-                    key="help-button"
-                    onClick={toggleImplementOptInInstructionsModal}
-                    sideIcon={<IconHelpOutline />}
-                >
-                    Implement public opt-in
-                </LemonButton>
+                <div className="flex flex-row gap-2">
+                    <LemonButton
+                        key="help-button"
+                        onClick={toggleImplementOptInInstructionsModal}
+                        sideIcon={<IconHelpOutline />}
+                    >
+                        Implement public opt-in
+                    </LemonButton>
+                    <LemonButton
+                        key="view-opt-in-session-recordings"
+                        onClick={() => {
+                            router.actions.push(urls.replay(ReplayTabs.Recent, recordingsFilters))
+                        }}
+                        type="secondary"
+                        disabledReason={
+                            personsLoading ? 'Loading…' : persons.results.length === 0 ? 'No users to view' : undefined
+                        }
+                    >
+                        View recordings
+                    </LemonButton>
+                </div>
             </div>
             <PersonsTable
                 people={persons.results}

@@ -39,7 +39,8 @@ from posthog.settings.statsd import *
 from posthog.settings.object_storage import *
 from posthog.settings.temporal import *
 from posthog.settings.web import *
-from posthog.settings.airbyte import *
+from posthog.settings.data_warehouse import *
+from posthog.settings.session_replay import *
 
 from posthog.settings.utils import get_from_env, str_to_bool
 
@@ -108,6 +109,8 @@ AUTO_LOGIN = get_from_env("AUTO_LOGIN", False, type_cast=str_to_bool)
 CONTAINER_HOSTNAME = os.getenv("HOSTNAME", "unknown")
 
 PROM_PUSHGATEWAY_ADDRESS = os.getenv("PROM_PUSHGATEWAY_ADDRESS", None)
+
+IN_UNIT_TESTING = get_from_env("IN_UNIT_TESTING", False, type_cast=str_to_bool)
 
 # Extend and override these settings with EE's ones
 if "ee.apps.EnterpriseConfig" in INSTALLED_APPS:

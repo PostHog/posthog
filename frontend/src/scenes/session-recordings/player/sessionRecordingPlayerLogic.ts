@@ -1,4 +1,5 @@
 import { lemonToast } from '@posthog/lemon-ui'
+import { captureException } from '@sentry/react'
 import {
     actions,
     afterMount,
@@ -15,18 +16,16 @@ import {
 } from 'kea'
 import { router } from 'kea-router'
 import { delay } from 'kea-test-utils'
-import { windowValues } from 'kea-window-values'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { now } from 'lib/dayjs'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { clamp, downloadFile, fromParamsGivenUrl } from 'lib/utils'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
-import { getBreakpoint } from 'lib/utils/responsiveUtils'
 import { wrapConsole } from 'lib/utils/wrapConsole'
 import posthog from 'posthog-js'
 import { RefObject } from 'react'
 import { Replayer } from 'rrweb'
-import { ReplayPlugin } from 'rrweb/typings/types'
+import { playerConfig, ReplayPlugin } from 'rrweb/typings/types'
 import { openBillingPopupModal } from 'scenes/billing/BillingPopup'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import {
@@ -43,6 +42,7 @@ import { createExportedSessionRecording } from '../file-playback/sessionRecordin
 import type { sessionRecordingsPlaylistLogicType } from '../playlist/sessionRecordingsPlaylistLogicType'
 import { playerSettingsLogic } from './playerSettingsLogic'
 import { COMMON_REPLAYER_CONFIG, CorsPlugin } from './rrweb'
+import { CanvasReplayerPlugin } from './rrweb/canvas/canvas-plugin'
 import type { sessionRecordingPlayerLogicType } from './sessionRecordingPlayerLogicType'
 import { deleteRecording } from './utils/playerUtils'
 import { SessionRecordingPlayerExplorerProps } from './view-explorer/SessionRecordingPlayerExplorer'
@@ -170,7 +170,7 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
         incrementErrorCount: true,
         incrementWarningCount: (count: number = 1) => ({ count }),
         updateFromMetadata: true,
-        exportRecordingToFile: true,
+        exportRecordingToFile: (exportUntransformedMobileData?: boolean) => ({ exportUntransformedMobileData }),
         deleteRecording: true,
         openExplorer: true,
         closeExplorer: true,
@@ -178,8 +178,21 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
         setIsFullScreen: (isFullScreen: boolean) => ({ isFullScreen }),
         skipPlayerForward: (rrWebPlayerTime: number, skip: number) => ({ rrWebPlayerTime, skip }),
         incrementClickCount: true,
+        // the error is emitted from code we don't control in rrweb so we can't guarantee it's really an Error
+        playerErrorSeen: (error: any) => ({ error }),
+        fingerprintReported: (fingerprint: string) => ({ fingerprint }),
     }),
     reducers(() => ({
+        reportedReplayerErrors: [
+            new Set<string>(),
+            {
+                fingerprintReported: (state, { fingerprint }) => {
+                    const clonedSet = new Set(state)
+                    clonedSet.add(fingerprint)
+                    return clonedSet
+                },
+            },
+        ],
         clickCount: [
             0,
             {
@@ -454,6 +467,21 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
         ],
     }),
     listeners(({ props, values, actions, cache }) => ({
+        playerErrorSeen: ({ error }) => {
+            const fingerprint = encodeURIComponent(error.message + error.filename + error.lineno + error.colno)
+            if (values.reportedReplayerErrors.has(fingerprint)) {
+                return
+            }
+            const extra = { fingerprint, playbackSessionId: values.sessionRecordingId }
+            captureException(error, {
+                extra,
+                tags: { feature: 'replayer error swallowed' },
+            })
+            if (posthog.config.debug) {
+                posthog.capture('replayer error swallowed', extra)
+            }
+            actions.fingerprintReported(fingerprint)
+        },
         skipPlayerForward: ({ rrWebPlayerTime, skip }) => {
             // if the player has got stuck on the same timestamp for several animation frames
             // then we skip ahead a little to get past the blockage
@@ -497,13 +525,17 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                 plugins.push(CorsPlugin)
             }
 
+            if (values.featureFlags[FEATURE_FLAGS.SESSION_REPLAY_CANVAS]) {
+                plugins.push(CanvasReplayerPlugin(values.sessionPlayerData.snapshotsByWindowId[windowId]))
+            }
+
             cache.debug?.('tryInitReplayer', {
                 windowId,
                 rootFrame: values.rootFrame,
                 snapshots: values.sessionPlayerData.snapshotsByWindowId[windowId],
             })
 
-            const replayer = new Replayer(values.sessionPlayerData.snapshotsByWindowId[windowId], {
+            const config: Partial<playerConfig> & { onError: (error: any) => void } = {
                 root: values.rootFrame,
                 ...COMMON_REPLAYER_CONFIG,
                 // these two settings are attempts to improve performance of running two Replayers at once
@@ -511,7 +543,11 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                 mouseTail: props.mode !== SessionRecordingPlayerMode.Preview,
                 useVirtualDom: false,
                 plugins,
-            })
+                onError: (error) => {
+                    actions.playerErrorSeen(error)
+                },
+            }
+            const replayer = new Replayer(values.sessionPlayerData.snapshotsByWindowId[windowId], config)
 
             actions.setPlayer({ replayer, windowId })
         },
@@ -881,7 +917,7 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
             cache.pausedMediaElements = []
         },
 
-        exportRecordingToFile: async () => {
+        exportRecordingToFile: async ({ exportUntransformedMobileData }) => {
             if (!values.sessionPlayerData) {
                 return
             }
@@ -906,11 +942,16 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                     await delay(delayTime)
                 }
 
-                const payload = createExportedSessionRecording(sessionRecordingDataLogic(props))
+                const payload = createExportedSessionRecording(
+                    sessionRecordingDataLogic(props),
+                    !!exportUntransformedMobileData
+                )
 
                 const recordingFile = new File(
                     [JSON.stringify(payload, null, 2)],
-                    `export-${props.sessionRecordingId}.ph-recording.json`,
+                    `export-${props.sessionRecordingId}.${
+                        exportUntransformedMobileData ? 'mobile.' : ''
+                    }ph-recording.json`,
                     { type: 'application/json' }
                 )
 
@@ -965,9 +1006,6 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
             }
         },
     })),
-    windowValues({
-        isSmallScreen: (window: Window) => window.innerWidth < getBreakpoint('md'),
-    }),
 
     beforeUnmount(({ values, actions, cache, props }) => {
         if (props.mode === SessionRecordingPlayerMode.Preview) {

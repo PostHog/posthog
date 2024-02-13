@@ -1,6 +1,6 @@
 import './CohortCriteriaRowBuilder.scss'
 
-import { Divider } from 'antd'
+import { LemonDivider } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { useActions } from 'kea'
 import { Field as KeaField } from 'kea-forms'
@@ -110,17 +110,9 @@ export function CohortCriteriaRowBuilder({
                             </>
                         </KeaField>
                         <div className="CohortCriteriaRow__inline-divider" />
-                        <LemonButton
-                            icon={<IconCopy />}
-                            status="primary-alt"
-                            onClick={() => duplicateFilter(groupIndex, index)}
-                        />
+                        <LemonButton icon={<IconCopy />} onClick={() => duplicateFilter(groupIndex, index)} />
                         {!hideDeleteIcon && (
-                            <LemonButton
-                                icon={<IconDelete />}
-                                status="primary-alt"
-                                onClick={() => removeFilter(groupIndex, index)}
-                            />
+                            <LemonButton icon={<IconDelete />} onClick={() => removeFilter(groupIndex, index)} />
                         )}
                     </div>
                     <div className="flex">
@@ -174,9 +166,5 @@ export interface LogicalRowDividerProps {
 }
 
 export function LogicalRowDivider({ logicalOperator }: LogicalRowDividerProps): JSX.Element {
-    return (
-        <Divider className="logical-row-divider" orientation="left">
-            <span className="text-xs text-primary-alt font-semibold">{logicalOperator}</span>
-        </Divider>
-    )
+    return <LemonDivider className="logical-row-divider my-4" label={logicalOperator} />
 }

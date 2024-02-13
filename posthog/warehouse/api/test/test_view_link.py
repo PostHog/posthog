@@ -216,8 +216,8 @@ class TestViewLinkQuery(APIBaseTest):
         self.assertEqual(
             query_response["types"],
             [
-                ("events__event_view.fake", "String"),
-                ("events__person_view.p_distinct_id", "String"),
+                ("fake", "String"),
+                ("p_distinct_id", "String"),
             ],
         )
 

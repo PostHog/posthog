@@ -5,7 +5,6 @@ from datetime import datetime
 from django.db.models import QuerySet, Q, deletion
 from django.conf import settings
 from rest_framework import (
-    authentication,
     exceptions,
     request,
     serializers,
@@ -13,18 +12,18 @@ from rest_framework import (
     viewsets,
 )
 from rest_framework.decorators import action
-from rest_framework.permissions import SAFE_METHODS, BasePermission, IsAuthenticated
+from rest_framework.permissions import SAFE_METHODS, BasePermission
 from rest_framework.request import Request
 from rest_framework.response import Response
 from sentry_sdk import capture_exception
 from posthog.api.cohort import CohortSerializer
 
 from posthog.api.forbid_destroy_model import ForbidDestroyModel
-from posthog.api.routing import StructuredViewSetMixin
+from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 from posthog.api.tagged_item import TaggedItemSerializerMixin, TaggedItemViewSetMixin
 from posthog.api.dashboards.dashboard import Dashboard
-from posthog.auth import PersonalAPIKeyAuthentication, TemporaryTokenAuthentication
+from posthog.auth import TemporaryTokenAuthentication
 from posthog.constants import FlagRequestType
 from posthog.event_usage import report_user_action
 from posthog.helpers.dashboard_templates import (
@@ -38,7 +37,7 @@ from posthog.models.activity_logging.activity_log import (
     log_activity,
 )
 from posthog.models.activity_logging.activity_page import activity_page_response
-from posthog.models.cohort import Cohort
+from posthog.models.cohort import Cohort, CohortOrEmpty
 from posthog.models.cohort.util import get_dependent_cohorts
 from posthog.models.feature_flag import (
     FeatureFlagDashboards,
@@ -50,11 +49,11 @@ from posthog.models.feature_flag.flag_analytics import increment_request_count
 from posthog.models.feedback.survey import Survey
 from posthog.models.group_type_mapping import GroupTypeMapping
 from posthog.models.property import Property
-from posthog.permissions import (
-    ProjectMembershipNecessaryPermissions,
-    TeamMemberAccessPermission,
+from posthog.queries.base import (
+    determine_parsed_date_for_property_matching,
 )
 from posthog.rate_limit import BurstRateThrottle
+from loginas.utils import is_impersonated_session
 
 DATABASE_FOR_LOCAL_EVALUATION = (
     "default"
@@ -152,7 +151,7 @@ class FeatureFlagSerializer(TaggedItemSerializerMixin, serializers.HyperlinkedMo
     def get_surveys(self, feature_flag: FeatureFlag) -> Dict:
         from posthog.api.survey import SurveyAPISerializer
 
-        return SurveyAPISerializer(feature_flag.surveys_linked_flag, many=True).data  # type: ignore
+        return SurveyAPISerializer(feature_flag.surveys_linked_flag, many=True).data
         # ignoring type because mypy doesn't know about the surveys_linked_flag `related_name` relationship
 
     def get_rollout_percentage(self, feature_flag: FeatureFlag) -> Optional[int]:
@@ -180,7 +179,7 @@ class FeatureFlagSerializer(TaggedItemSerializerMixin, serializers.HyperlinkedMo
         # If we see this, just return the current filters
         if "groups" not in filters and self.context["request"].method == "PATCH":
             # mypy cannot tell that self.instance is a FeatureFlag
-            return self.instance.filters  # type: ignore
+            return self.instance.filters
 
         aggregation_group_type_index = filters.get("aggregation_group_type_index", None)
 
@@ -195,6 +194,11 @@ class FeatureFlagSerializer(TaggedItemSerializerMixin, serializers.HyperlinkedMo
             is_valid = properties_all_match(lambda prop: prop.type in ["person", "cohort"])
             if not is_valid:
                 raise serializers.ValidationError("Filters are not valid (can only use person and cohort properties)")
+        elif self.instance is not None and hasattr(self.instance, "features") and self.instance.features.count() > 0:
+            raise serializers.ValidationError(
+                "Cannot change this flag to a group-based when linked to an Early Access Feature."
+            )
+
         else:
             is_valid = properties_all_match(
                 lambda prop: prop.type == "group" and prop.group_type_index == aggregation_group_type_index
@@ -225,6 +229,14 @@ class FeatureFlagSerializer(TaggedItemSerializerMixin, serializers.HyperlinkedMo
                         raise serializers.ValidationError(
                             detail=f"Cohort with id {prop.value} does not exist",
                             code="cohort_does_not_exist",
+                        )
+
+                if prop.operator in ("is_date_before", "is_date_after"):
+                    parsed_date = determine_parsed_date_for_property_matching(prop.value)
+
+                    if not parsed_date:
+                        raise serializers.ValidationError(
+                            detail=f"Invalid date value: {prop.value}", code="invalid_date"
                         )
 
         payloads = filters.get("payloads", {})
@@ -282,6 +294,7 @@ class FeatureFlagSerializer(TaggedItemSerializerMixin, serializers.HyperlinkedMo
             raise exceptions.ValidationError(
                 "Cannot delete a feature flag that is in use with early access features. Please delete the early access feature before deleting the flag."
             )
+
         request = self.context["request"]
         validated_key = validated_data.get("key", None)
         if validated_key:
@@ -345,8 +358,8 @@ class MinimalFeatureFlagSerializer(serializers.ModelSerializer):
 
 
 class FeatureFlagViewSet(
+    TeamAndOrgViewSetMixin,
     TaggedItemViewSetMixin,
-    StructuredViewSetMixin,
     ForbidDestroyModel,
     viewsets.ModelViewSet,
 ):
@@ -358,17 +371,9 @@ class FeatureFlagViewSet(
 
     queryset = FeatureFlag.objects.all()
     serializer_class = FeatureFlagSerializer
-    permission_classes = [
-        IsAuthenticated,
-        ProjectMembershipNecessaryPermissions,
-        TeamMemberAccessPermission,
-        CanEditFeatureFlag,
-    ]
+    permission_classes = [CanEditFeatureFlag]
     authentication_classes = [
-        PersonalAPIKeyAuthentication,
         TemporaryTokenAuthentication,  # Allows endpoint to be called from the Toolbar
-        authentication.SessionAuthentication,
-        authentication.BasicAuthentication,
     ]
 
     def get_queryset(self) -> QuerySet:
@@ -505,7 +510,7 @@ class FeatureFlagViewSet(
         should_send_cohorts = "send_cohorts" in request.GET
 
         cohorts = {}
-        seen_cohorts_cache: Dict[int, Cohort] = {}
+        seen_cohorts_cache: Dict[int, CohortOrEmpty] = {}
 
         if should_send_cohorts:
             seen_cohorts_cache = {
@@ -552,10 +557,14 @@ class FeatureFlagViewSet(
                         if id in seen_cohorts_cache:
                             cohort = seen_cohorts_cache[id]
                         else:
-                            cohort = Cohort.objects.using(DATABASE_FOR_LOCAL_EVALUATION).get(id=id)
-                            seen_cohorts_cache[id] = cohort
+                            cohort = (
+                                Cohort.objects.using(DATABASE_FOR_LOCAL_EVALUATION)
+                                .filter(id=id, team_id=self.team_id, deleted=False)
+                                .first()
+                            )
+                            seen_cohorts_cache[id] = cohort or ""
 
-                        if not cohort.is_static:
+                        if cohort and not cohort.is_static:
                             cohorts[cohort.pk] = cohort.properties.to_dict()
 
         # Add request for analytics
@@ -618,6 +627,7 @@ class FeatureFlagViewSet(
         condition = request.data.get("condition") or {}
         group_type_index = request.data.get("group_type_index", None)
 
+        # TODO: Handle distinct_id and $group_key properties, which are not currently supported
         users_affected, total_users = get_user_blast_radius(self.team, condition, group_type_index)
 
         return Response(
@@ -671,7 +681,7 @@ class FeatureFlagViewSet(
         activity_page = load_activity(
             scope="FeatureFlag",
             team_id=self.team_id,
-            item_id=item_id,
+            item_ids=[str(item_id)],
             limit=limit,
             page=page,
         )
@@ -683,6 +693,7 @@ class FeatureFlagViewSet(
             organization_id=self.organization.id,
             team_id=self.team_id,
             user=serializer.context["request"].user,
+            was_impersonated=is_impersonated_session(serializer.context["request"]),
             item_id=serializer.instance.id,
             scope="FeatureFlag",
             activity="created",
@@ -705,6 +716,7 @@ class FeatureFlagViewSet(
             organization_id=self.organization.id,
             team_id=self.team_id,
             user=serializer.context["request"].user,
+            was_impersonated=is_impersonated_session(serializer.context["request"]),
             item_id=instance_id,
             scope="FeatureFlag",
             activity="updated",
@@ -713,4 +725,4 @@ class FeatureFlagViewSet(
 
 
 class LegacyFeatureFlagViewSet(FeatureFlagViewSet):
-    legacy_team_compatibility = True
+    derive_current_team_from_user_only = True

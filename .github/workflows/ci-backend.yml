@@ -61,8 +61,10 @@ jobs:
                         # the dependencies more clear if we separated the backend/frontend
                         # code completely
                         # really we should ignore ee/frontend/** but dorny doesn't support that
+                        # - '!ee/frontend/**'
+                        # including the negated rule appears to work
+                        # but makes it always match because the checked file always isn't `ee/frontend/**` 🙈
                         - 'ee/**/*'
-                        - '!ee/frontend/**'
                         - 'posthog/**/*'
                         - 'bin/*.py'
                         - requirements.txt
@@ -103,18 +105,17 @@ jobs:
                   fetch-depth: 1
 
             - name: Set up Python
-              uses: actions/setup-python@v4
+              uses: actions/setup-python@v5
               with:
                   python-version: 3.10.10
+                  cache: 'pip'
+                  cache-dependency-path: '**/requirements*.txt'
                   token: ${{ secrets.POSTHOG_BOT_GITHUB_TOKEN }}
 
             - uses: syphar/restore-virtualenv@v1
               id: cache-backend-tests
               with:
                   custom_cache_key_element: v2-
-
-            - uses: syphar/restore-pip-download-cache@v1
-              if: steps.cache-backend-tests.outputs.cache-hit != 'true'
 
             - name: Install SAML (python3-saml) dependencies
               run: |
@@ -134,9 +135,12 @@ jobs:
               run: |
                   ruff format --exclude posthog/hogql/grammar --check --diff .
 
+            - name: Add Problem Matcher
+              run: echo "::add-matcher::.github/mypy-problem-matcher.json"
+
             - name: Check static typing
               run: |
-                  mypy -p posthog --exclude bin/migrate_kafka_data.py --exclude posthog/hogql/grammar/HogQLParser.py --exclude gunicorn.config.py --enable-recursive-aliases
+                  mypy -p posthog | mypy-baseline filter
 
             - name: Check if "schema.py" is up to date
               run: |
@@ -181,18 +185,17 @@ jobs:
                   docker compose -f docker-compose.dev.yml up -d
 
             - name: Set up Python
-              uses: actions/setup-python@v4
+              uses: actions/setup-python@v5
               with:
                   python-version: 3.10.10
+                  cache: 'pip'
+                  cache-dependency-path: '**/requirements*.txt'
                   token: ${{ secrets.POSTHOG_BOT_GITHUB_TOKEN }}
 
             - uses: syphar/restore-virtualenv@v1
               id: cache-backend-tests
               with:
                   custom_cache_key_element: v1-
-
-            - uses: syphar/restore-pip-download-cache@v1
-              if: steps.cache-backend-tests.outputs.cache-hit != 'true'
 
             - name: Install SAML (python3-saml) dependencies
               run: |
@@ -240,7 +243,7 @@ jobs:
             fail-fast: false
             matrix:
                 python-version: ['3.10.10']
-                clickhouse-server-image: ['clickhouse/clickhouse-server:23.6.1.1524']
+                clickhouse-server-image: ['clickhouse/clickhouse-server:23.11.2.11-alpine']
                 segment: ['FOSS', 'EE']
                 person-on-events: [false, true]
                 # :NOTE: Keep concurrency and groups in sync
@@ -308,8 +311,12 @@ jobs:
                   retention-days: 5
 
     async-migrations:
-        name: Async migrations tests
+        name: Async migrations tests -  ${{ matrix.clickhouse-server-image }}
         needs: changes
+        strategy:
+            fail-fast: false
+            matrix:
+                clickhouse-server-image: ['clickhouse/clickhouse-server:23.11.2.11-alpine']
         if: needs.changes.outputs.backend == 'true'
         runs-on: ubuntu-latest
         steps:
@@ -320,23 +327,22 @@ jobs:
 
             - name: Start stack with Docker Compose
               run: |
-                  export CLICKHOUSE_SERVER_IMAGE_VERSION=${{ inputs.clickhouse-server-image-version }}
+                  export CLICKHOUSE_SERVER_IMAGE_VERSION=${{ matrix.clickhouse-server-image }}
                   docker compose -f docker-compose.dev.yml down
                   docker compose -f docker-compose.dev.yml up -d
 
             - name: Set up Python
-              uses: actions/setup-python@v4
+              uses: actions/setup-python@v5
               with:
                   python-version: 3.10.10
+                  cache: 'pip'
+                  cache-dependency-path: '**/requirements*.txt'
                   token: ${{ secrets.POSTHOG_BOT_GITHUB_TOKEN }}
 
             - uses: syphar/restore-virtualenv@v1
               id: cache-backend-tests
               with:
                   custom_cache_key_element: v2-
-
-            - uses: syphar/restore-pip-download-cache@v1
-              if: steps.cache-backend-tests.outputs.cache-hit != 'true'
 
             - name: Install SAML (python3-saml) dependencies
               run: |

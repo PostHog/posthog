@@ -23,6 +23,7 @@ from posthog.models.feature_flag import (
     get_feature_flags_for_team_in_cache,
     FeatureFlagDashboards,
 )
+from posthog.models.early_access_feature import EarlyAccessFeature
 from posthog.models.dashboard import Dashboard
 from posthog.models.feature_flag.feature_flag import FeatureFlagHashKeyOverride
 from posthog.models.group.util import create_group
@@ -1953,6 +1954,182 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         )
 
     @patch("posthog.api.feature_flag.report_user_action")
+    def test_local_evaluation_for_invalid_cohorts(self, mock_capture):
+        FeatureFlag.objects.all().delete()
+
+        self.team.app_urls = ["https://example.com"]
+        self.team.save()
+
+        other_team = Team.objects.create(
+            organization=self.organization,
+            api_token="bazinga_new",
+            name="New Team",
+        )
+
+        personal_api_key = generate_random_token_personal()
+        PersonalAPIKey.objects.create(label="X", user=self.user, secure_value=hash_key_value(personal_api_key))
+
+        deleted_cohort = Cohort.objects.create(
+            team=self.team,
+            groups=[
+                {
+                    "properties": [
+                        {
+                            "key": "$some_prop_1",
+                            "value": "something_1",
+                            "type": "person",
+                        }
+                    ]
+                },
+            ],
+            name="cohort1",
+            deleted=True,
+        )
+
+        cohort_from_other_team = Cohort.objects.create(
+            team=other_team,
+            groups=[
+                {
+                    "properties": [
+                        {
+                            "key": "$some_prop_1",
+                            "value": "something_1",
+                            "type": "person",
+                        }
+                    ]
+                },
+            ],
+            name="cohort1",
+        )
+
+        cohort_with_nested_invalid = Cohort.objects.create(
+            team=self.team,
+            groups=[
+                {
+                    "properties": [
+                        {
+                            "key": "$some_prop_1",
+                            "value": "something_1",
+                            "type": "person",
+                        },
+                        {
+                            "key": "id",
+                            "value": 99999,
+                            "type": "cohort",
+                        },
+                        {
+                            "key": "id",
+                            "value": deleted_cohort.pk,
+                            "type": "cohort",
+                        },
+                        {
+                            "key": "id",
+                            "value": cohort_from_other_team.pk,
+                            "type": "cohort",
+                        },
+                    ]
+                },
+            ],
+            name="cohort1",
+        )
+
+        cohort_valid = Cohort.objects.create(
+            team=self.team,
+            groups=[
+                {
+                    "properties": [
+                        {
+                            "key": "$some_prop_1",
+                            "value": "something_1",
+                            "type": "person",
+                        },
+                    ]
+                },
+            ],
+            name="cohort1",
+        )
+
+        FeatureFlag.objects.create(
+            team=self.team,
+            filters={"groups": [{"properties": [{"key": "id", "value": 99999, "type": "cohort"}]}]},
+            name="This is a cohort-based flag",
+            key="cohort-flag",
+            created_by=self.user,
+        )
+        FeatureFlag.objects.create(
+            team=self.team,
+            filters={
+                "groups": [{"properties": [{"key": "id", "value": cohort_with_nested_invalid.pk, "type": "cohort"}]}]
+            },
+            name="This is a cohort-based flag",
+            key="cohort-flag-2",
+            created_by=self.user,
+        )
+        FeatureFlag.objects.create(
+            team=self.team,
+            filters={"groups": [{"properties": [{"key": "id", "value": cohort_from_other_team.pk, "type": "cohort"}]}]},
+            name="This is a cohort-based flag",
+            key="cohort-flag-3",
+            created_by=self.user,
+        )
+        FeatureFlag.objects.create(
+            team=self.team,
+            filters={
+                "groups": [
+                    {"properties": [{"key": "id", "value": cohort_valid.pk, "type": "cohort"}]},
+                    {"properties": [{"key": "id", "value": cohort_with_nested_invalid.pk, "type": "cohort"}]},
+                    {"properties": [{"key": "id", "value": 99999, "type": "cohort"}]},
+                    {"properties": [{"key": "id", "value": deleted_cohort.pk, "type": "cohort"}]},
+                ]
+            },
+            name="This is a cohort-based flag",
+            key="cohort-flag-4",
+            created_by=self.user,
+        )
+        self.client.post(
+            f"/api/projects/{self.team.id}/feature_flags/",
+            {
+                "name": "Alpha feature",
+                "key": "alpha-feature",
+                "filters": {
+                    "groups": [
+                        {
+                            "rollout_percentage": 100,
+                            "properties": [],
+                        }
+                    ],
+                },
+            },
+            format="json",
+        )
+
+        self.client.logout()
+
+        with self.assertNumQueries(10):
+            # E   1. SELECT "posthog_personalapikey"."id"
+            # E   2. UPDATE "posthog_personalapikey" SET "last_used_at" = '2024-01-31T13:01:37.394080+00:00'
+            # E   3. SELECT "posthog_team"."id", "posthog_team"."uuid"
+            # E   4. SELECT "posthog_organizationmembership"."id", "posthog_organizationmembership"."organization_id"
+            # E   5. SELECT "posthog_cohort"."id"  -- all cohorts
+            # E   6. SELECT "posthog_featureflag"."id", "posthog_featureflag"."key", -- all flags
+            # E   7. SELECT "posthog_cohort". id = 99999
+            # E   8. SELECT "posthog_cohort". id = deleted cohort
+            # E   9. SELECT "posthog_cohort". id = cohort from other team
+            # E   10. SELECT "posthog_grouptypemapping"."id", -- group type mapping
+
+            response = self.client.get(
+                f"/api/feature_flag/local_evaluation?token={self.team.api_token}&send_cohorts",
+                HTTP_AUTHORIZATION=f"Bearer {personal_api_key}",
+            )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        response_data = response.json()
+        self.assertTrue("flags" in response_data and "group_type_mapping" in response_data)
+        self.assertEqual(len(response_data["flags"]), 5)
+        self.assertEqual(len(response_data["cohorts"]), 2)
+        assert str(cohort_valid.pk) in response_data["cohorts"]
+        assert str(cohort_with_nested_invalid.pk) in response_data["cohorts"]
+
+    @patch("posthog.api.feature_flag.report_user_action")
     def test_local_evaluation_for_cohorts_with_variant_overrides(self, mock_capture):
         FeatureFlag.objects.all().delete()
 
@@ -2862,6 +3039,53 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
             },
         )
 
+    def test_create_flag_with_invalid_date(self):
+        resp = self._create_flag_with_properties(
+            "date-flag",
+            [
+                {
+                    "key": "created_for",
+                    "type": "person",
+                    "value": "6hed",
+                    "operator": "is_date_before",
+                }
+            ],
+            expected_status=status.HTTP_400_BAD_REQUEST,
+        )
+
+        self.assertDictContainsSubset(
+            {
+                "type": "validation_error",
+                "code": "invalid_date",
+                "detail": "Invalid date value: 6hed",
+                "attr": "filters",
+            },
+            resp.json(),
+        )
+
+        resp = self._create_flag_with_properties(
+            "date-flag",
+            [
+                {
+                    "key": "created_for",
+                    "type": "person",
+                    "value": "1234-02-993284",
+                    "operator": "is_date_after",
+                }
+            ],
+            expected_status=status.HTTP_400_BAD_REQUEST,
+        )
+
+        self.assertDictContainsSubset(
+            {
+                "type": "validation_error",
+                "code": "invalid_date",
+                "detail": "Invalid date value: 1234-02-993284",
+                "attr": "filters",
+            },
+            resp.json(),
+        )
+
     def test_creating_feature_flag_with_non_existant_cohort(self):
         cohort_request = self._create_flag_with_properties(
             "cohort-flag",
@@ -3621,6 +3845,47 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         response = self.client.get(f"/api/cohort/{cohort.pk}/persons")
         self.assertEqual(len(response.json()["results"]), 1, response)
 
+    def test_cant_update_early_access_flag_with_group(self):
+        feature_flag = FeatureFlag.objects.create(
+            team=self.team,
+            rollout_percentage=100,
+            filters={
+                "aggregation_group_type_index": None,
+                "groups": [{"properties": [], "rollout_percentage": None}],
+            },
+            name="some feature",
+            key="some-feature",
+            created_by=self.user,
+        )
+
+        EarlyAccessFeature.objects.create(
+            team=self.team,
+            name="earlyAccessFeature",
+            description="early access feature",
+            stage="alpha",
+            feature_flag=feature_flag,
+        )
+
+        update_data = {
+            "filters": {
+                "aggregation_group_type_index": 2,
+                "groups": [{"properties": [], "rollout_percentage": 100}],
+            }
+        }
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/feature_flags/{feature_flag.id}/", update_data, format="json"
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertDictContainsSubset(
+            {
+                "type": "validation_error",
+                "code": "invalid_input",
+                "detail": "Cannot change this flag to a group-based when linked to an Early Access Feature.",
+            },
+            response.json(),
+        )
+
 
 class TestCohortGenerationForFeatureFlag(APIBaseTest, ClickhouseTestMixin):
     def test_creating_static_cohort_with_deleted_flag(self):
@@ -4107,6 +4372,37 @@ class TestBlastRadius(ClickhouseTestMixin, APIBaseTest):
 
         response_json = response.json()
         self.assertDictContainsSubset({"users_affected": 4, "total_users": 10}, response_json)
+
+    @freeze_time("2024-01-11")
+    def test_user_blast_radius_with_relative_date_filters(self):
+        for i in range(8):
+            _create_person(
+                team_id=self.team.pk,
+                distinct_ids=[f"person{i}"],
+                properties={"group": f"{i}", "created_at": f"2023-0{i+1}-04"},
+            )
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/feature_flags/user_blast_radius",
+            {
+                "condition": {
+                    "properties": [
+                        {
+                            "key": "created_at",
+                            "type": "person",
+                            "value": "-10m",
+                            "operator": "is_date_before",
+                        }
+                    ],
+                    "rollout_percentage": 100,
+                }
+            },
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        response_json = response.json()
+        self.assertDictContainsSubset({"users_affected": 3, "total_users": 8}, response_json)
 
     def test_user_blast_radius_with_zero_users(self):
         response = self.client.post(

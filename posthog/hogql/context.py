@@ -6,6 +6,7 @@ from posthog.schema import HogQLNotice, HogQLQueryModifiers
 
 if TYPE_CHECKING:
     from posthog.hogql.database.database import Database
+    from posthog.models import Team
 
 
 @dataclass
@@ -22,6 +23,8 @@ class HogQLContext:
 
     # Team making the queries
     team_id: Optional[int]
+    # Team making the queries - if team is passed in, then the team isn't queried when creating the database
+    team: Optional["Team"] = None
     # Virtual database we're querying, will be populated from team_id if not present
     database: Optional["Database"] = None
     # If set, will save string constants to this dict. Inlines strings into the query if None.
@@ -43,6 +46,8 @@ class HogQLContext:
     timings: HogQLTimings = field(default_factory=HogQLTimings)
     # Modifications requested by the HogQL client
     modifiers: HogQLQueryModifiers = field(default_factory=HogQLQueryModifiers)
+    # Enables more verbose output for debugging
+    debug: bool = False
 
     def add_value(self, value: Any) -> str:
         key = f"hogql_val_{len(self.values)}"

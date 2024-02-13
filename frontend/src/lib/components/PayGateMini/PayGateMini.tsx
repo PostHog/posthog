@@ -6,6 +6,7 @@ import { useValues } from 'kea'
 import { FEATURE_MINIMUM_PLAN, POSTHOG_CLOUD_STANDARD_PLAN } from 'lib/constants'
 import { IconEmojiPeople, IconLightBulb, IconLock, IconPremium } from 'lib/lemon-ui/icons'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
+import { capitalizeFirstLetter } from 'lib/utils'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { userLogic } from 'scenes/userLogic'
 
@@ -20,6 +21,7 @@ type PayGateSupportedFeatures =
     | AvailableFeature.PATHS_ADVANCED
     | AvailableFeature.SURVEYS_STYLING
     | AvailableFeature.SURVEYS_TEXT_HTML
+    | AvailableFeature.DATA_PIPELINES
 
 export interface PayGateMiniProps {
     feature: PayGateSupportedFeatures
@@ -83,6 +85,11 @@ const FEATURE_SUMMARIES: Record<
         umbrella: 'surveys customization',
         docsHref: 'https://posthog.com/docs/surveys',
     },
+    [AvailableFeature.DATA_PIPELINES]: {
+        description: 'Create export workflows to send your data to a destination of your choice.',
+        umbrella: 'data pipelines',
+        docsHref: 'https://posthog.com/docs/cdp',
+    },
 }
 
 /** A sort of paywall for premium features.
@@ -96,21 +103,22 @@ export function PayGateMini({
     children,
     overrideShouldShowGate,
 }: PayGateMiniProps): JSX.Element | null {
-    const { preflight } = useValues(preflightLogic)
+    const { preflight, isCloudOrDev } = useValues(preflightLogic)
     const { hasAvailableFeature } = useValues(userLogic)
 
     const featureSummary = FEATURE_SUMMARIES[feature]
     const planRequired = FEATURE_MINIMUM_PLAN[feature]
-    let gateVariant: 'add-card' | 'contact-sales' | 'subscribe' | null = null
+
+    let gateVariant: 'add-card' | 'contact-sales' | 'move-to-cloud' | null = null
     if (!overrideShouldShowGate && !hasAvailableFeature(feature)) {
-        if (preflight?.cloud) {
+        if (isCloudOrDev) {
             if (planRequired === POSTHOG_CLOUD_STANDARD_PLAN) {
                 gateVariant = 'add-card'
             } else {
                 gateVariant = 'contact-sales'
             }
         } else {
-            gateVariant = 'subscribe'
+            gateVariant = 'move-to-cloud'
         }
     }
 
@@ -123,7 +131,11 @@ export function PayGateMini({
             <div className="PayGateMini__icon">{featureSummary.icon || <IconPremium />}</div>
             <div className="PayGateMini__description">{featureSummary.description}</div>
             <div className="PayGateMini__cta">
-                Subscribe to gain {featureSummary.umbrella}.
+                {gateVariant === 'move-to-cloud' ? (
+                    <>{capitalizeFirstLetter(featureSummary.umbrella)} is available on PostHog Cloud.</>
+                ) : (
+                    <>Subscribe to gain {featureSummary.umbrella}.</>
+                )}
                 {featureSummary.docsHref && (
                     <>
                         {' '}
@@ -139,19 +151,18 @@ export function PayGateMini({
                         ? '/organization/billing'
                         : gateVariant === 'contact-sales'
                         ? `mailto:sales@posthog.com?subject=Inquiring about ${featureSummary.umbrella}`
-                        : gateVariant === 'subscribe'
-                        ? '/organization/billing'
+                        : gateVariant === 'move-to-cloud'
+                        ? 'https://us.posthog.com/signup?utm_medium=in-product&utm_campaign=move-to-cloud'
                         : undefined
                 }
-                type="secondary"
-                fullWidth
+                type="primary"
                 center
             >
                 {gateVariant === 'add-card'
                     ? 'Subscribe now'
                     : gateVariant === 'contact-sales'
                     ? 'Contact sales'
-                    : 'Subscribe'}
+                    : 'Move to PostHog Cloud'}
             </LemonButton>
         </div>
     ) : (

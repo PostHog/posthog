@@ -66,13 +66,14 @@ class RetentionEventsQuery(EventQuery):
                     "properties" if self._person_on_events_mode == PersonOnEventsMode.DISABLED else "person_properties"
                 )
 
-            breakdown_values_expression = get_single_or_multi_property_string_expr(
+            breakdown_values_expression, breakdown_values_params = get_single_or_multi_property_string_expr(
                 breakdown=[breakdown["property"] for breakdown in self._filter.breakdowns],
                 table=cast(Union[Literal["events"], Literal["person"]], table),
                 query_alias=None,
                 column=column,
                 materialised_table_column=materalised_table_column,
             )
+            self.params.update(breakdown_values_params)
 
             if self._event_query_type == RetentionQueryType.TARGET_FIRST_TIME:
                 _fields += [f"argMin({breakdown_values_expression}, e.timestamp) AS breakdown_values"]
@@ -216,7 +217,6 @@ class RetentionEventsQuery(EventQuery):
                 team_id=self._team_id,
                 action=action,
                 prepend=prepend,
-                use_loop=False,
                 person_properties_mode=get_person_properties_mode(self._team),
                 person_id_joined_alias=self._person_id_alias,
                 hogql_context=self._filter.hogql_context,

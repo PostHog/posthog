@@ -4,12 +4,13 @@ import { loaders } from 'kea-loaders'
 import { urlToAction } from 'kea-router'
 import api from 'lib/api'
 import { DashboardCompatibleScenes } from 'lib/components/SceneDashboardChoice/sceneDashboardChoiceModalLogic'
-import { lemonToast } from 'lib/lemon-ui/lemonToast'
+import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { getAppContext } from 'lib/utils/getAppContext'
 import posthog from 'posthog-js'
 
-import { AvailableFeature, OrganizationBasicType, ProductKey, UserType } from '~/types'
+import { AvailableFeature, OrganizationBasicType, ProductKey, UserTheme, UserType } from '~/types'
 
+import { urls } from './urls'
 import type { userLogicType } from './userLogicType'
 
 export interface UserDetailsFormType {
@@ -21,12 +22,12 @@ export const userLogic = kea<userLogicType>([
     path(['scenes', 'userLogic']),
     actions(() => ({
         loadUser: (resetOnFailure?: boolean) => ({ resetOnFailure }),
-        updateCurrentTeam: (teamId: number, destination?: string) => ({ teamId, destination }),
         updateCurrentOrganization: (organizationId: string, destination?: string) => ({ organizationId, destination }),
         logout: true,
         updateUser: (user: Partial<UserType>, successCallback?: () => void) => ({ user, successCallback }),
         setUserScenePersonalisation: (scene: DashboardCompatibleScenes, dashboard: number) => ({ scene, dashboard }),
         updateHasSeenProductIntroFor: (productKey: ProductKey, value: boolean) => ({ productKey, value }),
+        switchTeam: (teamId: string | number) => ({ teamId }),
     })),
     forms(({ actions }) => ({
         userDetails: {
@@ -170,14 +171,6 @@ export const userLogic = kea<userLogicType>([
                 toastId: 'updateUser',
             })
         },
-        updateCurrentTeam: async ({ teamId, destination }, breakpoint) => {
-            if (values.user?.team?.id === teamId) {
-                return
-            }
-            await breakpoint(10)
-            await api.update('api/users/@me/', { set_current_team: teamId })
-            window.location.href = destination || '/'
-        },
         updateCurrentOrganization: async ({ organizationId, destination }, breakpoint) => {
             if (values.user?.organization?.id === organizationId) {
                 return
@@ -198,6 +191,9 @@ export const userLogic = kea<userLogicType>([
                 .then(() => {
                     actions.loadUser()
                 })
+        },
+        switchTeam: ({ teamId }) => {
+            window.location.href = urls.project(teamId)
         },
     })),
     selectors({
@@ -231,6 +227,13 @@ export const userLogic = kea<userLogicType>([
                               orgA.id === user?.organization?.id ? -2 : orgA.name.localeCompare(orgB.name)
                           ) || []
                     : [],
+        ],
+
+        themeMode: [
+            (s) => [s.user],
+            (user): UserTheme => {
+                return user?.theme_mode || 'light'
+            },
         ],
     }),
     afterMount(({ actions }) => {

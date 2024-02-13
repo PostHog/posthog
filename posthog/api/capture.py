@@ -32,7 +32,7 @@ from posthog.kafka_client.topics import (
     KAFKA_SESSION_RECORDING_SNAPSHOT_ITEM_EVENTS,
 )
 from posthog.logging.timing import timed
-from posthog.metrics import LABEL_RESOURCE_TYPE
+from posthog.metrics import LABEL_RESOURCE_TYPE, KLUDGES_COUNTER
 from posthog.models.utils import UUIDT
 from posthog.session_recordings.session_recording_helpers import (
     preprocess_replay_events_for_blob_ingestion,
@@ -74,7 +74,6 @@ EVENTS_DROPPED_OVER_QUOTA_COUNTER = Counter(
     "Events dropped by capture due to quota-limiting, per resource_type and token.",
     labelnames=[LABEL_RESOURCE_TYPE, "token"],
 )
-
 
 PARTITION_KEY_CAPACITY_EXCEEDED_COUNTER = Counter(
     "capture_partition_key_capacity_exceeded_total",
@@ -183,6 +182,7 @@ def _datetime_from_seconds_or_millis(timestamp: str) -> datetime:
         timestamp_number = float(timestamp) / 1000
     else:
         timestamp_number = int(timestamp)
+        KLUDGES_COUNTER.labels(kludge="sent_at_seconds_timestamp").inc()
 
     return datetime.fromtimestamp(timestamp_number, timezone.utc)
 
@@ -195,12 +195,15 @@ def _get_sent_at(data, request) -> Tuple[Optional[datetime], Any]:
             sent_at = data["sent_at"]
         elif request.POST.get("sent_at"):  # when urlencoded body and not JSON (in some test)
             sent_at = request.POST["sent_at"]
+            if sent_at:
+                KLUDGES_COUNTER.labels(kludge="sent_at_post_field").inc()
         else:
             return None, None
 
         if re.match(r"^\d+(?:\.\d+)?$", sent_at):
             return _datetime_from_seconds_or_millis(sent_at), None
 
+        KLUDGES_COUNTER.labels(kludge="sent_at_not_timestamp").inc()
         return parser.isoparse(sent_at), None
     except Exception as error:
         statsd.incr("capture_endpoint_invalid_sent_at")
@@ -358,6 +361,7 @@ def get_event(request):
             if data.get("batch"):  # posthog-python and posthog-ruby
                 data = data["batch"]
                 assert data is not None
+                KLUDGES_COUNTER.labels(kludge="data_is_batch_field").inc()
             elif "engage" in request.path_info:  # JS identify call
                 data["event"] = "$identify"  # make sure it has an event name
 
@@ -466,7 +470,6 @@ def get_event(request):
 
     try:
         if replay_events:
-            # The new flow we only enable if the dedicated kafka is enabled
             alternative_replay_events = preprocess_replay_events_for_blob_ingestion(
                 replay_events, settings.SESSION_RECORDING_KAFKA_MAX_REQUEST_SIZE_BYTES
             )

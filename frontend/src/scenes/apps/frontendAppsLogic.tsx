@@ -1,6 +1,6 @@
 import { actions, afterMount, connect, defaults, kea, path, reducers } from 'kea'
 import { loaders } from 'kea-loaders'
-import { lemonToast } from 'lib/lemon-ui/lemonToast'
+import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { getAppContext } from 'lib/utils/getAppContext'
 import { pluginsLogic } from 'scenes/plugins/pluginsLogic'

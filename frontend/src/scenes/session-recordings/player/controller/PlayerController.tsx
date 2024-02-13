@@ -1,5 +1,7 @@
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
+import { FlaggedFeature } from 'lib/components/FlaggedFeature'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { IconExport, IconFullScreen, IconMagnifier, IconPause, IconPlay, IconSkipInactivity } from 'lib/lemon-ui/icons'
 import { LemonButton, LemonButtonWithDropdown } from 'lib/lemon-ui/LemonButton'
 import { More } from 'lib/lemon-ui/LemonButton/More'
@@ -38,7 +40,6 @@ export function PlayerController(): JSX.Element {
                     <SeekSkip direction="backward" />
 
                     <LemonButton
-                        status="primary-alt"
                         size="small"
                         onClick={togglePlayPause}
                         tooltip={
@@ -53,7 +54,7 @@ export function PlayerController(): JSX.Element {
                     <SeekSkip direction="forward" />
                 </div>
                 <div className="flex items-center gap-1 flex-1 justify-end">
-                    <Tooltip title={'Playback speed'}>
+                    <Tooltip title="Playback speed">
                         <LemonButtonWithDropdown
                             data-attr="session-recording-speed-select"
                             dropdown={{
@@ -62,7 +63,6 @@ export function PlayerController(): JSX.Element {
                                         {PLAYBACK_SPEEDS.map((speedToggle) => (
                                             <LemonButton
                                                 fullWidth
-                                                status="stealth"
                                                 active={speed === speedToggle}
                                                 key={speedToggle}
                                                 onClick={() => {
@@ -78,7 +78,6 @@ export function PlayerController(): JSX.Element {
                             }}
                             sideIcon={null}
                             size="small"
-                            status="primary-alt"
                         >
                             {speed}x
                         </LemonButtonWithDropdown>
@@ -87,7 +86,6 @@ export function PlayerController(): JSX.Element {
                     <Tooltip title={`Skip inactivity (${skipInactivitySetting ? 'on' : 'off'})`}>
                         <LemonButton
                             size="small"
-                            status="primary-alt"
                             onClick={() => {
                                 setSkipInactivitySetting(!skipInactivitySetting)
                             }}
@@ -101,7 +99,6 @@ export function PlayerController(): JSX.Element {
                     <Tooltip title={`${!isFullScreen ? 'Go' : 'Exit'} full screen (F)`}>
                         <LemonButton
                             size="small"
-                            status="primary-alt"
                             onClick={() => {
                                 setIsFullScreen(!isFullScreen)
                             }}
@@ -117,7 +114,6 @@ export function PlayerController(): JSX.Element {
                             overlay={
                                 <>
                                     <LemonButton
-                                        status="stealth"
                                         onClick={() => exportRecordingToFile()}
                                         fullWidth
                                         sideIcon={<IconExport />}
@@ -126,12 +122,18 @@ export function PlayerController(): JSX.Element {
                                         Export to file
                                     </LemonButton>
 
-                                    <LemonButton
-                                        status="stealth"
-                                        onClick={() => openExplorer()}
-                                        fullWidth
-                                        sideIcon={<IconMagnifier />}
-                                    >
+                                    <FlaggedFeature flag={FEATURE_FLAGS.SESSION_REPLAY_EXPORT_MOBILE_DATA} match={true}>
+                                        <LemonButton
+                                            onClick={() => exportRecordingToFile(true)}
+                                            fullWidth
+                                            sideIcon={<IconExport />}
+                                            tooltip="DEBUG ONLY - Export untransformed recording to a file. This can be loaded later into PostHog for playback."
+                                        >
+                                            DEBUG Export mobile replay to file DEBUG
+                                        </LemonButton>
+                                    </FlaggedFeature>
+
+                                    <LemonButton onClick={() => openExplorer()} fullWidth sideIcon={<IconMagnifier />}>
                                         Explore DOM
                                     </LemonButton>
                                 </>

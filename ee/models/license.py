@@ -8,9 +8,9 @@ from django.dispatch.dispatcher import receiver
 from django.utils import timezone
 from rest_framework import exceptions, status
 
-from posthog.celery import sync_all_organization_available_features
 from posthog.constants import AvailableFeature
 from posthog.models.utils import sane_repr
+from posthog.tasks.tasks import sync_all_organization_available_features
 
 
 class LicenseError(exceptions.APIException):

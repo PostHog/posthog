@@ -2,6 +2,7 @@ import { kea, key, path, props, selectors } from 'kea'
 import { forms } from 'kea-forms'
 import { combineUrl } from 'kea-router'
 import { colonDelimitedDuration, reverseColonDelimitedDuration } from 'lib/utils'
+import { getCurrentTeamId } from 'lib/utils/getAppContext'
 import { urls } from 'scenes/urls'
 
 import type { playerShareLogicType } from './playerShareLogicType'
@@ -44,7 +45,8 @@ export const playerShareLogic = kea<playerShareLogicType>([
         url: [
             (s) => [s.queryParams],
             (queryParams) => {
-                return combineUrl(`${window.location.origin}${urls.replaySingle(props.id)}`, queryParams).url
+                const path = urls.project(getCurrentTeamId(), urls.replaySingle(props.id))
+                return combineUrl(`${window.location.origin}${path}`, queryParams).url
             },
         ],
     })),

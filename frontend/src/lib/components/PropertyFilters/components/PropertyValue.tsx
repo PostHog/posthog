@@ -3,11 +3,13 @@ import './PropertyValue.scss'
 import { AutoComplete } from 'antd'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
+import { DateFilter } from 'lib/components/DateFilter/DateFilter'
 import { DurationPicker } from 'lib/components/DurationPicker/DurationPicker'
 import { PropertyFilterDatePicker } from 'lib/components/PropertyFilters/components/PropertyFilterDatePicker'
 import { propertyFilterTypeToPropertyDefinitionType } from 'lib/components/PropertyFilters/utils'
+import { dayjs } from 'lib/dayjs'
 import { LemonSelectMultiple } from 'lib/lemon-ui/LemonSelectMultiple/LemonSelectMultiple'
-import { isOperatorDate, isOperatorFlag, isOperatorMulti, toString } from 'lib/utils'
+import { formatDate, isOperatorDate, isOperatorFlag, isOperatorMulti, toString } from 'lib/utils'
 import { useEffect, useRef, useState } from 'react'
 
 import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
@@ -25,6 +27,7 @@ export interface PropertyValueProps {
     autoFocus?: boolean
     allowCustom?: boolean
     eventNames?: string[]
+    addRelativeDateTimeOptions?: boolean
 }
 
 function matchesLowerCase(needle?: string, haystack?: string): boolean {
@@ -46,6 +49,7 @@ export function PropertyValue({
     autoFocus = false,
     allowCustom = true,
     eventNames = [],
+    addRelativeDateTimeOptions = false,
 }: PropertyValueProps): JSX.Element {
     // what the human has typed into the box
     const [input, setInput] = useState(Array.isArray(value) ? '' : toString(value) ?? '')
@@ -189,6 +193,50 @@ export function PropertyValue({
                         ]
                     }),
                 ])}
+            />
+        )
+    }
+
+    if (isDateTimeProperty && addRelativeDateTimeOptions) {
+        if (operator === PropertyOperator.IsDateExact) {
+            return (
+                <PropertyFilterDatePicker autoFocus={autoFocus} operator={operator} value={value} setValue={setValue} />
+            )
+        }
+
+        return (
+            <DateFilter
+                dateFrom={String(value)}
+                onChange={setValue}
+                max={10000}
+                isFixedDateMode
+                dateOptions={[
+                    {
+                        key: 'Last 24 hours',
+                        values: ['-24h'],
+                        getFormattedDate: (date: dayjs.Dayjs): string => formatDate(date.subtract(24, 'h')),
+                        defaultInterval: 'hour',
+                    },
+                    {
+                        key: 'Last 7 days',
+                        values: ['-7d'],
+                        getFormattedDate: (date: dayjs.Dayjs): string => formatDate(date.subtract(7, 'd')),
+                        defaultInterval: 'day',
+                    },
+                    {
+                        key: 'Last 14 days',
+                        values: ['-14d'],
+                        getFormattedDate: (date: dayjs.Dayjs): string => formatDate(date.subtract(14, 'd')),
+                        defaultInterval: 'day',
+                    },
+                ]}
+                size="medium"
+                makeLabel={(_, startOfRange) => (
+                    <span className="hide-when-small">
+                        Matches all values {operator === PropertyOperator.IsDateBefore ? 'before' : 'after'}{' '}
+                        {startOfRange} if evaluated today.
+                    </span>
+                )}
             />
         )
     }

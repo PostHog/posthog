@@ -70,13 +70,7 @@ export function LemonBanner({
                 <div className="grow">{children}</div>
                 {!isCompact && action && <LemonButton type="secondary" {...action} />}
                 {showCloseButton && (
-                    <LemonButton
-                        status="primary-alt"
-                        size="small"
-                        icon={<IconClose />}
-                        onClick={_onClose}
-                        aria-label="close"
-                    />
+                    <LemonButton size="small" icon={<IconClose />} onClick={_onClose} aria-label="close" />
                 )}
             </div>
             {isCompact && action && <LemonButton type="secondary" fullWidth {...action} />}

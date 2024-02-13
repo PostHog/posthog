@@ -1,7 +1,9 @@
 import { LemonTag, LemonTagProps } from '@posthog/lemon-ui'
 import { BindLogic, useActions, useValues } from 'kea'
 import { HoqQLPropertyInfo } from 'lib/components/HoqQLPropertyInfo'
+import { PROPERTY_FILTER_TYPE_TO_TAXONOMIC_FILTER_GROUP_TYPE } from 'lib/components/PropertyFilters/utils'
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
+import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { PopoverReferenceContext } from 'lib/lemon-ui/Popover/Popover'
 import { useState } from 'react'
 import { insightLogic } from 'scenes/insights/insightLogic'
@@ -26,7 +28,6 @@ export function EditableBreakdownTag({ breakdown, breakdownType, isTrends }: Edi
     const [menuOpen, setMenuOpen] = useState(false)
 
     const logicProps = { insightProps, breakdown, breakdownType, isTrends }
-    const { shouldShowMenu } = useValues(breakdownTagLogic(logicProps))
     const { removeBreakdown } = useActions(breakdownTagLogic(logicProps))
 
     return (
@@ -40,13 +41,13 @@ export function EditableBreakdownTag({ breakdown, breakdownType, isTrends }: Edi
                             breakdown={breakdown}
                             breakdownType={breakdownType}
                             // display remove button only if we can edit and don't have a separate menu
-                            closable={!shouldShowMenu}
+                            closable={false}
                             onClose={removeBreakdown}
                             onClick={() => {
                                 setFilterOpen(!filterOpen)
                             }}
                             popover={{
-                                overlay: shouldShowMenu ? <BreakdownTagMenu /> : undefined,
+                                overlay: <BreakdownTagMenu />,
                                 closeOnClickInside: false,
                                 onVisibilityChange: (visible) => {
                                     setMenuOpen(visible)
@@ -88,7 +89,15 @@ export function BreakdownTag({
             {breakdownType === 'hogql' ? (
                 <HoqQLPropertyInfo value={propertyName as string} />
             ) : (
-                <PropertyKeyInfo value={propertyName as string} disablePopover={disablePropertyInfo} />
+                <PropertyKeyInfo
+                    value={propertyName as string}
+                    disablePopover={disablePropertyInfo}
+                    type={
+                        breakdownType
+                            ? PROPERTY_FILTER_TYPE_TO_TAXONOMIC_FILTER_GROUP_TYPE[breakdownType]
+                            : TaxonomicFilterGroupType.EventProperties
+                    }
+                />
             )}
         </LemonTag>
     )

@@ -27,6 +27,7 @@ export interface OperatorValueSelectProps {
     eventNames?: string[]
     propertyDefinitions: PropertyDefinition[]
     defaultOpen?: boolean
+    addRelativeDateTimeOptions?: boolean
 }
 
 interface OperatorSelectProps extends Omit<LemonSelectProps<any>, 'options'> {
@@ -67,12 +68,14 @@ export function OperatorValueSelect({
     propertyDefinitions = [],
     eventNames = [],
     defaultOpen,
+    addRelativeDateTimeOptions,
 }: OperatorValueSelectProps): JSX.Element {
     const propertyDefinition = propertyDefinitions.find((pd) => pd.name === propkey)
 
     // DateTime properties should not default to Exact
+    const isDateTimeProperty = propertyDefinition?.property_type == PropertyType.DateTime
     const startingOperator =
-        propertyDefinition?.property_type == PropertyType.DateTime && (!operator || operator == PropertyOperator.Exact)
+        isDateTimeProperty && (!operator || operator == PropertyOperator.Exact)
             ? PropertyOperator.IsDateExact
             : operator || PropertyOperator.Exact
     const [currentOperator, setCurrentOperator] = useState(startingOperator)
@@ -86,10 +89,12 @@ export function OperatorValueSelect({
         )
         const operators = Object.keys(operatorMapping) as Array<PropertyOperator>
         setOperators(operators)
-        if (currentOperator !== operator) {
+        if ((currentOperator !== operator && operators.includes(startingOperator)) || !propertyDefinition) {
             setCurrentOperator(startingOperator)
-        } else if (limitedElementProperty && !operators.includes(currentOperator)) {
-            setCurrentOperator(PropertyOperator.Exact)
+        } else if (!operators.includes(currentOperator) && propertyDefinition) {
+            // Whenever the property type changes such that the operator is not compatible, we need to reset the operator
+            // But, only if the propertyDefinition is available
+            setCurrentOperator(isDateTimeProperty ? PropertyOperator.IsDateExact : PropertyOperator.Exact)
         }
     }, [propertyDefinition, propkey, operator])
 
@@ -128,7 +133,7 @@ export function OperatorValueSelect({
                 />
             </div>
             {!isOperatorFlag(currentOperator || PropertyOperator.Exact) && type && propkey && (
-                <div className="flex-1 min-w-40" data-attr="taxonomic-value-select">
+                <div className="flex-1 min-w-[10rem]" data-attr="taxonomic-value-select">
                     <PropertyValue
                         type={type}
                         key={propkey}
@@ -153,6 +158,7 @@ export function OperatorValueSelect({
                         }}
                         // open automatically only if new filter
                         autoFocus={!isMobile() && value === null}
+                        addRelativeDateTimeOptions={addRelativeDateTimeOptions}
                     />
                 </div>
             )}

@@ -47,7 +47,7 @@ export function ActionsTable(): JSX.Element {
                 return (
                     <>
                         <Link data-attr={'action-link-' + index} to={urls.action(action.id)} className="row-name">
-                            {name || <i>Unnamed action</i>}
+                            {name || <i>Unnamed</i>}
                         </Link>
                         {action.description && (
                             <LemonMarkdown className="row-description" lowKeyHeadings>
@@ -149,14 +149,13 @@ export function ActionsTable(): JSX.Element {
                     <More
                         overlay={
                             <>
-                                <LemonButton status="stealth" to={urls.action(action.id)} fullWidth>
+                                <LemonButton to={urls.action(action.id)} fullWidth>
                                     Edit
                                 </LemonButton>
-                                <LemonButton status="stealth" to={urls.copyAction(action)} fullWidth>
+                                <LemonButton to={urls.copyAction(action)} fullWidth>
                                     Copy
                                 </LemonButton>
                                 <LemonButton
-                                    status="stealth"
                                     to={
                                         combineUrl(urls.replay(), {
                                             filters: {
@@ -178,7 +177,6 @@ export function ActionsTable(): JSX.Element {
                                     View recordings
                                 </LemonButton>
                                 <LemonButton
-                                    status="stealth"
                                     to={
                                         combineUrl(
                                             urls.insightNew({

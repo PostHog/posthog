@@ -1198,21 +1198,30 @@ TEST_BREAKDOWN_PROCESSING = [
         "events",
         "prop",
         "properties",
-        "replaceRegexpAll(JSONExtractRaw(properties, '$browser'), '^\"|\"$', '') AS prop",
+        (
+            "replaceRegexpAll(JSONExtractRaw(properties, %(breakdown_param_1)s), '^\"|\"$', '') AS prop",
+            {"breakdown_param_1": "$browser"},
+        ),
     ),
     (
         ["$browser"],
         "events",
         "value",
         "properties",
-        "array(replaceRegexpAll(JSONExtractRaw(properties, '$browser'), '^\"|\"$', '')) AS value",
+        (
+            "array(replaceRegexpAll(JSONExtractRaw(properties, %(breakdown_param_1)s), '^\"|\"$', '')) AS value",
+            {"breakdown_param_1": "$browser"},
+        ),
     ),
     (
         ["$browser", "$browser_version"],
         "events",
         "prop",
         "properties",
-        "array(replaceRegexpAll(JSONExtractRaw(properties, '$browser'), '^\"|\"$', ''),replaceRegexpAll(JSONExtractRaw(properties, '$browser_version'), '^\"|\"$', '')) AS prop",
+        (
+            "array(replaceRegexpAll(JSONExtractRaw(properties, %(breakdown_param_1)s), '^\"|\"$', ''),replaceRegexpAll(JSONExtractRaw(properties, %(breakdown_param_2)s), '^\"|\"$', '')) AS prop",
+            {"breakdown_param_1": "$browser", "breakdown_param_2": "$browser_version"},
+        ),
     ),
 ]
 
@@ -1239,8 +1248,11 @@ TEST_BREAKDOWN_PROCESSING_MATERIALIZED = [
         "value",
         "properties",
         "person_properties",
-        "array(replaceRegexpAll(JSONExtractRaw(properties, '$browser'), '^\"|\"$', '')) AS value",
-        'array("mat_pp_$browser") AS value',
+        (
+            "array(replaceRegexpAll(JSONExtractRaw(properties, %(breakdown_param_1)s), '^\"|\"$', '')) AS value",
+            {"breakdown_param_1": "$browser"},
+        ),
+        ('array("mat_pp_$browser") AS value', {"breakdown_param_1": "$browser"}),
     ),
     (
         ["$browser", "$browser_version"],
@@ -1248,8 +1260,14 @@ TEST_BREAKDOWN_PROCESSING_MATERIALIZED = [
         "prop",
         "properties",
         "group2_properties",
-        "array(replaceRegexpAll(JSONExtractRaw(properties, '$browser'), '^\"|\"$', ''),replaceRegexpAll(JSONExtractRaw(properties, '$browser_version'), '^\"|\"$', '')) AS prop",
-        """array("mat_gp2_$browser",replaceRegexpAll(JSONExtractRaw(properties, '$browser_version'), '^\"|\"$', '')) AS prop""",
+        (
+            "array(replaceRegexpAll(JSONExtractRaw(properties, %(breakdown_param_1)s), '^\"|\"$', ''),replaceRegexpAll(JSONExtractRaw(properties, %(breakdown_param_2)s), '^\"|\"$', '')) AS prop",
+            {"breakdown_param_1": "$browser", "breakdown_param_2": "$browser_version"},
+        ),
+        (
+            """array("mat_gp2_$browser",replaceRegexpAll(JSONExtractRaw(properties, %(breakdown_param_2)s), '^\"|\"$', '')) AS prop""",
+            {"breakdown_param_1": "$browser", "breakdown_param_2": "$browser_version"},
+        ),
     ),
 ]
 
@@ -1282,7 +1300,6 @@ def test_breakdown_query_expression_materialised(
             column,
             materialised_table_column=materialise_column,
         )
-
         assert actual == expected_with
 
         materialize(table, breakdown[0], table_column=materialise_column)  # type: ignore

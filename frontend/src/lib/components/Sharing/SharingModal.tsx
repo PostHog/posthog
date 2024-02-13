@@ -1,6 +1,7 @@
 import './SharingModal.scss'
 
 import { LemonButton, LemonSwitch } from '@posthog/lemon-ui'
+import { captureException } from '@sentry/react'
 import { useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
 import { CodeSnippet, Language } from 'lib/components/CodeSnippet'
@@ -113,8 +114,21 @@ export function SharingModalContent({
                                     </TitleWithIcon>
                                     <LemonButton
                                         data-attr="sharing-link-button"
-                                        size={'small'}
-                                        onClick={() => void copyToClipboard(shareLink, 'link')}
+                                        size="small"
+                                        onClick={() => {
+                                            // TRICKY: there's a chance this was sending useless errors to Sentry
+                                            // even when it succeeded, so we're explicitly ignoring the promise success
+                                            // and naming the error when reported to Sentry
+                                            copyToClipboard(shareLink, 'link')
+                                                .then(() => {}) // purposefully no-op
+                                                .catch((e) =>
+                                                    captureException(
+                                                        new Error(
+                                                            'unexpected sharing modal clipboard error: ' + e.message
+                                                        )
+                                                    )
+                                                )
+                                        }}
                                         icon={<IconLink />}
                                     >
                                         Copy public link
@@ -189,7 +203,6 @@ export function SharingModalContent({
                                     <div className="rounded border">
                                         <LemonButton
                                             fullWidth
-                                            status="stealth"
                                             sideIcon={showPreview ? <IconUnfoldLess /> : <IconUnfoldMore />}
                                             onClick={togglePreview}
                                         >

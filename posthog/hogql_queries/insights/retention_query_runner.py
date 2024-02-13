@@ -47,6 +47,10 @@ class RetentionQueryRunner(QueryRunner):
     ):
         super().__init__(query, team=team, timings=timings, modifiers=modifiers, limit_context=limit_context)
 
+    @property
+    def group_type_index(self) -> int | None:
+        return self.query.aggregation_group_type_index
+
     def get_applicable_entity(self, event_query_type):
         default_entity = RetentionEntity(
             **{
@@ -54,11 +58,11 @@ class RetentionQueryRunner(QueryRunner):
                 "type": TREND_FILTER_TYPE_EVENTS,
             }
         )
-        target_entity = self.query.retentionFilter.target_entity or default_entity
+        target_entity = self.query.retentionFilter.targetEntity or default_entity
         if event_query_type in [RetentionQueryType.TARGET, RetentionQueryType.TARGET_FIRST_TIME]:
             return target_entity
 
-        return self.query.retentionFilter.returning_entity or target_entity
+        return self.query.retentionFilter.returningEntity or target_entity
 
     def retention_events_query(self, event_query_type) -> ast.SelectQuery:
         start_of_interval_sql = self.query_date_range.get_start_of_interval_hogql(
@@ -70,11 +74,27 @@ class RetentionQueryRunner(QueryRunner):
         else:
             event_date_expr = start_of_interval_sql
 
+        event_filters = [
+            entity_to_expr(entity=self.get_applicable_entity(event_query_type)),
+        ]
+
         target_field = "person_id"
-        if self.query.aggregation_group_type_index is not None:
-            group_index = int(self.query.aggregation_group_type_index)
+        if self.group_type_index is not None:
+            group_index = int(self.group_type_index)
             if 0 <= group_index <= 4:
                 target_field = f"$group_{group_index}"
+
+                event_filters.append(
+                    ast.Not(
+                        expr=ast.Call(
+                            name="has",
+                            args=[
+                                ast.Array(exprs=[ast.Constant(value="")]),
+                                ast.Field(chain=["events", f"$group_{self.group_type_index}"]),
+                            ],
+                        ),
+                    ),
+                )
 
         fields = [
             ast.Alias(alias="event_date", expr=event_date_expr),
@@ -102,10 +122,6 @@ class RetentionQueryRunner(QueryRunner):
             fields.append(
                 ast.Alias(alias="breakdown_values", expr=ast.Array(exprs=[datediff_call])),
             )
-
-        event_filters = [
-            entity_to_expr(entity=self.get_applicable_entity(event_query_type)),
-        ]
 
         if self.query.properties is not None and self.query.properties != []:
             event_filters.append(property_to_expr(self.query.properties, self.team))
@@ -157,7 +173,7 @@ class RetentionQueryRunner(QueryRunner):
                 ast.CompareOperation(
                     op=ast.CompareOperationOp.GtEq,
                     left=field_to_compare,
-                    right=ast.Constant(value=self.query_date_range.date_from()),
+                    right=self.query_date_range.get_start_of_interval_hogql(),
                 ),
                 ast.CompareOperation(
                     op=ast.CompareOperationOp.LtEq,
@@ -170,7 +186,7 @@ class RetentionQueryRunner(QueryRunner):
     def build_target_event_query(self) -> ast.SelectQuery:
         event_query_type = (
             RetentionQueryType.TARGET_FIRST_TIME
-            if self.query.retentionFilter.retention_type == RetentionType.retention_first_time
+            if self.query.retentionFilter.retentionType == RetentionType.retention_first_time
             else RetentionQueryType.TARGET
         )
         return self.retention_events_query(event_query_type=event_query_type)
@@ -178,12 +194,12 @@ class RetentionQueryRunner(QueryRunner):
     def build_returning_event_query(self) -> ast.SelectQuery:
         return self.retention_events_query(event_query_type=RetentionQueryType.RETURNING)
 
-    def actor_query(self) -> ast.SelectQuery:
+    def actor_query(self, breakdown_values_filter: Optional[Any] = None) -> ast.SelectQuery:
         placeholders = {
             **self.query_date_range.to_placeholders(),
             "returning_event_query": self.build_returning_event_query(),
             "target_event_query": self.build_target_event_query(),
-            "breakdown_values_filter": ast.Constant(value=None),
+            "breakdown_values_filter": ast.Constant(value=breakdown_values_filter),
             "selected_interval": ast.Constant(value=None),
         }
         return parse_select(
@@ -250,7 +266,7 @@ class RetentionQueryRunner(QueryRunner):
 
     @cached_property
     def query_date_range(self) -> QueryDateRangeWithIntervals:
-        total_intervals = self.query.retentionFilter.total_intervals or DEFAULT_TOTAL_INTERVALS
+        total_intervals = self.query.retentionFilter.totalIntervals or DEFAULT_TOTAL_INTERVALS
         interval = (
             IntervalType(self.query.retentionFilter.period.lower())
             if self.query.retentionFilter.period
@@ -289,7 +305,7 @@ class RetentionQueryRunner(QueryRunner):
 
     def calculate(self) -> RetentionQueryResponse:
         query = self.to_query()
-        hogql = to_printed_hogql(query, self.team.pk)
+        hogql = to_printed_hogql(query, self.team)
 
         response = execute_hogql_query(
             query_type="RetentionQuery",
@@ -324,3 +340,44 @@ class RetentionQueryRunner(QueryRunner):
         ]
 
         return RetentionQueryResponse(results=results, timings=response.timings, hogql=hogql)
+
+    def to_actors_query(self, interval: Optional[int] = None) -> ast.SelectQuery:
+        with self.timings.measure("retention_query"):
+            retention_query = parse_select(
+                """
+                    SELECT
+                        actor_id,
+                        groupArray(actor_activity.intervals_from_base) AS appearance_intervals,
+                        arraySort(appearance_intervals) AS appearances
+
+                    FROM {actor_query} AS actor_activity
+
+                    GROUP BY actor_id
+                """,
+                placeholders={
+                    "actor_query": self.actor_query(breakdown_values_filter=[interval]),
+                },
+                timings=self.timings,
+            )
+            # We want to expose each interval as a separate column
+            for i in range(self.query_date_range.total_intervals - interval):
+                retention_query.select.append(
+                    ast.Alias(
+                        alias=f"{self.query_date_range.interval_name}_{i}",
+                        expr=ast.Call(
+                            name="arrayExists",
+                            args=[
+                                ast.Lambda(
+                                    args=["x"],
+                                    expr=ast.CompareOperation(
+                                        op=ast.CompareOperationOp.Eq,
+                                        left=ast.Field(chain=["x"]),
+                                        right=ast.Constant(value=i),
+                                    ),
+                                ),
+                                ast.Field(chain=["appearance_intervals"]),
+                            ],
+                        ),
+                    )
+                )
+        return retention_query

@@ -12,9 +12,16 @@
     border-radius: var(--radius);
 
     .WebAnalyticsDashboard &,
-    .Insight & {
+    .Insight &,
+    .InsightCard__viz & {
         // Special override for scenes where the table is primarily next to insights
         --lemon-table-background-color: var(--bg-light);
+    }
+
+    .WebAnalyticsDashboard &,
+    .WebAnalyticsModal & {
+        // Special override for scenes where the surroundings provide a border
+        border: none;
     }
 
     .posthog-3000 & {
@@ -79,6 +86,15 @@
                         border-top: none;
                     }
                 }
+            }
+        }
+    }
+
+    &--lowercase-header {
+        .LemonTable__content > table {
+            > thead {
+                text-transform: none;
+                letter-spacing: normal;
             }
         }
     }
@@ -183,24 +199,28 @@
             &.LemonTable__row--status-highlighted {
                 font-weight: 600;
                 color: var(--default);
-                background: var(--primary-bg-hover);
+
+                > td:not(.LemonTable__cell--sticky) {
+                    background: var(--primary-bg-hover);
+                }
             }
 
             > td {
-                padding-top: 0.5rem;
-                padding-bottom: 0.5rem;
+                padding-top: 0.3125rem;
+                padding-bottom: 0.3125rem;
                 color: var(--text-secondary);
 
-                .posthog-3000 & {
-                    padding-top: 0.3125rem;
-                    padding-bottom: 0.3125rem;
+                // Make spacing of buttons tighter in tables by adding negative vertical margin
+                .LemonButton {
+                    margin-top: -0.25rem;
+                    margin-bottom: -0.25rem;
                 }
 
-                .LemonButton {
-                    .posthog-3000 & {
-                        margin-top: -0.25rem;
-                        margin-bottom: -0.25rem;
-                    }
+                // Cancel the vertical margin for CodeSnippet actions
+                // This is annoyingly specific, but really needed for CodeSnippet to look good in expanded table rows
+                .CodeSnippet__actions .LemonButton {
+                    margin-top: 0;
+                    margin-bottom: 0;
                 }
             }
         }
@@ -284,8 +304,10 @@
 
         .posthog-3000 & {
             &:hover {
-                .LemonTable__header-content {
-                    color: var(--default);
+                &:not(:has(.LemonTable__header--no-hover:hover)) {
+                    .LemonTable__header-content {
+                        color: var(--default);
+                    }
                 }
             }
 
@@ -305,9 +327,7 @@
     line-height: 1.5;
 
     div {
-        .posthog-3000 & {
-            white-space: nowrap;
-        }
+        white-space: nowrap;
     }
 }
 
@@ -319,6 +339,10 @@
 // NOTE: this is outside of the storybook check for 3000 selective styling
 .LemonTable__cell--sticky::before {
     background: var(--lemon-table-background-color);
+
+    .InsightViz & {
+        background: var(--bg-light);
+    }
 }
 
 .LemonTable__header--sticky::before {
@@ -354,10 +378,10 @@ body:not(.storybook-test-runner) {
     }
 
     tr.LemonTable__row--status-highlighted .LemonTable__cell--sticky::before {
-        background: #e8ecff; // TRICKY: This is a one-off opaque form of --primary-bg-hover, keep in sync with source
+        background: var(--primary-bg-hover);
     }
 
-    .scrollable--left {
+    .ScrollableShadows--left {
         .LemonTable__cell--sticky::before,
         .LemonTable__header--sticky::before {
             box-shadow: -16px 0 16px 16px rgb(0 0 0 / 25%);

@@ -1,11 +1,16 @@
-import { actions, afterMount, beforeUnmount, kea, path, reducers } from 'kea'
+import { actions, afterMount, beforeUnmount, connect, kea, path, reducers } from 'kea'
+import { subscriptions } from 'kea-subscriptions'
 import { shouldIgnoreInput } from 'lib/utils'
+import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 
 import type { commandBarLogicType } from './commandBarLogicType'
 import { BarStatus } from './types'
 
 export const commandBarLogic = kea<commandBarLogicType>([
     path(['lib', 'components', 'CommandBar', 'commandBarLogic']),
+    connect({
+        actions: [eventUsageLogic, ['reportCommandBarStatusChanged']],
+    }),
     actions({
         setCommandBar: (status: BarStatus, initialQuery?: string) => ({ status, initialQuery }),
         hideCommandBar: true,
@@ -36,6 +41,13 @@ export const commandBarLogic = kea<commandBarLogicType>([
             },
         ],
     }),
+    subscriptions(({ actions }) => ({
+        barStatus: (status, prevStatus) => {
+            if (prevStatus !== undefined) {
+                actions.reportCommandBarStatusChanged(status)
+            }
+        },
+    })),
     afterMount(({ actions, cache }) => {
         // register keyboard shortcuts
         cache.onKeyDown = (event: KeyboardEvent) => {

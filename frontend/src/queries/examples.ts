@@ -188,7 +188,7 @@ const InsightTrendsQuery: TrendsQuery = {
     trendsFilter: {
         display: ChartDisplayType.ActionsAreaGraph,
     },
-    breakdown: {
+    breakdownFilter: {
         breakdown: '$geoip_country_code',
         breakdown_type: 'event',
     },
@@ -204,9 +204,9 @@ const InsightFunnelsQuery: FunnelsQuery = {
     },
     series,
     funnelsFilter: {
-        funnel_order_type: StepOrderValue.ORDERED,
+        funnelOrderType: StepOrderValue.ORDERED,
     },
-    breakdown: {
+    breakdownFilter: {
         breakdown: '$geoip_country_code',
         breakdown_type: 'event',
     },
@@ -218,8 +218,8 @@ const InsightRetentionQuery: RetentionQuery = {
     filterTestAccounts,
     retentionFilter: {
         // TODO: this should be typed as (EventsNode | ActionsNode)[] without math and properties
-        target_entity: { type: 'events', id: '$pageview', name: '$pageview' },
-        returning_entity: { type: 'events', id: '$pageview', name: '$pageview' },
+        targetEntity: { type: 'events', id: '$pageview', name: '$pageview' },
+        returningEntity: { type: 'events', id: '$pageview', name: '$pageview' },
     },
 }
 
@@ -321,7 +321,7 @@ const HogQLForDataVisualization: HogQLQuery = {
     kind: NodeKind.HogQLQuery,
     query: `select toDate(timestamp) as timestamp, count()
 from events
-where {filters}
+where {filters} and timestamp <= now()
 group by timestamp
 order by timestamp asc
 limit 100`,

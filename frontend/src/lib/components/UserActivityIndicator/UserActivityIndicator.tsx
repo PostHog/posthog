@@ -27,7 +27,7 @@ export function UserActivityIndicator({
                 {at && <TZLabel time={at} />}
                 {by && <span> by</span>}
             </div>
-            {by && <ProfilePicture name={by.first_name} email={by.email} showName size="md" />}
+            {by && <ProfilePicture user={by} showName size="md" />}
         </div>
     ) : null
 }

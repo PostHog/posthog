@@ -11,6 +11,7 @@ import {
 import { taxonomicFilterLogic } from 'lib/components/TaxonomicFilter/taxonomicFilterLogic'
 import {
     TaxonomicFilterGroup,
+    TaxonomicFilterGroupType,
     TaxonomicFilterLogicProps,
     TaxonomicFilterValue,
 } from 'lib/components/TaxonomicFilter/types'
@@ -50,9 +51,14 @@ export const taxonomicPropertyFilterLogic = kea<taxonomicPropertyFilterLogicType
         ],
     })),
     actions({
-        selectItem: (taxonomicGroup: TaxonomicFilterGroup, propertyKey?: TaxonomicFilterValue) => ({
+        selectItem: (
+            taxonomicGroup: TaxonomicFilterGroup,
+            propertyKey?: TaxonomicFilterValue,
+            itemPropertyFilterType?: PropertyFilterType
+        ) => ({
             taxonomicGroup,
             propertyKey,
+            itemPropertyFilterType,
         }),
         openDropdown: true,
         closeDropdown: true,
@@ -87,8 +93,8 @@ export const taxonomicPropertyFilterLogic = kea<taxonomicPropertyFilterLogicType
         ],
     }),
     listeners(({ actions, values, props }) => ({
-        selectItem: ({ taxonomicGroup, propertyKey }) => {
-            const propertyType = taxonomicFilterTypeToPropertyFilterType(taxonomicGroup.type)
+        selectItem: ({ taxonomicGroup, propertyKey, itemPropertyFilterType }) => {
+            const propertyType = itemPropertyFilterType ?? taxonomicFilterTypeToPropertyFilterType(taxonomicGroup.type)
             if (propertyKey && propertyType) {
                 if (propertyType === PropertyFilterType.Cohort) {
                     const cohortProperty: CohortPropertyFilter = {
@@ -106,9 +112,7 @@ export const taxonomicPropertyFilterLogic = kea<taxonomicPropertyFilterLogicType
                     props.propertyFilterLogic.actions.setFilter(props.filterIndex, hogQLProperty)
                 } else {
                     const apiType =
-                        propertyFilterTypeToPropertyDefinitionType(
-                            taxonomicFilterTypeToPropertyFilterType(taxonomicGroup.type)
-                        ) ?? PropertyDefinitionType.Event
+                        propertyFilterTypeToPropertyDefinitionType(propertyType) ?? PropertyDefinitionType.Event
 
                     const propertyValueType = values.describeProperty(
                         propertyKey,
@@ -129,9 +133,12 @@ export const taxonomicPropertyFilterLogic = kea<taxonomicPropertyFilterLogicType
                         property_value_type_to_default_operator_override[propertyValueType ?? ''] ||
                         PropertyOperator.Exact
 
+                    const isGroupNameFilter = taxonomicGroup.type.startsWith(TaxonomicFilterGroupType.GroupNamesPrefix)
+                    // :TRICKY: When we have a GroupNamesPrefix taxonomic filter, selecting the group name
+                    // is the equivalent of selecting a property value
                     const property: AnyPropertyFilter = {
-                        key: propertyKey.toString(),
-                        value: null,
+                        key: isGroupNameFilter ? '$group_key' : propertyKey.toString(),
+                        value: isGroupNameFilter ? propertyKey.toString() : null,
                         operator,
                         type: propertyType as AnyPropertyFilter['type'] as any, // bad | pipe chain :(
                         group_type_index: taxonomicGroup.groupTypeIndex,

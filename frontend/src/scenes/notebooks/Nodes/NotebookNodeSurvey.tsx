@@ -43,7 +43,7 @@ const Component = ({ attributes }: NotebookNodeProps<NotebookNodeSurveyAttribute
     }, [survey.name])
 
     if (surveyMissing) {
-        return <NotFound object={'survey'} />
+        return <NotFound object="survey" />
     }
 
     return (
@@ -78,7 +78,7 @@ const Component = ({ attributes }: NotebookNodeProps<NotebookNodeSurveyAttribute
 
                                     <div className="w-full flex flex-col items-center">
                                         <SurveyAppearance
-                                            type={survey.questions[0].type}
+                                            surveyType={survey.type}
                                             surveyQuestionItem={survey.questions[0]}
                                             appearance={survey.appearance || defaultSurveyAppearance}
                                         />
@@ -96,30 +96,6 @@ const Component = ({ attributes }: NotebookNodeProps<NotebookNodeSurveyAttribute
                         )}
                     </>
                 ) : null}
-                {/* 
-                <LemonDivider className="my-0" />
-                <div className="p-2 mr-1 flex justify-end gap-2">
-                    {survey.linked_flag && (
-                        <LemonButton
-                            type="secondary"
-                            size="small"
-                            icon={<IconFlag />}
-                            onClick={(e) => {
-                                e.stopPropagation()
-
-                                if (nextNode?.type.name !== NotebookNodeType.FeatureFlag) {
-                                    insertAfter(buildFlagContent((survey.linked_flag as FeatureFlagBasicType).id))
-                                }
-                            }}
-                            disabledReason={
-                                nextNode?.type.name === NotebookNodeType.FeatureFlag &&
-                                'Feature flag already exists below'
-                            }
-                        >
-                            View Linked Flag
-                        </LemonButton>
-                    )}
-                </div> */}
             </BindLogic>
         </div>
     )

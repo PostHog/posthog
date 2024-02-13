@@ -3,14 +3,14 @@ import { loaders } from 'kea-loaders'
 import React from 'react'
 
 import { query } from '~/queries/query'
-import { HogQLMetadata, HogQLMetadataResponse, NodeKind } from '~/queries/schema'
+import { AnyDataNode, HogQLMetadata, HogQLMetadataResponse, NodeKind } from '~/queries/schema'
 
 import type { hogQLEditorLogicType } from './hogQLEditorLogicType'
 
 export interface HogQLEditorLogicProps {
     key: string
     value: string | undefined
-    hogQLTable?: string
+    metadataSource?: AnyDataNode
     onChange: (value: string) => void
     textareaRef?: React.MutableRefObject<HTMLTextAreaElement | null>
 }
@@ -34,7 +34,7 @@ export const hogQLEditorLogic = kea<hogQLEditorLogicType>([
                     const response = await query<HogQLMetadata>({
                         kind: NodeKind.HogQLMetadata,
                         expr: values.localValue,
-                        table: props.hogQLTable || 'events',
+                        exprSource: props.metadataSource || undefined,
                     })
                     breakpoint()
                     if (response && Array.isArray(response.errors) && response.errors.length > 0) {

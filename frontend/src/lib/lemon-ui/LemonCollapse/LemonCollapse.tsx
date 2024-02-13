@@ -97,7 +97,6 @@ function LemonCollapsePanel({ header, content, isExpanded, onChange }: LemonColl
             <LemonButton
                 onClick={() => onChange(!isExpanded)}
                 icon={isExpanded ? <IconUnfoldLess /> : <IconUnfoldMore />}
-                status="stealth"
                 className="LemonCollapsePanel__header"
             >
                 {header}

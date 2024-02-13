@@ -55,14 +55,15 @@ export function SecondaryMetrics({
             render: function Key(_, item: TabularSecondaryMetricResults): JSX.Element {
                 return (
                     <div
+                        className="flex items-center w-fit h-5 px-1 rounded text-white text-xs"
                         // eslint-disable-next-line react/forbid-dom-props
                         style={{
-                            color: getSeriesColor(
+                            background: getSeriesColor(
                                 getIndexForVariant(item.variant, experiment.filters?.insight || InsightType.TRENDS)
                             ),
                         }}
                     >
-                        <span className="text-sm">{capitalizeFirstLetter(item.variant)}</span>
+                        {capitalizeFirstLetter(item.variant)}
                     </div>
                 )
             },
@@ -82,7 +83,6 @@ export function SecondaryMetrics({
                         <LemonButton
                             icon={<IconEdit />}
                             size="small"
-                            status="muted"
                             onClick={() => openModalToEditSecondaryMetric(metric, idx)}
                         />
                     </div>
@@ -153,7 +153,7 @@ export function SecondaryMetrics({
                     className="space-y-4"
                 >
                     <Field name="name" label="Name">
-                        <LemonInput />
+                        <LemonInput data-attr="secondary-metric-name" />
                     </Field>
                     <Field name="filters" label="Query">
                         <MetricSelector
@@ -177,13 +177,11 @@ export function SecondaryMetrics({
                                         <LemonButton
                                             icon={<IconEdit />}
                                             size="small"
-                                            status="muted"
                                             onClick={() => openModalToEditSecondaryMetric(metric, idx)}
                                         />
                                         <LemonButton
                                             icon={<IconDelete />}
                                             size="small"
-                                            status="muted"
                                             onClick={() => deleteMetric(idx)}
                                         />
                                     </div>
@@ -232,7 +230,11 @@ export function SecondaryMetrics({
                         ))}
                         {metrics && !(metrics.length > 2) && (
                             <div className="mb-2 mt-4">
-                                <LemonButton type="secondary" onClick={openModalToCreateSecondaryMetric}>
+                                <LemonButton
+                                    data-attr="add-secondary-metric-btn"
+                                    type="secondary"
+                                    onClick={openModalToCreateSecondaryMetric}
+                                >
                                     Add metric
                                 </LemonButton>
                             </div>

@@ -1,4 +1,5 @@
 from datetime import timedelta
+from typing import Callable, cast
 
 from posthog.clickhouse.client.connection import Workload
 from posthog.hogql import ast
@@ -7,6 +8,7 @@ from posthog.hogql.parser import parse_select
 from posthog.hogql.placeholders import find_placeholders
 from posthog.hogql.query import execute_hogql_query
 from posthog.hogql.timings import HogQLTimings
+from posthog.hogql_queries.insights.paginators import HogQLHasMorePaginator
 from posthog.hogql_queries.query_runner import QueryRunner
 from posthog.schema import (
     HogQLQuery,
@@ -37,13 +39,21 @@ class HogQLQueryRunner(QueryRunner):
                     parsed_select = replace_filters(parsed_select, self.query.filters, self.team)
         return parsed_select
 
-    def to_persons_query(self) -> ast.SelectQuery:
+    def to_actors_query(self) -> ast.SelectQuery:
         return self.to_query()
 
     def calculate(self) -> HogQLQueryResponse:
-        return execute_hogql_query(
+        query = self.to_query()
+        paginator = None
+        if not query.limit:
+            paginator = HogQLHasMorePaginator.from_limit_context(limit_context=self.limit_context)
+        func = cast(
+            Callable[..., HogQLQueryResponse],
+            execute_hogql_query if paginator is None else paginator.execute_hogql_query,
+        )
+        response = func(
             query_type="HogQLQuery",
-            query=self.to_query(),
+            query=query,
             filters=self.query.filters,
             modifiers=self.query.modifiers or self.modifiers,
             team=self.team,
@@ -52,6 +62,9 @@ class HogQLQueryRunner(QueryRunner):
             limit_context=self.limit_context,
             explain=bool(self.query.explain),
         )
+        if paginator:
+            response = response.model_copy(update={**paginator.response_params(), "results": paginator.results})
+        return response
 
     def _is_stale(self, cached_result_package):
         return True

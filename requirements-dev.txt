@@ -18,12 +18,6 @@ async-timeout==4.0.2
     # via
     #   -c requirements.txt
     #   redis
-attrs==21.4.0
-    # via
-    #   -c requirements.txt
-    #   jsonschema
-    #   openapi-schema-validator
-    #   syrupy
 black==22.8.0
     # via
     #   -r requirements-dev.in
@@ -34,15 +28,6 @@ certifi==2019.11.28
     # via
     #   -c requirements.txt
     #   requests
-    #   urllib3
-cffi==1.14.5
-    # via
-    #   -c requirements.txt
-    #   cryptography
-chardet==5.1.0
-    # via
-    #   -c requirements.txt
-    #   prance
 charset-normalizer==2.1.0
     # via
     #   -c requirements.txt
@@ -54,20 +39,15 @@ click==8.1.7
     #   pip-tools
 colorama==0.4.4
     # via pytest-watch
-colored==1.4.2
-    # via syrupy
 coreapi==2.3.3
     # via djangorestframework-stubs
 coreschema==0.0.4
     # via coreapi
 coverage[toml]==5.5
-    # via pytest-cov
-cryptography==37.0.2
     # via
-    #   -c requirements.txt
-    #   pyopenssl
-    #   urllib3
-datamodel-code-generator==0.21.5
+    #   coverage
+    #   pytest-cov
+datamodel-code-generator==0.25.2
     # via -r requirements-dev.in
 django==4.2.8
     # via
@@ -90,12 +70,16 @@ docopt==0.6.2
     # via pytest-watch
 email-validator==2.0.0.post2
     # via pydantic
-exceptiongroup==1.1.2
-    # via pytest
+exceptiongroup==1.2.0
+    # via
+    #   -c requirements.txt
+    #   pytest
 faker==17.5.0
     # via -r requirements-dev.in
 fakeredis[lua]==2.11.0
-    # via -r requirements-dev.in
+    # via
+    #   -r requirements-dev.in
+    #   fakeredis
 flaky==3.7.0
     # via -r requirements-dev.in
 freezegun==1.2.2
@@ -109,9 +93,6 @@ idna==2.8
     #   -c requirements.txt
     #   email-validator
     #   requests
-    #   urllib3
-importlib-resources==5.10.2
-    # via openapi-spec-validator
 inflect==5.6.2
     # via datamodel-code-generator
 iniconfig==1.1.1
@@ -124,46 +105,31 @@ jinja2==2.11.3
     # via
     #   coreschema
     #   datamodel-code-generator
-jsonschema==4.4.0
-    # via
-    #   -c requirements.txt
-    #   jsonschema-spec
-    #   openapi-schema-validator
-    #   openapi-spec-validator
-jsonschema-spec==0.1.2
-    # via openapi-spec-validator
-lazy-object-proxy==1.9.0
-    # via openapi-spec-validator
 lupa==1.14.1
     # via fakeredis
 markupsafe==1.1.1
     # via jinja2
-mypy==0.981
+mypy==1.8.0
     # via
     #   -r requirements-dev.in
     #   django-stubs
     #   djangorestframework-stubs
-mypy-extensions==0.4.3
+mypy-baseline==0.6.1
+    # via -r requirements-dev.in
+mypy-extensions==1.0.0
     # via
     #   -r requirements-dev.in
     #   black
     #   mypy
-openapi-schema-validator==0.3.4
-    # via openapi-spec-validator
-openapi-spec-validator==0.5.1
-    # via datamodel-code-generator
 packaging==23.1
     # via
     #   -c requirements.txt
     #   -r requirements-dev.in
     #   build
     #   datamodel-code-generator
-    #   prance
     #   pytest
 parameterized==0.9.0
     # via -r requirements-dev.in
-pathable==0.4.3
-    # via jsonschema-spec
 pathspec==0.9.0
     # via black
 pip-tools==7.3.0
@@ -174,40 +140,18 @@ pluggy==0.13.1
     # via pytest
 pprintpp==0.4.0
     # via pytest-icdiff
-prance==0.22.2.22.0
-    # via
-    #   -c requirements.txt
-    #   -r requirements-dev.in
-    #   datamodel-code-generator
-pycparser==2.20
-    # via
-    #   -c requirements.txt
-    #   cffi
-pydantic[email]==2.3.0
+pydantic[email]==2.5.3
     # via
     #   -c requirements.txt
     #   datamodel-code-generator
-pydantic-core==2.6.3
+    #   pydantic
+pydantic-core==2.14.6
     # via
     #   -c requirements.txt
     #   pydantic
-pyopenssl==22.0.0
-    # via
-    #   -c requirements.txt
-    #   urllib3
 pyproject-hooks==1.0.0
     # via build
-pyrsistent==0.18.1
-    # via
-    #   -c requirements.txt
-    #   jsonschema
-pysnooper==1.1.1
-    # via datamodel-code-generator
-pysocks==1.7.1
-    # via
-    #   -c requirements.txt
-    #   urllib3
-pytest==7.4.0
+pytest==7.4.4
     # via
     #   -r requirements-dev.in
     #   pytest-asyncio
@@ -241,39 +185,28 @@ python-dateutil==2.8.2
     #   -r requirements-dev.in
     #   faker
     #   freezegun
-pyyaml==6.0
+pyyaml==6.0.1
     # via
     #   -c requirements.txt
-    #   jsonschema-spec
-    #   openapi-spec-validator
+    #   datamodel-code-generator
     #   responses
 redis==4.5.4
     # via
     #   -c requirements.txt
     #   fakeredis
-requests==2.28.1
+requests==2.31.0
     # via
     #   -c requirements.txt
     #   coreapi
     #   djangorestframework-stubs
-    #   prance
     #   responses
 responses==0.23.1
     # via -r requirements-dev.in
-ruamel-yaml==0.17.21
-    # via
-    #   -c requirements.txt
-    #   prance
-ruamel-yaml-clib==0.2.7
-    # via
-    #   -c requirements.txt
-    #   ruamel-yaml
 ruff==0.1.2
     # via -r requirements-dev.in
 six==1.16.0
     # via
     #   -c requirements.txt
-    #   prance
     #   python-dateutil
 sortedcontainers==2.4.0
     # via
@@ -283,7 +216,7 @@ sqlparse==0.4.4
     # via
     #   -c requirements.txt
     #   django
-syrupy==1.7.4
+syrupy==4.6.0
     # via -r requirements-dev.in
 toml==0.10.1
     # via
@@ -303,7 +236,7 @@ types-markdown==3.3.9
     # via -r requirements-dev.in
 types-python-dateutil==2.8.3
     # via -r requirements-dev.in
-types-pytz==2023.3
+types-pytz==2023.3.0.0
     # via -r requirements-dev.in
 types-pyyaml==6.0.1
     # via
@@ -322,7 +255,6 @@ typing-extensions==4.7.1
     #   django-stubs
     #   django-stubs-ext
     #   djangorestframework-stubs
-    #   jsonschema-spec
     #   mypy
     #   pydantic
     #   pydantic-core
@@ -330,15 +262,11 @@ uritemplate==4.1.1
     # via
     #   -c requirements.txt
     #   coreapi
-urllib3[secure,socks]==1.26.13
+urllib3==1.26.18
     # via
     #   -c requirements.txt
     #   requests
     #   responses
-urllib3-secure-extra==0.1.0
-    # via
-    #   -c requirements.txt
-    #   urllib3
 watchdog==2.1.8
     # via pytest-watch
 wheel==0.42.0

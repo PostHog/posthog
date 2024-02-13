@@ -1,5 +1,6 @@
+# serializer version: 1
 # name: TestPreflight.test_cloud_preflight_limited_db_queries
-  '
+  '''
   SELECT "posthog_user"."id",
          "posthog_user"."password",
          "posthog_user"."last_login",
@@ -17,6 +18,7 @@
          "posthog_user"."distinct_id",
          "posthog_user"."is_email_verified",
          "posthog_user"."has_seen_product_intro_for",
+         "posthog_user"."strapi_id",
          "posthog_user"."email_opt_in",
          "posthog_user"."theme_mode",
          "posthog_user"."partial_notification_settings",
@@ -25,22 +27,22 @@
          "posthog_user"."events_column_config"
   FROM "posthog_user"
   WHERE "posthog_user"."id" = 2
-  LIMIT 21
-  '
----
+  LIMIT 21 /**/
+  '''
+# ---
 # name: TestPreflight.test_cloud_preflight_limited_db_queries.1
-  '
+  '''
   SELECT "posthog_instancesetting"."id",
          "posthog_instancesetting"."key",
          "posthog_instancesetting"."raw_value"
   FROM "posthog_instancesetting"
   WHERE "posthog_instancesetting"."key" IN ('constance:posthog:SLACK_APP_CLIENT_ID',
                                             'constance:posthog:SLACK_APP_CLIENT_SECRET',
-                                            'constance:posthog:SLACK_APP_SIGNING_SECRET')
-  '
----
+                                            'constance:posthog:SLACK_APP_SIGNING_SECRET') /*controller='posthog.views.preflight_check',route='%5E_preflight/%3F%28%3F%3A%5B%3F%23%5D.%2A%29%3F%24'*/
+  '''
+# ---
 # name: TestPreflight.test_cloud_preflight_limited_db_queries.2
-  '
+  '''
   SELECT "posthog_team"."id",
          "posthog_team"."uuid",
          "posthog_team"."organization_id",
@@ -62,6 +64,7 @@
          "posthog_team"."session_recording_minimum_duration_milliseconds",
          "posthog_team"."session_recording_linked_flag",
          "posthog_team"."session_recording_network_payload_capture_config",
+         "posthog_team"."session_replay_config",
          "posthog_team"."capture_console_log_opt_in",
          "posthog_team"."capture_performance_opt_in",
          "posthog_team"."surveys_opt_in",
@@ -94,6 +97,6 @@
          "posthog_team"."external_data_workspace_last_synced_at"
   FROM "posthog_team"
   WHERE "posthog_team"."id" = 2
-  LIMIT 21
-  '
----
+  LIMIT 21 /*controller='posthog.views.preflight_check',route='%5E_preflight/%3F%28%3F%3A%5B%3F%23%5D.%2A%29%3F%24'*/
+  '''
+# ---

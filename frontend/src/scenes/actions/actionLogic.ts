@@ -66,7 +66,7 @@ export const actionLogic = kea<actionLogicType>([
                     path: urls.actions(),
                 },
                 {
-                    key: action?.id || 'new',
+                    key: [Scene.Action, action?.id || 'new'],
                     name: inProgressName ?? (action?.name || ''),
                     onRename: async (name: string) => {
                         const id = action?.id

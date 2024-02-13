@@ -48,7 +48,6 @@ export function PaginationControl<T>({
             </span>
             <LemonButton
                 icon={<IconChevronLeft />}
-                status="stealth"
                 disabledReason={!isPreviousAvailable ? 'No previous page' : undefined}
                 size="small"
                 onClick={() => {
@@ -60,7 +59,6 @@ export function PaginationControl<T>({
             />
             <LemonButton
                 icon={<IconChevronRight />}
-                status="stealth"
                 disabledReason={!isNextAvailable ? 'No next page' : undefined}
                 size="small"
                 onClick={() => {

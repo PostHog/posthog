@@ -6,6 +6,7 @@ from posthog.hogql.hogql import translate_hogql
 from posthog.hogql.parser import parse_select
 from posthog.hogql.printer import print_ast
 from posthog.hogql.query import create_default_modifiers_for_team
+from posthog.hogql_queries.query_runner import get_query_runner
 from posthog.models import Team
 from posthog.schema import HogQLMetadataResponse, HogQLMetadata, HogQLNotice
 from posthog.hogql import ast
@@ -25,15 +26,22 @@ def get_hogql_metadata(
         notices=[],
     )
 
+    query_modifiers = create_default_modifiers_for_team(team)
+
     try:
         if isinstance(query.expr, str):
-            context = HogQLContext(team_id=team.pk, modifiers=create_default_modifiers_for_team(team))
-            translate_hogql(query.expr, context=context, table=query.table or "events")
+            context = HogQLContext(team_id=team.pk, modifiers=query_modifiers, debug=query.debug or False)
+            if query.exprSource is not None:
+                source_query = get_query_runner(query.exprSource, team).to_query()
+                translate_hogql(query.expr, context=context, metadata_source=source_query)
+            else:
+                translate_hogql(query.expr, context=context)
         elif isinstance(query.select, str):
             context = HogQLContext(
                 team_id=team.pk,
-                modifiers=create_default_modifiers_for_team(team),
+                modifiers=query_modifiers,
                 enable_select_queries=True,
+                debug=query.debug or False,
             )
 
             select_ast = parse_select(query.select)

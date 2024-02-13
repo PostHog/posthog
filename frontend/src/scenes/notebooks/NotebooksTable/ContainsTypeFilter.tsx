@@ -40,8 +40,8 @@ export function ContainsTypeFilters({
             <span>Containing:</span>
             <LemonSelectMultiple
                 mode="multiple"
-                selectClassName={'min-w-40'}
-                placeholder={'Any content'}
+                selectClassName="min-w-[10rem]"
+                placeholder="Any content"
                 options={Object.entries(fromNodeTypeToLabel)
                     .filter((entry) => entry[1] !== '')
                     .reduce((acc, [type, label]) => {
@@ -53,7 +53,7 @@ export function ContainsTypeFilters({
                     posthog.capture('notebook containing filter applied')
                     setFilters({ contains: newValue.map((x) => x as NotebookNodeType) })
                 }}
-                data-attr={'notebooks-list-contains-filters'}
+                data-attr="notebooks-list-contains-filters"
             />
         </div>
     )

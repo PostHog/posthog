@@ -1,30 +1,34 @@
 import './RollingDateRangeFilter.scss'
 
-import { LemonButton, LemonInput, LemonSelect, LemonSelectOptions } from '@posthog/lemon-ui'
-import clsx from 'clsx'
+import { LemonButton, LemonButtonProps, LemonInput, LemonSelect, LemonSelectOptionLeaf } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { dayjs } from 'lib/dayjs'
-import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 
 import { DateOption, rollingDateRangeFilterLogic } from './rollingDateRangeFilterLogic'
 
-const dateOptions: LemonSelectOptions<DateOption> = [
+const dateOptions: LemonSelectOptionLeaf<DateOption>[] = [
+    { value: 'hours', label: 'hours' },
     { value: 'days', label: 'days' },
     { value: 'weeks', label: 'weeks' },
     { value: 'months', label: 'months' },
     { value: 'quarters', label: 'quarters' },
+    { value: 'years', label: 'years' },
 ]
 
 type RollingDateRangeFilterProps = {
+    pageKey?: string
     selected?: boolean
     dateFrom?: string | null | dayjs.Dayjs
     max?: number | null
     onChange?: (fromDate: string) => void
-    makeLabel?: (key: React.ReactNode) => React.ReactNode
+    makeLabel?: (key: React.ReactNode, startOfRange?: React.ReactNode) => React.ReactNode
     popover?: {
         ref?: React.MutableRefObject<HTMLDivElement | null>
     }
+    dateRangeFilterLabel?: string
+    allowedDateOptions?: DateOption[]
+    fullWidth?: LemonButtonProps['fullWidth']
 }
 
 export function RollingDateRangeFilter({
@@ -34,28 +38,31 @@ export function RollingDateRangeFilter({
     dateFrom,
     selected,
     max,
+    dateRangeFilterLabel = 'In the last',
+    pageKey,
+    allowedDateOptions = ['days', 'weeks', 'months', 'years'],
+    fullWidth,
 }: RollingDateRangeFilterProps): JSX.Element {
-    const logicProps = { onChange, dateFrom, selected, max }
+    const logicProps = { onChange, dateFrom, selected, max, pageKey }
     const { increaseCounter, decreaseCounter, setCounter, setDateOption, toggleDateOptionsSelector, select } =
         useActions(rollingDateRangeFilterLogic(logicProps))
-    const { counter, dateOption, formattedDate } = useValues(rollingDateRangeFilterLogic(logicProps))
-    const is3000 = useFeatureFlag('POSTHOG_3000')
+    const { counter, dateOption, formattedDate, startOfDateRange } = useValues(rollingDateRangeFilterLogic(logicProps))
 
     return (
-        <Tooltip title={makeLabel ? makeLabel(formattedDate) : undefined}>
+        <Tooltip title={makeLabel ? makeLabel(formattedDate, startOfDateRange) : undefined}>
             <LemonButton
-                className={clsx('RollingDateRangeFilter')}
+                className="RollingDateRangeFilter"
                 data-attr="rolling-date-range-filter"
                 onClick={select}
-                status="stealth"
                 active={selected}
+                fullWidth={fullWidth}
             >
-                <p className="RollingDateRangeFilter__label">In the last</p>
+                <p className="RollingDateRangeFilter__label">{dateRangeFilterLabel}</p>
                 <div className="RollingDateRangeFilter__counter" onClick={(e): void => e.stopPropagation()}>
                     <span
                         className="RollingDateRangeFilter__counter__step"
                         onClick={decreaseCounter}
-                        title={`Decrease rolling date range`}
+                        title="Decrease rolling date range"
                     >
                         -
                     </span>
@@ -70,7 +77,7 @@ export function RollingDateRangeFilter({
                     <span
                         className="RollingDateRangeFilter__counter__step"
                         onClick={increaseCounter}
-                        title={`Increase rolling date range`}
+                        title="Increase rolling date range"
                     >
                         +
                     </span>
@@ -86,12 +93,12 @@ export function RollingDateRangeFilter({
                         toggleDateOptionsSelector()
                     }}
                     dropdownMatchSelectWidth={false}
-                    options={dateOptions}
+                    options={dateOptions.filter((option) => allowedDateOptions.includes(option.value))}
                     menu={{
                         ...popover,
                         className: 'RollingDateRangeFilter__popover',
                     }}
-                    size={is3000 ? 'xsmall' : 'small'}
+                    size="xsmall"
                 />
             </LemonButton>
         </Tooltip>

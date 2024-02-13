@@ -567,10 +567,30 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
                 ],
             )
 
+    def test_query_with_source(self):
+        query = {
+            "kind": "DataTableNode",
+            "source": {
+                "kind": "HogQLQuery",
+                "query": "SELECT event from events",
+            },
+        }
+        response = self.client.post(f"/api/projects/{self.team.id}/query/", {"query": query})
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+    def test_query_not_supported(self):
+        query = {
+            "kind": "SavedInsightNode",
+            "shortId": "123",
+        }
+        response = self.client.post(f"/api/projects/{self.team.id}/query/", {"query": query})
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(response.json()["detail"], "Unsupported query kind: SavedInsightNode", response.content)
+
     @patch("posthog.hogql.constants.DEFAULT_RETURNED_ROWS", 10)
     @patch("posthog.hogql.constants.MAX_SELECT_RETURNED_ROWS", 15)
     def test_full_hogql_query_limit(self, MAX_SELECT_RETURNED_ROWS=15, DEFAULT_RETURNED_ROWS=10):
-        random_uuid = str(UUIDT())
+        random_uuid = f"RANDOM_TEST_ID::{UUIDT()}"
         with freeze_time("2020-01-10 12:00:00"):
             for _ in range(20):
                 _create_event(
@@ -594,7 +614,7 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
     @patch("posthog.hogql.constants.DEFAULT_RETURNED_ROWS", 10)
     @patch("posthog.hogql.constants.MAX_SELECT_RETURNED_ROWS", 15)
     def test_full_hogql_query_limit_exported(self, MAX_SELECT_RETURNED_ROWS=15, DEFAULT_RETURNED_ROWS=10):
-        random_uuid = str(UUIDT())
+        random_uuid = f"RANDOM_TEST_ID::{UUIDT()}"
         with freeze_time("2020-01-10 12:00:00"):
             for _ in range(20):
                 _create_event(
@@ -619,7 +639,7 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
     @patch("posthog.hogql.constants.DEFAULT_RETURNED_ROWS", 10)
     @patch("posthog.hogql.constants.MAX_SELECT_RETURNED_ROWS", 15)
     def test_full_events_query_limit(self, MAX_SELECT_RETURNED_ROWS=15, DEFAULT_RETURNED_ROWS=10):
-        random_uuid = str(UUIDT())
+        random_uuid = f"RANDOM_TEST_ID::{UUIDT()}"
         with freeze_time("2020-01-10 12:00:00"):
             for _ in range(20):
                 _create_event(
@@ -645,7 +665,7 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
     @patch("posthog.hogql.constants.DEFAULT_RETURNED_ROWS", 10)
     @patch("posthog.hogql.constants.MAX_SELECT_RETURNED_ROWS", 15)
     def test_full_events_query_limit_exported(self, MAX_SELECT_RETURNED_ROWS=15, DEFAULT_RETURNED_ROWS=10):
-        random_uuid = str(UUIDT())
+        random_uuid = f"RANDOM_TEST_ID::{UUIDT()}"
         with freeze_time("2020-01-10 12:00:00"):
             for _ in range(20):
                 _create_event(
@@ -694,10 +714,22 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
 
     def test_invalid_query_kind(self):
         api_response = self.client.post(f"/api/projects/{self.team.id}/query/", {"query": {"kind": "Tomato Soup"}})
-        assert api_response.status_code == 400
-        assert api_response.json()["code"] == "parse_error"
-        assert "validation errors for QuerySchema" in api_response.json()["detail"]
-        assert "type=literal_error, input_value='Tomato Soup'" in api_response.json()["detail"]
+        self.assertEqual(api_response.status_code, 400)
+        self.assertEqual(api_response.json()["code"], "parse_error")
+        self.assertIn("1 validation error for QueryRequest", api_response.json()["detail"], api_response.content)
+        self.assertIn(
+            "Input tag 'Tomato Soup' found using 'kind' does not match any of the expected tags",
+            api_response.json()["detail"],
+            api_response.content,
+        )
+
+    def test_missing_query(self):
+        api_response = self.client.post(f"/api/projects/{self.team.id}/query/", {"query": {}})
+        self.assertEqual(api_response.status_code, 400)
+
+    def test_missing_body(self):
+        api_response = self.client.post(f"/api/projects/{self.team.id}/query/")
+        self.assertEqual(api_response.status_code, 400)
 
     @snapshot_clickhouse_queries
     def test_full_hogql_query_view(self):
@@ -764,7 +796,7 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
             )
 
     def test_full_hogql_query_values(self):
-        random_uuid = str(UUIDT())
+        random_uuid = f"RANDOM_TEST_ID::{UUIDT()}"
         with freeze_time("2020-01-10 12:00:00"):
             for _ in range(20):
                 _create_event(

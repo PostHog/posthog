@@ -2,11 +2,13 @@ import './Experiment.scss'
 
 import { IconInfo } from '@posthog/icons'
 import { Tooltip } from '@posthog/lemon-ui'
-import { Col, Progress } from 'antd'
+// eslint-disable-next-line no-restricted-imports
+import { Col } from 'antd'
 import { useValues } from 'kea'
 import { getSeriesColor } from 'lib/colors'
 import { EntityFilterInfo } from 'lib/components/EntityFilterInfo'
 import { FunnelLayout } from 'lib/constants'
+import { LemonProgress } from 'lib/lemon-ui/LemonProgress'
 import { capitalizeFirstLetter } from 'lib/utils'
 
 import { filtersToQueryNode } from '~/queries/nodes/InsightQuery/utils/filtersToQueryNode'
@@ -55,13 +57,25 @@ export function ExperimentResult(): JSX.Element {
                         </div>
                         <div className="flex justify-between py-2 border-t">
                             <Col span={2 * secondaryColumnSpan}>
-                                {experimentInsightType === InsightType.TRENDS ? 'Count' : 'Conversion Rate'}
+                                {experimentInsightType === InsightType.TRENDS
+                                    ? experimentMathAggregationForTrends
+                                        ? 'Metric'
+                                        : 'Count'
+                                    : 'Conversion Rate'}
                             </Col>
                             {sortedExperimentResultVariants.map((variant, idx) => (
                                 <Col key={idx} span={secondaryColumnSpan}>
                                     {experimentInsightType === InsightType.TRENDS
                                         ? countDataForVariant(variant)
                                         : `${conversionRateForVariant(variant)}%`}
+                                </Col>
+                            ))}
+                        </div>
+                        <div className="flex justify-between py-2 border-t">
+                            <Col span={2 * secondaryColumnSpan}>Exposure</Col>
+                            {sortedExperimentResultVariants.map((variant, idx) => (
+                                <Col key={idx} span={secondaryColumnSpan}>
+                                    {exposureCountDataForVariant(variant)}
                                 </Col>
                             ))}
                         </div>
@@ -130,10 +144,8 @@ export function ExperimentResult(): JSX.Element {
                                                 <span>{conversionRateForVariant(variant)}%</span>
                                             </div>
                                         )}
-                                        <Progress
+                                        <LemonProgress
                                             percent={Number((experimentResults.probability[variant] * 100).toFixed(1))}
-                                            size="small"
-                                            showInfo={false}
                                             strokeColor={getSeriesColor(
                                                 getIndexForVariant(variant, experimentInsightType)
                                             )}
@@ -183,9 +195,13 @@ export function ExperimentResult(): JSX.Element {
                         <div className="no-experiment-results p-4">
                             {!experimentResultsLoading && (
                                 <div className="text-center">
-                                    <b>There are no results for this experiment yet.</b>
+                                    <div className="mb-4">
+                                        <b>There are no results for this experiment yet.</b>
+                                    </div>
+                                    {!!experimentResultCalculationError && (
+                                        <div className="text-sm mb-2">{experimentResultCalculationError}</div>
+                                    )}
                                     <div className="text-sm ">
-                                        {!!experimentResultCalculationError && `${experimentResultCalculationError}. `}{' '}
                                         Wait a bit longer for your users to be exposed to the experiment. Double check
                                         your feature flag implementation if you're still not seeing results.
                                     </div>

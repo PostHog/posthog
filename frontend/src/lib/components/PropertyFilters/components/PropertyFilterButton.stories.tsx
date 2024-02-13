@@ -77,11 +77,12 @@ const meta: Meta<typeof PropertyFilterButton> = {
     title: 'Filters/Property Filter Button',
     component: PropertyFilterButton,
     tags: ['autodocs'],
-    parameters: {
-        testOptions: { include3000: true },
-    },
 }
 export default meta
+
+export function Button(): JSX.Element {
+    return <PropertyFilterButton item={propertyFilters[0]} onClick={() => {}} onClose={() => {}} />
+}
 
 export function FilterTypes(): JSX.Element {
     return (
@@ -99,22 +100,30 @@ export function PseudoStates(): JSX.Element {
     return (
         <div className="border rounded p-2">
             <div>
-                <h5>STATE=DEFAULT</h5>
+                <h5>Default</h5>
                 <PropertyFilterButton item={propertyFilters[0]} />
                 <span className="ml-1" />
+                <PropertyFilterButton item={propertyFilters[0]} onClick={() => {}} />
+                <span className="ml-1" />
                 <PropertyFilterButton item={propertyFilters[0]} onClose={() => {}} />
+                <span className="ml-1" />
+                <PropertyFilterButton item={propertyFilters[0]} onClick={() => {}} onClose={() => {}} />
             </div>
             <div id="hover">
-                <h5>STATE=HOVER</h5>
+                <h5>Hover</h5>
                 <PropertyFilterButton item={propertyFilters[0]} />
                 <span className="ml-1" />
+                <PropertyFilterButton item={propertyFilters[0]} onClick={() => {}} />
+                <span className="ml-1" />
                 <PropertyFilterButton item={propertyFilters[0]} onClose={() => {}} />
+                <span className="ml-1" />
+                <PropertyFilterButton item={propertyFilters[0]} onClick={() => {}} onClose={() => {}} />
             </div>
-            <div id="active">
-                <h5>STATE=HOVER,ACTIVE</h5>
-                <PropertyFilterButton item={propertyFilters[0]} />
-                <span className="ml-1" />
+            <div id="hover-close">
+                <h5>Hover over close</h5>
                 <PropertyFilterButton item={propertyFilters[0]} onClose={() => {}} />
+                <span className="ml-1" />
+                <PropertyFilterButton item={propertyFilters[0]} onClick={() => {}} onClose={() => {}} />
             </div>
         </div>
     )
@@ -122,7 +131,6 @@ export function PseudoStates(): JSX.Element {
 
 PseudoStates.parameters = {
     pseudo: {
-        hover: ['#hover .PropertyFilterButton', '#active .PropertyFilterButton'],
-        active: ['#active .PropertyFilterButton'],
+        hover: ['#hover .PropertyFilterButton', '#hover-close .PropertyFilterButton', '#hover-close .LemonButton'],
     },
 }

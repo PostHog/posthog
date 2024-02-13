@@ -79,7 +79,6 @@ export function TextCardInternal(
                         overlay={
                             <>
                                 <LemonButton
-                                    status="stealth"
                                     fullWidth
                                     onClick={() =>
                                         dashboardId && push(urls.dashboardTextTile(dashboardId, textTile.id))
@@ -91,12 +90,10 @@ export function TextCardInternal(
 
                                 {moveToDashboard && otherDashboards.length > 0 && (
                                     <LemonButtonWithDropdown
-                                        status="stealth"
                                         dropdown={{
                                             overlay: otherDashboards.map((otherDashboard) => (
                                                 <LemonButton
                                                     key={otherDashboard.id}
-                                                    status="stealth"
                                                     onClick={() => {
                                                         moveToDashboard(otherDashboard)
                                                     }}
@@ -115,12 +112,7 @@ export function TextCardInternal(
                                         Move to
                                     </LemonButtonWithDropdown>
                                 )}
-                                <LemonButton
-                                    status="stealth"
-                                    onClick={duplicate}
-                                    fullWidth
-                                    data-attr={'duplicate-text-from-dashboard'}
-                                >
+                                <LemonButton onClick={duplicate} fullWidth data-attr="duplicate-text-from-dashboard">
                                     Duplicate
                                 </LemonButton>
                                 {moreButtons && (

@@ -1,5 +1,10 @@
 import { actions, kea, key, listeners, path, props, reducers, selectors } from 'kea'
-import { CUSTOM_OPTION_VALUE, DateFilterLogicProps, DateFilterView } from 'lib/components/DateFilter/types'
+import {
+    DateFilterLogicProps,
+    DateFilterView,
+    NO_OVERRIDE_RANGE_PLACEHOLDER,
+    SELECT_FIXED_VALUE_PLACEHOLDER,
+} from 'lib/components/DateFilter/types'
 import { Dayjs, dayjs } from 'lib/dayjs'
 import { dateFilterToText, dateStringToDayJs, formatDate, formatDateRange, isDate } from 'lib/utils'
 
@@ -15,6 +20,7 @@ export const dateFilterLogic = kea<dateFilterLogicType>([
         open: true,
         openFixedRange: true,
         openDateToNow: true,
+        openFixedDate: true,
         close: true,
         applyRange: true,
         setDate: (dateFrom: string | null, dateTo: string | null) => ({ dateFrom, dateTo }),
@@ -28,6 +34,7 @@ export const dateFilterLogic = kea<dateFilterLogicType>([
                 open: () => DateFilterView.QuickList,
                 openFixedRange: () => DateFilterView.FixedRange,
                 openDateToNow: () => DateFilterView.DateToNow,
+                openFixedDate: () => DateFilterView.FixedDate,
             },
         ],
         isVisible: [
@@ -36,6 +43,7 @@ export const dateFilterLogic = kea<dateFilterLogicType>([
                 open: () => true,
                 openFixedRange: () => true,
                 openDateToNow: () => true,
+                openFixedDate: () => true,
                 setDate: () => false,
                 close: () => false,
             },
@@ -71,14 +79,20 @@ export const dateFilterLogic = kea<dateFilterLogicType>([
             (dateFrom, dateTo) => !!(dateFrom && dateTo && dayjs(dateFrom).isValid() && dayjs(dateTo).isValid()),
         ],
         isDateToNow: [
-            (s) => [s.dateFrom, s.dateTo],
-            (dateFrom, dateTo) => !!dateFrom && !dateTo && dayjs(dateFrom).isValid(),
+            (s) => [s.dateFrom, s.dateTo, (_, p) => p.isFixedDateMode],
+            (dateFrom, dateTo, isFixedDateMode) =>
+                !!dateFrom && !dateTo && dayjs(dateFrom).isValid() && !isFixedDateMode,
+        ],
+        isFixedDate: [
+            (s) => [s.dateFrom, s.dateTo, (_, p) => p.isFixedDateMode],
+            (dateFrom, dateTo, isFixedDateMode) => dateFrom && dayjs(dateFrom).isValid() && !dateTo && isFixedDateMode,
         ],
         isRollingDateRange: [
-            (s) => [s.isFixedRange, s.isDateToNow, s.dateOptions, s.dateFrom, s.dateTo],
-            (isFixedRange, isDateToNow, dateOptions, dateFrom, dateTo): boolean =>
+            (s) => [s.isFixedRange, s.isDateToNow, s.isFixedDate, s.dateOptions, s.dateFrom, s.dateTo],
+            (isFixedRange, isDateToNow, isFixedDate, dateOptions, dateFrom, dateTo): boolean =>
                 !isFixedRange &&
                 !isDateToNow &&
+                !isFixedDate &&
                 !dateOptions?.find(
                     (option) =>
                         (option.values[0] ?? null) === (dateFrom ?? null) &&
@@ -86,13 +100,29 @@ export const dateFilterLogic = kea<dateFilterLogicType>([
                 ),
         ],
         label: [
-            (s) => [s.dateFrom, s.dateTo, s.isFixedRange, s.isDateToNow, s.dateOptions],
-            (dateFrom, dateTo, isFixedRange, isDateToNow, dateOptions) =>
+            (s) => [
+                s.dateFrom,
+                s.dateTo,
+                s.isFixedRange,
+                s.isDateToNow,
+                s.isFixedDate,
+                s.dateOptions,
+                (_, p) => p.isFixedDateMode,
+            ],
+            (dateFrom, dateTo, isFixedRange, isDateToNow, isFixedDate, dateOptions, isFixedDateMode) =>
                 isFixedRange
                     ? formatDateRange(dayjs(dateFrom), dayjs(dateTo))
                     : isDateToNow
                     ? `${formatDate(dayjs(dateFrom))} to now`
-                    : dateFilterToText(dateFrom, dateTo, CUSTOM_OPTION_VALUE, dateOptions, false),
+                    : isFixedDate
+                    ? formatDate(dateStringToDayJs(dateFrom) ?? dayjs(dateFrom))
+                    : dateFilterToText(
+                          dateFrom,
+                          dateTo,
+                          isFixedDateMode ? SELECT_FIXED_VALUE_PLACEHOLDER : NO_OVERRIDE_RANGE_PLACEHOLDER,
+                          dateOptions,
+                          false
+                      ),
         ],
     }),
     listeners(({ actions, values, props }) => ({
@@ -100,7 +130,7 @@ export const dateFilterLogic = kea<dateFilterLogicType>([
             if (values.rangeDateFrom) {
                 actions.setDate(
                     dayjs(values.rangeDateFrom).format('YYYY-MM-DD'),
-                    values.rangeDateTo ? dayjs(values.rangeDateTo).format('YYYY-MM-DD') : null
+                    values.rangeDateTo ? dayjs(values.rangeDateTo).format() : null
                 )
             }
         },

@@ -113,7 +113,7 @@ export function Dashboards(): JSX.Element {
 
     return (
         <div>
-            <PageHeader title="Dashboards" />
+            <PageHeader />
             <LemonTabs
                 activeKey={currentTab}
                 onChange={(tab) => router.actions.push(urls.dashboards(tab as DashboardsTabs))}

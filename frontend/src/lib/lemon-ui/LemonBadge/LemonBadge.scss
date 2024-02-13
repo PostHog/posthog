@@ -24,7 +24,7 @@
     pointer-events: none;
     user-select: none;
     background: var(--lemon-badge-color);
-    border: var(--lemon-badge-border-width) solid var(--bg-light);
+    border: var(--lemon-badge-border-width) solid var(--accent-3000);
     border-radius: calc(var(--lemon-badge-size) / 2);
 
     > * {
@@ -48,6 +48,10 @@
 
     &.LemonBadge--muted {
         --lemon-badge-color: var(--muted);
+    }
+
+    &.LemonBadge--data {
+        --lemon-badge-color: var(--data-color-1);
     }
 
     &.LemonBadge--position-none {
@@ -75,7 +79,7 @@
     }
 
     &.LemonBadge--small {
-        --lemon-badge-size: 1.25rem;
+        --lemon-badge-size: 1.125rem;
         --lemon-badge-font-size: 0.625rem;
     }
 
@@ -93,15 +97,6 @@
     &.LemonBadge--active {
         z-index: var(--z-raised); // In croweded badge situation, show active ones above the rest
         outline: calc(var(--lemon-badge-font-size) / 5) solid var(--lemon-badge-color);
-    }
-
-    .posthog-3000 & {
-        background: var(--muted);
-        border-color: var(--accent-3000);
-
-        &.LemonBadge--small {
-            --lemon-badge-size: 1.125rem;
-        }
     }
 
     &.LemonBadge--enter {

@@ -6,7 +6,6 @@ import { SocialLoginButtons } from 'lib/components/SocialLoginButton/SocialLogin
 import { Field } from 'lib/forms/Field'
 import { Link } from 'lib/lemon-ui/Link'
 import { useEffect, useRef } from 'react'
-import { useButtonStyle } from 'scenes/authentication/useButtonStyles'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 
 import { signupLogic } from '../signupLogic'
@@ -15,7 +14,6 @@ export function SignupPanel1(): JSX.Element | null {
     const { preflight } = useValues(preflightLogic)
     const { isSignupPanel1Submitting, signupPanel1 } = useValues(signupLogic)
     const emailInputRef = useRef<HTMLInputElement | null>(null)
-    const buttonStyles = useButtonStyle()
 
     useEffect(() => {
         // There's no password in the demo environment
@@ -32,7 +30,7 @@ export function SignupPanel1(): JSX.Element | null {
                     <p className="text-muted text-center mb-0">Or use email & password</p>
                 </>
             )}
-            <Form logic={signupLogic} formKey={'signupPanel1'} className="space-y-4" enableFormOnSubmit>
+            <Form logic={signupLogic} formKey="signupPanel1" className="space-y-4" enableFormOnSubmit>
                 <Field name="email" label="Email">
                     <LemonInput
                         className="ph-ignore-input"
@@ -69,12 +67,13 @@ export function SignupPanel1(): JSX.Element | null {
                 <LemonButton
                     fullWidth
                     type="primary"
+                    status="alt"
                     center
                     htmlType="submit"
                     data-attr="signup-start"
                     loading={isSignupPanel1Submitting}
                     disabled={isSignupPanel1Submitting}
-                    {...buttonStyles}
+                    size="large"
                 >
                     Continue
                 </LemonButton>

@@ -1,5 +1,7 @@
 import { LogicWrapper } from 'kea'
 
+import { ActivityScope } from '~/types'
+
 // The enum here has to match the first and only exported component of the scene.
 // If so, we can preload the scene's required chunks in parallel with the scene itself.
 
@@ -22,7 +24,7 @@ export enum Scene {
     PersonsManagement = 'PersonsManagement',
     Person = 'Person',
     Pipeline = 'Pipeline',
-    PipelineApp = 'PipelineApp',
+    PipelineNode = 'PipelineNode',
     Group = 'Group',
     Action = 'Action',
     Experiments = 'Experiments',
@@ -38,11 +40,10 @@ export enum Scene {
     Survey = 'Survey',
     SurveyTemplates = 'SurveyTemplates',
     DataWarehouse = 'DataWarehouse',
-    DataWarehousePosthog = 'DataWarehousePosthog',
     DataWarehouseExternal = 'DataWarehouseExternal',
-    DataWarehouseSavedQueries = 'DataWarehouseSavedQueries',
     DataWarehouseTable = 'DataWarehouseTable',
     DataWarehouseSettings = 'DataWarehouseSettings',
+    DataWarehouseRedirect = 'DataWarehouseRedirect',
     OrganizationCreateFirst = 'OrganizationCreate',
     ProjectHomepage = 'ProjectHomepage',
     ProjectCreateFirst = 'ProjectCreate',
@@ -69,13 +70,14 @@ export enum Scene {
     Unsubscribe = 'Unsubscribe',
     DebugQuery = 'DebugQuery',
     VerifyEmail = 'VerifyEmail',
-    Feedback = 'Feedback',
     Notebooks = 'Notebooks',
     Notebook = 'Notebook',
     Canvas = 'Canvas',
     Products = 'Products',
     Onboarding = 'Onboarding',
+    OnboardingProductIntroduction = 'OnboardingProductIntroduction',
     Settings = 'Settings',
+    MoveToPostHogCloud = 'MoveToPostHogCloud',
 }
 
 export type SceneProps = Record<string, any>
@@ -133,4 +135,8 @@ export interface SceneConfig {
     organizationBased?: boolean
     /** Route requires project access (used e.g. by breadcrumbs). `true` implies also `organizationBased` */
     projectBased?: boolean
+    /** Set the scope of the activity (affects activity and discussion panel) */
+    activityScope?: ActivityScope
+    /** Default docs path - what the docs side panel will open by default if this scene is active  */
+    defaultDocsPath?: string
 }

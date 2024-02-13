@@ -9,4 +9,4 @@ class Migration(migrations.Migration):
     ]
 
     # We used to install TrigramExtension and BtreeGinExtension, but realised that made things slower rather than faster
-    operations = []  # type: ignore
+    operations = []

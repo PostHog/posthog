@@ -1,4 +1,4 @@
-import { captureException, captureMessage } from '@sentry/node'
+import { captureException } from '@sentry/node'
 import { randomUUID } from 'crypto'
 import { DateTime } from 'luxon'
 import { HighLevelProducer as RdKafkaProducer, NumberNullUndefined } from 'node-rdkafka'
@@ -11,8 +11,8 @@ import { retryOnDependencyUnavailableError } from '../../../../kafka/error-handl
 import { createKafkaProducer, disconnectProducer, flushProducer, produce } from '../../../../kafka/producer'
 import { PluginsServerConfig } from '../../../../types'
 import { status } from '../../../../utils/status'
-import { createSessionReplayEvent } from '../../../../worker/ingestion/process-event'
 import { eventDroppedCounter } from '../../metrics'
+import { createSessionReplayEvent } from '../process-event'
 import { IncomingRecordingMessage } from '../types'
 import { OffsetHighWaterMarker } from './offset-high-water-marker'
 
@@ -109,7 +109,8 @@ export class ReplayEventsIngester {
                 event.team_id,
                 event.distinct_id,
                 event.session_id,
-                event.events
+                event.events,
+                event.snapshot_source
             )
 
             try {
@@ -117,18 +118,6 @@ export class ReplayEventsIngester {
                 if (replayRecord !== null) {
                     const asDate = DateTime.fromSQL(replayRecord.first_timestamp)
                     if (!asDate.isValid || Math.abs(asDate.diffNow('months').months) >= 0.99) {
-                        captureMessage(`Invalid replay record timestamp: ${replayRecord.first_timestamp} for event`, {
-                            extra: {
-                                replayRecord,
-                                uuid: replayRecord.uuid,
-                                timestamp: replayRecord.first_timestamp,
-                            },
-                            tags: {
-                                team: event.team_id,
-                                session_id: replayRecord.session_id,
-                            },
-                        })
-
                         return drop('invalid_timestamp')
                     }
                 }

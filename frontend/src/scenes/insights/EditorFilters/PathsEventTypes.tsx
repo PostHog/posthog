@@ -4,7 +4,8 @@ import { LemonCheckbox } from 'lib/lemon-ui/LemonCheckbox'
 import { capitalizeFirstLetter } from 'lib/utils'
 import { pathsDataLogic } from 'scenes/paths/pathsDataLogic'
 
-import { EditorFilterProps, PathsFilterType, PathType } from '~/types'
+import { PathsFilter } from '~/queries/schema'
+import { EditorFilterProps, PathType } from '~/types'
 
 import { humanizePathsEventTypes } from '../utils'
 
@@ -12,9 +13,9 @@ export function PathsEventsTypes({ insightProps }: EditorFilterProps): JSX.Eleme
     const { pathsFilter } = useValues(pathsDataLogic(insightProps))
     const { updateInsightFilter } = useActions(pathsDataLogic(insightProps))
 
-    const includeEventTypes = pathsFilter?.include_event_types
-    const setIncludeEventTypes = (includeEventTypes: PathsFilterType['include_event_types']): void => {
-        updateInsightFilter({ include_event_types: includeEventTypes })
+    const includeEventTypes = pathsFilter?.includeEventTypes
+    const setIncludeEventTypes = (includeEventTypes: PathsFilter['includeEventTypes']): void => {
+        updateInsightFilter({ includeEventTypes: includeEventTypes })
     }
 
     const options = [
@@ -56,7 +57,6 @@ export function PathsEventsTypes({ insightProps }: EditorFilterProps): JSX.Eleme
 
     return (
         <LemonButtonWithDropdown
-            status="stealth"
             fullWidth
             type="secondary"
             dropdown={{
@@ -66,7 +66,6 @@ export function PathsEventsTypes({ insightProps }: EditorFilterProps): JSX.Eleme
                     <LemonButton
                         key={option.type}
                         onClick={() => onClickPathtype(option.type)}
-                        status="stealth"
                         disabledReason={
                             option.selected && includeEventTypes?.length === 1
                                 ? 'At least one event type must be selected'

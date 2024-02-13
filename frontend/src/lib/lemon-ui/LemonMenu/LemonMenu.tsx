@@ -1,6 +1,3 @@
-import { useValues } from 'kea'
-import { FEATURE_FLAGS } from 'lib/constants'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import React, { FunctionComponent, ReactNode, useCallback, useMemo } from 'react'
 
 import { KeyboardShortcut, KeyboardShortcutProps } from '~/layout/navigation-3000/components/KeyboardShortcut'
@@ -69,7 +66,6 @@ export interface LemonMenuProps
             LemonDropdownProps,
             | 'placement'
             | 'fallbackPlacements'
-            | 'actionable'
             | 'sameWidth'
             | 'maxContentWidth'
             | 'visible'
@@ -127,22 +123,19 @@ export interface LemonMenuOverlayProps {
 }
 
 export function LemonMenuOverlay({ items, tooltipPlacement, itemsRef }: LemonMenuOverlayProps): JSX.Element {
-    const { featureFlags } = useValues(featureFlagLogic)
     const sectionsOrItems = useMemo(() => normalizeItems(items), [items])
-
-    const buttonSize = featureFlags[FEATURE_FLAGS.POSTHOG_3000] === 'test' ? 'small' : 'medium'
 
     return sectionsOrItems.length > 0 && isLemonMenuSection(sectionsOrItems[0]) ? (
         <LemonMenuSectionList
             sections={sectionsOrItems as LemonMenuSection[]}
-            buttonSize={buttonSize}
+            buttonSize="small"
             tooltipPlacement={tooltipPlacement}
             itemsRef={itemsRef}
         />
     ) : (
         <LemonMenuItemList
             items={sectionsOrItems as LemonMenuItem[]}
-            buttonSize={buttonSize}
+            buttonSize="small"
             tooltipPlacement={tooltipPlacement}
             itemsRef={itemsRef}
             itemIndexOffset={0}
@@ -173,7 +166,7 @@ export function LemonMenuSectionList({
                         <section className="space-y-px">
                             {section.title ? (
                                 typeof section.title === 'string' ? (
-                                    <h5>{section.title}</h5>
+                                    <h5 className="mx-2 my-1">{section.title}</h5>
                                 ) : (
                                     section.title
                                 )
@@ -251,7 +244,6 @@ const LemonMenuItemButton: FunctionComponent<LemonMenuItemButtonProps & React.Re
                 <LemonButton
                     ref={ref}
                     tooltipPlacement={tooltipPlacement}
-                    status="stealth"
                     fullWidth
                     role="menuitem"
                     size={size}
@@ -272,7 +264,6 @@ const LemonMenuItemButton: FunctionComponent<LemonMenuItemButtonProps & React.Re
                     items={items}
                     tooltipPlacement={tooltipPlacement}
                     placement="right-start"
-                    actionable
                     closeOnClickInside={custom ? false : true}
                     closeParentPopoverOnClickInside={custom ? false : true}
                 >

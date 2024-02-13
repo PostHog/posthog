@@ -36,7 +36,6 @@ export function FunnelStepMore({ stepIndex }: FunnelStepMoreProps): JSX.Element 
                 <>
                     {stepNumber > 1 && (
                         <LemonButton
-                            status="stealth"
                             fullWidth
                             to={urls.insightNew({
                                 funnel_filter: { ...filterProps, funnel_step: stepNumber },
@@ -51,7 +50,6 @@ export function FunnelStepMore({ stepIndex }: FunnelStepMoreProps): JSX.Element 
                     )}
                     {stepNumber > 1 && (
                         <LemonButton
-                            status="stealth"
                             fullWidth
                             to={urls.insightNew({
                                 funnel_filter: { ...filterProps, funnel_step: stepNumber },
@@ -65,7 +63,6 @@ export function FunnelStepMore({ stepIndex }: FunnelStepMoreProps): JSX.Element 
                         </LemonButton>
                     )}
                     <LemonButton
-                        status="stealth"
                         fullWidth
                         to={urls.insightNew({
                             funnel_filter: { ...filterProps, funnel_step: stepNumber },
@@ -79,7 +76,6 @@ export function FunnelStepMore({ stepIndex }: FunnelStepMoreProps): JSX.Element 
                     </LemonButton>
                     {stepNumber > 1 && (
                         <LemonButton
-                            status="stealth"
                             fullWidth
                             to={urls.insightNew({
                                 funnel_filter: { ...filterProps, funnel_step: stepNumber * -1 },
@@ -94,7 +90,6 @@ export function FunnelStepMore({ stepIndex }: FunnelStepMoreProps): JSX.Element 
                     )}
                     {stepNumber > 1 && (
                         <LemonButton
-                            status="stealth"
                             fullWidth
                             to={urls.insightNew({
                                 funnel_filter: { ...filterProps, funnel_step: stepNumber * -1 },

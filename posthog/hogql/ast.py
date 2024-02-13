@@ -389,14 +389,14 @@ class ArithmeticOperation(Expr):
 
 @dataclass(kw_only=True)
 class And(Expr):
-    type: Optional[ConstantType]
+    type: Optional[ConstantType] = None
     exprs: List[Expr]
 
 
 @dataclass(kw_only=True)
 class Or(Expr):
-    type: Optional[ConstantType]
     exprs: List[Expr]
+    type: Optional[ConstantType] = None
 
 
 class CompareOperationOp(str, Enum):
@@ -506,7 +506,7 @@ class JoinConstraint(Expr):
 @dataclass(kw_only=True)
 class JoinExpr(Expr):
     # :TRICKY: When adding new fields, make sure they're handled in visitor.py and resolver.py
-    type: Optional[TableOrSelectType]
+    type: Optional[TableOrSelectType] = None
 
     join_type: Optional[str] = None
     table: Optional[Union["SelectQuery", "SelectUnionQuery", Field]] = None
@@ -566,7 +566,7 @@ class SelectQuery(Expr):
 
 @dataclass(kw_only=True)
 class SelectUnionQuery(Expr):
-    type: Optional[SelectUnionQueryType]
+    type: Optional[SelectUnionQueryType] = None
     select_queries: List[SelectQuery]
 
 

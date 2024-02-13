@@ -1,6 +1,6 @@
 describe('Password Reset', () => {
     beforeEach(() => {
-        cy.get('[data-attr=top-menu-toggle]').click()
+        cy.get('[data-attr=menu-item-me]').click()
         cy.get('[data-attr=top-menu-item-logout]').click()
         cy.location('pathname').should('eq', '/login')
     })
@@ -24,7 +24,7 @@ describe('Password Reset', () => {
     it('Shows validation error if passwords do not match', () => {
         cy.visit('/reset/e2e_test_user/e2e_test_token')
         cy.get('[data-attr="password"]').type('12345678')
-        cy.get('.ant-progress-bg').should('be.visible')
+        cy.get('.LemonProgress__track').should('be.visible')
         cy.get('[data-attr="password-confirm"]').type('1234567A')
         cy.get('button[type=submit]').click()
         cy.get('.text-danger').should('contain', 'Passwords do not match')

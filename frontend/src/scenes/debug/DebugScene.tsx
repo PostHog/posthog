@@ -52,7 +52,6 @@ export function DebugScene(): JSX.Element {
     return (
         <div className="QueryScene">
             <PageHeader
-                title="Query Debugger"
                 buttons={
                     <>
                         <LemonButton active={!!query2} onClick={() => (query2 ? setQuery2('') : setQuery2(query1))}>
@@ -78,7 +77,7 @@ export function DebugScene(): JSX.Element {
                         </LemonButton>
                         <LemonLabel>
                             <LemonSelect
-                                placeholder={'More sample queries'}
+                                placeholder="More sample queries"
                                 options={Object.entries(stringifiedExamples)
                                     .filter(([k]) => k !== 'HogQLTable' && k !== 'HogQLRaw')
                                     .map(([k, v]) => {

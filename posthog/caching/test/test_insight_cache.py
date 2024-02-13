@@ -58,7 +58,7 @@ def cache_keys(cache):
 
 
 @pytest.mark.django_db
-@patch("posthog.celery.update_cache_task")
+@patch("posthog.caching.insight_cache.update_cache_task")
 def test_schedule_cache_updates(update_cache_task, team: Team, user: User):
     caching_state1 = create_insight_caching_state(team, user, filters=filter_dict, last_refresh=None)
     create_insight_caching_state(team, user, filters=filter_dict)
@@ -164,7 +164,7 @@ def test_update_cache_updates_identical_cache_keys(team: Team, user: User, cache
 
 @pytest.mark.django_db
 @freeze_time("2020-01-04T13:01:01Z")
-@patch("posthog.celery.update_cache_task")
+@patch("posthog.caching.insight_cache.update_cache_task")
 @patch("posthog.caching.insight_cache.calculate_result_by_insight")
 def test_update_cache_when_calculation_fails(
     spy_calculate_result_by_insight,

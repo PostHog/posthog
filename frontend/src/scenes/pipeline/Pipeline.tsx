@@ -5,37 +5,42 @@ import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
-import { PipelineTabs } from '~/types'
+import { PipelineTab } from '~/types'
 
 import { AppsManagement } from './AppsManagement'
+import { Destinations } from './Destinations'
 import { NewButton } from './NewButton'
+import { Overview } from './Overview'
 import { humanFriendlyTabName, pipelineLogic } from './pipelineLogic'
+import { PIPELINE_TAB_TO_NODE_STAGE } from './PipelineNode'
 import { Transformations } from './Transformations'
 
 export function Pipeline(): JSX.Element {
     const { currentTab } = useValues(pipelineLogic)
 
-    const tab_to_content: Record<PipelineTabs, JSX.Element> = {
-        [PipelineTabs.Filters]: <div>Coming soon</div>,
-        [PipelineTabs.Transformations]: <Transformations />,
-        [PipelineTabs.Destinations]: <div>Coming soon</div>,
-        [PipelineTabs.AppsManagement]: <AppsManagement />,
+    const tabToContent: Record<PipelineTab, JSX.Element> = {
+        [PipelineTab.Overview]: <Overview />,
+        [PipelineTab.Transformations]: <Transformations />,
+        [PipelineTab.Destinations]: <Destinations />,
+        [PipelineTab.AppsManagement]: <AppsManagement />,
     }
+
+    const maybeKind = PIPELINE_TAB_TO_NODE_STAGE[currentTab]
 
     return (
         <div className="pipeline-scene">
             <PageHeader
-                title="Pipeline"
                 caption="Add filters or transformations to the events sent to PostHog or export them to other tools."
-                buttons={<NewButton tab={currentTab} />}
+                buttons={maybeKind ? <NewButton stage={maybeKind} /> : undefined}
             />
             <LemonTabs
                 activeKey={currentTab}
-                onChange={(tab) => router.actions.push(urls.pipeline(tab as PipelineTabs))}
-                tabs={Object.values(PipelineTabs).map((tab) => ({
+                onChange={(tab) => router.actions.push(urls.pipeline(tab as PipelineTab))}
+                tabs={Object.values(PipelineTab).map((tab) => ({
+                    // TODO: Hide admin management based on `canGloballyManagePlugins` permission
                     label: humanFriendlyTabName(tab),
                     key: tab,
-                    content: tab_to_content[tab],
+                    content: tabToContent[tab],
                 }))}
             />
         </div>

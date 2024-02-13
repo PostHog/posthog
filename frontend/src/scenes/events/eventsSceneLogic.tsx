@@ -1,7 +1,7 @@
 import equal from 'fast-deep-equal'
 import { actions, connect, kea, path, reducers, selectors } from 'kea'
 import { actionToUrl, urlToAction } from 'kea-router'
-import { lemonToast } from 'lib/lemon-ui/lemonToast'
+import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { objectsEqual } from 'lib/utils'
 import { getDefaultEventsSceneQuery } from 'scenes/events/defaults'
 import { teamLogic } from 'scenes/teamLogic'

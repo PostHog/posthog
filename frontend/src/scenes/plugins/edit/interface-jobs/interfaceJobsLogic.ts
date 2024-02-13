@@ -2,7 +2,7 @@ import type { FormInstance } from 'antd/lib/form/hooks/useForm.d'
 import { actions, events, kea, key, listeners, path, props, reducers } from 'kea'
 import { forms } from 'kea-forms'
 import api from 'lib/api'
-import { lemonToast } from 'lib/lemon-ui/lemonToast'
+import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { validateJson } from 'lib/utils'
 
 import { JobSpec } from '~/types'

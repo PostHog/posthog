@@ -6,8 +6,7 @@ import api from 'lib/api'
 import { TriggerExportProps } from 'lib/components/ExportButton/exporter'
 import { parseProperties } from 'lib/components/PropertyFilters/utils'
 import { DashboardPrivilegeLevel } from 'lib/constants'
-import { lemonToast } from 'lib/lemon-ui/lemonToast'
-import { promptLogic } from 'lib/logic/promptLogic'
+import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { getEventNamesForAction, objectsEqual, sum, toParams } from 'lib/utils'
 import { eventUsageLogic, InsightEventSource } from 'lib/utils/eventUsageLogic'
 import { transformLegacyHiddenLegendKeys } from 'scenes/funnels/funnelUtils'
@@ -95,7 +94,7 @@ export const insightLogic = kea<insightLogicType>([
             ['user'],
         ],
         actions: [tagsModel, ['loadTags']],
-        logic: [eventUsageLogic, dashboardsModel, promptLogic({ key: `save-as-insight` })],
+        logic: [eventUsageLogic, dashboardsModel],
     })),
 
     actions({
@@ -121,7 +120,6 @@ export const insightLogic = kea<insightLogicType>([
             insight,
             options,
         }),
-        saveAs: true,
         saveAsNamingSuccess: (name: string) => ({ name }),
         cancelChanges: true,
         setInsightDescription: (description: string) => ({ description }),
@@ -136,7 +134,6 @@ export const insightLogic = kea<insightLogicType>([
             callback,
         }),
         setInsightMetadata: (metadata: Partial<InsightModel>) => ({ metadata }),
-        toggleInsightLegend: true,
         toggleVisibility: (index: number) => ({ index }),
         highlightSeries: (seriesIndex: number | null) => ({ seriesIndex }),
     }),
@@ -376,10 +373,15 @@ export const insightLogic = kea<insightLogicType>([
         /** filters for data that's being displayed, might not be same as `savedInsight.filters` or filters */
         loadedFilters: [(s) => [s.insight], (insight) => insight.filters],
         insightProps: [() => [(_, props) => props], (props): InsightLogicProps => props],
+        isInDashboardContext: [() => [(_, props) => props], ({ dashboardId }) => !!dashboardId],
         hasDashboardItemId: [
             () => [(_, props) => props],
             (props: InsightLogicProps) =>
                 !!props.dashboardItemId && props.dashboardItemId !== 'new' && !props.dashboardItemId.startsWith('new-'),
+        ],
+        isInExperimentContext: [
+            () => [router.selectors.location],
+            ({ pathname }) => /^.*\/experiments\/\d+$/.test(pathname),
         ],
         derivedName: [
             (s) => [s.insight, s.aggregationLabel, s.cohortsById, s.mathDefinitions],
@@ -413,13 +415,6 @@ export const insightLogic = kea<insightLogicType>([
                     !objectsEqual(insight.tags || [], savedInsight.tags || [])
                 )
             },
-        ],
-        isInDashboardContext: [
-            () => [router.selectors.location],
-            ({ pathname }) =>
-                pathname.startsWith('/dashboard') ||
-                pathname.startsWith('/home') ||
-                pathname.startsWith('/shared-dashboard'),
         ],
         allEventNames: [
             (s) => [s.filters, actionsModel.selectors.actions],
@@ -683,19 +678,11 @@ export const insightLogic = kea<insightLogicType>([
                 router.actions.push(urls.insightEdit(savedInsight.short_id))
             }
         },
-        saveAs: async () => {
-            promptLogic({ key: `save-as-insight` }).actions.prompt({
-                title: 'Save as new insight',
-                placeholder: 'Please enter the new name',
-                value: `${values.insight.name || values.insight.derived_name} (copy)`,
-                error: 'You must enter a name',
-                success: actions.saveAsNamingSuccess,
-            })
-        },
         saveAsNamingSuccess: async ({ name }) => {
             const insight: InsightModel = await api.create(`api/projects/${teamLogic.values.currentTeamId}/insights/`, {
                 name,
                 filters: values.filters,
+                query: values.insight.query,
                 saved: true,
             })
             lemonToast.info(`You're now working on a copy of ${values.insight.name ?? values.insight.derived_name}`)
@@ -705,13 +692,6 @@ export const insightLogic = kea<insightLogicType>([
         },
         loadInsightSuccess: async ({ insight }) => {
             actions.reportInsightViewed(insight, insight?.filters || {})
-        },
-        toggleInsightLegend: () => {
-            const newFilters: Partial<TrendsFilterType> = {
-                ...values.filters,
-                show_legend: !(values.filters as Partial<TrendsFilterType>).show_legend,
-            }
-            actions.setFilters(newFilters)
         },
         toggleVisibility: ({ index }) => {
             const currentIsHidden = !!values.hiddenLegendKeys?.[index]

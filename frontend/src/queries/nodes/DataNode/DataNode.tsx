@@ -38,7 +38,7 @@ export function DataNode(props: DataNodeProps): JSX.Element {
                     {({ height }) => (
                         <CodeEditor
                             className="border"
-                            language={'json'}
+                            language="json"
                             value={JSON.stringify(response ?? responseErrorObject, null, 2)}
                             height={Math.max(height, 300)}
                         />

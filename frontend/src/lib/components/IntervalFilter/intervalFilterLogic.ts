@@ -1,7 +1,7 @@
 import { actions, connect, kea, key, listeners, path, props, reducers } from 'kea'
 import { IntervalKeyType, Intervals, intervals } from 'lib/components/IntervalFilter/intervals'
 import { dayjs } from 'lib/dayjs'
-import { lemonToast } from 'lib/lemon-ui/lemonToast'
+import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { dateMapping, objectsEqual } from 'lib/utils'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'

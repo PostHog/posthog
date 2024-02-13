@@ -4,14 +4,15 @@ import {
     isAnyPropertyfilter,
     isCohortPropertyFilter,
     isPropertyFilterWithOperator,
+    PROPERTY_FILTER_TYPE_TO_TAXONOMIC_FILTER_GROUP_TYPE,
 } from 'lib/components/PropertyFilters/utils'
 import { SeriesLetter } from 'lib/components/SeriesGlyph'
+import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { IconCalculate, IconSubdirectoryArrowRight } from 'lib/lemon-ui/icons'
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
 import { LemonRow } from 'lib/lemon-ui/LemonRow'
 import { Link } from 'lib/lemon-ui/Link'
 import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
-import { KEY_MAPPING } from 'lib/taxonomy'
 import { allOperatorsMapping, capitalizeFirstLetter } from 'lib/utils'
 import React from 'react'
 import { LocalFilter, toLocalFilters } from 'scenes/insights/filters/ActionFilter/entityFilterLogic'
@@ -79,7 +80,6 @@ function CompactPropertyFiltersDisplay({
                                                 {formatPropertyLabel(
                                                     leafFilter,
                                                     cohortsById,
-                                                    KEY_MAPPING,
                                                     (s) =>
                                                         formatPropertyValueForDisplay(leafFilter.key, s)?.toString() ||
                                                         '?'
@@ -94,7 +94,14 @@ function CompactPropertyFiltersDisplay({
                                             's
                                             <span className="SeriesDisplay__raw-name">
                                                 {isAnyPropertyfilter(leafFilter) && leafFilter.key && (
-                                                    <PropertyKeyInfo value={leafFilter.key} />
+                                                    <PropertyKeyInfo
+                                                        value={leafFilter.key}
+                                                        type={
+                                                            PROPERTY_FILTER_TYPE_TO_TAXONOMIC_FILTER_GROUP_TYPE[
+                                                                leafFilter.type
+                                                            ]
+                                                        }
+                                                    />
                                                 )}
                                             </span>
                                             {
@@ -162,7 +169,10 @@ function SeriesDisplay({
                                                 {' '}
                                                 event's
                                                 <span className="SeriesDisplay__raw-name">
-                                                    <PropertyKeyInfo value={filter.math_property} />
+                                                    <PropertyKeyInfo
+                                                        value={filter.math_property}
+                                                        type={TaxonomicFilterGroupType.EventProperties}
+                                                    />
                                                 </span>
                                             </>
                                         )}
@@ -195,7 +205,7 @@ function SeriesDisplay({
                 </Link>
             ) : (
                 <span className="SeriesDisplay__raw-name SeriesDisplay__raw-name--event" title="Event series">
-                    <PropertyKeyInfo value={filter.name || '$pageview'} />
+                    <PropertyKeyInfo value={filter.name || '$pageview'} type={TaxonomicFilterGroupType.Events} />
                 </span>
             )}
         </LemonRow>
@@ -333,19 +343,13 @@ function InsightDetailsInternal({ insight }: { insight: InsightModel }, ref: Rea
                 <div>
                     <h5>Created by</h5>
                     <section>
-                        <ProfilePicture name={created_by?.first_name} email={created_by?.email} showName size="md" />{' '}
-                        <TZLabel time={created_at} />
+                        <ProfilePicture user={created_by} showName size="md" /> <TZLabel time={created_at} />
                     </section>
                 </div>
                 <div>
                     <h5>Last modified by</h5>
                     <section>
-                        <ProfilePicture
-                            name={insight.last_modified_by?.first_name}
-                            email={insight.last_modified_by?.email}
-                            showName
-                            size="md"
-                        />{' '}
+                        <ProfilePicture user={insight.last_modified_by} showName size="md" />{' '}
                         <TZLabel time={insight.last_modified_at} />
                     </section>
                 </div>

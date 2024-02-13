@@ -17,7 +17,9 @@ export function Setup2FA({ onSuccess }: { onSuccess: () => void }): JSX.Element 
     return (
         <>
             <Form logic={setup2FALogic} formKey="token" enableFormOnSubmit className="flex flex-col space-y-4">
-                <img src="/account/two_factor/qrcode/" className="Setup2FA__image" />
+                <div className="bg-white ml-auto mr-auto mt-2">
+                    <img src="/account/two_factor/qrcode/" className="Setup2FA__image" />
+                </div>
                 {generalError && <LemonBanner type="error">{generalError.detail}</LemonBanner>}
                 <Field name="token" label="Authenticator token">
                     <LemonInput

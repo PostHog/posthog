@@ -3,6 +3,7 @@ import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { urls } from 'scenes/urls'
+import { userLogic } from 'scenes/userLogic'
 
 import type { settingsLogicType } from './settingsLogicType'
 import { SettingsMap } from './SettingsMap'
@@ -13,7 +14,7 @@ export const settingsLogic = kea<settingsLogicType>([
     key((props) => props.logicKey ?? 'global'),
     path((key) => ['scenes', 'settings', 'settingsLogic', key]),
     connect({
-        values: [featureFlagLogic, ['featureFlags']],
+        values: [featureFlagLogic, ['featureFlags'], userLogic, ['hasAvailableFeature']],
     }),
 
     actions({
@@ -65,8 +66,8 @@ export const settingsLogic = kea<settingsLogicType>([
             },
         ],
         settings: [
-            (s) => [s.selectedLevel, s.selectedSectionId, s.sections, s.featureFlags],
-            (selectedLevel, selectedSectionId, sections, featureFlags): Setting[] => {
+            (s) => [s.selectedLevel, s.selectedSectionId, s.sections, s.featureFlags, s.hasAvailableFeature],
+            (selectedLevel, selectedSectionId, sections, featureFlags, hasAvailableFeature): Setting[] => {
                 let settings: Setting[] = []
 
                 if (!selectedSectionId) {
@@ -77,7 +78,19 @@ export const settingsLogic = kea<settingsLogicType>([
                     settings = sections.find((x) => x.id === selectedSectionId)?.settings || []
                 }
 
-                return settings.filter((x) => (x.flag ? featureFlags[FEATURE_FLAGS[x.flag]] : true))
+                return settings.filter((x) => {
+                    if (x.flag && x.features) {
+                        return (
+                            x.features.some((feat) => hasAvailableFeature(feat)) || featureFlags[FEATURE_FLAGS[x.flag]]
+                        )
+                    } else if (x.features) {
+                        return x.features.some((feat) => hasAvailableFeature(feat))
+                    } else if (x.flag) {
+                        return featureFlags[FEATURE_FLAGS[x.flag]]
+                    }
+
+                    return true
+                })
             },
         ],
     }),

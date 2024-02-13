@@ -1,5 +1,6 @@
+# serializer version: 1
 # name: TestPluginSourceFile.test_sync_from_plugin_archive_from_tgz_with_explicit_index_js_works
-  '
+  '''
   SELECT "posthog_pluginsourcefile"."id",
          "posthog_pluginsourcefile"."plugin_id",
          "posthog_pluginsourcefile"."filename",
@@ -14,10 +15,10 @@
   LIMIT 21
   FOR
   UPDATE
-  '
----
+  '''
+# ---
 # name: TestPluginSourceFile.test_sync_from_plugin_archive_from_tgz_with_explicit_index_js_works.1
-  '
+  '''
   SELECT "posthog_pluginsourcefile"."id",
          "posthog_pluginsourcefile"."plugin_id",
          "posthog_pluginsourcefile"."filename",
@@ -32,16 +33,16 @@
   LIMIT 21
   FOR
   UPDATE
-  '
----
+  '''
+# ---
 # name: TestPluginSourceFile.test_sync_from_plugin_archive_from_tgz_with_explicit_index_js_works.2
-  '
+  '''
   SELECT COUNT(*) AS "__count"
   FROM "posthog_pluginsourcefile"
-  '
----
+  '''
+# ---
 # name: TestPluginSourceFile.test_sync_from_plugin_archive_from_tgz_with_explicit_index_js_works.3
-  '
+  '''
   SELECT "posthog_pluginsourcefile"."id",
          "posthog_pluginsourcefile"."plugin_id",
          "posthog_pluginsourcefile"."filename",
@@ -56,10 +57,10 @@
   LIMIT 21
   FOR
   UPDATE
-  '
----
+  '''
+# ---
 # name: TestPluginSourceFile.test_sync_from_plugin_archive_from_tgz_with_explicit_index_js_works.4
-  '
+  '''
   SELECT "posthog_pluginsourcefile"."id",
          "posthog_pluginsourcefile"."plugin_id",
          "posthog_pluginsourcefile"."filename",
@@ -74,16 +75,16 @@
   LIMIT 21
   FOR
   UPDATE
-  '
----
+  '''
+# ---
 # name: TestPluginSourceFile.test_sync_from_plugin_archive_from_tgz_with_explicit_index_js_works.5
-  '
+  '''
   SELECT COUNT(*) AS "__count"
   FROM "posthog_pluginsourcefile"
-  '
----
+  '''
+# ---
 # name: TestPluginSourceFile.test_sync_from_plugin_archive_from_zip_with_explicit_index_js_works
-  '
+  '''
   SELECT "posthog_pluginsourcefile"."id",
          "posthog_pluginsourcefile"."plugin_id",
          "posthog_pluginsourcefile"."filename",
@@ -98,10 +99,10 @@
   LIMIT 21
   FOR
   UPDATE
-  '
----
+  '''
+# ---
 # name: TestPluginSourceFile.test_sync_from_plugin_archive_from_zip_with_explicit_index_js_works.1
-  '
+  '''
   SELECT "posthog_pluginsourcefile"."id",
          "posthog_pluginsourcefile"."plugin_id",
          "posthog_pluginsourcefile"."filename",
@@ -116,16 +117,16 @@
   LIMIT 21
   FOR
   UPDATE
-  '
----
+  '''
+# ---
 # name: TestPluginSourceFile.test_sync_from_plugin_archive_from_zip_with_explicit_index_js_works.2
-  '
+  '''
   SELECT COUNT(*) AS "__count"
   FROM "posthog_pluginsourcefile"
-  '
----
+  '''
+# ---
 # name: TestPluginSourceFile.test_sync_from_plugin_archive_from_zip_with_index_ts_works
-  '
+  '''
   SELECT "posthog_pluginsourcefile"."id",
          "posthog_pluginsourcefile"."plugin_id",
          "posthog_pluginsourcefile"."filename",
@@ -140,10 +141,10 @@
   LIMIT 21
   FOR
   UPDATE
-  '
----
+  '''
+# ---
 # name: TestPluginSourceFile.test_sync_from_plugin_archive_from_zip_with_index_ts_works.1
-  '
+  '''
   SELECT "posthog_pluginsourcefile"."id",
          "posthog_pluginsourcefile"."plugin_id",
          "posthog_pluginsourcefile"."filename",
@@ -158,16 +159,16 @@
   LIMIT 21
   FOR
   UPDATE
-  '
----
+  '''
+# ---
 # name: TestPluginSourceFile.test_sync_from_plugin_archive_from_zip_with_index_ts_works.2
-  '
+  '''
   SELECT COUNT(*) AS "__count"
   FROM "posthog_pluginsourcefile"
-  '
----
+  '''
+# ---
 # name: TestPluginSourceFile.test_sync_from_plugin_archive_from_zip_without_index_ts_but_frontend_tsx_works
-  '
+  '''
   SELECT "posthog_pluginsourcefile"."id",
          "posthog_pluginsourcefile"."plugin_id",
          "posthog_pluginsourcefile"."filename",
@@ -182,10 +183,10 @@
   LIMIT 21
   FOR
   UPDATE
-  '
----
+  '''
+# ---
 # name: TestPluginSourceFile.test_sync_from_plugin_archive_from_zip_without_index_ts_but_frontend_tsx_works.1
-  '
+  '''
   SELECT "posthog_pluginsourcefile"."id",
          "posthog_pluginsourcefile"."plugin_id",
          "posthog_pluginsourcefile"."filename",
@@ -200,16 +201,16 @@
   LIMIT 21
   FOR
   UPDATE
-  '
----
+  '''
+# ---
 # name: TestPluginSourceFile.test_sync_from_plugin_archive_from_zip_without_index_ts_but_frontend_tsx_works.2
-  '
+  '''
   SELECT COUNT(*) AS "__count"
   FROM "posthog_pluginsourcefile"
-  '
----
+  '''
+# ---
 # name: TestPluginSourceFile.test_sync_from_plugin_archive_from_zip_without_index_ts_but_site_Ts_works
-  '
+  '''
   SELECT "posthog_pluginsourcefile"."id",
          "posthog_pluginsourcefile"."plugin_id",
          "posthog_pluginsourcefile"."filename",
@@ -224,10 +225,10 @@
   LIMIT 21
   FOR
   UPDATE
-  '
----
+  '''
+# ---
 # name: TestPluginSourceFile.test_sync_from_plugin_archive_from_zip_without_index_ts_but_site_Ts_works.1
-  '
+  '''
   SELECT "posthog_pluginsourcefile"."id",
          "posthog_pluginsourcefile"."plugin_id",
          "posthog_pluginsourcefile"."filename",
@@ -242,16 +243,16 @@
   LIMIT 21
   FOR
   UPDATE
-  '
----
+  '''
+# ---
 # name: TestPluginSourceFile.test_sync_from_plugin_archive_from_zip_without_index_ts_but_site_Ts_works.2
-  '
+  '''
   SELECT COUNT(*) AS "__count"
   FROM "posthog_pluginsourcefile"
-  '
----
+  '''
+# ---
 # name: TestPluginSourceFile.test_sync_from_plugin_archive_twice_from_zip_with_index_ts_replaced_by_frontend_tsx_works
-  '
+  '''
   SELECT "posthog_pluginsourcefile"."id",
          "posthog_pluginsourcefile"."plugin_id",
          "posthog_pluginsourcefile"."filename",
@@ -266,10 +267,10 @@
   LIMIT 21
   FOR
   UPDATE
-  '
----
+  '''
+# ---
 # name: TestPluginSourceFile.test_sync_from_plugin_archive_twice_from_zip_with_index_ts_replaced_by_frontend_tsx_works.1
-  '
+  '''
   SELECT "posthog_pluginsourcefile"."id",
          "posthog_pluginsourcefile"."plugin_id",
          "posthog_pluginsourcefile"."filename",
@@ -284,16 +285,16 @@
   LIMIT 21
   FOR
   UPDATE
-  '
----
+  '''
+# ---
 # name: TestPluginSourceFile.test_sync_from_plugin_archive_twice_from_zip_with_index_ts_replaced_by_frontend_tsx_works.2
-  '
+  '''
   SELECT COUNT(*) AS "__count"
   FROM "posthog_pluginsourcefile"
-  '
----
+  '''
+# ---
 # name: TestPluginSourceFile.test_sync_from_plugin_archive_twice_from_zip_with_index_ts_replaced_by_frontend_tsx_works.3
-  '
+  '''
   SELECT "posthog_pluginsourcefile"."id",
          "posthog_pluginsourcefile"."plugin_id",
          "posthog_pluginsourcefile"."filename",
@@ -308,10 +309,10 @@
   LIMIT 21
   FOR
   UPDATE
-  '
----
+  '''
+# ---
 # name: TestPluginSourceFile.test_sync_from_plugin_archive_twice_from_zip_with_index_ts_replaced_by_frontend_tsx_works.4
-  '
+  '''
   SELECT "posthog_pluginsourcefile"."id",
          "posthog_pluginsourcefile"."plugin_id",
          "posthog_pluginsourcefile"."filename",
@@ -326,16 +327,16 @@
   LIMIT 21
   FOR
   UPDATE
-  '
----
+  '''
+# ---
 # name: TestPluginSourceFile.test_sync_from_plugin_archive_twice_from_zip_with_index_ts_replaced_by_frontend_tsx_works.5
-  '
+  '''
   SELECT COUNT(*) AS "__count"
   FROM "posthog_pluginsourcefile"
-  '
----
+  '''
+# ---
 # name: TestPluginSourceFile.test_sync_from_plugin_archive_with_subdir_works
-  '
+  '''
   SELECT "posthog_pluginsourcefile"."id",
          "posthog_pluginsourcefile"."plugin_id",
          "posthog_pluginsourcefile"."filename",
@@ -350,10 +351,10 @@
   LIMIT 21
   FOR
   UPDATE
-  '
----
+  '''
+# ---
 # name: TestPluginSourceFile.test_sync_from_plugin_archive_with_subdir_works.1
-  '
+  '''
   SELECT "posthog_pluginsourcefile"."id",
          "posthog_pluginsourcefile"."plugin_id",
          "posthog_pluginsourcefile"."filename",
@@ -368,11 +369,11 @@
   LIMIT 21
   FOR
   UPDATE
-  '
----
+  '''
+# ---
 # name: TestPluginSourceFile.test_sync_from_plugin_archive_with_subdir_works.2
-  '
+  '''
   SELECT COUNT(*) AS "__count"
   FROM "posthog_pluginsourcefile"
-  '
----
+  '''
+# ---

@@ -10,7 +10,7 @@ export const ActionBar = (): JSX.Element => {
     return (
         <div className="flex flex-col h-full">
             {(!activeFlow || activeFlow.instruction) && <ActionInput />}
-            {<ActionResults />}
+            <ActionResults />
         </div>
     )
 }

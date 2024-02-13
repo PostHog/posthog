@@ -718,3 +718,8 @@ class TestSelectors(BaseTest):
         self.assertEqual(selector1.parts[1].data, {"tag_name": "div"})
         self.assertEqual(selector1.parts[1].direct_descendant, False)
         self.assertEqual(selector1.parts[1].unique_order, 1)
+
+    def test_slash_colon(self):
+        # Make sure we strip these for full text search to work in the database
+        selector1 = Selector("div#root\\:id")
+        self.assertEqual(selector1.parts[0].data, {"tag_name": "div", "attr_id": "root:id"})

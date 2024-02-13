@@ -16,7 +16,13 @@ const meta: Meta<typeof LemonSelectMultiple> = {
                 [`user-${i}`]: {
                     labelComponent: (
                         <span className="flex gap-2 items-center">
-                            <ProfilePicture name={x} email={`${x}@posthog.com`} size="sm" />
+                            <ProfilePicture
+                                user={{
+                                    first_name: x,
+                                    email: `${x}@posthog.com`,
+                                }}
+                                size="sm"
+                            />
                             <span>
                                 {capitalizeFirstLetter(x)} <b>{`<${x}@posthog.com>`}</b>
                             </span>

@@ -66,7 +66,7 @@ export const personsManagementSceneLogic = kea<personsManagementSceneLogicType>(
                                 data-attr="new-cohort"
                                 onClick={() => router.actions.push(urls.cohort('new'))}
                             >
-                                New Cohort
+                                New cohort
                             </LemonButton>
                         ),
                     },

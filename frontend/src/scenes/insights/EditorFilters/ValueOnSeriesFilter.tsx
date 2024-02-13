@@ -14,7 +14,7 @@ export function ValueOnSeriesFilter(): JSX.Element {
             className="p-1 px-2"
             checked={valueOnSeries}
             onChange={(checked) => {
-                updateInsightFilter({ show_values_on_series: checked })
+                updateInsightFilter({ showValuesOnSeries: checked })
             }}
             label={<span className="font-normal">Show values on series</span>}
             size="small"

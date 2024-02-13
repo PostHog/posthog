@@ -30,7 +30,7 @@ export interface PersonDisplayProps {
 export function PersonIcon({
     person,
     ...props
-}: Pick<PersonDisplayProps, 'person'> & Omit<ProfilePictureProps, 'name' | 'email'>): JSX.Element {
+}: Pick<PersonDisplayProps, 'person'> & Omit<ProfilePictureProps, 'user' | 'name' | 'email'>): JSX.Element {
     const display = asDisplay(person)
 
     const email: string | undefined = useMemo(() => {
@@ -41,7 +41,15 @@ export function PersonIcon({
         return typeof possibleEmail === 'string' ? possibleEmail : undefined
     }, [person?.properties?.email])
 
-    return <ProfilePicture {...props} name={display} email={email} />
+    return (
+        <ProfilePicture
+            {...props}
+            user={{
+                first_name: display,
+                email,
+            }}
+        />
+    )
 }
 
 export function PersonDisplay({

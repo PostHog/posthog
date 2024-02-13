@@ -3,11 +3,11 @@ import { actions, afterMount, connect, kea, listeners, path, reducers, selectors
 import { loaders } from 'kea-loaders'
 import { actionToUrl, router, urlToAction } from 'kea-router'
 import api from 'lib/api'
-import { lemonToast } from 'lib/lemon-ui/lemonToast'
+import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import posthog from 'posthog-js'
 import { frontendAppsLogic } from 'scenes/apps/frontendAppsLogic'
+import { getConfigSchemaArray, getConfigSchemaObject, getPluginConfigFormData } from 'scenes/pipeline/configUtils'
 import { createDefaultPluginSource } from 'scenes/plugins/source/createDefaultPluginSource'
-import { getConfigSchemaArray, getConfigSchemaObject, getPluginConfigFormData } from 'scenes/plugins/utils'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
@@ -152,7 +152,11 @@ export const pluginsLogic = kea<pluginsLogicType>([
                         return pluginConfigs
                     }
 
-                    const formData = getPluginConfigFormData(editingPlugin, pluginConfigChanges)
+                    const formData = getPluginConfigFormData(
+                        editingPlugin.config_schema,
+                        editingPlugin.pluginConfig?.config,
+                        pluginConfigChanges
+                    )
 
                     if (!editingPlugin.pluginConfig?.enabled) {
                         formData.append('order', values.nextPluginOrder.toString())
@@ -364,12 +368,6 @@ export const pluginsLogic = kea<pluginsLogicType>([
                 hidePluginLogs: () => null,
             },
         ],
-        lastShownLogsPluginId: [
-            null as number | null,
-            {
-                showPluginLogs: (_, { id }) => id,
-            },
-        ],
         searchTerm: [
             null as string | null,
             {
@@ -524,16 +522,6 @@ export const pluginsLogic = kea<pluginsLogicType>([
             (pluginsLoading, repositoryLoading, pluginConfigsLoading) =>
                 pluginsLoading || repositoryLoading || pluginConfigsLoading,
         ],
-        showingLogsPlugin: [
-            (s) => [s.showingLogsPluginId, s.installedPlugins],
-            (showingLogsPluginId, installedPlugins) =>
-                showingLogsPluginId ? installedPlugins.find((plugin) => plugin.id === showingLogsPluginId) : null,
-        ],
-        lastShownLogsPlugin: [
-            (s) => [s.lastShownLogsPluginId, s.installedPlugins],
-            (lastShownLogsPluginId, installedPlugins) =>
-                lastShownLogsPluginId ? installedPlugins.find((plugin) => plugin.id === lastShownLogsPluginId) : null,
-        ],
         filteredUninstalledPlugins: [
             (s) => [s.searchTerm, s.uninstalledPlugins],
             (searchTerm, uninstalledPlugins) =>
@@ -662,6 +650,8 @@ export const pluginsLogic = kea<pluginsLogicType>([
             }
         },
         generateApiKeysIfNeeded: async ({ form }, breakpoint) => {
+            // TODO: Auto-generated keys for posthogApiKey fields are deprecated
+            // This whole action can be removed at some point
             const { editingPlugin } = values
             if (!editingPlugin) {
                 return

@@ -1,15 +1,6 @@
 import './SidePanel.scss'
 
-import {
-    IconConfetti,
-    IconEllipsis,
-    IconFeatures,
-    IconGear,
-    IconInfo,
-    IconNotebook,
-    IconNotification,
-    IconSupport,
-} from '@posthog/icons'
+import { IconEllipsis, IconFeatures, IconGear, IconInfo, IconNotebook, IconSupport } from '@posthog/icons'
 import { LemonButton, LemonMenu, LemonMenuItems } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
@@ -20,13 +11,14 @@ import { NotebookPanel } from 'scenes/notebooks/NotebookPanel/NotebookPanel'
 
 import { SidePanelTab } from '~/types'
 
-import { SidePanelActivity } from './panels/activity/SidePanelActivity'
+import { SidePanelActivity, SidePanelActivityIcon } from './panels/activity/SidePanelActivity'
+import { SidePanelDiscussion, SidePanelDiscussionIcon } from './panels/discussion/SidePanelDiscussion'
 import { SidePanelActivation, SidePanelActivationIcon } from './panels/SidePanelActivation'
 import { SidePanelDocs } from './panels/SidePanelDocs'
 import { SidePanelFeaturePreviews } from './panels/SidePanelFeaturePreviews'
 import { SidePanelSettings } from './panels/SidePanelSettings'
+import { SidePanelStatus, SidePanelStatusIcon } from './panels/SidePanelStatus'
 import { SidePanelSupport } from './panels/SidePanelSupport'
-import { SidePanelWelcome } from './panels/SidePanelWelcome'
 import { sidePanelLogic } from './sidePanelLogic'
 import { sidePanelStateLogic } from './sidePanelStateLogic'
 
@@ -65,14 +57,19 @@ export const SIDE_PANEL_TABS: Record<SidePanelTab, { label: string; Icon: any; C
     },
 
     [SidePanelTab.Activity]: {
-        label: 'Activity',
-        Icon: IconNotification,
+        label: 'Team activity',
+        Icon: SidePanelActivityIcon,
         Content: SidePanelActivity,
     },
-    [SidePanelTab.Welcome]: {
-        label: "What's new?",
-        Icon: IconConfetti,
-        Content: SidePanelWelcome,
+    [SidePanelTab.Discussion]: {
+        label: 'Discussion',
+        Icon: SidePanelDiscussionIcon,
+        Content: SidePanelDiscussion,
+    },
+    [SidePanelTab.Status]: {
+        label: 'System status',
+        Icon: SidePanelStatusIcon,
+        Content: SidePanelStatus,
     },
 }
 
@@ -91,7 +88,8 @@ export function SidePanel(): JSX.Element | null {
 
     const resizerLogicProps: ResizerLogicProps = {
         containerRef: ref,
-        persistentKey: 'side-panel',
+        logicKey: 'side-panel',
+        persistent: true,
         closeThreshold: 200,
         placement: 'left',
         onToggleClosed: (shouldBeClosed) => {
@@ -153,14 +151,14 @@ export function SidePanel(): JSX.Element | null {
                             return (
                                 <LemonButton
                                     key={tab}
-                                    icon={<Icon className="rotate-270 w-6" />}
+                                    icon={<Icon />}
                                     onClick={() =>
                                         activeTab === tab ? closeSidePanel() : openSidePanel(tab as SidePanelTab)
                                     }
                                     data-attr={`sidepanel-tab-${tab}`}
                                     active={activeTab === tab}
                                     type="secondary"
-                                    stealth={true}
+                                    status="alt"
                                 >
                                     {label}
                                 </LemonButton>
@@ -171,12 +169,12 @@ export function SidePanel(): JSX.Element | null {
                 {menuOptions ? (
                     <div className="shrink-0 flex items-center m-2">
                         <LemonMenu items={menuOptions}>
-                            <LemonButton size="small" status="stealth" icon={<IconEllipsis />} />
+                            <LemonButton size="small" icon={<IconEllipsis />} />
                         </LemonMenu>
                     </div>
                 ) : null}
             </div>
-            <Resizer {...resizerLogicProps} offset={'3rem'} />
+            <Resizer {...resizerLogicProps} offset="3rem" />
 
             {PanelConent ? (
                 <div className="SidePanel3000__content">

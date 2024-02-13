@@ -1,6 +1,6 @@
 import { actions, BuiltLogic, connect, kea, listeners, path, reducers, selectors, sharedListeners } from 'kea'
 import { actionToUrl, beforeUnload, router, urlToAction } from 'kea-router'
-import { lemonToast } from 'lib/lemon-ui/lemonToast'
+import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { eventUsageLogic, InsightEventSource } from 'lib/utils/eventUsageLogic'
 import { createEmptyInsight, insightLogic } from 'scenes/insights/insightLogic'
 import { insightLogicType } from 'scenes/insights/insightLogicType'
@@ -9,13 +9,18 @@ import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { sceneLogic } from 'scenes/sceneLogic'
 import { Scene } from 'scenes/sceneTypes'
 import { teamLogic } from 'scenes/teamLogic'
+import { mathsLogic } from 'scenes/trends/mathsLogic'
 import { urls } from 'scenes/urls'
 
-import { Breadcrumb, FilterType, InsightShortId, InsightType, ItemMode } from '~/types'
+import { ActivityFilters } from '~/layout/navigation-3000/sidepanel/panels/activity/activityForSceneLogic'
+import { cohortsModel } from '~/models/cohortsModel'
+import { groupsModel } from '~/models/groupsModel'
+import { ActivityScope, Breadcrumb, FilterType, InsightShortId, InsightType, ItemMode } from '~/types'
 
 import { insightDataLogic } from './insightDataLogic'
 import { insightDataLogicType } from './insightDataLogicType'
 import type { insightSceneLogicType } from './insightSceneLogicType'
+import { summarizeInsight } from './summarizeInsight'
 
 export const insightSceneLogic = kea<insightSceneLogicType>([
     path(['scenes', 'insights', 'insightSceneLogic']),
@@ -85,23 +90,49 @@ export const insightSceneLogic = kea<insightSceneLogicType>([
     }),
     selectors(() => ({
         insightSelector: [(s) => [s.insightLogicRef], (insightLogicRef) => insightLogicRef?.logic.selectors.insight],
+        filtersSelector: [(s) => [s.insightLogicRef], (insightLogicRef) => insightLogicRef?.logic.selectors.filters],
         insight: [(s) => [(state, props) => s.insightSelector?.(state, props)?.(state, props)], (insight) => insight],
+        filters: [(s) => [(state, props) => s.filtersSelector?.(state, props)?.(state, props)], (filters) => filters],
         breadcrumbs: [
-            (s) => [s.insight, s.insightLogicRef],
-            (insight, insightLogicRef): Breadcrumb[] => [
+            (s) => [
+                s.insightLogicRef,
+                s.insight,
+                s.filters,
+                groupsModel.selectors.aggregationLabel,
+                cohortsModel.selectors.cohortsById,
+                mathsLogic.selectors.mathDefinitions,
+            ],
+            (insightLogicRef, insight, filters, aggregationLabel, cohortsById, mathDefinitions): Breadcrumb[] => [
                 {
                     key: Scene.SavedInsights,
                     name: 'Product analytics',
                     path: urls.savedInsights(),
                 },
                 {
-                    key: insight?.short_id || 'new',
-                    name: insight?.name || insight?.derived_name || 'Unnamed',
+                    key: [Scene.Insight, insight?.short_id || 'new'],
+                    name:
+                        insight?.name ||
+                        summarizeInsight(insight?.query, filters, {
+                            aggregationLabel,
+                            cohortsById,
+                            mathDefinitions,
+                        }),
                     onRename: async (name: string) => {
                         await insightLogicRef?.logic.asyncActions.setInsightMetadata({ name })
                     },
                 },
             ],
+        ],
+        activityFilters: [
+            (s) => [s.insight],
+            (insight): ActivityFilters | null => {
+                return insight
+                    ? {
+                          scope: ActivityScope.INSIGHT,
+                          item_id: `${insight.id}`,
+                      }
+                    : null
+            },
         ],
     })),
     sharedListeners(({ actions, values }) => ({

@@ -67,32 +67,6 @@ export function ActionEdit({ action: loadedAction, id }: ActionEditLogicProps): 
         <div className="action-edit-container">
             <Form logic={actionEditLogic} props={logicProps} formKey="action" enableFormOnSubmit>
                 <PageHeader
-                    title={
-                        <Field name="name">
-                            {({ value, onChange }) => (
-                                <EditableField
-                                    name="name"
-                                    value={value || ''}
-                                    placeholder={`Name this action`}
-                                    onChange={
-                                        !id
-                                            ? onChange
-                                            : undefined /* When creating a new action, change value on type */
-                                    }
-                                    onSave={(value) => {
-                                        onChange(value)
-                                        submitAction()
-                                        /* When clicking 'Save' on an `EditableField`, save the form too */
-                                    }}
-                                    mode={!id ? 'edit' : undefined /* When creating a new action, maintain edit mode */}
-                                    minLength={1}
-                                    maxLength={400} // Sync with action model
-                                    data-attr={`action-name-${id ? 'edit' : 'create'}`}
-                                    className="action-name"
-                                />
-                            )}
-                        </Field>
-                    }
                     caption={
                         <>
                             <Field name="description">
@@ -126,7 +100,7 @@ export function ActionEdit({ action: loadedAction, id }: ActionEditLogicProps): 
                                     />
                                 )}
                             </Field>
-                            <Field name="tags">
+                            <Field name="tags" className="mt-2">
                                 {({ value, onChange }) => (
                                     <ObjectTags
                                         tags={value ?? []}

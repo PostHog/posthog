@@ -4,7 +4,6 @@ import { pluginsLogic } from 'scenes/plugins/pluginsLogic'
 import { inviteLogic } from 'scenes/settings/organization/inviteLogic'
 import { teamLogic } from 'scenes/teamLogic'
 
-import { navigationLogic } from '~/layout/navigation/navigationLogic'
 import { initKeaTests } from '~/test/init'
 
 import { activationLogic } from './activationLogic'
@@ -16,17 +15,12 @@ describe('activationLogic', () => {
         initKeaTests()
         logic = activationLogic()
         logic.mount()
-        await expectLogic(logic).toMount([inviteLogic, membersLogic, teamLogic, pluginsLogic, navigationLogic])
+        await expectLogic(logic).toMount([inviteLogic, membersLogic, teamLogic, pluginsLogic])
     })
 
     afterEach(() => logic.unmount())
 
     it('should load custom events on mount', async () => {
         expectLogic(logic).toDispatchActions(['loadCustomEvents', 'loadInsights'])
-    })
-
-    it('should report activation sidebar shown', async () => {
-        navigationLogic.actions.showActivationSideBar()
-        expectLogic(logic).toDispatchActions(['reportActivationSidebarShown'])
     })
 })

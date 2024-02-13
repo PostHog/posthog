@@ -115,7 +115,6 @@ export function LemonModal({
                         <LemonButton
                             icon={<IconClose />}
                             size="small"
-                            status="stealth"
                             onClick={onClose}
                             aria-label="close"
                             onMouseEnter={() => setIgnoredOverlayClickCount(0)}

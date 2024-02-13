@@ -3,10 +3,11 @@ import inspect
 import re
 import resource
 import threading
+import time
 import uuid
 from contextlib import contextmanager
 from functools import wraps
-from typing import Any, Dict, List, Optional, Tuple, Union
+from typing import Any, Dict, List, Optional, Tuple, Union, Generator
 from unittest.mock import patch
 
 import freezegun
@@ -20,7 +21,7 @@ from django.apps import apps
 from django.core.cache import cache
 from django.db import connection, connections
 from django.db.migrations.executor import MigrationExecutor
-from django.test import TestCase, TransactionTestCase, override_settings
+from django.test import SimpleTestCase, TestCase, TransactionTestCase, override_settings
 from django.test.utils import CaptureQueriesContext
 from rest_framework.test import APITestCase as DRFTestCase
 
@@ -29,11 +30,16 @@ from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.client.connection import ch_pool
 from posthog.clickhouse.plugin_log_entries import TRUNCATE_PLUGIN_LOG_ENTRIES_TABLE_SQL
 from posthog.cloud_utils import (
-    TEST_clear_cloud_cache,
     TEST_clear_instance_license_cache,
-    is_cloud,
 )
 from posthog.models import Dashboard, DashboardTile, Insight, Organization, Team, User
+from posthog.models.channel_type.sql import (
+    CHANNEL_DEFINITION_TABLE_SQL,
+    DROP_CHANNEL_DEFINITION_TABLE_SQL,
+    DROP_CHANNEL_DEFINITION_DICTIONARY_SQL,
+    CHANNEL_DEFINITION_DICTIONARY_SQL,
+    CHANNEL_DEFINITION_DATA_SQL,
+)
 from posthog.models.cohort.sql import TRUNCATE_COHORTPEOPLE_TABLE_SQL
 from posthog.models.event.sql import (
     DISTRIBUTED_EVENTS_TABLE_SQL,
@@ -178,7 +184,7 @@ class ErrorResponsesMixin:
         }
 
 
-class TestMixin:
+class PostHogTestCase(SimpleTestCase):
     CONFIG_ORGANIZATION_NAME: str = "Test"
     CONFIG_EMAIL: Optional[str] = "user1@posthog.com"
     CONFIG_PASSWORD: Optional[str] = "testpassword12345"
@@ -226,17 +232,36 @@ class TestMixin:
             )
         global persons_ordering_int
         persons_ordering_int = 0
-        super().tearDown()  # type: ignore
+        super().tearDown()
 
     def validate_basic_html(self, html_message, site_url, preheader=None):
         # absolute URLs are used
-        self.assertIn(f"{site_url}/static/posthog-logo.png", html_message)  # type: ignore
+        self.assertIn(f"{site_url}/static/posthog-logo.png", html_message)
 
         # CSS is inlined
-        self.assertIn('style="display: none;', html_message)  # type: ignore
+        self.assertIn('style="display: none;', html_message)
 
         if preheader:
-            self.assertIn(preheader, html_message)  # type: ignore
+            self.assertIn(preheader, html_message)
+
+    @contextmanager
+    def is_cloud(self, value: bool):
+        with self.settings(CLOUD_DEPLOYMENT="US" if value else None):
+            yield value
+
+    @contextmanager
+    def retry_assertion(self, max_retries=5, delay=0.1) -> Generator[None, None, None]:
+        for _ in range(max_retries):
+            try:
+                yield
+                break  # If the assertion passed, break the loop
+            except AssertionError:
+                time.sleep(delay)  # If the assertion failed, wait before retrying
+        else:
+            # If we've exhausted all retries and the test is still failing, fail the test
+            # we want to raise the test assertion not some generic error, so run the assertion
+            # one last time
+            yield
 
 
 class MemoryLeakTestMixin:
@@ -274,24 +299,17 @@ class MemoryLeakTestMixin:
         )
 
 
-class BaseTest(TestMixin, ErrorResponsesMixin, TestCase):
+class BaseTest(PostHogTestCase, ErrorResponsesMixin, TestCase):
     """
     Base class for performing Postgres-based backend unit tests on.
     Each class and each test is wrapped inside an atomic block to rollback DB commits after each test.
     Read more: https://docs.djangoproject.com/en/3.1/topics/testing/tools/#testcase
     """
 
-    @contextmanager
-    def is_cloud(self, value: bool):
-        previous_value = is_cloud()
-        try:
-            TEST_clear_cloud_cache(value)
-            yield value
-        finally:
-            TEST_clear_cloud_cache(previous_value)
+    pass
 
 
-class NonAtomicBaseTest(TestMixin, ErrorResponsesMixin, TransactionTestCase):
+class NonAtomicBaseTest(PostHogTestCase, ErrorResponsesMixin, TransactionTestCase):
     """
     Django wraps tests in TestCase inside atomic transactions to speed up the run time. TransactionTestCase is the base
     class for TestCase that doesn't implement this atomic wrapper.
@@ -303,18 +321,15 @@ class NonAtomicBaseTest(TestMixin, ErrorResponsesMixin, TransactionTestCase):
         cls.setUpTestData()
 
 
-class APIBaseTest(TestMixin, ErrorResponsesMixin, DRFTestCase):
+class APIBaseTest(PostHogTestCase, ErrorResponsesMixin, DRFTestCase):
     """
     Functional API tests using Django REST Framework test suite.
     """
-
-    initial_cloud_mode: Optional[bool] = False
 
     def setUp(self):
         super().setUp()
 
         cache.clear()
-        TEST_clear_cloud_cache(self.initial_cloud_mode)
         TEST_clear_instance_license_cache()
 
         # Sets the cloud mode to stabilise things tests, especially num query counts
@@ -334,16 +349,6 @@ class APIBaseTest(TestMixin, ErrorResponsesMixin, DRFTestCase):
     def assertFasterThan(self, duration_ms: float):
         with assert_faster_than(duration_ms):
             yield
-
-    @contextmanager
-    def is_cloud(self, value: bool):
-        # Typically the is_cloud setting is controlled by License but we need to be able to override it for tests
-        previous_value = is_cloud()
-        try:
-            TEST_clear_cloud_cache(value)
-            yield value
-        finally:
-            TEST_clear_cloud_cache(previous_value)
 
 
 def stripResponse(response, remove=("action", "label", "persons_urls", "filter")):
@@ -511,8 +516,16 @@ class QueryMatchingTest:
         # Replace person id (when querying session recording replay events)
         query = re.sub(
             "and person_id = '[0-9A-Fa-f]{8}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{12}'",
-            r"and person_id = '00000000-0000-0000-0000-000000000000'",
+            r"AND person_id = '00000000-0000-0000-0000-000000000000'",
             query,
+            flags=re.IGNORECASE,
+        )
+
+        query = re.sub(
+            "and current_person_id = '[0-9A-Fa-f]{8}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{12}'",
+            r"AND current_person_id = '00000000-0000-0000-0000-000000000000'",
+            query,
+            flags=re.IGNORECASE,
         )
 
         # Replace tag id lookups for postgres
@@ -843,6 +856,8 @@ class ClickhouseDestroyTablesMixin(BaseTest):
                 TRUNCATE_COHORTPEOPLE_TABLE_SQL,
                 TRUNCATE_PERSON_STATIC_COHORT_TABLE_SQL,
                 TRUNCATE_PLUGIN_LOG_ENTRIES_TABLE_SQL,
+                DROP_CHANNEL_DEFINITION_TABLE_SQL,
+                DROP_CHANNEL_DEFINITION_DICTIONARY_SQL,
             ]
         )
         run_clickhouse_statement_in_parallel(
@@ -851,6 +866,8 @@ class ClickhouseDestroyTablesMixin(BaseTest):
                 PERSONS_TABLE_SQL(),
                 SESSION_RECORDING_EVENTS_TABLE_SQL(),
                 SESSION_REPLAY_EVENTS_TABLE_SQL(),
+                CHANNEL_DEFINITION_TABLE_SQL(),
+                CHANNEL_DEFINITION_DICTIONARY_SQL,
             ]
         )
         run_clickhouse_statement_in_parallel(
@@ -858,6 +875,7 @@ class ClickhouseDestroyTablesMixin(BaseTest):
                 DISTRIBUTED_EVENTS_TABLE_SQL(),
                 DISTRIBUTED_SESSION_RECORDING_EVENTS_TABLE_SQL(),
                 DISTRIBUTED_SESSION_REPLAY_EVENTS_TABLE_SQL(),
+                CHANNEL_DEFINITION_DATA_SQL,
             ]
         )
 
@@ -871,6 +889,8 @@ class ClickhouseDestroyTablesMixin(BaseTest):
                 TRUNCATE_PERSON_DISTINCT_ID_TABLE_SQL,
                 DROP_SESSION_RECORDING_EVENTS_TABLE_SQL(),
                 DROP_SESSION_REPLAY_EVENTS_TABLE_SQL(),
+                DROP_CHANNEL_DEFINITION_TABLE_SQL,
+                DROP_CHANNEL_DEFINITION_DICTIONARY_SQL,
             ]
         )
 
@@ -880,6 +900,8 @@ class ClickhouseDestroyTablesMixin(BaseTest):
                 PERSONS_TABLE_SQL(),
                 SESSION_RECORDING_EVENTS_TABLE_SQL(),
                 SESSION_REPLAY_EVENTS_TABLE_SQL(),
+                CHANNEL_DEFINITION_TABLE_SQL(),
+                CHANNEL_DEFINITION_DICTIONARY_SQL,
             ]
         )
         run_clickhouse_statement_in_parallel(
@@ -887,6 +909,7 @@ class ClickhouseDestroyTablesMixin(BaseTest):
                 DISTRIBUTED_EVENTS_TABLE_SQL(),
                 DISTRIBUTED_SESSION_RECORDING_EVENTS_TABLE_SQL(),
                 DISTRIBUTED_SESSION_REPLAY_EVENTS_TABLE_SQL(),
+                CHANNEL_DEFINITION_DATA_SQL,
             ]
         )
 

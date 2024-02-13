@@ -2,7 +2,6 @@ import './NotFound.scss'
 
 import { LemonButton } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
-import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { Link } from 'lib/lemon-ui/Link'
 import { capitalizeFirstLetter } from 'lib/utils'
 import { useNotebookNode } from 'scenes/notebooks/Nodes/NotebookNodeContext'
@@ -18,7 +17,6 @@ interface NotFoundProps {
 export function NotFound({ object, caption }: NotFoundProps): JSX.Element {
     const { preflight } = useValues(preflightLogic)
     const { openSupportForm } = useActions(supportLogic)
-    const is3000 = useFeatureFlag('POSTHOG_3000', 'test')
 
     const nodeLogic = useNotebookNode()
 
@@ -49,11 +47,7 @@ export function NotFound({ object, caption }: NotFoundProps): JSX.Element {
             </p>
             <div className="flex justify-center">
                 {nodeLogic && (
-                    <LemonButton
-                        type={is3000 ? 'secondary' : 'primary'}
-                        status="danger"
-                        onClick={() => nodeLogic.actions.deleteNode()}
-                    >
+                    <LemonButton type="secondary" status="danger" onClick={nodeLogic.actions.deleteNode}>
                         Remove from Notebook
                     </LemonButton>
                 )}

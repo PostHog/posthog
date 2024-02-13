@@ -7,10 +7,10 @@ import { DataTableNode, Node, NodeKind } from '~/queries/schema'
 
 import type { personsSceneLogicType } from './personsSceneLogicType'
 
-const getDefaultQuery = (usePersonsQuery = false): DataTableNode => ({
+const getDefaultQuery = (useActorsQuery = false): DataTableNode => ({
     kind: NodeKind.DataTableNode,
-    source: usePersonsQuery
-        ? { kind: NodeKind.PersonsQuery, select: defaultDataTableColumns(NodeKind.PersonsQuery) }
+    source: useActorsQuery
+        ? { kind: NodeKind.ActorsQuery, select: defaultDataTableColumns(NodeKind.ActorsQuery) }
         : { kind: NodeKind.PersonsNode },
     full: true,
     propertiesViaUrl: true,

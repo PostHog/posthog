@@ -1,14 +1,18 @@
+import { IconGear } from '@posthog/icons'
 import { useActions, useValues } from 'kea'
 import { IntervalFilterStandalone } from 'lib/components/IntervalFilter'
+import { LemonButton } from 'lib/lemon-ui/LemonButton'
+import { LemonSwitch } from 'lib/lemon-ui/LemonSwitch'
 import { UnexpectedNeverError } from 'lib/utils'
 import { useCallback, useMemo } from 'react'
 import { countryCodeToFlag, countryCodeToName } from 'scenes/insights/views/WorldMap'
+import { urls } from 'scenes/urls'
 import { DeviceTab, GeographyTab, webAnalyticsLogic } from 'scenes/web-analytics/webAnalyticsLogic'
 
 import { Query } from '~/queries/Query/Query'
-import { DataTableNode, InsightVizNode, NodeKind, WebStatsBreakdown } from '~/queries/schema'
+import { DataTableNode, InsightVizNode, NodeKind, QuerySchema, WebStatsBreakdown } from '~/queries/schema'
 import { QueryContext, QueryContextColumnComponent, QueryContextColumnTitleComponent } from '~/queries/types'
-import { ChartDisplayType, GraphPointPayload, PropertyFilterType } from '~/types'
+import { ChartDisplayType, GraphPointPayload, InsightLogicProps, PropertyFilterType } from '~/types'
 
 const PercentageCell: QueryContextColumnComponent = ({ value }) => {
     if (typeof value === 'number') {
@@ -34,6 +38,8 @@ const BreakdownValueTitle: QueryContextColumnTitleComponent = (props) => {
             return <>Path</>
         case WebStatsBreakdown.InitialPage:
             return <>Initial Path</>
+        case WebStatsBreakdown.InitialChannelType:
+            return <>Initial Channel Type</>
         case WebStatsBreakdown.InitialReferringDomain:
             return <>Referring Domain</>
         case WebStatsBreakdown.InitialUTMSource:
@@ -114,12 +120,14 @@ const BreakdownValueCell: QueryContextColumnComponent = (props) => {
 
 export const webStatsBreakdownToPropertyName = (
     breakdownBy: WebStatsBreakdown
-): { key: string; type: PropertyFilterType.Person | PropertyFilterType.Event } => {
+): { key: string; type: PropertyFilterType.Person | PropertyFilterType.Event } | undefined => {
     switch (breakdownBy) {
         case WebStatsBreakdown.Page:
             return { key: '$pathname', type: PropertyFilterType.Event }
         case WebStatsBreakdown.InitialPage:
             return { key: '$initial_pathname', type: PropertyFilterType.Person }
+        case WebStatsBreakdown.InitialChannelType:
+            return undefined
         case WebStatsBreakdown.InitialReferringDomain:
             return { key: '$initial_referring_domain', type: PropertyFilterType.Person }
         case WebStatsBreakdown.InitialUTMSource:
@@ -170,17 +178,29 @@ export const webAnalyticsDataTableQueryContext: QueryContext = {
             render: NumericCell,
             align: 'right',
         },
+        average_scroll_percentage: {
+            title: 'Average Scroll',
+            render: PercentageCell,
+            align: 'right',
+        },
+        scroll_gt80_percentage: {
+            title: 'Deep Scroll Rate',
+            render: PercentageCell,
+            align: 'right',
+        },
     },
 }
 
 export const WebStatsTrendTile = ({
     query,
     showIntervalTile,
+    insightProps,
 }: {
     query: InsightVizNode
     showIntervalTile?: boolean
+    insightProps: InsightLogicProps
 }): JSX.Element => {
-    const { togglePropertyFilter, setGeographyTab, setDeviceTab, setInterval } = useActions(webAnalyticsLogic)
+    const { togglePropertyFilter, setInterval } = useActions(webAnalyticsLogic)
     const {
         hasCountryFilter,
         deviceTab,
@@ -189,16 +209,17 @@ export const WebStatsTrendTile = ({
         hasOSFilter,
         dateFilter: { interval },
     } = useValues(webAnalyticsLogic)
-    const { key: worldMapPropertyName } = webStatsBreakdownToPropertyName(WebStatsBreakdown.Country)
-    const { key: deviceTypePropertyName } = webStatsBreakdownToPropertyName(WebStatsBreakdown.DeviceType)
+    const worldMapPropertyName = webStatsBreakdownToPropertyName(WebStatsBreakdown.Country)?.key
+    const deviceTypePropertyName = webStatsBreakdownToPropertyName(WebStatsBreakdown.DeviceType)?.key
 
     const onWorldMapClick = useCallback(
         (breakdownValue: string) => {
-            togglePropertyFilter(PropertyFilterType.Event, worldMapPropertyName, breakdownValue)
-            if (!hasCountryFilter) {
-                // if we just added a country filter, switch to the region tab, as the world map will not be useful
-                setGeographyTab(GeographyTab.REGIONS)
+            if (!worldMapPropertyName) {
+                return
             }
+            togglePropertyFilter(PropertyFilterType.Event, worldMapPropertyName, breakdownValue, {
+                geographyTab: hasCountryFilter ? undefined : GeographyTab.REGIONS,
+            })
         },
         [togglePropertyFilter, worldMapPropertyName]
     )
@@ -216,16 +237,23 @@ export const WebStatsTrendTile = ({
             if (!breakdownValue) {
                 return
             }
-            togglePropertyFilter(PropertyFilterType.Event, deviceTypePropertyName, breakdownValue)
+            if (!deviceTypePropertyName) {
+                return
+            }
 
             // switch to a different tab if we can, try them in this order: DeviceType Browser OS
+            let newTab: DeviceTab | undefined = undefined
             if (deviceTab !== DeviceTab.DEVICE_TYPE && !hasDeviceTypeFilter) {
-                setDeviceTab(DeviceTab.DEVICE_TYPE)
+                newTab = DeviceTab.DEVICE_TYPE
             } else if (deviceTab !== DeviceTab.BROWSER && !hasBrowserFilter) {
-                setDeviceTab(DeviceTab.BROWSER)
+                newTab = DeviceTab.BROWSER
             } else if (deviceTab !== DeviceTab.OS && !hasOSFilter) {
-                setDeviceTab(DeviceTab.OS)
+                newTab = DeviceTab.OS
             }
+
+            togglePropertyFilter(PropertyFilterType.Event, deviceTypePropertyName, breakdownValue, {
+                deviceTab: newTab,
+            })
         },
         [togglePropertyFilter, deviceTypePropertyName, deviceTab, hasDeviceTypeFilter, hasBrowserFilter, hasOSFilter]
     )
@@ -248,8 +276,12 @@ export const WebStatsTrendTile = ({
                     onSegmentClick: onDeviceTilePieChartClick,
                 },
             },
+            insightProps: {
+                ...insightProps,
+                query,
+            },
         }
-    }, [onWorldMapClick])
+    }, [onWorldMapClick, insightProps])
 
     return (
         <div className="border rounded bg-bg-light">
@@ -278,15 +310,24 @@ export const WebStatsTrendTile = ({
 export const WebStatsTableTile = ({
     query,
     breakdownBy,
+    insightProps,
+    showPathCleaningControls,
 }: {
     query: DataTableNode
     breakdownBy: WebStatsBreakdown
+    insightProps: InsightLogicProps
+    showPathCleaningControls?: boolean
 }): JSX.Element => {
-    const { togglePropertyFilter } = useActions(webAnalyticsLogic)
-    const { key, type } = webStatsBreakdownToPropertyName(breakdownBy)
+    const { togglePropertyFilter, setIsPathCleaningEnabled } = useActions(webAnalyticsLogic)
+    const { isPathCleaningEnabled } = useValues(webAnalyticsLogic)
+
+    const { key, type } = webStatsBreakdownToPropertyName(breakdownBy) || {}
 
     const onClick = useCallback(
         (breakdownValue: string) => {
+            if (!key || !type) {
+                return
+            }
             togglePropertyFilter(type, key, breakdownValue)
         },
         [togglePropertyFilter, type, key]
@@ -294,21 +335,61 @@ export const WebStatsTableTile = ({
 
     const context = useMemo((): QueryContext => {
         const rowProps: QueryContext['rowProps'] = (record: unknown) => {
+            if (
+                (breakdownBy === WebStatsBreakdown.InitialPage || breakdownBy === WebStatsBreakdown.Page) &&
+                isPathCleaningEnabled
+            ) {
+                // if the path cleaning is enabled, don't allow toggling a path by clicking a row, as this wouldn't
+                // work due to the order that the regex and filters are applied
+                return {}
+            }
+
             const breakdownValue = getBreakdownValue(record, breakdownBy)
             if (breakdownValue === undefined) {
                 return {}
             }
             return {
-                onClick: () => onClick(breakdownValue),
+                onClick: key && type ? () => onClick(breakdownValue) : undefined,
             }
         }
         return {
             ...webAnalyticsDataTableQueryContext,
+            insightProps,
             rowProps,
         }
-    }, [onClick])
+    }, [onClick, insightProps])
 
-    return <Query query={query} readOnly={true} context={context} />
+    const pathCleaningSettingsUrl = urls.settings('project-product-analytics', 'path-cleaning')
+    return (
+        <div className="border rounded bg-bg-light">
+            {showPathCleaningControls && (
+                <div className="flex flex-row items-center justify-end m-2 mr-4">
+                    <div className="flex flex-row items-center space-x-2">
+                        <LemonSwitch
+                            label={
+                                <div className="flex flex-row space-x-2">
+                                    <span>Enable path cleaning</span>
+                                    <LemonButton
+                                        icon={<IconGear />}
+                                        type="tertiary"
+                                        status="alt"
+                                        size="small"
+                                        noPadding={true}
+                                        tooltip="Edit path cleaning settings"
+                                        to={pathCleaningSettingsUrl}
+                                    />
+                                </div>
+                            }
+                            checked={isPathCleaningEnabled}
+                            onChange={setIsPathCleaningEnabled}
+                            className="h-full"
+                        />
+                    </div>
+                </div>
+            )}
+            <Query query={query} readOnly={true} context={context} />
+        </div>
+    )
 }
 
 const getBreakdownValue = (record: unknown, breakdownBy: WebStatsBreakdown): string | undefined => {
@@ -344,4 +425,32 @@ const getBreakdownValue = (record: unknown, breakdownBy: WebStatsBreakdown): str
         return undefined
     }
     return breakdownValue
+}
+
+export const WebQuery = ({
+    query,
+    showIntervalSelect,
+    showPathCleaningControls,
+    insightProps,
+}: {
+    query: QuerySchema
+    showIntervalSelect?: boolean
+    showPathCleaningControls?: boolean
+    insightProps: InsightLogicProps
+}): JSX.Element => {
+    if (query.kind === NodeKind.DataTableNode && query.source.kind === NodeKind.WebStatsTableQuery) {
+        return (
+            <WebStatsTableTile
+                query={query}
+                breakdownBy={query.source.breakdownBy}
+                insightProps={insightProps}
+                showPathCleaningControls={showPathCleaningControls}
+            />
+        )
+    }
+    if (query.kind === NodeKind.InsightVizNode) {
+        return <WebStatsTrendTile query={query} showIntervalTile={showIntervalSelect} insightProps={insightProps} />
+    }
+
+    return <Query query={query} readOnly={true} context={{ ...webAnalyticsDataTableQueryContext, insightProps }} />
 }

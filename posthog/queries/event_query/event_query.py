@@ -88,7 +88,7 @@ class EventQuery(metaclass=ABCMeta):
         # This issue manifests for us with formulas, where on queries A and B we join events against itself
         # and both tables end up having $session_id. Without a formula this is not a problem.]
         self._session_id_alias = (
-            f"session_id_{self._entity.index}"  # type: ignore
+            f"session_id_{self._entity.index}"
             if hasattr(self, "_entity") and getattr(self._filter, "formula", None)
             else None
         )
@@ -127,7 +127,7 @@ class EventQuery(metaclass=ABCMeta):
 
         return f"{self.DISTINCT_ID_TABLE_ALIAS}.person_id"
 
-    def _get_person_ids_query(self) -> str:
+    def _get_person_ids_query(self, *, relevant_events_conditions: str = "") -> str:
         if not self._should_join_distinct_ids:
             return ""
 
@@ -138,7 +138,9 @@ class EventQuery(metaclass=ABCMeta):
             )
 
         return f"""
-            INNER JOIN ({get_team_distinct_ids_query(self._team_id)}) AS {self.DISTINCT_ID_TABLE_ALIAS}
+            INNER JOIN (
+                {get_team_distinct_ids_query(self._team_id, relevant_events_conditions=relevant_events_conditions)}
+            ) AS {self.DISTINCT_ID_TABLE_ALIAS}
             ON {self.EVENT_TABLE_ALIAS}.distinct_id = {self.DISTINCT_ID_TABLE_ALIAS}.distinct_id
         """
 
@@ -240,7 +242,9 @@ class EventQuery(metaclass=ABCMeta):
 
     def _get_date_filter(self) -> Tuple[str, Dict]:
         date_params = {}
-        query_date_range = QueryDateRange(filter=self._filter, team=self._team, should_round=False)
+        query_date_range = QueryDateRange(
+            filter=self._filter, team=self._team, should_round=self._should_round_interval
+        )
         parsed_date_from, date_from_params = query_date_range.date_from
         parsed_date_to, date_to_params = query_date_range.date_to
         date_params.update(date_from_params)
@@ -259,6 +263,7 @@ class EventQuery(metaclass=ABCMeta):
         person_properties_mode=PersonPropertiesMode.USING_PERSON_PROPERTIES_COLUMN,
         person_id_joined_alias="person_id",
         prepend="global",
+        allow_denormalized_props=True,
     ) -> Tuple[str, Dict]:
         if not prop_group:
             return "", {}
@@ -276,7 +281,7 @@ class EventQuery(metaclass=ABCMeta):
             property_group=props_to_filter,
             prepend=prepend,
             table_name=self.EVENT_TABLE_ALIAS,
-            allow_denormalized_props=True,
+            allow_denormalized_props=allow_denormalized_props,
             person_properties_mode=person_properties_mode,
             person_id_joined_alias=person_id_joined_alias,
             hogql_context=self._filter.hogql_context,

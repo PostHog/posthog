@@ -4925,7 +4925,7 @@ class TestFeatureFlagMatcher(BaseTest, QueryMatchingTest):
                             {
                                 "key": "date_1",
                                 "value": "6h",
-                                "operator": "is_relative_date_before",
+                                "operator": "is_date_before",
                                 "type": "person",
                             },
                         ]
@@ -4943,7 +4943,7 @@ class TestFeatureFlagMatcher(BaseTest, QueryMatchingTest):
                             {
                                 "key": "date_3",
                                 "value": "2d",
-                                "operator": "is_relative_date_after",
+                                "operator": "is_date_after",
                                 "type": "person",
                             },
                         ]
@@ -4961,7 +4961,7 @@ class TestFeatureFlagMatcher(BaseTest, QueryMatchingTest):
                             {
                                 "key": "date_3",
                                 "value": "2h",
-                                "operator": "is_relative_date_after",
+                                "operator": "is_date_after",
                                 "type": "person",
                             },
                         ]
@@ -4979,7 +4979,7 @@ class TestFeatureFlagMatcher(BaseTest, QueryMatchingTest):
                             {
                                 "key": "date_invalid",
                                 "value": "2h",
-                                "operator": "is_relative_date_after",
+                                "operator": "is_date_after",
                                 "type": "person",
                             },
                         ]
@@ -4997,7 +4997,7 @@ class TestFeatureFlagMatcher(BaseTest, QueryMatchingTest):
                             {
                                 "key": "date_1",
                                 "value": "bazinga",
-                                "operator": "is_relative_date_after",
+                                "operator": "is_date_after",
                                 "type": "person",
                             },
                         ]

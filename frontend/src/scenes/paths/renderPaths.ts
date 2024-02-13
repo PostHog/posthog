@@ -4,7 +4,7 @@ import { D3Selector } from 'lib/hooks/useD3'
 import { stripHTTP } from 'lib/utils'
 import { Dispatch, RefObject, SetStateAction } from 'react'
 
-import { PathsFilterType } from '~/types'
+import { PathsFilter } from '~/queries/schema'
 
 import { FALLBACK_CANVAS_WIDTH, HIDE_PATH_CARD_HEIGHT } from './Paths'
 import { PathNode } from './pathsDataLogic'
@@ -33,7 +33,7 @@ const createSankey = (width: number, height: number): Sankey.SankeyLayout<any, a
 const appendPathNodes = (
     svg: any,
     nodes: PathNodeData[],
-    pathsFilter: Partial<PathsFilterType>,
+    pathsFilter: PathsFilter,
     setNodeCards: Dispatch<SetStateAction<PathNodeData[]>>
 ): void => {
     svg.append('g')
@@ -200,7 +200,7 @@ export function renderPaths(
     canvasWidth: number,
     canvasHeight: number,
     paths: { links: PathNode[]; nodes: any[] },
-    pathsFilter: Partial<PathsFilterType>,
+    pathsFilter: PathsFilter,
     setNodeCards: Dispatch<SetStateAction<PathNodeData[]>>
 ): void {
     if (!paths || paths.nodes.length === 0) {

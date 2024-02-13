@@ -1,6 +1,6 @@
 import './DefinitionPopover.scss'
 
-import { Divider, DividerProps } from 'antd'
+import { LemonDivider, ProfilePicture } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { definitionPopoverLogic, DefinitionPopoverState } from 'lib/components/DefinitionPopover/definitionPopoverLogic'
@@ -9,11 +9,10 @@ import { dayjs } from 'lib/dayjs'
 import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
 import { Link } from 'lib/lemon-ui/Link'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
-import { getKeyMapping } from 'lib/taxonomy'
+import { getCoreFilterDefinition } from 'lib/taxonomy'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
-import { Owner } from 'scenes/events/Owner'
 
-import { KeyMapping, UserBasicType } from '~/types'
+import { CoreFilterDefinition, UserBasicType } from '~/types'
 
 interface DefinitionPopoverProps {
     children: React.ReactNode
@@ -116,7 +115,7 @@ function DescriptionEmpty(): JSX.Element {
 
 function Example({ value }: { value?: string }): JSX.Element {
     const { type } = useValues(definitionPopoverLogic)
-    let data: KeyMapping | null = null
+    let data: CoreFilterDefinition | null = null
 
     if (
         // NB: also update "selectedItemHasPopover" below
@@ -124,11 +123,12 @@ function Example({ value }: { value?: string }): JSX.Element {
         type === TaxonomicFilterGroupType.EventProperties ||
         type === TaxonomicFilterGroupType.EventFeatureFlags ||
         type === TaxonomicFilterGroupType.PersonProperties ||
-        type === TaxonomicFilterGroupType.GroupsPrefix
+        type === TaxonomicFilterGroupType.GroupsPrefix ||
+        type === TaxonomicFilterGroupType.Metadata
     ) {
-        data = getKeyMapping(value, 'event')
+        data = getCoreFilterDefinition(value, type)
     } else if (type === TaxonomicFilterGroupType.Elements) {
-        data = getKeyMapping(value, 'element')
+        data = getCoreFilterDefinition(value, type)
     }
 
     return data?.examples?.[0] ? (
@@ -159,10 +159,7 @@ function TimeMeta({
                 {updatedBy && (
                     <span className="definition-popover-timemeta-user">
                         <span className="definition-popover-timemeta-spacer">by</span>
-                        <Owner
-                            user={updatedBy}
-                            style={{ display: 'inline-flex', fontWeight: 600, paddingLeft: 4, whiteSpace: 'nowrap' }}
-                        />
+                        <Owner user={updatedBy} />
                     </span>
                 )}
             </span>
@@ -174,11 +171,7 @@ function TimeMeta({
                 <span className="definition-popover-timemeta-time">Created {dayjs().to(dayjs.utc(createdAt))} </span>
                 {updatedBy && (
                     <span className="definition-popover-timemeta-user">
-                        <span className="definition-popover-timemeta-spacer">by</span>{' '}
-                        <Owner
-                            user={createdBy}
-                            style={{ display: 'inline-flex', fontWeight: 600, paddingLeft: 4, whiteSpace: 'nowrap' }}
-                        />
+                        <span className="definition-popover-timemeta-spacer">by</span> <Owner user={createdBy} />
                     </span>
                 )}
             </div>
@@ -187,11 +180,27 @@ function TimeMeta({
     return <></>
 }
 
-function HorizontalLine({ children, ...props }: DividerProps): JSX.Element {
+function Owner({ user }: { user?: UserBasicType | null }): JSX.Element {
     return (
-        <Divider className="definition-popover-divider" {...props}>
-            {children}
-        </Divider>
+        <>
+            {user?.uuid ? (
+                <div className="flex items-center flex-row">
+                    <ProfilePicture user={user} size="sm" />
+                    <span className="pl-2 inline-flex font-semibold pl-1 whitespace-nowrap">{user.first_name}</span>
+                </div>
+            ) : (
+                <span className="text-muted italic inline-flex font-semibold pl-1 whitespace-nowrap">No owner</span>
+            )}
+        </>
+    )
+}
+
+function HorizontalLine({ className, label }: { className?: string; label?: string }): JSX.Element {
+    return (
+        <LemonDivider
+            className={clsx('DefinitionPopover items-start my-4', className)}
+            label={label && <span className="DefinitionPopover__label">{label}</span>}
+        />
     )
 }
 

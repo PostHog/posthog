@@ -1,9 +1,10 @@
 from typing import Any
+import uuid
 
 from rest_framework import mixins, request, response, viewsets
 from rest_framework.decorators import action
 
-from posthog.api.routing import StructuredViewSetMixin
+from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.models.plugin import PluginConfig
 from posthog.queries.app_metrics.app_metrics import (
     AppMetricsErrorDetailsQuery,
@@ -20,10 +21,39 @@ from posthog.queries.app_metrics.serializers import (
 )
 
 
-class AppMetricsViewSet(StructuredViewSetMixin, mixins.RetrieveModelMixin, viewsets.GenericViewSet):
+class AppMetricsViewSet(TeamAndOrgViewSetMixin, mixins.RetrieveModelMixin, viewsets.GenericViewSet):
     queryset = PluginConfig.objects.all()
 
     def retrieve(self, request: request.Request, *args: Any, **kwargs: Any) -> response.Response:
+        try:
+            # probe if we have a valid uuid, and thus are requesting metrics for a batch export
+            uuid.UUID(kwargs["pk"])
+            return response.Response(
+                {
+                    "metrics": [
+                        {
+                            "dates": [
+                                "2024-01-04",
+                                "2024-01-05",
+                                "2024-01-06",
+                                "2024-01-07",
+                                "2024-01-08",
+                                "2024-01-09",
+                                "2024-01-10",
+                                "2024-01-11",
+                            ],
+                            "successes": [0, 0, 0, 0, 0, 0, 9379, 6237],
+                            "successes_on_retry": [0, 0, 0, 0, 0, 0, 0, 0],
+                            "failures": [0, 0, 0, 0, 0, 0, 665, 0],
+                            "totals": {"successes": 15616, "successes_on_retry": 0, "failures": 665},
+                        }
+                    ],
+                    "errors": None,
+                }
+            )
+        except ValueError:
+            pass
+
         plugin_config = self.get_object()
 
         filter = AppMetricsRequestSerializer(data=request.query_params)
@@ -45,7 +75,7 @@ class AppMetricsViewSet(StructuredViewSetMixin, mixins.RetrieveModelMixin, views
 
 
 class HistoricalExportsAppMetricsViewSet(
-    StructuredViewSetMixin,
+    TeamAndOrgViewSetMixin,
     mixins.ListModelMixin,
     mixins.RetrieveModelMixin,
     viewsets.ViewSet,

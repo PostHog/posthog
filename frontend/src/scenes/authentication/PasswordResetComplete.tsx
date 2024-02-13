@@ -53,7 +53,7 @@ function NewPasswordForm(): JSX.Element {
                         'Could not complete your password reset request. Please try again.'}
                 </LemonBanner>
             )}
-            <Form logic={passwordResetLogic} formKey={'passwordReset'} className="space-y-4" enableFormOnSubmit>
+            <Form logic={passwordResetLogic} formKey="passwordReset" className="space-y-4" enableFormOnSubmit>
                 <Field
                     name="password"
                     label={
@@ -104,7 +104,7 @@ function ResetInvalid(): JSX.Element {
         <div className="text-center">
             The provided link is <b>invalid or has expired</b>. Please request a new link.
             <div className="mt-4">
-                <LemonButton fullWidth type="primary" center data-attr="back-to-login" to={'/reset'}>
+                <LemonButton fullWidth type="primary" center data-attr="back-to-login" to="/reset">
                     Request new link
                 </LemonButton>
             </div>

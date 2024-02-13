@@ -1,6 +1,11 @@
 import http.client
 import json
+import time
+import logging
 from prometheus_client import CollectorRegistry, Gauge, multiprocess, generate_latest
+
+
+logger = logging.getLogger(__name__)
 
 UNIT_CONNECTIONS_ACCEPTED_TOTAL = Gauge(
     "unit_connections_accepted_total",
@@ -42,12 +47,25 @@ UNIT_REQUESTS_ACTIVE_GAUGE = Gauge(
 
 
 def application(environ, start_response):
-    connection = http.client.HTTPConnection("localhost:8181")
-    connection.request("GET", "/status")
-    response = connection.getresponse()
+    retries = 5
+    try:
+        connection = http.client.HTTPConnection("localhost:8181")
+        connection.request("GET", "/status")
+        response = connection.getresponse()
 
-    statj = json.loads(response.read())
-    connection.close()
+        statj = json.loads(response.read())
+    except Exception as e:
+        if retries > 0:
+            retries -= 1
+            time.sleep(1)
+            return application(environ, start_response)
+        else:
+            raise e
+    finally:
+        try:
+            connection.close()
+        except Exception as e:
+            logger.error("Failed to close connection to unit: ", e)
 
     UNIT_CONNECTIONS_ACCEPTED_TOTAL.set(statj["connections"]["accepted"])
     UNIT_CONNECTIONS_ACTIVE.set(statj["connections"]["active"])
@@ -55,19 +73,11 @@ def application(environ, start_response):
     UNIT_CONNECTIONS_CLOSED.set(statj["connections"]["closed"])
     UNIT_CONNECTIONS_TOTAL.set(statj["requests"]["total"])
 
-    for application in statj["applications"].keys():
-        UNIT_PROCESSES_RUNNING_GAUGE.labels(application=application).set(
-            statj["applications"][application]["processes"]["running"]
-        )
-        UNIT_PROCESSES_STARTING_GAUGE.labels(application=application).set(
-            statj["applications"][application]["processes"]["starting"]
-        )
-        UNIT_PROCESSES_IDLE_GAUGE.labels(application=application).set(
-            statj["applications"][application]["processes"]["idle"]
-        )
-        UNIT_REQUESTS_ACTIVE_GAUGE.labels(application=application).set(
-            statj["applications"][application]["requests"]["active"]
-        )
+    for app in statj["applications"].keys():
+        UNIT_PROCESSES_RUNNING_GAUGE.labels(application=app).set(statj["applications"][app]["processes"]["running"])
+        UNIT_PROCESSES_STARTING_GAUGE.labels(application=app).set(statj["applications"][app]["processes"]["starting"])
+        UNIT_PROCESSES_IDLE_GAUGE.labels(application=app).set(statj["applications"][app]["processes"]["idle"])
+        UNIT_REQUESTS_ACTIVE_GAUGE.labels(application=app).set(statj["applications"][app]["requests"]["active"])
 
     start_response("200 OK", [("Content-Type", "text/plain")])
     # Create the prometheus multi-process metric registry here

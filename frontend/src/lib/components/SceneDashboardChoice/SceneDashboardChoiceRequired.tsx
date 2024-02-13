@@ -13,7 +13,7 @@ export function SceneDashboardChoiceRequired(props: {
     return (
         <div className="empty-state-container flex flex-col items-center">
             <h1>
-                <SceneIcon scene={props.scene} size={'large'} /> There isn’t a{' '}
+                <SceneIcon scene={props.scene} size="large" /> There isn’t a{' '}
                 {props.scene === Scene.ProjectHomepage ? <>default </> : null}dashboard set for{' '}
                 {sceneDescription[props.scene]}
             </h1>

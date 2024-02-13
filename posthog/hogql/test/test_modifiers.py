@@ -1,7 +1,7 @@
 from posthog.hogql.modifiers import create_default_modifiers_for_team
 from posthog.hogql.query import execute_hogql_query
 from posthog.models import Cohort
-from posthog.schema import HogQLQueryModifiers, PersonsOnEventsMode, MaterializationMode
+from posthog.schema import HogQLQueryModifiers, PersonsArgMaxVersion, PersonsOnEventsMode, MaterializationMode
 from posthog.test.base import BaseTest
 from django.test import override_settings
 
@@ -48,30 +48,30 @@ class TestModifiers(BaseTest):
         test_cases = [
             (
                 PersonsOnEventsMode.disabled,
-                "events.event",
-                "events__pdi__person.id",
-                "events__pdi__person.properties",
+                "events.event AS event",
+                "events__pdi__person.id AS id",
+                "events__pdi__person.properties AS properties",
                 "toTimeZone(events__pdi__person.created_at, %(hogql_val_0)s) AS created_at",
             ),
             (
                 PersonsOnEventsMode.v1_enabled,
-                "events.event",
-                "events.person_id",
-                "events.person_properties",
+                "events.event AS event",
+                "events.person_id AS id",
+                "events.person_properties AS properties",
                 "toTimeZone(events.person_created_at, %(hogql_val_0)s) AS created_at",
             ),
             (
                 PersonsOnEventsMode.v1_mixed,
-                "events.event",
-                "events__pdi.person_id",
-                "events.person_properties",
+                "events.event AS event",
+                "events__pdi.person_id AS id",
+                "events.person_properties AS properties",
                 "toTimeZone(events__pdi__person.created_at, %(hogql_val_0)s) AS created_at",
             ),
             (
                 PersonsOnEventsMode.v2_enabled,
-                "events.event",
+                "events.event AS event",
                 "ifNull(nullIf(events__override.override_person_id, %(hogql_val_0)s), events.person_id) AS id",
-                "events.person_properties",
+                "events.person_properties AS properties",
                 "toTimeZone(events.person_created_at, %(hogql_val_1)s) AS created_at",
             ),
         ]
@@ -81,6 +81,7 @@ class TestModifiers(BaseTest):
                 query,
                 team=self.team,
                 modifiers=HogQLQueryModifiers(personsOnEventsMode=mode),
+                pretty=False,
             )
             assert f"SELECT {', '.join(expected)} FROM" in response.clickhouse, f"PoE mode: {mode}"
 
@@ -91,7 +92,7 @@ class TestModifiers(BaseTest):
         response = execute_hogql_query(
             query,
             team=self.team,
-            modifiers=HogQLQueryModifiers(personsArgMaxVersion="v1"),
+            modifiers=HogQLQueryModifiers(personsArgMaxVersion=PersonsArgMaxVersion.v1),
         )
         assert "in(tuple(person.id, person.version)" not in response.clickhouse
 
@@ -99,7 +100,7 @@ class TestModifiers(BaseTest):
         response = execute_hogql_query(
             query,
             team=self.team,
-            modifiers=HogQLQueryModifiers(personsArgMaxVersion="v2"),
+            modifiers=HogQLQueryModifiers(personsArgMaxVersion=PersonsArgMaxVersion.v2),
         )
         assert "in(tuple(person.id, person.version)" in response.clickhouse
 
@@ -108,7 +109,7 @@ class TestModifiers(BaseTest):
         response = execute_hogql_query(
             "SELECT id, properties.$browser, is_identified FROM persons",
             team=self.team,
-            modifiers=HogQLQueryModifiers(personsArgMaxVersion="auto"),
+            modifiers=HogQLQueryModifiers(personsArgMaxVersion=PersonsArgMaxVersion.auto),
         )
         assert "in(tuple(person.id, person.version)" in response.clickhouse
 
@@ -116,7 +117,7 @@ class TestModifiers(BaseTest):
         response = execute_hogql_query(
             "SELECT id, properties FROM persons",
             team=self.team,
-            modifiers=HogQLQueryModifiers(personsArgMaxVersion="auto"),
+            modifiers=HogQLQueryModifiers(personsArgMaxVersion=PersonsArgMaxVersion.auto),
         )
         assert "in(tuple(person.id, person.version)" in response.clickhouse
 
@@ -124,7 +125,7 @@ class TestModifiers(BaseTest):
         response = execute_hogql_query(
             "SELECT id, is_identified FROM persons",
             team=self.team,
-            modifiers=HogQLQueryModifiers(personsArgMaxVersion="auto"),
+            modifiers=HogQLQueryModifiers(personsArgMaxVersion=PersonsArgMaxVersion.auto),
         )
         assert "in(tuple(person.id, person.version)" not in response.clickhouse
 
@@ -158,6 +159,7 @@ class TestModifiers(BaseTest):
             "SELECT properties.$browser FROM events",
             team=self.team,
             modifiers=HogQLQueryModifiers(materializationMode=MaterializationMode.auto),
+            pretty=False,
         )
         assert (
             "SELECT nullIf(nullIf(events.`mat_$browser`, ''), 'null') AS `$browser` FROM events" in response.clickhouse
@@ -167,6 +169,7 @@ class TestModifiers(BaseTest):
             "SELECT properties.$browser FROM events",
             team=self.team,
             modifiers=HogQLQueryModifiers(materializationMode=MaterializationMode.legacy_null_as_null),
+            pretty=False,
         )
         assert (
             "SELECT nullIf(nullIf(events.`mat_$browser`, ''), 'null') AS `$browser` FROM events" in response.clickhouse
@@ -176,6 +179,7 @@ class TestModifiers(BaseTest):
             "SELECT properties.$browser FROM events",
             team=self.team,
             modifiers=HogQLQueryModifiers(materializationMode=MaterializationMode.legacy_null_as_string),
+            pretty=False,
         )
         assert "SELECT nullIf(events.`mat_$browser`, '') AS `$browser` FROM events" in response.clickhouse
 
@@ -183,6 +187,7 @@ class TestModifiers(BaseTest):
             "SELECT properties.$browser FROM events",
             team=self.team,
             modifiers=HogQLQueryModifiers(materializationMode=MaterializationMode.disabled),
+            pretty=False,
         )
         assert (
             "SELECT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, %(hogql_val_0)s), ''), 'null'), '^\"|\"$', '') AS `$browser` FROM events"

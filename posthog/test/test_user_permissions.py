@@ -45,6 +45,22 @@ class TestUserTeamPermissions(BaseTest, WithPermissionsBase):
         with self.assertNumQueries(1):
             assert permissions.team(self.team).effective_membership_level is None
 
+    def test_team_effective_membership_level_membership_isolation(self):
+        self.team.access_control = True
+        self.team.save()
+        ExplicitTeamMembership.objects.create(
+            team=self.team,
+            parent_membership=self.organization_membership,
+        )
+        forbidden_team = Team.objects.create(
+            organization=self.organization,
+            name="FORBIDDEN",
+            access_control=True,
+        )
+        permissions = UserPermissions(user=self.user)
+        with self.assertNumQueries(2):
+            assert permissions.team(forbidden_team).effective_membership_level is None
+
     def test_team_effective_membership_level_with_explicit_membership_returns_current_level(self):
         self.team.access_control = True
         self.team.save()

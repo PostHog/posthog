@@ -4,14 +4,12 @@ import { createRoot } from 'react-dom/client'
 
 import type { promptLogicType } from './promptLogicType'
 
-// This logic creates a modal to ask for an input. It's unique in that when the logic is unmounted,
-// for example when changing the URL, the modal is also closed. That would normally happen with the antd prompt.
-//
-// props:
-// - key - unique key for this logic
-//
-// actions:
-// - prompt({ title, placeholder, value, error, success, failure })
+/**
+ * This logic creates a modal to ask for an input. It's unique in that when the logic is unmounted,
+ * for example when changing the URL, the modal is also closed. That would normally happen with the antd prompt.
+ *
+ * @deprecated Use LemonDialog or, more broadly, LemonModal instead.
+ */
 export const promptLogic = kea<promptLogicType>([
     path((key) => ['lib', 'logic', 'prompt', key]),
     props({} as { key: string }),
@@ -101,14 +99,14 @@ function Prompt({
         >
             <Form form={form} name="field" initialValues={{ field: value }} onFinish={onFinish}>
                 <Form.Item name="field" rules={rules}>
-                    <Input placeholder={placeholder} autoFocus data-attr={'modal-prompt'} />
+                    <Input placeholder={placeholder} autoFocus data-attr="modal-prompt" />
                 </Form.Item>
             </Form>
         </Modal>
     )
 }
 
-export function cancellablePrompt(config: Pick<PromptProps, 'title' | 'placeholder' | 'value' | 'rules'>): {
+function cancellablePrompt(config: Pick<PromptProps, 'title' | 'placeholder' | 'value' | 'rules'>): {
     cancel: () => void
     promise: Promise<unknown>
 } {

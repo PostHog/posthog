@@ -39,7 +39,7 @@ export function SavedQueries({ query, setQuery }: SavedQueriesProps): JSX.Elemen
                     <LemonButton
                         key={title}
                         fullWidth
-                        status={title === selectedTitle ? 'primary' : 'stealth'}
+                        active={title === selectedTitle}
                         onClick={() => setQuery?.({ ...query, source: eventsQuery })}
                     >
                         {title}
@@ -47,7 +47,6 @@ export function SavedQueries({ query, setQuery }: SavedQueriesProps): JSX.Elemen
                 )),
             }}
             type="secondary"
-            status="primary-alt"
         >
             {selectedTitle}
         </LemonButtonWithDropdown>

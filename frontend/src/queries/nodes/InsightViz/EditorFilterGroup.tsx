@@ -26,7 +26,6 @@ export function EditorFilterGroup({ insightProps, editorFilterGroup }: EditorFil
             {title && (
                 <div className="EditorFilterGroup__title">
                     <LemonButton
-                        status="stealth"
                         fullWidth
                         onClick={() => setIsRowExpanded(!isRowExpanded)}
                         sideIcon={isRowExpanded ? <IconUnfoldLess /> : <IconUnfoldMore />}

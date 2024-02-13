@@ -1,10 +1,9 @@
-import { CheckboxValueType } from 'antd/lib/checkbox/Group'
-import { actions, connect, events, kea, key, listeners, path, props, reducers, selectors } from 'kea'
+import { actions, events, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
-import { teamLogic } from 'scenes/teamLogic'
+import { PipelineLogLevel } from 'scenes/pipeline/pipelineNodeLogsLogic'
 
-import api from '~/lib/api'
-import { BatchExportLogEntry, BatchExportLogEntryLevel } from '~/types'
+import api, { CheckboxValueType } from '~/lib/api'
+import { BatchExportLogEntry } from '~/types'
 
 import type { batchExportLogsLogicType } from './batchExportLogsLogicType'
 
@@ -18,9 +17,6 @@ export const batchExportLogsLogic = kea<batchExportLogsLogicType>([
     props({} as BatchExportLogsProps),
     key(({ batchExportId }: BatchExportLogsProps) => batchExportId),
     path((batchExportId) => ['scenes', 'batch_exports', 'batchExportLogsLogic', batchExportId]),
-    connect({
-        values: [teamLogic, ['currentTeamId']],
-    }),
     actions({
         clearBatchExportLogsBackground: true,
         markLogsEnd: true,
@@ -33,12 +29,7 @@ export const batchExportLogsLogic = kea<batchExportLogsLogicType>([
         batchExportLogs: {
             __default: [] as BatchExportLogEntry[],
             loadBatchExportLogs: async () => {
-                const results = await api.batchExportLogs.search(
-                    batchExportId,
-                    values.currentTeamId,
-                    values.searchTerm,
-                    values.typeFilters
-                )
+                const results = await api.batchExportLogs.search(batchExportId, values.searchTerm, values.typeFilters)
 
                 if (!cache.pollingInterval) {
                     cache.pollingInterval = setInterval(actions.loadBatchExportLogsBackgroundPoll, 2000)
@@ -49,7 +40,6 @@ export const batchExportLogsLogic = kea<batchExportLogsLogicType>([
             loadBatchExportLogsMore: async () => {
                 const results = await api.batchExportLogs.search(
                     batchExportId,
-                    values.currentTeamId,
                     values.searchTerm,
                     values.typeFilters,
                     values.trailingEntry
@@ -75,7 +65,6 @@ export const batchExportLogsLogic = kea<batchExportLogsLogicType>([
 
                 const results = await api.batchExportLogs.search(
                     batchExportId,
-                    values.currentTeamId,
                     values.searchTerm,
                     values.typeFilters,
                     null,
@@ -88,10 +77,9 @@ export const batchExportLogsLogic = kea<batchExportLogsLogicType>([
     })),
     reducers({
         batchExportLogsTypes: [
-            Object.values(BatchExportLogEntryLevel).filter((type) => type !== 'DEBUG'),
+            Object.values(PipelineLogLevel).filter((type) => type !== 'DEBUG'),
             {
-                setBatchExportLogsTypes: (_, { typeFilters }) =>
-                    typeFilters.map((tf) => tf as BatchExportLogEntryLevel),
+                setBatchExportLogsTypes: (_, { typeFilters }) => typeFilters.map((tf) => tf as PipelineLogLevel),
             },
         ],
         batchExportLogsBackground: [
@@ -107,7 +95,7 @@ export const batchExportLogsLogic = kea<batchExportLogsLogicType>([
             },
         ],
         typeFilters: [
-            Object.values(BatchExportLogEntryLevel).filter((type) => type !== 'DEBUG') as CheckboxValueType[],
+            Object.values(PipelineLogLevel).filter((type) => type !== 'DEBUG') as CheckboxValueType[],
             {
                 setBatchExportLogsTypes: (_, { typeFilters }) => typeFilters || [],
             },

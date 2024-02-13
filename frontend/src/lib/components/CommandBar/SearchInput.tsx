@@ -1,4 +1,4 @@
-import { LemonInput } from '@posthog/lemon-ui'
+import { LemonButton, LemonInput } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { isMac } from 'lib/utils'
 import { forwardRef, Ref } from 'react'
@@ -11,7 +11,7 @@ import { searchBarLogic } from './searchBarLogic'
 export const SearchInput = forwardRef(function _SearchInput(_, ref: Ref<HTMLInputElement>): JSX.Element {
     const { currentTeam } = useValues(teamLogic)
     const { searchQuery } = useValues(searchBarLogic)
-    const { setSearchQuery } = useActions(searchBarLogic)
+    const { setSearchQuery, hideCommandBar } = useActions(searchBarLogic)
 
     const modifierKey = isMac() ? '⌘' : '^'
     const placeholder = currentTeam
@@ -21,11 +21,16 @@ export const SearchInput = forwardRef(function _SearchInput(_, ref: Ref<HTMLInpu
     return (
         <div className="border-b">
             <LemonInput
+                data-attr="search-bar-input"
                 ref={ref}
                 type="search"
                 className="CommandBar__input"
                 fullWidth
-                suffix={<KeyboardShortcut escape />}
+                suffix={
+                    <LemonButton onClick={() => hideCommandBar()} noPadding>
+                        <KeyboardShortcut escape />
+                    </LemonButton>
+                }
                 placeholder={placeholder}
                 autoFocus
                 value={searchQuery}

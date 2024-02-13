@@ -10,6 +10,7 @@ import { LemonTable, LemonTableColumns } from 'lib/lemon-ui/LemonTable'
 import { LemonTag } from 'lib/lemon-ui/LemonTag/LemonTag'
 import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
+import { fullName } from 'lib/utils'
 import {
     getReasonForAccessLevelChangeProhibition,
     membershipLevelToName,
@@ -58,7 +59,6 @@ function ActionsComponent(_: any, member: OrganizationMemberType): JSX.Element |
                     ) : (
                         allowedLevels.map((listLevel) => (
                             <LemonButton
-                                status="stealth"
                                 fullWidth
                                 key={`${member.user.uuid}-level-${listLevel}`}
                                 onClick={(event) => {
@@ -68,7 +68,7 @@ function ActionsComponent(_: any, member: OrganizationMemberType): JSX.Element |
                                     }
                                     if (listLevel === OrganizationMembershipLevel.Owner) {
                                         LemonDialog.open({
-                                            title: `Transfer organization ownership to ${member.user.first_name}?`,
+                                            title: `Transfer organization ownership to ${fullName(member.user)}?`,
                                             description: `You will no longer be the owner of ${user.organization?.name}. After the transfer you will become an administrator.`,
                                             primaryButton: {
                                                 status: 'danger',
@@ -109,7 +109,7 @@ function ActionsComponent(_: any, member: OrganizationMemberType): JSX.Element |
                                         title: `${
                                             member.user.uuid == user.uuid
                                                 ? 'Leave'
-                                                : `Remove ${member.user.first_name} from`
+                                                : `Remove ${fullName(member.user)} from`
                                         } organization ${user.organization?.name}?`,
                                         primaryButton: {
                                             children: member.user.uuid == user.uuid ? 'Leave' : 'Remove',
@@ -150,16 +150,16 @@ export function Members(): JSX.Element | null {
         {
             key: 'user_profile_picture',
             render: function ProfilePictureRender(_, member) {
-                return <ProfilePicture name={member.user.first_name} email={member.user.email} />
+                return <ProfilePicture user={member.user} />
             },
             width: 32,
         },
         {
             title: 'Name',
-            key: 'user_first_name',
+            key: 'user_name',
             render: (_, member) =>
-                member.user.uuid == user.uuid ? `${member.user.first_name} (me)` : member.user.first_name,
-            sorter: (a, b) => a.user.first_name.localeCompare(b.user.first_name),
+                member.user.uuid == user.uuid ? `${fullName(member.user)} (me)` : fullName(member.user),
+            sorter: (a, b) => fullName(a.user).localeCompare(fullName(b.user)),
         },
         {
             title: 'Email',
@@ -173,7 +173,7 @@ export function Members(): JSX.Element | null {
                             preflight?.email_service_available && (
                                 <>
                                     {' '}
-                                    <LemonTag type={'highlight'} data-attr="pending-email-verification">
+                                    <LemonTag type="highlight" data-attr="pending-email-verification">
                                         pending email verification
                                     </LemonTag>
                                 </>

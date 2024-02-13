@@ -38,7 +38,7 @@ export function CompactList_({ loading }: { loading: boolean }): JSX.Element {
                         { properties: { name: 'Person 8' } },
                     ]}
                     renderRow={(person, index) => (
-                        <LemonButton key={index} fullWidth onClick={() => {}}>
+                        <LemonButton key={index} fullWidth>
                             <PersonDisplay withIcon person={person} />
                         </LemonButton>
                     )}
@@ -58,7 +58,7 @@ export function CompactList_({ loading }: { loading: boolean }): JSX.Element {
                     }}
                     items={[]}
                     renderRow={(person, index) => (
-                        <LemonButton key={index} fullWidth onClick={() => {}}>
+                        <LemonButton key={index} fullWidth>
                             <PersonDisplay withIcon person={person} />
                         </LemonButton>
                     )}

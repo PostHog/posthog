@@ -9,7 +9,7 @@ from django.utils.timezone import now
 from rest_framework import exceptions, serializers, viewsets
 from rest_framework.decorators import action
 from rest_framework.exceptions import PermissionDenied
-from rest_framework.permissions import SAFE_METHODS, BasePermission, IsAuthenticated
+from rest_framework.permissions import SAFE_METHODS, BasePermission
 from rest_framework.request import Request
 from rest_framework.response import Response
 from rest_framework.utils.serializer_helpers import ReturnDict
@@ -19,7 +19,7 @@ from posthog.api.dashboards.dashboard_template_json_schema_parser import (
 )
 from posthog.api.forbid_destroy_model import ForbidDestroyModel
 from posthog.api.insight import InsightSerializer, InsightViewSet
-from posthog.api.routing import StructuredViewSetMixin
+from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 from posthog.api.tagged_item import TaggedItemSerializerMixin, TaggedItemViewSetMixin
 from posthog.constants import AvailableFeature
@@ -31,10 +31,6 @@ from posthog.models.dashboard_templates import DashboardTemplate
 from posthog.models.tagged_item import TaggedItem
 from posthog.models.team.team import check_is_feature_available_for_team
 from posthog.models.user import User
-from posthog.permissions import (
-    ProjectMembershipNecessaryPermissions,
-    TeamMemberAccessPermission,
-)
 from posthog.user_permissions import UserPermissionsSerializerMixin
 
 logger = structlog.get_logger(__name__)
@@ -407,17 +403,12 @@ class DashboardSerializer(DashboardBasicSerializer):
 
 class DashboardsViewSet(
     TaggedItemViewSetMixin,
-    StructuredViewSetMixin,
+    TeamAndOrgViewSetMixin,
     ForbidDestroyModel,
     viewsets.ModelViewSet,
 ):
     queryset = Dashboard.objects.order_by("name")
-    permission_classes = [
-        IsAuthenticated,
-        ProjectMembershipNecessaryPermissions,
-        TeamMemberAccessPermission,
-        CanEditDashboard,
-    ]
+    permission_classes = [CanEditDashboard]
 
     def get_serializer_class(self) -> Type[BaseSerializer]:
         return DashboardBasicSerializer if self.action == "list" else DashboardSerializer
@@ -526,7 +517,7 @@ class DashboardsViewSet(
 
 
 class LegacyDashboardsViewSet(DashboardsViewSet):
-    legacy_team_compatibility = True
+    derive_current_team_from_user_only = True
 
     def get_parents_query_dict(self) -> Dict[str, Any]:
         if not self.request.user.is_authenticated or "share_token" in self.request.GET:
@@ -535,4 +526,4 @@ class LegacyDashboardsViewSet(DashboardsViewSet):
 
 
 class LegacyInsightViewSet(InsightViewSet):
-    legacy_team_compatibility = True
+    derive_current_team_from_user_only = True

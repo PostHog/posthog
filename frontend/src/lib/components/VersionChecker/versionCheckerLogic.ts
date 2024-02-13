@@ -3,6 +3,7 @@ import { loaders } from 'kea-loaders'
 import api from 'lib/api'
 
 import { HogQLQuery, NodeKind } from '~/queries/schema'
+import { hogql } from '~/queries/utils'
 
 import type { versionCheckerLogicType } from './versionCheckerLogicType'
 
@@ -42,7 +43,7 @@ export const versionCheckerLogic = kea<versionCheckerLogicType>([
                 loadUsedVersions: async () => {
                     const query: HogQLQuery = {
                         kind: NodeKind.HogQLQuery,
-                        query: `SELECT properties.$lib_version AS lib_version, max(timestamp) AS latest_timestamp, count(lib_version) as count
+                        query: hogql`SELECT properties.$lib_version AS lib_version, max(timestamp) AS latest_timestamp, count(lib_version) as count
                                 FROM events
                                 WHERE timestamp >= now() - INTERVAL 1 DAY 
                                 AND timestamp <= now()
@@ -75,7 +76,8 @@ export const versionCheckerLogic = kea<versionCheckerLogicType>([
         ],
         versionWarning: [
             null as SDKVersionWarning | null,
-            { persist: true },
+            // bumping cache key due to an incorrect tag being cached on 2024-02-12
+            { persist: true, prefix: '2024-02-12' },
             {
                 setVersionWarning: (_, { versionWarning }) => versionWarning,
             },

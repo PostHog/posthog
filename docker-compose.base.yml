@@ -25,7 +25,7 @@ services:
         # Note: please keep the default version in sync across
         #       `posthog` and the `charts-clickhouse` repos
         #
-        image: ${CLICKHOUSE_SERVER_IMAGE:-clickhouse/clickhouse-server:23.6.1.1524}
+        image: ${CLICKHOUSE_SERVER_IMAGE:-clickhouse/clickhouse-server:23.11.2.11-alpine}
         restart: on-failure
         depends_on:
             - kafka
@@ -59,6 +59,13 @@ services:
     maildev:
         image: maildev/maildev:2.0.5
         restart: on-failure
+
+    flower:
+        image: mher/flower:2.0.0
+        restart: on-failure
+        environment:
+            FLOWER_PORT: 5555
+            CELERY_BROKER_URL: redis://redis:6379
 
     worker: &worker
         command: ./bin/docker-worker-celery --with-scheduler

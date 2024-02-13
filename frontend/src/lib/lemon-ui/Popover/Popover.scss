@@ -28,18 +28,13 @@
     position: relative; // For arrow
     flex-grow: 1;
     max-width: 100%;
-    padding: 0.5rem;
     background: var(--bg-light);
-    border: 1px solid var(--border);
+    border: 1px solid var(--secondary-3000-button-border);
     border-radius: var(--radius);
     box-shadow: var(--shadow-elevation);
     opacity: 0;
     transition: opacity 50ms ease, transform 50ms ease;
     transform-origin: top;
-
-    .Popover--actionable & {
-        border-color: var(--primary-3000);
-    }
 
     // We set the offset below instead of using floating-ui's offset(), because we need there to be no gap between
     // the reference and the floating element. This makes hover-based popovers possible
@@ -93,72 +88,45 @@
     .Popover--max-content-width & {
         width: max-content;
     }
-
-    .posthog-3000 &,
-    .posthog-3000 .Popover--actionable & {
-        padding: 0.25rem;
-        background: var(--bg-light);
-        border-color: var(--secondary-3000-button-border);
-    }
 }
 
 .Popover__arrow {
     position: absolute;
     width: 0.5rem;
     height: 0.5rem;
-    background: var(--bg-3000);
+    background: var(--bg-light);
     transform: rotate(45deg);
 
-    .posthog-3000 & {
-        background: var(--bg-light);
-    }
-
     [data-placement^='bottom'] & {
-        top: -0.25rem;
+        top: -0.3125rem;
         border-top: 1px solid var(--border);
         border-left: 1px solid var(--border);
-
-        .posthog-3000 & {
-            top: -0.3rem;
-        }
     }
 
     [data-placement^='top'] & {
-        bottom: -0.25rem;
+        bottom: -0.3125rem;
         border-right: 1px solid var(--border);
         border-bottom: 1px solid var(--border);
-
-        .posthog-3000 & {
-            bottom: -0.3rem;
-        }
     }
 
     [data-placement^='left'] & {
-        right: -0.25rem;
+        right: -0.3125rem;
         border-top: 1px solid var(--border);
         border-right: 1px solid var(--border);
-
-        .posthog-3000 & {
-            right: -0.3rem;
-        }
     }
 
     [data-placement^='right'] & {
-        left: -0.25rem;
+        left: -0.3125rem;
         border-bottom: 1px solid var(--border);
         border-left: 1px solid var(--border);
-
-        .posthog-3000 & {
-            left: -0.3rem;
-        }
-    }
-
-    .Popover--actionable & {
-        border-color: var(--primary-3000);
     }
 }
 
 .Popover__content {
     max-height: 100%;
-    overflow-y: auto;
+    border-radius: calc(var(--radius) - 1px);
+}
+
+.Popover--padded .Popover__content > .ScrollableShadows__inner {
+    padding: 0.25rem;
 }

@@ -1,3 +1,5 @@
+import './CodeEditor.scss'
+
 import MonacoEditor, { type EditorProps } from '@monaco-editor/react'
 import { useValues } from 'kea'
 import { Spinner } from 'lib/lemon-ui/Spinner'
@@ -18,6 +20,7 @@ export function CodeEditor({ options, ...editorProps }: CodeEditorProps): JSX.El
             loading={<Spinner />}
             options={{
                 ...options,
+                padding: { bottom: 8, top: 8 },
                 scrollbar: {
                     vertical: scrollbarRendering,
                     horizontal: scrollbarRendering,

@@ -2,14 +2,11 @@ import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { urls } from 'scenes/urls'
-import { userLogic } from 'scenes/userLogic'
 
 import { initKeaTests } from '~/test/init'
 
-import { navigationLogic } from '../navigationLogic'
-import { announcementLogic, AnnouncementType, DEFAULT_CLOUD_ANNOUNCEMENT } from './announcementLogic'
+import { announcementLogic, DEFAULT_CLOUD_ANNOUNCEMENT } from './announcementLogic'
 
 describe('announcementLogic', () => {
     let logic: ReturnType<typeof announcementLogic.build>
@@ -18,7 +15,7 @@ describe('announcementLogic', () => {
         initKeaTests()
         logic = announcementLogic()
         logic.mount()
-        await expectLogic(logic).toMount([featureFlagLogic, preflightLogic, userLogic, navigationLogic])
+        await expectLogic(logic).toMount([featureFlagLogic])
         featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.CLOUD_ANNOUNCEMENT], {
             [FEATURE_FLAGS.CLOUD_ANNOUNCEMENT]: true,
         })
@@ -28,7 +25,7 @@ describe('announcementLogic', () => {
     it('shows a cloud announcement', async () => {
         await expectLogic(logic).toMatchValues({
             cloudAnnouncement: DEFAULT_CLOUD_ANNOUNCEMENT,
-            shownAnnouncementType: AnnouncementType.CloudFlag,
+            showAnnouncement: true,
         })
     })
 
@@ -36,7 +33,7 @@ describe('announcementLogic', () => {
         router.actions.push(urls.products())
         await expectLogic(logic).toMatchValues({
             cloudAnnouncement: DEFAULT_CLOUD_ANNOUNCEMENT,
-            shownAnnouncementType: null,
+            showAnnouncement: false,
         })
     })
 })

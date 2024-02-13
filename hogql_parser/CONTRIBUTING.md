@@ -38,11 +38,11 @@ The three pages below are must-reads though. They're key to writing production-r
 ## Conventions
 
 1. Use `snake_case`. ANTLR is `camelCase`-heavy because of its Java heritage, but both the C++ stdlib and CPython are snaky.
-2. Use the `auto` type for ANTLR and ANTLR-derived types, since they can be pretty verbose. Otherwise specify the type explictly.
+2. Use the `auto` type for ANTLR and ANTLR-derived types, since they can be pretty verbose. Otherwise, specify the type explicitly.
 3. Stay out of Python land as long as possible. E.g. avoid using `PyObject*`s` for bools or strings.
    Do use Python for parsing numbers though - that way we don't need to consider integer overflow.
 4. If any child rule results in an AST node, so must the parent rule - once in Python land, always in Python land.
-   E.g. it doesn't make sense to create a `vector<PyObject*>`, that should just be a `PyObject*` of Python type `list`.
+   E.g. it doesn't  make sense to create a `vector<PyObject*>`, that should just be a `PyObject*` of Python type `list`.
 
 ## How to develop locally on macOS
 

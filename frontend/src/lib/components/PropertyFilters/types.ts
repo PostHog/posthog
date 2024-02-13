@@ -3,9 +3,11 @@ import { SelectGradientOverflowProps } from 'lib/components/SelectGradientOverfl
 import {
     TaxonomicFilterGroup,
     TaxonomicFilterGroupType,
+    TaxonomicFilterProps,
     TaxonomicFilterValue,
 } from 'lib/components/TaxonomicFilter/types'
 
+import { AnyDataNode } from '~/queries/schema'
 import { AnyPropertyFilter, FilterLogicalOperator, PropertyGroupFilter } from '~/types'
 
 export interface PropertyFilterBaseProps {
@@ -38,11 +40,13 @@ export interface PropertyFilterInternalProps {
     onComplete: () => void
     disablePopover: boolean
     taxonomicGroupTypes?: TaxonomicFilterGroupType[]
+    taxonomicFilterOptionsFromProp?: TaxonomicFilterProps['optionsFromProp']
     eventNames?: string[]
     propertyGroupType?: FilterLogicalOperator | null
     orFiltering?: boolean
     addText?: string | null
     hasRowOperator?: boolean
-    hogQLTable?: string
+    metadataSource?: AnyDataNode
     propertyAllowList?: { [key in TaxonomicFilterGroupType]?: string[] }
+    allowRelativeDateOptions?: boolean
 }

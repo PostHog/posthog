@@ -1,6 +1,6 @@
 .LemonTabs {
     --lemon-tabs-margin-bottom: 1rem;
-    --lemon-tabs-margin-right: 2rem;
+    --lemon-tabs-gap: 2rem;
     --lemon-tabs-content-padding: 0.75rem 0;
 
     position: relative;
@@ -13,23 +13,12 @@
         margin-top: -0.75rem;
     }
 
-    &.LemonTabs--inline {
-        --lemon-tabs-margin-bottom: 0;
-        --lemon-tabs-margin-right: 1rem;
-        --lemon-tabs-content-padding: 0.25rem 0rem;
-    }
-
-    &.LemonTabs--borderless {
-        .LemonTabs__bar::before {
-            content: none;
-        }
-    }
-
     .LemonTabs__bar {
         position: relative;
         display: flex;
         flex-direction: row;
         flex-shrink: 0;
+        gap: var(--lemon-tabs-gap);
         align-items: stretch;
         margin-bottom: var(--lemon-tabs-margin-bottom);
         overflow-x: auto;
@@ -67,10 +56,6 @@
         .LemonTabs__tab {
             .LemonTabs--transitioning & {
                 transition: color 200ms ease;
-            }
-
-            &:not(:last-child) {
-                margin-right: var(--lemon-tabs-margin-right);
             }
 
             &:hover {

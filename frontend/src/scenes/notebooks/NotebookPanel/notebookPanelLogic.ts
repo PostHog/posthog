@@ -1,5 +1,4 @@
 import { actions, connect, kea, listeners, path, reducers, selectors } from 'kea'
-import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { HTMLProps } from 'react'
 
@@ -8,25 +7,12 @@ import { NotebookNodeResource, SidePanelTab } from '~/types'
 
 import { EditorFocusPosition } from '../Notebook/utils'
 import type { notebookPanelLogicType } from './notebookPanelLogicType'
-import { notebookPopoverLogic } from './notebookPopoverLogic'
 
 export const notebookPanelLogic = kea<notebookPanelLogicType>([
     path(['scenes', 'notebooks', 'Notebook', 'notebookPanelLogic']),
     connect({
-        values: [
-            sidePanelStateLogic,
-            ['sidePanelOpen', 'selectedTab'],
-            featureFlagLogic,
-            ['featureFlags'],
-            notebookPopoverLogic,
-            ['popoverVisibility'],
-        ],
-        actions: [
-            sidePanelStateLogic,
-            ['openSidePanel', 'closeSidePanel'],
-            notebookPopoverLogic,
-            ['setPopoverVisibility'],
-        ],
+        values: [sidePanelStateLogic, ['sidePanelOpen', 'selectedTab'], featureFlagLogic, ['featureFlags']],
+        actions: [sidePanelStateLogic, ['openSidePanel', 'closeSidePanel']],
     }),
     actions({
         selectNotebook: (id: string, options: { autofocus?: EditorFocusPosition; silent?: boolean } = {}) => ({
@@ -70,16 +56,9 @@ export const notebookPanelLogic = kea<notebookPanelLogicType>([
     })),
 
     selectors(({ cache, actions }) => ({
-        is3000: [(s) => [s.featureFlags], (featureFlags) => featureFlags[FEATURE_FLAGS.POSTHOG_3000] === 'test'],
-
         visibility: [
-            (s) => [s.selectedTab, s.sidePanelOpen, s.popoverVisibility, s.is3000],
-            (selectedTab, sidePanelOpen, popoverVisibility, is3000): 'hidden' | 'peek' | 'visible' => {
-                // NOTE: To be removed after 3000 release
-                if (!is3000) {
-                    return popoverVisibility
-                }
-
+            (s) => [s.selectedTab, s.sidePanelOpen],
+            (selectedTab, sidePanelOpen): 'hidden' | 'visible' => {
                 return selectedTab === SidePanelTab.Notebooks && sidePanelOpen ? 'visible' : 'hidden'
             },
         ],
@@ -114,20 +93,9 @@ export const notebookPanelLogic = kea<notebookPanelLogicType>([
             if (options.silent) {
                 return
             }
-            if (!values.is3000) {
-                actions.setPopoverVisibility('visible')
-                notebookPopoverLogic.actions.selectNotebook(options.id, options.autofocus)
-
-                return
-            }
             actions.openSidePanel(SidePanelTab.Notebooks)
         },
         toggleVisibility: () => {
-            if (!values.is3000) {
-                actions.setPopoverVisibility(values.popoverVisibility === 'visible' ? 'hidden' : 'visible')
-                return
-            }
-
             if (values.visibility === 'hidden') {
                 actions.openSidePanel(SidePanelTab.Notebooks)
             } else {
@@ -135,10 +103,6 @@ export const notebookPanelLogic = kea<notebookPanelLogicType>([
             }
         },
         startDropMode: () => {
-            if (!values.is3000) {
-                notebookPopoverLogic.actions.startDropMode()
-                return
-            }
             cache.dragEntercount = 0
             cache.dragStart = null
 
@@ -168,11 +132,6 @@ export const notebookPanelLogic = kea<notebookPanelLogicType>([
             window.addEventListener('drag', cache.dragListener)
         },
         endDropMode: () => {
-            if (!values.is3000) {
-                notebookPopoverLogic.actions.endDropMode()
-                return
-            }
-
             // If we are in the notebook panel then we leave it open, otherwise we revert to the original state
             if (cache.dragEntercount <= 0) {
                 if (!cache.initialPanelState.sidePanelOpen) {

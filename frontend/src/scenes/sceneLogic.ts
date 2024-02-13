@@ -2,13 +2,16 @@ import { actions, BuiltLogic, connect, kea, listeners, path, props, reducers, se
 import { router, urlToAction } from 'kea-router'
 import { commandBarLogic } from 'lib/components/CommandBar/commandBarLogic'
 import { BarStatus } from 'lib/components/CommandBar/types'
+import { FEATURE_FLAGS } from 'lib/constants'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
+import { addProjectIdIfMissing, removeProjectIdIfPresent } from 'lib/utils/router-utils'
 import posthog from 'posthog-js'
 import { emptySceneParams, preloadedScenes, redirects, routes, sceneConfigurations } from 'scenes/scenes'
 import { LoadedScene, Params, Scene, SceneConfig, SceneExport, SceneParams } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
-import { AvailableFeature } from '~/types'
+import { AvailableFeature, ProductKey } from '~/types'
 
 import { appContextLogic } from './appContextLogic'
 import { handleLoginRedirect } from './authentication/loginLogic'
@@ -17,6 +20,13 @@ import { preflightLogic } from './PreflightCheck/preflightLogic'
 import type { sceneLogicType } from './sceneLogicType'
 import { teamLogic } from './teamLogic'
 import { userLogic } from './userLogic'
+
+export const productUrlMapping: Partial<Record<ProductKey, string[]>> = {
+    [ProductKey.SESSION_REPLAY]: [urls.replay()],
+    [ProductKey.FEATURE_FLAGS]: [urls.featureFlags(), urls.earlyAccessFeatures(), urls.experiments()],
+    [ProductKey.SURVEYS]: [urls.surveys()],
+    [ProductKey.PRODUCT_ANALYTICS]: [urls.insights()],
+}
 
 export const sceneLogic = kea<sceneLogicType>([
     props(
@@ -28,6 +38,7 @@ export const sceneLogic = kea<sceneLogicType>([
     connect(() => ({
         logic: [router, userLogic, preflightLogic, appContextLogic],
         actions: [router, ['locationChanged'], commandBarLogic, ['setCommandBar']],
+        values: [featureFlagLogic, ['featureFlags']],
     })),
     actions({
         /* 1. Prepares to open the scene, as the listener may override and do something
@@ -188,10 +199,21 @@ export const sceneLogic = kea<sceneLogicType>([
                 router.actions.replace(urls.login())
                 return
             }
-
             if (scene === Scene.Login && preflight?.demo) {
                 // In the demo environment, there's only passwordless "login" via the signup scene
                 router.actions.replace(urls.signup())
+                return
+            }
+            if (scene === Scene.MoveToPostHogCloud && preflight?.cloud) {
+                router.actions.replace(urls.projectHomepage())
+                return
+            }
+
+            // Redirect to the scene's canonical pathname if needed
+            const currentPathname = router.values.location.pathname
+            const canonicalPathname = addProjectIdIfMissing(router.values.location.pathname)
+            if (currentPathname !== canonicalPathname) {
+                router.actions.replace(canonicalPathname, router.values.searchParams, router.values.hashParams)
                 return
             }
 
@@ -223,10 +245,9 @@ export const sceneLogic = kea<sceneLogicType>([
                     } else if (
                         teamLogic.values.currentTeam &&
                         !teamLogic.values.currentTeam.is_demo &&
-                        !location.pathname.startsWith('/ingestion') &&
-                        !location.pathname.startsWith('/onboarding') &&
-                        !location.pathname.startsWith('/products') &&
-                        !location.pathname.startsWith('/settings')
+                        !removeProjectIdIfPresent(location.pathname).startsWith(urls.onboarding('')) &&
+                        !removeProjectIdIfPresent(location.pathname).startsWith(urls.products()) &&
+                        !removeProjectIdIfPresent(location.pathname).startsWith(urls.settings())
                     ) {
                         if (
                             !teamLogic.values.currentTeam.completed_snippet_onboarding &&
@@ -235,6 +256,36 @@ export const sceneLogic = kea<sceneLogicType>([
                             console.warn('No onboarding completed, redirecting to /products')
                             router.actions.replace(urls.products())
                             return
+                        }
+
+                        const productKeyFromUrl = Object.keys(productUrlMapping).find((key: string) =>
+                            // eslint-disable-next-line @typescript-eslint/no-unnecessary-type-assertion
+                            (Object.values(productUrlMapping[key]) as string[]).some(
+                                (path: string) =>
+                                    removeProjectIdIfPresent(location.pathname).startsWith(path) &&
+                                    !path.startsWith('/projects')
+                            )
+                        )
+
+                        if (
+                            productKeyFromUrl &&
+                            teamLogic.values.currentTeam &&
+                            !teamLogic.values.currentTeam?.has_completed_onboarding_for?.[productKeyFromUrl]
+                            // TODO: when removing ff PRODUCT_INTRO_PAGES - should this only happen when in
+                            // cloud mode? What is the experience for self-hosted?
+                        ) {
+                            // TODO: remove after PRODUCT_INTRO_PAGES experiment is complete
+                            posthog.capture('should view onboarding product intro', {
+                                did_view_intro: values.featureFlags[FEATURE_FLAGS.PRODUCT_INTRO_PAGES] === 'test',
+                                product_key: productKeyFromUrl,
+                            })
+                            if (values.featureFlags[FEATURE_FLAGS.PRODUCT_INTRO_PAGES] === 'test') {
+                                console.warn(
+                                    `Onboarding not completed for ${productKeyFromUrl}, redirecting to onboarding intro`
+                                )
+                                router.actions.replace(urls.onboardingProductIntroduction(productKeyFromUrl))
+                                return
+                            }
                         }
                     }
                 }

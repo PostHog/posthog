@@ -1,5 +1,6 @@
+# serializer version: 1
 # name: TestPrinter.test_large_pretty_print
-  '
+  '''
   SELECT
       groupArray(start_of_period) AS date,
       groupArray(counts) AS total,
@@ -18,7 +19,8 @@
               (SELECT
                   minus(dateTrunc('day', assumeNotNull(toDateTime('2023-10-19 23:59:59'))), toIntervalDay(number)) AS start_of_period
               FROM
-                  numbers(dateDiff('day', dateTrunc('day', assumeNotNull(toDateTime('2023-09-19 00:00:00'))), dateTrunc('day', plus(assumeNotNull(toDateTime('2023-10-19 23:59:59')), toIntervalDay(1))))) AS numbers) AS periods CROSS JOIN (SELECT
+                  numbers(dateDiff('day', dateTrunc('day', assumeNotNull(toDateTime('2023-09-19 00:00:00'))), dateTrunc('day', plus(assumeNotNull(toDateTime('2023-10-19 23:59:59')), toIntervalDay(1))))) AS numbers) AS periods
+              CROSS JOIN (SELECT
                   status
               FROM
                   (SELECT
@@ -66,5 +68,5 @@
   GROUP BY
       status
   LIMIT 10000
-  '
----
+  '''
+# ---

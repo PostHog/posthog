@@ -1,7 +1,6 @@
+import { IconNotebook } from '@posthog/icons'
 import { LemonDivider, LemonDropdown, ProfilePicture } from '@posthog/lemon-ui'
 import { BuiltLogic, useActions, useValues } from 'kea'
-import { FlaggedFeature } from 'lib/components/FlaggedFeature'
-import { FEATURE_FLAGS } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
 import { IconPlus, IconWithCount } from 'lib/lemon-ui/icons'
 import { LemonButton, LemonButtonProps } from 'lib/lemon-ui/LemonButton'
@@ -17,7 +16,6 @@ import {
 import { notebooksModel, openNotebook } from '~/models/notebooksModel'
 import { NotebookListItemType, NotebookTarget } from '~/types'
 
-import { IconNotebook } from '../IconNotebook'
 import { notebookNodeLogicType } from '../Nodes/notebookNodeLogicType'
 import { notebookLogicType } from '../Notebook/notebookLogicType'
 
@@ -48,7 +46,7 @@ function NotebooksChoiceList(props: {
     return (
         <div>
             {props.notebooks.length === 0 ? (
-                <div className={'px-2 py-1'}>{props.emptyState}</div>
+                <div className="px-2 py-1">{props.emptyState}</div>
             ) : (
                 props.notebooks.map((notebook, i) => {
                     return (
@@ -57,8 +55,7 @@ function NotebooksChoiceList(props: {
                             sideIcon={
                                 notebook.created_by ? (
                                     <ProfilePicture
-                                        name={notebook.created_by?.first_name}
-                                        email={notebook.created_by?.email}
+                                        user={notebook.created_by}
                                         size="md"
                                         title={`Created by ${notebook.created_by?.first_name} <${notebook.created_by?.email}>`}
                                     />
@@ -150,7 +147,7 @@ export function NotebookSelectList(props: NotebookSelectProps): JSX.Element {
             <LemonDivider />
             <div className="overflow-y-auto flex-1">
                 {notebooksLoading && !notebooksNotContainingResource.length && !notebooksContainingResource.length ? (
-                    <div className={'px-2 py-1 flex flex-row items-center space-x-1'}>
+                    <div className="px-2 py-1 flex flex-row items-center space-x-1">
                         {notebooksLoading ? (
                             'Loading...'
                         ) : searchQuery.length ? (
@@ -203,17 +200,23 @@ export function NotebookSelectPopover({
     const { showPopover } = useValues(logic)
     const { setShowPopover } = useActions(logic)
 
+    const onNotebookOpened: NotebookSelectProps['onNotebookOpened'] = (...args) => {
+        setShowPopover(false)
+        props.onNotebookOpened?.(...args)
+    }
+
     return (
         <LemonDropdown
             overlay={
                 <div className="max-w-160">
-                    <NotebookSelectList {...props} />
+                    <NotebookSelectList {...props} onNotebookOpened={onNotebookOpened} />
                 </div>
             }
             sameWidth={false}
             actionable
             visible={!!showPopover}
             onVisibilityChange={(visible) => setShowPopover(visible)}
+            closeOnClickInside={false}
         >
             {children}
         </LemonDropdown>
@@ -256,9 +259,5 @@ export function NotebookSelectButton({ children, onNotebookOpened, ...props }: N
         </LemonButton>
     )
 
-    return (
-        <FlaggedFeature flag={FEATURE_FLAGS.NOTEBOOKS} match>
-            {nodeLogic ? button : <NotebookSelectPopover {...props}>{button}</NotebookSelectPopover>}
-        </FlaggedFeature>
-    )
+    return nodeLogic ? button : <NotebookSelectPopover {...props}>{button}</NotebookSelectPopover>
 }

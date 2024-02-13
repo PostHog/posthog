@@ -31,8 +31,8 @@ import { insightLogic } from 'scenes/insights/insightLogic'
 import { InsightTooltip } from 'scenes/insights/InsightTooltip/InsightTooltip'
 import { TooltipConfig } from 'scenes/insights/InsightTooltip/insightTooltipUtils'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
-import { lineGraphLogic } from 'scenes/insights/views/LineGraph/lineGraphLogic'
 import { PieChart } from 'scenes/insights/views/LineGraph/PieChart'
+import { createTooltipData } from 'scenes/insights/views/LineGraph/tooltip-data'
 
 import { ErrorBoundary } from '~/layout/ErrorBoundary'
 import { themeLogic } from '~/layout/navigation-3000/themeLogic'
@@ -51,7 +51,6 @@ export function ensureTooltip(): [Root, HTMLElement] {
             tooltipEl = document.createElement('div')
             tooltipEl.id = 'InsightTooltipWrapper'
             tooltipEl.classList.add('InsightTooltipWrapper')
-            tooltipEl.style.display = 'none'
             document.body.appendChild(tooltipEl)
         }
 
@@ -279,8 +278,6 @@ export function LineGraph_({
     const { insightProps, insight } = useValues(insightLogic)
     const { timezone, isTrends } = useValues(insightVizDataLogic(insightProps))
 
-    const { createTooltipData } = useValues(lineGraphLogic)
-
     const canvasRef = useRef<HTMLCanvasElement | null>(null)
     const [myLineChart, setMyLineChart] = useState<Chart<ChartType, any, string>>()
 
@@ -461,7 +458,6 @@ export function LineGraph_({
                         tooltipEl.classList.remove('above', 'below', 'no-transform')
                         tooltipEl.classList.add(tooltip.yAlign || 'no-transform')
                         tooltipEl.style.opacity = '1'
-                        tooltipEl.style.display = 'initial'
 
                         if (tooltip.body) {
                             const referenceDataPoint = tooltip.dataPoints[0] // Use this point as reference to get the date
@@ -549,8 +545,8 @@ export function LineGraph_({
                                 ? chartClientLeft + tooltip.caretX - tooltipEl.clientWidth - 8 // If tooltip is too large (or close to the edge), show it to the left of the data point instead
                                 : defaultOffsetLeft
 
-                        tooltipEl.style.top = Math.min(tooltipClientTop, window.innerHeight) + 'px'
-                        tooltipEl.style.left = Math.min(tooltipClientLeft, window.innerWidth) + 'px'
+                        tooltipEl.style.top = tooltipClientTop + 'px'
+                        tooltipEl.style.left = tooltipClientLeft + 'px'
                     },
                 },
                 ...(!isBar
@@ -702,20 +698,24 @@ export function LineGraph_({
                         precision,
                         autoSkip: true,
                         callback: function _renderYLabel(_, i) {
-                            const labelDescriptors = (
-                                datasets?.[0]?.labels?.[i]
-                                    ? [
-                                          // prefer to use the label over the action name if it exists
-                                          datasets?.[0]?.labels?.[i],
-                                          datasets?.[0]?.compareLabels?.[i],
-                                      ]
-                                    : [
-                                          datasets?.[0]?.actions?.[i]?.custom_name ?? datasets?.[0]?.actions?.[i]?.name, // action name
-                                          datasets?.[0]?.breakdownValues?.[i], // breakdown value
-                                          datasets?.[0]?.compareLabels?.[i], // compare value
-                                      ]
-                            ).filter((l) => !!l)
-                            return labelDescriptors.join(' - ')
+                            const d = datasets?.[0]
+                            if (!d) {
+                                return ''
+                            }
+                            // prefer custom name, then label, then action name
+                            let labelDescriptors: (string | number | undefined | null)[]
+                            if (d.actions?.[i]?.custom_name) {
+                                labelDescriptors = [
+                                    d.actions?.[i]?.custom_name,
+                                    d.breakdownValues?.[i],
+                                    d.compareLabels?.[i],
+                                ]
+                            } else if (d.labels?.[i]) {
+                                labelDescriptors = [d.labels[i], d.compareLabels?.[i]]
+                            } else {
+                                labelDescriptors = [d.actions?.[i]?.name, d.breakdownValues?.[i], d.compareLabels?.[i]]
+                            }
+                            return labelDescriptors.filter((l) => !!l).join(' - ')
                         },
                     },
                     grid: {

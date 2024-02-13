@@ -1,8 +1,8 @@
 import {
     ActivityChange,
     ActivityLogItem,
-    ActivityScope,
     ChangeMapping,
+    defaultDescriber,
     Description,
     detectBoolean,
     HumanizedChange,
@@ -14,6 +14,8 @@ import { IconVerifiedEvent } from 'lib/lemon-ui/icons'
 import { Link } from 'lib/lemon-ui/Link'
 import { pluralize } from 'lib/utils'
 import { urls } from 'scenes/urls'
+
+import { ActivityScope } from '~/types'
 
 const dataManagementActionsMapping: Record<
     string,
@@ -90,7 +92,7 @@ function DescribeType({ logItem }: { logItem: ActivityLogItem }): JSX.Element {
     return <>{typeDescription} definition</>
 }
 
-export function dataManagementActivityDescriber(logItem: ActivityLogItem): HumanizedChange {
+export function dataManagementActivityDescriber(logItem: ActivityLogItem, asNotification?: boolean): HumanizedChange {
     if (logItem.scope !== ActivityScope.EVENT_DEFINITION && logItem.scope !== ActivityScope.PROPERTY_DEFINITION) {
         console.error('data management describer received a non-data-management activity')
         return { description: null }
@@ -149,5 +151,5 @@ export function dataManagementActivityDescriber(logItem: ActivityLogItem): Human
         }
     }
 
-    return { description: null }
+    return defaultDescriber(logItem, asNotification, nameAndLink(logItem))
 }

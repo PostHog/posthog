@@ -131,7 +131,7 @@ export function HTMLElementsDisplay({
         <div className="flex flex-col gap-1">
             {editable && !!parsedElements.length && (
                 <div>
-                    Selector: <CodeSnippet thing={'chosen selector'}>{chosenSelector}</CodeSnippet>
+                    Selector: <CodeSnippet thing="chosen selector">{chosenSelector}</CodeSnippet>
                 </div>
             )}
             {checkUniqueness && (

@@ -9,7 +9,7 @@ build = [ # Build CPython wheels on Linux and macOS, for x86 as well as ARM
     "cp3*-manylinux_x86_64",
     "cp3*-manylinux_aarch64",
 ]
-build-frontend = "build" # This is successor to building with pip
+build-frontend = "build" # This is the successor to building with pip
 
 [tool.cibuildwheel.macos]
 archs = [ # We could also build a universal wheel, but separate ones are lighter individually
@@ -28,9 +28,9 @@ before-all = [
     "dnf install -y boost-devel unzip cmake curl uuid pkg-config",
     "curl https://www.antlr.org/download/antlr4-cpp-runtime-4.13.1-source.zip --output antlr4-source.zip",
     # Check that the downloaded archive is the expected runtime - a security measure
-    "anltr_known_md5sum=\"c875c148991aacd043f733827644a76f\"",
+    "antlr_known_md5sum=\"c875c148991aacd043f733827644a76f\"",
     "antlr_found_ms5sum=\"$(md5sum antlr4-source.zip | cut -d' ' -f1)\"",
-    'if [[ "$anltr_known_md5sum" != "$antlr_found_ms5sum" ]]; then exit 64; fi',
+    'if [[ "$antlr_known_md5sum" != "$antlr_found_ms5sum" ]]; then exit 64; fi',
     "unzip antlr4-source.zip -d antlr4-source && cd antlr4-source",
     "cmake .",
     "DESTDIR=out make install",

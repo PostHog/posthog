@@ -60,7 +60,7 @@ export function PlayerUpNext({ interrupted, clearInterrupted, playlistLogic }: P
 
     return (
         <CSSTransition in={endReached} timeout={250} classNames="PlayerUpNext-" mountOnEnter unmountOnExit>
-            <Tooltip title={'Play the next recording (press enter)'}>
+            <Tooltip title="Play the next recording (press enter)">
                 <div className="PlayerUpNext">
                     <div
                         className={clsx('PlayerUpNextButton', animate && 'PlayerUpNextButton--animating')}

@@ -1,5 +1,6 @@
 import { useValues } from 'kea'
 import { CodeSnippet, Language } from 'lib/components/CodeSnippet'
+import { apiHostOrigin } from 'lib/utils/apiHost'
 import { teamLogic } from 'scenes/teamLogic'
 
 import { GroupType } from '~/types'
@@ -312,8 +313,17 @@ if ${conditional}:
     )
 }
 
-export function AndroidSnippet({ flagKey, multivariant }: FeatureFlagSnippet): JSX.Element {
+export function AndroidSnippet({ flagKey, multivariant, payload }: FeatureFlagSnippet): JSX.Element {
     const clientSuffix = 'PostHog.'
+
+    if (payload) {
+        return (
+            <CodeSnippet language={Language.Kotlin} wrap>
+                {`${clientSuffix}getFeatureFlagPayload("${flagKey}")`}
+            </CodeSnippet>
+        )
+    }
+
     const flagFunction = multivariant ? 'getFeatureFlag' : 'isFeatureEnabled'
 
     const variantSuffix = multivariant ? ` == "example-variant"` : ''
@@ -327,16 +337,10 @@ export function AndroidSnippet({ flagKey, multivariant }: FeatureFlagSnippet): J
     )
 }
 
-export function iOSSnippet({ flagKey, multivariant }: FeatureFlagSnippet): JSX.Element {
-    const clientSuffix = 'posthog.'
-    const flagFunction = multivariant ? 'getFeatureFlag' : 'isFeatureEnabled'
-
-    const variantSuffix = multivariant ? ` == 'example-variant'` : ''
+export function FlutterSnippet({ flagKey }: FeatureFlagSnippet): JSX.Element {
     return (
-        <CodeSnippet language={Language.Swift} wrap>
-            {`// In Swift
-
-if (${clientSuffix}${flagFunction}('${flagKey}') ${variantSuffix}) {
+        <CodeSnippet language={Language.Dart} wrap>
+            {`if (await Posthog().isFeatureEnabled('${flagKey}') ?? false) {
     // do something
 }
             `}
@@ -344,8 +348,40 @@ if (${clientSuffix}${flagFunction}('${flagKey}') ${variantSuffix}) {
     )
 }
 
-export function ReactNativeSnippet({ flagKey, multivariant }: FeatureFlagSnippet): JSX.Element {
+export function iOSSnippet({ flagKey, multivariant, payload }: FeatureFlagSnippet): JSX.Element {
+    const clientSuffix = 'PostHogSDK.shared.'
+
+    if (payload) {
+        return (
+            <CodeSnippet language={Language.Swift} wrap>
+                {`${clientSuffix}getFeatureFlagPayload("${flagKey}")`}
+            </CodeSnippet>
+        )
+    }
+
+    const flagFunction = multivariant ? 'getFeatureFlag' : 'isFeatureEnabled'
+
+    const variantSuffix = multivariant ? `as? String == "example-variant"` : ''
+    return (
+        <CodeSnippet language={Language.Swift} wrap>
+            {`if ${clientSuffix}${flagFunction}("${flagKey}") ${variantSuffix} {
+    // do something
+}`}
+        </CodeSnippet>
+    )
+}
+
+export function ReactNativeSnippet({ flagKey, multivariant, payload }: FeatureFlagSnippet): JSX.Element {
     const clientSuffix = 'posthog.'
+
+    if (payload) {
+        return (
+            <CodeSnippet language={Language.JSX} wrap>
+                {`${clientSuffix}getFeatureFlagPayload('${flagKey}')`}
+            </CodeSnippet>
+        )
+    }
+
     const flagFunction = multivariant ? 'getFeatureFlag' : 'isFeatureEnabled'
 
     const variantSuffix = multivariant ? ` == 'example-variant'` : ''
@@ -409,7 +445,7 @@ export function APISnippet({ groupType }: FeatureFlagSnippet): JSX.Element {
     return (
         <>
             <CodeSnippet language={Language.Bash} wrap>
-                {`curl ${window.location.origin}/decide?v=3/ \\
+                {`curl ${apiHostOrigin()}/decide?v=3/ \\
 -X POST -H 'Content-Type: application/json' \\
 -d '{
     "api_key": "${currentTeam ? currentTeam.api_token : '[project_api_key]'}",

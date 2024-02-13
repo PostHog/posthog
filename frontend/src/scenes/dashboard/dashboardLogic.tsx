@@ -22,7 +22,7 @@ import {
 } from 'lib/constants'
 import { Dayjs, dayjs, now } from 'lib/dayjs'
 import { captureTimeToSeeData, currentSessionId, TimeToSeeDataPayload } from 'lib/internalMetrics'
-import { lemonToast } from 'lib/lemon-ui/lemonToast'
+import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { Link } from 'lib/lemon-ui/Link'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { clearDOMTextSelection, isUserLoggedIn, shouldCancelQuery, toParams, uuid } from 'lib/utils'
@@ -53,7 +53,7 @@ import {
     TileLayout,
 } from '~/types'
 
-import { getResponseBytes, sortDates } from '../insights/utils'
+import { getResponseBytes, sortDates, sortDayJsDates } from '../insights/utils'
 import { teamLogic } from '../teamLogic'
 import type { dashboardLogicType } from './dashboardLogicType'
 
@@ -670,9 +670,9 @@ export const dashboardLogic = kea<dashboardLogicType>([
                     return null
                 }
 
-                const oldest = sortDates(insightTiles.map((i) => i.last_refresh))
-                const candidateShortest = oldest.length > 0 ? dayjs(oldest[0]) : null
-                return candidateShortest?.isValid() ? candidateShortest : null
+                const validDates = insightTiles.map((i) => dayjs(i.last_refresh)).filter((date) => date.isValid())
+                const oldest = sortDayJsDates(validDates)
+                return oldest.length > 0 ? oldest[0] : null
             },
         ],
         blockRefresh: [
@@ -742,7 +742,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
                     path: urls.dashboards(),
                 },
                 {
-                    key: dashboard?.id || 'new',
+                    key: [Scene.Dashboard, dashboard?.id || 'new'],
                     name: dashboard?.id ? dashboard.name || 'Unnamed' : null,
                     onRename: async (name) => {
                         if (dashboard) {
@@ -912,7 +912,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
         refreshAllDashboardItemsManual: () => {
             // reset auto refresh interval
             actions.resetInterval()
-            actions.refreshAllDashboardItems({ action: 'refresh_manual' })
+            actions.refreshAllDashboardItems({ action: 'refresh' })
         },
         refreshAllDashboardItems: async ({ tiles, action, initialLoad, dashboardQueryId = uuid() }, breakpoint) => {
             if (!props.id) {
@@ -949,7 +949,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
             let refreshesFinished = 0
             let totalResponseBytes = 0
 
-            const hardRefreshWithoutCache = action === 'refresh_manual' || action === 'refresh_above_threshold'
+            const hardRefreshWithoutCache = ['refresh', 'load_missing'].includes(action)
 
             // array of functions that reload each item
             const fetchItemFunctions = insights.map((insight) => async () => {
@@ -1074,8 +1074,15 @@ export const dashboardLogic = kea<dashboardLogicType>([
             }
 
             if (values.autoRefresh.enabled) {
+                // Refresh right now after enabling if we haven't refreshed recently
+                if (
+                    values.lastRefreshed &&
+                    values.lastRefreshed.isBefore(now().subtract(values.autoRefresh.interval, 'seconds'))
+                ) {
+                    actions.refreshAllDashboardItems({ action: 'refresh' })
+                }
                 cache.autoRefreshInterval = window.setInterval(() => {
-                    actions.refreshAllDashboardItems({ action: 'refresh_automatic' })
+                    actions.refreshAllDashboardItems({ action: 'refresh' })
                 }, values.autoRefresh.interval * 1000)
             }
         },
@@ -1095,7 +1102,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 values.lastRefreshed.isBefore(now().subtract(AUTO_REFRESH_DASHBOARD_THRESHOLD_HOURS, 'hours')) &&
                 !process.env.STORYBOOK // allow mocking of date in storybook without triggering refresh
             ) {
-                actions.refreshAllDashboardItems({ action: 'refresh_above_threshold', initialLoad, dashboardQueryId })
+                actions.refreshAllDashboardItems({ action: 'refresh', initialLoad, dashboardQueryId })
                 allLoaded = false
             } else {
                 const tilesWithNoResults = values.tiles?.filter((t) => !!t.insight && !t.insight.result) || []

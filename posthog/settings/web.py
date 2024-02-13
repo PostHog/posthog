@@ -6,7 +6,6 @@ from typing import List
 from corsheaders.defaults import default_headers
 
 from posthog.settings.base_variables import BASE_DIR, DEBUG, TEST
-from posthog.settings.statsd import STATSD_HOST
 from posthog.settings.utils import get_from_env, get_list, str_to_bool
 from posthog.utils_cors import CORS_ALLOWED_TRACING_HEADERS
 
@@ -107,11 +106,6 @@ MIDDLEWARE = [
     "posthog.middleware.PostHogTokenCookieMiddleware",
 ]
 
-
-if STATSD_HOST is not None:
-    MIDDLEWARE.insert(0, "django_statsd.middleware.StatsdMiddleware")
-    MIDDLEWARE.append("django_statsd.middleware.StatsdMiddlewareTimer")
-
 if DEBUG:
     # Used on local devenv to reverse-proxy all of /i/* to capture-rs on port 3000
     INSTALLED_APPS.append("revproxy")
@@ -148,6 +142,7 @@ TEMPLATES = [
                 "django.template.context_processors.request",
                 "django.contrib.auth.context_processors.auth",
                 "django.contrib.messages.context_processors.messages",
+                "loginas.context_processors.impersonated_session_status",
             ]
         },
     }
@@ -246,7 +241,6 @@ X_FRAME_OPTIONS = "SAMEORIGIN"
 REST_FRAMEWORK = {
     "DEFAULT_AUTHENTICATION_CLASSES": [
         "posthog.auth.PersonalAPIKeyAuthentication",
-        "rest_framework.authentication.BasicAuthentication",
         "rest_framework.authentication.SessionAuthentication",
     ],
     "DEFAULT_PAGINATION_CLASS": "rest_framework.pagination.LimitOffsetPagination",

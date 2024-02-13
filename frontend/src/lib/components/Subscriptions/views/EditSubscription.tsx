@@ -1,4 +1,4 @@
-import { LemonDivider, LemonInput, LemonTextArea, Link } from '@posthog/lemon-ui'
+import { LemonInput, LemonTextArea, Link } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
 import { UserActivityIndicator } from 'lib/components/UserActivityIndicator/UserActivityIndicator'
@@ -105,12 +105,8 @@ export function EditSubscription({
             className="LemonModal__layout"
         >
             <LemonModal.Header>
-                <div className="flex items-center">
-                    <LemonButton status="stealth" onClick={onCancel} size="small">
-                        <IconChevronLeft fontSize={'1rem'} />
-                        Back
-                    </LemonButton>
-                    <LemonDivider vertical />
+                <div className="flex items-center gap-2">
+                    <LemonButton icon={<IconChevronLeft />} onClick={onCancel} size="xsmall" />
 
                     <h3>{id === 'new' ? 'New' : 'Edit '} Subscription</h3>
                 </div>
@@ -139,8 +135,8 @@ export function EditSubscription({
                             <UserActivityIndicator
                                 at={subscription.created_at}
                                 by={subscription.created_by}
-                                prefix={'Created'}
-                                className={'mb-4'}
+                                prefix="Created"
+                                className="mb-4"
                             />
                         ) : null}
 
@@ -170,11 +166,11 @@ export function EditSubscription({
                             </LemonBanner>
                         )}
 
-                        <Field name={'title'} label={'Name'}>
+                        <Field name="title" label="Name">
                             <LemonInput placeholder="e.g. Weekly team report" />
                         </Field>
 
-                        <Field name={'target_type'} label={'Destination'}>
+                        <Field name="target_type" label="Destination">
                             <LemonSelect options={targetTypeOptions} />
                         </Field>
 
@@ -198,9 +194,9 @@ export function EditSubscription({
                                 )}
 
                                 <Field
-                                    name={'target_value'}
-                                    label={'Who do you want to subscribe'}
-                                    help={'Enter the email addresses of the users you want to share with'}
+                                    name="target_value"
+                                    label="Who do you want to subscribe"
+                                    help="Enter the email addresses of the users you want to share with"
                                 >
                                     {({ value, onChange }) => (
                                         <LemonSelectMultiple
@@ -216,7 +212,7 @@ export function EditSubscription({
                                     )}
                                 </Field>
 
-                                <Field name={'invite_message'} label={'Message'} showOptional>
+                                <Field name="invite_message" label="Message" showOptional>
                                     <LemonTextArea placeholder="Your message to new subscribers (optional)" />
                                 </Field>
                             </>
@@ -267,8 +263,8 @@ export function EditSubscription({
                                 ) : (
                                     <>
                                         <Field
-                                            name={'target_value'}
-                                            label={'Which Slack channel to send reports to'}
+                                            name="target_value"
+                                            label="Which Slack channel to send reports to"
                                             help={
                                                 <>
                                                     Private channels are only shown if you have{' '}
@@ -296,7 +292,7 @@ export function EditSubscription({
                                         </Field>
 
                                         {showSlackMembershipWarning ? (
-                                            <Field name={'memberOfSlackChannel'}>
+                                            <Field name="memberOfSlackChannel">
                                                 <LemonBanner type="info">
                                                     <div className="flex gap-2 items-center">
                                                         <span>
@@ -312,7 +308,7 @@ export function EditSubscription({
                                                         </span>
                                                         <LemonButton
                                                             type="secondary"
-                                                            onClick={() => loadSlackChannels()}
+                                                            onClick={loadSlackChannels}
                                                             loading={slackChannelsLoading}
                                                         >
                                                             Check again
@@ -328,7 +324,7 @@ export function EditSubscription({
 
                         {subscription.target_type === 'webhook' ? (
                             <>
-                                <Field name={'target_value'} label={'Webhook URL'}>
+                                <Field name="target_value" label="Webhook URL">
                                     <LemonInput placeholder="https://example.com/webhooks/1234" />
                                 </Field>
                                 <div className="text-xs text-muted mt-2">
@@ -342,10 +338,10 @@ export function EditSubscription({
                             <LemonLabel className="mb-2">Recurrence</LemonLabel>
                             <div className="flex gap-2 items-center rounded border p-2 flex-wrap">
                                 <span>Send every</span>
-                                <Field name={'interval'}>
+                                <Field name="interval">
                                     <LemonSelect options={intervalOptions} />
                                 </Field>
-                                <Field name={'frequency'}>
+                                <Field name="frequency">
                                     <LemonSelect
                                         options={
                                             subscription.interval === 1
@@ -358,7 +354,7 @@ export function EditSubscription({
                                 {subscription.frequency === 'weekly' && (
                                     <>
                                         <span>on</span>
-                                        <Field name={'byweekday'}>
+                                        <Field name="byweekday">
                                             {({ value, onChange }) => (
                                                 <LemonSelect
                                                     options={weekdayOptions}
@@ -373,7 +369,7 @@ export function EditSubscription({
                                 {subscription.frequency === 'monthly' && (
                                     <>
                                         <span>on the</span>
-                                        <Field name={'bysetpos'}>
+                                        <Field name="bysetpos">
                                             {({ value, onChange }) => (
                                                 <LemonSelect
                                                     options={bysetposOptions}
@@ -384,7 +380,7 @@ export function EditSubscription({
                                                 />
                                             )}
                                         </Field>
-                                        <Field name={'byweekday'}>
+                                        <Field name="byweekday">
                                             {({ value, onChange }) => (
                                                 <LemonSelect
                                                     dropdownMatchSelectWidth={false}
@@ -404,7 +400,7 @@ export function EditSubscription({
                                     </>
                                 )}
                                 <span>by</span>
-                                <Field name={'start_date'}>
+                                <Field name="start_date">
                                     {({ value, onChange }) => (
                                         <LemonSelect
                                             options={timeOptions}

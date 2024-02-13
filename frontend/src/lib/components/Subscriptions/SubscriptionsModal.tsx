@@ -69,7 +69,6 @@ export function SubscribeButton(props: SubscriptionBaseProps): JSX.Element {
 
     return (
         <LemonButtonWithDropdown
-            status="stealth"
             fullWidth
             dropdown={{
                 actionable: true,
@@ -77,10 +76,10 @@ export function SubscribeButton(props: SubscriptionBaseProps): JSX.Element {
                 placement: 'right-start',
                 overlay: (
                     <>
-                        <LemonButton onClick={() => push(urlForSubscription('new', props))} status="stealth" fullWidth>
+                        <LemonButton onClick={() => push(urlForSubscription('new', props))} fullWidth>
                             New subscription
                         </LemonButton>
-                        <LemonButton onClick={() => push(urlForSubscriptions(props))} status="stealth" fullWidth>
+                        <LemonButton onClick={() => push(urlForSubscriptions(props))} fullWidth>
                             Manage subscriptions
                         </LemonButton>
                     </>

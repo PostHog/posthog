@@ -77,7 +77,7 @@ export const getInterval = (query: InsightQueryNode): IntervalType | undefined =
 
 export const getBreakdown = (query: InsightQueryNode): BreakdownFilter | undefined => {
     if (isInsightQueryWithBreakdown(query)) {
-        return query.breakdown
+        return query.breakdownFilter
     } else {
         return undefined
     }
@@ -85,9 +85,9 @@ export const getBreakdown = (query: InsightQueryNode): BreakdownFilter | undefin
 
 export const getShowLegend = (query: InsightQueryNode): boolean | undefined => {
     if (isStickinessQuery(query)) {
-        return query.stickinessFilter?.show_legend
+        return query.stickinessFilter?.showLegend
     } else if (isTrendsQuery(query)) {
-        return query.trendsFilter?.show_legend
+        return query.trendsFilter?.showLegend
     } else {
         return undefined
     }
@@ -95,11 +95,11 @@ export const getShowLegend = (query: InsightQueryNode): boolean | undefined => {
 
 export const getShowValueOnSeries = (query: InsightQueryNode): boolean | undefined => {
     if (isLifecycleQuery(query)) {
-        return query.lifecycleFilter?.show_values_on_series
+        return query.lifecycleFilter?.showValuesOnSeries
     } else if (isStickinessQuery(query)) {
-        return query.stickinessFilter?.show_values_on_series
+        return query.stickinessFilter?.showValuesOnSeries
     } else if (isTrendsQuery(query)) {
-        return query.trendsFilter?.show_values_on_series
+        return query.trendsFilter?.showValuesOnSeries
     } else {
         return undefined
     }
@@ -107,7 +107,7 @@ export const getShowValueOnSeries = (query: InsightQueryNode): boolean | undefin
 
 export const getShowLabelsOnSeries = (query: InsightQueryNode): boolean | undefined => {
     if (isTrendsQuery(query)) {
-        return query.trendsFilter?.show_labels_on_series
+        return query.trendsFilter?.showLabelsOnSeries
     } else {
         return undefined
     }
@@ -115,7 +115,7 @@ export const getShowLabelsOnSeries = (query: InsightQueryNode): boolean | undefi
 
 export const getShowPercentStackView = (query: InsightQueryNode): boolean | undefined => {
     if (isTrendsQuery(query)) {
-        return query.trendsFilter?.show_percent_stack_view
+        return query.trendsFilter?.showPercentStackView
     } else {
         return undefined
     }

@@ -1047,7 +1047,15 @@ class TestEmailVerificationAPI(APIBaseTest):
             "user verified email",
             properties={"$set": ANY},
         )
-        self.assertEqual(mock_capture.call_count, 2)
+
+        mock_capture.assert_any_call(
+            self.user.distinct_id,
+            "verification email sent",
+            groups={
+                "organization": str(self.team.organization_id),
+            },
+        )
+        self.assertEqual(mock_capture.call_count, 3)
 
     def test_cant_verify_if_email_is_not_configured(self):
         with self.settings(CELERY_TASK_ALWAYS_EAGER=True):

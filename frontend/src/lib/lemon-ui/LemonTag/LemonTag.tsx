@@ -59,7 +59,6 @@ export function LemonTag({
             {popover?.overlay && (
                 <LemonButtonWithDropdown
                     dropdown={popover}
-                    status="stealth"
                     size="small"
                     className="LemonTag__right-button"
                     icon={<IconEllipsis />}
@@ -72,7 +71,6 @@ export function LemonTag({
                 <LemonButton
                     icon={<IconClose className="h-3.5 w-3.5" />}
                     onClick={onClose}
-                    status="primary"
                     size="xsmall"
                     className="LemonTag__right-button"
                 />

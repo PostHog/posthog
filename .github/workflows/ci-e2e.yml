@@ -79,7 +79,6 @@ jobs:
         outputs:
             tag: ${{ steps.build.outputs.tag }}
             build-id: ${{ steps.build.outputs.build-id }}
-            unit-build-id: ${{ steps.build.outputs.unit-build-id }}
         steps:
             - name: Checkout
               if: needs.changes.outputs.shouldTriggerCypress == 'true'
@@ -136,7 +135,7 @@ jobs:
               id: cypress-cache-dir
               run: echo "CYPRESS_BIN_PATH=$(npx cypress cache path)" >> $GITHUB_OUTPUT
 
-            - uses: actions/cache@v3
+            - uses: actions/cache@v4
               if: needs.changes.outputs.shouldTriggerCypress == 'true'
               id: pnpm-cache
               with:
@@ -171,7 +170,7 @@ jobs:
               if: needs.changes.outputs.shouldTriggerCypress == 'true'
               uses: depot/pull-action@v1
               with:
-                  build-id: ${{ needs.container.outputs.unit-build-id }}
+                  build-id: ${{ needs.container.outputs.build-id }}
                   tags: ${{ needs.container.outputs.tag }}
 
             - name: Write .env # This step intentionally has no if, so that GH always considers the action as having run

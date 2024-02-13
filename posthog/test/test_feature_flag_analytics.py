@@ -2,22 +2,25 @@ from unittest.mock import MagicMock, patch
 
 from freezegun import freeze_time, configure, config  # type: ignore
 import pytest
+import uuid
 from posthog.api.feature_flag import _create_usage_dashboard
 from posthog.constants import FlagRequestType
 from posthog.models.feature_flag.feature_flag import FeatureFlag
 from posthog.models.feature_flag.flag_analytics import (
+    capture_usage_for_all_teams,
     find_flags_with_enriched_analytics,
     increment_request_count,
     capture_team_decide_usage,
 )
-from posthog.test.base import BaseTest
+from posthog.models.team.team import Team
+from posthog.test.base import BaseTest, QueryMatchingTest, snapshot_postgres_queries_context
 from posthog import redis
 import datetime
 import concurrent.futures
 from posthog.test.base import _create_event, flush_persons_and_events
 
 
-class TestFeatureFlagAnalytics(BaseTest):
+class TestFeatureFlagAnalytics(BaseTest, QueryMatchingTest):
     maxDiff = None
 
     def tearDown(self):
@@ -211,6 +214,76 @@ class TestFeatureFlagAnalytics(BaseTest):
                         "token": "token",
                     },
                 )
+
+    @patch("posthog.models.feature_flag.flag_analytics.CACHE_BUCKET_SIZE", 10)
+    def test_efficient_querying_of_team_decide_usage_data(self):
+        mock_capture = MagicMock()
+        team_id = 3901
+        other_team_id = 1243
+        # generate uuid
+        team_uuid = uuid.uuid4()
+        other_team_uuid = uuid.uuid4()
+
+        # make sure the teams exist to query them
+        Team.objects.create(id=team_id, organization=self.organization, api_token=f"token:::{team_id}", uuid=team_uuid)
+
+        Team.objects.create(
+            id=other_team_id, organization=self.organization, api_token=f"token:::{other_team_id}", uuid=other_team_uuid
+        )
+
+        with freeze_time("2022-05-07 12:23:07") as frozen_datetime:
+            for _ in range(10):
+                # 10 requests in first bucket
+                increment_request_count(team_id)
+            for _ in range(7):
+                # 7 requests for other team
+                increment_request_count(other_team_id)
+
+            frozen_datetime.tick(datetime.timedelta(seconds=5))
+
+            for _ in range(5):
+                # 5 requests in second bucket
+                increment_request_count(team_id)
+            for _ in range(3):
+                # 3 requests for other team
+                increment_request_count(other_team_id)
+
+            frozen_datetime.tick(datetime.timedelta(seconds=10))
+
+            for _ in range(5):
+                # 5 requests in third bucket
+                increment_request_count(team_id)
+                increment_request_count(other_team_id)
+
+            with self.settings(DECIDE_BILLING_ANALYTICS_TOKEN="token"), snapshot_postgres_queries_context(self):
+                capture_usage_for_all_teams(mock_capture)
+
+                mock_capture.capture.assert_any_call(
+                    team_id,
+                    "decide usage",
+                    {
+                        "count": 15,
+                        "team_id": team_id,
+                        "team_uuid": team_uuid,
+                        "max_time": 1651926190,
+                        "min_time": 1651926180,
+                        "token": "token",
+                    },
+                )
+
+                mock_capture.capture.assert_any_call(
+                    other_team_id,
+                    "decide usage",
+                    {
+                        "count": 10,
+                        "team_id": other_team_id,
+                        "team_uuid": other_team_uuid,
+                        "max_time": 1651926190,
+                        "min_time": 1651926180,
+                        "token": "token",
+                    },
+                )
+                assert mock_capture.capture.call_count == 2
 
     @pytest.mark.skip(
         reason="This works locally, but causes issues in CI because the freeze_time applies to threads as well in unrelated tests, causing timeouts."

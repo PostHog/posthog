@@ -20,7 +20,6 @@ export function DeadLetterQueue(): JSX.Element {
     if (!user?.is_staff) {
         return (
             <PageHeader
-                title="Dead Letter Queue"
                 caption={
                     <>
                         <p>
@@ -40,7 +39,6 @@ export function DeadLetterQueue(): JSX.Element {
     return (
         <div>
             <PageHeader
-                title="Dead Letter Queue"
                 caption={
                     <>
                         <p>Manage your instance's dead letter queue.</p>

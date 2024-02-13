@@ -1,6 +1,5 @@
 import { LemonDialog, LemonInput, LemonModal, LemonTable, Link } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
-import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { IconPlus } from 'lib/lemon-ui/icons'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
@@ -74,7 +73,6 @@ function CreateKeyModal({
 function PersonalAPIKeysTable(): JSX.Element {
     const { keys } = useValues(personalAPIKeysLogic) as { keys: PersonalAPIKeyType[] }
     const { deleteKey, loadKeys } = useActions(personalAPIKeysLogic)
-    const is3000 = useFeatureFlag('POSTHOG_3000', 'test')
 
     useEffect(() => loadKeys(), [])
 
@@ -123,7 +121,7 @@ function PersonalAPIKeysTable(): JSX.Element {
                         return (
                             <LemonButton
                                 status="danger"
-                                type={is3000 ? 'tertiary' : 'primary'}
+                                type="tertiary"
                                 size="xsmall"
                                 onClick={() => {
                                     LemonDialog.open({

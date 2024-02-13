@@ -155,6 +155,10 @@ def calculate_year_in_posthog_2023(user_uuid: str) -> Optional[Dict]:
     # we should only match one or zero users
     if rows:
         row = rows[0]
+        badges_ = row["badges"]
+        if len(badges_) >= 3:
+            badges_.append("champion")
+
         return {
             "stats": {
                 "insight_created_count": row["insight_created_count"],
@@ -164,7 +168,7 @@ def calculate_year_in_posthog_2023(user_uuid: str) -> Optional[Dict]:
                 "dashboards_created_count": row["dashboards_created_count"],
                 "surveys_created_count": row["survey_created_count"],
             },
-            "badges": row["badges"],
+            "badges": badges_,
         }
 
     return None

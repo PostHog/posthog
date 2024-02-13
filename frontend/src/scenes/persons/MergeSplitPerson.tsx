@@ -20,7 +20,7 @@ export function MergeSplitPerson({ person }: { person: PersonType }): JSX.Elemen
             title="Split persons"
             onCancel={cancel}
             className="merge-split-person"
-            okText={`Split persons`}
+            okText="Split persons"
             onOk={execute}
             okButtonProps={{ loading: executedLoading }}
             cancelButtonProps={{ disabled: executedLoading }}

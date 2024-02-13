@@ -2,9 +2,9 @@ import './FunnelBarChart.scss'
 
 import clsx from 'clsx'
 import { useValues } from 'kea'
+import { ScrollableShadows } from 'lib/components/ScrollableShadows/ScrollableShadows'
 import { useResizeObserver } from 'lib/hooks/useResizeObserver'
-import { useScrollable } from 'lib/hooks/useScrollable'
-import { useLayoutEffect, useState } from 'react'
+import { useLayoutEffect, useRef, useState } from 'react'
 import { insightLogic } from 'scenes/insights/insightLogic'
 
 import { ChartParams } from '~/types'
@@ -28,7 +28,6 @@ export function FunnelBarChart({ showPersonsModal: showPersonsModalProp = true }
     const showPersonsModal = canOpenPersonModal && showPersonsModalProp
     const vizRef = useFunnelTooltip(showPersonsModal)
 
-    const [scrollRef, [isScrollableLeft, isScrollableRight]] = useScrollable()
     const { height: availableHeight } = useResizeObserver({ ref: vizRef })
     const [scrollbarHeightPx, setScrollbarHeightPx] = useState(0)
 
@@ -56,6 +55,8 @@ export function FunnelBarChart({ showPersonsModal: showPersonsModalProp = true }
             ? 96
             : 192
 
+    const scrollRef = useRef<HTMLDivElement | null>(null)
+
     useLayoutEffect(() => {
         if (scrollRef.current) {
             setScrollbarHeightPx(scrollRef.current.offsetHeight - scrollRef.current.clientHeight)
@@ -76,16 +77,8 @@ export function FunnelBarChart({ showPersonsModal: showPersonsModalProp = true }
     const barRowHeight = `calc(${availableHeight}px - ${borderHeightPx}px - ${stepLegendHeightRem}rem  - ${scrollbarHeightPx}px)`
 
     return (
-        <div
-            className={clsx(
-                'FunnelBarChart scrollable',
-                isScrollableLeft && 'scrollable--left',
-                isScrollableRight && 'scrollable--right'
-            )}
-            ref={vizRef}
-            data-attr="funnel-bar-graph"
-        >
-            <div className="scrollable__inner" ref={scrollRef}>
+        <div className={clsx('FunnelBarChart')} ref={vizRef} data-attr="funnel-bar-graph">
+            <ScrollableShadows scrollRef={scrollRef} direction="horizontal">
                 <table
                     /* eslint-disable-next-line react/forbid-dom-props */
                     style={
@@ -128,7 +121,7 @@ export function FunnelBarChart({ showPersonsModal: showPersonsModalProp = true }
                         </tr>
                     </tbody>
                 </table>
-            </div>
+            </ScrollableShadows>
         </div>
     )
 }

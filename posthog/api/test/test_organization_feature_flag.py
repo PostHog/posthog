@@ -50,6 +50,7 @@ class TestOrganizationFeatureFlagGet(APIBaseTest, QueryMatchingTest):
                     "uuid": str(self.user.uuid),
                     "distinct_id": self.user.distinct_id,
                     "first_name": self.user.first_name,
+                    "last_name": self.user.last_name,
                     "email": self.user.email,
                     "is_email_verified": self.user.is_email_verified,
                 },

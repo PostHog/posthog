@@ -1,5 +1,6 @@
+# serializer version: 1
 # name: TestDatabase.test_serialize_database_no_person_on_events
-  '
+  '''
   {
       "events": [
           {
@@ -319,14 +320,6 @@
           {
               "key": "distinct_id",
               "type": "string"
-          },
-          {
-              "key": "min_first_timestamp",
-              "type": "datetime"
-          },
-          {
-              "key": "max_last_timestamp",
-              "type": "datetime"
           },
           {
               "key": "first_url",
@@ -770,10 +763,10 @@
           }
       ]
   }
-  '
----
+  '''
+# ---
 # name: TestDatabase.test_serialize_database_with_person_on_events_enabled
-  '
+  '''
   {
       "events": [
           {
@@ -1090,14 +1083,6 @@
               "type": "string"
           },
           {
-              "key": "min_first_timestamp",
-              "type": "datetime"
-          },
-          {
-              "key": "max_last_timestamp",
-              "type": "datetime"
-          },
-          {
               "key": "first_url",
               "type": "string"
           },
@@ -1539,5 +1524,5 @@
           }
       ]
   }
-  '
----
+  '''
+# ---

@@ -9,4 +9,4 @@ class Migration(migrations.Migration):
         ("posthog", "0039_user_email_opt_in"),
     ]
 
-    operations = []  # type: ignore
+    operations = []

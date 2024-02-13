@@ -1,35 +1,9 @@
-import { useValues } from 'kea'
-import { groupsAccessLogic, GroupsAccessStatus } from 'lib/introductions/groupsAccessLogic'
 import { IconLock } from 'lib/lemon-ui/icons'
 import { Link } from 'lib/lemon-ui/Link'
-import Select from 'rc-select'
 
-// TODO: Remove, but de-ant FeatureFlagReleaseConditions first
-export function GroupsIntroductionOption({ value }: { value: any }): JSX.Element | null {
-    const { groupsAccessStatus } = useValues(groupsAccessLogic)
-
-    if (
-        ![GroupsAccessStatus.HasAccess, GroupsAccessStatus.HasGroupTypes, GroupsAccessStatus.NoAccess].includes(
-            groupsAccessStatus
-        )
-    ) {
-        return null
-    }
-
+export function GroupsIntroductionOption(): JSX.Element {
     return (
-        <Select.Option
-            key="groups"
-            value={value}
-            disabled
-            style={{
-                height: '100%',
-                width: '100%',
-                overflow: 'hidden',
-                textOverflow: 'ellipsis',
-                backgroundColor: 'var(--side)',
-                color: 'var(--muted)',
-            }}
-        >
+        <div className="cursor-default">
             <IconLock style={{ marginRight: 6, color: 'var(--warning)' }} />
             Unique groups –{' '}
             <Link
@@ -40,6 +14,6 @@ export function GroupsIntroductionOption({ value }: { value: any }): JSX.Element
             >
                 Learn more
             </Link>
-        </Select.Option>
+        </div>
     )
 }

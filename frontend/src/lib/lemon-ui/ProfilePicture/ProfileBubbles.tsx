@@ -29,8 +29,10 @@ export function ProfileBubbles({ people, tooltip, limit = 6, ...divProps }: Prof
                 {shownPeople.map(({ email, name, title }, index) => (
                     <ProfilePicture
                         key={email}
-                        name={name}
-                        email={email}
+                        user={{
+                            email,
+                            first_name: name,
+                        }}
                         title={title || name || email}
                         size="md"
                         index={index}

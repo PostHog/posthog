@@ -59,7 +59,6 @@ export const Session = ({ session }: SessionProps): JSX.Element => {
                     <LemonButton
                         size="small"
                         icon={isFolded ? <IconUnfoldMore /> : <IconUnfoldLess />}
-                        status="stealth"
                         onClick={() => setIsFolded((state) => !state)}
                     />
                     <span className="font-bold ml-2">{humanFriendlyDetailedTime(startTime)}</span>

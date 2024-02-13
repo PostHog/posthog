@@ -1,46 +1,39 @@
 import * as Icons from '@posthog/icons'
 import { LemonButton } from '@posthog/lemon-ui'
 import clsx from 'clsx'
-import { useActions, useValues } from 'kea'
+import { useValues } from 'kea'
 import { router } from 'kea-router'
 import { LemonCard } from 'lib/lemon-ui/LemonCard/LemonCard'
 import { Spinner } from 'lib/lemon-ui/Spinner'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { billingLogic } from 'scenes/billing/billingLogic'
-import { getProductUri } from 'scenes/onboarding/onboardingLogic'
+import { getProductUri, onboardingLogic } from 'scenes/onboarding/onboardingLogic'
 import { SceneExport } from 'scenes/sceneTypes'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
 import { BillingProductV2Type, ProductKey } from '~/types'
 
-import { productsLogic } from './productsLogic'
-
 export const scene: SceneExport = {
     component: Products,
-    logic: productsLogic,
 }
 
 function OnboardingCompletedButton({
     productUrl,
     onboardingUrl,
-    productKey,
 }: {
     productUrl: string
     onboardingUrl: string
     productKey: ProductKey
 }): JSX.Element {
-    const { onSelectProduct } = useActions(productsLogic)
-
     return (
         <>
-            <LemonButton type="secondary" status="muted" to={productUrl}>
+            <LemonButton type="secondary" to={productUrl}>
                 Go to product
             </LemonButton>
             <LemonButton
                 type="tertiary"
-                status="muted"
                 onClick={() => {
-                    onSelectProduct(productKey)
                     router.actions.push(onboardingUrl)
                 }}
             >
@@ -52,14 +45,12 @@ function OnboardingCompletedButton({
 
 function OnboardingNotCompletedButton({
     url,
-    productKey,
     getStartedActionOverride,
 }: {
     url: string
     productKey: ProductKey
     getStartedActionOverride?: () => void
 }): JSX.Element {
-    const { onSelectProduct } = useActions(productsLogic)
     return (
         <LemonButton
             type="primary"
@@ -67,7 +58,6 @@ function OnboardingNotCompletedButton({
                 if (getStartedActionOverride) {
                     getStartedActionOverride()
                 } else {
-                    onSelectProduct(productKey)
                     router.actions.push(url)
                 }
             }}
@@ -93,6 +83,7 @@ export function ProductCard({
     className?: string
 }): JSX.Element {
     const { currentTeam } = useValues(teamLogic)
+    const { featureFlags } = useValues(featureFlagLogic)
     const onboardingCompleted = currentTeam?.has_completed_onboarding_for?.[product.type]
     const vertical = orientation === 'vertical'
 
@@ -113,7 +104,7 @@ export function ProductCard({
             <div className={`flex gap-x-2 flex-0 items-center ${!vertical && 'justify-end'}`}>
                 {onboardingCompleted ? (
                     <OnboardingCompletedButton
-                        productUrl={getProductUri(product.type as ProductKey)}
+                        productUrl={getProductUri(product.type as ProductKey, featureFlags)}
                         onboardingUrl={urls.onboarding(product.type)}
                         productKey={product.type as ProductKey}
                     />
@@ -133,22 +124,23 @@ export function ProductCard({
 
 export function Products(): JSX.Element {
     const { billing } = useValues(billingLogic)
-    const { currentTeam } = useValues(teamLogic)
-    const isFirstProduct = Object.keys(currentTeam?.has_completed_onboarding_for || {}).length === 0
+    const { isFirstProductOnboarding } = useValues(onboardingLogic)
     const products = billing?.products || []
 
     return (
         <div className="flex flex-col flex-1 w-full h-full p-6 items-center justify-center bg-mid">
             <div className="mb-8">
-                <h1 className="text-center text-4xl">Pick your {isFirstProduct ? 'first' : 'next'} product.</h1>
+                <h1 className="text-center text-4xl">
+                    Pick your {isFirstProductOnboarding ? 'first' : 'next'} product.
+                </h1>
                 <p className="text-center">
-                    Pick your {isFirstProduct ? 'first' : 'next'} product to get started with. You can set up any others
-                    you'd like later.
+                    Pick your {isFirstProductOnboarding ? 'first' : 'next'} product to get started with. You can set up
+                    any others you'd like later.
                 </p>
             </div>
             {products.length > 0 ? (
                 <>
-                    <div className="flex w-full max-w-xl justify-center gap-6 flex-wrap">
+                    <div className="flex w-full max-w-300 justify-center gap-6 flex-wrap">
                         {products
                             .filter(
                                 (product) =>

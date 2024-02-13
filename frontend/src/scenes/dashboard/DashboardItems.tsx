@@ -99,6 +99,9 @@ export function DashboardItems(): JSX.Element {
             >
                 {tiles?.map((tile: DashboardTile) => {
                     const { insight, text } = tile
+                    const smLayout = layouts['sm']?.find((l) => {
+                        return l.i == tile.id.toString()
+                    })
 
                     const commonTileProps = {
                         dashboardId: dashboard?.id,
@@ -111,7 +114,6 @@ export function DashboardItems(): JSX.Element {
                         moreButtons: canEditDashboard ? (
                             <LemonButton
                                 onClick={() => setDashboardMode(DashboardMode.Edit, DashboardEventSource.MoreDropdown)}
-                                status="stealth"
                                 fullWidth
                             >
                                 Edit layout (E)
@@ -136,11 +138,12 @@ export function DashboardItems(): JSX.Element {
                                 highlighted={highlightedInsightId && insight.short_id === highlightedInsightId}
                                 updateColor={(color) => updateTileColor(tile.id, color)}
                                 ribbonColor={tile.color}
-                                refresh={() => refreshAllDashboardItems({ tiles: [tile], action: 'refresh_manual' })}
+                                refresh={() => refreshAllDashboardItems({ tiles: [tile], action: 'refresh' })}
                                 rename={() => renameInsight(insight)}
                                 duplicate={() => duplicateInsight(insight)}
                                 showDetailsControls={placement != DashboardPlacement.Export}
                                 placement={placement}
+                                loadPriority={smLayout ? smLayout.y * 1000 + smLayout.x : undefined}
                                 {...commonTileProps}
                             />
                         )

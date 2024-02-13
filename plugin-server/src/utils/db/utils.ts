@@ -41,6 +41,7 @@ export function timeoutGuard(
     }, timeout)
 }
 
+// when changing this set, be sure to update the frontend as well (taxonomy.tsx (eventToPersonProperties))
 const eventToPersonProperties = new Set([
     // mobile params
     '$app_build',
@@ -65,6 +66,7 @@ const eventToPersonProperties = new Set([
     'utm_name',
     'utm_term',
     'gclid',
+    'gad_source',
     'gbraid',
     'wbraid',
     'fbclid',

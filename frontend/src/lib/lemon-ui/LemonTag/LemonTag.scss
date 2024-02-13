@@ -9,19 +9,19 @@
     color: var(--default);
     white-space: nowrap;
     background: var(--border);
-    border-radius: var(--radius);
+    border-radius: var(--radius-sm);
 
     &.LemonTag--normal {
         font-weight: normal;
     }
 
-    .posthog-3000 &:not(.breakdown) {
+    &:not(.LemonTag--breakdown) {
         padding: 0.075rem 0.25rem;
-        font-size: 0.688rem;
+        font-size: 0.6875rem;
         background: none;
         border-style: solid;
         border-width: 1px;
-        border-radius: calc(var(--radius) * 0.75);
+        border-radius: var(--radius-sm);
     }
 
     &.LemonTag--primary {
@@ -115,7 +115,7 @@
         background: none;
     }
 
-    &.breakdown {
+    &.LemonTag--breakdown {
         padding: 8px 12px;
         font-size: 14px;
         font-weight: 400;

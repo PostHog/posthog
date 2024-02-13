@@ -1,25 +1,24 @@
+# serializer version: 1
 # name: TestBreakdownsByCurrentURL.test_breakdown_by_current_url
-  '
+  '''
   
-  SELECT groupArray(value)
-  FROM
-    (SELECT if(empty(trim(TRAILING '/?#'
-                          from replaceRegexpAll(JSONExtractRaw(properties, '$current_url'), '^"|"$', ''))), '/', trim(TRAILING '/?#'
-                                                                                                                      from replaceRegexpAll(JSONExtractRaw(properties, '$current_url'), '^"|"$', ''))) AS value,
-            count(*) as count
-     FROM events e
-     WHERE team_id = 2
-       AND event = 'watched movie'
-       AND toTimeZone(timestamp, 'UTC') >= toDateTime('2020-01-02 00:00:00', 'UTC')
-       AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-12 23:59:59', 'UTC')
-     GROUP BY value
-     ORDER BY count DESC, value DESC
-     LIMIT 25
-     OFFSET 0)
-  '
----
+  SELECT if(empty(trim(TRAILING '/?#'
+                       from replaceRegexpAll(JSONExtractRaw(properties, '$current_url'), '^"|"$', ''))), '/', trim(TRAILING '/?#'
+                                                                                                                   from replaceRegexpAll(JSONExtractRaw(properties, '$current_url'), '^"|"$', ''))) AS value,
+         count(*) as count
+  FROM events e
+  WHERE team_id = 2
+    AND event = 'watched movie'
+    AND toTimeZone(timestamp, 'UTC') >= toDateTime('2020-01-02 00:00:00', 'UTC')
+    AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-12 23:59:59', 'UTC')
+  GROUP BY value
+  ORDER BY count DESC, value DESC
+  LIMIT 26
+  OFFSET 0
+  '''
+# ---
 # name: TestBreakdownsByCurrentURL.test_breakdown_by_current_url.1
-  '
+  '''
   
   SELECT groupArray(day_start) as date,
          groupArray(count) AS total,
@@ -47,9 +46,9 @@
                     day_start
            UNION ALL SELECT count(*) as total,
                             toStartOfDay(toTimeZone(toDateTime(timestamp, 'UTC'), 'UTC')) as day_start,
-                            transform(if(empty(trim(TRAILING '/?#'
-                                                    from replaceRegexpAll(JSONExtractRaw(properties, '$current_url'), '^"|"$', ''))), '/', trim(TRAILING '/?#'
-                                                                                                                                                from replaceRegexpAll(JSONExtractRaw(properties, '$current_url'), '^"|"$', ''))), (['https://example.com/home', 'https://example.com']), (['https://example.com/home', 'https://example.com']), '$$_posthog_breakdown_other_$$') as breakdown_value
+                            transform(ifNull(nullIf(if(empty(trim(TRAILING '/?#'
+                                                                  from replaceRegexpAll(JSONExtractRaw(properties, '$current_url'), '^"|"$', ''))), '/', trim(TRAILING '/?#'
+                                                                                                                                                              from replaceRegexpAll(JSONExtractRaw(properties, '$current_url'), '^"|"$', ''))), ''), '$$_posthog_breakdown_null_$$'), (['https://example.com/home', 'https://example.com']), (['https://example.com/home', 'https://example.com']), '$$_posthog_breakdown_other_$$') as breakdown_value
            FROM events e
            WHERE e.team_id = 2
              AND event = 'watched movie'
@@ -63,30 +62,28 @@
               day_start)
   GROUP BY breakdown_value
   ORDER BY breakdown_value
-  '
----
+  '''
+# ---
 # name: TestBreakdownsByCurrentURL.test_breakdown_by_pathname
-  '
+  '''
   
-  SELECT groupArray(value)
-  FROM
-    (SELECT if(empty(trim(TRAILING '/?#'
-                          from replaceRegexpAll(JSONExtractRaw(properties, '$pathname'), '^"|"$', ''))), '/', trim(TRAILING '/?#'
-                                                                                                                   from replaceRegexpAll(JSONExtractRaw(properties, '$pathname'), '^"|"$', ''))) AS value,
-            count(*) as count
-     FROM events e
-     WHERE team_id = 2
-       AND event = 'watched movie'
-       AND toTimeZone(timestamp, 'UTC') >= toDateTime('2020-01-02 00:00:00', 'UTC')
-       AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-12 23:59:59', 'UTC')
-     GROUP BY value
-     ORDER BY count DESC, value DESC
-     LIMIT 25
-     OFFSET 0)
-  '
----
+  SELECT if(empty(trim(TRAILING '/?#'
+                       from replaceRegexpAll(JSONExtractRaw(properties, '$pathname'), '^"|"$', ''))), '/', trim(TRAILING '/?#'
+                                                                                                                from replaceRegexpAll(JSONExtractRaw(properties, '$pathname'), '^"|"$', ''))) AS value,
+         count(*) as count
+  FROM events e
+  WHERE team_id = 2
+    AND event = 'watched movie'
+    AND toTimeZone(timestamp, 'UTC') >= toDateTime('2020-01-02 00:00:00', 'UTC')
+    AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-12 23:59:59', 'UTC')
+  GROUP BY value
+  ORDER BY count DESC, value DESC
+  LIMIT 26
+  OFFSET 0
+  '''
+# ---
 # name: TestBreakdownsByCurrentURL.test_breakdown_by_pathname.1
-  '
+  '''
   
   SELECT groupArray(day_start) as date,
          groupArray(count) AS total,
@@ -114,9 +111,9 @@
                     day_start
            UNION ALL SELECT count(*) as total,
                             toStartOfDay(toTimeZone(toDateTime(timestamp, 'UTC'), 'UTC')) as day_start,
-                            transform(if(empty(trim(TRAILING '/?#'
-                                                    from replaceRegexpAll(JSONExtractRaw(properties, '$pathname'), '^"|"$', ''))), '/', trim(TRAILING '/?#'
-                                                                                                                                             from replaceRegexpAll(JSONExtractRaw(properties, '$pathname'), '^"|"$', ''))), (['/home', '/']), (['/home', '/']), '$$_posthog_breakdown_other_$$') as breakdown_value
+                            transform(ifNull(nullIf(if(empty(trim(TRAILING '/?#'
+                                                                  from replaceRegexpAll(JSONExtractRaw(properties, '$pathname'), '^"|"$', ''))), '/', trim(TRAILING '/?#'
+                                                                                                                                                           from replaceRegexpAll(JSONExtractRaw(properties, '$pathname'), '^"|"$', ''))), ''), '$$_posthog_breakdown_null_$$'), (['/home', '/']), (['/home', '/']), '$$_posthog_breakdown_other_$$') as breakdown_value
            FROM events e
            WHERE e.team_id = 2
              AND event = 'watched movie'
@@ -130,5 +127,5 @@
               day_start)
   GROUP BY breakdown_value
   ORDER BY breakdown_value
-  '
----
+  '''
+# ---

@@ -10,7 +10,7 @@ export function ShowLegendFilter(): JSX.Element | null {
     const { updateInsightFilter } = useActions(insightVizDataLogic(insightProps))
 
     const toggleShowLegend = (): void => {
-        updateInsightFilter({ show_legend: !showLegend })
+        updateInsightFilter({ showLegend: !showLegend })
     }
 
     return (
@@ -18,7 +18,7 @@ export function ShowLegendFilter(): JSX.Element | null {
             className="p-1 px-2"
             onChange={toggleShowLegend}
             checked={!!showLegend}
-            label={<span className="font-normal">{showLegend ? 'Hide' : 'Show'} legend</span>}
+            label={<span className="font-normal">Show legend</span>}
             size="small"
         />
     )

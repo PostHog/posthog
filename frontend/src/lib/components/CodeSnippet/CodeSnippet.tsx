@@ -4,10 +4,8 @@ import { Popconfirm } from 'antd'
 import { PopconfirmProps } from 'antd/lib/popconfirm'
 import clsx from 'clsx'
 import { useValues } from 'kea'
-import { FEATURE_FLAGS } from 'lib/constants'
 import { IconCopy, IconUnfoldLess, IconUnfoldMore } from 'lib/lemon-ui/icons'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { useState } from 'react'
 import { PrismAsyncLight as SyntaxHighlighter } from 'react-syntax-highlighter'
@@ -29,8 +27,10 @@ import ruby from 'react-syntax-highlighter/dist/esm/languages/prism/ruby'
 import sql from 'react-syntax-highlighter/dist/esm/languages/prism/sql'
 import swift from 'react-syntax-highlighter/dist/esm/languages/prism/swift'
 import yaml from 'react-syntax-highlighter/dist/esm/languages/prism/yaml'
-import okaidia from 'react-syntax-highlighter/dist/esm/styles/prism/okaidia'
-import synthwave84 from 'react-syntax-highlighter/dist/esm/styles/prism/synthwave84'
+
+import { themeLogic } from '~/layout/navigation-3000/themeLogic'
+
+import { darkTheme, lightTheme } from './theme'
 
 export enum Language {
     Text = 'text',
@@ -107,7 +107,7 @@ export function CodeSnippet({
     thing = 'snippet',
     maxLinesWithoutExpansion,
 }: CodeSnippetProps): JSX.Element {
-    const { featureFlags } = useValues(featureFlagLogic)
+    const { isDarkModeOn } = useValues(themeLogic)
 
     const [expanded, setExpanded] = useState(false)
 
@@ -124,12 +124,14 @@ export function CodeSnippet({
                             <LemonButton
                                 key={`snippet-action-${index}`}
                                 onClick={callback}
+                                icon={icon}
                                 title={title}
                                 size={compact ? 'small' : 'medium'}
+                                noPadding
                             />
                         ) : (
                             <Popconfirm key={`snippet-action-${index}`} {...popconfirmProps} onConfirm={callback}>
-                                <LemonButton icon={icon} title={title} size={compact ? 'small' : 'medium'} />
+                                <LemonButton icon={icon} title={title} size={compact ? 'small' : 'medium'} noPadding />
                             </Popconfirm>
                         )
                     )}
@@ -142,10 +144,11 @@ export function CodeSnippet({
                         }
                     }}
                     size={compact ? 'small' : 'medium'}
+                    noPadding
                 />
             </div>
             <SyntaxHighlighter
-                style={featureFlags[FEATURE_FLAGS.POSTHOG_3000] === 'test' ? synthwave84 : okaidia}
+                style={isDarkModeOn ? darkTheme : lightTheme}
                 language={language}
                 wrapLines={wrap}
                 lineProps={{ style: { whiteSpace: 'pre-wrap', overflowWrap: 'anywhere' } }}

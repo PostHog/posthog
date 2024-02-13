@@ -1,18 +1,11 @@
 import { PluginEvent, PostHogEvent, ProcessedPluginEvent, Webhook } from '@posthog/plugin-scaffold'
-import { Summary } from 'prom-client'
 
 import { Hub, PluginConfig, PluginTaskType, VMMethods } from '../../types'
 import { processError } from '../../utils/db/error'
 import { trackedFetch } from '../../utils/fetch'
 import { status } from '../../utils/status'
 import { IllegalOperationError } from '../../utils/utils'
-
-const pluginActionMsSummary = new Summary({
-    name: 'plugin_action_ms',
-    help: 'Time to run plugin action',
-    labelNames: ['plugin_id', 'action', 'status'],
-    percentiles: [0.5, 0.9, 0.95, 0.99],
-})
+import { pluginActionMsSummary } from '../metrics'
 
 async function runSingleTeamPluginOnEvent(
     hub: Hub,
@@ -98,9 +91,22 @@ async function runSingleTeamPluginComposeWebhook(
                 })
                 return
             }
+
+            const enqueuedInRustyHook = await hub.rustyHook.enqueueIfEnabledForTeam({
+                webhook,
+                teamId: event.team_id,
+                pluginId: pluginConfig.plugin_id,
+                pluginConfigId: pluginConfig.id,
+            })
+
+            if (enqueuedInRustyHook) {
+                // Rusty-Hook handles it from here, so we're done.
+                return
+            }
+
             const request = await trackedFetch(webhook.url, {
                 method: webhook.method || 'POST',
-                body: JSON.stringify(webhook.body, undefined, 4),
+                body: webhook.body,
                 headers: webhook.headers || { 'Content-Type': 'application/json' },
                 timeout: hub.EXTERNAL_REQUEST_TIMEOUT_MS,
             })

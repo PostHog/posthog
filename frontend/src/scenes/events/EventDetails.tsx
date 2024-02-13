@@ -9,7 +9,7 @@ import { dayjs } from 'lib/dayjs'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonTableProps } from 'lib/lemon-ui/LemonTable'
 import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
-import { KEY_MAPPING } from 'lib/taxonomy'
+import { CORE_FILTER_DEFINITIONS_BY_GROUP } from 'lib/taxonomy'
 import { pluralize } from 'lib/utils'
 import { useState } from 'react'
 
@@ -28,13 +28,13 @@ export function EventDetails({ event, tableProps }: EventDetailsProps): JSX.Elem
     const visibleSystemProperties: Properties = {}
     let systemPropsCount = 0
     for (const key of Object.keys(event.properties)) {
-        if (KEY_MAPPING.event[key] && KEY_MAPPING.event[key].system) {
+        if (CORE_FILTER_DEFINITIONS_BY_GROUP.events[key] && CORE_FILTER_DEFINITIONS_BY_GROUP.events[key].system) {
             systemPropsCount += 1
             if (showSystemProps) {
                 visibleSystemProperties[key] = event.properties[key]
             }
         }
-        if (!KEY_MAPPING.event[key] || !KEY_MAPPING.event[key].system) {
+        if (!CORE_FILTER_DEFINITIONS_BY_GROUP.events[key] || !CORE_FILTER_DEFINITIONS_BY_GROUP.events[key].system) {
             displayedEventProperties[key] = event.properties[key]
         }
     }
@@ -71,7 +71,7 @@ export function EventDetails({ event, tableProps }: EventDetailsProps): JSX.Elem
             label: 'JSON',
             content: (
                 <div className="px-4 py-4">
-                    <JSONViewer src={event} name={'event'} collapsed={1} collapseStringsAfterLength={80} sortKeys />
+                    <JSONViewer src={event} name="event" collapsed={1} collapseStringsAfterLength={80} sortKeys />
                 </div>
             ),
         },

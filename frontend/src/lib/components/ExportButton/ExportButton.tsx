@@ -13,14 +13,13 @@ export interface ExportButtonItem {
     insight?: number
 }
 
-export interface ExportButtonProps extends Pick<LemonButtonProps, 'icon' | 'type' | 'status' | 'fullWidth'> {
+export interface ExportButtonProps extends Pick<LemonButtonProps, 'icon' | 'type' | 'fullWidth'> {
     items: ExportButtonItem[]
 }
 
 export function ExportButton({ items, ...buttonProps }: ExportButtonProps): JSX.Element {
     return (
         <LemonButtonWithDropdown
-            status="stealth"
             data-attr="export-button"
             {...buttonProps}
             dropdown={{
@@ -52,7 +51,6 @@ export function ExportButton({ items, ...buttonProps }: ExportButtonProps): JSX.
                                 <LemonButton
                                     key={i}
                                     fullWidth
-                                    status="stealth"
                                     onClick={() => void triggerExport(triggerExportProps)}
                                     data-attr={`export-button-${exportFormatExtension}`}
                                     data-ph-capture-attribute-export-target={target}

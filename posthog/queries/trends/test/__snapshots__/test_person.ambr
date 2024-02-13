@@ -1,5 +1,6 @@
+# serializer version: 1
 # name: TestPerson.test_group_query_includes_recording_events
-  '
+  '''
   
   SELECT $group_0 AS actor_id,
          count() AS actor_value ,
@@ -23,10 +24,10 @@
            actor_id DESC
   LIMIT 100
   OFFSET 0
-  '
----
+  '''
+# ---
 # name: TestPerson.test_group_query_includes_recording_events.1
-  '
+  '''
   
   SELECT DISTINCT session_id
   FROM session_replay_events
@@ -34,10 +35,10 @@
     and session_id in ['s1']
     AND min_first_timestamp >= '2021-01-20 00:00:00'
     AND max_last_timestamp <= '2021-01-22 23:59:59'
-  '
----
+  '''
+# ---
 # name: TestPerson.test_person_query_does_not_include_recording_events_if_flag_not_set
-  '
+  '''
   
   SELECT person_id AS actor_id,
          count() AS actor_value
@@ -52,6 +53,13 @@
                argMax(person_id, version) as person_id
         FROM person_distinct_id2
         WHERE team_id = 2
+          AND distinct_id IN
+            (SELECT distinct_id
+             FROM events
+             WHERE team_id = 2
+               AND event = 'pageview'
+               AND toTimeZone(timestamp, 'UTC') >= toDateTime('2021-01-21 00:00:00', 'UTC')
+               AND toTimeZone(timestamp, 'UTC') <= toDateTime('2021-01-21 23:59:59', 'UTC'))
         GROUP BY distinct_id
         HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
      WHERE team_id = 2
@@ -63,5 +71,5 @@
            actor_id DESC
   LIMIT 100
   OFFSET 0
-  '
----
+  '''
+# ---

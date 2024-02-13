@@ -9,6 +9,7 @@ import { JSSnippet } from 'lib/components/JSSnippet'
 import { IconRefresh } from 'lib/lemon-ui/icons'
 import { Link } from 'lib/lemon-ui/Link'
 import { useState } from 'react'
+import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { isAuthenticatedTeam, teamLogic } from 'scenes/teamLogic'
 
 import { TimezoneConfig } from './TimezoneConfig'
@@ -29,7 +30,7 @@ export function ProjectDisplayName(): JSX.Element {
     }
 
     return (
-        <div className="space-y-4" style={{ maxWidth: '40rem' }}>
+        <div className="space-y-4 max-w-160">
             <LemonInput value={name} onChange={setName} disabled={currentTeamLoading} />
             <LemonButton
                 type="primary"
@@ -55,7 +56,7 @@ export function WebSnippet(): JSX.Element {
             </p>
             <p>
                 For more guidance, including on identifying users,{' '}
-                <Link to="https://posthog.com/docs/integrations/js-integration">see PostHog Docs</Link>.
+                <Link to="https://posthog.com/docs/libraries/js">see PostHog Docs</Link>.
             </p>
             {currentTeamLoading && !currentTeam ? (
                 <div className="space-y-4">
@@ -88,16 +89,18 @@ export function Bookmarklet(): JSX.Element {
 export function ProjectVariables(): JSX.Element {
     const { currentTeam, isTeamTokenResetAvailable } = useValues(teamLogic)
     const { resetToken } = useActions(teamLogic)
+    const { preflight } = useValues(preflightLogic)
+    const region = preflight?.region
 
     return (
         <div className="flex items-start gap-4 flex-wrap">
             <div className="flex-1">
-                <h3 id="project-api-key" className="min-w-100">
+                <h3 id="project-api-key" className="min-w-[25rem]">
                     Project API Key
                 </h3>
                 <p>
                     You can use this write-only key in any one of{' '}
-                    <Link to="https://posthog.com/docs/integrations">our libraries</Link>.
+                    <Link to="https://posthog.com/docs/libraries">our libraries</Link>.
                 </p>
                 <CodeSnippet
                     actions={
@@ -132,7 +135,7 @@ export function ProjectVariables(): JSX.Element {
                 </p>
             </div>
             <div className="flex-1">
-                <h3 id="project-id" className="min-w-100">
+                <h3 id="project-id" className="min-w-[25rem]">
                     Project ID
                 </h3>
                 <p>
@@ -141,6 +144,15 @@ export function ProjectVariables(): JSX.Element {
                 </p>
                 <CodeSnippet thing="project ID">{String(currentTeam?.id || '')}</CodeSnippet>
             </div>
+            {region ? (
+                <div className="flex-1">
+                    <h3 id="project-region" className="min-w-[25rem]">
+                        Project Region
+                    </h3>
+                    <p>This is the region where your PostHog data is hosted.</p>
+                    <CodeSnippet thing="project region">{`${region} Cloud`}</CodeSnippet>
+                </div>
+            ) : null}
         </div>
     )
 }

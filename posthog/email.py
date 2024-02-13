@@ -3,6 +3,7 @@ from typing import Dict, List, Optional
 
 import lxml
 import toronado
+from celery import shared_task
 from django.conf import settings
 from django.core import exceptions, mail
 from django.core.mail.backends.smtp import EmailBackend
@@ -12,9 +13,9 @@ from django.utils import timezone
 from django.utils.module_loading import import_string
 from sentry_sdk import capture_exception
 
-from posthog.celery import app
 from posthog.models.instance_setting import get_instance_setting
 from posthog.models.messaging import MessagingRecord
+from posthog.tasks.utils import CeleryQueue
 
 
 def inline_css(value: str) -> str:
@@ -41,7 +42,16 @@ def is_email_available(with_absolute_urls: bool = False) -> bool:
     )
 
 
-@app.task(ignore_result=True, max_retries=3)
+EMAIL_TASK_KWARGS = dict(
+    queue=CeleryQueue.EMAIL.value,
+    ignore_result=True,
+    autoretry_for=(Exception,),
+    max_retries=3,
+    retry_backoff=True,
+)
+
+
+@shared_task(**EMAIL_TASK_KWARGS)
 def _send_email(
     campaign_key: str,
     to: List[Dict[str, str]],

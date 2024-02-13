@@ -54,7 +54,6 @@ export function SurveyForm({ id }: { id: string }): JSX.Element {
     return (
         <Form id="survey" formKey="survey" logic={surveyLogic} className="space-y-4" enableFormOnSubmit>
             <PageHeader
-                title={id === 'new' ? 'New survey' : survey.name}
                 buttons={
                     <div className="flex items-center gap-2">
                         <LemonButton

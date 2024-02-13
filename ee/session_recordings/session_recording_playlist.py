@@ -8,10 +8,9 @@ from django_filters.rest_framework import DjangoFilterBackend
 from rest_framework import request, response, serializers, viewsets
 from rest_framework.decorators import action
 from rest_framework.exceptions import PermissionDenied
-from rest_framework.permissions import IsAuthenticated
 
 from posthog.api.forbid_destroy_model import ForbidDestroyModel
-from posthog.api.routing import StructuredViewSetMixin
+from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 from posthog.constants import SESSION_RECORDINGS_FILTER_IDS, AvailableFeature
 from posthog.models import (
@@ -30,16 +29,13 @@ from posthog.models.activity_logging.activity_log import (
 from posthog.models.filters.session_recordings_filter import SessionRecordingsFilter
 from posthog.models.team.team import check_is_feature_available_for_team
 from posthog.models.utils import UUIDT
-from posthog.permissions import (
-    ProjectMembershipNecessaryPermissions,
-    TeamMemberAccessPermission,
-)
 from posthog.rate_limit import (
     ClickHouseBurstRateThrottle,
     ClickHouseSustainedRateThrottle,
 )
 from posthog.session_recordings.session_recording_api import list_recordings_response
 from posthog.utils import relative_date_parse
+from loginas.utils import is_impersonated_session
 
 logger = structlog.get_logger(__name__)
 
@@ -52,6 +48,7 @@ def log_playlist_activity(
     organization_id: UUIDT,
     team_id: int,
     user: User,
+    was_impersonated: bool,
     changes: Optional[List[Change]] = None,
 ) -> None:
     """
@@ -66,6 +63,7 @@ def log_playlist_activity(
             organization_id=organization_id,
             team_id=team_id,
             user=user,
+            was_impersonated=was_impersonated,
             item_id=playlist_id,
             scope="SessionRecordingPlaylist",
             activity=activity,
@@ -125,6 +123,7 @@ class SessionRecordingPlaylistSerializer(serializers.ModelSerializer):
             organization_id=self.context["request"].user.current_organization_id,
             team_id=team.id,
             user=self.context["request"].user,
+            was_impersonated=is_impersonated_session(self.context["request"]),
         )
 
         return playlist
@@ -150,6 +149,7 @@ class SessionRecordingPlaylistSerializer(serializers.ModelSerializer):
             organization_id=self.context["request"].user.current_organization_id,
             team_id=self.context["team_id"],
             user=self.context["request"].user,
+            was_impersonated=is_impersonated_session(self.context["request"]),
             changes=changes,
         )
 
@@ -162,14 +162,9 @@ class SessionRecordingPlaylistSerializer(serializers.ModelSerializer):
         return True
 
 
-class SessionRecordingPlaylistViewSet(StructuredViewSetMixin, ForbidDestroyModel, viewsets.ModelViewSet):
+class SessionRecordingPlaylistViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.ModelViewSet):
     queryset = SessionRecordingPlaylist.objects.all()
     serializer_class = SessionRecordingPlaylistSerializer
-    permission_classes = [
-        IsAuthenticated,
-        ProjectMembershipNecessaryPermissions,
-        TeamMemberAccessPermission,
-    ]
     throttle_classes = [ClickHouseBurstRateThrottle, ClickHouseSustainedRateThrottle]
     filter_backends = [DjangoFilterBackend]
     filterset_fields = ["short_id", "created_by"]

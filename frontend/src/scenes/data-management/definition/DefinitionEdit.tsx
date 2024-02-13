@@ -3,12 +3,13 @@ import { Form } from 'kea-forms'
 import { VerifiedDefinitionCheckbox } from 'lib/components/DefinitionPopover/DefinitionPopoverContents'
 import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
 import { PageHeader } from 'lib/components/PageHeader'
+import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { Field } from 'lib/forms/Field'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
 import { LemonSelect } from 'lib/lemon-ui/LemonSelect'
 import { LemonTextArea } from 'lib/lemon-ui/LemonTextArea/LemonTextArea'
-import { getPropertyLabel, isPostHogProp } from 'lib/taxonomy'
+import { getFilterLabel, isCoreFilter } from 'lib/taxonomy'
 import { definitionEditLogic, DefinitionEditLogicProps } from 'scenes/data-management/definition/definitionEditLogic'
 import { DefinitionPageMode } from 'scenes/data-management/definition/definitionLogic'
 
@@ -20,12 +21,11 @@ export function DefinitionEdit(props: DefinitionEditLogicProps): JSX.Element {
     const { setPageMode, saveDefinition } = useActions(logic)
     const { tags, tagsLoading } = useValues(tagsModel)
 
-    const showVerifiedCheckbox = hasTaxonomyFeatures && !isPostHogProp(definition.name) && 'verified' in definition
+    const showVerifiedCheckbox = hasTaxonomyFeatures && !isCoreFilter(definition.name) && 'verified' in definition
 
     return (
         <Form logic={definitionEditLogic} props={props} formKey="definition">
             <PageHeader
-                title={`Edit ${isProperty ? 'Property' : 'Event'} Definition`}
                 buttons={
                     <>
                         <LemonButton
@@ -52,9 +52,9 @@ export function DefinitionEdit(props: DefinitionEditLogicProps): JSX.Element {
                 }
             />
             <LemonDivider />
-            <div className={'DefinitionEdit--form my-4'}>
+            <div className="DefinitionEdit--form my-4">
                 <div>
-                    <h1>{getPropertyLabel(definition.name) || ''}</h1>
+                    <h1>{getFilterLabel(definition.name, TaxonomicFilterGroupType.Events) || ''}</h1>
                     <div className="definition-sent-as flex-wrap">
                         <div>Raw event name:</div>
                         <div>

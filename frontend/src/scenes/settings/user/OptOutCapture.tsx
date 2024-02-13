@@ -17,7 +17,7 @@ export function OptOutCapture(): JSX.Element {
                 data. If you would like to anonymize your personal usage data, just tick the box below.
             </p>
             <LemonSwitch
-                label={'Anonymize my data'}
+                label="Anonymize my data"
                 data-attr="anonymize-data-collection"
                 onChange={(checked) => updateUser({ anonymize_data: checked })}
                 checked={user?.anonymize_data ?? false}

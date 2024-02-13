@@ -64,11 +64,7 @@ export function SeekSkip({ direction }: { direction: 'forward' | 'backward' }): 
                 </div>
             }
         >
-            <LemonButton
-                status="primary-alt"
-                size="small"
-                onClick={() => (direction === 'forward' ? seekForward() : seekBackward())}
-            >
+            <LemonButton size="small" onClick={() => (direction === 'forward' ? seekForward() : seekBackward())}>
                 <div className="PlayerControlSeekIcon">
                     <span className="PlayerControlSeekIcon__seconds">{jumpTimeSeconds}</span>
                     <IconSkipBackward

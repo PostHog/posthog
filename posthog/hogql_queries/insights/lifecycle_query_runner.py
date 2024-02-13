@@ -23,7 +23,9 @@ from posthog.schema import (
     ActionsNode,
     EventsNode,
     LifecycleQueryResponse,
+    InsightActorsQueryOptionsResponse,
 )
+from posthog.utils import format_label_date
 
 
 class LifecycleQueryRunner(QueryRunner):
@@ -90,7 +92,7 @@ class LifecycleQueryRunner(QueryRunner):
             )
         return lifecycle_query
 
-    def to_persons_query(
+    def to_actors_query(
         self, day: Optional[str] = None, status: Optional[str] = None
     ) -> ast.SelectQuery | ast.SelectUnionQuery:
         with self.timings.measure("persons_query"):
@@ -115,16 +117,39 @@ class LifecycleQueryRunner(QueryRunner):
                 )
 
             return parse_select(
-                "SELECT person_id FROM {events_query} WHERE {where}",
+                "SELECT DISTINCT person_id FROM {events_query} WHERE {where}",
                 placeholders={
                     "events_query": self.events_query,
                     "where": ast.And(exprs=exprs) if len(exprs) > 0 else ast.Constant(value=1),
                 },
             )
 
+    def to_actors_query_options(self) -> InsightActorsQueryOptionsResponse:
+        return InsightActorsQueryOptionsResponse(
+            day=[{"label": day, "value": day} for day in self.query_date_range.all_values()],
+            status=[
+                {
+                    "label": "Dormant",
+                    "value": "dormant",
+                },
+                {
+                    "label": "New",
+                    "value": "new",
+                },
+                {
+                    "label": "Resurrecting",
+                    "value": "resurrecting",
+                },
+                {
+                    "label": "Returning",
+                    "value": "returning",
+                },
+            ],
+        )
+
     def calculate(self) -> LifecycleQueryResponse:
         query = self.to_query()
-        hogql = to_printed_hogql(query, self.team.pk)
+        hogql = to_printed_hogql(query, self.team)
 
         response = execute_hogql_query(
             query_type="LifecycleQuery",
@@ -144,10 +169,7 @@ class LifecycleQueryRunner(QueryRunner):
         res = []
         for val in results:
             counts = val[1]
-            labels = [
-                item.strftime("%-d-%b-%Y{}".format(" %H:%M" if self.query_date_range.interval_name == "hour" else ""))
-                for item in val[0]
-            ]
+            labels = [format_label_date(item, self.query_date_range.interval_name) for item in val[0]]
             days = [
                 item.strftime("%Y-%m-%d{}".format(" %H:%M:%S" if self.query_date_range.interval_name == "hour" else ""))
                 for item in val[0]

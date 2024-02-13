@@ -131,11 +131,11 @@ describe('insightVizDataLogic', () => {
         })
     })
 
-    describe('updateBreakdown', () => {
+    describe('updateBreakdownFilter', () => {
         it('updates the breakdown', () => {
             // when breakdown is empty
             expectLogic(builtInsightDataLogic, () => {
-                builtInsightVizDataLogic.actions.updateBreakdown({
+                builtInsightVizDataLogic.actions.updateBreakdownFilter({
                     breakdown_type: 'event',
                     breakdown: '$current_url',
                 })
@@ -144,7 +144,7 @@ describe('insightVizDataLogic', () => {
                     kind: NodeKind.InsightVizNode,
                     source: {
                         ...trendsQueryDefault,
-                        breakdown: {
+                        breakdownFilter: {
                             breakdown_type: 'event',
                             breakdown: '$current_url',
                         },
@@ -152,14 +152,14 @@ describe('insightVizDataLogic', () => {
                 },
             })
 
-            expect(builtInsightVizDataLogic.values.breakdown).toEqual({
+            expect(builtInsightVizDataLogic.values.breakdownFilter).toEqual({
                 breakdown_type: 'event',
                 breakdown: '$current_url',
             })
 
             // merges with existing breakdown
             expectLogic(builtInsightDataLogic, () => {
-                builtInsightVizDataLogic.actions.updateBreakdown({
+                builtInsightVizDataLogic.actions.updateBreakdownFilter({
                     breakdown: '$browser',
                 })
             }).toMatchValues({
@@ -167,7 +167,7 @@ describe('insightVizDataLogic', () => {
                     kind: NodeKind.InsightVizNode,
                     source: {
                         ...trendsQueryDefault,
-                        breakdown: {
+                        breakdownFilter: {
                             breakdown_type: 'event',
                             breakdown: '$browser',
                         },
@@ -175,7 +175,7 @@ describe('insightVizDataLogic', () => {
                 },
             })
 
-            expect(builtInsightVizDataLogic.values.breakdown).toEqual({
+            expect(builtInsightVizDataLogic.values.breakdownFilter).toEqual({
                 breakdown_type: 'event',
                 breakdown: '$browser',
             })
@@ -204,7 +204,7 @@ describe('insightVizDataLogic', () => {
             // merges with existing insight filter
             expectLogic(builtInsightDataLogic, () => {
                 builtInsightVizDataLogic.actions.updateInsightFilter({
-                    show_values_on_series: true,
+                    showValuesOnSeries: true,
                 })
             }).toMatchValues({
                 query: {
@@ -213,7 +213,7 @@ describe('insightVizDataLogic', () => {
                         ...trendsQueryDefault,
                         trendsFilter: {
                             display: 'ActionsAreaGraph',
-                            show_values_on_series: true,
+                            showValuesOnSeries: true,
                         },
                     },
                 },
@@ -221,7 +221,7 @@ describe('insightVizDataLogic', () => {
 
             expect(builtInsightVizDataLogic.values.insightFilter).toEqual({
                 display: 'ActionsAreaGraph',
-                show_values_on_series: true,
+                showValuesOnSeries: true,
             })
         })
 
@@ -376,7 +376,7 @@ describe('insightVizDataLogic', () => {
         })
     })
 
-    describe('areExclusionFiltersValid', () => {
+    describe('validationError', () => {
         it('for standard funnel', async () => {
             const insight: Partial<InsightModel> = {
                 filters: {
@@ -388,7 +388,7 @@ describe('insightVizDataLogic', () => {
             await expectLogic(builtInsightVizDataLogic, () => {
                 builtInsightDataLogic.actions.loadDataSuccess(insight)
             }).toMatchValues({
-                areExclusionFiltersValid: true,
+                validationError: null,
             })
         })
 
@@ -396,7 +396,7 @@ describe('insightVizDataLogic', () => {
             await expectLogic(builtInsightVizDataLogic, () => {
                 builtInsightDataLogic.actions.loadDataFailure('', { status: 400, ...funnelInvalidExclusionError })
             }).toMatchValues({
-                areExclusionFiltersValid: false,
+                validationError: "Exclusion steps cannot contain an event that's part of funnel steps.",
             })
         })
     })

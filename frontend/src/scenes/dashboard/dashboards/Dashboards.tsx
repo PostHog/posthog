@@ -2,7 +2,6 @@ import { useActions, useValues } from 'kea'
 import { PageHeader } from 'lib/components/PageHeader'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonTab, LemonTabs } from 'lib/lemon-ui/LemonTabs'
-import { inAppPromptLogic } from 'lib/logic/inAppPrompt/inAppPromptLogic'
 import { dashboardsLogic, DashboardsTab } from 'scenes/dashboard/dashboards/dashboardsLogic'
 import { DashboardsTableContainer } from 'scenes/dashboard/dashboards/DashboardsTable'
 import { DashboardTemplatesTable } from 'scenes/dashboard/dashboards/templates/DashboardTemplatesTable'
@@ -26,7 +25,6 @@ export function Dashboards(): JSX.Element {
     const { setCurrentTab } = useActions(dashboardsLogic)
     const { dashboards, currentTab, isFiltering } = useValues(dashboardsLogic)
     const { showNewDashboardModal } = useActions(newDashboardLogic)
-    const { closePrompts } = useActions(inAppPromptLogic)
 
     const enabledTabs: LemonTab<DashboardsTab>[] = [
         {
@@ -45,12 +43,10 @@ export function Dashboards(): JSX.Element {
             <DuplicateDashboardModal />
             <DeleteDashboardModal />
             <PageHeader
-                title="Dashboards"
                 buttons={
                     <LemonButton
-                        data-attr={'new-dashboard'}
+                        data-attr="new-dashboard"
                         onClick={() => {
-                            closePrompts()
                             showNewDashboardModal()
                         }}
                         type="primary"

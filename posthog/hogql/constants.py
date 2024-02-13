@@ -39,6 +39,7 @@ MAX_SELECT_COHORT_CALCULATION_LIMIT = 1000000000  # 1b persons
 
 class LimitContext(str, Enum):
     QUERY = "query"
+    QUERY_ASYNC = "query_async"
     EXPORT = "export"
     COHORT_CALCULATION = "cohort_calculation"
 
@@ -46,7 +47,7 @@ class LimitContext(str, Enum):
 def get_max_limit_for_context(limit_context: LimitContext) -> int:
     if limit_context == LimitContext.EXPORT:
         return MAX_SELECT_RETURNED_ROWS  # 10k
-    elif limit_context == LimitContext.QUERY:
+    elif limit_context in (LimitContext.QUERY, LimitContext.QUERY_ASYNC):
         return MAX_SELECT_RETURNED_ROWS  # 10k
     elif limit_context == LimitContext.COHORT_CALCULATION:
         return MAX_SELECT_COHORT_CALCULATION_LIMIT  # 1b
@@ -58,7 +59,7 @@ def get_default_limit_for_context(limit_context: LimitContext) -> int:
     """Limit used if no limit is provided"""
     if limit_context == LimitContext.EXPORT:
         return MAX_SELECT_RETURNED_ROWS  # 10k
-    elif limit_context == LimitContext.QUERY:
+    elif limit_context in (LimitContext.QUERY, LimitContext.QUERY_ASYNC):
         return DEFAULT_RETURNED_ROWS  # 100
     elif limit_context == LimitContext.COHORT_CALCULATION:
         return MAX_SELECT_COHORT_CALCULATION_LIMIT  # 1b

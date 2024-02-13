@@ -36,7 +36,7 @@ export function SessionPlayerModal(): JSX.Element | null {
             isOpen={!!activeSessionRecording}
             onClose={closeSessionPlayer}
             simple
-            title={''}
+            title=""
             width={1600}
             fullScreen={isFullScreen}
             closable={!isFullScreen}

@@ -29,7 +29,12 @@ export const funnelPersonsModalLogic = kea<funnelPersonsModalLogicType>([
     path((key) => ['scenes', 'funnels', 'funnelPersonsModalLogic', key]),
 
     connect((props: InsightLogicProps) => ({
-        values: [insightLogic(props), ['isInDashboardContext'], funnelDataLogic(props), ['steps', 'funnelsFilter']],
+        values: [
+            insightLogic(props),
+            ['isInDashboardContext', 'isInExperimentContext'],
+            funnelDataLogic(props),
+            ['steps', 'funnelsFilter'],
+        ],
     })),
 
     actions({
@@ -69,7 +74,7 @@ export const funnelPersonsModalLogic = kea<funnelPersonsModalLogicType>([
         canOpenPersonModal: [
             (s) => [s.funnelsFilter, s.isInDashboardContext],
             (funnelsFilter, isInDashboardContext): boolean => {
-                return !isInDashboardContext && !funnelsFilter?.funnel_aggregate_by_hogql
+                return !isInDashboardContext && !funnelsFilter?.funnelAggregateByHogQL
             },
         ],
     }),
@@ -89,7 +94,7 @@ export const funnelPersonsModalLogic = kea<funnelPersonsModalLogicType>([
                     step: typeof stepIndex === 'number' ? stepIndex + 1 : step.order + 1,
                     label: step.name,
                     seriesId: step.order,
-                    order_type: values.funnelsFilter?.funnel_order_type,
+                    order_type: values.funnelsFilter?.funnelOrderType,
                 }),
             })
         },
@@ -107,7 +112,7 @@ export const funnelPersonsModalLogic = kea<funnelPersonsModalLogicType>([
                     breakdown_value: breakdownValues.isEmpty ? undefined : breakdownValues.breakdown_value.join(', '),
                     label: step.name,
                     seriesId: step.order,
-                    order_type: values.funnelsFilter?.funnel_order_type,
+                    order_type: values.funnelsFilter?.funnelOrderType,
                 }),
             })
         },

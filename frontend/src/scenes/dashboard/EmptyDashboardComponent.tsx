@@ -1,7 +1,6 @@
 import './EmptyDashboardComponent.scss'
 
 import { useValues } from 'kea'
-import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { IconPlus } from 'lib/lemon-ui/icons'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
@@ -12,11 +11,8 @@ import { DASHBOARD_CANNOT_EDIT_MESSAGE } from './DashboardHeader'
 import { dashboardLogic } from './dashboardLogic'
 
 function SkeletonCard({ children, active }: { children: React.ReactNode; active: boolean }): JSX.Element {
-    const is3000 = useFeatureFlag('POSTHOG_3000', 'test')
-    const rounded = is3000 ? 'rounded-md' : 'rounded'
-
     return (
-        <div className={`border ${rounded} p-10 h-full space-y-4 flex-1 flex flex-col justify-between`}>
+        <div className="border rounded p-10 h-full space-y-4 flex-1 flex flex-col justify-between">
             <div className="space-y-4">
                 <LemonSkeleton className="w-1/3 h-4" active={active} />
                 <LemonSkeleton className="w-1/2 h-4" active={active} />

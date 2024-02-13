@@ -10,7 +10,6 @@ import os
 import re
 import secrets
 import string
-import subprocess
 import time
 import uuid
 import zlib
@@ -53,6 +52,8 @@ from sentry_sdk.api import capture_exception
 from posthog.cloud_utils import get_cached_instance_license, is_cloud
 from posthog.constants import AvailableFeature
 from posthog.exceptions import RequestParsingError
+from posthog.git import get_git_branch, get_git_commit
+from posthog.metrics import KLUDGES_COUNTER
 from posthog.redis import get_client
 
 if TYPE_CHECKING:
@@ -78,10 +79,13 @@ logger = structlog.get_logger(__name__)
 __location__ = os.path.realpath(os.path.join(os.getcwd(), os.path.dirname(__file__)))
 
 
-def format_label_date(date: datetime.datetime, interval: str) -> str:
-    labels_format = "%-d-%b-%Y"
-    if interval == "hour":
-        labels_format += " %H:%M"
+def format_label_date(date: datetime.datetime, interval: str = "default") -> str:
+    date_formats = {
+        "default": "%-d-%b-%Y",
+        "hour": "%-d-%b-%Y %H:%M",
+        "month": "%b %Y",
+    }
+    labels_format = date_formats.get(interval, date_formats["default"])
     return date.strftime(labels_format)
 
 
@@ -257,36 +261,6 @@ def relative_date_parse(
     return relative_date_parse_with_delta_mapping(input, timezone_info, always_truncate=always_truncate, now=now)[0]
 
 
-def get_git_branch() -> Optional[str]:
-    """
-    Returns the symbolic name of the current active branch. Will return None in case of failure.
-    Example: get_git_branch()
-        => "master"
-    """
-
-    try:
-        return (
-            subprocess.check_output(["git", "rev-parse", "--symbolic-full-name", "--abbrev-ref", "HEAD"])
-            .decode("utf-8")
-            .strip()
-        )
-    except Exception:
-        return None
-
-
-def get_git_commit() -> Optional[str]:
-    """
-    Returns the short hash of the last commit.
-    Example: get_git_commit()
-        => "4ff54c8d"
-    """
-
-    try:
-        return subprocess.check_output(["git", "rev-parse", "--short", "HEAD"]).decode("utf-8").strip()
-    except Exception:
-        return None
-
-
 def get_js_url(request: HttpRequest) -> str:
     """
     As the web app may be loaded from a non-localhost url (e.g. from the worker container calling the web container)
@@ -308,22 +282,21 @@ def render_template(
 
     If team_for_public_context is provided, this means this is a public page such as a shared dashboard.
     """
-    from loginas.utils import is_impersonated_session
 
     template = get_template(template_name)
 
     context["opt_out_capture"] = settings.OPT_OUT_CAPTURE
-    context["impersonated_session"] = is_impersonated_session(request)
     context["self_capture"] = settings.SELF_CAPTURE
+    context["region"] = get_instance_region()
 
     if sentry_dsn := os.environ.get("SENTRY_DSN"):
         context["sentry_dsn"] = sentry_dsn
     if sentry_environment := os.environ.get("SENTRY_ENVIRONMENT"):
         context["sentry_environment"] = sentry_environment
 
+    context["git_rev"] = get_git_commit()  # Include commit in prod for the `console.info()` message
     if settings.DEBUG and not settings.TEST:
         context["debug"] = True
-        context["git_rev"] = get_git_commit()
         context["git_branch"] = get_git_branch()
 
     if settings.E2E_TESTING:
@@ -370,7 +343,7 @@ def render_template(
             "current_user": None,
             "current_team": None,
             "preflight": json.loads(preflight_check(request).getvalue()),
-            "default_event_name": get_default_event_name(),
+            "default_event_name": "$pageview",
             "switched_team": getattr(request, "switched_team", None),
             **posthog_app_context,
         }
@@ -398,6 +371,7 @@ def render_template(
                 )
                 posthog_app_context["current_team"] = team_serialized.data
                 posthog_app_context["frontend_apps"] = get_frontend_apps(user.team.pk)
+                posthog_app_context["default_event_name"] = get_default_event_name(user.team)
 
     context["posthog_app_context"] = json.dumps(posthog_app_context, default=json_uuid_convert)
 
@@ -455,12 +429,12 @@ def get_self_capture_api_token(request: Optional[HttpRequest]) -> Optional[str]:
     return None
 
 
-def get_default_event_name():
+def get_default_event_name(team: "Team"):
     from posthog.models import EventDefinition
 
-    if EventDefinition.objects.filter(name="$pageview").exists():
+    if EventDefinition.objects.filter(team=team, name="$pageview").exists():
         return "$pageview"
-    elif EventDefinition.objects.filter(name="$screen").exists():
+    elif EventDefinition.objects.filter(team=team, name="$screen").exists():
         return "$screen"
     return "$pageview"
 
@@ -631,6 +605,7 @@ def decompress(data: Any, compression: str):
             raise RequestParsingError("Failed to decompress data. %s" % (str(error)))
 
     if compression == "lz64":
+        KLUDGES_COUNTER.labels(kludge="lz64_compression").inc()
         if not isinstance(data, str):
             data = data.decode()
         data = data.replace(" ", "+")
@@ -645,6 +620,7 @@ def decompress(data: Any, compression: str):
     base64_decoded = None
     try:
         base64_decoded = base64_decode(data)
+        KLUDGES_COUNTER.labels(kludge="base64_after_decompression_" + compression).inc()
     except Exception:
         pass
 
@@ -659,7 +635,9 @@ def decompress(data: Any, compression: str):
     except (json.JSONDecodeError, UnicodeDecodeError) as error_main:
         if compression == "":
             try:
-                return decompress(data, "gzip")
+                fallback = decompress(data, "gzip")
+                KLUDGES_COUNTER.labels(kludge="unspecified_gzip_fallback").inc()
+                return fallback
             except Exception as inner:
                 # re-trying with compression set didn't succeed, throw original error
                 raise RequestParsingError("Invalid JSON: %s" % (str(error_main))) from inner
@@ -679,6 +657,8 @@ def load_data_from_request(request):
             data = request.POST.get("data")
     else:
         data = request.GET.get("data")
+        if data:
+            KLUDGES_COUNTER.labels(kludge="data_in_get_param").inc()
 
     # add the data in sentry's scope in case there's an exception
     with configure_scope() as scope:
@@ -835,11 +815,9 @@ def get_instance_realm() -> str:
 
 def get_instance_region() -> Optional[str]:
     """
-    Returns the region for the current instance. `US` or 'EU'.
+    Returns the region for the current Cloud instance. `US` or 'EU'.
     """
-    if is_cloud():
-        return settings.REGION
-    return None
+    return settings.CLOUD_DEPLOYMENT
 
 
 def get_can_create_org(user: Union["AbstractBaseUser", "AnonymousUser"]) -> bool:
@@ -1027,7 +1005,7 @@ def _request_has_key_set(key: str, request: Request) -> bool:
 
 
 def str_to_bool(value: Any) -> bool:
-    """Return whether the provided string (or any value really) represents true. Otherwise false.
+    """Return whether the provided string (or any value really) represents true. Otherwise, false.
     Just like plugin server stringToBoolean.
     """
     if not value:
@@ -1255,20 +1233,20 @@ def sleep_time_generator() -> Generator[float, None, None]:
 
 
 @async_to_sync
-async def wait_for_parallel_celery_group(task: Any, max_timeout: Optional[datetime.timedelta] = None) -> Any:
+async def wait_for_parallel_celery_group(task: Any, expires: Optional[datetime.datetime] = None) -> Any:
     """
     Wait for a group of celery tasks to finish, but don't wait longer than max_timeout.
     For parallel tasks, this is the only way to await the entire group.
     """
-    if not max_timeout:
-        max_timeout = datetime.timedelta(minutes=5)
+    default_expires = datetime.timedelta(minutes=5)
 
-    start_time = timezone.now()
+    if not expires:
+        expires = datetime.datetime.now(tz=datetime.timezone.utc) + default_expires
 
     sleep_generator = sleep_time_generator()
 
     while not task.ready():
-        if timezone.now() - start_time > max_timeout:
+        if datetime.datetime.now(tz=datetime.timezone.utc) > expires:
             child_states = []
             child: AsyncResult
             children = task.children or []
@@ -1286,13 +1264,13 @@ async def wait_for_parallel_celery_group(task: Any, max_timeout: Optional[dateti
 
             logger.error(
                 "Timed out waiting for celery task to finish",
+                task_id=task.id,
                 ready=task.ready(),
                 successful=task.successful(),
                 failed=task.failed(),
                 task_state=task.state,
                 child_states=child_states,
-                timeout=max_timeout,
-                start_time=start_time,
+                timeout=expires,
             )
             raise TimeoutError("Timed out waiting for celery task to finish")
 

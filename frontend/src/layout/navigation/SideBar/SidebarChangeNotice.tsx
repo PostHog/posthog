@@ -1,4 +1,4 @@
-import { LemonButton, LemonDivider, Tooltip, TooltipProps } from '@posthog/lemon-ui'
+import { LemonButton, LemonDivider, TooltipProps } from '@posthog/lemon-ui'
 import { useValues } from 'kea'
 import { IconClose } from 'lib/lemon-ui/icons'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
@@ -101,30 +101,4 @@ export function useSidebarChangeNotices({ identifier }: SidebarChangeNoticeProps
     }
 
     return [!noticeAcknowledged ? notices : [], onAcknowledged]
-}
-
-export function SidebarChangeNoticeTooltip({ identifier, children }: SidebarChangeNoticeTooltipProps): JSX.Element {
-    const [notices, onAcknowledged] = useSidebarChangeNotices({ identifier })
-
-    if (!notices.length) {
-        return <>{children}</>
-    }
-
-    return (
-        <Tooltip
-            visible
-            placement={notices[0].placement}
-            delayMs={0}
-            title={<SidebarChangeNoticeContent notices={notices} onAcknowledged={onAcknowledged} />}
-        >
-            {React.cloneElement(children as React.ReactElement, {
-                onClick: () => {
-                    onAcknowledged()
-                    if (React.isValidElement(children)) {
-                        children.props.onClick?.()
-                    }
-                },
-            })}
-        </Tooltip>
-    )
 }

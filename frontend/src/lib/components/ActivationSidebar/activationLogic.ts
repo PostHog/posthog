@@ -11,9 +11,9 @@ import { inviteLogic } from 'scenes/settings/organization/inviteLogic'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
-import { navigationLogic } from '~/layout/navigation/navigationLogic'
+import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
 import { dashboardsModel } from '~/models/dashboardsModel'
-import { EventDefinitionType, ProductKey, TeamBasicType } from '~/types'
+import { EventDefinitionType, ProductKey, SidePanelTab, TeamBasicType } from '~/types'
 
 import type { activationLogicType } from './activationLogicType'
 
@@ -65,8 +65,8 @@ export const activationLogic = kea<activationLogicType>([
             ['showInviteModal', 'loadInvitesSuccess', 'loadInvitesFailure'],
             pluginsLogic,
             ['loadPluginsSuccess', 'loadPluginsFailure'],
-            navigationLogic,
-            ['toggleActivationSideBar', 'showActivationSideBar', 'hideActivationSideBar'],
+            sidePanelStateLogic,
+            ['openSidePanel'],
             eventUsageLogic,
             ['reportActivationSideBarShown'],
             savedInsightsLogic,
@@ -355,13 +355,6 @@ export const activationLogic = kea<activationLogicType>([
                 actions.addSkippedTask(values.currentTeam.id, id)
             }
         },
-        showActivationSideBar: async () => {
-            actions.reportActivationSideBarShown(
-                values.activeTasks.length,
-                values.completedTasks.length,
-                values.completionPercent
-            )
-        },
     })),
     events(({ actions }) => ({
         afterMount: () => {
@@ -372,9 +365,7 @@ export const activationLogic = kea<activationLogicType>([
     urlToAction(({ actions, values }) => ({
         '*': (_, params) => {
             if (params?.onboarding_completed && !values.hasCompletedAllTasks) {
-                actions.toggleActivationSideBar()
-            } else {
-                actions.hideActivationSideBar()
+                actions.openSidePanel(SidePanelTab.Activation)
             }
         },
     })),

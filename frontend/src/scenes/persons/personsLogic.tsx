@@ -5,7 +5,7 @@ import api, { CountedPaginatedResponse } from 'lib/api'
 import { TriggerExportProps } from 'lib/components/ExportButton/exporter'
 import { convertPropertyGroupToProperties, isValidPropertyFilter } from 'lib/components/PropertyFilters/utils'
 import { FEATURE_FLAGS } from 'lib/constants'
-import { lemonToast } from 'lib/lemon-ui/lemonToast'
+import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { toParams } from 'lib/utils'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
@@ -13,8 +13,10 @@ import { Scene } from 'scenes/sceneTypes'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
+import { ActivityFilters } from '~/layout/navigation-3000/sidepanel/panels/activity/activityForSceneLogic'
 import { hogqlQuery } from '~/queries/query'
 import {
+    ActivityScope,
     AnyPropertyFilter,
     Breadcrumb,
     CohortType,
@@ -79,9 +81,7 @@ export const personsLogic = kea<personsLogicType>([
                             ...(values.listFilters.properties || []),
                             ...values.hiddenListProperties,
                         ]
-                        if (values.featureFlags[FEATURE_FLAGS.POSTHOG_3000] === 'test') {
-                            newFilters.include_total = true // The total count is slow, but needed for infinite loading
-                        }
+                        newFilters.include_total = true // The total count is slow, but needed for infinite loading
                         if (props.cohort) {
                             result = {
                                 ...(await api.get(`api/cohort/${props.cohort}/persons/?${toParams(newFilters)}`)),
@@ -256,11 +256,22 @@ export const personsLogic = kea<personsLogicType>([
                 ]
                 if (showPerson) {
                     breadcrumbs.push({
-                        key: person.id || 'unknown',
+                        key: [Scene.Person, person.id || 'unknown'],
                         name: asDisplay(person),
                     })
                 }
                 return breadcrumbs
+            },
+        ],
+
+        activityFilters: [
+            (s) => [s.person],
+            (person): ActivityFilters => {
+                return {
+                    scope: ActivityScope.PERSON,
+                    // TODO: Is this correct? It doesn't seem to work...
+                    item_id: person?.id ? `${person?.id}` : undefined,
+                }
             },
         ],
 

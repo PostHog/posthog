@@ -224,7 +224,7 @@ export const preflightLogic = kea<preflightLogicType>([
         siteUrlMisconfigured: [
             (s) => [s.preflight],
             (preflight): boolean => {
-                if (process.env.STORYBOOK) {
+                if (global.process?.env.STORYBOOK) {
                     // Disable the "site URL misconfigured" warning in Storybook. This is for consistent snapshots
                     // - when opening Storybook in the browser or when updating the snapshots in CI, the origin is
                     // http://localhost:6006, but in the local dockerized setup http://host.docker.internal:6006
@@ -259,6 +259,12 @@ export const preflightLogic = kea<preflightLogicType>([
             (s) => [s.preflight],
             (preflight): boolean | undefined => {
                 return preflight?.cloud || preflight?.is_debug
+            },
+        ],
+        isCloud: [
+            (s) => [s.preflight],
+            (preflight): boolean | undefined => {
+                return preflight?.cloud
             },
         ],
         isDev: [

@@ -10,9 +10,10 @@ interface FlagSelectorProps {
     value: number | undefined
     onChange: (id: number, key: string) => void
     readOnly?: boolean
+    disabledReason?: string
 }
 
-export function FlagSelector({ value, onChange, readOnly }: FlagSelectorProps): JSX.Element {
+export function FlagSelector({ value, onChange, readOnly, disabledReason }: FlagSelectorProps): JSX.Element {
     const [visible, setVisible] = useState(false)
 
     const { featureFlag } = useValues(featureFlagLogic({ id: value || 'link' }))
@@ -39,13 +40,13 @@ export function FlagSelector({ value, onChange, readOnly }: FlagSelectorProps): 
             fallbackPlacements={['left-end', 'bottom']}
             onClickOutside={() => setVisible(false)}
         >
-            {readOnly ? (
-                <div>{featureFlag.key}</div>
-            ) : (
-                <LemonButton type="secondary" onClick={() => setVisible(!visible)}>
-                    {featureFlag.key ? featureFlag.key : 'Select flag'}
-                </LemonButton>
-            )}
+            <LemonButton
+                type="secondary"
+                onClick={() => setVisible(!visible)}
+                disabledReason={readOnly && (disabledReason || "I'm read-only")}
+            >
+                {featureFlag.key ? featureFlag.key : 'Select flag'}
+            </LemonButton>
         </Popover>
     )
 }

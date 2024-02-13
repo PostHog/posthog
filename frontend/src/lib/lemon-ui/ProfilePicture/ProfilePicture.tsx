@@ -2,17 +2,19 @@ import './ProfilePicture.scss'
 
 import clsx from 'clsx'
 import { useValues } from 'kea'
-import { inStorybookTestRunner } from 'lib/utils'
+import { fullName, inStorybookTestRunner } from 'lib/utils'
 import md5 from 'md5'
 import { useMemo, useState } from 'react'
 import { userLogic } from 'scenes/userLogic'
+
+import { UserBasicType } from '~/types'
 
 import { IconRobot } from '../icons'
 import { Lettermark, LettermarkColor } from '../Lettermark/Lettermark'
 
 export interface ProfilePictureProps {
+    user?: Pick<Partial<UserBasicType>, 'first_name' | 'email' | 'last_name'> | null
     name?: string
-    email?: string
     size?: 'xs' | 'sm' | 'md' | 'lg' | 'xl' | 'xxl'
     showName?: boolean
     className?: string
@@ -22,8 +24,8 @@ export interface ProfilePictureProps {
 }
 
 export function ProfilePicture({
+    user,
     name,
-    email,
     size = 'lg',
     showName,
     className,
@@ -31,8 +33,15 @@ export function ProfilePicture({
     title,
     type = 'person',
 }: ProfilePictureProps): JSX.Element {
-    const { user } = useValues(userLogic)
+    const { user: currentUser } = useValues(userLogic)
     const [gravatarLoaded, setGravatarLoaded] = useState<boolean | undefined>()
+
+    let email = user?.email
+
+    if (user) {
+        name = fullName(user)
+        email = user.email
+    }
 
     const combinedNameAndEmail = name && email ? `${name} <${email}>` : name || email
 
@@ -53,7 +62,7 @@ export function ProfilePicture({
             {gravatarLoaded !== true && (
                 <>
                     {type === 'bot' ? (
-                        <IconRobot className={'p-0.5'} />
+                        <IconRobot className="p-0.5" />
                     ) : (
                         <Lettermark
                             name={combinedNameAndEmail}
@@ -66,7 +75,7 @@ export function ProfilePicture({
             )}
             {gravatarUrl && gravatarLoaded !== false ? (
                 <img
-                    className={'absolute top-0 left-0 w-full h-full rounded-full'}
+                    className="absolute top-0 left-0 w-full h-full rounded-full"
                     src={gravatarUrl}
                     title={title || `This is the Gravatar for ${combinedNameAndEmail}`}
                     alt=""
@@ -82,7 +91,9 @@ export function ProfilePicture({
     ) : (
         <div className="profile-package" title={combinedNameAndEmail}>
             {pictureComponent}
-            <span className="profile-name">{user?.email === email ? 'you' : name || email || 'an unknown user'}</span>
+            <span className="profile-name">
+                {currentUser?.email === email ? 'you' : name || email || 'an unknown user'}
+            </span>
         </div>
     )
 }

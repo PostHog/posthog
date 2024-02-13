@@ -6,7 +6,6 @@ import { LemonButton, LemonDivider, LemonSelect, LemonTag, Link } from '@posthog
 import { Dropdown, Menu } from 'antd'
 import { useActions, useValues } from 'kea'
 import { ActivityLog } from 'lib/components/ActivityLog/ActivityLog'
-import { ActivityScope } from 'lib/components/ActivityLog/humanizeActivity'
 import { CopyToClipboardInline } from 'lib/components/CopyToClipboard'
 import { NotFound } from 'lib/components/NotFound'
 import { PageHeader } from 'lib/components/PageHeader'
@@ -30,12 +29,11 @@ import { urls } from 'scenes/urls'
 import { defaultDataTableColumns } from '~/queries/nodes/DataTable/utils'
 import { Query } from '~/queries/Query/Query'
 import { NodeKind } from '~/queries/schema'
-import { NotebookNodeType, PersonsTabType, PersonType, PropertyDefinitionType } from '~/types'
+import { ActivityScope, NotebookNodeType, PersonsTabType, PersonType, PropertyDefinitionType } from '~/types'
 
 import { MergeSplitPerson } from './MergeSplitPerson'
 import { PersonCohorts } from './PersonCohorts'
 import { PersonDashboard } from './PersonDashboard'
-import { PersonDisplay } from './PersonDisplay'
 import PersonFeedCanvas from './PersonFeedCanvas'
 import { personsLogic } from './personsLogic'
 import { RelatedFeatureFlags } from './RelatedFeatureFlags'
@@ -92,9 +90,7 @@ function PersonCaption({ person }: { person: PersonType }): JSX.Element {
             </div>
             <div>
                 <span className="text-muted">Merge restrictions:</span> {person.is_identified ? 'applied' : 'none'}
-                <Link
-                    to={'https://posthog.com/docs/data/identify#alias-assigning-multiple-distinct-ids-to-the-same-user'}
-                >
+                <Link to="https://posthog.com/docs/data/identify#alias-assigning-multiple-distinct-ids-to-the-same-user">
                     <Tooltip
                         title={
                             <>
@@ -138,7 +134,6 @@ export function PersonScene(): JSX.Element | null {
     return (
         <>
             <PageHeader
-                title={<PersonDisplay person={person} noLink withIcon={'lg'} noPopover />}
                 caption={<PersonCaption person={person} />}
                 notebookProps={
                     url

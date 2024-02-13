@@ -186,7 +186,7 @@ class ClickhouseFunnelBase(ABC):
 
             for entity in self._filter.entities[exclusion.funnel_from_step : exclusion.funnel_to_step + 1]:
                 if entity.equals(exclusion) or exclusion.is_superset(entity):
-                    raise ValidationError("Exclusion event can't be the same as funnel step")
+                    raise ValidationError("Exclusion steps cannot contain an event that's part of funnel steps.")
 
         self._filter = self._filter.shallow_clone(data)
 
@@ -459,7 +459,8 @@ class ClickhouseFunnelBase(ABC):
             # where i is the starting step for exclusion on that entity
             all_step_cols.extend(step_cols)
 
-        breakdown_select_prop = self._get_breakdown_select_prop()
+        breakdown_select_prop, breakdown_select_prop_params = self._get_breakdown_select_prop()
+        self.params.update(breakdown_select_prop_params)
 
         if breakdown_select_prop:
             all_step_cols.append(breakdown_select_prop)
@@ -498,14 +499,14 @@ class ClickhouseFunnelBase(ABC):
             if self._query_has_array_breakdown():
                 default_breakdown_value = f"""[{','.join(["''" for _ in range(len(self._filter.breakdown or []))])}]"""
                 # default is [''] when dealing with a single breakdown array, otherwise ['', '', ...., '']
-                breakdown_selelector = (
+                breakdown_selector = (
                     f"if(notEmpty(arrayFilter(x -> notEmpty(x), prop_vals)), prop_vals, {default_breakdown_value})"
                 )
             else:
-                breakdown_selelector = "prop_vals"
+                breakdown_selector = "prop_vals"
 
             return f"""
-                SELECT *, {breakdown_selelector} as prop
+                SELECT *, {breakdown_selector} as prop
                 FROM ({inner_query})
             """
 
@@ -718,15 +719,16 @@ class ClickhouseFunnelBase(ABC):
     def get_step_counts_without_aggregation_query(self) -> str:
         raise NotImplementedError()
 
-    def _get_breakdown_select_prop(self) -> str:
+    def _get_breakdown_select_prop(self) -> Tuple[str, Dict[str, Any]]:
         basic_prop_selector = ""
+        basic_prop_params: Dict[str, Any] = {}
         if not self._filter.breakdown:
-            return basic_prop_selector
+            return basic_prop_selector, basic_prop_params
 
         self.params.update({"breakdown": self._filter.breakdown})
         if self._filter.breakdown_type == "person":
             if self._team.person_on_events_mode != PersonOnEventsMode.DISABLED:
-                basic_prop_selector = get_single_or_multi_property_string_expr(
+                basic_prop_selector, basic_prop_params = get_single_or_multi_property_string_expr(
                     self._filter.breakdown,
                     table="events",
                     query_alias="prop_basic",
@@ -735,14 +737,14 @@ class ClickhouseFunnelBase(ABC):
                     materialised_table_column="person_properties",
                 )
             else:
-                basic_prop_selector = get_single_or_multi_property_string_expr(
+                basic_prop_selector, basic_prop_params = get_single_or_multi_property_string_expr(
                     self._filter.breakdown,
                     table="person",
                     query_alias="prop_basic",
                     column="person_props",
                 )
         elif self._filter.breakdown_type == "event":
-            basic_prop_selector = get_single_or_multi_property_string_expr(
+            basic_prop_selector, basic_prop_params = get_single_or_multi_property_string_expr(
                 self._filter.breakdown,
                 table="events",
                 query_alias="prop_basic",
@@ -799,7 +801,7 @@ class ClickhouseFunnelBase(ABC):
 
             prop_window = "groupUniqArray(prop) over (PARTITION by aggregation_target) as prop_vals"
 
-            return ",".join([basic_prop_selector, *select_columns, final_select, prop_window])
+            return ",".join([basic_prop_selector, *select_columns, final_select, prop_window]), basic_prop_params
         elif self._filter.breakdown_attribution_type in [
             BreakdownAttributionType.FIRST_TOUCH,
             BreakdownAttributionType.LAST_TOUCH,
@@ -818,10 +820,10 @@ class ClickhouseFunnelBase(ABC):
 
             breakdown_window_selector = f"{aggregate_operation}(prop, timestamp, {prop_conditional})"
             prop_window = f"{breakdown_window_selector} over (PARTITION by aggregation_target) as prop_vals"
-            return ",".join([basic_prop_selector, "prop_basic as prop", prop_window])
+            return ",".join([basic_prop_selector, "prop_basic as prop", prop_window]), basic_prop_params
         else:
             # ALL_EVENTS
-            return ",".join([basic_prop_selector, "prop_basic as prop"])
+            return ",".join([basic_prop_selector, "prop_basic as prop"]), basic_prop_params
 
     def _get_cohort_breakdown_join(self) -> str:
         cohort_queries, ids, cohort_params = format_breakdown_cohort_join_query(self._team, self._filter)
@@ -834,7 +836,7 @@ class ClickhouseFunnelBase(ABC):
             ON events.distinct_id = cohort_join.distinct_id
         """
 
-    def _get_breakdown_conditions(self) -> Optional[str]:
+    def _get_breakdown_conditions(self) -> Optional[List[str]]:
         """
         For people, pagination sets the offset param, which is common across filters
         and gives us the wrong breakdown values here, so we override it.
@@ -862,7 +864,7 @@ class ClickhouseFunnelBase(ABC):
             ):
                 target_entity = self._filter.entities[self._filter.breakdown_attribution_value]
 
-            return get_breakdown_prop_values(
+            values, has_more_values = get_breakdown_prop_values(
                 self._filter,
                 target_entity,
                 "count(*)",
@@ -871,6 +873,7 @@ class ClickhouseFunnelBase(ABC):
                 use_all_funnel_entities=use_all_funnel_entities,
                 person_properties_mode=get_person_properties_mode(self._team),
             )
+            return values
 
         return None
 

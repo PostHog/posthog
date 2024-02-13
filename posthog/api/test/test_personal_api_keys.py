@@ -128,6 +128,16 @@ class TestPersonalAPIKeysAPIAuthentication(APIBaseTest):
     def setUp(self):
         self.value = generate_random_token_personal()
         self.key = PersonalAPIKey.objects.create(label="Test", user=self.user, secure_value=hash_key_value(self.value))
+        self.value_390000 = generate_random_token_personal()
+        self.key_390000 = PersonalAPIKey.objects.create(
+            label="Test", user=self.user, secure_value=hash_key_value(self.value_390000, iterations=390000)
+        )
+        self.value_hardcoded = "phx_0a1b2c3d4e5f6g7h8i9j0k1l2m3n4o5p"
+        self.key_hardcoded = PersonalAPIKey.objects.create(
+            label="Test",
+            user=self.user,
+            secure_value="pbkdf2_sha256$260000$posthog_personal_api_key$dUOOjl6bYdigHd+QfhYzN6P2vM01ZbFROS8dm9KRK7Y=",
+        )
         return super().setUp()
 
     def test_no_key(self):
@@ -147,6 +157,20 @@ class TestPersonalAPIKeysAPIAuthentication(APIBaseTest):
         response = self.client.get(
             f"/api/projects/{self.team.id}/dashboards/",
             HTTP_AUTHORIZATION=f"Bearer  {self.value}  ",
+        )
+        self.assertEqual(response.status_code, 200)
+
+    def test_header_alternative_iteration_count(self):
+        response = self.client.get(
+            f"/api/projects/{self.team.id}/dashboards/",
+            HTTP_AUTHORIZATION=f"Bearer {self.value_390000}",
+        )
+        self.assertEqual(response.status_code, 200)
+
+    def test_header_hardcoded(self):
+        response = self.client.get(
+            f"/api/projects/{self.team.id}/dashboards/",
+            HTTP_AUTHORIZATION=f"Bearer {self.value_hardcoded}",
         )
         self.assertEqual(response.status_code, 200)
 

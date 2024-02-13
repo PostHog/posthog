@@ -11,12 +11,12 @@ export const WebAnalyticsHealthCheck = (): JSX.Element | null => {
         return null
     }
 
-    if (statusCheck.shouldWarnAboutNoPageviews) {
+    if (!statusCheck.isSendingPageViews) {
         return (
-            <LemonBanner type={'warning'} className={'mt-2'}>
+            <LemonBanner type="warning" className="mt-2">
                 <p>
                     No <code>$pageview</code>{' '}
-                    {statusCheck.shouldWarnAboutNoPageleaves ? (
+                    {!statusCheck.isSendingPageLeaves ? (
                         <>
                             or <code>$pageleave</code>{' '}
                         </>
@@ -25,22 +25,20 @@ export const WebAnalyticsHealthCheck = (): JSX.Element | null => {
                 </p>
                 <p>
                     Please see{' '}
-                    <Link to={'https://posthog.com/docs/libraries/js'}>documentation for how to set up posthog-js</Link>
-                    .
+                    <Link to="https://posthog.com/docs/libraries/js">documentation for how to set up posthog-js</Link>.
                 </p>
             </LemonBanner>
         )
-    } else if (statusCheck.shouldWarnAboutNoPageleaves) {
+    } else if (!statusCheck.isSendingPageLeaves) {
         return (
-            <LemonBanner type={'warning'} className={'mt-2'}>
+            <LemonBanner type="warning" className="mt-2">
                 <p>
                     No <code>$pageleave</code> events have been received, this means that Bounce rate and Session
                     duration might be inaccurate.
                 </p>
                 <p>
                     Please see{' '}
-                    <Link to={'https://posthog.com/docs/libraries/js'}>documentation for how to set up posthog-js</Link>
-                    .
+                    <Link to="https://posthog.com/docs/libraries/js">documentation for how to set up posthog-js</Link>.
                 </p>
             </LemonBanner>
         )

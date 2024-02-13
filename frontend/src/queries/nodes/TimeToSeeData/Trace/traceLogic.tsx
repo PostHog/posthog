@@ -21,7 +21,7 @@ export function sessionNodeFacts(node: TimeToSeeNode): Record<string, JSX.Elemen
         ? {
               type: 'session',
               session_id: node.data.session_id,
-              user: <ProfilePicture name={node.data.user.first_name} email={node.data.user.email} showName size="sm" />,
+              user: <ProfilePicture user={node.data.user} showName size="sm" />,
               duration: humanFriendlyMilliseconds(node.data.duration_ms) || 'unknown',
               sessionEventCount: node.data.events_count,
               frustratingInteractions: node.data.frustrating_interactions_count,

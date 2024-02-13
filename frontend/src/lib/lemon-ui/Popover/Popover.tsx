@@ -14,6 +14,7 @@ import {
     useMergeRefs,
 } from '@floating-ui/react'
 import clsx from 'clsx'
+import { ScrollableShadows } from 'lib/components/ScrollableShadows/ScrollableShadows'
 import { useEventListener } from 'lib/hooks/useEventListener'
 import { useFloatingContainerContext } from 'lib/hooks/useFloatingContainerContext'
 import { CLICK_OUTSIDE_BLOCK_CLASS, useOutsideClickHandler } from 'lib/hooks/useOutsideClickHandler'
@@ -43,6 +44,8 @@ export interface PopoverProps {
     sameWidth?: boolean
     maxContentWidth?: boolean
     className?: string
+    /** Whether default box padding should be applies. @default true */
+    padded?: boolean
     middleware?: Middleware[]
     /** Any other refs that needs to be taken into account for handling outside clicks e.g. other nested popovers.
      * Works also with strings, matching classnames or ids, for antd legacy components that don't support refs
@@ -84,7 +87,7 @@ export const Popover = React.forwardRef<HTMLDivElement, PopoverProps>(function P
         placement = 'bottom-start',
         fallbackPlacements = ['bottom-start', 'bottom-end', 'top-start', 'top-end'],
         className,
-        actionable = false,
+        padded = true,
         middleware,
         sameWidth = false,
         maxContentWidth = false,
@@ -138,7 +141,11 @@ export const Popover = React.forwardRef<HTMLDivElement, PopoverProps>(function P
     })
 
     const [floatingElement, setFloatingElement] = useState<HTMLElement | null>(null)
-    const mergedReferenceRef = useMergeRefs([referenceRef, extraReferenceRef || null]) as React.RefCallback<HTMLElement>
+    const mergedReferenceRef = useMergeRefs([
+        referenceRef,
+        extraReferenceRef || null,
+        (children as any)?.ref,
+    ]) as React.RefCallback<HTMLElement>
 
     const arrowStyle = middlewareData.arrow
         ? {
@@ -218,7 +225,7 @@ export const Popover = React.forwardRef<HTMLDivElement, PopoverProps>(function P
                         <div
                             className={clsx(
                                 'Popover',
-                                actionable && 'Popover--actionable',
+                                padded && 'Popover--padded',
                                 maxContentWidth && 'Popover--max-content-width',
                                 !isAttached && 'Popover--top-centered',
                                 showArrow && 'Popover--with-arrow',
@@ -255,9 +262,9 @@ export const Popover = React.forwardRef<HTMLDivElement, PopoverProps>(function P
                                         style={arrowStyle}
                                     />
                                 )}
-                                <div className="Popover__content" ref={contentRef}>
+                                <ScrollableShadows className="Popover__content" ref={contentRef} direction="vertical">
                                     {overlay}
-                                </div>
+                                </ScrollableShadows>
                             </div>
                         </div>
                     </PopoverOverlayContext.Provider>

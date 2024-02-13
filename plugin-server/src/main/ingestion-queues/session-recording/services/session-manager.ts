@@ -189,7 +189,7 @@ export class SessionManager {
             throw error
         }
 
-        // NOTE: This is uncompressed size estimate but thats okay as we currently want to over-flush to see if we can shake out a bug
+        // NOTE: This is uncompressed size estimate but that's okay as we currently want to over-flush to see if we can shake out a bug
         if (this.buffer.sizeEstimate >= this.serverConfig.SESSION_RECORDING_MAX_BUFFER_SIZE_KB * 1024) {
             await this.flush('buffer_size')
         }

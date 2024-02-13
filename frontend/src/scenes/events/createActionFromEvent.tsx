@@ -1,7 +1,7 @@
 import { router } from 'kea-router'
 import { CLICK_TARGETS, elementToSelector, matchesDataAttribute } from 'lib/actionUtils'
 import api from 'lib/api'
-import { lemonToast } from 'lib/lemon-ui/lemonToast'
+import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { Link } from 'lib/lemon-ui/Link'
 import { autoCaptureEventToDescription } from 'lib/utils'
 import { urls } from 'scenes/urls'

@@ -49,13 +49,12 @@ export function NotebookPanel(): JSX.Element | null {
                             size="small"
                             to={urls.notebook(selectedNotebook)}
                             onClick={() => closeSidePanel()}
-                            status="primary-alt"
                             icon={<IconOpenInNew />}
                             tooltip="Open as main focus"
                             tooltipPlacement="left"
                         />
 
-                        {contentWidthHasEffect && <NotebookExpandButton status="primary-alt" size="small" />}
+                        {contentWidthHasEffect && <NotebookExpandButton size="small" />}
 
                         <NotebookMenu shortId={selectedNotebook} />
                     </SidePanelPaneHeader>

@@ -12,18 +12,18 @@
 -c requirements.txt
 
 ruff>=0.1.2
-pip-tools~=7.3.0
-mypy==0.981
-mypy-extensions==0.4.3
-datamodel-code-generator==0.21.5
+pip-tools==7.3.0
+mypy~=1.8.0
+mypy-baseline~=0.6.1
+mypy-extensions==1.0.0
+datamodel-code-generator==0.25.2
 djangorestframework-stubs==1.4.0
 django-stubs==1.8.0
 Faker==17.5.0
 fakeredis[lua]==2.11.0
 freezegun==1.2.2
 packaging==23.1
-prance==0.22.2.22.0
-black==22.8.0
+black~=22.8.0
 types-markdown==3.3.9
 types-PyYAML==6.0.1
 types-freezegun==1.1.10
@@ -33,7 +33,7 @@ types-redis==4.3.20
 types-retry==0.9.9.4
 types-requests==2.26.1
 parameterized==0.9.0
-pytest==7.4.0
+pytest==7.4.4
 pytest-asyncio==0.21.1
 pytest-cov==4.1.0
 pytest-django==4.5.2
@@ -44,5 +44,5 @@ pytest-split==0.8.1
 pytest-watch==4.2.0
 python-dateutil>=2.8.2
 responses==0.23.1
-syrupy==1.7.4
+syrupy~=4.6.0
 flaky==3.7.0

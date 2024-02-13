@@ -1,5 +1,6 @@
+# serializer version: 1
 # name: RetentionTests.test_retention_aggregation_by_distinct_id_and_retrieve_people
-  '
+  '''
   /* user_id:0 request:_snapshot_ */ WITH actor_query AS
     (WITH 'Day' as period,
           NULL as breakdown_values_filter,
@@ -55,10 +56,10 @@
            intervals_from_base
   ORDER BY breakdown_values,
            intervals_from_base
-  '
----
+  '''
+# ---
 # name: RetentionTests.test_retention_aggregation_by_distinct_id_and_retrieve_people.1
-  '
+  '''
   /* user_id:0 request:_snapshot_ */
   SELECT actor_id,
          groupArray(actor_activity.intervals_from_base) AS appearances
@@ -127,10 +128,10 @@
   ORDER BY length(appearances) DESC, actor_id
   LIMIT 100
   OFFSET 0
-  '
----
+  '''
+# ---
 # name: RetentionTests.test_retention_aggregation_by_distinct_id_and_retrieve_people.2
-  '
+  '''
   /* user_id:0 request:_snapshot_ */
   SELECT actor_id,
          groupArray(actor_activity.intervals_from_base) AS appearances
@@ -199,10 +200,10 @@
   ORDER BY length(appearances) DESC, actor_id
   LIMIT 100
   OFFSET 0
-  '
----
+  '''
+# ---
 # name: RetentionTests.test_retention_test_account_filters
-  '
+  '''
   /* user_id:0 request:_snapshot_ */ WITH actor_query AS
     (WITH 'Day' as period,
           NULL as breakdown_values_filter,
@@ -296,10 +297,10 @@
            intervals_from_base
   ORDER BY breakdown_values,
            intervals_from_base
-  '
----
+  '''
+# ---
 # name: RetentionTests.test_retention_test_account_filters.1
-  '
+  '''
   /* user_id:0 request:_snapshot_ */
   SELECT actor_id,
          groupArray(actor_activity.intervals_from_base) AS appearances
@@ -392,10 +393,10 @@
   ORDER BY length(appearances) DESC, actor_id
   LIMIT 100
   OFFSET 0
-  '
----
+  '''
+# ---
 # name: RetentionTests.test_retention_test_account_filters.2
-  '
+  '''
   /* user_id:0 request:_snapshot_ */
   SELECT actor_id,
          groupArray(actor_activity.intervals_from_base) AS appearances
@@ -488,5 +489,5 @@
   ORDER BY length(appearances) DESC, actor_id
   LIMIT 100
   OFFSET 0
-  '
----
+  '''
+# ---

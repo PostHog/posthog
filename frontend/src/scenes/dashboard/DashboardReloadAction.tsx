@@ -1,9 +1,9 @@
 import { LemonButton, LemonDivider, LemonSwitch } from '@posthog/lemon-ui'
-import { Radio, RadioChangeEvent } from 'antd'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { dayjs } from 'lib/dayjs'
 import { IconRefresh } from 'lib/lemon-ui/icons'
+import { LemonRadio } from 'lib/lemon-ui/LemonRadio'
 import { Spinner } from 'lib/lemon-ui/Spinner'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { humanFriendlyDuration } from 'lib/utils'
@@ -11,19 +11,17 @@ import { DASHBOARD_MIN_REFRESH_INTERVAL_MINUTES, dashboardLogic } from 'scenes/d
 
 export const LastRefreshText = (): JSX.Element => {
     const { lastRefreshed } = useValues(dashboardLogic)
-    return (
-        <span>
-            Last updated{' '}
-            <span className="font-medium">{lastRefreshed ? dayjs(lastRefreshed).fromNow() : 'a while ago'}</span>
-        </span>
-    )
+    return <span>Last updated {lastRefreshed ? dayjs(lastRefreshed).fromNow() : 'a while ago'}</span>
 }
 
-// in seconds
+const refreshIntervalSeconds = [1800, 3600]
+if (process.env.NODE_ENV === 'development') {
+    refreshIntervalSeconds.push(10)
+}
 const intervalOptions = [
-    ...Array.from([1800, 3600], (v) => ({
-        label: humanFriendlyDuration(v),
-        value: v,
+    ...Array.from(refreshIntervalSeconds, (value) => ({
+        label: humanFriendlyDuration(value),
+        value: value,
     })),
 ]
 
@@ -31,18 +29,26 @@ export function DashboardReloadAction(): JSX.Element {
     const { itemsLoading, autoRefresh, refreshMetrics, blockRefresh } = useValues(dashboardLogic)
     const { refreshAllDashboardItemsManual, setAutoRefresh } = useActions(dashboardLogic)
 
+    const options = intervalOptions.map((option) => {
+        return {
+            ...option,
+            disabledReason: !autoRefresh.enabled ? 'Enable auto refresh to set the interval' : undefined,
+        }
+    })
+
     return (
         <>
             <LemonButton
                 onClick={() => refreshAllDashboardItemsManual()}
                 type="secondary"
-                status="muted"
                 icon={itemsLoading ? <Spinner textColored /> : <IconRefresh />}
                 size="small"
                 data-attr="dashboard-items-action-refresh"
                 disabledReason={
                     blockRefresh
                         ? `Dashboards can only be refreshed every ${DASHBOARD_MIN_REFRESH_INTERVAL_MINUTES} minutes.`
+                        : itemsLoading
+                        ? 'Refreshing...'
                         : ''
                 }
                 sideAction={{
@@ -53,48 +59,35 @@ export function DashboardReloadAction(): JSX.Element {
                         overlay: (
                             <>
                                 <div
-                                    className={'flex flex-col px-2 py-1'}
+                                    className="flex flex-col px-2 py-1"
                                     data-attr="auto-refresh-picker"
                                     id="auto-refresh-picker"
                                 >
                                     <Tooltip
-                                        title="Auto-refresh will only work while this tab is open"
+                                        title="Auto refresh will only work while this tab is open"
                                         placement="topRight"
                                     >
                                         <div>
                                             <LemonSwitch
                                                 onChange={(checked) => setAutoRefresh(checked, autoRefresh.interval)}
-                                                label={'Auto refresh'}
+                                                label="Auto refresh"
                                                 checked={autoRefresh.enabled}
                                                 fullWidth={true}
                                             />
                                         </div>
                                     </Tooltip>
                                     <LemonDivider />
-                                    <div className={'flex flex-col'}>
+                                    <div className="flex flex-col">
                                         <div role="heading" className="text-muted mb-2">
                                             Refresh interval
                                         </div>
-                                        <Radio.Group
-                                            onChange={(e: RadioChangeEvent) => {
-                                                setAutoRefresh(true, parseInt(e.target.value))
-                                            }}
+                                        <LemonRadio
                                             value={autoRefresh.interval}
-                                            style={{ width: '100%' }}
-                                        >
-                                            <div className="flex flex-col gap-2">
-                                                {intervalOptions.map(({ label, value }) => (
-                                                    <Radio
-                                                        key={value}
-                                                        value={value}
-                                                        style={{ width: '100%' }}
-                                                        disabled={!autoRefresh.enabled}
-                                                    >
-                                                        {label}
-                                                    </Radio>
-                                                ))}
-                                            </div>
-                                        </Radio.Group>
+                                            options={options}
+                                            onChange={(value: number) => {
+                                                setAutoRefresh(true, value)
+                                            }}
+                                        />
                                     </div>
                                 </div>
                             </>

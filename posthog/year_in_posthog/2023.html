@@ -462,7 +462,7 @@
         </div>
         {% if badges %}
             <div class="achievements-wrapper pt-2">
-                <h2 class="highlight text-xl">Achievements unlocked {{ achievements_count }}/7</h2>
+                <h2 class="highlight text-xl">Achievements unlocked {{ achievements_count }}/{{ max_achievements }}</h2>
                 <div class="achievements grid">
                     {% for _, b in badges.items %}
                         <div class="achievement text-sm" aria-label="{{ b.explanation }}" role="tooltip"

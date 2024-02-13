@@ -10,7 +10,7 @@ import { Counter } from 'prom-client'
 import v8Profiler from 'v8-profiler-next'
 
 import { getPluginServerCapabilities } from '../capabilities'
-import { defaultConfig, sessionRecordingConsumerConfig } from '../config/config'
+import { buildIntegerMatcher, defaultConfig, sessionRecordingConsumerConfig } from '../config/config'
 import { Hub, PluginServerCapabilities, PluginsServerConfig } from '../types'
 import { createHub, createKafkaClient, createKafkaProducerWrapper } from '../utils/db/hub'
 import { PostgresRouter } from '../utils/db/postgres'
@@ -21,9 +21,10 @@ import { status } from '../utils/status'
 import { delay } from '../utils/utils'
 import { AppMetrics } from '../worker/ingestion/app-metrics'
 import { OrganizationManager } from '../worker/ingestion/organization-manager'
-import { DeferredPersonOverrideWorker } from '../worker/ingestion/person-state'
+import { DeferredPersonOverrideWorker, FlatPersonOverrideWriter } from '../worker/ingestion/person-state'
 import { TeamManager } from '../worker/ingestion/team-manager'
 import Piscina, { makePiscina as defaultMakePiscina } from '../worker/piscina'
+import { RustyHook } from '../worker/rusty-hook'
 import { GraphileWorker } from './graphile-worker/graphile-worker'
 import { loadPluginSchedule } from './graphile-worker/schedule'
 import { startGraphileWorker } from './graphile-worker/worker-setup'
@@ -276,6 +277,7 @@ export async function startPluginsServer(
                     piscina: piscina,
                     producer: hub.kafkaProducer,
                     kafka: hub.kafka,
+                    serverConfig,
                     partitionConcurrency: serverConfig.KAFKA_PARTITIONS_CONSUMED_CONCURRENTLY,
                 })
             }
@@ -285,6 +287,7 @@ export async function startPluginsServer(
                     kafka: hub.kafka,
                     producer: hub.kafkaProducer,
                     graphileWorker: graphileWorker,
+                    serverConfig,
                 })
             }
         }
@@ -356,6 +359,14 @@ export async function startPluginsServer(
             const teamManager = hub?.teamManager ?? new TeamManager(postgres, serverConfig)
             const organizationManager = hub?.organizationManager ?? new OrganizationManager(postgres, teamManager)
             const KafkaProducerWrapper = hub?.kafkaProducer ?? (await createKafkaProducerWrapper(serverConfig))
+            const rustyHook =
+                hub?.rustyHook ??
+                new RustyHook(
+                    buildIntegerMatcher(serverConfig.RUSTY_HOOK_FOR_TEAMS, true),
+                    serverConfig.RUSTY_HOOK_ROLLOUT_PERCENTAGE,
+                    serverConfig.RUSTY_HOOK_URL,
+                    serverConfig.EXTERNAL_REQUEST_TIMEOUT_MS
+                )
             const appMetrics =
                 hub?.appMetrics ??
                 new AppMetrics(
@@ -371,6 +382,7 @@ export async function startPluginsServer(
                     teamManager: teamManager,
                     organizationManager: organizationManager,
                     serverConfig: serverConfig,
+                    rustyHook: rustyHook,
                     appMetrics: appMetrics,
                 })
 
@@ -392,6 +404,12 @@ export async function startPluginsServer(
                 },
                 'reset-available-features-cache': async (message) => {
                     await piscina?.broadcastTask({ task: 'resetAvailableFeaturesCache', args: JSON.parse(message) })
+                },
+                'populate-plugin-capabilities': async (message) => {
+                    // We need this to be done in only once
+                    if (hub?.capabilities.appManagementSingleton && piscina) {
+                        await piscina?.broadcastTask({ task: 'populatePluginCapabilities', args: JSON.parse(message) })
+                    }
                 },
             })
 
@@ -437,7 +455,11 @@ export async function startPluginsServer(
             const postgres = hub?.postgres ?? new PostgresRouter(serverConfig)
             const kafkaProducer = hub?.kafkaProducer ?? (await createKafkaProducerWrapper(serverConfig))
 
-            personOverridesPeriodicTask = new DeferredPersonOverrideWorker(postgres, kafkaProducer).runTask(5000)
+            personOverridesPeriodicTask = new DeferredPersonOverrideWorker(
+                postgres,
+                kafkaProducer,
+                new FlatPersonOverrideWriter(postgres)
+            ).runTask(5000)
             personOverridesPeriodicTask.promise.catch(async () => {
                 status.error('⚠️', 'Person override worker task crashed! Requesting shutdown...')
                 await closeJobs()

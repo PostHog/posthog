@@ -89,7 +89,7 @@ export const InsightCard: Story = (args) => {
                     removeFromDashboard={() => setWasItemRemoved(true)}
                     rename={() => {}}
                     duplicate={() => {}}
-                    placement={'SavedInsightGrid'}
+                    placement="SavedInsightGrid"
                 />
             )}
             <InsightCardComponent
@@ -104,7 +104,7 @@ export const InsightCard: Story = (args) => {
                 }
                 rename={() => {}}
                 duplicate={() => {}}
-                placement={'SavedInsightGrid'}
+                placement="SavedInsightGrid"
             />
             <InsightCardComponent
                 insight={
@@ -112,7 +112,7 @@ export const InsightCard: Story = (args) => {
                 }
                 rename={() => {}}
                 duplicate={() => {}}
-                placement={'SavedInsightGrid'}
+                placement="SavedInsightGrid"
             />
             <InsightCardComponent
                 insight={
@@ -125,13 +125,13 @@ export const InsightCard: Story = (args) => {
                 }
                 rename={() => {}}
                 duplicate={() => {}}
-                placement={'SavedInsightGrid'}
+                placement="SavedInsightGrid"
             />
             <InsightCardComponent
                 insight={{ ...EXAMPLE_FUNNEL, name: 'What a plentiful funnel' } as unknown as InsightModel}
                 rename={() => {}}
                 duplicate={() => {}}
-                placement={'SavedInsightGrid'}
+                placement="SavedInsightGrid"
             />
             <InsightCardComponent
                 insight={
@@ -145,7 +145,7 @@ export const InsightCard: Story = (args) => {
                 }
                 rename={() => {}}
                 duplicate={() => {}}
-                placement={'SavedInsightGrid'}
+                placement="SavedInsightGrid"
             />
             {examples.map((e) => (
                 <InsightCardComponent
@@ -153,7 +153,7 @@ export const InsightCard: Story = (args) => {
                     insight={e}
                     rename={() => {}}
                     duplicate={() => {}}
-                    placement={'SavedInsightGrid'}
+                    placement="SavedInsightGrid"
                 />
             ))}
         </div>

@@ -1,6 +1,7 @@
 import { IconPin, IconPinFilled, IconShare } from '@posthog/icons'
-import { LemonInput, LemonSelect } from '@posthog/lemon-ui'
+import { LemonInput } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
+import { MemberSelect } from 'lib/components/MemberSelect'
 import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
 import { DashboardPrivilegeLevel } from 'lib/constants'
 import { IconCottage, IconLock } from 'lib/lemon-ui/icons'
@@ -18,7 +19,6 @@ import { dashboardLogic } from 'scenes/dashboard/dashboardLogic'
 import { DashboardsFilters, dashboardsLogic } from 'scenes/dashboard/dashboards/dashboardsLogic'
 import { deleteDashboardLogic } from 'scenes/dashboard/deleteDashboardLogic'
 import { duplicateDashboardLogic } from 'scenes/dashboard/duplicateDashboardLogic'
-import { membersLogic } from 'scenes/organization/membersLogic'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
@@ -56,7 +56,6 @@ export function DashboardsTable({
     const { currentTeam } = useValues(teamLogic)
     const { showDuplicateDashboardModal } = useActions(duplicateDashboardLogic)
     const { showDeleteDashboardModal } = useActions(deleteDashboardLogic)
-    const { meFirstMembers } = useValues(membersLogic)
 
     const columns: LemonTableColumns<DashboardType> = [
         {
@@ -66,7 +65,6 @@ export function DashboardsTable({
                 return (
                     <LemonButton
                         size="small"
-                        status="stealth"
                         onClick={
                             pinned
                                 ? () => unpinDashboard(id, DashboardEventSource.DashboardsList)
@@ -140,7 +138,6 @@ export function DashboardsTable({
                               overlay={
                                   <>
                                       <LemonButton
-                                          status="stealth"
                                           to={urls.dashboard(id)}
                                           onClick={() => {
                                               dashboardLogic({ id }).mount()
@@ -154,7 +151,6 @@ export function DashboardsTable({
                                           View
                                       </LemonButton>
                                       <LemonButton
-                                          status="stealth"
                                           to={urls.dashboard(id)}
                                           onClick={() => {
                                               dashboardLogic({ id }).mount()
@@ -168,7 +164,6 @@ export function DashboardsTable({
                                           Edit
                                       </LemonButton>
                                       <LemonButton
-                                          status="stealth"
                                           onClick={() => {
                                               showDuplicateDashboardModal(id, name)
                                           }}
@@ -223,7 +218,6 @@ export function DashboardsTable({
                             <LemonButton
                                 active={filters.pinned}
                                 type="secondary"
-                                status="stealth"
                                 size="small"
                                 onClick={() => setFilters({ pinned: !filters.pinned })}
                                 icon={<IconPin />}
@@ -235,7 +229,6 @@ export function DashboardsTable({
                             <LemonButton
                                 active={filters.shared}
                                 type="secondary"
-                                status="stealth"
                                 size="small"
                                 onClick={() => setFilters({ shared: !filters.shared })}
                                 icon={<IconShare />}
@@ -246,20 +239,9 @@ export function DashboardsTable({
                     </div>
                     <div className="flex items-center gap-2">
                         <span>Created by:</span>
-                        <LemonSelect
-                            options={[
-                                { value: 'All users' as string, label: 'All Users' },
-                                ...meFirstMembers.map((x) => ({
-                                    value: x.user.uuid,
-                                    label: x.user.first_name,
-                                })),
-                            ]}
-                            size="small"
-                            value={filters.createdBy}
-                            onChange={(v: any): void => {
-                                setFilters({ createdBy: v })
-                            }}
-                            dropdownMatchSelectWidth={false}
+                        <MemberSelect
+                            value={filters.createdBy === 'All users' ? null : filters.createdBy}
+                            onChange={(user) => setFilters({ createdBy: user?.uuid || 'All users' })}
                         />
                     </div>
                     {extraActions}
@@ -274,7 +256,7 @@ export function DashboardsTable({
                 columns={columns}
                 loading={dashboardsLoading}
                 defaultSorting={{ columnKey: 'name', order: 1 }}
-                emptyState={`No dashboards matching your filters!`}
+                emptyState="No dashboards matching your filters!"
                 nouns={['dashboard', 'dashboards']}
             />
         </>

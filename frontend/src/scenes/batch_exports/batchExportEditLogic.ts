@@ -39,15 +39,15 @@ export type BatchExportConfigurationForm = Omit<
         json_config_file?: File[] | null
     }
 
-const formFields = (
-    props: BatchExportsEditLogicProps,
-    { name, destination, interval, start_at, end_at, paused, ...config }: BatchExportConfigurationForm
+export const batchExportFormFields = (
+    isNew: boolean,
+    { name, destination, interval, start_at, end_at, paused, ...config }: BatchExportConfigurationForm,
+    { isPipeline }: { isPipeline?: boolean } = {}
 ): Record<string, any> => {
     // Important! All fields that are required must be checked here as it is used also to sanitise the existing
-    const isNew = props.id === 'new'
 
     return {
-        name: !name ? 'Please enter a name' : '',
+        name: !name && !isPipeline ? 'Please enter a name' : '', // In pipeline UI the name is in the top bar
         destination: !destination ? 'Please select a destination' : '',
         interval: !interval ? 'Please select a frequency' : '',
         paused: '',
@@ -109,6 +109,7 @@ const formFields = (
                   table_id: !config.table_id ? 'This field is required' : '',
                   exclude_events: '',
                   include_events: '',
+                  use_json_type: '',
               }
             : destination === 'Snowflake'
             ? {
@@ -145,7 +146,7 @@ export const batchExportsEditLogic = kea<batchExportsEditLogicType>([
             defaults: {
                 name: '',
             } as BatchExportConfigurationForm,
-            errors: (form) => formFields(props, form),
+            errors: (form) => batchExportFormFields(props.id === 'new', form),
             submit: async ({ name, destination, interval, start_at, end_at, paused, ...config }) => {
                 const destinationObject: BatchExportDestination =
                     destination === 'Postgres'
@@ -173,7 +174,7 @@ export const batchExportsEditLogic = kea<batchExportsEditLogicType>([
                               config: config,
                           } as unknown as BatchExportDestinationSnowflake)
 
-                const data: Omit<BatchExportConfiguration, 'id' | 'created_at'> = {
+                const data: Omit<BatchExportConfiguration, 'id' | 'created_at' | 'team_id'> = {
                     paused,
                     name,
                     interval,
@@ -249,7 +250,7 @@ export const batchExportsEditLogic = kea<batchExportsEditLogicType>([
 
             // Filter out any values that aren't part of our from
 
-            const validFormFields = Object.keys(formFields(props, transformedConfig))
+            const validFormFields = Object.keys(batchExportFormFields(props.id === 'new', transformedConfig))
 
             Object.keys(transformedConfig).forEach((key) => {
                 if (!validFormFields.includes(key)) {

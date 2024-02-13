@@ -1,9 +1,10 @@
 import { useValues } from 'kea'
 import { CodeSnippet, Language } from 'lib/components/CodeSnippet'
+import { apiHostOrigin } from 'lib/utils/apiHost'
 import { teamLogic } from 'scenes/teamLogic'
 
 function RubyInstallSnippet(): JSX.Element {
-    return <CodeSnippet language={Language.Bash}>{'gem "posthog-ruby"'}</CodeSnippet>
+    return <CodeSnippet language={Language.Bash}>gem "posthog-ruby"</CodeSnippet>
 }
 
 function RubySetupSnippet(): JSX.Element {
@@ -13,7 +14,7 @@ function RubySetupSnippet(): JSX.Element {
         <CodeSnippet language={Language.Ruby}>
             {`posthog = PostHog::Client.new({
     api_key: "${currentTeam?.api_token}",
-    host: "${window.location.origin}",
+    host: "${apiHostOrigin()}",
     on_error: Proc.new { |status, msg| print msg }
 })`}
         </CodeSnippet>

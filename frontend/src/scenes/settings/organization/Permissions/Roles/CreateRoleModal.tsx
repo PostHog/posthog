@@ -63,8 +63,8 @@ export function CreateRoleModal(): JSX.Element {
                             {!isNewRole && (
                                 <LemonButton
                                     htmlType="submit"
-                                    type="primary"
-                                    status={'danger'}
+                                    type="secondary"
+                                    status="danger"
                                     onClick={() => deleteRole(roleInFocus)}
                                     data-attr="role-delete-submit"
                                 >
@@ -120,12 +120,7 @@ export function CreateRoleModal(): JSX.Element {
                 <>
                     <h5>Role Members</h5>
                     {roleMembersInFocus.length > 0 ? (
-                        <div
-                            className="mt-2 pb-2 rounded overflow-y-auto"
-                            style={{
-                                maxHeight: 300,
-                            }}
-                        >
+                        <div className="mt-2 pb-2 rounded overflow-y-auto max-h-80">
                             {roleMembersInFocus.map((member) => {
                                 return (
                                     <MemberRow
@@ -159,13 +154,12 @@ function MemberRow({
 
     return (
         <div className="flex items-center justify-between mt-2 h-8">
-            <ProfilePicture email={user.email} name={user.first_name} size="md" showName />
+            <ProfilePicture user={user} size="md" showName />
             {isAdminOrOwner && deleteMember && (
                 <LemonButton
                     icon={<IconDelete />}
                     onClick={() => deleteMember(member.id)}
-                    tooltip={'Remove user from role'}
-                    status="primary-alt"
+                    tooltip="Remove user from role"
                     type="tertiary"
                     size="small"
                 />

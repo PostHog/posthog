@@ -27,6 +27,13 @@ services:
         ports:
             - '6379:6379'
 
+    flower:
+        extends:
+            file: docker-compose.base.yml
+            service: flower
+        ports:
+            - '5555:5555'
+
     clickhouse:
         extends:
             file: docker-compose.base.yml

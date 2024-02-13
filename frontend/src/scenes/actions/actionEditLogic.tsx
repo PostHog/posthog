@@ -3,7 +3,7 @@ import { forms } from 'kea-forms'
 import { loaders } from 'kea-loaders'
 import { beforeUnload, router, urlToAction } from 'kea-router'
 import api from 'lib/api'
-import { lemonToast } from 'lib/lemon-ui/lemonToast'
+import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { Link } from 'lib/lemon-ui/Link'
 import { uuid } from 'lib/utils'
 import { deleteWithUndo } from 'lib/utils/deleteWithUndo'
@@ -69,9 +69,6 @@ export const actionEditLogic = kea<actionEditLogicType>([
     forms(({ actions, props }) => ({
         action: {
             defaults: { ...props.action } as ActionEditType,
-            errors: ({ name }) => ({
-                name: !name ? 'You need to set a name' : null,
-            }),
             submit: (action) => {
                 actions.saveAction(action)
             },

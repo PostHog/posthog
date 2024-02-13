@@ -35,7 +35,7 @@ export function PermissionsGrid(): JSX.Element {
                         {role.name == 'organization_default' ? (
                             <b>All users by default</b>
                         ) : (
-                            <LemonButton type="tertiary" noPadding onClick={() => setRoleInFocus(role)}>
+                            <LemonButton noPadding onClick={() => setRoleInFocus(role)}>
                                 {role.name}
                             </LemonButton>
                         )}

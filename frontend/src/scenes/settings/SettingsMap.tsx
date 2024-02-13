@@ -1,3 +1,5 @@
+import { AvailableFeature } from '~/types'
+
 import { Invites } from './organization/Invites'
 import { Members } from './organization/Members'
 import { OrganizationDangerZone } from './organization/OrganizationDangerZone'
@@ -32,6 +34,7 @@ import { SettingSection } from './types'
 import { ChangePassword } from './user/ChangePassword'
 import { OptOutCapture } from './user/OptOutCapture'
 import { PersonalAPIKeys } from './user/PersonalAPIKeys'
+import { ThemeSwitcher } from './user/ThemeSwitcher'
 import { TwoFactorAuthentication } from './user/TwoFactorAuthentication'
 import { UpdateEmailPreferences } from './user/UpdateEmailPreferences'
 import { UserDetails } from './user/UserDetails'
@@ -80,6 +83,7 @@ export const SettingsMap: SettingSection[] = [
                 id: 'exception-autocapture',
                 title: 'Exception Autocapture',
                 component: <ExceptionAutocaptureSettings />,
+                flag: 'EXCEPTION_AUTOCAPTURE',
             },
             {
                 id: 'autocapture-data-attributes',
@@ -157,6 +161,11 @@ export const SettingsMap: SettingSection[] = [
                 title: 'Ingestion controls',
                 component: <ReplayCostControl />,
                 flag: 'SESSION_RECORDING_SAMPLING',
+                features: [
+                    AvailableFeature.SESSION_REPLAY_SAMPLING,
+                    AvailableFeature.REPLAY_FEATURE_FLAG_BASED_RECORDING,
+                    AvailableFeature.REPLAY_RECORDING_DURATION_MINIMUM,
+                ],
             },
         ],
     },
@@ -337,9 +346,14 @@ export const SettingsMap: SettingSection[] = [
     },
     {
         level: 'user',
-        id: 'user-notifications',
-        title: 'Notifications',
+        id: 'user-customization',
+        title: 'Customization',
         settings: [
+            {
+                id: 'theme',
+                title: 'Theme',
+                component: <ThemeSwitcher onlyLabel />,
+            },
             {
                 id: 'notifications',
                 title: 'Notifications',

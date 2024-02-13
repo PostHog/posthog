@@ -177,6 +177,80 @@ def test_new_ingestion(raw_snapshot_events, mocker: MockerFixture):
                         "something": big_payload,
                     },
                 ],
+                "$snapshot_source": "web",
+            },
+        }
+    ]
+
+
+def test_absent_window_id_is_added(raw_snapshot_events, mocker: MockerFixture):
+    mocker.patch("time.time", return_value=0)
+
+    events = [
+        {
+            "event": "$snapshot",
+            "properties": {
+                "$session_id": "1234",
+                "$snapshot_data": {"type": 3, "timestamp": MILLISECOND_TIMESTAMP},
+                "distinct_id": "abc123",
+            },
+        },
+    ]
+
+    assert list(mock_capture_flow(events, max_size_bytes=2000)[1]) == [
+        {
+            "event": "$snapshot_items",
+            "properties": {
+                "distinct_id": "abc123",
+                "$session_id": "1234",
+                "$window_id": "1234",  # window_id is defaulted to session id
+                "$snapshot_items": [
+                    {"type": 3, "timestamp": 1546300800000},
+                ],
+                "$snapshot_source": "web",
+            },
+        }
+    ]
+
+
+def test_received_snapshot_source_is_respected_for_first_event(raw_snapshot_events, mocker: MockerFixture):
+    mocker.patch("time.time", return_value=0)
+
+    events = [
+        {
+            "event": "$snapshot",
+            "properties": {
+                "$session_id": "1234",
+                "$window_id": "1",
+                "$snapshot_data": {"type": 3, "timestamp": MILLISECOND_TIMESTAMP},
+                "distinct_id": "abc123",
+                "$snapshot_source": "mobile",
+            },
+        },
+        {
+            "event": "$snapshot",
+            "properties": {
+                "$session_id": "1234",
+                "$window_id": "1",
+                "$snapshot_data": {"type": 3, "timestamp": MILLISECOND_TIMESTAMP},
+                "distinct_id": "abc123",
+                "$snapshot_source": "assumed unchanged but not really",
+            },
+        },
+    ]
+
+    assert list(mock_capture_flow(events, max_size_bytes=2000)[1]) == [
+        {
+            "event": "$snapshot_items",
+            "properties": {
+                "distinct_id": "abc123",
+                "$session_id": "1234",
+                "$window_id": "1",
+                "$snapshot_items": [
+                    {"type": 3, "timestamp": 1546300800000},
+                    {"type": 3, "timestamp": 1546300800000},
+                ],
+                "$snapshot_source": "mobile",
             },
         }
     ]
@@ -221,7 +295,6 @@ def test_new_ingestion_large_full_snapshot_is_separated(raw_snapshot_events, moc
             },
         },
     ]
-
     assert list(mock_capture_flow(events, max_size_bytes=2000)[1]) == [
         {
             "event": "$snapshot_items",
@@ -236,6 +309,7 @@ def test_new_ingestion_large_full_snapshot_is_separated(raw_snapshot_events, moc
                         "something": big_payload,
                     }
                 ],
+                "$snapshot_source": "web",
             },
         },
         {
@@ -248,6 +322,7 @@ def test_new_ingestion_large_full_snapshot_is_separated(raw_snapshot_events, moc
                     {"type": 3, "timestamp": 1546300800000},
                     {"type": 3, "timestamp": 1546300800000},
                 ],
+                "$snapshot_source": "web",
             },
         },
     ]
@@ -307,6 +382,7 @@ def test_new_ingestion_large_non_full_snapshots_are_separated(raw_snapshot_event
                     }
                 ],
                 "distinct_id": "abc123",
+                "$snapshot_source": "web",
             },
         },
         {
@@ -322,6 +398,7 @@ def test_new_ingestion_large_non_full_snapshots_are_separated(raw_snapshot_event
                     }
                 ],
                 "distinct_id": "abc123",
+                "$snapshot_source": "web",
             },
         },
     ]
@@ -398,6 +475,7 @@ def test_new_ingestion_groups_using_snapshot_bytes_if_possible(raw_snapshot_even
                     small_event,
                     almost_too_big_event,
                 ],
+                "$snapshot_source": "web",
             },
         },
         {
@@ -407,6 +485,7 @@ def test_new_ingestion_groups_using_snapshot_bytes_if_possible(raw_snapshot_even
                 "$session_id": "1234",
                 "$window_id": "1",
                 "$snapshot_items": [small_event, small_event, small_event],
+                "$snapshot_source": "web",
             },
         },
     ]

@@ -4,6 +4,7 @@ import { useActions, useValues } from 'kea'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonButton, LemonButtonProps } from 'lib/lemon-ui/LemonButton'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
+import { isMobile } from 'lib/utils'
 import React, { FunctionComponent, ReactElement, useState } from 'react'
 import { sceneLogic } from 'scenes/sceneLogic'
 
@@ -17,7 +18,7 @@ import { KeyboardShortcut, KeyboardShortcutProps } from './KeyboardShortcut'
 export interface NavbarButtonProps extends Pick<LemonButtonProps, 'onClick' | 'icon' | 'sideIcon' | 'to' | 'active'> {
     identifier: string
     icon: ReactElement
-    title?: string
+    title?: string | ReactElement
     shortTitle?: string
     forceTooltipOnHover?: boolean
     tag?: 'alpha' | 'beta' | 'new'
@@ -68,7 +69,9 @@ export const NavbarButton: FunctionComponent<NavbarButtonProps> = React.forwardR
                     'data-attr': `menu-item-${sideAction.identifier.toLowerCase()}`,
                 }
                 buttonProps.sideIcon = null
-            } else if (keyboardShortcut) {
+            } else if (keyboardShortcut && !isMobile()) {
+                // If the user agent says we're on mobile, then it's unlikely - but not impossible -
+                // that there's a physical keyboard. Hence in that case we don't show the keyboard shortcut
                 buttonProps.sideIcon = (
                     <span className="text-xs">
                         <KeyboardShortcut {...keyboardShortcut} />
@@ -111,7 +114,7 @@ export const NavbarButton: FunctionComponent<NavbarButtonProps> = React.forwardR
                 className={clsx('NavbarButton', isUsingNewNav && here && 'NavbarButton--here')}
                 fullWidth
                 type="secondary"
-                stealth={true}
+                status="alt"
                 {...buttonProps}
             >
                 {content}

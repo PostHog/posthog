@@ -66,7 +66,7 @@ export function SceneDashboardChoiceModal({ scene }: SceneDashboardChoiceModalPr
                                     </div>
                                     {isCurrentChoice ? (
                                         <>
-                                            <SceneIcon scene={scene} size={'small'} /> <span>Default</span>
+                                            <SceneIcon scene={scene} size="small" /> <span>Default</span>
                                         </>
                                     ) : (
                                         <strong className="set-default-text">Set as default</strong>

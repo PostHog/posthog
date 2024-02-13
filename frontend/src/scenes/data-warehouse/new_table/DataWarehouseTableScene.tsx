@@ -18,7 +18,6 @@ export function DataWarehouseTable(): JSX.Element {
     return (
         <>
             <PageHeader
-                title={'New table'}
                 buttons={
                     <div className="flex items-center gap-2">
                         <LemonButton

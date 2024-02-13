@@ -5,6 +5,7 @@ import {
     ActivityChange,
     ActivityLogItem,
     ChangeMapping,
+    defaultDescriber,
     Description,
     detectBoolean,
     HumanizedChange,
@@ -372,5 +373,5 @@ export function insightActivityDescriber(logItem: ActivityLogItem, asNotificatio
         }
     }
 
-    return { description: null }
+    return defaultDescriber(logItem, asNotification, nameOrLinkToInsight(logItem?.detail.short_id))
 }

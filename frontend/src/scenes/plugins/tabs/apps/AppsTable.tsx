@@ -31,7 +31,6 @@ export function AppsTable({
                         <>
                             <LemonButton
                                 size="small"
-                                status="stealth"
                                 sideIcon={!expanded ? <IconUnfoldLess /> : <IconUnfoldMore />}
                                 onClick={() => setExpanded(!expanded)}
                                 className="-ml-2 mr-2"

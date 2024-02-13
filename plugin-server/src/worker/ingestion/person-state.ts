@@ -99,7 +99,7 @@ export class PersonState {
         distinctId: string,
         timestamp: DateTime,
         db: DB,
-        private personOverrideWriter?: PersonOverrideWriter | DeferredPersonOverrideWriter,
+        private personOverrideWriter?: DeferredPersonOverrideWriter,
         uuid: UUIDT | undefined = undefined,
         maxMergeAttempts: number = MAX_FAILED_PERSON_MERGE_ATTEMPTS
     ) {
@@ -496,23 +496,14 @@ export class PersonState {
 
                 const deletePersonMessages = await this.db.deletePerson(otherPerson, tx)
 
-                let personOverrideMessages: ProducerRecord[] = []
                 if (this.personOverrideWriter) {
-                    personOverrideMessages = await this.personOverrideWriter.addPersonOverride(
+                    await this.personOverrideWriter.addPersonOverride(
                         tx,
                         getPersonOverrideDetails(this.teamId, otherPerson, mergeInto)
                     )
                 }
 
-                return [
-                    [
-                        ...personOverrideMessages,
-                        ...updatePersonMessages,
-                        ...distinctIdMessages,
-                        ...deletePersonMessages,
-                    ],
-                    person,
-                ]
+                return [[...updatePersonMessages, ...distinctIdMessages, ...deletePersonMessages], person]
             }
         )
 
@@ -554,7 +545,7 @@ function getPersonOverrideDetails(teamId: number, oldPerson: Person, overridePer
     }
 }
 
-export class PersonOverrideWriter {
+export class FlatPersonOverrideWriter {
     constructor(private postgres: PostgresRouter) {}
 
     public async addPersonOverride(
@@ -562,28 +553,11 @@ export class PersonOverrideWriter {
         overrideDetails: PersonOverrideDetails
     ): Promise<ProducerRecord[]> {
         const mergedAt = DateTime.now()
-        /**
-            We'll need to do 4 updates:
-
-         1. Add the persons involved to the helper table (2 of them)
-         2. Add an override from oldPerson to override person
-         3. Update any entries that have oldPerson as the override person to now also point to the new override person. Note that we don't update `oldest_event`, because it's a heuristic (used to optimise squashing) tied to the old_person and nothing changed about the old_person who's events need to get squashed.
-         */
-        const oldPersonMappingId = await this.addPersonOverrideMapping(
-            tx,
-            overrideDetails.team_id,
-            overrideDetails.old_person_id
-        )
-        const overridePersonMappingId = await this.addPersonOverrideMapping(
-            tx,
-            overrideDetails.team_id,
-            overrideDetails.override_person_id
-        )
 
         await this.postgres.query(
             tx,
             SQL`
-                INSERT INTO posthog_personoverride (
+                INSERT INTO posthog_flatpersonoverride (
                     team_id,
                     old_person_id,
                     override_person_id,
@@ -591,8 +565,8 @@ export class PersonOverrideWriter {
                     version
                 ) VALUES (
                     ${overrideDetails.team_id},
-                    ${oldPersonMappingId},
-                    ${overridePersonMappingId},
+                    ${overrideDetails.old_person_id},
+                    ${overrideDetails.override_person_id},
                     ${overrideDetails.oldest_event},
                     0
                 )
@@ -601,33 +575,20 @@ export class PersonOverrideWriter {
             'personOverride'
         )
 
-        // The follow-up JOIN is required as ClickHouse requires UUIDs, so we need to fetch the UUIDs
-        // of the IDs we updated from the mapping table.
         const { rows: transitiveUpdates } = await this.postgres.query(
             tx,
             SQL`
-                WITH updated_ids AS (
-                    UPDATE
-                        posthog_personoverride
-                    SET
-                        override_person_id = ${overridePersonMappingId}, version = COALESCE(version, 0)::numeric + 1
-                    WHERE
-                        team_id = ${overrideDetails.team_id} AND override_person_id = ${oldPersonMappingId}
-                    RETURNING
-                        old_person_id,
-                        version,
-                        oldest_event
-                )
-                SELECT
-                    helper.uuid as old_person_id,
-                    updated_ids.version,
-                    updated_ids.oldest_event
-                FROM
-                    updated_ids
-                JOIN
-                    posthog_personoverridemapping helper
-                ON
-                    helper.id = updated_ids.old_person_id;
+                UPDATE
+                    posthog_flatpersonoverride
+                SET
+                    override_person_id = ${overrideDetails.override_person_id},
+                    version = COALESCE(version, 0)::numeric + 1
+                WHERE
+                    team_id = ${overrideDetails.team_id} AND override_person_id = ${overrideDetails.old_person_id}
+                RETURNING
+                    old_person_id,
+                    version,
+                    oldest_event
             `,
             undefined,
             'transitivePersonOverrides'
@@ -666,45 +627,26 @@ export class PersonOverrideWriter {
         return personOverrideMessages
     }
 
-    private async addPersonOverrideMapping(tx: TransactionClient, teamId: number, personId: string): Promise<number> {
-        /**
-            Update the helper table that serves as a mapping between a serial ID and a Person UUID.
-
-            This mapping is used to enable an exclusion constraint in the personoverrides table, which
-            requires int[], while avoiding any constraints on "hotter" tables, like person.
-         **/
-
-        // ON CONFLICT nothing is returned, so we get the id in the second SELECT statement below.
-        // Fear not, the constraints on personoverride will handle any inconsistencies.
-        // This mapping table is really nothing more than a mapping to support exclusion constraints
-        // as we map int ids to UUIDs (the latter not supported in exclusion contraints).
-        const {
-            rows: [{ id }],
-        } = await this.postgres.query(
-            tx,
-            `WITH insert_id AS (
-                    INSERT INTO posthog_personoverridemapping(
-                        team_id,
-                        uuid
-                    )
-                    VALUES (
-                        ${teamId},
-                        '${personId}'
-                    )
-                    ON CONFLICT("team_id", "uuid") DO NOTHING
-                    RETURNING id
-                )
-                SELECT * FROM insert_id
-                UNION ALL
-                SELECT id
-                FROM posthog_personoverridemapping
-                WHERE team_id = ${teamId} AND uuid = '${personId}'
+    public async getPersonOverrides(teamId: number): Promise<PersonOverrideDetails[]> {
+        const { rows } = await this.postgres.query(
+            PostgresUse.COMMON_WRITE,
+            SQL`
+                SELECT
+                    team_id,
+                    old_person_id,
+                    override_person_id,
+                    oldest_event
+                FROM posthog_flatpersonoverride
+                WHERE team_id = ${teamId}
             `,
             undefined,
-            'personOverrideMapping'
+            'getPersonOverrides'
         )
-
-        return id
+        return rows.map((row) => ({
+            ...row,
+            team_id: parseInt(row.team_id), // XXX: pg returns bigint as str (reasonably so)
+            oldest_event: DateTime.fromISO(row.oldest_event),
+        }))
     }
 }
 
@@ -712,17 +654,13 @@ const deferredPersonOverridesWrittenCounter = new Counter({
     name: 'deferred_person_overrides_written',
     help: 'Number of person overrides that have been written as pending',
 })
-
 export class DeferredPersonOverrideWriter {
     constructor(private postgres: PostgresRouter) {}
 
     /**
      * Enqueue an override for deferred processing.
      */
-    public async addPersonOverride(
-        tx: TransactionClient,
-        overrideDetails: PersonOverrideDetails
-    ): Promise<ProducerRecord[]> {
+    public async addPersonOverride(tx: TransactionClient, overrideDetails: PersonOverrideDetails): Promise<void> {
         await this.postgres.query(
             tx,
             SQL`
@@ -741,7 +679,6 @@ export class DeferredPersonOverrideWriter {
             'pendingPersonOverride'
         )
         deferredPersonOverridesWrittenCounter.inc()
-        return []
     }
 }
 
@@ -759,11 +696,11 @@ export class DeferredPersonOverrideWorker {
     // it just needs to be consistent across all processes.
     public readonly lockId = 567
 
-    private writer: PersonOverrideWriter
-
-    constructor(private postgres: PostgresRouter, private kafkaProducer: KafkaProducerWrapper) {
-        this.writer = new PersonOverrideWriter(this.postgres)
-    }
+    constructor(
+        private postgres: PostgresRouter,
+        private kafkaProducer: KafkaProducerWrapper,
+        private writer: FlatPersonOverrideWriter
+    ) {}
 
     /**
      * Process all (or up to the given limit) pending overrides.

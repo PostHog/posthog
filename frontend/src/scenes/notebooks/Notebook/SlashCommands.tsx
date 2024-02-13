@@ -20,6 +20,7 @@ import Fuse from 'fuse.js'
 import { useValues } from 'kea'
 import { IconBold, IconItalic } from 'lib/lemon-ui/icons'
 import { Popover } from 'lib/lemon-ui/Popover'
+import { selectFiles } from 'lib/utils/file-utils'
 import { forwardRef, useCallback, useEffect, useImperativeHandle, useMemo, useState } from 'react'
 
 import { KeyboardShortcut } from '~/layout/navigation-3000/components/KeyboardShortcut'
@@ -29,7 +30,6 @@ import { BaseMathType, ChartDisplayType, FunnelVizType, NotebookNodeType, PathTy
 
 import { buildNodeEmbed } from '../Nodes/NotebookNodeEmbed'
 import { buildInsightVizQueryContent, buildNodeQueryContent } from '../Nodes/NotebookNodeQuery'
-import { selectFile } from '../Nodes/utils'
 import NotebookIconHeading from './NotebookIconHeading'
 import { notebookLogic } from './notebookLogic'
 import { EditorCommands, EditorRange } from './utils'
@@ -144,7 +144,7 @@ const SLASH_COMMANDS: SlashCommandsItem[] = [
                         },
                     ],
                     funnelsFilter: {
-                        funnel_viz_type: FunnelVizType.Steps,
+                        funnelVizType: FunnelVizType.Steps,
                     },
                 })
             ),
@@ -160,18 +160,18 @@ const SLASH_COMMANDS: SlashCommandsItem[] = [
                     kind: NodeKind.RetentionQuery,
                     retentionFilter: {
                         period: RetentionPeriod.Day,
-                        total_intervals: 11,
-                        target_entity: {
+                        totalIntervals: 11,
+                        targetEntity: {
                             id: '$pageview',
                             name: '$pageview',
                             type: 'events',
                         },
-                        returning_entity: {
+                        returningEntity: {
                             id: '$pageview',
                             name: '$pageview',
                             type: 'events',
                         },
-                        retention_type: 'retention_first_time',
+                        retentionType: 'retention_first_time',
                     },
                 })
             ),
@@ -186,7 +186,7 @@ const SLASH_COMMANDS: SlashCommandsItem[] = [
                 buildInsightVizQueryContent({
                     kind: NodeKind.PathsQuery,
                     pathsFilter: {
-                        include_event_types: [PathType.PageView],
+                        includeEventTypes: [PathType.PageView],
                     },
                 })
             ),
@@ -313,7 +313,7 @@ order by count() desc
         command: async (chain, pos) => {
             // Trigger upload followed by insert
             try {
-                const files = await selectFile({ contentType: 'image/*', multiple: false })
+                const files = await selectFiles({ contentType: 'image/*', multiple: false })
 
                 if (files.length) {
                     return chain.insertContentAt(pos, { type: NotebookNodeType.Image, attrs: { file: files[0] } })
@@ -461,7 +461,6 @@ export const SlashCommands = forwardRef<SlashCommandsRef, SlashCommandsProps>(fu
                 {TEXT_CONTROLS.map((item, index) => (
                     <LemonButton
                         key={item.title}
-                        status="primary-alt"
                         size="small"
                         active={selectedIndex === -1 && selectedHorizontalIndex === index}
                         onClick={() => void execute(item)}
@@ -476,7 +475,6 @@ export const SlashCommands = forwardRef<SlashCommandsRef, SlashCommandsProps>(fu
                 <LemonButton
                     key={item.title}
                     fullWidth
-                    status="primary-alt"
                     icon={item.icon}
                     active={index === selectedIndex}
                     onClick={() => void execute(item)}

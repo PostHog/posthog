@@ -1,33 +1,34 @@
+import os
 import time
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 
 import json
 from typing import Any, List, Type, cast, Dict, Tuple
+
 from django.conf import settings
 
 import posthoganalytics
 import requests
 from django.contrib.auth.models import AnonymousUser
+from django.core.cache import cache
 from django.http import JsonResponse, HttpResponse
 from drf_spectacular.utils import extend_schema
 from loginas.utils import is_impersonated_session
 from rest_framework import exceptions, request, serializers, viewsets
 from rest_framework.decorators import action
-from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 
 from posthog.api.person import MinimalPersonSerializer
-from posthog.api.routing import StructuredViewSetMixin
+from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.auth import SharingAccessTokenAuthentication
+from posthog.cloud_utils import is_cloud
 from posthog.constants import SESSION_RECORDINGS_FILTER_IDS
 from posthog.models import User
 from posthog.models.filters.session_recordings_filter import SessionRecordingsFilter
 from posthog.models.person.person import PersonDistinctId
 from posthog.session_recordings.models.session_recording import SessionRecording
 from posthog.permissions import (
-    ProjectMembershipNecessaryPermissions,
     SharingTokenPermission,
-    TeamMemberAccessPermission,
 )
 from posthog.session_recordings.models.session_recording_event import (
     SessionRecordingViewed,
@@ -45,12 +46,14 @@ from posthog.rate_limit import (
     ClickHouseSustainedRateThrottle,
 )
 from posthog.session_recordings.queries.session_replay_events import SessionReplayEvents
-from posthog.session_recordings.realtime_snapshots import get_realtime_snapshots
+from posthog.session_recordings.realtime_snapshots import get_realtime_snapshots, publish_subscription
+from posthog.session_recordings.session_summary.summarize_session import summarize_recording
 from posthog.session_recordings.snapshots.convert_legacy_snapshots import (
     convert_original_version_lts_recording,
 )
 from posthog.storage import object_storage
 from prometheus_client import Counter
+
 
 SNAPSHOT_SOURCE_REQUESTED = Counter(
     "session_snapshots_requested_counter",
@@ -61,8 +64,9 @@ SNAPSHOT_SOURCE_REQUESTED = Counter(
 
 # context manager for gathering a sequence of server timings
 class ServerTimingsGathered:
-    # Class level dictionary to store timings
-    timings_dict: Dict[str, float] = {}
+    def __init__(self):
+        # Instance level dictionary to store timings
+        self.timings_dict = {}
 
     def __call__(self, name):
         self.name = name
@@ -77,11 +81,10 @@ class ServerTimingsGathered:
     def __exit__(self, exc_type, exc_val, exc_tb):
         end_time = time.perf_counter() * 1000
         elapsed_time = end_time - self.start_time
-        ServerTimingsGathered.timings_dict[self.name] = elapsed_time
+        self.timings_dict[self.name] = elapsed_time
 
-    @classmethod
-    def get_all_timings(cls):
-        return cls.timings_dict
+    def get_all_timings(self):
+        return self.timings_dict
 
 
 class SessionRecordingSerializer(serializers.ModelSerializer):
@@ -174,12 +177,8 @@ def list_recordings_response(
     return response
 
 
-class SessionRecordingViewSet(StructuredViewSetMixin, viewsets.GenericViewSet):
-    permission_classes = [
-        IsAuthenticated,
-        ProjectMembershipNecessaryPermissions,
-        TeamMemberAccessPermission,
-    ]
+# NOTE: Could we put the sharing stuff in the shared mixin :thinking:
+class SessionRecordingViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     throttle_classes = [ClickHouseBurstRateThrottle, ClickHouseSustainedRateThrottle]
     serializer_class = SessionRecordingSerializer
     # We don't use this
@@ -352,7 +351,7 @@ class SessionRecordingViewSet(StructuredViewSetMixin, viewsets.GenericViewSet):
                 for full_key in blob_keys:
                     # Keys are like 1619712000-1619712060
                     blob_key = full_key.replace(blob_prefix.rstrip("/") + "/", "")
-                    time_range = [datetime.fromtimestamp(int(x) / 1000) for x in blob_key.split("-")]
+                    time_range = [datetime.fromtimestamp(int(x) / 1000, tz=timezone.utc) for x in blob_key.split("-")]
 
                     sources.append(
                         {
@@ -369,7 +368,7 @@ class SessionRecordingViewSet(StructuredViewSetMixin, viewsets.GenericViewSet):
                 newest_timestamp = min(sources, key=lambda k: k["end_timestamp"])["end_timestamp"]
 
                 if might_have_realtime:
-                    might_have_realtime = oldest_timestamp + timedelta(hours=24) > datetime.utcnow()
+                    might_have_realtime = oldest_timestamp + timedelta(hours=24) > datetime.now(timezone.utc)
 
             if might_have_realtime:
                 sources.append(
@@ -379,6 +378,11 @@ class SessionRecordingViewSet(StructuredViewSetMixin, viewsets.GenericViewSet):
                         "end_timestamp": None,
                     }
                 )
+                # the UI will use this to try to load realtime snapshots
+                # so, we can publish the request for Mr. Blobby to start syncing to Redis now
+                # it takes a short while for the subscription to be sync'd into redis
+                # let's use the network round trip time to get started
+                publish_subscription(team_id=str(self.team.pk), session_id=str(recording.session_id))
 
             response_data["sources"] = sources
 
@@ -469,6 +473,46 @@ class SessionRecordingViewSet(StructuredViewSetMixin, viewsets.GenericViewSet):
         session_recording_serializer.is_valid(raise_exception=True)
 
         return Response({"results": session_recording_serializer.data})
+
+    @action(methods=["POST"], detail=True)
+    def summarize(self, request: request.Request, **kwargs):
+        if not request.user.is_authenticated:
+            raise exceptions.NotAuthenticated()
+
+        user = cast(User, request.user)
+
+        cache_key = f'summarize_recording_{self.team.pk}_{self.kwargs["pk"]}'
+        # Check if the response is cached
+        cached_response = cache.get(cache_key)
+        if cached_response is not None:
+            return Response(cached_response)
+
+        recording = self.get_object()
+
+        if not SessionReplayEvents().exists(session_id=str(recording.session_id), team=self.team):
+            raise exceptions.NotFound("Recording not found")
+
+        environment_is_allowed = settings.DEBUG or is_cloud()
+        has_openai_api_key = bool(os.environ.get("OPENAI_API_KEY"))
+        if not environment_is_allowed or not has_openai_api_key:
+            raise exceptions.ValidationError("session summary is only supported in PostHog Cloud")
+
+        if not posthoganalytics.feature_enabled("ai-session-summary", str(user.distinct_id)):
+            raise exceptions.ValidationError("session summary is not enabled for this user")
+
+        summary = summarize_recording(recording, user, self.team)
+        timings = summary.pop("timings", None)
+        cache.set(cache_key, summary, timeout=30)
+
+        posthoganalytics.capture(event="session summarized", distinct_id=str(user.distinct_id), properties=summary)
+
+        # let the browser cache for half the time we cache on the server
+        r = Response(summary, headers={"Cache-Control": "max-age=15"})
+        if timings:
+            r.headers["Server-Timing"] = ", ".join(
+                f"{key};dur={round(duration, ndigits=2)}" for key, duration in timings.items()
+            )
+        return r
 
 
 def list_recordings(

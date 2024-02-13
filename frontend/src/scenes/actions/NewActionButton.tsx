@@ -22,7 +22,7 @@ export function NewActionButton({ onSelectOption }: { onSelectOption?: () => voi
                     setVisible(false)
                     setAppUrlsVisible(false)
                 }}
-                title={`Create new action`}
+                title="Create new action"
                 footer={
                     <>
                         {appUrlsVisible && (

@@ -3,11 +3,12 @@ import {
     featureFlagsActivityResponseJson,
     insightsActivityResponseJson,
     personActivityResponseJson,
+    teamActivityResponseJson,
 } from 'lib/components/ActivityLog/__mocks__/activityLogMocks'
 import { ActivityLog } from 'lib/components/ActivityLog/ActivityLog'
-import { ActivityScope } from 'lib/components/ActivityLog/humanizeActivity'
 
 import { mswDecorator } from '~/mocks/browser'
+import { ActivityScope } from '~/types'
 
 const meta: Meta<typeof ActivityLog> = {
     title: 'Components/ActivityLog',
@@ -37,6 +38,10 @@ const meta: Meta<typeof ActivityLog> = {
                     ctx.status(200),
                     ctx.json({ results: personActivityResponseJson }),
                 ],
+                '/api/projects/:id/activity': (_, __, ctx) => [
+                    ctx.status(200),
+                    ctx.json({ results: teamActivityResponseJson }),
+                ],
             },
         }),
     ],
@@ -57,6 +62,10 @@ export function InsightActivity(): JSX.Element {
 
 export function PersonsActivity(): JSX.Element {
     return <ActivityLog scope={ActivityScope.PERSON} id={12} />
+}
+
+export function TeamActivity(): JSX.Element {
+    return <ActivityLog scope={ActivityScope.TEAM} id={12} />
 }
 
 export function WithCaption(): JSX.Element {

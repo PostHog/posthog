@@ -1,5 +1,6 @@
+# serializer version: 1
 # name: test_create_kafka_events_with_disabled_protobuf
-  '
+  '''
   
   CREATE TABLE IF NOT EXISTS kafka_events_json ON CLUSTER 'posthog'
   (
@@ -31,10 +32,10 @@
   
       SETTINGS kafka_skip_broken_messages = 100
   
-  '
----
+  '''
+# ---
 # name: test_create_kafka_table_with_different_kafka_host[kafka_app_metrics]
-  '
+  '''
   
   CREATE TABLE IF NOT EXISTS kafka_app_metrics ON CLUSTER 'posthog'
   (
@@ -52,10 +53,10 @@
   )
   ENGINE=Kafka('test.kafka.broker:9092', 'clickhouse_app_metrics_test', 'group1', 'JSONEachRow')
   
-  '
----
+  '''
+# ---
 # name: test_create_kafka_table_with_different_kafka_host[kafka_events_dead_letter_queue]
-  '
+  '''
   
   CREATE TABLE IF NOT EXISTS kafka_events_dead_letter_queue ON CLUSTER 'posthog'
   (
@@ -78,10 +79,10 @@
       
   ) ENGINE = Kafka('test.kafka.broker:9092', 'events_dead_letter_queue_test', 'group1', 'JSONEachRow')
    SETTINGS kafka_skip_broken_messages=1000
-  '
----
+  '''
+# ---
 # name: test_create_kafka_table_with_different_kafka_host[kafka_events_json]
-  '
+  '''
   
   CREATE TABLE IF NOT EXISTS kafka_events_json ON CLUSTER 'posthog'
   (
@@ -113,10 +114,10 @@
   
       SETTINGS kafka_skip_broken_messages = 100
   
-  '
----
+  '''
+# ---
 # name: test_create_kafka_table_with_different_kafka_host[kafka_groups]
-  '
+  '''
   
   CREATE TABLE IF NOT EXISTS kafka_groups ON CLUSTER 'posthog'
   (
@@ -128,10 +129,10 @@
       
   ) ENGINE = Kafka('test.kafka.broker:9092', 'clickhouse_groups_test', 'group1', 'JSONEachRow')
   
-  '
----
+  '''
+# ---
 # name: test_create_kafka_table_with_different_kafka_host[kafka_ingestion_warnings]
-  '
+  '''
   
   CREATE TABLE IF NOT EXISTS kafka_ingestion_warnings ON CLUSTER 'posthog'
   (
@@ -143,10 +144,10 @@
       
   ) ENGINE = Kafka('test.kafka.broker:9092', 'clickhouse_ingestion_warnings_test', 'group1', 'JSONEachRow')
   
-  '
----
+  '''
+# ---
 # name: test_create_kafka_table_with_different_kafka_host[kafka_log_entries]
-  '
+  '''
   
   CREATE TABLE IF NOT EXISTS kafka_log_entries ON CLUSTER 'posthog'
   (
@@ -172,10 +173,10 @@
       
   ) ENGINE = Kafka('test.kafka.broker:9092', 'log_entries_test', 'group1', 'JSONEachRow')
   
-  '
----
+  '''
+# ---
 # name: test_create_kafka_table_with_different_kafka_host[kafka_performance_events]
-  '
+  '''
   
   CREATE TABLE IF NOT EXISTS kafka_performance_events ON CLUSTER 'posthog'
   (
@@ -229,10 +230,10 @@
       
   ) ENGINE = Kafka('test.kafka.broker:9092', 'clickhouse_performance_events_test', 'group1', 'JSONEachRow')
   
-  '
----
+  '''
+# ---
 # name: test_create_kafka_table_with_different_kafka_host[kafka_person]
-  '
+  '''
   
   CREATE TABLE IF NOT EXISTS kafka_person ON CLUSTER 'posthog'
   (
@@ -246,10 +247,10 @@
       
   ) ENGINE = Kafka('test.kafka.broker:9092', 'clickhouse_person_test', 'group1', 'JSONEachRow')
   
-  '
----
+  '''
+# ---
 # name: test_create_kafka_table_with_different_kafka_host[kafka_person_distinct_id2]
-  '
+  '''
   
   CREATE TABLE IF NOT EXISTS kafka_person_distinct_id2 ON CLUSTER 'posthog'
   (
@@ -261,10 +262,10 @@
       
   ) ENGINE = Kafka('test.kafka.broker:9092', 'clickhouse_person_distinct_id_test', 'group1', 'JSONEachRow')
   
-  '
----
+  '''
+# ---
 # name: test_create_kafka_table_with_different_kafka_host[kafka_person_distinct_id]
-  '
+  '''
   
   CREATE TABLE IF NOT EXISTS kafka_person_distinct_id ON CLUSTER 'posthog'
   (
@@ -275,10 +276,10 @@
       is_deleted Nullable(Int8)
   ) ENGINE = Kafka('test.kafka.broker:9092', 'clickhouse_person_unique_id_test', 'group1', 'JSONEachRow')
   
-  '
----
+  '''
+# ---
 # name: test_create_kafka_table_with_different_kafka_host[kafka_person_overrides]
-  '
+  '''
   
       CREATE TABLE IF NOT EXISTS `posthog_test`.`kafka_person_overrides`
       ON CLUSTER 'posthog'
@@ -307,10 +308,10 @@
           version
       FROM `posthog_test`.`person_overrides`
   
-  '
----
+  '''
+# ---
 # name: test_create_kafka_table_with_different_kafka_host[kafka_plugin_log_entries]
-  '
+  '''
   
   CREATE TABLE IF NOT EXISTS kafka_plugin_log_entries ON CLUSTER 'posthog'
   (
@@ -326,10 +327,10 @@
       
   ) ENGINE = Kafka('test.kafka.broker:9092', 'plugin_log_entries_test', 'group1', 'JSONEachRow')
   
-  '
----
+  '''
+# ---
 # name: test_create_kafka_table_with_different_kafka_host[kafka_session_recording_events]
-  '
+  '''
   
   CREATE TABLE IF NOT EXISTS kafka_session_recording_events ON CLUSTER 'posthog'
   (
@@ -345,10 +346,10 @@
       
   ) ENGINE = Kafka('test.kafka.broker:9092', 'clickhouse_session_recording_events_test', 'group1', 'JSONEachRow')
   
-  '
----
+  '''
+# ---
 # name: test_create_kafka_table_with_different_kafka_host[kafka_session_replay_events]
-  '
+  '''
   
   CREATE TABLE IF NOT EXISTS kafka_session_replay_events ON CLUSTER 'posthog'
   (
@@ -367,13 +368,14 @@
       console_error_count Int64,
       size Int64,
       event_count Int64,
-      message_count Int64
+      message_count Int64,
+      snapshot_source LowCardinality(Nullable(String))
   ) ENGINE = Kafka('test.kafka.broker:9092', 'clickhouse_session_replay_events_test', 'group1', 'JSONEachRow')
   
-  '
----
+  '''
+# ---
 # name: test_create_table_query[app_metrics]
-  '
+  '''
   
   CREATE TABLE IF NOT EXISTS app_metrics ON CLUSTER 'posthog'
   (
@@ -396,10 +398,10 @@
   )
   ENGINE=Distributed('posthog', 'posthog_test', 'sharded_app_metrics', rand())
   
-  '
----
+  '''
+# ---
 # name: test_create_table_query[app_metrics_mv]
-  '
+  '''
   
   CREATE MATERIALIZED VIEW IF NOT EXISTS app_metrics_mv ON CLUSTER 'posthog'
   TO posthog_test.sharded_app_metrics
@@ -417,10 +419,24 @@
   error_details
   FROM posthog_test.kafka_app_metrics
   
-  '
----
+  '''
+# ---
+# name: test_create_table_query[channel_definition]
+  '''
+  
+  CREATE TABLE IF NOT EXISTS channel_definition ON CLUSTER 'posthog' (
+      domain String NOT NULL,
+      kind String NOT NULL,
+      domain_type String NULL,
+      type_if_paid String NULL,
+      type_if_organic String NULL
+  ) ENGINE = ReplicatedMergeTree('/clickhouse/tables/77f1df52-4b43-11e9-910f-b8ca3a9b9f3e_noshard/posthog.channel_definition', '{replica}-{shard}')
+  ORDER BY (domain, kind);
+  
+  '''
+# ---
 # name: test_create_table_query[cohortpeople]
-  '
+  '''
   
   CREATE TABLE IF NOT EXISTS cohortpeople ON CLUSTER 'posthog'
   (
@@ -433,10 +449,10 @@
   Order By (team_id, cohort_id, person_id, version)
   
   
-  '
----
+  '''
+# ---
 # name: test_create_table_query[events]
-  '
+  '''
   
   CREATE TABLE IF NOT EXISTS events ON CLUSTER 'posthog'
   (
@@ -477,10 +493,10 @@
       
   ) ENGINE = Distributed('posthog', 'posthog_test', 'sharded_events', sipHash64(distinct_id))
   
-  '
----
+  '''
+# ---
 # name: test_create_table_query[events_dead_letter_queue]
-  '
+  '''
   
   CREATE TABLE IF NOT EXISTS events_dead_letter_queue ON CLUSTER 'posthog'
   (
@@ -512,10 +528,10 @@
   
   SETTINGS index_granularity=512
   
-  '
----
+  '''
+# ---
 # name: test_create_table_query[events_dead_letter_queue_mv]
-  '
+  '''
   
   CREATE MATERIALIZED VIEW IF NOT EXISTS events_dead_letter_queue_mv ON CLUSTER 'posthog'
   TO posthog_test.events_dead_letter_queue
@@ -540,10 +556,10 @@
   _offset
   FROM posthog_test.kafka_events_dead_letter_queue
   
-  '
----
+  '''
+# ---
 # name: test_create_table_query[events_json_mv]
-  '
+  '''
   
   CREATE MATERIALIZED VIEW IF NOT EXISTS events_json_mv ON CLUSTER 'posthog'
   TO posthog_test.writable_events
@@ -574,10 +590,10 @@
   _offset
   FROM posthog_test.kafka_events_json
   
-  '
----
+  '''
+# ---
 # name: test_create_table_query[groups]
-  '
+  '''
   
   CREATE TABLE IF NOT EXISTS groups ON CLUSTER 'posthog'
   (
@@ -594,10 +610,10 @@
   Order By (team_id, group_type_index, group_key)
   
   
-  '
----
+  '''
+# ---
 # name: test_create_table_query[groups_mv]
-  '
+  '''
   
   CREATE MATERIALIZED VIEW IF NOT EXISTS groups_mv ON CLUSTER 'posthog'
   TO posthog_test.groups
@@ -611,10 +627,10 @@
   _offset
   FROM posthog_test.kafka_groups
   
-  '
----
+  '''
+# ---
 # name: test_create_table_query[ingestion_warnings]
-  '
+  '''
   
   CREATE TABLE IF NOT EXISTS ingestion_warnings ON CLUSTER 'posthog'
   (
@@ -630,10 +646,10 @@
   
   ) ENGINE = Distributed('posthog', 'posthog_test', 'sharded_ingestion_warnings', rand())
   
-  '
----
+  '''
+# ---
 # name: test_create_table_query[ingestion_warnings_mv]
-  '
+  '''
   
   CREATE MATERIALIZED VIEW IF NOT EXISTS ingestion_warnings_mv ON CLUSTER 'posthog'
   TO posthog_test.ingestion_warnings
@@ -648,10 +664,10 @@
   _partition
   FROM posthog_test.kafka_ingestion_warnings
   
-  '
----
+  '''
+# ---
 # name: test_create_table_query[kafka_app_metrics]
-  '
+  '''
   
   CREATE TABLE IF NOT EXISTS kafka_app_metrics ON CLUSTER 'posthog'
   (
@@ -669,10 +685,10 @@
   )
   ENGINE=Kafka('kafka:9092', 'clickhouse_app_metrics_test', 'group1', 'JSONEachRow')
   
-  '
----
+  '''
+# ---
 # name: test_create_table_query[kafka_events_dead_letter_queue]
-  '
+  '''
   
   CREATE TABLE IF NOT EXISTS kafka_events_dead_letter_queue ON CLUSTER 'posthog'
   (
@@ -695,10 +711,10 @@
       
   ) ENGINE = Kafka('kafka:9092', 'events_dead_letter_queue_test', 'group1', 'JSONEachRow')
    SETTINGS kafka_skip_broken_messages=1000
-  '
----
+  '''
+# ---
 # name: test_create_table_query[kafka_events_json]
-  '
+  '''
   
   CREATE TABLE IF NOT EXISTS kafka_events_json ON CLUSTER 'posthog'
   (
@@ -730,10 +746,10 @@
   
       SETTINGS kafka_skip_broken_messages = 100
   
-  '
----
+  '''
+# ---
 # name: test_create_table_query[kafka_groups]
-  '
+  '''
   
   CREATE TABLE IF NOT EXISTS kafka_groups ON CLUSTER 'posthog'
   (
@@ -745,10 +761,10 @@
       
   ) ENGINE = Kafka('kafka:9092', 'clickhouse_groups_test', 'group1', 'JSONEachRow')
   
-  '
----
+  '''
+# ---
 # name: test_create_table_query[kafka_ingestion_warnings]
-  '
+  '''
   
   CREATE TABLE IF NOT EXISTS kafka_ingestion_warnings ON CLUSTER 'posthog'
   (
@@ -760,10 +776,10 @@
       
   ) ENGINE = Kafka('kafka:9092', 'clickhouse_ingestion_warnings_test', 'group1', 'JSONEachRow')
   
-  '
----
+  '''
+# ---
 # name: test_create_table_query[kafka_log_entries]
-  '
+  '''
   
   CREATE TABLE IF NOT EXISTS kafka_log_entries ON CLUSTER 'posthog'
   (
@@ -789,10 +805,10 @@
       
   ) ENGINE = Kafka('kafka:9092', 'log_entries_test', 'group1', 'JSONEachRow')
   
-  '
----
+  '''
+# ---
 # name: test_create_table_query[kafka_performance_events]
-  '
+  '''
   
   CREATE TABLE IF NOT EXISTS kafka_performance_events ON CLUSTER 'posthog'
   (
@@ -846,10 +862,10 @@
       
   ) ENGINE = Kafka('kafka:9092', 'clickhouse_performance_events_test', 'group1', 'JSONEachRow')
   
-  '
----
+  '''
+# ---
 # name: test_create_table_query[kafka_person]
-  '
+  '''
   
   CREATE TABLE IF NOT EXISTS kafka_person ON CLUSTER 'posthog'
   (
@@ -863,10 +879,10 @@
       
   ) ENGINE = Kafka('kafka:9092', 'clickhouse_person_test', 'group1', 'JSONEachRow')
   
-  '
----
+  '''
+# ---
 # name: test_create_table_query[kafka_person_distinct_id2]
-  '
+  '''
   
   CREATE TABLE IF NOT EXISTS kafka_person_distinct_id2 ON CLUSTER 'posthog'
   (
@@ -878,10 +894,10 @@
       
   ) ENGINE = Kafka('kafka:9092', 'clickhouse_person_distinct_id_test', 'group1', 'JSONEachRow')
   
-  '
----
+  '''
+# ---
 # name: test_create_table_query[kafka_person_distinct_id]
-  '
+  '''
   
   CREATE TABLE IF NOT EXISTS kafka_person_distinct_id ON CLUSTER 'posthog'
   (
@@ -892,10 +908,10 @@
       is_deleted Nullable(Int8)
   ) ENGINE = Kafka('kafka:9092', 'clickhouse_person_unique_id_test', 'group1', 'JSONEachRow')
   
-  '
----
+  '''
+# ---
 # name: test_create_table_query[kafka_person_overrides]
-  '
+  '''
   
       CREATE TABLE IF NOT EXISTS `posthog_test`.`kafka_person_overrides`
       ON CLUSTER 'posthog'
@@ -924,10 +940,10 @@
           version
       FROM `posthog_test`.`person_overrides`
   
-  '
----
+  '''
+# ---
 # name: test_create_table_query[kafka_plugin_log_entries]
-  '
+  '''
   
   CREATE TABLE IF NOT EXISTS kafka_plugin_log_entries ON CLUSTER 'posthog'
   (
@@ -943,10 +959,10 @@
       
   ) ENGINE = Kafka('kafka:9092', 'plugin_log_entries_test', 'group1', 'JSONEachRow')
   
-  '
----
+  '''
+# ---
 # name: test_create_table_query[kafka_session_recording_events]
-  '
+  '''
   
   CREATE TABLE IF NOT EXISTS kafka_session_recording_events ON CLUSTER 'posthog'
   (
@@ -962,10 +978,10 @@
       
   ) ENGINE = Kafka('kafka:9092', 'clickhouse_session_recording_events_test', 'group1', 'JSONEachRow')
   
-  '
----
+  '''
+# ---
 # name: test_create_table_query[kafka_session_replay_events]
-  '
+  '''
   
   CREATE TABLE IF NOT EXISTS kafka_session_replay_events ON CLUSTER 'posthog'
   (
@@ -984,13 +1000,14 @@
       console_error_count Int64,
       size Int64,
       event_count Int64,
-      message_count Int64
+      message_count Int64,
+      snapshot_source LowCardinality(Nullable(String))
   ) ENGINE = Kafka('kafka:9092', 'clickhouse_session_replay_events_test', 'group1', 'JSONEachRow')
   
-  '
----
+  '''
+# ---
 # name: test_create_table_query[log_entries]
-  '
+  '''
   
   CREATE TABLE IF NOT EXISTS log_entries ON CLUSTER 'posthog'
   (
@@ -1022,10 +1039,10 @@
   
   SETTINGS index_granularity=512
   
-  '
----
+  '''
+# ---
 # name: test_create_table_query[log_entries_mv]
-  '
+  '''
   
   CREATE MATERIALIZED VIEW IF NOT EXISTS log_entries_mv ON CLUSTER 'posthog'
   TO posthog_test.log_entries
@@ -1041,10 +1058,10 @@
   _offset
   FROM posthog_test.kafka_log_entries
   
-  '
----
+  '''
+# ---
 # name: test_create_table_query[performance_events]
-  '
+  '''
   
   CREATE TABLE IF NOT EXISTS performance_events ON CLUSTER 'posthog'
   (
@@ -1102,10 +1119,10 @@
   
   ) ENGINE = Distributed('posthog', 'posthog_test', 'sharded_performance_events', sipHash64(session_id))
   
-  '
----
+  '''
+# ---
 # name: test_create_table_query[performance_events_mv]
-  '
+  '''
   
   CREATE MATERIALIZED VIEW IF NOT EXISTS performance_events_mv ON CLUSTER 'posthog'
   TO posthog_test.writeable_performance_events
@@ -1114,10 +1131,10 @@
   ,_timestamp, _offset, _partition
   FROM posthog_test.kafka_performance_events
   
-  '
----
+  '''
+# ---
 # name: test_create_table_query[person]
-  '
+  '''
   
   CREATE TABLE IF NOT EXISTS person ON CLUSTER 'posthog'
   (
@@ -1139,10 +1156,10 @@
   Order By (team_id, id)
   
   
-  '
----
+  '''
+# ---
 # name: test_create_table_query[person_distinct_id2]
-  '
+  '''
   
   CREATE TABLE IF NOT EXISTS person_distinct_id2 ON CLUSTER 'posthog'
   (
@@ -1164,10 +1181,10 @@
       ORDER BY (team_id, distinct_id)
       SETTINGS index_granularity = 512
       
-  '
----
+  '''
+# ---
 # name: test_create_table_query[person_distinct_id2_mv]
-  '
+  '''
   
   CREATE MATERIALIZED VIEW IF NOT EXISTS person_distinct_id2_mv ON CLUSTER 'posthog'
   TO posthog_test.person_distinct_id2
@@ -1182,10 +1199,10 @@
   _partition
   FROM posthog_test.kafka_person_distinct_id2
   
-  '
----
+  '''
+# ---
 # name: test_create_table_query[person_distinct_id]
-  '
+  '''
   
   CREATE TABLE IF NOT EXISTS person_distinct_id ON CLUSTER 'posthog'
   (
@@ -1202,10 +1219,10 @@
   Order By (team_id, distinct_id, person_id)
   
   
-  '
----
+  '''
+# ---
 # name: test_create_table_query[person_distinct_id_mv]
-  '
+  '''
   
   CREATE MATERIALIZED VIEW IF NOT EXISTS person_distinct_id_mv ON CLUSTER 'posthog'
   TO posthog_test.person_distinct_id
@@ -1218,10 +1235,10 @@
   _offset
   FROM posthog_test.kafka_person_distinct_id
   
-  '
----
+  '''
+# ---
 # name: test_create_table_query[person_mv]
-  '
+  '''
   
   CREATE MATERIALIZED VIEW IF NOT EXISTS person_mv ON CLUSTER 'posthog'
   TO posthog_test.person
@@ -1237,10 +1254,10 @@
   _offset
   FROM posthog_test.kafka_person
   
-  '
----
+  '''
+# ---
 # name: test_create_table_query[person_overrides]
-  '
+  '''
   
       CREATE TABLE IF NOT EXISTS `posthog_test`.`person_overrides`
       ON CLUSTER 'posthog' (
@@ -1307,10 +1324,10 @@
       -- ensure that we are always querying the latest version of the mapping.
       ORDER BY (team_id, old_person_id)
   
-  '
----
+  '''
+# ---
 # name: test_create_table_query[person_overrides_mv]
-  '
+  '''
   
       CREATE MATERIALIZED VIEW IF NOT EXISTS `posthog_test`.`person_overrides_mv`
       ON CLUSTER 'posthog'
@@ -1327,10 +1344,10 @@
           version
       FROM `posthog_test`.`kafka_person_overrides`
   
-  '
----
+  '''
+# ---
 # name: test_create_table_query[person_static_cohort]
-  '
+  '''
   
   CREATE TABLE IF NOT EXISTS person_static_cohort ON CLUSTER 'posthog'
   (
@@ -1346,10 +1363,10 @@
   Order By (team_id, cohort_id, person_id, id)
   
   
-  '
----
+  '''
+# ---
 # name: test_create_table_query[plugin_log_entries]
-  '
+  '''
   
   CREATE TABLE IF NOT EXISTS plugin_log_entries ON CLUSTER 'posthog'
   (
@@ -1371,10 +1388,10 @@
   
   SETTINGS index_granularity=512
   
-  '
----
+  '''
+# ---
 # name: test_create_table_query[plugin_log_entries_mv]
-  '
+  '''
   
   CREATE MATERIALIZED VIEW IF NOT EXISTS plugin_log_entries_mv ON CLUSTER 'posthog'
   TO posthog_test.plugin_log_entries
@@ -1392,10 +1409,10 @@
   _offset
   FROM posthog_test.kafka_plugin_log_entries
   
-  '
----
+  '''
+# ---
 # name: test_create_table_query[session_recording_events]
-  '
+  '''
   
   CREATE TABLE IF NOT EXISTS session_recording_events ON CLUSTER 'posthog'
   (
@@ -1414,10 +1431,10 @@
   
   ) ENGINE = Distributed('posthog', 'posthog_test', 'sharded_session_recording_events', sipHash64(distinct_id))
   
-  '
----
+  '''
+# ---
 # name: test_create_table_query[session_recording_events_mv]
-  '
+  '''
   
   CREATE MATERIALIZED VIEW IF NOT EXISTS session_recording_events_mv ON CLUSTER 'posthog'
   TO posthog_test.writable_session_recording_events
@@ -1434,10 +1451,10 @@
   _offset
   FROM posthog_test.kafka_session_recording_events
   
-  '
----
+  '''
+# ---
 # name: test_create_table_query[session_replay_events]
-  '
+  '''
   
   CREATE TABLE IF NOT EXISTS session_replay_events ON CLUSTER 'posthog'
   (
@@ -1468,16 +1485,30 @@
       -- often very useful in incidents or debugging
       -- because we batch events we expect message_count to be lower than event_count
       event_count SimpleAggregateFunction(sum, Int64),
+      -- which source the snapshots came from Android, iOS, Mobile, Web. Web if absent
+      snapshot_source AggregateFunction(argMin, LowCardinality(Nullable(String)), DateTime64(6, 'UTC')),
       _timestamp SimpleAggregateFunction(max, DateTime)
   ) ENGINE = Distributed('posthog', 'posthog_test', 'sharded_session_replay_events', sipHash64(distinct_id))
   
-  '
----
+  '''
+# ---
 # name: test_create_table_query[session_replay_events_mv]
-  '
+  '''
   
   CREATE MATERIALIZED VIEW IF NOT EXISTS session_replay_events_mv ON CLUSTER 'posthog'
-  TO posthog_test.writable_session_replay_events
+  TO posthog_test.writable_session_replay_events (
+  `session_id` String, `team_id` Int64, `distinct_id` String,
+  `min_first_timestamp` DateTime64(6, 'UTC'),
+  `max_last_timestamp` DateTime64(6, 'UTC'),
+  `first_url` AggregateFunction(argMin, Nullable(String), DateTime64(6, 'UTC')),
+  `click_count` Int64, `keypress_count` Int64,
+  `mouse_activity_count` Int64, `active_milliseconds` Int64,
+  `console_log_count` Int64, `console_warn_count` Int64,
+  `console_error_count` Int64, `size` Int64, `message_count` Int64,
+  `event_count` Int64,
+  `snapshot_source` AggregateFunction(argMin, LowCardinality(Nullable(String)), DateTime64(6, 'UTC')),
+  `_timestamp` Nullable(DateTime)
+  )
   AS SELECT
   session_id,
   team_id,
@@ -1505,14 +1536,15 @@
   -- we can count the number of kafka messages instead of sending it explicitly
   sum(message_count) as message_count,
   sum(event_count) as event_count,
+  argMinState(snapshot_source, first_timestamp) as snapshot_source,
   max(_timestamp) as _timestamp
   FROM posthog_test.kafka_session_replay_events
   group by session_id, team_id
   
-  '
----
+  '''
+# ---
 # name: test_create_table_query[sharded_app_metrics]
-  '
+  '''
   
   CREATE TABLE IF NOT EXISTS sharded_app_metrics ON CLUSTER 'posthog'
   (
@@ -1537,10 +1569,10 @@
   PARTITION BY toYYYYMM(timestamp)
   ORDER BY (team_id, plugin_config_id, job_id, category, toStartOfHour(timestamp), error_type, error_uuid)
   
-  '
----
+  '''
+# ---
 # name: test_create_table_query[sharded_events]
-  '
+  '''
   
   CREATE TABLE IF NOT EXISTS sharded_events ON CLUSTER 'posthog'
   (
@@ -1595,10 +1627,10 @@
   SAMPLE BY cityHash64(distinct_id)
   
   
-  '
----
+  '''
+# ---
 # name: test_create_table_query[sharded_ingestion_warnings]
-  '
+  '''
   
   CREATE TABLE IF NOT EXISTS sharded_ingestion_warnings ON CLUSTER 'posthog'
   (
@@ -1616,10 +1648,10 @@
   PARTITION BY toYYYYMMDD(timestamp)
   ORDER BY (team_id, toHour(timestamp), type, source, timestamp)
   
-  '
----
+  '''
+# ---
 # name: test_create_table_query[sharded_performance_events]
-  '
+  '''
   
   CREATE TABLE IF NOT EXISTS sharded_performance_events ON CLUSTER 'posthog'
   (
@@ -1681,10 +1713,10 @@
   
   
   
-  '
----
+  '''
+# ---
 # name: test_create_table_query[sharded_session_recording_events]
-  '
+  '''
   
   CREATE TABLE IF NOT EXISTS sharded_session_recording_events ON CLUSTER 'posthog'
   (
@@ -1710,10 +1742,10 @@
   
   SETTINGS index_granularity=512
   
-  '
----
+  '''
+# ---
 # name: test_create_table_query[sharded_session_replay_events]
-  '
+  '''
   
   CREATE TABLE IF NOT EXISTS sharded_session_replay_events ON CLUSTER 'posthog'
   (
@@ -1744,6 +1776,8 @@
       -- often very useful in incidents or debugging
       -- because we batch events we expect message_count to be lower than event_count
       event_count SimpleAggregateFunction(sum, Int64),
+      -- which source the snapshots came from Android, iOS, Mobile, Web. Web if absent
+      snapshot_source AggregateFunction(argMin, LowCardinality(Nullable(String)), DateTime64(6, 'UTC')),
       _timestamp SimpleAggregateFunction(max, DateTime)
   ) ENGINE = ReplicatedAggregatingMergeTree('/clickhouse/tables/77f1df52-4b43-11e9-910f-b8ca3a9b9f3e_{shard}/posthog.session_replay_events', '{replica}')
   
@@ -1761,10 +1795,10 @@
       ORDER BY (toDate(min_first_timestamp), team_id, session_id)
   SETTINGS index_granularity=512
   
-  '
----
+  '''
+# ---
 # name: test_create_table_query[writable_events]
-  '
+  '''
   
   CREATE TABLE IF NOT EXISTS writable_events ON CLUSTER 'posthog'
   (
@@ -1797,10 +1831,10 @@
       
   ) ENGINE = Distributed('posthog', 'posthog_test', 'sharded_events', sipHash64(distinct_id))
   
-  '
----
+  '''
+# ---
 # name: test_create_table_query[writable_session_recording_events]
-  '
+  '''
   
   CREATE TABLE IF NOT EXISTS writable_session_recording_events ON CLUSTER 'posthog'
   (
@@ -1819,10 +1853,10 @@
   
   ) ENGINE = Distributed('posthog', 'posthog_test', 'sharded_session_recording_events', sipHash64(distinct_id))
   
-  '
----
+  '''
+# ---
 # name: test_create_table_query[writeable_performance_events]
-  '
+  '''
   
   CREATE TABLE IF NOT EXISTS writeable_performance_events ON CLUSTER 'posthog'
   (
@@ -1880,10 +1914,24 @@
   
   ) ENGINE = Distributed('posthog', 'posthog_test', 'sharded_performance_events', sipHash64(session_id))
   
-  '
----
+  '''
+# ---
+# name: test_create_table_query_replicated_and_storage[channel_definition]
+  '''
+  
+  CREATE TABLE IF NOT EXISTS channel_definition ON CLUSTER 'posthog' (
+      domain String NOT NULL,
+      kind String NOT NULL,
+      domain_type String NULL,
+      type_if_paid String NULL,
+      type_if_organic String NULL
+  ) ENGINE = ReplicatedMergeTree('/clickhouse/tables/77f1df52-4b43-11e9-910f-b8ca3a9b9f3e_noshard/posthog.channel_definition', '{replica}-{shard}')
+  ORDER BY (domain, kind);
+  
+  '''
+# ---
 # name: test_create_table_query_replicated_and_storage[cohortpeople]
-  '
+  '''
   
   CREATE TABLE IF NOT EXISTS cohortpeople ON CLUSTER 'posthog'
   (
@@ -1896,10 +1944,10 @@
   Order By (team_id, cohort_id, person_id, version)
   
   
-  '
----
+  '''
+# ---
 # name: test_create_table_query_replicated_and_storage[events_dead_letter_queue]
-  '
+  '''
   
   CREATE TABLE IF NOT EXISTS events_dead_letter_queue ON CLUSTER 'posthog'
   (
@@ -1931,10 +1979,10 @@
   
   SETTINGS index_granularity=512
   
-  '
----
+  '''
+# ---
 # name: test_create_table_query_replicated_and_storage[groups]
-  '
+  '''
   
   CREATE TABLE IF NOT EXISTS groups ON CLUSTER 'posthog'
   (
@@ -1951,10 +1999,10 @@
   Order By (team_id, group_type_index, group_key)
   SETTINGS storage_policy = 'hot_to_cold'
   
-  '
----
+  '''
+# ---
 # name: test_create_table_query_replicated_and_storage[log_entries]
-  '
+  '''
   
   CREATE TABLE IF NOT EXISTS log_entries ON CLUSTER 'posthog'
   (
@@ -1986,10 +2034,10 @@
   
   SETTINGS index_granularity=512
   
-  '
----
+  '''
+# ---
 # name: test_create_table_query_replicated_and_storage[person]
-  '
+  '''
   
   CREATE TABLE IF NOT EXISTS person ON CLUSTER 'posthog'
   (
@@ -2011,10 +2059,10 @@
   Order By (team_id, id)
   SETTINGS storage_policy = 'hot_to_cold'
   
-  '
----
+  '''
+# ---
 # name: test_create_table_query_replicated_and_storage[person_distinct_id2]
-  '
+  '''
   
   CREATE TABLE IF NOT EXISTS person_distinct_id2 ON CLUSTER 'posthog'
   (
@@ -2036,10 +2084,10 @@
       ORDER BY (team_id, distinct_id)
       SETTINGS index_granularity = 512
       
-  '
----
+  '''
+# ---
 # name: test_create_table_query_replicated_and_storage[person_distinct_id]
-  '
+  '''
   
   CREATE TABLE IF NOT EXISTS person_distinct_id ON CLUSTER 'posthog'
   (
@@ -2056,10 +2104,10 @@
   Order By (team_id, distinct_id, person_id)
   SETTINGS storage_policy = 'hot_to_cold'
   
-  '
----
+  '''
+# ---
 # name: test_create_table_query_replicated_and_storage[person_overrides]
-  '
+  '''
   
       CREATE TABLE IF NOT EXISTS `posthog_test`.`person_overrides`
       ON CLUSTER 'posthog' (
@@ -2126,10 +2174,10 @@
       -- ensure that we are always querying the latest version of the mapping.
       ORDER BY (team_id, old_person_id)
   
-  '
----
+  '''
+# ---
 # name: test_create_table_query_replicated_and_storage[person_static_cohort]
-  '
+  '''
   
   CREATE TABLE IF NOT EXISTS person_static_cohort ON CLUSTER 'posthog'
   (
@@ -2145,10 +2193,10 @@
   Order By (team_id, cohort_id, person_id, id)
   SETTINGS storage_policy = 'hot_to_cold'
   
-  '
----
+  '''
+# ---
 # name: test_create_table_query_replicated_and_storage[plugin_log_entries]
-  '
+  '''
   
   CREATE TABLE IF NOT EXISTS plugin_log_entries ON CLUSTER 'posthog'
   (
@@ -2170,10 +2218,10 @@
   
   SETTINGS index_granularity=512
   
-  '
----
+  '''
+# ---
 # name: test_create_table_query_replicated_and_storage[sharded_app_metrics]
-  '
+  '''
   
   CREATE TABLE IF NOT EXISTS sharded_app_metrics ON CLUSTER 'posthog'
   (
@@ -2198,10 +2246,10 @@
   PARTITION BY toYYYYMM(timestamp)
   ORDER BY (team_id, plugin_config_id, job_id, category, toStartOfHour(timestamp), error_type, error_uuid)
   
-  '
----
+  '''
+# ---
 # name: test_create_table_query_replicated_and_storage[sharded_events]
-  '
+  '''
   
   CREATE TABLE IF NOT EXISTS sharded_events ON CLUSTER 'posthog'
   (
@@ -2256,10 +2304,10 @@
   SAMPLE BY cityHash64(distinct_id)
   SETTINGS storage_policy = 'hot_to_cold'
   
-  '
----
+  '''
+# ---
 # name: test_create_table_query_replicated_and_storage[sharded_ingestion_warnings]
-  '
+  '''
   
   CREATE TABLE IF NOT EXISTS sharded_ingestion_warnings ON CLUSTER 'posthog'
   (
@@ -2277,10 +2325,10 @@
   PARTITION BY toYYYYMMDD(timestamp)
   ORDER BY (team_id, toHour(timestamp), type, source, timestamp)
   
-  '
----
+  '''
+# ---
 # name: test_create_table_query_replicated_and_storage[sharded_performance_events]
-  '
+  '''
   
   CREATE TABLE IF NOT EXISTS sharded_performance_events ON CLUSTER 'posthog'
   (
@@ -2342,10 +2390,10 @@
   
   SETTINGS storage_policy = 'hot_to_cold'
   
-  '
----
+  '''
+# ---
 # name: test_create_table_query_replicated_and_storage[sharded_session_recording_events]
-  '
+  '''
   
   CREATE TABLE IF NOT EXISTS sharded_session_recording_events ON CLUSTER 'posthog'
   (
@@ -2371,10 +2419,10 @@
   
   SETTINGS index_granularity=512
   
-  '
----
+  '''
+# ---
 # name: test_create_table_query_replicated_and_storage[sharded_session_replay_events]
-  '
+  '''
   
   CREATE TABLE IF NOT EXISTS sharded_session_replay_events ON CLUSTER 'posthog'
   (
@@ -2405,6 +2453,8 @@
       -- often very useful in incidents or debugging
       -- because we batch events we expect message_count to be lower than event_count
       event_count SimpleAggregateFunction(sum, Int64),
+      -- which source the snapshots came from Android, iOS, Mobile, Web. Web if absent
+      snapshot_source AggregateFunction(argMin, LowCardinality(Nullable(String)), DateTime64(6, 'UTC')),
       _timestamp SimpleAggregateFunction(max, DateTime)
   ) ENGINE = ReplicatedAggregatingMergeTree('/clickhouse/tables/77f1df52-4b43-11e9-910f-b8ca3a9b9f3e_{shard}/posthog.session_replay_events', '{replica}')
   
@@ -2422,5 +2472,5 @@
       ORDER BY (toDate(min_first_timestamp), team_id, session_id)
   SETTINGS index_granularity=512
   
-  '
----
+  '''
+# ---

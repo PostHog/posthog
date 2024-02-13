@@ -30,11 +30,11 @@ function TestAccountFiltersConfig(): JSX.Element {
                 {!!testAccountFilterWarningLabels && testAccountFilterWarningLabels.length > 0 && (
                     <LemonBanner type="warning" className="m-2">
                         <p>
-                            Positive filters here mean only events or persons matching these filters will be included.
-                            Internal and test account filters are normally excluding filters like does not equal or does
-                            not contain.
+                            You've added an <strong>inclusive</strong> filter, which means only matching events will be
+                            included. Filters are normally <strong>exclusive</strong>, such as <i>does not contain</i>,
+                            to filter out unwanted results.
                         </p>
-                        <p>Positive filters are currently set for the following properties: </p>
+                        <p>Inclusive filters are currently set for the following properties: </p>
                         <ul className="list-disc">
                             {testAccountFilterWarningLabels.map((l, i) => (
                                 <li key={i} className="ml-4">
@@ -90,33 +90,20 @@ export function ProjectAccountFiltersSetting(): JSX.Element {
     return (
         <>
             <p>
-                Increase the quality of your analytics results by filtering out events from internal sources, such as
-                team members, test accounts, or development environments.{' '}
-                <strong>The filters you apply here are added as extra filters when the toggle is switched on.</strong>{' '}
-                So, if you apply a cohort, it means you will only match users in that cohort.
+                These filters apply only to queries when the toggle is enabled. Adding filters here does not prevent
+                events or recordings being ingested.{' '}
+                <Link to="https://posthog.com/tutorials/filter-internal-users">Learn more in our docs</Link>.
             </p>
-            <LemonBanner type="info">
-                Events and recordings will still be ingested and saved, but they will be excluded from any queries where
-                the "Filter out internal and test users" toggle is set. You can learn how to{' '}
-                <Link to="https://posthog.com/tutorials/fewer-unwanted-events" target="_blank">
-                    capture fewer events
-                </Link>{' '}
-                or how to{' '}
-                <Link to="https://posthog.com/tutorials/limit-session-recordings" target="_blank">
-                    capture fewer recordings
-                </Link>{' '}
-                in our docs.
-            </LemonBanner>
-            <div className={'mt-4'}>
+            <div className="mt-4">
                 <strong>Example filters</strong>
                 <ul className="list-disc pl-4 mb-2">
                     <li>
-                        "<strong>Email</strong> does not contain <strong>yourcompany.com</strong>" to exclude all events
-                        from your company's team members.
+                        Add "<strong>Email</strong> does not contain <strong>yourcompany.com</strong>" to exclude your
+                        team.
                     </li>
                     <li>
-                        "<strong>Host</strong> does not contain <strong>localhost</strong>" to exclude all events from
-                        local development environments.
+                        Add "<strong>Host</strong> does not contain <strong>localhost</strong>" to exclude local
+                        environments.
                     </li>
                 </ul>
             </div>

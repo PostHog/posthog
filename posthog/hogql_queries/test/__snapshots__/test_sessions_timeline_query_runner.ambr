@@ -1,34 +1,37 @@
+# serializer version: 1
 # name: TestSessionsTimelineQueryRunner.test_before_and_after
-  '
-  SELECT e.uuid,
-         e.timestamp,
-         e.event,
-         e.properties,
-         e.distinct_id,
-         e.elements_chain,
+  '''
+  SELECT e.uuid AS uuid,
+         e.timestamp AS timestamp,
+         e.event AS event,
+         e.properties AS properties,
+         e.distinct_id AS distinct_id,
+         e.elements_chain AS elements_chain,
          e.session_id AS formal_session_id,
          first_value(e.uuid) OVER (PARTITION BY tuple(e.person_id, e.session_id_flip_index)
                                    ORDER BY toInt64(e.timestamp) ASC RANGE BETWEEN 1800 PRECEDING AND CURRENT ROW) AS informal_session_uuid,
                                   dateDiff('s', sre.start_time, sre.end_time) AS recording_duration_s
   FROM
-    (SELECT uuid,
-            person_id, timestamp, event,
-                                  properties,
-                                  distinct_id,
-                                  elements_chain,
-                                  session_id,
-                                  prev_session_id,
-                                  sum(if(ifNull(equals(session_id, prev_session_id), isNull(session_id)
-                                                and isNull(prev_session_id)), 0, 1)) OVER (PARTITION BY person_id
-                                                                                           ORDER BY timestamp ASC ROWS UNBOUNDED PRECEDING) AS session_id_flip_index
+    (SELECT uuid AS uuid,
+                    person_id AS person_id,
+                    timestamp AS timestamp,
+                    event AS event,
+                    properties AS properties,
+                    distinct_id AS distinct_id,
+                    elements_chain AS elements_chain,
+                    session_id AS session_id,
+                    prev_session_id AS prev_session_id,
+                    sum(if(ifNull(equals(session_id, prev_session_id), isNull(session_id)
+                                  and isNull(prev_session_id)), 0, 1)) OVER (PARTITION BY person_id
+                                                                             ORDER BY timestamp ASC ROWS UNBOUNDED PRECEDING) AS session_id_flip_index
      FROM
-       (SELECT events.uuid,
+       (SELECT events.uuid AS uuid,
                events__pdi.person_id AS person_id,
                toTimeZone(events.timestamp, 'UTC') AS timestamp,
-               events.event,
-               events.properties,
-               events.distinct_id,
-               events.elements_chain,
+               events.event AS event,
+               events.properties AS properties,
+               events.distinct_id AS distinct_id,
+               events.elements_chain AS elements_chain,
                events.`$session_id` AS session_id,
                lagInFrame(events.`$session_id`, 1) OVER (PARTITION BY person_id
                                                          ORDER BY timestamp ASC) AS prev_session_id
@@ -46,7 +49,7 @@
   LEFT JOIN
     (SELECT toTimeZone(session_replay_events.start_time, 'UTC') AS start_time,
             toTimeZone(session_replay_events.end_time, 'UTC') AS end_time,
-            session_replay_events.session_id
+            session_replay_events.session_id AS session_id
      FROM
        (SELECT min(session_replay_events.min_first_timestamp) AS start_time,
                max(session_replay_events.max_last_timestamp) AS end_time,
@@ -58,39 +61,41 @@
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
                      allow_experimental_object_type=1
-  '
----
+  '''
+# ---
 # name: TestSessionsTimelineQueryRunner.test_before_and_after_defaults
-  '
-  SELECT e.uuid,
-         e.timestamp,
-         e.event,
-         e.properties,
-         e.distinct_id,
-         e.elements_chain,
+  '''
+  SELECT e.uuid AS uuid,
+         e.timestamp AS timestamp,
+         e.event AS event,
+         e.properties AS properties,
+         e.distinct_id AS distinct_id,
+         e.elements_chain AS elements_chain,
          e.session_id AS formal_session_id,
          first_value(e.uuid) OVER (PARTITION BY tuple(e.person_id, e.session_id_flip_index)
                                    ORDER BY toInt64(e.timestamp) ASC RANGE BETWEEN 1800 PRECEDING AND CURRENT ROW) AS informal_session_uuid,
                                   dateDiff('s', sre.start_time, sre.end_time) AS recording_duration_s
   FROM
-    (SELECT uuid,
-            person_id, timestamp, event,
-                                  properties,
-                                  distinct_id,
-                                  elements_chain,
-                                  session_id,
-                                  prev_session_id,
-                                  sum(if(ifNull(equals(session_id, prev_session_id), isNull(session_id)
-                                                and isNull(prev_session_id)), 0, 1)) OVER (PARTITION BY person_id
-                                                                                           ORDER BY timestamp ASC ROWS UNBOUNDED PRECEDING) AS session_id_flip_index
+    (SELECT uuid AS uuid,
+                    person_id AS person_id,
+                    timestamp AS timestamp,
+                    event AS event,
+                    properties AS properties,
+                    distinct_id AS distinct_id,
+                    elements_chain AS elements_chain,
+                    session_id AS session_id,
+                    prev_session_id AS prev_session_id,
+                    sum(if(ifNull(equals(session_id, prev_session_id), isNull(session_id)
+                                  and isNull(prev_session_id)), 0, 1)) OVER (PARTITION BY person_id
+                                                                             ORDER BY timestamp ASC ROWS UNBOUNDED PRECEDING) AS session_id_flip_index
      FROM
-       (SELECT events.uuid,
+       (SELECT events.uuid AS uuid,
                events__pdi.person_id AS person_id,
                toTimeZone(events.timestamp, 'UTC') AS timestamp,
-               events.event,
-               events.properties,
-               events.distinct_id,
-               events.elements_chain,
+               events.event AS event,
+               events.properties AS properties,
+               events.distinct_id AS distinct_id,
+               events.elements_chain AS elements_chain,
                events.`$session_id` AS session_id,
                lagInFrame(events.`$session_id`, 1) OVER (PARTITION BY person_id
                                                          ORDER BY timestamp ASC) AS prev_session_id
@@ -108,7 +113,7 @@
   LEFT JOIN
     (SELECT toTimeZone(session_replay_events.start_time, 'UTC') AS start_time,
             toTimeZone(session_replay_events.end_time, 'UTC') AS end_time,
-            session_replay_events.session_id
+            session_replay_events.session_id AS session_id
      FROM
        (SELECT min(session_replay_events.min_first_timestamp) AS start_time,
                max(session_replay_events.max_last_timestamp) AS end_time,
@@ -120,39 +125,41 @@
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
                      allow_experimental_object_type=1
-  '
----
+  '''
+# ---
 # name: TestSessionsTimelineQueryRunner.test_event_limit_and_has_more
-  '
-  SELECT e.uuid,
-         e.timestamp,
-         e.event,
-         e.properties,
-         e.distinct_id,
-         e.elements_chain,
+  '''
+  SELECT e.uuid AS uuid,
+         e.timestamp AS timestamp,
+         e.event AS event,
+         e.properties AS properties,
+         e.distinct_id AS distinct_id,
+         e.elements_chain AS elements_chain,
          e.session_id AS formal_session_id,
          first_value(e.uuid) OVER (PARTITION BY tuple(e.person_id, e.session_id_flip_index)
                                    ORDER BY toInt64(e.timestamp) ASC RANGE BETWEEN 1800 PRECEDING AND CURRENT ROW) AS informal_session_uuid,
                                   dateDiff('s', sre.start_time, sre.end_time) AS recording_duration_s
   FROM
-    (SELECT uuid,
-            person_id, timestamp, event,
-                                  properties,
-                                  distinct_id,
-                                  elements_chain,
-                                  session_id,
-                                  prev_session_id,
-                                  sum(if(ifNull(equals(session_id, prev_session_id), isNull(session_id)
-                                                and isNull(prev_session_id)), 0, 1)) OVER (PARTITION BY person_id
-                                                                                           ORDER BY timestamp ASC ROWS UNBOUNDED PRECEDING) AS session_id_flip_index
+    (SELECT uuid AS uuid,
+                    person_id AS person_id,
+                    timestamp AS timestamp,
+                    event AS event,
+                    properties AS properties,
+                    distinct_id AS distinct_id,
+                    elements_chain AS elements_chain,
+                    session_id AS session_id,
+                    prev_session_id AS prev_session_id,
+                    sum(if(ifNull(equals(session_id, prev_session_id), isNull(session_id)
+                                  and isNull(prev_session_id)), 0, 1)) OVER (PARTITION BY person_id
+                                                                             ORDER BY timestamp ASC ROWS UNBOUNDED PRECEDING) AS session_id_flip_index
      FROM
-       (SELECT events.uuid,
+       (SELECT events.uuid AS uuid,
                events__pdi.person_id AS person_id,
                toTimeZone(events.timestamp, 'UTC') AS timestamp,
-               events.event,
-               events.properties,
-               events.distinct_id,
-               events.elements_chain,
+               events.event AS event,
+               events.properties AS properties,
+               events.distinct_id AS distinct_id,
+               events.elements_chain AS elements_chain,
                events.`$session_id` AS session_id,
                lagInFrame(events.`$session_id`, 1) OVER (PARTITION BY person_id
                                                          ORDER BY timestamp ASC) AS prev_session_id
@@ -170,7 +177,7 @@
   LEFT JOIN
     (SELECT toTimeZone(session_replay_events.start_time, 'UTC') AS start_time,
             toTimeZone(session_replay_events.end_time, 'UTC') AS end_time,
-            session_replay_events.session_id
+            session_replay_events.session_id AS session_id
      FROM
        (SELECT min(session_replay_events.min_first_timestamp) AS start_time,
                max(session_replay_events.max_last_timestamp) AS end_time,
@@ -182,39 +189,41 @@
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
                      allow_experimental_object_type=1
-  '
----
+  '''
+# ---
 # name: TestSessionsTimelineQueryRunner.test_formal_and_informal_sessions_global
-  '
-  SELECT e.uuid,
-         e.timestamp,
-         e.event,
-         e.properties,
-         e.distinct_id,
-         e.elements_chain,
+  '''
+  SELECT e.uuid AS uuid,
+         e.timestamp AS timestamp,
+         e.event AS event,
+         e.properties AS properties,
+         e.distinct_id AS distinct_id,
+         e.elements_chain AS elements_chain,
          e.session_id AS formal_session_id,
          first_value(e.uuid) OVER (PARTITION BY tuple(e.person_id, e.session_id_flip_index)
                                    ORDER BY toInt64(e.timestamp) ASC RANGE BETWEEN 1800 PRECEDING AND CURRENT ROW) AS informal_session_uuid,
                                   dateDiff('s', sre.start_time, sre.end_time) AS recording_duration_s
   FROM
-    (SELECT uuid,
-            person_id, timestamp, event,
-                                  properties,
-                                  distinct_id,
-                                  elements_chain,
-                                  session_id,
-                                  prev_session_id,
-                                  sum(if(ifNull(equals(session_id, prev_session_id), isNull(session_id)
-                                                and isNull(prev_session_id)), 0, 1)) OVER (PARTITION BY person_id
-                                                                                           ORDER BY timestamp ASC ROWS UNBOUNDED PRECEDING) AS session_id_flip_index
+    (SELECT uuid AS uuid,
+                    person_id AS person_id,
+                    timestamp AS timestamp,
+                    event AS event,
+                    properties AS properties,
+                    distinct_id AS distinct_id,
+                    elements_chain AS elements_chain,
+                    session_id AS session_id,
+                    prev_session_id AS prev_session_id,
+                    sum(if(ifNull(equals(session_id, prev_session_id), isNull(session_id)
+                                  and isNull(prev_session_id)), 0, 1)) OVER (PARTITION BY person_id
+                                                                             ORDER BY timestamp ASC ROWS UNBOUNDED PRECEDING) AS session_id_flip_index
      FROM
-       (SELECT events.uuid,
+       (SELECT events.uuid AS uuid,
                events__pdi.person_id AS person_id,
                toTimeZone(events.timestamp, 'UTC') AS timestamp,
-               events.event,
-               events.properties,
-               events.distinct_id,
-               events.elements_chain,
+               events.event AS event,
+               events.properties AS properties,
+               events.distinct_id AS distinct_id,
+               events.elements_chain AS elements_chain,
                events.`$session_id` AS session_id,
                lagInFrame(events.`$session_id`, 1) OVER (PARTITION BY person_id
                                                          ORDER BY timestamp ASC) AS prev_session_id
@@ -232,7 +241,7 @@
   LEFT JOIN
     (SELECT toTimeZone(session_replay_events.start_time, 'UTC') AS start_time,
             toTimeZone(session_replay_events.end_time, 'UTC') AS end_time,
-            session_replay_events.session_id
+            session_replay_events.session_id AS session_id
      FROM
        (SELECT min(session_replay_events.min_first_timestamp) AS start_time,
                max(session_replay_events.max_last_timestamp) AS end_time,
@@ -244,39 +253,41 @@
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
                      allow_experimental_object_type=1
-  '
----
+  '''
+# ---
 # name: TestSessionsTimelineQueryRunner.test_formal_session_with_recording
-  '
-  SELECT e.uuid,
-         e.timestamp,
-         e.event,
-         e.properties,
-         e.distinct_id,
-         e.elements_chain,
+  '''
+  SELECT e.uuid AS uuid,
+         e.timestamp AS timestamp,
+         e.event AS event,
+         e.properties AS properties,
+         e.distinct_id AS distinct_id,
+         e.elements_chain AS elements_chain,
          e.session_id AS formal_session_id,
          first_value(e.uuid) OVER (PARTITION BY tuple(e.person_id, e.session_id_flip_index)
                                    ORDER BY toInt64(e.timestamp) ASC RANGE BETWEEN 1800 PRECEDING AND CURRENT ROW) AS informal_session_uuid,
                                   dateDiff('s', sre.start_time, sre.end_time) AS recording_duration_s
   FROM
-    (SELECT uuid,
-            person_id, timestamp, event,
-                                  properties,
-                                  distinct_id,
-                                  elements_chain,
-                                  session_id,
-                                  prev_session_id,
-                                  sum(if(ifNull(equals(session_id, prev_session_id), isNull(session_id)
-                                                and isNull(prev_session_id)), 0, 1)) OVER (PARTITION BY person_id
-                                                                                           ORDER BY timestamp ASC ROWS UNBOUNDED PRECEDING) AS session_id_flip_index
+    (SELECT uuid AS uuid,
+                    person_id AS person_id,
+                    timestamp AS timestamp,
+                    event AS event,
+                    properties AS properties,
+                    distinct_id AS distinct_id,
+                    elements_chain AS elements_chain,
+                    session_id AS session_id,
+                    prev_session_id AS prev_session_id,
+                    sum(if(ifNull(equals(session_id, prev_session_id), isNull(session_id)
+                                  and isNull(prev_session_id)), 0, 1)) OVER (PARTITION BY person_id
+                                                                             ORDER BY timestamp ASC ROWS UNBOUNDED PRECEDING) AS session_id_flip_index
      FROM
-       (SELECT events.uuid,
+       (SELECT events.uuid AS uuid,
                events__pdi.person_id AS person_id,
                toTimeZone(events.timestamp, 'UTC') AS timestamp,
-               events.event,
-               events.properties,
-               events.distinct_id,
-               events.elements_chain,
+               events.event AS event,
+               events.properties AS properties,
+               events.distinct_id AS distinct_id,
+               events.elements_chain AS elements_chain,
                events.`$session_id` AS session_id,
                lagInFrame(events.`$session_id`, 1) OVER (PARTITION BY person_id
                                                          ORDER BY timestamp ASC) AS prev_session_id
@@ -294,7 +305,7 @@
   LEFT JOIN
     (SELECT toTimeZone(session_replay_events.start_time, 'UTC') AS start_time,
             toTimeZone(session_replay_events.end_time, 'UTC') AS end_time,
-            session_replay_events.session_id
+            session_replay_events.session_id AS session_id
      FROM
        (SELECT min(session_replay_events.min_first_timestamp) AS start_time,
                max(session_replay_events.max_last_timestamp) AS end_time,
@@ -306,39 +317,41 @@
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
                      allow_experimental_object_type=1
-  '
----
+  '''
+# ---
 # name: TestSessionsTimelineQueryRunner.test_formal_sessions_for_person
-  '
-  SELECT e.uuid,
-         e.timestamp,
-         e.event,
-         e.properties,
-         e.distinct_id,
-         e.elements_chain,
+  '''
+  SELECT e.uuid AS uuid,
+         e.timestamp AS timestamp,
+         e.event AS event,
+         e.properties AS properties,
+         e.distinct_id AS distinct_id,
+         e.elements_chain AS elements_chain,
          e.session_id AS formal_session_id,
          first_value(e.uuid) OVER (PARTITION BY tuple(e.person_id, e.session_id_flip_index)
                                    ORDER BY toInt64(e.timestamp) ASC RANGE BETWEEN 1800 PRECEDING AND CURRENT ROW) AS informal_session_uuid,
                                   dateDiff('s', sre.start_time, sre.end_time) AS recording_duration_s
   FROM
-    (SELECT uuid,
-            person_id, timestamp, event,
-                                  properties,
-                                  distinct_id,
-                                  elements_chain,
-                                  session_id,
-                                  prev_session_id,
-                                  sum(if(ifNull(equals(session_id, prev_session_id), isNull(session_id)
-                                                and isNull(prev_session_id)), 0, 1)) OVER (PARTITION BY person_id
-                                                                                           ORDER BY timestamp ASC ROWS UNBOUNDED PRECEDING) AS session_id_flip_index
+    (SELECT uuid AS uuid,
+                    person_id AS person_id,
+                    timestamp AS timestamp,
+                    event AS event,
+                    properties AS properties,
+                    distinct_id AS distinct_id,
+                    elements_chain AS elements_chain,
+                    session_id AS session_id,
+                    prev_session_id AS prev_session_id,
+                    sum(if(ifNull(equals(session_id, prev_session_id), isNull(session_id)
+                                  and isNull(prev_session_id)), 0, 1)) OVER (PARTITION BY person_id
+                                                                             ORDER BY timestamp ASC ROWS UNBOUNDED PRECEDING) AS session_id_flip_index
      FROM
-       (SELECT events.uuid,
+       (SELECT events.uuid AS uuid,
                events__pdi.person_id AS person_id,
                toTimeZone(events.timestamp, 'UTC') AS timestamp,
-               events.event,
-               events.properties,
-               events.distinct_id,
-               events.elements_chain,
+               events.event AS event,
+               events.properties AS properties,
+               events.distinct_id AS distinct_id,
+               events.elements_chain AS elements_chain,
                events.`$session_id` AS session_id,
                lagInFrame(events.`$session_id`, 1) OVER (PARTITION BY person_id
                                                          ORDER BY timestamp ASC) AS prev_session_id
@@ -356,7 +369,7 @@
   LEFT JOIN
     (SELECT toTimeZone(session_replay_events.start_time, 'UTC') AS start_time,
             toTimeZone(session_replay_events.end_time, 'UTC') AS end_time,
-            session_replay_events.session_id
+            session_replay_events.session_id AS session_id
      FROM
        (SELECT min(session_replay_events.min_first_timestamp) AS start_time,
                max(session_replay_events.max_last_timestamp) AS end_time,
@@ -368,39 +381,41 @@
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
                      allow_experimental_object_type=1
-  '
----
+  '''
+# ---
 # name: TestSessionsTimelineQueryRunner.test_formal_sessions_global
-  '
-  SELECT e.uuid,
-         e.timestamp,
-         e.event,
-         e.properties,
-         e.distinct_id,
-         e.elements_chain,
+  '''
+  SELECT e.uuid AS uuid,
+         e.timestamp AS timestamp,
+         e.event AS event,
+         e.properties AS properties,
+         e.distinct_id AS distinct_id,
+         e.elements_chain AS elements_chain,
          e.session_id AS formal_session_id,
          first_value(e.uuid) OVER (PARTITION BY tuple(e.person_id, e.session_id_flip_index)
                                    ORDER BY toInt64(e.timestamp) ASC RANGE BETWEEN 1800 PRECEDING AND CURRENT ROW) AS informal_session_uuid,
                                   dateDiff('s', sre.start_time, sre.end_time) AS recording_duration_s
   FROM
-    (SELECT uuid,
-            person_id, timestamp, event,
-                                  properties,
-                                  distinct_id,
-                                  elements_chain,
-                                  session_id,
-                                  prev_session_id,
-                                  sum(if(ifNull(equals(session_id, prev_session_id), isNull(session_id)
-                                                and isNull(prev_session_id)), 0, 1)) OVER (PARTITION BY person_id
-                                                                                           ORDER BY timestamp ASC ROWS UNBOUNDED PRECEDING) AS session_id_flip_index
+    (SELECT uuid AS uuid,
+                    person_id AS person_id,
+                    timestamp AS timestamp,
+                    event AS event,
+                    properties AS properties,
+                    distinct_id AS distinct_id,
+                    elements_chain AS elements_chain,
+                    session_id AS session_id,
+                    prev_session_id AS prev_session_id,
+                    sum(if(ifNull(equals(session_id, prev_session_id), isNull(session_id)
+                                  and isNull(prev_session_id)), 0, 1)) OVER (PARTITION BY person_id
+                                                                             ORDER BY timestamp ASC ROWS UNBOUNDED PRECEDING) AS session_id_flip_index
      FROM
-       (SELECT events.uuid,
+       (SELECT events.uuid AS uuid,
                events__pdi.person_id AS person_id,
                toTimeZone(events.timestamp, 'UTC') AS timestamp,
-               events.event,
-               events.properties,
-               events.distinct_id,
-               events.elements_chain,
+               events.event AS event,
+               events.properties AS properties,
+               events.distinct_id AS distinct_id,
+               events.elements_chain AS elements_chain,
                events.`$session_id` AS session_id,
                lagInFrame(events.`$session_id`, 1) OVER (PARTITION BY person_id
                                                          ORDER BY timestamp ASC) AS prev_session_id
@@ -418,7 +433,7 @@
   LEFT JOIN
     (SELECT toTimeZone(session_replay_events.start_time, 'UTC') AS start_time,
             toTimeZone(session_replay_events.end_time, 'UTC') AS end_time,
-            session_replay_events.session_id
+            session_replay_events.session_id AS session_id
      FROM
        (SELECT min(session_replay_events.min_first_timestamp) AS start_time,
                max(session_replay_events.max_last_timestamp) AS end_time,
@@ -430,5 +445,5 @@
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
                      allow_experimental_object_type=1
-  '
----
+  '''
+# ---

@@ -30,7 +30,7 @@ const PH_CURRENT_INSTANCE = 'ph_current_instance'
 
 const REDIRECT_TIMEOUT = 2500
 
-type Subdomain = 'eu' | 'app'
+type Subdomain = 'eu' | 'us'
 
 export function cleanedCookieSubdomain(loggedInInstance: string | null): Subdomain | null {
     try {
@@ -42,10 +42,10 @@ export function cleanedCookieSubdomain(loggedInInstance: string | null): Subdoma
         // convert to URL, so that we can be sure we're dealing with a valid URL
         const hostname = new URL(url).hostname
         switch (hostname) {
-            case 'app.posthog.com':
-                return 'app'
             case 'eu.posthog.com':
                 return 'eu'
+            case 'us.posthog.com':
+                return 'us'
             default:
                 return null
         }
@@ -58,7 +58,7 @@ export function cleanedCookieSubdomain(loggedInInstance: string | null): Subdoma
 
 function regionFromSubdomain(subdomain: Subdomain): 'EU' | 'US' {
     switch (subdomain) {
-        case 'app':
+        case 'us':
             return 'US'
         case 'eu':
             return 'EU'

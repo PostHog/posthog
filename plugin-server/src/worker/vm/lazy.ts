@@ -14,7 +14,7 @@ import {
     VMMethods,
 } from '../../types'
 import { processError } from '../../utils/db/error'
-import { disablePlugin, setPluginCapabilities } from '../../utils/db/sql'
+import { disablePlugin, getPlugin, setPluginCapabilities } from '../../utils/db/sql'
 import { instrument } from '../../utils/metrics'
 import { getNextRetryMs } from '../../utils/retries'
 import { status } from '../../utils/status'
@@ -307,12 +307,46 @@ export class LazyPluginVM {
     }
 
     private async updatePluginCapabilitiesIfNeeded(vm: PluginConfigVMResponse): Promise<void> {
-        const capabilities = getVMPluginCapabilities(vm)
+        const capabilities = getVMPluginCapabilities(vm.methods, vm.tasks)
 
         const prevCapabilities = this.pluginConfig.plugin!.capabilities
         if (!equal(prevCapabilities, capabilities)) {
-            await setPluginCapabilities(this.hub, this.pluginConfig, capabilities)
+            await setPluginCapabilities(this.hub, this.pluginConfig.plugin_id, capabilities)
             this.pluginConfig.plugin!.capabilities = capabilities
         }
+    }
+}
+
+export async function populatePluginCapabilities(hub: Hub, pluginId: number): Promise<void> {
+    status.info('🔌', `Populating plugin capabilities for plugin ID ${pluginId}...`)
+    const plugin = await getPlugin(hub, pluginId)
+    if (!plugin) {
+        status.error('🔌', `Plugin with ID ${pluginId} not found for populating capabilities.`)
+        return
+    }
+    if (!plugin.source__index_ts) {
+        status.error('🔌', `Plugin with ID ${pluginId} has no index.ts file for populating capabilities.`)
+        return
+    }
+
+    const { methods, tasks } = createPluginConfigVM(
+        hub,
+        {
+            id: 0,
+            plugin: plugin,
+            plugin_id: plugin.id,
+            team_id: 0,
+            enabled: false,
+            order: 0,
+            created_at: '0',
+            config: {},
+        },
+        plugin.source__index_ts || ''
+    )
+    const capabilities = getVMPluginCapabilities(methods, tasks)
+
+    const prevCapabilities = plugin.capabilities
+    if (!equal(prevCapabilities, capabilities)) {
+        await setPluginCapabilities(hub, pluginId, capabilities)
     }
 }

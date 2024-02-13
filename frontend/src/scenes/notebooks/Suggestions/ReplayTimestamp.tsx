@@ -35,14 +35,7 @@ const Component = ({ previousNode, editor }: InsertionSuggestionViewProps): JSX.
 
     return (
         <div className="NotebookRecordingTimestamp opacity-50">
-            <LemonButton
-                size="small"
-                noPadding
-                type="tertiary"
-                active
-                status="primary-alt"
-                onClick={() => insertTimestamp({ previousNode, editor })}
-            >
+            <LemonButton size="small" noPadding active onClick={() => insertTimestamp({ previousNode, editor })}>
                 <span className="p-1">{formatTimestamp(currentPlayerTime)}</span>
             </LemonButton>
         </div>

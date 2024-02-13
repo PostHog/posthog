@@ -11,7 +11,7 @@ import { UUIDT } from '../../../src/utils/utils'
 import {
     DeferredPersonOverrideWorker,
     DeferredPersonOverrideWriter,
-    PersonOverrideWriter,
+    FlatPersonOverrideWriter,
     PersonState,
 } from '../../../src/worker/ingestion/person-state'
 import { delayUntilEventIngested } from '../../helpers/clickhouse'
@@ -24,57 +24,33 @@ const timestamp = DateTime.fromISO('2020-01-01T12:00:05.200Z').toUTC()
 const timestamp2 = DateTime.fromISO('2020-02-02T12:00:05.200Z').toUTC()
 const timestampch = '2020-01-01 12:00:05.000'
 
-async function fetchPostgresPersonIdOverrides(hub: Hub, teamId: number): Promise<[string, string][]> {
-    const result = await hub.db.postgres.query(
-        PostgresUse.COMMON_WRITE,
-        `
-        WITH overrides AS (
-            SELECT id, old_person_id, override_person_id
-            FROM posthog_personoverride
-            WHERE team_id = ${teamId}
-            ORDER BY id
-        )
-        SELECT
-            mapping.uuid AS old_person_id,
-            overrides_mapping.uuid AS override_person_id
-        FROM
-            overrides AS first
-        JOIN
-            posthog_personoverridemapping AS mapping ON first.old_person_id = mapping.id
-        JOIN (
-            SELECT
-                second.id AS id,
-                uuid
-            FROM
-                overrides AS second
-            JOIN posthog_personoverridemapping AS mapping ON second.override_person_id = mapping.id
-        ) AS overrides_mapping ON overrides_mapping.id = first.id
-        `,
-        undefined,
-        'fetchPersonIdOverrides'
-    )
-    return result.rows.map(({ old_person_id, override_person_id }) => [old_person_id, override_person_id]).sort() as [
-        string,
-        string
-    ][]
-}
-
 interface PersonOverridesMode {
-    getWriter(hub: Hub): PersonOverrideWriter | DeferredPersonOverrideWriter
-    fetchPostgresPersonIdOverrides(hub: Hub, teamId: number): Promise<[string, string][]>
+    supportsSyncTransaction: boolean
+    getWriter(hub: Hub): DeferredPersonOverrideWriter
+    fetchPostgresPersonIdOverrides(
+        hub: Hub,
+        teamId: number
+    ): Promise<Set<{ override_person_id: string; old_person_id: string }>>
 }
 
 const PersonOverridesModes: Record<string, PersonOverridesMode | undefined> = {
     disabled: undefined,
-    immediate: {
-        getWriter: (hub) => new PersonOverrideWriter(hub.db.postgres),
-        fetchPostgresPersonIdOverrides: (hub, teamId) => fetchPostgresPersonIdOverrides(hub, teamId),
-    },
-    deferred: {
+    'deferred, without mappings (flat)': {
+        supportsSyncTransaction: false,
         getWriter: (hub) => new DeferredPersonOverrideWriter(hub.db.postgres),
         fetchPostgresPersonIdOverrides: async (hub, teamId) => {
-            await new DeferredPersonOverrideWorker(hub.db.postgres, hub.db.kafkaProducer).processPendingOverrides()
-            return await fetchPostgresPersonIdOverrides(hub, teamId)
+            const syncWriter = new FlatPersonOverrideWriter(hub.db.postgres)
+            await new DeferredPersonOverrideWorker(
+                hub.db.postgres,
+                hub.db.kafkaProducer,
+                syncWriter
+            ).processPendingOverrides()
+            return new Set(
+                (await syncWriter.getPersonOverrides(teamId)).map(({ old_person_id, override_person_id }) => ({
+                    old_person_id,
+                    override_person_id,
+                }))
+            )
         },
     },
 }
@@ -1571,7 +1547,7 @@ describe('PersonState.update()', () => {
                 // verify Postgres person_id overrides, if applicable
                 if (overridesMode) {
                     const overrides = await overridesMode.fetchPostgresPersonIdOverrides(hub, teamId)
-                    expect(overrides).toEqual([[second.uuid, first.uuid]])
+                    expect(overrides).toEqual(new Set([{ old_person_id: second.uuid, override_person_id: first.uuid }]))
                     // & CH person overrides
                     // TODO
                 }
@@ -1733,8 +1709,8 @@ describe('PersonState.update()', () => {
             })
 
             it(`does not commit partial transactions on override conflicts`, async () => {
-                if (overridesMode !== PersonOverridesModes.immediate) {
-                    return // this behavior is only supported with immediate overrides
+                if (!overridesMode?.supportsSyncTransaction) {
+                    return
                 }
                 const first: Person = await hub.db.createPerson(
                     timestamp,
@@ -1822,7 +1798,7 @@ describe('PersonState.update()', () => {
 
                 // verify Postgres person_id overrides
                 const overridesAfterFailure = await overridesMode!.fetchPostgresPersonIdOverrides(hub, teamId)
-                expect(overridesAfterFailure).toEqual([])
+                expect(overridesAfterFailure).toEqual(new Set())
 
                 // Now verify we successfully get to our target state if we do not have
                 // any db errors.
@@ -1857,7 +1833,7 @@ describe('PersonState.update()', () => {
 
                 // verify Postgres person_id overrides
                 const overrides = await overridesMode!.fetchPostgresPersonIdOverrides(hub, teamId)
-                expect(overrides).toEqual([[second.uuid, first.uuid]])
+                expect(overrides).toEqual(new Set([{ old_person_id: second.uuid, override_person_id: first.uuid }]))
             })
 
             it(`handles a chain of overrides being applied concurrently`, async () => {
@@ -1998,10 +1974,12 @@ describe('PersonState.update()', () => {
                 // verify Postgres person_id overrides, if applicable
                 if (overridesMode) {
                     const overrides = await overridesMode.fetchPostgresPersonIdOverrides(hub, teamId)
-                    expect(overrides).toEqual([
-                        [second.uuid, first.uuid],
-                        [third.uuid, first.uuid],
-                    ])
+                    expect(overrides).toEqual(
+                        new Set([
+                            { old_person_id: second.uuid, override_person_id: first.uuid },
+                            { old_person_id: third.uuid, override_person_id: first.uuid },
+                        ])
+                    )
                 }
             })
 
@@ -2085,13 +2063,95 @@ describe('PersonState.update()', () => {
                 // verify Postgres person_id overrides, if applicable
                 if (overridesMode) {
                     const overrides = await overridesMode.fetchPostgresPersonIdOverrides(hub, teamId)
-                    expect(overrides).toEqual([
-                        [second.uuid, first.uuid],
-                        [third.uuid, first.uuid],
-                    ])
+                    expect(overrides).toEqual(
+                        new Set([
+                            { old_person_id: second.uuid, override_person_id: first.uuid },
+                            { old_person_id: third.uuid, override_person_id: first.uuid },
+                        ])
+                    )
                 }
             })
         })
+    })
+})
+
+describe('flat person overrides writer', () => {
+    let hub: Hub
+    let closeHub: () => Promise<void>
+
+    let organizationId: string
+    let teamId: number
+    let writer: FlatPersonOverrideWriter
+
+    beforeAll(async () => {
+        ;[hub, closeHub] = await createHub({})
+        organizationId = await createOrganization(hub.db.postgres)
+        writer = new FlatPersonOverrideWriter(hub.db.postgres)
+    })
+
+    beforeEach(async () => {
+        teamId = await createTeam(hub.db.postgres, organizationId)
+    })
+
+    afterAll(async () => {
+        await closeHub()
+    })
+
+    it('handles direct overrides', async () => {
+        const { postgres } = hub.db
+
+        const defaults = {
+            team_id: teamId,
+            oldest_event: DateTime.fromMillis(0),
+        }
+
+        const override = {
+            old_person_id: new UUIDT().toString(),
+            override_person_id: new UUIDT().toString(),
+        }
+
+        await postgres.transaction(PostgresUse.COMMON_WRITE, '', async (tx) => {
+            await writer.addPersonOverride(tx, { ...defaults, ...override })
+        })
+
+        expect(await writer.getPersonOverrides(teamId)).toEqual([{ ...defaults, ...override }])
+    })
+
+    it('handles transitive overrides', async () => {
+        const { postgres } = hub.db
+
+        const defaults = {
+            team_id: teamId,
+            oldest_event: DateTime.fromMillis(0),
+        }
+
+        const overrides = [
+            {
+                old_person_id: new UUIDT().toString(),
+                override_person_id: new UUIDT().toString(),
+            },
+        ]
+
+        overrides.push({
+            old_person_id: overrides[0].override_person_id,
+            override_person_id: new UUIDT().toString(),
+        })
+
+        await postgres.transaction(PostgresUse.COMMON_WRITE, '', async (tx) => {
+            for (const override of overrides) {
+                await writer.addPersonOverride(tx, { ...defaults, ...override })
+            }
+        })
+
+        expect(new Set(await writer.getPersonOverrides(teamId))).toEqual(
+            new Set(
+                overrides.map(({ old_person_id }) => ({
+                    old_person_id,
+                    override_person_id: overrides.at(-1)!.override_person_id,
+                    ...defaults,
+                }))
+            )
+        )
     })
 })
 
@@ -2104,13 +2164,15 @@ describe('deferred person overrides', () => {
     let teamId: number
 
     let writer: DeferredPersonOverrideWriter
+    let syncWriter: FlatPersonOverrideWriter
     let worker: DeferredPersonOverrideWorker
 
     beforeAll(async () => {
         ;[hub, closeHub] = await createHub({})
         organizationId = await createOrganization(hub.db.postgres)
         writer = new DeferredPersonOverrideWriter(hub.db.postgres)
-        worker = new DeferredPersonOverrideWorker(hub.db.postgres, hub.db.kafkaProducer)
+        syncWriter = new FlatPersonOverrideWriter(hub.db.postgres)
+        worker = new DeferredPersonOverrideWorker(hub.db.postgres, hub.db.kafkaProducer, syncWriter)
     })
 
     beforeEach(async () => {
@@ -2161,9 +2223,12 @@ describe('deferred person overrides', () => {
 
         expect(await getPendingPersonOverrides()).toMatchObject([])
 
-        expect(await fetchPostgresPersonIdOverrides(hub, teamId)).toEqual([
-            [override.old_person_id, override.override_person_id],
-        ])
+        expect(
+            (await syncWriter.getPersonOverrides(teamId)).map(({ old_person_id, override_person_id }) => [
+                old_person_id,
+                override_person_id,
+            ])
+        ).toEqual([[override.old_person_id, override.override_person_id]])
 
         const clickhouseOverrides = await waitForExpect(async () => {
             const { data } = await hub.db.clickhouse.querying(

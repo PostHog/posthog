@@ -48,14 +48,16 @@ const cleanInsightQuery = (query: InsightQueryNode, ignoreVisualizationOnlyChang
         const insightFilterKey = filterKeyForQuery(cleanedQuery)
         cleanedQuery[insightFilterKey] = {
             ...insightFilter,
-            show_legend: undefined,
-            show_percent_stack_view: undefined,
-            show_values_on_series: undefined,
-            aggregation_axis_format: undefined,
-            aggregation_axis_prefix: undefined,
-            aggregation_axis_postfix: undefined,
+            showLegend: undefined,
+            showPercentStackView: undefined,
+            showValuesOnSeries: undefined,
+            aggregationAxisFormat: undefined,
+            aggregationAxisPrefix: undefined,
+            aggregationAxisPostfix: undefined,
+            decimalPlaces: undefined,
             layout: undefined,
             toggledLifecycles: undefined,
+            showLabelsOnSeries: undefined,
         }
 
         if (isInsightQueryWithDisplay(cleanedQuery)) {

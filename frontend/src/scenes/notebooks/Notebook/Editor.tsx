@@ -7,13 +7,14 @@ import TaskItem from '@tiptap/extension-task-item'
 import TaskList from '@tiptap/extension-task-list'
 import { EditorContent, useEditor } from '@tiptap/react'
 import StarterKit from '@tiptap/starter-kit'
-import { useActions, useValues } from 'kea'
+import { useActions, useMountedLogic, useValues } from 'kea'
 import { sampleOne } from 'lib/utils'
 import posthog from 'posthog-js'
 import { useCallback, useMemo, useRef } from 'react'
 
 import { NotebookNodeType } from '~/types'
 
+import { NotebookMarkComment } from '../Marks/NotebookMarkComment'
 import { NotebookMarkLink } from '../Marks/NotebookMarkLink'
 import { NotebookNodeBacklink } from '../Nodes/NotebookNodeBacklink'
 import { NotebookNodeCohort } from '../Nodes/NotebookNodeCohort'
@@ -50,6 +51,8 @@ const PLACEHOLDER_TITLES = ['Release notes', 'Product roadmap', 'Meeting notes',
 
 export function Editor(): JSX.Element {
     const editorRef = useRef<TTEditor>()
+
+    const mountedNotebookLogic = useMountedLogic(notebookLogic)
 
     const { shortId, mode } = useValues(notebookLogic)
     const { setEditor, onEditorUpdate, onEditorSelectionUpdate } = useActions(notebookLogic)
@@ -99,6 +102,7 @@ export function Editor(): JSX.Element {
                 nested: true,
             }),
             NotebookMarkLink,
+            NotebookMarkComment,
             NotebookNodeBacklink,
             NotebookNodeQuery,
             NotebookNodeRecording,
@@ -159,17 +163,7 @@ export function Editor(): JSX.Element {
                         return true
                     }
 
-                    if (!moved && event.dataTransfer.files && event.dataTransfer.files[0]) {
-                        // if dropping external files
-                        const file = event.dataTransfer.files[0] // the dropped file
-
-                        posthog.capture('notebook file dropped', { file_type: file.type })
-
-                        if (!file.type.startsWith('image/')) {
-                            lemonToast.warning('Only images can be added to Notebooks at this time.')
-                            return true
-                        }
-
+                    if (!moved && event.dataTransfer.files && event.dataTransfer.files.length > 0) {
                         const coordinates = view.posAtCoords({
                             left: event.clientX,
                             top: event.clientY,
@@ -180,15 +174,24 @@ export function Editor(): JSX.Element {
                             return true
                         }
 
-                        editor
-                            .chain()
-                            .focus()
-                            .setTextSelection(coordinates.pos)
-                            .insertContent({
-                                type: NotebookNodeType.Image,
-                                attrs: { file },
-                            })
-                            .run()
+                        // if dropping external files
+                        const fileList = Array.from(event.dataTransfer.files)
+                        const contentToAdd: any[] = []
+                        for (const file of fileList) {
+                            if (file.type.startsWith('image/')) {
+                                contentToAdd.push({
+                                    type: NotebookNodeType.Image,
+                                    attrs: { file },
+                                })
+                            } else {
+                                lemonToast.warning('Only images can be added to Notebooks at this time.')
+                            }
+                        }
+
+                        editor.chain().focus().setTextSelection(coordinates.pos).insertContent(contentToAdd).run()
+                        posthog.capture('notebook files dropped', {
+                            file_types: fileList.map((x) => x.type),
+                        })
 
                         return true
                     }
@@ -196,9 +199,42 @@ export function Editor(): JSX.Element {
 
                 return false
             },
+            handlePaste: (_view, event) => {
+                const editor = editorRef.current
+                if (!editor) {
+                    return false
+                }
+
+                // Special handling for pasting files such as images
+                if (event.clipboardData && event.clipboardData.files?.length > 0) {
+                    // iterate over the clipboard files and add any supported file types
+                    const fileList = Array.from(event.clipboardData.files)
+                    const contentToAdd: any[] = []
+                    for (const file of fileList) {
+                        if (file.type.startsWith('image/')) {
+                            contentToAdd.push({
+                                type: NotebookNodeType.Image,
+                                attrs: { file },
+                            })
+                        } else {
+                            lemonToast.warning('Only images can be added to Notebooks at this time.')
+                        }
+                    }
+
+                    editor.chain().focus().insertContent(contentToAdd).run()
+                    posthog.capture('notebook files pasted', {
+                        file_types: fileList.map((x) => x.type),
+                    })
+
+                    return true
+                }
+            },
         },
         onCreate: ({ editor }) => {
             editorRef.current = editor
+
+            // NOTE: This could be the wrong way of passing state to extensions but this is what we are using for now!
+            editor.extensionStorage._notebookLogic = mountedNotebookLogic
 
             setEditor({
                 getJSON: () => editor.getJSON(),
@@ -214,6 +250,9 @@ export function Editor(): JSX.Element {
                 focus: (position?: EditorFocusPosition) => queueMicrotask(() => editor.commands.focus(position)),
                 chain: () => editor.chain().focus(),
                 destroy: () => editor.destroy(),
+                getMarks: (type: string) => getMarks(editor, type),
+                findCommentPosition: (markId: string) => findCommentPosition(editor, markId),
+                removeComment: (pos: number) => removeCommentMark(editor, pos),
                 deleteRange: (range: EditorRange) => editor.chain().focus().deleteRange(range),
                 insertContent: (content: JSONContent) => editor.chain().insertContent(content).focus().run(),
                 insertContentAfterNode: (position: number, content: JSONContent) => {
@@ -351,4 +390,38 @@ export function hasMatchingNode(
                 attrEntries.every(([attr, value]: [string, any]) => node.attrs && node.attrs[attr] === value)
             )
     )
+}
+
+export function findCommentPosition(editor: TTEditor, markId: string): number | null {
+    let result = null
+    const doc = editor.state.doc
+    doc.descendants((node, pos) => {
+        const mark = node.marks.find((mark) => mark.type.name === 'comment' && mark.attrs.id === markId)
+        if (mark) {
+            result = pos
+            return
+        }
+    })
+    return result
+}
+
+export function getMarks(editor: TTEditor, type: string): { id: string; pos: number }[] {
+    const results: { id: string; pos: number }[] = []
+    const doc = editor.state.doc
+
+    doc.descendants((node, pos) => {
+        const marks = node.marks.filter((mark) => mark.type.name === type)
+        marks.forEach((mark) => results.push({ id: mark.attrs.id, pos }))
+    })
+
+    return results
+}
+
+export function removeCommentMark(editor: TTEditor, pos: number): void {
+    editor
+        .chain()
+        .setNodeSelection(pos)
+        .unsetMark('comment', { extendEmptyMarkRange: true })
+        .setNodeSelection(0) // need to reset the selection so that the editor does not complain after mark is removed
+        .run()
 }

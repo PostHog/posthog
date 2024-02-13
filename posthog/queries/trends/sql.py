@@ -98,9 +98,8 @@ GROUP BY actor_id
 """
 
 TOP_ELEMENTS_ARRAY_OF_KEY_SQL = """
-SELECT groupArray(value) FROM (
     SELECT
-        {value_expression},
+        {breakdown_expression},
         {aggregate_operation} as count
     FROM events e
     {sample_clause}
@@ -112,13 +111,12 @@ SELECT groupArray(value) FROM (
     GROUP BY value
     ORDER BY count DESC, value DESC
     LIMIT %(limit)s OFFSET %(offset)s
-)
 """
 
 HISTOGRAM_ELEMENTS_ARRAY_OF_KEY_SQL = """
 SELECT {bucketing_expression} FROM (
     SELECT
-        {value_expression},
+        {breakdown_expression},
         {aggregate_operation} as count
     FROM events e
     {sample_clause}
@@ -372,8 +370,14 @@ BREAKDOWN_ACTIVE_USER_CONDITIONS_SQL = """
 WHERE e.team_id = %(team_id)s {event_filter} {filters} {parsed_date_from_prev_range} {parsed_date_to} {actions_query} {null_person_filter}
 """
 
+BREAKDOWN_PROP_JOIN_WITH_OTHER_SQL = """
+WHERE e.team_id = %(team_id)s {event_filter} {filters} {parsed_date_from} {parsed_date_to} {null_person_filter}
+  {actions_query}
+"""
+
 BREAKDOWN_PROP_JOIN_SQL = """
 WHERE e.team_id = %(team_id)s {event_filter} {filters} {parsed_date_from} {parsed_date_to} {null_person_filter}
+  AND {breakdown_value_expr} in (%(values)s)
   {actions_query}
 """
 

@@ -30,16 +30,18 @@ from posthog.hogql.escape_sql import (
     escape_hogql_string,
 )
 from posthog.hogql.functions.mapping import ALL_EXPOSED_FUNCTION_NAMES, validate_function_args, HOGQL_COMPARISON_MAPPING
+from posthog.hogql.modifiers import create_default_modifiers_for_team, set_default_in_cohort_via
 from posthog.hogql.resolver import ResolverException, resolve_types
 from posthog.hogql.resolver_utils import lookup_field_by_name
-from posthog.hogql.transforms.in_cohort import resolve_in_cohorts
+from posthog.hogql.transforms.in_cohort import resolve_in_cohorts, resolve_in_cohorts_conjoined
 from posthog.hogql.transforms.lazy_tables import resolve_lazy_tables
 from posthog.hogql.transforms.property_types import resolve_property_types
 from posthog.hogql.visitor import Visitor, clone_expr
 from posthog.models.property import PropertyName, TableColumn
 from posthog.models.team.team import WeekStartDay
+from posthog.models.team import Team
 from posthog.models.utils import UUIDT
-from posthog.schema import MaterializationMode
+from posthog.schema import HogQLQueryModifiers, InCohortVia, MaterializationMode
 from posthog.utils import PersonOnEventsMode
 
 
@@ -56,12 +58,14 @@ def team_id_guard_for_table(table_type: Union[ast.TableType, ast.TableAliasType]
     )
 
 
-def to_printed_hogql(query: ast.Expr, team_id: int) -> str:
+def to_printed_hogql(query: ast.Expr, team: Team, modifiers: Optional[HogQLQueryModifiers] = None) -> str:
     """Prints the HogQL query without mutating the node"""
     return print_ast(
         clone_expr(query),
         dialect="hogql",
-        context=HogQLContext(team_id=team_id, enable_select_queries=True),
+        context=HogQLContext(
+            team_id=team.pk, enable_select_queries=True, modifiers=create_default_modifiers_for_team(team, modifiers)
+        ),
         pretty=True,
     )
 
@@ -93,11 +97,16 @@ def prepare_ast_for_printing(
     settings: Optional[HogQLGlobalSettings] = None,
 ) -> ast.Expr:
     with context.timings.measure("create_hogql_database"):
-        context.database = context.database or create_hogql_database(context.team_id, context.modifiers)
+        context.database = context.database or create_hogql_database(context.team_id, context.modifiers, context.team)
 
+    context.modifiers = set_default_in_cohort_via(context.modifiers)
+
+    if context.modifiers.inCohortVia == InCohortVia.leftjoin_conjoined:
+        with context.timings.measure("resolve_in_cohorts_conjoined"):
+            resolve_in_cohorts_conjoined(node, dialect, context, stack)
     with context.timings.measure("resolve_types"):
         node = resolve_types(node, context, dialect=dialect, scopes=[node.type for node in stack] if stack else None)
-    if context.modifiers.inCohortVia == "leftjoin":
+    if context.modifiers.inCohortVia == InCohortVia.leftjoin:
         with context.timings.measure("resolve_in_cohorts"):
             resolve_in_cohorts(node, dialect, stack, context)
     if dialect == "clickhouse":
@@ -236,39 +245,28 @@ class _Printer(Visitor):
             next_join = next_join.next_join
 
         if node.select:
-            # Only for ClickHouse: Gather all visible aliases, and/or the last hidden alias for
-            # each unique alias name. Then make the last hidden aliases visible.
             if self.dialect == "clickhouse":
-                visible_aliases = {}
+                # Gather all visible aliases, and/or the last hidden alias for each unique alias name.
+                found_aliases = {}
                 for alias in reversed(node.select):
                     if isinstance(alias, ast.Alias):
-                        if not visible_aliases.get(alias.alias, None) or not alias.hidden:
-                            visible_aliases[alias.alias] = alias
+                        if not found_aliases.get(alias.alias, None) or not alias.hidden:
+                            found_aliases[alias.alias] = alias
 
                 columns = []
                 for column in node.select:
                     if isinstance(column, ast.Alias):
-                        # It's either a visible alias, or the last hidden alias for this name.
-                        if visible_aliases.get(column.alias) == column:
+                        # It's either a visible alias, or the last hidden alias with this name.
+                        if found_aliases.get(column.alias) == column:
                             if column.hidden:
-                                if (
-                                    isinstance(column.expr, ast.Field)
-                                    and isinstance(column.expr.type, ast.FieldType)
-                                    and column.expr.type.name == column.alias
-                                ):
-                                    # Hide the hidden alias only if it's a simple field,
-                                    # and we're using the same name for the field and the alias
-                                    # E.g. events.event AS event --> events.evnet.
-                                    column = column.expr
-                                else:
-                                    # Make the hidden alias visible
-                                    column = cast(ast.Alias, clone_expr(column))
-                                    column.hidden = False
+                                # Make the hidden alias visible
+                                column = cast(ast.Alias, clone_expr(column))
+                                column.hidden = False
                             else:
                                 # Always print visible aliases.
                                 pass
                         else:
-                            # This is not the alias for this unique alias name. Skip it.
+                            # Non-unique hidden alias. Skip.
                             column = column.expr
                     columns.append(self.visit(column))
             else:
@@ -306,7 +304,7 @@ class _Printer(Visitor):
 
         clauses = [
             f"SELECT{space}{'DISTINCT ' if node.distinct else ''}{comma.join(columns)}",
-            f"FROM{space}{' '.join(joined_tables)}" if len(joined_tables) > 0 else None,
+            f"FROM{space}{space.join(joined_tables)}" if len(joined_tables) > 0 else None,
             array_join if array_join else None,
             f"PREWHERE{space}" + prewhere if prewhere else None,
             f"WHERE{space}" + where if where else None,
@@ -471,9 +469,13 @@ class _Printer(Visitor):
             raise HogQLException(f"Unknown ArithmeticOperationOp {node.op}")
 
     def visit_and(self, node: ast.And):
+        if len(node.exprs) == 1:
+            return self.visit(node.exprs[0])
         return f"and({', '.join([self.visit(expr) for expr in node.exprs])})"
 
     def visit_or(self, node: ast.Or):
+        if len(node.exprs) == 1:
+            return self.visit(node.exprs[0])
         return f"or({', '.join([self.visit(expr) for expr in node.exprs])})"
 
     def visit_not(self, node: ast.Not):
@@ -838,6 +840,29 @@ class _Printer(Visitor):
             else:
                 return f"{node.name}({', '.join([self.visit(arg) for arg in node.args])})"
         elif node.name in HOGQL_POSTHOG_FUNCTIONS:
+            func_meta = HOGQL_POSTHOG_FUNCTIONS[node.name]
+            validate_function_args(node.args, func_meta.min_args, func_meta.max_args, node.name)
+            args = [self.visit(arg) for arg in node.args]
+
+            if self.dialect in ("hogql", "clickhouse"):
+                if node.name == "hogql_lookupDomainType":
+                    return f"dictGetOrNull('channel_definition_dict', 'domain_type', (cutToFirstSignificantSubdomain(coalesce({args[0]}, '')), 'source'))"
+                elif node.name == "hogql_lookupPaidDomainType":
+                    return f"dictGetOrNull('channel_definition_dict', 'type_if_paid', (cutToFirstSignificantSubdomain(coalesce({args[0]}, '')), 'source'))"
+                elif node.name == "hogql_lookupPaidSourceType":
+                    return (
+                        f"dictGetOrNull('channel_definition_dict', 'type_if_paid', (coalesce({args[0]}, ''), 'source'))"
+                    )
+                elif node.name == "hogql_lookupPaidMediumType":
+                    return (
+                        f"dictGetOrNull('channel_definition_dict', 'type_if_paid', (coalesce({args[0]}, ''), 'medium'))"
+                    )
+                elif node.name == "hogql_lookupOrganicDomainType":
+                    return f"dictGetOrNull('channel_definition_dict', 'type_if_organic', (cutToFirstSignificantSubdomain(coalesce({args[0]}, '')), 'source'))"
+                elif node.name == "hogql_lookupOrganicSourceType":
+                    return f"dictGetOrNull('channel_definition_dict', 'type_if_organic', (coalesce({args[0]}, ''), 'source'))"
+                elif node.name == "hogql_lookupOrganicMediumType":
+                    return f"dictGetOrNull('channel_definition_dict', 'type_if_organic', (coalesce({args[0]}, ''), 'medium'))"
             raise HogQLException(f"Unexpected unresolved HogQL function '{node.name}(...)'")
         else:
             close_matches = get_close_matches(node.name, ALL_EXPOSED_FUNCTION_NAMES, 1)
@@ -1050,8 +1075,10 @@ class _Printer(Visitor):
             if len(node.partition_by) == 0:
                 raise HogQLException("PARTITION BY must have at least one argument")
             strings.append("PARTITION BY")
+            columns = []
             for expr in node.partition_by:
-                strings.append(self.visit(expr))
+                columns.append(self.visit(expr))
+            strings.append(", ".join(columns))
 
         if node.order_by is not None:
             if len(node.order_by) == 0:

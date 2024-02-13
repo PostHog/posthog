@@ -48,6 +48,7 @@ export function SurveyEditQuestionHeader({
             className="flex flex-row w-full items-center justify-between"
             ref={setNodeRef}
             {...attributes}
+            // eslint-disable-next-line react/forbid-dom-props
             style={{
                 position: 'relative',
                 zIndex: isDragging ? 1 : undefined,
@@ -65,7 +66,6 @@ export function SurveyEditQuestionHeader({
             {survey.questions.length > 1 && (
                 <LemonButton
                     icon={<IconDelete />}
-                    status="primary-alt"
                     data-attr={`delete-survey-question-${index}`}
                     onClick={(e) => {
                         e.stopPropagation()
@@ -84,7 +84,7 @@ export function SurveyEditQuestionHeader({
 
 export function SurveyEditQuestionGroup({ index, question }: { index: number; question: any }): JSX.Element {
     const { survey, writingHTMLDescription } = useValues(surveyLogic)
-    const { setDefaultForQuestionType, setWritingHTMLDescription } = useActions(surveyLogic)
+    const { setDefaultForQuestionType, setWritingHTMLDescription, setSurveyValue } = useActions(surveyLogic)
     return (
         <Group name={`questions.${index}`} key={index}>
             <div className="flex flex-col gap-2">
@@ -129,7 +129,7 @@ export function SurveyEditQuestionGroup({ index, question }: { index: number; qu
                                 ),
                             },
                             {
-                                label: 'Link',
+                                label: 'Link/Notification',
                                 value: SurveyQuestionType.Link,
                                 tooltip: () => (
                                     <BaseAppearance
@@ -249,6 +249,12 @@ export function SurveyEditQuestionGroup({ index, question }: { index: number; qu
                                         { label: 'Number', value: 'number' },
                                         { label: 'Emoji', value: 'emoji' },
                                     ]}
+                                    onChange={(val) => {
+                                        const newQuestion = { ...survey.questions[index], display: val, scale: 5 }
+                                        const newQuestions = [...survey.questions]
+                                        newQuestions[index] = newQuestion
+                                        setSurveyValue('questions', newQuestions)
+                                    }}
                                 />
                             </Field>
                             <Field name="scale" label="Scale" className="w-1/2">
@@ -303,7 +309,6 @@ export function SurveyEditQuestionGroup({ index, question }: { index: number; qu
                                                         <LemonButton
                                                             icon={<IconDelete />}
                                                             size="small"
-                                                            status="muted"
                                                             noPadding
                                                             onClick={() => {
                                                                 const newChoices = [...value]

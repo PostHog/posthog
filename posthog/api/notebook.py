@@ -1,4 +1,4 @@
-from typing import Dict, List, Optional, Any
+from typing import Dict, List, Optional, Any, Type
 from django.db.models import Q
 import structlog
 from django.db import transaction
@@ -16,10 +16,10 @@ from rest_framework import serializers, viewsets
 from rest_framework.request import Request
 from rest_framework.response import Response
 from rest_framework.decorators import action
-from rest_framework.permissions import IsAuthenticated
+from rest_framework.serializers import BaseSerializer
 
 from posthog.api.forbid_destroy_model import ForbidDestroyModel
-from posthog.api.routing import StructuredViewSetMixin
+from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 from posthog.exceptions import Conflict
 from posthog.models import User
@@ -33,12 +33,9 @@ from posthog.models.activity_logging.activity_log import (
 from posthog.models.activity_logging.activity_page import activity_page_response
 from posthog.models.notebook.notebook import Notebook
 from posthog.models.utils import UUIDT
-from posthog.permissions import (
-    ProjectMembershipNecessaryPermissions,
-    TeamMemberAccessPermission,
-)
 from posthog.settings import DEBUG
 from posthog.utils import relative_date_parse
+from loginas.utils import is_impersonated_session
 
 logger = structlog.get_logger(__name__)
 
@@ -57,26 +54,47 @@ def depluralize(string: str | None) -> str | None:
 
 def log_notebook_activity(
     activity: str,
-    notebook_id: str,
-    notebook_short_id: str,
-    notebook_name: str,
+    notebook: Notebook,
     organization_id: UUIDT,
     team_id: int,
     user: User,
+    was_impersonated: bool,
     changes: Optional[List[Change]] = None,
 ) -> None:
+    short_id = str(notebook.short_id)
+
     log_activity(
         organization_id=organization_id,
         team_id=team_id,
         user=user,
-        item_id=notebook_id,
+        was_impersonated=was_impersonated,
+        item_id=notebook.short_id,
         scope="Notebook",
         activity=activity,
-        detail=Detail(changes=changes, short_id=notebook_short_id, name=notebook_name),
+        detail=Detail(changes=changes, short_id=short_id, name=notebook.title),
     )
 
 
-class NotebookSerializer(serializers.ModelSerializer):
+class NotebookMinimalSerializer(serializers.ModelSerializer):
+    created_by = UserBasicSerializer(read_only=True)
+    last_modified_by = UserBasicSerializer(read_only=True)
+
+    class Meta:
+        model = Notebook
+        fields = [
+            "id",
+            "short_id",
+            "title",
+            "deleted",
+            "created_at",
+            "created_by",
+            "last_modified_at",
+            "last_modified_by",
+        ]
+        read_only_fields = fields
+
+
+class NotebookSerializer(NotebookMinimalSerializer):
     class Meta:
         model = Notebook
         fields = [
@@ -101,9 +119,6 @@ class NotebookSerializer(serializers.ModelSerializer):
             "last_modified_by",
         ]
 
-    created_by = UserBasicSerializer(read_only=True)
-    last_modified_by = UserBasicSerializer(read_only=True)
-
     def create(self, validated_data: Dict, *args, **kwargs) -> Notebook:
         request = self.context["request"]
         team = self.context["get_team"]()
@@ -118,12 +133,11 @@ class NotebookSerializer(serializers.ModelSerializer):
 
         log_notebook_activity(
             activity="created",
-            notebook_id=notebook.id,
-            notebook_short_id=str(notebook.short_id),
-            notebook_name=notebook.title,
+            notebook=notebook,
             organization_id=self.context["request"].user.current_organization_id,
             team_id=team.id,
             user=self.context["request"].user,
+            was_impersonated=is_impersonated_session(request),
         )
 
         return notebook
@@ -154,12 +168,11 @@ class NotebookSerializer(serializers.ModelSerializer):
 
         log_notebook_activity(
             activity="updated",
-            notebook_id=str(updated_notebook.id),
-            notebook_short_id=str(updated_notebook.short_id),
-            notebook_name=updated_notebook.title,
+            notebook=updated_notebook,
             organization_id=self.context["request"].user.current_organization_id,
             team_id=self.context["team_id"],
             user=self.context["request"].user,
+            was_impersonated=is_impersonated_session(self.context["request"]),
             changes=changes,
         )
 
@@ -221,19 +234,16 @@ class NotebookSerializer(serializers.ModelSerializer):
         ],
     )
 )
-class NotebookViewSet(StructuredViewSetMixin, ForbidDestroyModel, viewsets.ModelViewSet):
+class NotebookViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.ModelViewSet):
     queryset = Notebook.objects.all()
-    serializer_class = NotebookSerializer
-    permission_classes = [
-        IsAuthenticated,
-        ProjectMembershipNecessaryPermissions,
-        TeamMemberAccessPermission,
-    ]
     filter_backends = [DjangoFilterBackend]
     filterset_fields = ["short_id"]
     # TODO: Remove this once we have released notebooks
     include_in_docs = DEBUG
     lookup_field = "short_id"
+
+    def get_serializer_class(self) -> Type[BaseSerializer]:
+        return NotebookMinimalSerializer if self.action == "list" else NotebookSerializer
 
     def get_queryset(self) -> QuerySet:
         queryset = super().get_queryset()
@@ -356,7 +366,7 @@ class NotebookViewSet(StructuredViewSetMixin, ForbidDestroyModel, viewsets.Model
         activity_page = load_activity(
             scope="Notebook",
             team_id=self.team_id,
-            item_id=notebook.id,
+            item_ids=[notebook.id, notebook.short_id],
             limit=limit,
             page=page,
         )

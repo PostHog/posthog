@@ -9,16 +9,12 @@ from django.views.decorators.cache import cache_page
 from rest_framework import request, response, serializers, viewsets
 from rest_framework.decorators import action
 from rest_framework.exceptions import ValidationError
-from rest_framework.permissions import SAFE_METHODS, BasePermission, IsAuthenticated
+from rest_framework.permissions import SAFE_METHODS, BasePermission
 from rest_framework.request import Request
 
 from posthog.api.forbid_destroy_model import ForbidDestroyModel
-from posthog.api.routing import StructuredViewSetMixin
+from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.models.dashboard_templates import DashboardTemplate
-from posthog.permissions import (
-    ProjectMembershipNecessaryPermissions,
-    TeamMemberAccessPermission,
-)
 
 logger = structlog.get_logger(__name__)
 
@@ -73,13 +69,8 @@ class DashboardTemplateSerializer(serializers.ModelSerializer):
         return super().update(instance, validated_data, *args, **kwargs)
 
 
-class DashboardTemplateViewSet(StructuredViewSetMixin, ForbidDestroyModel, viewsets.ModelViewSet):
-    permission_classes = [
-        IsAuthenticated,
-        ProjectMembershipNecessaryPermissions,
-        TeamMemberAccessPermission,
-        OnlyStaffCanEditDashboardTemplate,
-    ]
+class DashboardTemplateViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.ModelViewSet):
+    permission_classes = [OnlyStaffCanEditDashboardTemplate]
     serializer_class = DashboardTemplateSerializer
 
     @method_decorator(cache_page(60 * 2))  # cache for 2 minutes
@@ -90,5 +81,22 @@ class DashboardTemplateViewSet(StructuredViewSetMixin, ForbidDestroyModel, views
 
     def get_queryset(self, *args, **kwargs):
         filters = self.request.GET.dict()
-        default_condition = Q(team_id=self.team_id) | Q(scope=DashboardTemplate.Scope.GLOBAL)
-        return DashboardTemplate.objects.filter(Q(**filters) if filters else default_condition)
+        scope = filters.pop("scope", None)
+        search = filters.pop("search", None)
+
+        # if scope is feature flag, then only return feature flag templates
+        # they're implicitly global, so they are not associated with any teams
+        if scope == DashboardTemplate.Scope.FEATURE_FLAG:
+            query_condition = Q(scope=DashboardTemplate.Scope.FEATURE_FLAG)
+        elif scope == DashboardTemplate.Scope.GLOBAL:
+            query_condition = Q(scope=DashboardTemplate.Scope.GLOBAL)
+        # otherwise we are in the new dashboard context so show global templates and ones from this team
+        else:
+            query_condition = Q(team_id=self.team_id) | Q(scope=DashboardTemplate.Scope.GLOBAL)
+
+        if search:
+            query_condition &= (
+                Q(template_name__search=search) | Q(dashboard_description__search=search) | Q(tags__contains=[search])
+            )
+
+        return DashboardTemplate.objects.filter(query_condition)

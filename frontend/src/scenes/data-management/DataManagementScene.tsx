@@ -1,7 +1,6 @@
 import { actions, connect, kea, path, reducers, selectors, useActions, useValues } from 'kea'
-import { actionToUrl, urlToAction } from 'kea-router'
+import { actionToUrl, combineUrl, router, urlToAction } from 'kea-router'
 import { ActivityLog } from 'lib/components/ActivityLog/ActivityLog'
-import { ActivityScope } from 'lib/components/ActivityLog/humanizeActivity'
 import { PageHeader } from 'lib/components/PageHeader'
 import { TitleWithIcon } from 'lib/components/TitleWithIcon'
 import { FEATURE_FLAGS } from 'lib/constants'
@@ -18,7 +17,7 @@ import { NewAnnotationButton } from 'scenes/annotations/AnnotationModal'
 import { Scene, SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
-import { Breadcrumb } from '~/types'
+import { ActivityScope, Breadcrumb } from '~/types'
 
 import { ActionsTable } from './actions/ActionsTable'
 import { DatabaseTableList } from './database/DatabaseTableList'
@@ -89,9 +88,7 @@ const tabs: Record<
         content: (
             <ActivityLog
                 scope={ActivityScope.DATA_MANAGEMENT}
-                caption={
-                    'Only actions taken in the UI are captured in History. Automatic creation of definitions by ingestion is not shown here.'
-                }
+                caption="Only actions taken in the UI are captured in History. Automatic creation of definitions by ingestion is not shown here."
             />
         ),
     },
@@ -164,7 +161,15 @@ const dataManagementSceneLogic = kea<dataManagementSceneLogicType>([
         ],
     }),
     actionToUrl(() => ({
-        setTab: ({ tab }) => tabs[tab as DataManagementTab]?.url || tabs.events.url,
+        setTab: ({ tab }) => {
+            const tabUrl = tabs[tab as DataManagementTab]?.url || tabs.events.url
+            if (combineUrl(tabUrl).pathname === router.values.location.pathname) {
+                // don't clear the parameters if we're already on the right page
+                // otherwise we can't use a url with parameters as a landing page
+                return
+            }
+            return tabUrl
+        },
     })),
     urlToAction(({ actions, values }) => {
         return Object.fromEntries(
@@ -193,7 +198,6 @@ export function DataManagementScene(): JSX.Element {
     return (
         <>
             <PageHeader
-                title="Data Management"
                 caption="Use data management to organize events that come into PostHog. Reduce noise, clarify usage, and help collaborators get the most value from your data."
                 tabbedPage
                 buttons={<>{tabs[tab].buttons}</>}
