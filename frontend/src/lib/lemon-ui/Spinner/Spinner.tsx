@@ -1,6 +1,7 @@
 import './Spinner.scss'
 
 import clsx from 'clsx'
+import { IconSchedule } from 'lib/lemon-ui/icons'
 
 export interface SpinnerProps {
     textColored?: boolean
@@ -29,16 +30,23 @@ export function SpinnerOverlay({
     sceneLevel,
     visible = true,
     className,
+    mode = 'waiting',
     ...spinnerProps
 }: SpinnerProps & {
     /** @default false */
     sceneLevel?: boolean
     /** @default true */
     visible?: boolean
+    /** @default "spinning" */
+    mode?: 'spinning' | 'waiting'
 }): JSX.Element {
     return (
         <div className={clsx('SpinnerOverlay', sceneLevel && 'SpinnerOverlay--scene-level')} aria-hidden={!visible}>
-            <Spinner className={clsx('text-5xl', className)} {...spinnerProps} />
+            {mode === 'waiting' ? (
+                <IconSchedule className="text-5xl" />
+            ) : (
+                <Spinner className={clsx('text-5xl', className)} {...spinnerProps} />
+            )}
         </div>
     )
 }

@@ -21,6 +21,7 @@ export function DashboardItems(): JSX.Element {
         layouts,
         dashboardMode,
         placement,
+        isCalled,
         isRefreshing,
         highlightedInsightId,
         refreshStatus,
@@ -133,6 +134,7 @@ export function DashboardItems(): JSX.Element {
                             <InsightCard
                                 key={tile.id}
                                 insight={insight}
+                                called={isCalled(insight.short_id)}
                                 loading={isRefreshing(insight.short_id)}
                                 apiErrored={refreshStatus[insight.short_id]?.error || false}
                                 highlighted={highlightedInsightId && insight.short_id === highlightedInsightId}
