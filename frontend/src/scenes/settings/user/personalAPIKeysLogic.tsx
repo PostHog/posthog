@@ -117,7 +117,10 @@ export const personalAPIKeysLogic = kea<personalAPIKeysLogicType>([
     })),
     forms(({ values, actions }) => ({
         editingKey: {
-            defaults: { label: '', scopes: [] } as Pick<PersonalAPIKeyType, 'label' | 'scopes'> & { preset?: string },
+            defaults: { label: '', scopes: [], scoped_organizations: [], scoped_teams: [] } as Pick<
+                PersonalAPIKeyType,
+                'label' | 'scopes' | 'scoped_organizations' | 'scoped_teams'
+            > & { preset?: string },
             errors: ({ label, scopes }) => ({
                 label: !label ? 'Your API key needs a label' : undefined,
                 scopes: !scopes?.length ? ('Your API key needs at least one scope' as any) : undefined,

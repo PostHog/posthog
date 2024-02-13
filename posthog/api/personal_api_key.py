@@ -3,8 +3,10 @@ from typing import cast
 from rest_framework import response, serializers, viewsets
 
 from posthog.models import PersonalAPIKey, User
+from posthog.models.organization import OrganizationMembership
 from posthog.models.personal_api_key import API_SCOPE_ACTIONS, API_SCOPE_OBJECTS, hash_key_value
 from posthog.models.utils import generate_random_token_personal
+from posthog.user_permissions import UserPermissions
 
 
 class StringListField(serializers.Field):
@@ -17,13 +19,25 @@ class StringListField(serializers.Field):
 
 class PersonalAPIKeySerializer(serializers.ModelSerializer):
     scopes = StringListField(required=True)
+    scoped_teams = StringListField(required=False)
+    scoped_organizations = StringListField(required=False)
 
     # Specifying method name because the serializer class already has a get_value method
     value = serializers.SerializerMethodField(method_name="get_key_value", read_only=True)
 
     class Meta:
         model = PersonalAPIKey
-        fields = ["id", "label", "value", "created_at", "last_used_at", "user_id", "scopes"]
+        fields = [
+            "id",
+            "label",
+            "value",
+            "created_at",
+            "last_used_at",
+            "user_id",
+            "scopes",
+            "scoped_teams",
+            "scoped_organizations",
+        ]
         read_only_fields = ["id", "value", "created_at", "last_used_at", "user_id"]
 
     def get_key_value(self, obj: PersonalAPIKey) -> str:
@@ -43,6 +57,29 @@ class PersonalAPIKeySerializer(serializers.ModelSerializer):
                 raise serializers.ValidationError(f"Invalid scope: {scope}")
 
         return scopes
+
+    def validate_scoped_teams(self, scoped_teams):
+        requesting_user: User = self.context["request"].user
+        user_permissions = UserPermissions(requesting_user)
+
+        for team in scoped_teams.split(","):
+            if user_permissions.team(team).effective_membership_level is None:
+                raise serializers.ValidationError(f"You must be a member of all teams that you are scoping the key to.")
+
+        return scoped_teams
+
+    def validate_scoped_organizations(self, scoped_organizations):
+        requesting_user: User = self.context["request"].user
+        user_permissions = UserPermissions(requesting_user)
+        org_memberships = user_permissions.organization_memberships
+
+        for organization in scoped_organizations.split(","):
+            if scoped_organizations not in org_memberships or not org_memberships[organization].level:
+                raise serializers.ValidationError(
+                    f"You must be a member of all organizations that you are scoping the key to."
+                )
+
+        return scoped_organizations
 
     def to_representation(self, instance):
         ret = super().to_representation(instance)
