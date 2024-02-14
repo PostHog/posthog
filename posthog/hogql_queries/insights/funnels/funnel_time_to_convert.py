@@ -6,6 +6,7 @@ from posthog.hogql.parser import parse_select
 from posthog.hogql_queries.insights.funnels.base import FunnelBase
 from posthog.hogql_queries.insights.funnels.funnel_query_context import FunnelQueryContext
 from posthog.hogql_queries.insights.funnels.utils import get_funnel_order_class
+from posthog.schema import FunnelTimeToConvertResults
 
 
 class FunnelTimeToConvert(FunnelBase):
@@ -17,11 +18,11 @@ class FunnelTimeToConvert(FunnelBase):
 
         self.funnel_order = get_funnel_order_class(self.context.funnelsFilter)(context=self.context)
 
-    def _format_results(self, results: list) -> dict:
-        return {
-            "bins": [(bin_from_seconds, person_count) for bin_from_seconds, person_count, _ in results],
-            "average_conversion_time": results[0][2],
-        }
+    def _format_results(self, results: list) -> FunnelTimeToConvertResults:
+        return FunnelTimeToConvertResults(
+            bins=[[bin_from_seconds, person_count] for bin_from_seconds, person_count, _ in results],
+            average_conversion_time=results[0][2],
+        )
 
     def get_query(self) -> ast.SelectQuery:
         query, funnelsFilter = self.context.query, self.context.funnelsFilter
