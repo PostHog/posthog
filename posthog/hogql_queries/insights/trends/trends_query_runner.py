@@ -451,7 +451,7 @@ class TrendsQueryRunner(QueryRunner):
                     if real_series_count > 1:
                         series_object["label"] = "{} - {}".format(series_object["label"], cohort_name)
                     else:
-                        series_object["label"] = remapped_label
+                        series_object["label"] = cohort_name
                     series_object["breakdown_value"] = "all" if str(cohort_id) == "0" else int(cohort_id)
                 else:
                     remapped_label = get_value("breakdown_value", val)
