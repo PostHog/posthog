@@ -148,7 +148,7 @@ class TestDataWarehouseQueryBuilder(ClickhouseTestMixin, BaseTest):
         assert set(response.columns).issubset({"date", "total"})
         assert response.results[0][1] == [1, 1, 1, 1, 0, 0, 0]
 
-    def test_trends_property(self):
+    def test_trends_entity_property(self):
         table_name = self.create_parquet_file()
 
         trends_query = TrendsQuery(
@@ -162,6 +162,23 @@ class TestDataWarehouseQueryBuilder(ClickhouseTestMixin, BaseTest):
                     properties=clean_entity_properties([{"key": "prop_1", "value": "a", "type": "data_warehouse"}]),
                 )
             ],
+        )
+
+        with freeze_time("2023-01-07"):
+            response = self.get_response(trends_query=trends_query)
+
+        assert response.columns is not None
+        assert set(response.columns).issubset({"date", "total"})
+        assert response.results[0][1] == [1, 0, 0, 0, 0, 0, 0]
+
+    def test_trends_property(self):
+        table_name = self.create_parquet_file()
+
+        trends_query = TrendsQuery(
+            kind="TrendsQuery",
+            dateRange=DateRange(date_from="2023-01-01"),
+            series=[DataWarehouseNode(table_name=table_name, id_field="id", timestamp_field="created")],
+            properties=clean_entity_properties([{"key": "prop_1", "value": "a", "type": "data_warehouse"}]),
         )
 
         with freeze_time("2023-01-07"):
