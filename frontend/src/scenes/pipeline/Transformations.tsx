@@ -84,7 +84,7 @@ export function Transformations(): JSX.Element {
                     )}
                     <LemonTable
                         dataSource={transformations}
-                        size="xs"
+                        size="small"
                         loading={loading}
                         columns={[
                             {

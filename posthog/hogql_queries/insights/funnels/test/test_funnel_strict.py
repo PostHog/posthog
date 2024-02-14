@@ -8,8 +8,9 @@ from posthog.hogql_queries.insights.funnels.test.conversion_time_cases import (
 )
 
 from posthog.hogql_queries.insights.funnels.test.breakdown_cases import (
-    assert_funnel_results_equal,
     funnel_breakdown_test_factory,
+    funnel_breakdown_group_test_factory,
+    assert_funnel_results_equal,
 )
 from posthog.hogql_queries.legacy_compatibility.filter_to_query import filter_to_query
 from posthog.models.action import Action
@@ -177,6 +178,15 @@ class TestFunnelStrictStepsBreakdown(
         )
         self.assertCountEqual(self._get_actor_ids_at_step(filters, 1, ["Safari"]), [people["person2"].uuid])
         self.assertCountEqual(self._get_actor_ids_at_step(filters, 2, ["Safari"]), [people["person2"].uuid])
+
+
+class TestStrictFunnelGroupBreakdown(
+    ClickhouseTestMixin,
+    funnel_breakdown_group_test_factory(  # type: ignore
+        ClickhouseFunnelStrictActors,
+    ),
+):
+    pass
 
 
 class TestFunnelStrictStepsConversionTime(

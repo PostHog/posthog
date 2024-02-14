@@ -177,6 +177,7 @@ export function SidePanel(): JSX.Element | null {
                                         activeTab === tab ? closeSidePanel() : openSidePanel(tab as SidePanelTab)
                                     }
                                     data-attr={`sidepanel-tab-${tab}`}
+                                    data-ph-capture-attribute-state-before-click={activeTab === tab ? 'open' : 'closed'}
                                     active={activeTab === tab}
                                     type="secondary"
                                     status="alt"

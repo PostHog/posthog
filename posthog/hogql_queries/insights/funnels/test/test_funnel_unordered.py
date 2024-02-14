@@ -1,4 +1,4 @@
-# from datetime import datetime
+from datetime import datetime
 from typing import cast
 
 from rest_framework.exceptions import ValidationError
@@ -7,8 +7,8 @@ from posthog.constants import INSIGHT_FUNNELS, FunnelOrderType
 from posthog.hogql_queries.insights.funnels.funnels_query_runner import FunnelsQueryRunner
 from posthog.hogql_queries.legacy_compatibility.filter_to_query import filter_to_query
 
-# from posthog.models.action import Action
-# from posthog.models.action_step import ActionStep
+from posthog.models.action import Action
+from posthog.models.action_step import ActionStep
 from posthog.models.filters import Filter
 from posthog.models.property_definition import PropertyDefinition
 from posthog.queries.funnels.funnel_unordered_persons import (
@@ -19,619 +19,630 @@ from posthog.hogql_queries.insights.funnels.test.conversion_time_cases import (
 )
 from posthog.schema import FunnelsQuery
 
-# from posthog.hogql_queries.insights.funnels.test.breakdown_cases import (
-#     assert_funnel_results_equal,
-#     funnel_breakdown_test_factory,
-# )
+from posthog.hogql_queries.insights.funnels.test.breakdown_cases import (
+    FunnelStepResult,
+    funnel_breakdown_test_factory,
+    funnel_breakdown_group_test_factory,
+    assert_funnel_results_equal,
+)
 from posthog.test.base import (
     APIBaseTest,
     ClickhouseTestMixin,
     _create_event,
     _create_person,
-    # snapshot_clickhouse_queries,
+    snapshot_clickhouse_queries,
 )
 
-# from posthog.test.test_journeys import journeys_for
+from posthog.test.test_journeys import journeys_for
 
 FORMAT_TIME = "%Y-%m-%d 00:00:00"
 
 
-# def _create_action(**kwargs):
-#     team = kwargs.pop("team")
-#     name = kwargs.pop("name")
-#     properties = kwargs.pop("properties", {})
-#     action = Action.objects.create(team=team, name=name)
-#     ActionStep.objects.create(action=action, event=name, properties=properties)
-#     return action
+def _create_action(**kwargs):
+    team = kwargs.pop("team")
+    name = kwargs.pop("name")
+    properties = kwargs.pop("properties", {})
+    action = Action.objects.create(team=team, name=name)
+    ActionStep.objects.create(action=action, event=name, properties=properties)
+    return action
 
 
-# class TestFunnelUnorderedStepsBreakdown(
-#     ClickhouseTestMixin,
-#     funnel_breakdown_test_factory(  # type: ignore
-#         FunnelUnordered,
-#         ClickhouseFunnelUnorderedActors,
-#         _create_event,
-#         _create_action,
-#         _create_person,
-#     ),
-# ):
-#     maxDiff = None
+class TestFunnelUnorderedStepsBreakdown(
+    ClickhouseTestMixin,
+    funnel_breakdown_test_factory(  # type: ignore
+        FunnelOrderType.UNORDERED,
+        ClickhouseFunnelUnorderedActors,
+        _create_action,
+        _create_person,
+    ),
+):
+    maxDiff = None
 
-#     def test_funnel_step_breakdown_event_single_person_events_with_multiple_properties(self):
-#         # overriden from factory
+    def test_funnel_step_breakdown_event_single_person_events_with_multiple_properties(self):
+        # overriden from factory
 
-#         filters = {
-#             "events": [{"id": "sign up", "order": 0}, {"id": "play movie", "order": 1}],
-#             "insight": INSIGHT_FUNNELS,
-#             "date_from": "2020-01-01",
-#             "date_to": "2020-01-08",
-#             "funnel_window_days": 7,
-#             "breakdown_type": "event",
-#             "breakdown": "$browser",
-#             "breakdown_attribution_type": "all_events",
-#         }
+        filters = {
+            "insight": INSIGHT_FUNNELS,
+            "funnel_order_type": "unordered",
+            "events": [{"id": "sign up", "order": 0}, {"id": "play movie", "order": 1}],
+            "date_from": "2020-01-01",
+            "date_to": "2020-01-08",
+            "funnel_window_days": 7,
+            "breakdown_type": "event",
+            "breakdown": "$browser",
+            "breakdown_attribution_type": "all_events",
+        }
 
-#         # event
-#         person1 = _create_person(distinct_ids=["person1"], team_id=self.team.pk)
-#         _create_event(
-#             team=self.team,
-#             event="sign up",
-#             distinct_id="person1",
-#             properties={"key": "val", "$browser": "Chrome"},
-#             timestamp="2020-01-01T12:00:00Z",
-#         )
-#         _create_event(
-#             team=self.team,
-#             event="sign up",
-#             distinct_id="person1",
-#             properties={"key": "val", "$browser": "Safari"},
-#             timestamp="2020-01-02T13:00:00Z",
-#         )
-#         _create_event(
-#             team=self.team,
-#             event="play movie",
-#             distinct_id="person1",
-#             properties={"key": "val", "$browser": "Safari"},
-#             timestamp="2020-01-02T14:00:00Z",
-#         )
+        # event
+        person1 = _create_person(distinct_ids=["person1"], team_id=self.team.pk)
+        _create_event(
+            team=self.team,
+            event="sign up",
+            distinct_id="person1",
+            properties={"key": "val", "$browser": "Chrome"},
+            timestamp="2020-01-01T12:00:00Z",
+        )
+        _create_event(
+            team=self.team,
+            event="sign up",
+            distinct_id="person1",
+            properties={"key": "val", "$browser": "Safari"},
+            timestamp="2020-01-02T13:00:00Z",
+        )
+        _create_event(
+            team=self.team,
+            event="play movie",
+            distinct_id="person1",
+            properties={"key": "val", "$browser": "Safari"},
+            timestamp="2020-01-02T14:00:00Z",
+        )
 
-#         query = cast(FunnelsQuery, filter_to_query(filters))
-#         results = FunnelsQueryRunner(query=query, team=self.team).calculate().results
+        query = cast(FunnelsQuery, filter_to_query(filters))
+        results = FunnelsQueryRunner(query=query, team=self.team).calculate().results
 
-#         assert_funnel_results_equal(
-#             results[0],
-#             [
-#                 {
-#                     "action_id": None,
-#                     "name": "Completed 1 step",
-#                     "custom_name": None,
-#                     "order": 0,
-#                     "people": [],
-#                     "count": 1,
-#                     "type": "events",
-#                     "average_conversion_time": None,
-#                     "median_conversion_time": None,
-#                     "breakdown": ["Chrome"],
-#                     "breakdown_value": ["Chrome"],
-#                 },
-#                 {
-#                     "action_id": None,
-#                     "name": "Completed 2 steps",
-#                     "custom_name": None,
-#                     "order": 1,
-#                     "people": [],
-#                     "count": 0,
-#                     "type": "events",
-#                     "average_conversion_time": None,
-#                     "median_conversion_time": None,
-#                     "breakdown": ["Chrome"],
-#                     "breakdown_value": ["Chrome"],
-#                 },
-#             ],
-#         )
-#         self.assertCountEqual(self._get_actor_ids_at_step(filters, 1, ["Chrome"]), [person1.uuid])
-#         self.assertCountEqual(self._get_actor_ids_at_step(filters, 2, ["Chrome"]), [])
+        assert_funnel_results_equal(
+            results[0],
+            [
+                {
+                    "action_id": None,
+                    "name": "Completed 1 step",
+                    "custom_name": None,
+                    "order": 0,
+                    "people": [],
+                    "count": 1,
+                    "type": "events",
+                    "average_conversion_time": None,
+                    "median_conversion_time": None,
+                    "breakdown": ["Chrome"],
+                    "breakdown_value": ["Chrome"],
+                },
+                {
+                    "action_id": None,
+                    "name": "Completed 2 steps",
+                    "custom_name": None,
+                    "order": 1,
+                    "people": [],
+                    "count": 0,
+                    "type": "events",
+                    "average_conversion_time": None,
+                    "median_conversion_time": None,
+                    "breakdown": ["Chrome"],
+                    "breakdown_value": ["Chrome"],
+                },
+            ],
+        )
+        self.assertCountEqual(self._get_actor_ids_at_step(filters, 1, ["Chrome"]), [person1.uuid])
+        self.assertCountEqual(self._get_actor_ids_at_step(filters, 2, ["Chrome"]), [])
 
-#         assert_funnel_results_equal(
-#             results[1],
-#             [
-#                 {
-#                     "action_id": None,
-#                     "name": "Completed 1 step",
-#                     "custom_name": None,
-#                     "order": 0,
-#                     "people": [],
-#                     "count": 1,
-#                     "type": "events",
-#                     "average_conversion_time": None,
-#                     "median_conversion_time": None,
-#                     "breakdown": ["Safari"],
-#                     "breakdown_value": ["Safari"],
-#                 },
-#                 {
-#                     "action_id": None,
-#                     "name": "Completed 2 steps",
-#                     "custom_name": None,
-#                     "order": 1,
-#                     "people": [],
-#                     "count": 1,
-#                     "type": "events",
-#                     "average_conversion_time": 3600,
-#                     "median_conversion_time": 3600,
-#                     "breakdown": ["Safari"],
-#                     "breakdown_value": ["Safari"],
-#                 },
-#             ],
-#         )
-#         self.assertCountEqual(self._get_actor_ids_at_step(filters, 1, ["Safari"]), [person1.uuid])
-#         self.assertCountEqual(self._get_actor_ids_at_step(filters, 2, ["Safari"]), [person1.uuid])
+        assert_funnel_results_equal(
+            results[1],
+            [
+                {
+                    "action_id": None,
+                    "name": "Completed 1 step",
+                    "custom_name": None,
+                    "order": 0,
+                    "people": [],
+                    "count": 1,
+                    "type": "events",
+                    "average_conversion_time": None,
+                    "median_conversion_time": None,
+                    "breakdown": ["Safari"],
+                    "breakdown_value": ["Safari"],
+                },
+                {
+                    "action_id": None,
+                    "name": "Completed 2 steps",
+                    "custom_name": None,
+                    "order": 1,
+                    "people": [],
+                    "count": 1,
+                    "type": "events",
+                    "average_conversion_time": 3600,
+                    "median_conversion_time": 3600,
+                    "breakdown": ["Safari"],
+                    "breakdown_value": ["Safari"],
+                },
+            ],
+        )
+        self.assertCountEqual(self._get_actor_ids_at_step(filters, 1, ["Safari"]), [person1.uuid])
+        self.assertCountEqual(self._get_actor_ids_at_step(filters, 2, ["Safari"]), [person1.uuid])
 
-#     def test_funnel_step_breakdown_with_step_attribution(self):
-#         # overridden from factory, since with no order, step one is step zero, and vice versa
+    def test_funnel_step_breakdown_with_step_attribution(self):
+        # overridden from factory, since with no order, step one is step zero, and vice versa
 
-#         filters = {
-#             "events": [{"id": "sign up", "order": 0}, {"id": "buy", "order": 1}],
-#             "insight": INSIGHT_FUNNELS,
-#             "date_from": "2020-01-01",
-#             "date_to": "2020-01-08",
-#             "funnel_window_days": 7,
-#             "breakdown_type": "event",
-#             "breakdown": ["$browser"],
-#             "breakdown_attribution_type": "step",
-#             "breakdown_attribution_value": "0",
-#             "funnel_order_type": "unordered",
-#         }
+        filters = {
+            "insight": INSIGHT_FUNNELS,
+            "funnel_order_type": "unordered",
+            "events": [{"id": "sign up", "order": 0}, {"id": "buy", "order": 1}],
+            "date_from": "2020-01-01",
+            "date_to": "2020-01-08",
+            "funnel_window_days": 7,
+            "breakdown_type": "event",
+            "breakdown": ["$browser"],
+            "breakdown_attribution_type": "step",
+            "breakdown_attribution_value": "0",
+        }
 
-#         # event
-#         events_by_person = {
-#             "person1": [
-#                 {
-#                     "event": "sign up",
-#                     "timestamp": datetime(2020, 1, 1, 12),
-#                     "properties": {"$browser": "Chrome"},
-#                 },
-#                 {"event": "buy", "timestamp": datetime(2020, 1, 1, 13)},
-#             ],
-#             "person2": [
-#                 {"event": "sign up", "timestamp": datetime(2020, 1, 1, 13)},
-#                 {
-#                     "event": "buy",
-#                     "timestamp": datetime(2020, 1, 2, 13),
-#                     "properties": {"$browser": "Safari"},
-#                 },
-#             ],
-#             "person3": [
-#                 {
-#                     "event": "sign up",
-#                     "timestamp": datetime(2020, 1, 2, 14),
-#                     "properties": {"$browser": "Mac"},
-#                 },
-#                 {"event": "buy", "timestamp": datetime(2020, 1, 2, 15)},
-#             ],
-#             "person4": [
-#                 {
-#                     "event": "sign up",
-#                     "timestamp": datetime(2020, 1, 2, 15),
-#                     "properties": {"$browser": 0},
-#                 },
-#                 # step attribution means alakazam is valid when step = 1
-#                 {
-#                     "event": "buy",
-#                     "timestamp": datetime(2020, 1, 2, 16),
-#                     "properties": {"$browser": "alakazam"},
-#                 },
-#             ],
-#         }
-#         people = journeys_for(events_by_person, self.team)
+        # event
+        events_by_person = {
+            "person1": [
+                {
+                    "event": "sign up",
+                    "timestamp": datetime(2020, 1, 1, 12),
+                    "properties": {"$browser": "Chrome"},
+                },
+                {"event": "buy", "timestamp": datetime(2020, 1, 1, 13)},
+            ],
+            "person2": [
+                {"event": "sign up", "timestamp": datetime(2020, 1, 1, 13)},
+                {
+                    "event": "buy",
+                    "timestamp": datetime(2020, 1, 2, 13),
+                    "properties": {"$browser": "Safari"},
+                },
+            ],
+            "person3": [
+                {
+                    "event": "sign up",
+                    "timestamp": datetime(2020, 1, 2, 14),
+                    "properties": {"$browser": "Mac"},
+                },
+                {"event": "buy", "timestamp": datetime(2020, 1, 2, 15)},
+            ],
+            "person4": [
+                {
+                    "event": "sign up",
+                    "timestamp": datetime(2020, 1, 2, 15),
+                    "properties": {"$browser": 0},
+                },
+                # step attribution means alakazam is valid when step = 1
+                {
+                    "event": "buy",
+                    "timestamp": datetime(2020, 1, 2, 16),
+                    "properties": {"$browser": "alakazam"},
+                },
+            ],
+        }
+        people = journeys_for(events_by_person, self.team)
 
-#         query = cast(FunnelsQuery, filter_to_query(filters))
-#         results = FunnelsQueryRunner(query=query, team=self.team).calculate().results
-#         results = sorted(results, key=lambda res: res[0]["breakdown"])
+        query = cast(FunnelsQuery, filter_to_query(filters))
+        results = FunnelsQueryRunner(query=query, team=self.team).calculate().results
+        results = sorted(results, key=lambda res: res[0]["breakdown"])
 
-#         self.assertEqual(len(results), 6)
+        self.assertEqual(len(results), 6)
 
-#         self.assertCountEqual(self._get_actor_ids_at_step(filters, 1, "Mac"), [people["person3"].uuid])
+        self.assertCountEqual(self._get_actor_ids_at_step(filters, 1, "Mac"), [people["person3"].uuid])
 
-#     def test_funnel_step_breakdown_with_step_one_attribution(self):
-#         # overridden from factory, since with no order, step one is step zero, and vice versa
-#         filters = {
-#             "events": [{"id": "sign up", "order": 0}, {"id": "buy", "order": 1}],
-#             "insight": INSIGHT_FUNNELS,
-#             "date_from": "2020-01-01",
-#             "date_to": "2020-01-08",
-#             "funnel_window_days": 7,
-#             "breakdown_type": "event",
-#             "breakdown": ["$browser"],
-#             "breakdown_attribution_type": "step",
-#             "breakdown_attribution_value": "1",
-#             "funnel_order_type": "unordered",
-#         }
+    def test_funnel_step_breakdown_with_step_one_attribution(self):
+        # overridden from factory, since with no order, step one is step zero, and vice versa
+        filters = {
+            "insight": INSIGHT_FUNNELS,
+            "funnel_order_type": "unordered",
+            "events": [{"id": "sign up", "order": 0}, {"id": "buy", "order": 1}],
+            "date_from": "2020-01-01",
+            "date_to": "2020-01-08",
+            "funnel_window_days": 7,
+            "breakdown_type": "event",
+            "breakdown": ["$browser"],
+            "breakdown_attribution_type": "step",
+            "breakdown_attribution_value": "1",
+        }
 
-#         # event
-#         events_by_person = {
-#             "person1": [
-#                 {
-#                     "event": "sign up",
-#                     "timestamp": datetime(2020, 1, 1, 12),
-#                     "properties": {"$browser": "Chrome"},
-#                 },
-#                 {"event": "buy", "timestamp": datetime(2020, 1, 1, 13)},
-#             ],
-#             "person2": [
-#                 {"event": "sign up", "timestamp": datetime(2020, 1, 1, 13)},
-#                 {
-#                     "event": "buy",
-#                     "timestamp": datetime(2020, 1, 2, 13),
-#                     "properties": {"$browser": "Safari"},
-#                 },
-#             ],
-#             "person3": [
-#                 {
-#                     "event": "sign up",
-#                     "timestamp": datetime(2020, 1, 2, 14),
-#                     "properties": {"$browser": "Mac"},
-#                 },
-#                 {"event": "buy", "timestamp": datetime(2020, 1, 2, 15)},
-#             ],
-#             "person4": [
-#                 {
-#                     "event": "sign up",
-#                     "timestamp": datetime(2020, 1, 2, 15),
-#                     "properties": {"$browser": 0},
-#                 },
-#                 # step attribution means alakazam is valid when step = 1
-#                 {
-#                     "event": "buy",
-#                     "timestamp": datetime(2020, 1, 2, 16),
-#                     "properties": {"$browser": "alakazam"},
-#                 },
-#             ],
-#         }
-#         people = journeys_for(events_by_person, self.team)
+        # event
+        events_by_person = {
+            "person1": [
+                {
+                    "event": "sign up",
+                    "timestamp": datetime(2020, 1, 1, 12),
+                    "properties": {"$browser": "Chrome"},
+                },
+                {"event": "buy", "timestamp": datetime(2020, 1, 1, 13)},
+            ],
+            "person2": [
+                {"event": "sign up", "timestamp": datetime(2020, 1, 1, 13)},
+                {
+                    "event": "buy",
+                    "timestamp": datetime(2020, 1, 2, 13),
+                    "properties": {"$browser": "Safari"},
+                },
+            ],
+            "person3": [
+                {
+                    "event": "sign up",
+                    "timestamp": datetime(2020, 1, 2, 14),
+                    "properties": {"$browser": "Mac"},
+                },
+                {"event": "buy", "timestamp": datetime(2020, 1, 2, 15)},
+            ],
+            "person4": [
+                {
+                    "event": "sign up",
+                    "timestamp": datetime(2020, 1, 2, 15),
+                    "properties": {"$browser": 0},
+                },
+                # step attribution means alakazam is valid when step = 1
+                {
+                    "event": "buy",
+                    "timestamp": datetime(2020, 1, 2, 16),
+                    "properties": {"$browser": "alakazam"},
+                },
+            ],
+        }
+        people = journeys_for(events_by_person, self.team)
 
-#         query = cast(FunnelsQuery, filter_to_query(filters))
-#         results = FunnelsQueryRunner(query=query, team=self.team).calculate().results
-#         results = sorted(results, key=lambda res: res[0]["breakdown"])
+        query = cast(FunnelsQuery, filter_to_query(filters))
+        results = FunnelsQueryRunner(query=query, team=self.team).calculate().results
+        results = sorted(results, key=lambda res: res[0]["breakdown"])
 
-#         self.assertEqual(len(results), 6)
-#         # unordered, so everything is step one too.
+        self.assertEqual(len(results), 6)
+        # unordered, so everything is step one too.
 
-#         self._assert_funnel_breakdown_result_is_correct(
-#             results[0],
-#             [
-#                 FunnelStepResult(name="Completed 1 step", breakdown=[""], count=3),
-#                 FunnelStepResult(
-#                     name="Completed 2 steps",
-#                     breakdown=[""],
-#                     count=2,
-#                     average_conversion_time=3600,
-#                     median_conversion_time=3600,
-#                 ),
-#             ],
-#         )
+        self._assert_funnel_breakdown_result_is_correct(
+            results[0],
+            [
+                FunnelStepResult(name="Completed 1 step", breakdown=[""], count=3),
+                FunnelStepResult(
+                    name="Completed 2 steps",
+                    breakdown=[""],
+                    count=2,
+                    average_conversion_time=3600,
+                    median_conversion_time=3600,
+                ),
+            ],
+        )
 
-#         self.assertCountEqual(
-#             self._get_actor_ids_at_step(filters, 1, ""),
-#             [people["person1"].uuid, people["person2"].uuid, people["person3"].uuid],
-#         )
-#         self.assertCountEqual(
-#             self._get_actor_ids_at_step(filters, 2, ""),
-#             [people["person1"].uuid, people["person3"].uuid],
-#         )
+        self.assertCountEqual(
+            self._get_actor_ids_at_step(filters, 1, ""),
+            [people["person1"].uuid, people["person2"].uuid, people["person3"].uuid],
+        )
+        self.assertCountEqual(
+            self._get_actor_ids_at_step(filters, 2, ""),
+            [people["person1"].uuid, people["person3"].uuid],
+        )
 
-#         self._assert_funnel_breakdown_result_is_correct(
-#             results[1],
-#             [
-#                 FunnelStepResult(name="Completed 1 step", breakdown=["0"], count=1),
-#                 FunnelStepResult(name="Completed 2 steps", breakdown=["0"], count=0),
-#             ],
-#         )
+        self._assert_funnel_breakdown_result_is_correct(
+            results[1],
+            [
+                FunnelStepResult(name="Completed 1 step", breakdown=["0"], count=1),
+                FunnelStepResult(name="Completed 2 steps", breakdown=["0"], count=0),
+            ],
+        )
 
-#         self.assertCountEqual(self._get_actor_ids_at_step(filters, 1, "0"), [people["person4"].uuid])
+        self.assertCountEqual(self._get_actor_ids_at_step(filters, 1, "0"), [people["person4"].uuid])
 
-#     def test_funnel_step_breakdown_with_step_one_attribution_incomplete_funnel(self):
-#         # overridden from factory, since with no order, step one is step zero, and vice versa
+    def test_funnel_step_breakdown_with_step_one_attribution_incomplete_funnel(self):
+        # overridden from factory, since with no order, step one is step zero, and vice versa
 
-#         filters = {
-#             "events": [{"id": "sign up", "order": 0}, {"id": "buy", "order": 1}],
-#             "insight": INSIGHT_FUNNELS,
-#             "date_from": "2020-01-01",
-#             "date_to": "2020-01-08",
-#             "funnel_window_days": 7,
-#             "breakdown_type": "event",
-#             "breakdown": ["$browser"],
-#             "breakdown_attribution_type": "step",
-#             "breakdown_attribution_value": "1",
-#             "funnel_order_type": "unordered",
-#         }
+        filters = {
+            "events": [{"id": "sign up", "order": 0}, {"id": "buy", "order": 1}],
+            "insight": INSIGHT_FUNNELS,
+            "date_from": "2020-01-01",
+            "date_to": "2020-01-08",
+            "funnel_window_days": 7,
+            "breakdown_type": "event",
+            "breakdown": ["$browser"],
+            "breakdown_attribution_type": "step",
+            "breakdown_attribution_value": "1",
+            "funnel_order_type": "unordered",
+        }
 
-#         # event
-#         events_by_person = {
-#             "person1": [
-#                 {
-#                     "event": "sign up",
-#                     "timestamp": datetime(2020, 1, 1, 12),
-#                     "properties": {"$browser": "Chrome"},
-#                 },
-#                 {"event": "buy", "timestamp": datetime(2020, 1, 1, 13)},
-#             ],
-#             "person2": [
-#                 {"event": "sign up", "timestamp": datetime(2020, 1, 1, 13)},
-#                 # {"event": "buy", "timestamp": datetime(2020, 1, 2, 13), "properties": {"$browser": "Safari"}}
-#             ],
-#             "person3": [
-#                 {
-#                     "event": "sign up",
-#                     "timestamp": datetime(2020, 1, 2, 14),
-#                     "properties": {"$browser": "Mac"},
-#                 },
-#                 # {"event": "buy", "timestamp": datetime(2020, 1, 2, 15)}
-#             ],
-#             "person4": [
-#                 {
-#                     "event": "sign up",
-#                     "timestamp": datetime(2020, 1, 2, 15),
-#                     "properties": {"$browser": 0},
-#                 },
-#                 # step attribution means alakazam is valid when step = 1
-#                 {
-#                     "event": "buy",
-#                     "timestamp": datetime(2020, 1, 2, 16),
-#                     "properties": {"$browser": "alakazam"},
-#                 },
-#             ],
-#         }
-#         people = journeys_for(events_by_person, self.team)
+        # event
+        events_by_person = {
+            "person1": [
+                {
+                    "event": "sign up",
+                    "timestamp": datetime(2020, 1, 1, 12),
+                    "properties": {"$browser": "Chrome"},
+                },
+                {"event": "buy", "timestamp": datetime(2020, 1, 1, 13)},
+            ],
+            "person2": [
+                {"event": "sign up", "timestamp": datetime(2020, 1, 1, 13)},
+                # {"event": "buy", "timestamp": datetime(2020, 1, 2, 13), "properties": {"$browser": "Safari"}}
+            ],
+            "person3": [
+                {
+                    "event": "sign up",
+                    "timestamp": datetime(2020, 1, 2, 14),
+                    "properties": {"$browser": "Mac"},
+                },
+                # {"event": "buy", "timestamp": datetime(2020, 1, 2, 15)}
+            ],
+            "person4": [
+                {
+                    "event": "sign up",
+                    "timestamp": datetime(2020, 1, 2, 15),
+                    "properties": {"$browser": 0},
+                },
+                # step attribution means alakazam is valid when step = 1
+                {
+                    "event": "buy",
+                    "timestamp": datetime(2020, 1, 2, 16),
+                    "properties": {"$browser": "alakazam"},
+                },
+            ],
+        }
+        people = journeys_for(events_by_person, self.team)
 
-#         query = cast(FunnelsQuery, filter_to_query(filters))
-#         results = FunnelsQueryRunner(query=query, team=self.team).calculate().results
-#         results = sorted(results, key=lambda res: res[0]["breakdown"])
+        query = cast(FunnelsQuery, filter_to_query(filters))
+        results = FunnelsQueryRunner(query=query, team=self.team).calculate().results
+        results = sorted(results, key=lambda res: res[0]["breakdown"])
 
-#         # Breakdown by step_1 means funnel items that never reach step_1 are NULLed out
-#         self.assertEqual(len(results), 4)
-#         # Chrome and Mac and Safari goes away
+        # Breakdown by step_1 means funnel items that never reach step_1 are NULLed out
+        self.assertEqual(len(results), 4)
+        # Chrome and Mac and Safari goes away
 
-#         self._assert_funnel_breakdown_result_is_correct(
-#             results[0],
-#             [
-#                 FunnelStepResult(name="Completed 1 step", breakdown=[""], count=1),
-#                 FunnelStepResult(
-#                     name="Completed 2 steps",
-#                     breakdown=[""],
-#                     count=1,
-#                     average_conversion_time=3600,
-#                     median_conversion_time=3600,
-#                 ),
-#             ],
-#         )
+        self._assert_funnel_breakdown_result_is_correct(
+            results[0],
+            [
+                FunnelStepResult(name="Completed 1 step", breakdown=[""], count=1),
+                FunnelStepResult(
+                    name="Completed 2 steps",
+                    breakdown=[""],
+                    count=1,
+                    average_conversion_time=3600,
+                    median_conversion_time=3600,
+                ),
+            ],
+        )
 
-#         self.assertCountEqual(self._get_actor_ids_at_step(filters, 1, ""), [people["person1"].uuid])
+        self.assertCountEqual(self._get_actor_ids_at_step(filters, 1, ""), [people["person1"].uuid])
 
-#         self._assert_funnel_breakdown_result_is_correct(
-#             results[1],
-#             [
-#                 FunnelStepResult(name="Completed 1 step", breakdown=["0"], count=1),
-#                 FunnelStepResult(name="Completed 2 steps", breakdown=["0"], count=0),
-#             ],
-#         )
+        self._assert_funnel_breakdown_result_is_correct(
+            results[1],
+            [
+                FunnelStepResult(name="Completed 1 step", breakdown=["0"], count=1),
+                FunnelStepResult(name="Completed 2 steps", breakdown=["0"], count=0),
+            ],
+        )
 
-#         self.assertCountEqual(self._get_actor_ids_at_step(filters, 1, "0"), [people["person4"].uuid])
+        self.assertCountEqual(self._get_actor_ids_at_step(filters, 1, "0"), [people["person4"].uuid])
 
-#         self._assert_funnel_breakdown_result_is_correct(
-#             results[2],
-#             [
-#                 FunnelStepResult(name="Completed 1 step", breakdown=["Chrome"], count=1),
-#                 FunnelStepResult(name="Completed 2 steps", breakdown=["Chrome"], count=0),
-#             ],
-#         )
+        self._assert_funnel_breakdown_result_is_correct(
+            results[2],
+            [
+                FunnelStepResult(name="Completed 1 step", breakdown=["Chrome"], count=1),
+                FunnelStepResult(name="Completed 2 steps", breakdown=["Chrome"], count=0),
+            ],
+        )
 
-#         self.assertCountEqual(self._get_actor_ids_at_step(filters, 1, "Chrome"), [people["person1"].uuid])
+        self.assertCountEqual(self._get_actor_ids_at_step(filters, 1, "Chrome"), [people["person1"].uuid])
 
-#         self._assert_funnel_breakdown_result_is_correct(
-#             results[3],
-#             [
-#                 FunnelStepResult(name="Completed 1 step", breakdown=["alakazam"], count=1),
-#                 FunnelStepResult(
-#                     name="Completed 2 steps",
-#                     breakdown=["alakazam"],
-#                     count=1,
-#                     average_conversion_time=3600,
-#                     median_conversion_time=3600,
-#                 ),
-#             ],
-#         )
+        self._assert_funnel_breakdown_result_is_correct(
+            results[3],
+            [
+                FunnelStepResult(name="Completed 1 step", breakdown=["alakazam"], count=1),
+                FunnelStepResult(
+                    name="Completed 2 steps",
+                    breakdown=["alakazam"],
+                    count=1,
+                    average_conversion_time=3600,
+                    median_conversion_time=3600,
+                ),
+            ],
+        )
 
-#         self.assertCountEqual(self._get_actor_ids_at_step(filters, 1, "alakazam"), [people["person4"].uuid])
+        self.assertCountEqual(self._get_actor_ids_at_step(filters, 1, "alakazam"), [people["person4"].uuid])
 
-#     def test_funnel_step_non_array_breakdown_with_step_one_attribution_incomplete_funnel(self):
-#         # overridden from factory, since with no order, step one is step zero, and vice versa
+    def test_funnel_step_non_array_breakdown_with_step_one_attribution_incomplete_funnel(self):
+        # overridden from factory, since with no order, step one is step zero, and vice versa
 
-#         filters = {
-#             "events": [{"id": "sign up", "order": 0}, {"id": "buy", "order": 1}],
-#             "insight": INSIGHT_FUNNELS,
-#             "date_from": "2020-01-01",
-#             "date_to": "2020-01-08",
-#             "funnel_window_days": 7,
-#             "breakdown_type": "event",
-#             "breakdown": "$browser",
-#             "breakdown_attribution_type": "step",
-#             "breakdown_attribution_value": "1",
-#             "funnel_order_type": "unordered",
-#         }
+        filters = {
+            "events": [{"id": "sign up", "order": 0}, {"id": "buy", "order": 1}],
+            "insight": INSIGHT_FUNNELS,
+            "date_from": "2020-01-01",
+            "date_to": "2020-01-08",
+            "funnel_window_days": 7,
+            "breakdown_type": "event",
+            "breakdown": "$browser",
+            "breakdown_attribution_type": "step",
+            "breakdown_attribution_value": "1",
+            "funnel_order_type": "unordered",
+        }
 
-#         # event
-#         events_by_person = {
-#             "person1": [
-#                 {
-#                     "event": "sign up",
-#                     "timestamp": datetime(2020, 1, 1, 12),
-#                     "properties": {"$browser": "Chrome"},
-#                 },
-#                 {"event": "buy", "timestamp": datetime(2020, 1, 1, 13)},
-#             ],
-#             "person2": [
-#                 {"event": "sign up", "timestamp": datetime(2020, 1, 1, 13)},
-#                 # {"event": "buy", "timestamp": datetime(2020, 1, 2, 13), "properties": {"$browser": "Safari"}}
-#             ],
-#             "person3": [
-#                 {
-#                     "event": "sign up",
-#                     "timestamp": datetime(2020, 1, 2, 14),
-#                     "properties": {"$browser": "Mac"},
-#                 },
-#                 # {"event": "buy", "timestamp": datetime(2020, 1, 2, 15)}
-#             ],
-#             "person4": [
-#                 {
-#                     "event": "sign up",
-#                     "timestamp": datetime(2020, 1, 2, 15),
-#                     "properties": {"$browser": 0},
-#                 },
-#                 # step attribution means alakazam is valid when step = 1
-#                 {
-#                     "event": "buy",
-#                     "timestamp": datetime(2020, 1, 2, 16),
-#                     "properties": {"$browser": "alakazam"},
-#                 },
-#             ],
-#         }
-#         people = journeys_for(events_by_person, self.team)
+        # event
+        events_by_person = {
+            "person1": [
+                {
+                    "event": "sign up",
+                    "timestamp": datetime(2020, 1, 1, 12),
+                    "properties": {"$browser": "Chrome"},
+                },
+                {"event": "buy", "timestamp": datetime(2020, 1, 1, 13)},
+            ],
+            "person2": [
+                {"event": "sign up", "timestamp": datetime(2020, 1, 1, 13)},
+                # {"event": "buy", "timestamp": datetime(2020, 1, 2, 13), "properties": {"$browser": "Safari"}}
+            ],
+            "person3": [
+                {
+                    "event": "sign up",
+                    "timestamp": datetime(2020, 1, 2, 14),
+                    "properties": {"$browser": "Mac"},
+                },
+                # {"event": "buy", "timestamp": datetime(2020, 1, 2, 15)}
+            ],
+            "person4": [
+                {
+                    "event": "sign up",
+                    "timestamp": datetime(2020, 1, 2, 15),
+                    "properties": {"$browser": 0},
+                },
+                # step attribution means alakazam is valid when step = 1
+                {
+                    "event": "buy",
+                    "timestamp": datetime(2020, 1, 2, 16),
+                    "properties": {"$browser": "alakazam"},
+                },
+            ],
+        }
+        people = journeys_for(events_by_person, self.team)
 
-#         query = cast(FunnelsQuery, filter_to_query(filters))
-#         results = FunnelsQueryRunner(query=query, team=self.team).calculate().results
-#         results = sorted(results, key=lambda res: res[0]["breakdown"])
+        query = cast(FunnelsQuery, filter_to_query(filters))
+        results = FunnelsQueryRunner(query=query, team=self.team).calculate().results
+        results = sorted(results, key=lambda res: res[0]["breakdown"])
 
-#         # Breakdown by step_1 means funnel items that never reach step_1 are NULLed out
-#         self.assertEqual(len(results), 4)
-#         # Chrome and Mac and Safari goes away
+        # Breakdown by step_1 means funnel items that never reach step_1 are NULLed out
+        self.assertEqual(len(results), 4)
+        # Chrome and Mac and Safari goes away
 
-#         self._assert_funnel_breakdown_result_is_correct(
-#             results[0],
-#             [
-#                 FunnelStepResult(name="Completed 1 step", breakdown=[""], count=1),
-#                 FunnelStepResult(
-#                     name="Completed 2 steps",
-#                     breakdown=[""],
-#                     count=1,
-#                     average_conversion_time=3600,
-#                     median_conversion_time=3600,
-#                 ),
-#             ],
-#         )
+        self._assert_funnel_breakdown_result_is_correct(
+            results[0],
+            [
+                FunnelStepResult(name="Completed 1 step", breakdown=[""], count=1),
+                FunnelStepResult(
+                    name="Completed 2 steps",
+                    breakdown=[""],
+                    count=1,
+                    average_conversion_time=3600,
+                    median_conversion_time=3600,
+                ),
+            ],
+        )
 
-#         self.assertCountEqual(self._get_actor_ids_at_step(filters, 1, ""), [people["person1"].uuid])
+        self.assertCountEqual(self._get_actor_ids_at_step(filters, 1, ""), [people["person1"].uuid])
 
-#         self._assert_funnel_breakdown_result_is_correct(
-#             results[1],
-#             [
-#                 FunnelStepResult(name="Completed 1 step", breakdown=["0"], count=1),
-#                 FunnelStepResult(name="Completed 2 steps", breakdown=["0"], count=0),
-#             ],
-#         )
+        self._assert_funnel_breakdown_result_is_correct(
+            results[1],
+            [
+                FunnelStepResult(name="Completed 1 step", breakdown=["0"], count=1),
+                FunnelStepResult(name="Completed 2 steps", breakdown=["0"], count=0),
+            ],
+        )
 
-#         self.assertCountEqual(self._get_actor_ids_at_step(filters, 1, "0"), [people["person4"].uuid])
+        self.assertCountEqual(self._get_actor_ids_at_step(filters, 1, "0"), [people["person4"].uuid])
 
-#         self._assert_funnel_breakdown_result_is_correct(
-#             results[2],
-#             [
-#                 FunnelStepResult(name="Completed 1 step", breakdown=["Chrome"], count=1),
-#                 FunnelStepResult(name="Completed 2 steps", breakdown=["Chrome"], count=0),
-#             ],
-#         )
+        self._assert_funnel_breakdown_result_is_correct(
+            results[2],
+            [
+                FunnelStepResult(name="Completed 1 step", breakdown=["Chrome"], count=1),
+                FunnelStepResult(name="Completed 2 steps", breakdown=["Chrome"], count=0),
+            ],
+        )
 
-#         self.assertCountEqual(self._get_actor_ids_at_step(filters, 1, "Chrome"), [people["person1"].uuid])
+        self.assertCountEqual(self._get_actor_ids_at_step(filters, 1, "Chrome"), [people["person1"].uuid])
 
-#         self._assert_funnel_breakdown_result_is_correct(
-#             results[3],
-#             [
-#                 FunnelStepResult(name="Completed 1 step", breakdown=["alakazam"], count=1),
-#                 FunnelStepResult(
-#                     name="Completed 2 steps",
-#                     breakdown=["alakazam"],
-#                     count=1,
-#                     average_conversion_time=3600,
-#                     median_conversion_time=3600,
-#                 ),
-#             ],
-#         )
+        self._assert_funnel_breakdown_result_is_correct(
+            results[3],
+            [
+                FunnelStepResult(name="Completed 1 step", breakdown=["alakazam"], count=1),
+                FunnelStepResult(
+                    name="Completed 2 steps",
+                    breakdown=["alakazam"],
+                    count=1,
+                    average_conversion_time=3600,
+                    median_conversion_time=3600,
+                ),
+            ],
+        )
 
-#         self.assertCountEqual(self._get_actor_ids_at_step(filters, 1, "alakazam"), [people["person4"].uuid])
+        self.assertCountEqual(self._get_actor_ids_at_step(filters, 1, "alakazam"), [people["person4"].uuid])
 
-#     @snapshot_clickhouse_queries
-#     def test_funnel_breakdown_correct_breakdown_props_are_chosen_for_step(self):
-#         # No person querying here, so snapshots are more legible
-#         # overridden from factory, since we need to add `funnel_order_type`
+    @snapshot_clickhouse_queries
+    def test_funnel_breakdown_correct_breakdown_props_are_chosen_for_step(self):
+        # No person querying here, so snapshots are more legible
+        # overridden from factory, since we need to add `funnel_order_type`
 
-#         filters = {
-#             "events": [
-#                 {"id": "sign up", "order": 0},
-#                 {
-#                     "id": "buy",
-#                     "properties": [{"type": "event", "key": "$version", "value": "xyz"}],
-#                     "order": 1,
-#                 },
-#             ],
-#             "insight": INSIGHT_FUNNELS,
-#             "date_from": "2020-01-01",
-#             "date_to": "2020-01-08",
-#             "funnel_window_days": 7,
-#             "breakdown_type": "event",
-#             "breakdown": "$browser",
-#             "breakdown_attribution_type": "step",
-#             "breakdown_attribution_value": "1",
-#             "funnel_order_type": "unordered",
-#         }
+        filters = {
+            "events": [
+                {"id": "sign up", "order": 0},
+                {
+                    "id": "buy",
+                    "properties": [{"type": "event", "key": "$version", "value": "xyz"}],
+                    "order": 1,
+                },
+            ],
+            "insight": INSIGHT_FUNNELS,
+            "date_from": "2020-01-01",
+            "date_to": "2020-01-08",
+            "funnel_window_days": 7,
+            "breakdown_type": "event",
+            "breakdown": "$browser",
+            "breakdown_attribution_type": "step",
+            "breakdown_attribution_value": "1",
+            "funnel_order_type": "unordered",
+        }
 
-#         # event
-#         events_by_person = {
-#             "person1": [
-#                 {
-#                     "event": "sign up",
-#                     "timestamp": datetime(2020, 1, 1, 12),
-#                     "properties": {"$browser": "Chrome", "$version": "xyz"},
-#                 },
-#                 {
-#                     "event": "buy",
-#                     "timestamp": datetime(2020, 1, 1, 13),
-#                     "properties": {"$browser": "Chrome"},
-#                 },
-#                 # discarded because doesn't meet criteria
-#             ],
-#             "person2": [
-#                 {"event": "sign up", "timestamp": datetime(2020, 1, 1, 13)},
-#                 {
-#                     "event": "buy",
-#                     "timestamp": datetime(2020, 1, 2, 13),
-#                     "properties": {"$browser": "Safari", "$version": "xyz"},
-#                 },
-#             ],
-#             "person3": [
-#                 {
-#                     "event": "sign up",
-#                     "timestamp": datetime(2020, 1, 2, 14),
-#                     "properties": {"$browser": "Mac"},
-#                 },
-#                 {
-#                     "event": "buy",
-#                     "timestamp": datetime(2020, 1, 2, 15),
-#                     "properties": {"$version": "xyz", "$browser": "Mac"},
-#                 },
-#             ],
-#             # no properties dude, doesn't make it to step 1, and since breakdown on step 1, is discarded completely
-#             "person5": [
-#                 {"event": "sign up", "timestamp": datetime(2020, 1, 2, 15)},
-#                 {"event": "buy", "timestamp": datetime(2020, 1, 2, 16)},
-#             ],
-#         }
-#         journeys_for(events_by_person, self.team)
+        # event
+        events_by_person = {
+            "person1": [
+                {
+                    "event": "sign up",
+                    "timestamp": datetime(2020, 1, 1, 12),
+                    "properties": {"$browser": "Chrome", "$version": "xyz"},
+                },
+                {
+                    "event": "buy",
+                    "timestamp": datetime(2020, 1, 1, 13),
+                    "properties": {"$browser": "Chrome"},
+                },
+                # discarded because doesn't meet criteria
+            ],
+            "person2": [
+                {"event": "sign up", "timestamp": datetime(2020, 1, 1, 13)},
+                {
+                    "event": "buy",
+                    "timestamp": datetime(2020, 1, 2, 13),
+                    "properties": {"$browser": "Safari", "$version": "xyz"},
+                },
+            ],
+            "person3": [
+                {
+                    "event": "sign up",
+                    "timestamp": datetime(2020, 1, 2, 14),
+                    "properties": {"$browser": "Mac"},
+                },
+                {
+                    "event": "buy",
+                    "timestamp": datetime(2020, 1, 2, 15),
+                    "properties": {"$version": "xyz", "$browser": "Mac"},
+                },
+            ],
+            # no properties dude, doesn't make it to step 1, and since breakdown on step 1, is discarded completely
+            "person5": [
+                {"event": "sign up", "timestamp": datetime(2020, 1, 2, 15)},
+                {"event": "buy", "timestamp": datetime(2020, 1, 2, 16)},
+            ],
+        }
+        journeys_for(events_by_person, self.team)
 
-#         query = cast(FunnelsQuery, filter_to_query(filters))
-#         results = FunnelsQueryRunner(query=query, team=self.team).calculate().results
-#         results = sorted(results, key=lambda res: res[0]["breakdown"])
+        query = cast(FunnelsQuery, filter_to_query(filters))
+        results = FunnelsQueryRunner(query=query, team=self.team).calculate().results
+        results = sorted(results, key=lambda res: res[0]["breakdown"])
 
-#         self.assertEqual(len(results), 3)
+        self.assertEqual(len(results), 3)
 
-#         self.assertCountEqual([res[0]["breakdown"] for res in results], [[""], ["Mac"], ["Safari"]])
+        self.assertCountEqual([res[0]["breakdown"] for res in results], [[""], ["Mac"], ["Safari"]])
+
+
+class TestUnorderedFunnelGroupBreakdown(
+    ClickhouseTestMixin,
+    funnel_breakdown_group_test_factory(  # type: ignore
+        ClickhouseFunnelUnorderedActors,
+    ),
+):
+    pass
 
 
 class TestFunnelUnorderedStepsConversionTime(
