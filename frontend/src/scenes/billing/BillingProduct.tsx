@@ -68,7 +68,7 @@ export const BillingProductAddon = ({ addon }: { addon: BillingProductV2AddonTyp
         addon.type === 'data_pipelines' &&
         addon.subscribed &&
         featureFlags['data-pipelines-notice'] &&
-        addon.plans?.[0].plan_key === 'addon-20240111-og-customers'
+        addon.plans?.[0]?.plan_key === 'addon-20240111-og-customers'
 
     if (showPipelineAddonNotice) {
         setProductSpecificAlert({

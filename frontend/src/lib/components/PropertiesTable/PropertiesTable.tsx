@@ -10,7 +10,7 @@ import { IconDeleteForever } from 'lib/lemon-ui/icons'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonTable, LemonTableColumns, LemonTableProps } from 'lib/lemon-ui/LemonTable'
 import { userPreferencesLogic } from 'lib/logic/userPreferencesLogic'
-import { KEY_MAPPING, keyMappingKeys } from 'lib/taxonomy'
+import { CORE_FILTER_DEFINITIONS_BY_GROUP, PROPERTY_KEYS } from 'lib/taxonomy'
 import { isURL } from 'lib/utils'
 import { useMemo, useState } from 'react'
 import { NewProperty } from 'scenes/persons/NewProperty'
@@ -20,7 +20,9 @@ import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
 import { PropertyDefinitionType, PropertyType } from '~/types'
 
 import { CopyToClipboardInline } from '../CopyToClipboard'
+import { PROPERTY_FILTER_TYPE_TO_TAXONOMIC_FILTER_GROUP_TYPE } from '../PropertyFilters/utils'
 import { PropertyKeyInfo } from '../PropertyKeyInfo'
+import { TaxonomicFilterGroupType } from '../TaxonomicFilter/types'
 
 type HandledType = 'string' | 'number' | 'bigint' | 'boolean' | 'undefined' | 'null'
 type Type = HandledType | 'symbol' | 'object' | 'function'
@@ -68,7 +70,7 @@ function ValueDisplay({
 
     const [editing, setEditing] = useState(false)
     // Can edit if a key and edit callback is set, the property is custom (i.e. not PostHog), and the value is in the root of the object (i.e. no nested objects)
-    const canEdit = rootKey && !keyMappingKeys.includes(rootKey) && (!nestingLevel || nestingLevel <= 1) && onEdit
+    const canEdit = rootKey && !PROPERTY_KEYS.includes(rootKey) && (!nestingLevel || nestingLevel <= 1) && onEdit
 
     const textBasedTypes = ['string', 'number', 'bigint'] // Values that are edited with a text box
     const boolNullTypes = ['boolean', 'null'] // Values that are edited with the boolNullSelect dropdown
@@ -242,7 +244,7 @@ export function PropertiesTable({
         if (searchTerm) {
             const normalizedSearchTerm = searchTerm.toLowerCase()
             entries = entries.filter(([key, value]) => {
-                const label = KEY_MAPPING.event[key]?.label?.toLowerCase()
+                const label = CORE_FILTER_DEFINITIONS_BY_GROUP.event_properties[key]?.label?.toLowerCase()
                 return (
                     key.toLowerCase().includes(normalizedSearchTerm) ||
                     (label && label.includes(normalizedSearchTerm)) ||
@@ -252,7 +254,7 @@ export function PropertiesTable({
         }
 
         if (filterable && hidePostHogPropertiesInTable) {
-            entries = entries.filter(([key]) => !key.startsWith('$') && !keyMappingKeys.includes(key))
+            entries = entries.filter(([key]) => !key.startsWith('$') && !PROPERTY_KEYS.includes(key))
         }
 
         if (sortProperties) {
@@ -290,7 +292,14 @@ export function PropertiesTable({
                 render: function Key(_, item: any): JSX.Element {
                     return (
                         <div className="properties-table-key">
-                            <PropertyKeyInfo value={item[0]} />
+                            <PropertyKeyInfo
+                                value={item[0]}
+                                type={
+                                    rootKey && type === 'event' && ['$set', '$set_once'].includes(rootKey)
+                                        ? TaxonomicFilterGroupType.PersonProperties
+                                        : PROPERTY_FILTER_TYPE_TO_TAXONOMIC_FILTER_GROUP_TYPE[type]
+                                }
+                            />
                         </div>
                     )
                 },
@@ -340,7 +349,7 @@ export function PropertiesTable({
                 width: 0,
                 render: function Delete(_, item: any): JSX.Element | false {
                     return (
-                        !keyMappingKeys.includes(item[0]) &&
+                        !PROPERTY_KEYS.includes(item[0]) &&
                         !String(item[0]).startsWith('$initial_') && (
                             <Popconfirm
                                 onConfirm={() => onDelete(item[0])}

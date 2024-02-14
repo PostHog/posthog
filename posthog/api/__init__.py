@@ -31,7 +31,6 @@ from . import (
     personal_api_key,
     plugin,
     plugin_log_entry,
-    prompt,
     property_definition,
     query,
     search,
@@ -64,7 +63,6 @@ router.register(
 router.register(r"plugin_config", plugin.LegacyPluginConfigViewSet, "legacy_plugin_configs")
 
 router.register(r"feature_flag", feature_flag.LegacyFeatureFlagViewSet)  # Used for library side feature flag evaluation
-router.register(r"prompts", prompt.PromptSequenceViewSet, "user_prompts")  # User prompts
 
 # Nested endpoints shared
 projects_router = router.register(r"projects", team.TeamViewSet)

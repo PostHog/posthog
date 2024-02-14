@@ -2,6 +2,7 @@ import './FeatureFlag.scss'
 
 import { LemonInput, LemonSelect, Link } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
+import { Group } from 'kea-forms'
 import { router } from 'kea-router'
 import { allOperatorsToHumanName } from 'lib/components/DefinitionPopover/utils'
 import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
@@ -13,6 +14,7 @@ import { IconCopy, IconDelete, IconErrorOutline, IconOpenInNew, IconPlus, IconSu
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
+import { LemonField } from 'lib/lemon-ui/LemonField'
 import { LemonSlider } from 'lib/lemon-ui/LemonSlider'
 import { LemonTag } from 'lib/lemon-ui/LemonTag/LemonTag'
 import { Spinner } from 'lib/lemon-ui/Spinner/Spinner'
@@ -228,7 +230,7 @@ export function FeatureFlagReleaseConditions({
                                               return message.value ? (
                                                   <div
                                                       key={index}
-                                                      className="text-danger flex items-center gap-1 text-sm"
+                                                      className="text-danger flex items-center gap-1 text-sm Field--error"
                                                   >
                                                       <IconErrorOutline className="text-xl" /> {message.value}
                                                   </div>
@@ -267,7 +269,7 @@ export function FeatureFlagReleaseConditions({
                             <div className="flex items-center gap-1">
                                 Roll out to{' '}
                                 <LemonSlider
-                                    value={group.rollout_percentage ?? 100}
+                                    value={group.rollout_percentage !== null ? group.rollout_percentage : 100}
                                     onChange={(value) => {
                                         updateConditionSet(index, value)
                                     }}
@@ -276,19 +278,23 @@ export function FeatureFlagReleaseConditions({
                                     step={1}
                                     className="ml-1.5 w-20"
                                 />
-                                <LemonInput
-                                    data-attr="rollout-percentage"
-                                    type="number"
-                                    className="ml-2 mr-1.5 max-w-30"
-                                    onChange={(value): void => {
-                                        updateConditionSet(index, value === undefined ? 0 : value)
-                                    }}
-                                    value={group.rollout_percentage ?? 100}
-                                    min={0}
-                                    max={100}
-                                    step="any"
-                                    suffix={<span>%</span>}
-                                />{' '}
+                                <Group name={['filters', 'groups', index]}>
+                                    <LemonField name="rollout_percentage">
+                                        <LemonInput
+                                            data-attr="rollout-percentage"
+                                            type="number"
+                                            className="ml-2 mr-1.5 max-w-30"
+                                            onChange={(value): void => {
+                                                updateConditionSet(index, value === undefined ? 0 : value)
+                                            }}
+                                            value={group.rollout_percentage !== null ? group.rollout_percentage : 100}
+                                            min={0}
+                                            max={100}
+                                            step="any"
+                                            suffix={<span>%</span>}
+                                        />
+                                    </LemonField>
+                                </Group>{' '}
                                 of <b>{aggregationTargetName}</b> in this set.{' '}
                             </div>
                             <div>

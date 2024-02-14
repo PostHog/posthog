@@ -95,3 +95,21 @@ export function AsOverlay(): JSX.Element {
         </div>
     )
 }
+
+export function asOverlayWaiting(): JSX.Element {
+    return (
+        <div className="relative">
+            <h1>Hey there</h1>
+            <p>
+                Before showing something loading, you might want to show a message to the user to let them know what's
+                happening. This is especially useful when the loading might take a while. This is a good place to put
+                that message. It's also a good place to put a message that tells the user what to do if the loading is
+                taking too long. When you're ready to show the spinner, you can use the `mode` prop to change the
+                spinner to a waiting spinner. This will give the user a visual indication that the loading is still
+                about to happen.
+            </p>
+
+            <SpinnerOverlay mode="waiting" />
+        </div>
+    )
+}

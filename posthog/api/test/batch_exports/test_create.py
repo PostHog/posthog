@@ -204,3 +204,141 @@ def test_cannot_create_a_batch_export_with_higher_frequencies_if_not_enabled(cli
                 },
                 send_feature_flag_events=False,
             )
+
+
+TEST_HOGQL_QUERY = """
+SELECT
+  event,
+  team_id AS my_team,
+  properties,
+  properties.$browser AS browser,
+  properties.custom AS custom
+FROM events
+"""
+
+
+def test_create_batch_export_with_custom_schema(client: HttpClient):
+    """Test creating a BatchExport with a custom schema expressed as a HogQL Query.
+
+    When creating a BatchExport, we should create a corresponding Schedule in
+    Temporal as described by the associated BatchExportSchedule model. In this
+    test we assert this Schedule is created in Temporal and populated with the
+    expected inputs.
+    """
+    temporal = sync_connect()
+
+    destination_data = {
+        "type": "S3",
+        "config": {
+            "bucket_name": "my-production-s3-bucket",
+            "region": "us-east-1",
+            "prefix": "posthog-events/",
+            "aws_access_key_id": "abc123",
+            "aws_secret_access_key": "secret",
+        },
+    }
+
+    batch_export_data = {
+        "name": "my-production-s3-bucket-destination",
+        "destination": destination_data,
+        "hogql_query": TEST_HOGQL_QUERY,
+        "interval": "hour",
+    }
+
+    organization = create_organization("Test Org")
+    team = create_team(organization)
+    user = create_user("test@user.com", "Test User", organization)
+    client.force_login(user)
+
+    with start_test_worker(temporal):
+        response = create_batch_export(
+            client,
+            team.pk,
+            batch_export_data,
+        )
+
+        assert response.status_code == status.HTTP_201_CREATED, response.json()
+
+        data = response.json()
+        expected_hogql_query = " ".join(TEST_HOGQL_QUERY.split())  # Don't care about whitespace
+        assert data["schema"]["hogql_query"] == expected_hogql_query
+
+        codec = EncryptionCodec(settings=settings)
+        schedule = describe_schedule(temporal, data["id"])
+
+        batch_export = BatchExport.objects.get(id=data["id"])
+
+        decoded_payload = async_to_sync(codec.decode)(schedule.schedule.action.args)
+        args = json.loads(decoded_payload[0].data)
+
+        expected_fields = [
+            {"expression": "events.event", "alias": "event"},
+            {"expression": "events.team_id", "alias": "my_team"},
+            {"expression": "events.properties", "alias": "properties"},
+            {
+                "expression": "replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, %(hogql_val_0)s), ''), 'null'), '^\"|\"$', '')",
+                "alias": "browser",
+            },
+            {
+                "expression": "replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, %(hogql_val_1)s), ''), 'null'), '^\"|\"$', '')",
+                "alias": "custom",
+            },
+        ]
+        expected_schema = {
+            "fields": expected_fields,
+            "values": {
+                "hogql_val_0": "$browser",
+                "hogql_val_1": "custom",
+            },
+            "hogql_query": expected_hogql_query,
+        }
+
+        assert batch_export.schema == expected_schema
+        assert args["batch_export_schema"] == expected_schema
+
+
+@pytest.mark.parametrize(
+    "invalid_query",
+    [
+        "SELECT",
+        "SELECT event, FROM events",
+        "SELECT unknown_field FROM events",
+        "SELECT event, persons.id FROM events LEFT JOIN persons ON events.person_id = persons.id",
+        "SELECT event FROM events UNION ALL SELECT event FROM events",
+    ],
+)
+def test_create_batch_export_fails_with_invalid_query(client: HttpClient, invalid_query):
+    """Test creating a BatchExport should fail with an invalid query."""
+    temporal = sync_connect()
+
+    destination_data = {
+        "type": "S3",
+        "config": {
+            "bucket_name": "my-production-s3-bucket",
+            "region": "us-east-1",
+            "prefix": "posthog-events/",
+            "aws_access_key_id": "abc123",
+            "aws_secret_access_key": "secret",
+        },
+    }
+
+    batch_export_data = {
+        "name": "my-production-s3-bucket-destination",
+        "destination": destination_data,
+        "interval": "hour",
+        "hogql_query": invalid_query,
+    }
+
+    organization = create_organization("Test Org")
+    team = create_team(organization)
+    user = create_user("test@user.com", "Test User", organization)
+    client.force_login(user)
+
+    with start_test_worker(temporal):
+        response = create_batch_export(
+            client,
+            team.pk,
+            batch_export_data,
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()

@@ -2,8 +2,8 @@ import { LemonButton, LemonInput } from '@posthog/lemon-ui'
 import { useValues } from 'kea'
 import { Form } from 'kea-forms'
 import { BridgePage } from 'lib/components/BridgePage/BridgePage'
-import { Field } from 'lib/forms/Field'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
+import { LemonField } from 'lib/lemon-ui/LemonField'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 
 import { login2FALogic } from './login2FALogic'
@@ -29,7 +29,7 @@ export function Login2FA(): JSX.Element {
 
                 <Form logic={login2FALogic} formKey="twofactortoken" enableFormOnSubmit className="space-y-4">
                     {generalError && <LemonBanner type="error">{generalError.detail}</LemonBanner>}
-                    <Field name="token" label="Authenticator token">
+                    <LemonField name="token" label="Authenticator token">
                         <LemonInput
                             className="ph-ignore-input"
                             autoFocus
@@ -38,7 +38,7 @@ export function Login2FA(): JSX.Element {
                             inputMode="numeric"
                             autoComplete="one-time-code"
                         />
-                    </Field>
+                    </LemonField>
                     <LemonButton
                         type="primary"
                         status="alt"

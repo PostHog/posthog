@@ -6,6 +6,7 @@ import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { billingLogic } from 'scenes/billing/billingLogic'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
+import { userLogic } from 'scenes/userLogic'
 
 import { BillingProductV2Type, ProductKey } from '~/types'
 
@@ -29,10 +30,10 @@ export enum OnboardingStepKey {
 export type AllOnboardingSteps = OnboardingStep[]
 export type OnboardingStep = JSX.Element
 
-export const getProductUri = (productKey: ProductKey, featureFlags: FeatureFlagsSet): string => {
+export const getProductUri = (productKey: ProductKey, featureFlags?: FeatureFlagsSet): string => {
     switch (productKey) {
         case ProductKey.PRODUCT_ANALYTICS:
-            return featureFlags[FEATURE_FLAGS.REDIRECT_WEB_PRODUCT_ANALYTICS_ONBOARDING] === 'test'
+            return featureFlags && featureFlags[FEATURE_FLAGS.REDIRECT_WEB_PRODUCT_ANALYTICS_ONBOARDING] === 'test'
                 ? combineUrl(urls.webAnalytics(), { onboarding_completed: true }).url
                 : combineUrl(urls.insights(), { onboarding_completed: true }).url
         case ProductKey.SESSION_REPLAY:
@@ -40,7 +41,7 @@ export const getProductUri = (productKey: ProductKey, featureFlags: FeatureFlags
         case ProductKey.FEATURE_FLAGS:
             return urls.featureFlags()
         case ProductKey.SURVEYS:
-            return urls.surveys()
+            return urls.surveyTemplates()
         default:
             return urls.default()
     }
@@ -50,8 +51,17 @@ export const onboardingLogic = kea<onboardingLogicType>([
     props({} as OnboardingLogicProps),
     path(['scenes', 'onboarding', 'onboardingLogic']),
     connect({
-        values: [billingLogic, ['billing'], teamLogic, ['currentTeam'], featureFlagLogic, ['featureFlags']],
-        actions: [billingLogic, ['loadBillingSuccess'], teamLogic, ['updateCurrentTeamSuccess']],
+        values: [
+            billingLogic,
+            ['billing'],
+            teamLogic,
+            ['currentTeam'],
+            featureFlagLogic,
+            ['featureFlags'],
+            userLogic,
+            ['user'],
+        ],
+        actions: [billingLogic, ['loadBillingSuccess'], teamLogic, ['updateCurrentTeam', 'updateCurrentTeamSuccess']],
     }),
     actions({
         setProduct: (product: BillingProductV2Type | null) => ({ product }),
@@ -133,26 +143,19 @@ export const onboardingLogic = kea<onboardingLogicType>([
                 return !product?.subscribed || !hasAllAddons || subscribedDuringOnboarding
             },
         ],
-        shouldShowOtherProductsStep: [
-            (s) => [s.suggestedProducts],
-            (suggestedProducts: BillingProductV2Type[]) => suggestedProducts.length > 0,
-        ],
-        suggestedProducts: [
-            (s) => [s.billing, s.product, s.currentTeam],
-            (billing, product, currentTeam) =>
-                billing?.products?.filter(
-                    (p) =>
-                        p.type !== product?.type &&
-                        !p.contact_support &&
-                        !p.inclusion_only &&
-                        !currentTeam?.has_completed_onboarding_for?.[p.type]
-                ) || [],
-        ],
         isStepKeyInvalid: [
             (s) => [s.stepKey, s.allOnboardingSteps, s.currentOnboardingStep],
             (stepKey: string, allOnboardingSteps: AllOnboardingSteps, currentOnboardingStep: React.ReactNode | null) =>
                 (stepKey && allOnboardingSteps.length > 0 && !currentOnboardingStep) ||
                 (!stepKey && allOnboardingSteps.length > 0),
+        ],
+        isFirstProductOnboarding: [
+            (s) => [s.currentTeam],
+            (currentTeam) => {
+                return !Object.keys(currentTeam?.has_completed_onboarding_for || {}).some(
+                    (key) => currentTeam?.has_completed_onboarding_for?.[key] === true
+                )
+            },
         ],
     }),
     listeners(({ actions, values }) => ({
@@ -164,7 +167,30 @@ export const onboardingLogic = kea<onboardingLogicType>([
         setProduct: ({ product }) => {
             if (!product) {
                 window.location.href = urls.default()
-                return
+            } else {
+                actions.resetStepKey()
+                const includeFirstOnboardingProductOnUserProperties = values.user?.date_joined
+                    ? new Date(values.user?.date_joined) > new Date('2024-01-10T00:00:00Z')
+                    : false
+                eventUsageLogic.actions.reportOnboardingProductSelected(
+                    product.type,
+                    includeFirstOnboardingProductOnUserProperties
+                )
+                switch (product.type) {
+                    case ProductKey.PRODUCT_ANALYTICS:
+                        return
+                    case ProductKey.SESSION_REPLAY:
+                        actions.updateCurrentTeam({
+                            session_recording_opt_in: true,
+                            capture_console_log_opt_in: true,
+                            capture_performance_opt_in: true,
+                        })
+                        return
+                    case ProductKey.FEATURE_FLAGS:
+                        return
+                    default:
+                        return
+                }
             }
         },
         setProductKey: ({ productKey }) => {
@@ -251,10 +277,14 @@ export const onboardingLogic = kea<onboardingLogicType>([
         },
     })),
     urlToAction(({ actions, values }) => ({
-        '/onboarding/:productKey': ({ productKey }, { success, upgraded, step }) => {
+        '/onboarding/:productKey(/:intro)': ({ productKey, intro }, { success, upgraded, step }) => {
             if (!productKey) {
                 window.location.href = urls.default()
                 return
+            }
+            if (intro === 'intro') {
+                // this prevents us from jumping straight back into onboarding if they are trying to see the intro again
+                actions.setAllOnboardingSteps([])
             }
             if (success || upgraded) {
                 actions.setSubscribedDuringOnboarding(true)

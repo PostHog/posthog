@@ -10,13 +10,12 @@ from rest_framework import mixins, request, response, serializers, viewsets
 from rest_framework.decorators import action
 from rest_framework.exceptions import NotFound
 from rest_framework.pagination import LimitOffsetPagination
-from rest_framework.permissions import IsAuthenticated
 from rest_framework.settings import api_settings
 from rest_framework_csv import renderers as csvrenderers
 from sentry_sdk import capture_exception
 
 from posthog.api.documentation import PropertiesSerializer, extend_schema
-from posthog.api.routing import StructuredViewSetMixin
+from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.client import query_with_columns, sync_execute
 from posthog.hogql.constants import DEFAULT_RETURNED_ROWS, MAX_SELECT_RETURNED_ROWS
 from posthog.models import Element, Filter, Person
@@ -26,10 +25,6 @@ from posthog.models.event.util import ClickhouseEventSerializer
 from posthog.models.person.util import get_persons_by_distinct_ids
 from posthog.models.team import Team
 from posthog.models.utils import UUIDT
-from posthog.permissions import (
-    ProjectMembershipNecessaryPermissions,
-    TeamMemberAccessPermission,
-)
 from posthog.queries.property_values import get_property_values_for_key
 from posthog.rate_limit import (
     ClickHouseBurstRateThrottle,
@@ -84,18 +79,13 @@ class UncountedLimitOffsetPagination(LimitOffsetPagination):
 
 
 class EventViewSet(
-    StructuredViewSetMixin,
+    TeamAndOrgViewSetMixin,
     mixins.RetrieveModelMixin,
     mixins.ListModelMixin,
     viewsets.GenericViewSet,
 ):
     renderer_classes = tuple(api_settings.DEFAULT_RENDERER_CLASSES) + (csvrenderers.PaginatedCSVRenderer,)
     serializer_class = ClickhouseEventSerializer
-    permission_classes = [
-        IsAuthenticated,
-        ProjectMembershipNecessaryPermissions,
-        TeamMemberAccessPermission,
-    ]
     throttle_classes = [ClickHouseBurstRateThrottle, ClickHouseSustainedRateThrottle]
     pagination_class = UncountedLimitOffsetPagination
 
@@ -199,7 +189,7 @@ class EventViewSet(
             )
 
             # Retry the query without the 1 day optimization
-            if len(query_result) < limit and not request.GET.get("after"):
+            if len(query_result) < limit:
                 query_result = query_events_list(
                     unbounded_date_from=True,  # only this changed from the query above
                     filter=filter,
@@ -291,4 +281,4 @@ class EventViewSet(
 
 
 class LegacyEventViewSet(EventViewSet):
-    legacy_team_compatibility = True
+    derive_current_team_from_user_only = True

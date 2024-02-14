@@ -11,11 +11,11 @@ import { Layout } from 'react-grid-layout'
 import { Funnel } from 'scenes/funnels/Funnel'
 import { funnelDataLogic } from 'scenes/funnels/funnelDataLogic'
 import {
-    FunnelInvalidExclusionState,
     FunnelSingleStepState,
     InsightEmptyState,
     InsightErrorState,
     InsightTimeoutState,
+    InsightValidationError,
 } from 'scenes/insights/EmptyStates'
 import { insightDataLogic } from 'scenes/insights/insightDataLogic'
 import { insightLogic } from 'scenes/insights/insightLogic'
@@ -128,6 +128,8 @@ export interface InsightCardProps extends Resizeable, React.HTMLAttributes<HTMLD
     insight: InsightModel
     /** id of the dashboard the card is on (when the card is being displayed on a dashboard) **/
     dashboardId?: DashboardType['id']
+    /** Whether the insight has been called to load. */
+    loadingQueued?: boolean
     /** Whether the insight is loading. */
     loading?: boolean
     /** Whether an error occurred on the server. */
@@ -153,6 +155,8 @@ export interface InsightCardProps extends Resizeable, React.HTMLAttributes<HTMLD
     /** buttons to add to the "more" menu on the card**/
     moreButtons?: JSX.Element | null
     placement: DashboardPlacement | 'SavedInsightGrid'
+    /** Priority for loading the insight, lower is earlier. */
+    loadPriority?: number
 }
 
 function VizComponentFallback(): JSX.Element {
@@ -160,10 +164,10 @@ function VizComponentFallback(): JSX.Element {
 }
 
 export interface FilterBasedCardContentProps
-    extends Pick<InsightCardProps, 'insight' | 'loading' | 'apiErrored' | 'timedOut' | 'style'> {
+    extends Pick<InsightCardProps, 'insight' | 'loadingQueued' | 'loading' | 'apiErrored' | 'timedOut' | 'style'> {
     insightProps: InsightLogicProps
     tooFewFunnelSteps?: boolean
-    invalidFunnelExclusion?: boolean
+    validationError?: string | null
     empty?: boolean
     setAreDetailsShown?: React.Dispatch<React.SetStateAction<boolean>>
     /** pass in information from queries, e.g. what text to use for empty states*/
@@ -173,13 +177,14 @@ export interface FilterBasedCardContentProps
 export function FilterBasedCardContent({
     insight,
     insightProps,
+    loadingQueued,
     loading,
     setAreDetailsShown,
     apiErrored,
     timedOut,
     empty,
     tooFewFunnelSteps,
-    invalidFunnelExclusion,
+    validationError,
     context,
 }: FilterBasedCardContentProps): JSX.Element {
     const displayedType = getDisplayedType(insight.filters)
@@ -204,10 +209,11 @@ export function FilterBasedCardContent({
                 }
             >
                 {loading && <SpinnerOverlay />}
+                {loadingQueued && !loading && <SpinnerOverlay mode="waiting" />}
                 {tooFewFunnelSteps ? (
                     <FunnelSingleStepState actionable={false} />
-                ) : invalidFunnelExclusion ? (
-                    <FunnelInvalidExclusionState />
+                ) : validationError ? (
+                    <InsightValidationError detail={validationError} />
                 ) : empty ? (
                     <InsightEmptyState heading={context?.emptyStateHeading} detail={context?.emptyStateDetail} />
                 ) : !loading && timedOut ? (
@@ -227,6 +233,7 @@ function InsightCardInternal(
         insight,
         dashboardId,
         ribbonColor,
+        loadingQueued,
         loading,
         apiErrored,
         timedOut,
@@ -246,6 +253,7 @@ function InsightCardInternal(
         children,
         moreButtons,
         placement,
+        loadPriority,
         ...divProps
     }: InsightCardProps,
     ref: React.Ref<HTMLDivElement>
@@ -254,21 +262,19 @@ function InsightCardInternal(
         dashboardItemId: insight.short_id,
         dashboardId: dashboardId,
         cachedInsight: insight,
+        loadPriority,
     }
 
     const { insightLoading } = useValues(insightLogic(insightLogicProps))
     const { insightDataLoading } = useValues(insightDataLogic(insightLogicProps))
     const { hasFunnelResults } = useValues(funnelDataLogic(insightLogicProps))
-    const { isFunnelWithEnoughSteps, areExclusionFiltersValid } = useValues(insightVizDataLogic(insightLogicProps))
+    const { isFunnelWithEnoughSteps, validationError } = useValues(insightVizDataLogic(insightLogicProps))
 
     let tooFewFunnelSteps = false
-    let invalidFunnelExclusion = false
     let empty = false
     if (insight.filters.insight === InsightType.FUNNELS) {
         if (!isFunnelWithEnoughSteps) {
             tooFewFunnelSteps = true
-        } else if (!areExclusionFiltersValid) {
-            invalidFunnelExclusion = true
         }
         if (!hasFunnelResults) {
             empty = true
@@ -325,12 +331,13 @@ function InsightCardInternal(
                     <FilterBasedCardContent
                         insight={insight}
                         insightProps={insightLogicProps}
+                        loadingQueued={loadingQueued}
                         loading={loading}
                         apiErrored={apiErrored}
                         timedOut={timedOut}
                         empty={empty}
                         tooFewFunnelSteps={tooFewFunnelSteps}
-                        invalidFunnelExclusion={invalidFunnelExclusion}
+                        validationError={validationError}
                         setAreDetailsShown={setAreDetailsShown}
                     />
                 ) : (

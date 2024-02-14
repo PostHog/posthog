@@ -295,7 +295,7 @@ email@example.org,
         lines = self._get_export_output(f"/api/cohort/{cohort.pk}/persons")
         headers = lines[0].split(",")
         self.assertEqual(len(lines), 3)
-        self.assertEqual(lines[1].split(",")[headers.index("email")], "test@test.com")
+        self.assertEqual(lines[1].split(",")[headers.index("properties.email")], "test@test.com")
         self.assertEqual(lines[0].count("distinct_id"), 10)
 
     def test_filter_by_cohort(self):

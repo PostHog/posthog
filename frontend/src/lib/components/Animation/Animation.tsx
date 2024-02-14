@@ -4,6 +4,7 @@ import { Player } from '@lottiefiles/react-lottie-player'
 import clsx from 'clsx'
 import { animations, AnimationType, getAnimationSource } from 'lib/animations/animations'
 import { Spinner } from 'lib/lemon-ui/Spinner/Spinner'
+import { inStorybookTestRunner } from 'lib/utils'
 import { useEffect, useState } from 'react'
 
 export interface AnimationProps {
@@ -67,7 +68,7 @@ export function Animation({
             style={{ aspectRatio: `${width} / ${height}`, ...style }}
         >
             {source ? (
-                <Player className="Animation__player" autoplay loop src={source} />
+                <Player className="Animation__player" autoplay={!inStorybookTestRunner()} loop src={source} />
             ) : showFallbackSpinner ? (
                 <Spinner />
             ) : null}

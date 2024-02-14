@@ -3,12 +3,13 @@ import { Form } from 'kea-forms'
 import { VerifiedDefinitionCheckbox } from 'lib/components/DefinitionPopover/DefinitionPopoverContents'
 import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
 import { PageHeader } from 'lib/components/PageHeader'
-import { Field } from 'lib/forms/Field'
+import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
+import { LemonField } from 'lib/lemon-ui/LemonField'
 import { LemonSelect } from 'lib/lemon-ui/LemonSelect'
 import { LemonTextArea } from 'lib/lemon-ui/LemonTextArea/LemonTextArea'
-import { getPropertyLabel, isPostHogProp } from 'lib/taxonomy'
+import { getFilterLabel, isCoreFilter } from 'lib/taxonomy'
 import { definitionEditLogic, DefinitionEditLogicProps } from 'scenes/data-management/definition/definitionEditLogic'
 import { DefinitionPageMode } from 'scenes/data-management/definition/definitionLogic'
 
@@ -20,7 +21,7 @@ export function DefinitionEdit(props: DefinitionEditLogicProps): JSX.Element {
     const { setPageMode, saveDefinition } = useActions(logic)
     const { tags, tagsLoading } = useValues(tagsModel)
 
-    const showVerifiedCheckbox = hasTaxonomyFeatures && !isPostHogProp(definition.name) && 'verified' in definition
+    const showVerifiedCheckbox = hasTaxonomyFeatures && !isCoreFilter(definition.name) && 'verified' in definition
 
     return (
         <Form logic={definitionEditLogic} props={props} formKey="definition">
@@ -53,7 +54,7 @@ export function DefinitionEdit(props: DefinitionEditLogicProps): JSX.Element {
             <LemonDivider />
             <div className="DefinitionEdit--form my-4">
                 <div>
-                    <h1>{getPropertyLabel(definition.name) || ''}</h1>
+                    <h1>{getFilterLabel(definition.name, TaxonomicFilterGroupType.Events) || ''}</h1>
                     <div className="definition-sent-as flex-wrap">
                         <div>Raw event name:</div>
                         <div>
@@ -63,14 +64,14 @@ export function DefinitionEdit(props: DefinitionEditLogicProps): JSX.Element {
                 </div>
                 {hasTaxonomyFeatures && (
                     <div className="mt-4 ph-ignore-input">
-                        <Field name="description" label="Description" data-attr="definition-description">
+                        <LemonField name="description" label="Description" data-attr="definition-description">
                             <LemonTextArea value={definition.description} />
-                        </Field>
+                        </LemonField>
                     </div>
                 )}
                 {showVerifiedCheckbox && (
                     <div className="mt-4 ph-ignore-input">
-                        <Field name="verified" data-attr="definition-verified">
+                        <LemonField name="verified" data-attr="definition-verified">
                             {({ value, onChange }) => (
                                 <VerifiedDefinitionCheckbox
                                     isProperty={isProperty}
@@ -80,12 +81,12 @@ export function DefinitionEdit(props: DefinitionEditLogicProps): JSX.Element {
                                     }}
                                 />
                             )}
-                        </Field>
+                        </LemonField>
                     </div>
                 )}
                 {hasTaxonomyFeatures && 'tags' in definition && (
                     <div className="mt-4 ph-ignore-input">
-                        <Field name="tags" label="Tags" data-attr="definition-tags">
+                        <LemonField name="tags" label="Tags" data-attr="definition-tags">
                             {({ value, onChange }) => (
                                 <ObjectTags
                                     className="definition-tags"
@@ -96,12 +97,12 @@ export function DefinitionEdit(props: DefinitionEditLogicProps): JSX.Element {
                                     tagsAvailable={tags}
                                 />
                             )}
-                        </Field>
+                        </LemonField>
                     </div>
                 )}
                 {isProperty && (
                     <div className="mt-4 ph-ignore-input">
-                        <Field name="property_type" label="Property Type" data-attr="property-type">
+                        <LemonField name="property_type" label="Property Type" data-attr="property-type">
                             {({ value, onChange }) => (
                                 <LemonSelect
                                     onChange={(val) => onChange(val)}
@@ -114,7 +115,7 @@ export function DefinitionEdit(props: DefinitionEditLogicProps): JSX.Element {
                                     ]}
                                 />
                             )}
-                        </Field>
+                        </LemonField>
                     </div>
                 )}
             </div>

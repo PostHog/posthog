@@ -41,6 +41,11 @@ export function TrendsSeries(): JSX.Element | null {
     }
 
     const filters = queryNodeToFilter(querySource)
+    const mathAvailability = isLifecycle
+        ? MathAvailability.None
+        : isStickiness
+        ? MathAvailability.ActorsOnly
+        : MathAvailability.All
 
     return (
         <>
@@ -52,7 +57,7 @@ export function TrendsSeries(): JSX.Element | null {
             <ActionFilter
                 filters={filters}
                 setFilters={(payload: Partial<FilterType>): void => {
-                    updateQuerySource({ series: actionsAndEventsToSeries(payload as any) } as
+                    updateQuerySource({ series: actionsAndEventsToSeries(payload as any, true, mathAvailability) } as
                         | TrendsQuery
                         | FunnelsQuery
                         | StickinessQuery
@@ -67,13 +72,7 @@ export function TrendsSeries(): JSX.Element | null {
                         ? 1
                         : alphabet.length
                 }
-                mathAvailability={
-                    isLifecycle
-                        ? MathAvailability.None
-                        : isStickiness
-                        ? MathAvailability.ActorsOnly
-                        : MathAvailability.All
-                }
+                mathAvailability={mathAvailability}
                 propertiesTaxonomicGroupTypes={propertiesTaxonomicGroupTypes}
             />
         </>

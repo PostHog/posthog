@@ -85,7 +85,7 @@ export function LemonSegmentedButton<T extends React.Key>({
                         ref={option.value === value ? selectionRef : undefined}
                     >
                         <LemonButton
-                            type="secondary"
+                            type={option.value === value ? 'primary' : 'secondary'}
                             size={size}
                             fullWidth
                             disabledReason={option.disabledReason}

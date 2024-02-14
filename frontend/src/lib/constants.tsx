@@ -176,6 +176,7 @@ export const FEATURE_FLAGS = {
     HOGQL_INSIGHTS_FUNNELS: 'hogql-insights-funnels', // owner: @thmsobrmlr
     HOGQL_INSIGHT_LIVE_COMPARE: 'hogql-insight-live-compare', // owner: @mariusandra
     BI_VIZ: 'bi_viz', // owner: @Gilbert09
+    HOGQL_AUTOCOMPLETE: 'hogql-autocomplete', // owner: @Gilbert09
     WEBHOOKS_DENYLIST: 'webhooks-denylist', // owner: #team-pipeline
     SURVEYS_RESULTS_VISUALIZATIONS: 'surveys-results-visualizations', // owner: @jurajmajerik
     SURVEYS_PAYGATES: 'surveys-paygates',
@@ -203,6 +204,9 @@ export const FEATURE_FLAGS = {
     SIDEPANEL_STATUS: 'sidepanel-status', // owner: @benjackwhite
     NEW_FEATURE_FLAG_OPERATORS: 'new-feature-flag-operators', // owner: @neilkakkar
     AI_SESSION_SUMMARY: 'ai-session-summary', // owner: #team-replay
+    PRODUCT_INTRO_PAGES: 'product-intro-pages', // owner: @raquelmsmith
+    DATANODE_CONCURRENCY_LIMIT: 'datanode-concurrency-limit', // owner: @robbie-c
+    SESSION_REPLAY_DOCTOR: 'session-replay-doctor', // owner: #team-replay
 } as const
 export type FeatureFlagKey = (typeof FEATURE_FLAGS)[keyof typeof FEATURE_FLAGS]
 

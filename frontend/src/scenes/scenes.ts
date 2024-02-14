@@ -72,7 +72,7 @@ export const sceneConfigurations: Record<Scene, SceneConfig> = {
     },
     [Scene.Events]: {
         projectBased: true,
-        name: 'Event explorer',
+        name: 'Activity',
         defaultDocsPath: '/docs/data/events',
     },
     [Scene.BatchExports]: {
@@ -153,9 +153,9 @@ export const sceneConfigurations: Record<Scene, SceneConfig> = {
         activityScope: ActivityScope.PLUGIN,
         defaultDocsPath: '/docs/cdp',
     },
-    [Scene.PipelineApp]: {
+    [Scene.PipelineNode]: {
         projectBased: true,
-        name: 'Pipeline app',
+        name: 'Pipeline step',
         activityScope: ActivityScope.PLUGIN,
         defaultDocsPath: '/docs/cdp',
     },
@@ -271,6 +271,11 @@ export const sceneConfigurations: Record<Scene, SceneConfig> = {
         projectBased: true,
         layout: 'plain',
     },
+    [Scene.OnboardingProductIntroduction]: {
+        projectBased: true,
+        name: 'Product introduction',
+        hideProjectNotice: true,
+    },
     [Scene.ToolbarLaunch]: {
         projectBased: true,
         name: 'Launch toolbar',
@@ -370,6 +375,10 @@ export const sceneConfigurations: Record<Scene, SceneConfig> = {
     [Scene.Settings]: {
         projectBased: true,
         name: 'Settings',
+    },
+    [Scene.MoveToPostHogCloud]: {
+        name: 'Move to PostHog Cloud',
+        hideProjectNotice: true,
     },
 }
 
@@ -482,7 +491,7 @@ export const routes: Record<string, Scene> = {
     [urls.personByUUID('*', false)]: Scene.Person,
     [urls.persons()]: Scene.PersonsManagement,
     [urls.pipeline(':tab')]: Scene.Pipeline,
-    [urls.pipelineApp(':kindTab', ':id', ':appTab')]: Scene.PipelineApp,
+    [urls.pipelineNode(':stage', ':id', ':nodeTab')]: Scene.PipelineNode,
     [urls.groups(':groupTypeIndex')]: Scene.PersonsManagement,
     [urls.group(':groupTypeIndex', ':groupKey', false)]: Scene.Group,
     [urls.group(':groupTypeIndex', ':groupKey', false, ':groupTab')]: Scene.Group,
@@ -538,6 +547,7 @@ export const routes: Record<string, Scene> = {
     [urls.passwordResetComplete(':uuid', ':token')]: Scene.PasswordResetComplete,
     [urls.products()]: Scene.Products,
     [urls.onboarding(':productKey')]: Scene.Onboarding,
+    [urls.onboardingProductIntroduction(':productKey')]: Scene.OnboardingProductIntroduction,
     [urls.verifyEmail()]: Scene.VerifyEmail,
     [urls.verifyEmail(':uuid')]: Scene.VerifyEmail,
     [urls.verifyEmail(':uuid', ':token')]: Scene.VerifyEmail,
@@ -548,4 +558,5 @@ export const routes: Record<string, Scene> = {
     [urls.notebooks()]: Scene.Notebooks,
     [urls.canvas()]: Scene.Canvas,
     [urls.settings(':section' as any)]: Scene.Settings,
+    [urls.moveToPostHogCloud()]: Scene.MoveToPostHogCloud,
 }

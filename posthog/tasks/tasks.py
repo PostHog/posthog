@@ -27,7 +27,7 @@ def redis_heartbeat() -> None:
     get_client().set("POSTHOG_HEARTBEAT", int(time.time()))
 
 
-@shared_task(ignore_result=True, queue=CeleryQueue.ANALYTICS_QUERIES)
+@shared_task(ignore_result=True, queue=CeleryQueue.ANALYTICS_QUERIES.value)
 def process_query_task(
     team_id: str, query_id: str, query_json: Any, limit_context: Any = None, refresh_requested: bool = False
 ) -> None:
@@ -450,7 +450,7 @@ def clear_clickhouse_deleted_person() -> None:
     remove_deleted_person_data()
 
 
-@shared_task(ignore_result=True, queue=CeleryQueue.STATS)
+@shared_task(ignore_result=True, queue=CeleryQueue.STATS.value)
 def redis_celery_queue_depth() -> None:
     try:
         with pushed_metrics_registry("redis_celery_queue_depth_registry") as registry:
@@ -458,10 +458,13 @@ def redis_celery_queue_depth() -> None:
                 "posthog_celery_queue_depth",
                 "We use this to monitor the depth of the celery queue.",
                 registry=registry,
+                labelnames=["queue_name"],
             )
 
-            llen = get_client().llen("celery")
-            celery_task_queue_depth_gauge.set(llen)
+            for queue in CeleryQueue:
+                llen = get_client().llen(queue.value)
+                celery_task_queue_depth_gauge.labels(queue_name=queue.value).set(llen)
+
     except:
         # if we can't generate the metric don't complain about it.
         return
@@ -540,17 +543,13 @@ def sync_insight_caching_state(
 
 @shared_task(ignore_result=True)
 def calculate_decide_usage() -> None:
-    from django.db.models import Q
-
-    from posthog.models import Team
-    from posthog.models.feature_flag.flag_analytics import capture_team_decide_usage
+    from posthog.models.feature_flag.flag_analytics import (
+        capture_usage_for_all_teams as capture_decide_usage_for_all_teams,
+    )
 
     ph_client = get_ph_client()
 
-    for team in Team.objects.select_related("organization").exclude(
-        Q(organization__for_internal_metrics=True) | Q(is_demo=True)
-    ):
-        capture_team_decide_usage(ph_client, team.id, team.uuid)
+    capture_decide_usage_for_all_teams(ph_client)
 
     ph_client.shutdown()
 
@@ -639,7 +638,7 @@ def clickhouse_mark_all_materialized() -> None:
             mark_all_materialized()
 
 
-@shared_task(ignore_result=True)
+@shared_task(ignore_result=True, queue=CeleryQueue.USAGE_REPORTS.value)
 def send_org_usage_reports() -> None:
     from posthog.tasks.usage_report import send_all_org_usage_reports
 

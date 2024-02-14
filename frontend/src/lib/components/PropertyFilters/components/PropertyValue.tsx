@@ -234,7 +234,7 @@ export function PropertyValue({
                 makeLabel={(_, startOfRange) => (
                     <span className="hide-when-small">
                         Matches all values {operator === PropertyOperator.IsDateBefore ? 'before' : 'after'}{' '}
-                        {startOfRange}
+                        {startOfRange} if evaluated today.
                     </span>
                 )}
             />
