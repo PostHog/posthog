@@ -40,7 +40,11 @@ export const OnboardingStep = ({
     return (
         <>
             <div className="pb-2">
-                <div className={`flex justify-between items-center text-muted ${hideHeader && 'hidden'}`}>
+                <div
+                    className={`flex justify-between items-center text-muted max-w-screen-lg mx-auto ${
+                        hideHeader && 'hidden'
+                    }`}
+                >
                     <h1 className="font-bold m-0 pl-2">
                         {title || stepKeyToTitle(currentOnboardingStep?.props.stepKey)}
                     </h1>
@@ -73,7 +77,7 @@ export const OnboardingStep = ({
                     </div>
                 </div>
             </div>
-            <div className={`${stepKey !== 'product_intro' && 'p-2'}`}>
+            <div className={`${stepKey !== 'product_intro' && 'p-2 max-w-screen-lg mx-auto'}`}>
                 {subtitle && <p>{subtitle}</p>}
                 {children}
                 <div className="mt-8 flex justify-end gap-x-2">
