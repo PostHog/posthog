@@ -52,7 +52,7 @@ function DestinationsTable(): JSX.Element {
         <>
             <LemonTable
                 dataSource={destinations}
-                size="xs"
+                size="small"
                 loading={loading}
                 columns={[
                     {
