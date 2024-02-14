@@ -45,6 +45,9 @@ SESSION_REPLAY_EMBEDDINGS_TABLE_SQL = lambda: (
     -- so we order by date first, then team_id, then session_id
     -- hopefully, this is a good balance between the two
     ORDER BY (toDate(generation_timestamp), team_id, session_id)
+    -- we don't want to keep embeddings forever, so we will set a TTL
+    -- the max any individual recording could survive is 1 year, so...
+    TTL toDate(generation_timestamp) + INTERVAL 1 YEAR
 SETTINGS index_granularity=512
 """
 ).format(
