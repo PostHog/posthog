@@ -1631,6 +1631,42 @@
             "enum": ["total", "previous"],
             "type": "string"
         },
+        "FunnelStepsBreakdownResults": {
+            "items": {
+                "items": {
+                    "type": "object"
+                },
+                "type": "array"
+            },
+            "type": "array"
+        },
+        "FunnelStepsResults": {
+            "items": {
+                "type": "object"
+            },
+            "type": "array"
+        },
+        "FunnelTimeToConvertResults": {
+            "additionalProperties": false,
+            "properties": {
+                "average_conversion_time": {
+                    "type": "integer"
+                },
+                "bins": {
+                    "items": {
+                        "items": {
+                            "type": "integer"
+                        },
+                        "maxItems": 2,
+                        "minItems": 2,
+                        "type": "array"
+                    },
+                    "type": "array"
+                }
+            },
+            "required": ["average_conversion_time", "bins"],
+            "type": "object"
+        },
         "FunnelVizType": {
             "enum": ["steps", "time_to_convert", "trends"],
             "type": "string"
@@ -1822,19 +1858,13 @@
                 "results": {
                     "anyOf": [
                         {
-                            "items": {
-                                "type": "object"
-                            },
-                            "type": "array"
+                            "$ref": "#/definitions/FunnelStepsResults"
                         },
                         {
-                            "items": {
-                                "items": {
-                                    "type": "object"
-                                },
-                                "type": "array"
-                            },
-                            "type": "array"
+                            "$ref": "#/definitions/FunnelStepsBreakdownResults"
+                        },
+                        {
+                            "$ref": "#/definitions/FunnelTimeToConvertResults"
                         }
                     ]
                 },

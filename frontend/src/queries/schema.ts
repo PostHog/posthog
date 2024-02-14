@@ -706,8 +706,17 @@ export interface FunnelsQuery extends InsightsQueryBase {
     breakdownFilter?: BreakdownFilter
 }
 
+/** @asType integer */
+type BinNumber = number
+export type FunnelStepsResults = Record<string, any>[]
+export type FunnelStepsBreakdownResults = Record<string, any>[][]
+export type FunnelTimeToConvertResults = {
+    /** @asType integer */
+    average_conversion_time: number
+    bins: [BinNumber, BinNumber][]
+}
 export interface FunnelsQueryResponse extends QueryResponse {
-    results: Record<string, any>[] | Record<string, any>[][]
+    results: FunnelStepsResults | FunnelStepsBreakdownResults | FunnelTimeToConvertResults
 }
 
 /** `RetentionFilterType` minus everything inherited from `FilterType` */
