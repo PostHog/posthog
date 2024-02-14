@@ -328,6 +328,7 @@ class HogQLAutocompleteResponse(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
+    incomplete_list: bool = Field(..., description="Whether or not the suggestions returned are complete")
     suggestions: List[AutocompleteCompletionItem]
 
 
@@ -667,6 +668,7 @@ class QueryResponseAlternative9(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
+    incomplete_list: bool = Field(..., description="Whether or not the suggestions returned are complete")
     suggestions: List[AutocompleteCompletionItem]
 
 

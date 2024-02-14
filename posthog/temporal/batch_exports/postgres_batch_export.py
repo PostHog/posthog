@@ -284,8 +284,6 @@ async def insert_into_postgres_activity(inputs: PostgresInsertInputs):
             extra_query_parameters=query_parameters,
         )
 
-        first_record, record_iterator = peek_first_and_rewind(record_iterator)
-
         if inputs.batch_export_schema is None:
             table_fields = [
                 ("uuid", "VARCHAR(200)"),
@@ -302,6 +300,8 @@ async def insert_into_postgres_activity(inputs: PostgresInsertInputs):
             ]
 
         else:
+            first_record, record_iterator = peek_first_and_rewind(record_iterator)
+
             column_names = [column for column in first_record.schema.names if column != "_inserted_at"]
             record_schema = first_record.select(column_names).schema
             table_fields = get_postgres_fields_from_record_schema(

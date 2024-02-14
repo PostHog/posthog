@@ -3,7 +3,7 @@ import { useValues } from 'kea'
 import { Form } from 'kea-forms'
 import SignupReferralSource from 'lib/components/SignupReferralSource'
 import SignupRoleSelect from 'lib/components/SignupRoleSelect'
-import { Field } from 'lib/forms/Field'
+import { LemonField } from 'lib/lemon-ui/LemonField'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 
 import { signupLogic } from '../signupLogic'
@@ -17,22 +17,22 @@ export function SignupPanel2(): JSX.Element | null {
     return (
         <div className="space-y-4 Signup__panel__2">
             <Form logic={signupLogic} formKey="signupPanel2" className="space-y-4" enableFormOnSubmit>
-                <Field name="first_name" label="Your name">
+                <LemonField name="first_name" label="Your name">
                     <LemonInput
                         className="ph-ignore-input"
                         data-attr="signup-first-name"
                         placeholder="Jane Doe"
                         disabled={isSignupPanel2Submitting}
                     />
-                </Field>
-                <Field name="organization_name" label="Organization name">
+                </LemonField>
+                <LemonField name="organization_name" label="Organization name">
                     <LemonInput
                         className="ph-ignore-input"
                         data-attr="signup-organization-name"
                         placeholder="Hogflix Movies"
                         disabled={isSignupPanel2Submitting}
                     />
-                </Field>
+                </LemonField>
                 <SignupRoleSelect />
                 <SignupReferralSource disabled={isSignupPanel2Submitting} />
                 <div className="divider" />

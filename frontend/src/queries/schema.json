@@ -1938,6 +1938,10 @@
         "HogQLAutocompleteResponse": {
             "additionalProperties": false,
             "properties": {
+                "incomplete_list": {
+                    "description": "Whether or not the suggestions returned are complete",
+                    "type": "boolean"
+                },
                 "suggestions": {
                     "items": {
                         "$ref": "#/definitions/AutocompleteCompletionItem"
@@ -1945,7 +1949,7 @@
                     "type": "array"
                 }
             },
-            "required": ["suggestions"],
+            "required": ["suggestions", "incomplete_list"],
             "type": "object"
         },
         "HogQLExpression": {
@@ -3572,6 +3576,10 @@
                 {
                     "additionalProperties": false,
                     "properties": {
+                        "incomplete_list": {
+                            "description": "Whether or not the suggestions returned are complete",
+                            "type": "boolean"
+                        },
                         "suggestions": {
                             "items": {
                                 "$ref": "#/definitions/AutocompleteCompletionItem"
@@ -3579,7 +3587,7 @@
                             "type": "array"
                         }
                     },
-                    "required": ["suggestions"],
+                    "required": ["suggestions", "incomplete_list"],
                     "type": "object"
                 },
                 {

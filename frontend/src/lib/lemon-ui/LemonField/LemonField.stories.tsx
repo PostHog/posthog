@@ -3,12 +3,12 @@ import { Meta } from '@storybook/react'
 import { kea, path, useAllValues } from 'kea'
 import { Form, forms } from 'kea-forms'
 
-import { Field, PureField } from './Field'
-import type { formLogicType } from './Field.storiesType'
+import { LemonField } from './LemonField'
+import type { formLogicType } from './LemonField.storiesType'
 
-const meta: Meta<typeof PureField> = {
-    title: 'Lemon UI/Forms and Fields',
-    component: PureField,
+const meta: Meta<typeof LemonField> = {
+    title: 'Lemon UI/Lemon Field',
+    component: LemonField,
     parameters: {
         docs: {
             description: {
@@ -30,7 +30,7 @@ export default meta
 export const _PureFields = (): JSX.Element => {
     return (
         <div className="space-y-4">
-            <PureField
+            <LemonField.Pure
                 label="Text input label"
                 showOptional
                 help={
@@ -41,18 +41,18 @@ export const _PureFields = (): JSX.Element => {
                 }
             >
                 <LemonInput placeholder="Optional descriptive placeholder text" />
-            </PureField>
+            </LemonField.Pure>
 
-            <PureField label="Select label" info={<>With info!</>}>
+            <LemonField.Pure label="Select label" info={<>With info!</>}>
                 <LemonSelect options={[{ value: 'foo', label: 'bar' }]} fullWidth />
-            </PureField>
+            </LemonField.Pure>
 
-            <PureField label="Textarea label" error="This field has an error">
+            <LemonField.Pure label="Textarea label" error="This field has an error">
                 <LemonTextArea />
-            </PureField>
-            <PureField>
+            </LemonField.Pure>
+            <LemonField.Pure>
                 <LemonCheckbox bordered label="Checkbox labels are set differently" fullWidth />
-            </PureField>
+            </LemonField.Pure>
 
             <div className="flex justify-end gap-2 border-t mt-4 pt-4">
                 <LemonButton type="secondary">Cancel</LemonButton>
@@ -112,7 +112,7 @@ export const _FieldsWithKeaForm = (): JSX.Element => {
     return (
         <Form logic={formLogic} formKey={formKey} enableFormOnSubmit>
             <div className="space-y-4">
-                <Field
+                <LemonField
                     name="name"
                     label={
                         <>
@@ -127,18 +127,18 @@ export const _FieldsWithKeaForm = (): JSX.Element => {
                     }
                 >
                     <LemonInput placeholder="Jon Snow" />
-                </Field>
+                </LemonField>
 
-                <Field name="select" label="Select label" info={<>With info!</>}>
+                <LemonField name="select" label="Select label" info={<>With info!</>}>
                     <LemonSelect options={[{ value: 'foo', label: 'bar' }]} fullWidth />
-                </Field>
+                </LemonField>
 
-                <Field name="email" label="Email address">
+                <LemonField name="email" label="Email address">
                     <LemonInput type="email" />
-                </Field>
-                <Field name="pineappleOnPizza">
+                </LemonField>
+                <LemonField name="pineappleOnPizza">
                     <LemonCheckbox bordered label="Pineapple on your pizza?" fullWidth />
-                </Field>
+                </LemonField>
 
                 <div className="flex justify-end gap-2 border-t mt-4 pt-4">
                     <LemonButton type="secondary">Cancel</LemonButton>
