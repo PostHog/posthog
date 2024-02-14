@@ -1,4 +1,5 @@
 import aiohttp
+import asyncio
 import datetime as dt
 import json
 from dataclasses import dataclass
@@ -56,11 +57,30 @@ def http_default_fields() -> list[BatchExportField]:
     return [
         BatchExportField(expression="toString(uuid)", alias="uuid"),
         BatchExportField(expression="timestamp", alias="timestamp"),
+        BatchExportField(expression="COALESCE(inserted_at, _timestamp)", alias="_inserted_at"),
         BatchExportField(expression="event", alias="event"),
         BatchExportField(expression="nullIf(properties, '')", alias="properties"),
         BatchExportField(expression="toString(distinct_id)", alias="distinct_id"),
         BatchExportField(expression="elements_chain", alias="elements_chain"),
     ]
+
+
+class HeartbeatDetails:
+    """This class allows us to enforce a schema on the Heartbeat details.
+
+    Attributes:
+        last_uploaded_part_timestamp: The timestamp of the last part we managed to upload.
+    """
+
+    last_uploaded_part_timestamp: str
+
+    def __init__(self, last_uploaded_part_timestamp: str):
+        self.last_uploaded_part_timestamp = last_uploaded_part_timestamp
+
+    @classmethod
+    def from_activity_details(cls, details) -> "HeartbeatDetails":
+        last_uploaded_part_timestamp = details[0]
+        return HeartbeatDetails(last_uploaded_part_timestamp)
 
 
 @dataclass
@@ -75,6 +95,39 @@ class HttpInsertInputs:
     exclude_events: list[str] | None = None
     include_events: list[str] | None = None
     batch_export_schema: BatchExportSchema | None = None
+
+
+async def maybe_resume_from_heartbeat(inputs: HttpInsertInputs) -> str:
+    """Returns the `interval_start` to use, either resuming from previous heartbeat data or
+    using the `data_interval_start` from the inputs."""
+    logger = await bind_temporal_worker_logger(team_id=inputs.team_id, destination="HTTP")
+
+    interval_start = inputs.data_interval_start
+    details = activity.info().heartbeat_details
+
+    if not details:
+        # No heartbeat found, so we start from the beginning.
+        return interval_start
+
+    try:
+        interval_start = HeartbeatDetails.from_activity_details(details).last_uploaded_part_timestamp
+    except IndexError:
+        # This is the error we expect when there are no activity details as the sequence will be
+        # empty.
+        logger.debug(
+            "Did not receive details from previous activity Excecution. Export will start from the beginning %s",
+            interval_start,
+        )
+    except Exception:
+        # We still start from the beginning, but we make a point to log unexpected errors. Ideally,
+        # any new exceptions should be added to the previous block after the first time and we will
+        # never land here.
+        logger.warning(
+            "Did not receive details from previous activity Excecution due to an unexpected error. Export will start from the beginning %s",
+            interval_start,
+        )
+
+    return interval_start
 
 
 async def post_json_file_to_url(url, batch_file):
@@ -125,16 +178,35 @@ async def insert_into_http_activity(inputs: HttpInsertInputs):
         fields = http_default_fields()
         columns = [field["alias"] for field in fields]
 
+        interval_start = await maybe_resume_from_heartbeat(inputs)
+
         record_iterator = iter_records(
             client=client,
             team_id=inputs.team_id,
-            interval_start=inputs.data_interval_start,
+            interval_start=interval_start,
             interval_end=inputs.data_interval_end,
             exclude_events=inputs.exclude_events,
             include_events=inputs.include_events,
             fields=fields,
             extra_query_parameters=None,
         )
+
+        last_uploaded_part_timestamp: str | None = None
+
+        async def worker_shutdown_handler():
+            """Handle the Worker shutting down by heart-beating our latest status."""
+            await activity.wait_for_worker_shutdown()
+            logger.warn(
+                f"Worker shutting down! Reporting back latest exported part {last_uploaded_part_timestamp}",
+            )
+            if last_uploaded_part_timestamp is None:
+                # Don't heartbeat if worker shuts down before we could even send anything
+                # Just start from the beginning again.
+                return
+
+            activity.heartbeat(last_uploaded_part_timestamp)
+
+        asyncio.create_task(worker_shutdown_handler())
 
         rows_exported = get_rows_exported_metric()
         bytes_exported = get_bytes_exported_metric()
@@ -167,7 +239,7 @@ async def insert_into_http_activity(inputs: HttpInsertInputs):
 
                 batch_file.write_record_as_bytes(json_dumps_bytes(event))
 
-            async def flush_batch():
+            async def flush_batch_to_http_endpoint(last_uploaded_part_timestamp: str):
                 logger.debug(
                     "Sending %s records of size %s bytes",
                     batch_file.records_since_last_reset,
@@ -175,10 +247,13 @@ async def insert_into_http_activity(inputs: HttpInsertInputs):
                 )
 
                 batch_file.write(posthog_batch_footer)
+
                 await post_json_file_to_url(inputs.url, batch_file)
 
                 rows_exported.add(batch_file.records_since_last_reset)
                 bytes_exported.add(batch_file.bytes_since_last_reset)
+
+                activity.heartbeat(last_uploaded_part_timestamp)
 
             for record_batch in record_iterator:
                 for row in record_batch.select(columns).to_pylist():
@@ -199,17 +274,21 @@ async def insert_into_http_activity(inputs: HttpInsertInputs):
                         "properties": properties,
                     }
 
+                    inserted_at = row.pop("_inserted_at")
+
                     write_event_to_batch(capture_event)
 
                     if (
                         batch_file.tell() > settings.BATCH_EXPORT_HTTP_UPLOAD_CHUNK_SIZE_BYTES
                         or batch_file.records_since_last_reset >= settings.BATCH_EXPORT_HTTP_BATCH_SIZE
                     ):
-                        await flush_batch()
+                        last_uploaded_part_timestamp = str(inserted_at)
+                        await flush_batch_to_http_endpoint(last_uploaded_part_timestamp)
                         batch_file.reset()
 
             if batch_file.tell() > 0:
-                await flush_batch()
+                last_uploaded_part_timestamp = str(inserted_at)
+                await flush_batch_to_http_endpoint(last_uploaded_part_timestamp)
 
 
 @workflow.defn(name="http-export")

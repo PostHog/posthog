@@ -22,6 +22,7 @@ from posthog.temporal.batch_exports.batch_exports import (
 )
 from posthog.temporal.batch_exports.clickhouse import ClickHouseClient
 from posthog.temporal.batch_exports.http_batch_export import (
+    HeartbeatDetails,
     HttpBatchExportInputs,
     HttpBatchExportWorkflow,
     HttpInsertInputs,
@@ -102,6 +103,7 @@ async def assert_clickhouse_records_in_mock_server(
 
             expected_record["properties"]["$geoip_disable"] = True
 
+            expected_record.pop("_inserted_at")
             elements_chain = expected_record.pop("elements_chain", None)
             if expected_record["event"] == "$autocapture" and elements_chain is not None:
                 expected_record["properties"]["$elements_chain"] = elements_chain
@@ -474,3 +476,76 @@ async def test_http_export_workflow_handles_cancellation(ateam, http_batch_expor
     run = runs[0]
     assert run.status == "Cancelled"
     assert run.latest_error == "Cancelled"
+
+
+async def test_insert_into_http_activity_heartbeats(
+    clickhouse_client,
+    ateam,
+    http_batch_export,
+    activity_environment,
+    http_config,
+):
+    """Test that the insert_into_http_activity activity sends heartbeats.
+
+    We use a function that runs on_heartbeat to check and track the heartbeat contents.
+    """
+    data_interval_end = dt.datetime.fromisoformat("2023-04-20T14:30:00.000000+00:00")
+    data_interval_start = data_interval_end - http_batch_export.interval_time_delta
+
+    num_expected_parts = 3
+
+    for i in range(1, num_expected_parts + 1):
+        part_inserted_at = data_interval_end - http_batch_export.interval_time_delta / i
+
+        await generate_test_events_in_clickhouse(
+            client=clickhouse_client,
+            team_id=ateam.pk,
+            start_time=data_interval_start,
+            end_time=data_interval_end,
+            count=1,
+            count_outside_range=0,
+            count_other_team=0,
+            duplicate=False,
+            # We need to roll over 5MB to trigger a batch flush (and a heartbeat).
+            properties={"$chonky": ("a" * 5 * 1024**2)},
+            inserted_at=part_inserted_at,
+        )
+
+    heartbeat_count = 0
+
+    def assert_heartbeat_details(*raw_details):
+        """A function to track and assert we are heartbeating."""
+        nonlocal heartbeat_count
+        heartbeat_count += 1
+
+        details = HeartbeatDetails.from_activity_details(raw_details)
+
+        last_uploaded_part_dt = dt.datetime.fromisoformat(details.last_uploaded_part_timestamp)
+        assert last_uploaded_part_dt == data_interval_end - http_batch_export.interval_time_delta / heartbeat_count
+
+    activity_environment.on_heartbeat = assert_heartbeat_details
+
+    insert_inputs = HttpInsertInputs(
+        team_id=ateam.pk,
+        data_interval_start=data_interval_start.isoformat(),
+        data_interval_end=data_interval_end.isoformat(),
+        **http_config,
+    )
+
+    mock_server = MockServer()
+    with aioresponses(passthrough=[settings.CLICKHOUSE_HTTP_URL]) as m, override_settings(
+        BATCH_EXPORT_HTTP_UPLOAD_CHUNK_SIZE_BYTES=5 * 1024**2
+    ):
+        m.post(TEST_URL, status=200, callback=mock_server.post, repeat=True)
+        await activity_environment.run(insert_into_http_activity, insert_inputs)
+
+    # This checks that the assert_heartbeat_details function was actually called.
+    assert heartbeat_count == num_expected_parts
+
+    await assert_clickhouse_records_in_mock_server(
+        mock_server=mock_server,
+        clickhouse_client=clickhouse_client,
+        team_id=ateam.pk,
+        data_interval_start=data_interval_start,
+        data_interval_end=data_interval_end,
+    )
