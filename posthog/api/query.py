@@ -10,6 +10,7 @@ from rest_framework.exceptions import ValidationError, NotAuthenticated
 from rest_framework.request import Request
 from rest_framework.response import Response
 from sentry_sdk import capture_exception
+from rest_framework import status
 
 from posthog.api.documentation import extend_schema
 from posthog.api.mixins import PydanticModelMixin
@@ -64,7 +65,7 @@ class QueryViewSet(PydanticModelMixin, TeamAndOrgViewSetMixin, viewsets.ViewSet)
                 query_id=client_query_id,
                 refresh_requested=data.refresh,
             )
-            return Response(query_status.model_dump())
+            return Response(query_status.model_dump(), status=status.HTTP_202_ACCEPTED)
 
         tag_queries(query=request.data["query"])
         try:
