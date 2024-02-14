@@ -151,25 +151,19 @@
 # ---
 # name: TestFeatureFlagMatcher.test_db_matches_independent_of_string_or_number_type.1
   '''
-  SELECT "posthog_featureflag"."id",
-         "posthog_featureflag"."key",
-         "posthog_featureflag"."name",
-         "posthog_featureflag"."filters",
-         "posthog_featureflag"."rollout_percentage",
-         "posthog_featureflag"."team_id",
-         "posthog_featureflag"."created_by_id",
-         "posthog_featureflag"."created_at",
-         "posthog_featureflag"."deleted",
-         "posthog_featureflag"."active",
-         "posthog_featureflag"."rollback_conditions",
-         "posthog_featureflag"."performed_rollback",
-         "posthog_featureflag"."ensure_experience_continuity",
-         "posthog_featureflag"."usage_dashboard_id",
-         "posthog_featureflag"."has_enriched_analytics"
-  FROM "posthog_featureflag"
-  WHERE ("posthog_featureflag"."active"
-         AND NOT "posthog_featureflag"."deleted"
-         AND "posthog_featureflag"."team_id" = 2)
+  SELECT "posthog_person"."id",
+         "posthog_person"."created_at",
+         "posthog_person"."properties_last_updated_at",
+         "posthog_person"."properties_last_operation",
+         "posthog_person"."team_id",
+         "posthog_person"."properties",
+         "posthog_person"."is_user_id",
+         "posthog_person"."is_identified",
+         "posthog_person"."uuid",
+         "posthog_person"."version"
+  FROM "posthog_person"
+  WHERE "posthog_person"."id" = 2
+  LIMIT 21
   '''
 # ---
 # name: TestFeatureFlagMatcher.test_db_matches_independent_of_string_or_number_type.2
@@ -220,6 +214,29 @@
 # ---
 # name: TestFeatureFlagMatcher.test_db_matches_independent_of_string_or_number_type.4
   '''
+  SELECT "posthog_featureflag"."id",
+         "posthog_featureflag"."key",
+         "posthog_featureflag"."name",
+         "posthog_featureflag"."filters",
+         "posthog_featureflag"."rollout_percentage",
+         "posthog_featureflag"."team_id",
+         "posthog_featureflag"."created_by_id",
+         "posthog_featureflag"."created_at",
+         "posthog_featureflag"."deleted",
+         "posthog_featureflag"."active",
+         "posthog_featureflag"."rollback_conditions",
+         "posthog_featureflag"."performed_rollback",
+         "posthog_featureflag"."ensure_experience_continuity",
+         "posthog_featureflag"."usage_dashboard_id",
+         "posthog_featureflag"."has_enriched_analytics"
+  FROM "posthog_featureflag"
+  WHERE ("posthog_featureflag"."active"
+         AND NOT "posthog_featureflag"."deleted"
+         AND "posthog_featureflag"."team_id" = 2)
+  '''
+# ---
+# name: TestFeatureFlagMatcher.test_db_matches_independent_of_string_or_number_type.5
+  '''
   SELECT ((("posthog_person"."properties" -> 'Distinct Id') IN ('"307"')
            OR ("posthog_person"."properties" -> 'Distinct Id') IN ('307'))
           AND "posthog_person"."properties" ? 'Distinct Id'
@@ -231,7 +248,7 @@
          AND "posthog_person"."team_id" = 2)
   '''
 # ---
-# name: TestFeatureFlagMatcher.test_db_matches_independent_of_string_or_number_type.5
+# name: TestFeatureFlagMatcher.test_db_matches_independent_of_string_or_number_type.6
   '''
   SELECT (("posthog_person"."properties" -> 'Distinct Id') IN ('307')
           AND "posthog_person"."properties" ? 'Distinct Id'
@@ -243,7 +260,7 @@
          AND "posthog_person"."team_id" = 2)
   '''
 # ---
-# name: TestFeatureFlagMatcher.test_db_matches_independent_of_string_or_number_type.6
+# name: TestFeatureFlagMatcher.test_db_matches_independent_of_string_or_number_type.7
   '''
   SELECT (("posthog_person"."properties" -> 'Distinct Id') = '307'
           AND "posthog_person"."properties" ? 'Distinct Id'
@@ -539,6 +556,23 @@
 # ---
 # name: TestFeatureFlagMatcher.test_with_sql_injection_properties_and_other_aliases.1
   '''
+  SELECT "posthog_person"."id",
+         "posthog_person"."created_at",
+         "posthog_person"."properties_last_updated_at",
+         "posthog_person"."properties_last_operation",
+         "posthog_person"."team_id",
+         "posthog_person"."properties",
+         "posthog_person"."is_user_id",
+         "posthog_person"."is_identified",
+         "posthog_person"."uuid",
+         "posthog_person"."version"
+  FROM "posthog_person"
+  WHERE "posthog_person"."id" = 2
+  LIMIT 21
+  '''
+# ---
+# name: TestFeatureFlagMatcher.test_with_sql_injection_properties_and_other_aliases.2
+  '''
   SELECT "posthog_featureflag"."id",
          "posthog_featureflag"."key",
          "posthog_featureflag"."name",
@@ -560,7 +594,7 @@
          AND "posthog_featureflag"."team_id" = 2)
   '''
 # ---
-# name: TestFeatureFlagMatcher.test_with_sql_injection_properties_and_other_aliases.2
+# name: TestFeatureFlagMatcher.test_with_sql_injection_properties_and_other_aliases.3
   '''
   SELECT "posthog_cohort"."id",
          "posthog_cohort"."name",
@@ -584,7 +618,7 @@
          AND "posthog_cohort"."team_id" = 2)
   '''
 # ---
-# name: TestFeatureFlagMatcher.test_with_sql_injection_properties_and_other_aliases.3
+# name: TestFeatureFlagMatcher.test_with_sql_injection_properties_and_other_aliases.4
   '''
   SELECT (((("posthog_person"."properties" -> 'number space') > '"100"'
             AND JSONB_TYPEOF(("posthog_person"."properties" -> 'number space')) = ('string'))
