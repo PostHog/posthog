@@ -1,7 +1,14 @@
 import subprocess
 from typing import Optional
 
-# In production images, the two functions below are overwritten by container-images-cd.yml
+_git_commit_baked_in: Optional[str] = None
+try:
+    # Docker containers should have a commit.txt file in the base directory with the git
+    # commit hash used to generate them.
+    with open("commit.txt") as f:
+        _git_commit_baked_in = f.read().strip()
+except FileNotFoundError:
+    pass
 
 
 def get_git_commit() -> Optional[str]:
@@ -9,6 +16,8 @@ def get_git_commit() -> Optional[str]:
 
     Example: get_git_commit() => "4ff54c8d"
     """
+    if _git_commit_baked_in:
+        return _git_commit_baked_in
     try:
         return subprocess.check_output(["git", "rev-parse", "--short", "HEAD"]).decode("utf-8").strip()
     except Exception:

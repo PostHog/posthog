@@ -178,6 +178,7 @@ export const dataTableLogic = kea<dataTableLogicType>([
                         showSearch: query.showSearch ?? showIfFull,
                         showActions: query.showActions ?? true,
                         showDateRange: query.showDateRange ?? showIfFull,
+                        showTestAccountFilters: query.showTestAccountFilters ?? showIfFull,
                         showExport: query.showExport ?? showIfFull,
                         showReload: query.showReload ?? showIfFull,
                         showTimings: query.showTimings ?? flagQueryTimingsEnabled,

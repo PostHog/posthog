@@ -31,7 +31,7 @@ class TestFilters(BaseTest):
             context=HogQLContext(team_id=self.team.pk, enable_select_queries=True),
         )
 
-    def test_replace_filters(self):
+    def test_replace_filters_empty(self):
         select = replace_filters(self._parse_select("SELECT event FROM events"), HogQLFilters(), self.team)
         self.assertEqual(self._print_ast(select), "SELECT event FROM events LIMIT 10000")
 
@@ -42,6 +42,7 @@ class TestFilters(BaseTest):
         )
         self.assertEqual(self._print_ast(select), "SELECT event FROM events WHERE true LIMIT 10000")
 
+    def test_replace_filters_date_range(self):
         select = replace_filters(
             self._parse_select("SELECT event FROM events where {filters}"),
             HogQLFilters(dateRange=DateRange(date_from="2020-02-02")),
@@ -62,6 +63,7 @@ class TestFilters(BaseTest):
             "SELECT event FROM events WHERE less(timestamp, toDateTime('2020-02-02 00:00:00.000000')) LIMIT 10000",
         )
 
+    def test_replace_filters_event_property(self):
         select = replace_filters(
             self._parse_select("SELECT event FROM events where {filters}"),
             HogQLFilters(
@@ -74,6 +76,7 @@ class TestFilters(BaseTest):
             "SELECT event FROM events WHERE equals(properties.random_uuid, '123') LIMIT 10000",
         )
 
+    def test_replace_filters_person_property(self):
         select = replace_filters(
             self._parse_select("SELECT event FROM events where {filters}"),
             HogQLFilters(
@@ -99,4 +102,25 @@ class TestFilters(BaseTest):
         self.assertEqual(
             self._print_ast(select),
             "SELECT event FROM events WHERE and(equals(properties.random_uuid, '123'), equals(person.properties.random_uuid, '123')) LIMIT 10000",
+        )
+
+    def test_replace_filters_test_accounts(self):
+        self.team.test_account_filters = [
+            {
+                "key": "email",
+                "type": "person",
+                "value": "posthog.com",
+                "operator": "not_icontains",
+            }
+        ]
+        self.team.save()
+
+        select = replace_filters(
+            self._parse_select("SELECT event FROM events where {filters}"),
+            HogQLFilters(filterTestAccounts=True),
+            self.team,
+        )
+        self.assertEqual(
+            self._print_ast(select),
+            "SELECT event FROM events WHERE notILike(person.properties.email, '%posthog.com%') LIMIT 10000",
         )
