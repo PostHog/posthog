@@ -377,7 +377,7 @@ export function ItemPerformanceEvent({
                                                     headers={item.request_headers}
                                                     emptyMessage={
                                                         item.is_initial
-                                                            ? 'captured before PostHog was initialized'
+                                                            ? 'Request captured before PostHog was initialized'
                                                             : 'No request body captured'
                                                     }
                                                 />
@@ -393,7 +393,7 @@ export function ItemPerformanceEvent({
                                                           headers={item.response_headers}
                                                           emptyMessage={
                                                               item.is_initial
-                                                                  ? 'captured before PostHog was initialized'
+                                                                  ? 'Response captured before PostHog was initialized'
                                                                   : 'No response body captured'
                                                           }
                                                       />
@@ -433,7 +433,7 @@ export function ItemPerformanceEvent({
     )
 }
 
-function BodyDisplay({
+export function BodyDisplay({
     content,
     headers,
     emptyMessage,
@@ -463,7 +463,7 @@ function BodyDisplay({
     )
 }
 
-function HeadersDisplay({
+export function HeadersDisplay({
     request,
     response,
     isInitial,
