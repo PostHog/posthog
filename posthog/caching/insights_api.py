@@ -20,7 +20,7 @@ or not to refresh an insight upon a client request to do so
 
 # ClickHouse query timeout in seconds
 # From https://github.com/PostHog/posthog-cloud-infra/blob/master/ansible/config/clickhouse-users.xml#L11
-# Keep in sync with the above!
+# Keep in sync with the above! And note that this doesn't hold for async queries (which are flagged as of Feb 2023)
 CLICKHOUSE_MAX_EXECUTION_TIME = timedelta(seconds=180)
 
 # Default minimum wait time for refreshing an insight
