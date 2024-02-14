@@ -287,7 +287,7 @@ async def prepare_person_overrides(inputs: QueryInputs) -> None:
 
     activity.logger.info("Preparing person_overrides table for squashing")
 
-    optimize_query = "OPTIMIZE TABLE {database}.person_overrides ON CLUSTER {cluster} FINAL SETTINGS mutations_sync = 2"
+    optimize_query = "OPTIMIZE TABLE {database}.person_overrides ON CLUSTER {cluster} FINAL"
 
     if inputs.dry_run is True:
         activity.logger.info("This is a DRY RUN so nothing will be detached or optimized.")
@@ -296,7 +296,7 @@ async def prepare_person_overrides(inputs: QueryInputs) -> None:
 
     activity.logger.info("Optimizing person_overrides")
 
-    async with get_client() as clickhouse_client:
+    async with get_client(mutations_sync=2) as clickhouse_client:
         await clickhouse_client.execute_query(
             optimize_query.format(database=settings.CLICKHOUSE_DATABASE, cluster=settings.CLICKHOUSE_CLUSTER)
         )
@@ -373,9 +373,6 @@ async def select_persons_to_delete(inputs: QueryInputs) -> list[SerializablePers
     async with get_client() as clickhouse_client:
         response = await clickhouse_client.read_query(
             SELECT_PERSONS_TO_DELETE_QUERY.format(database=settings.CLICKHOUSE_DATABASE),
-            # We pass this as a timestamp ourselves as clickhouse-driver will drop any microseconds from the datetime.
-            # This would cause the latest merge event to be ignored.
-            # See: https://github.com/mymarilyn/clickhouse-driver/issues/306
             query_parameters={"latest_created_at": latest_created_at},
         )
 
