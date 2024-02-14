@@ -10,7 +10,6 @@ import { AvailableFeature, ProductKey } from '~/types'
 import { OnboardingBillingStep } from './OnboardingBillingStep'
 import { OnboardingInviteTeammates } from './OnboardingInviteTeammates'
 import { onboardingLogic, OnboardingStepKey } from './onboardingLogic'
-import { OnboardingOtherProductsStep } from './OnboardingOtherProductsStep'
 import { OnboardingProductConfiguration } from './OnboardingProductConfiguration'
 import { ProductConfigOption } from './onboardingProductConfigurationLogic'
 import { OnboardingVerificationStep } from './OnboardingVerificationStep'
@@ -29,7 +28,7 @@ export const scene: SceneExport = {
  * Wrapper for custom onboarding content. This automatically includes billing, other products, and invite steps.
  */
 const OnboardingWrapper = ({ children }: { children: React.ReactNode }): JSX.Element => {
-    const { currentOnboardingStep, shouldShowBillingStep, shouldShowOtherProductsStep } = useValues(onboardingLogic)
+    const { currentOnboardingStep, shouldShowBillingStep } = useValues(onboardingLogic)
     const { setAllOnboardingSteps } = useActions(onboardingLogic)
     const { product } = useValues(onboardingLogic)
     const [allSteps, setAllSteps] = useState<JSX.Element[]>([])
@@ -59,10 +58,6 @@ const OnboardingWrapper = ({ children }: { children: React.ReactNode }): JSX.Ele
         if (shouldShowBillingStep) {
             const BillingStep = <OnboardingBillingStep product={product} stepKey={OnboardingStepKey.BILLING} />
             steps = [...steps, BillingStep]
-        }
-        if (shouldShowOtherProductsStep) {
-            const OtherProductsStep = <OnboardingOtherProductsStep stepKey={OnboardingStepKey.OTHER_PRODUCTS} />
-            steps = [...steps, OtherProductsStep]
         }
         const inviteTeammatesStep = <OnboardingInviteTeammates stepKey={OnboardingStepKey.INVITE_TEAMMATES} />
         steps = [...steps, inviteTeammatesStep]

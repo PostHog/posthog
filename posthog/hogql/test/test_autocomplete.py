@@ -165,7 +165,64 @@ class TestAutocomplete(ClickhouseTestMixin, APIBaseTest):
         results = self._query_response(query=query, start=7, end=12)
         assert results.incomplete_list is False
 
-    def test_autocomplete_incomplete_list(self):
+    def test_autocomplete_properties_list_with_under_220_properties(self):
+        for index in range(20):
+            PropertyDefinition.objects.create(
+                team=self.team,
+                name=f"some_event_value_{index}",
+                property_type="String",
+                type=PropertyDefinition.Type.EVENT,
+            )
+
+        query = "select properties. from events"
+        results = self._query_response(query=query, start=18, end=18)
+        assert results.incomplete_list is False
+
+    def test_autocomplete_properties_list_with_over_220_properties(self):
+        for index in range(221):
+            PropertyDefinition.objects.create(
+                team=self.team,
+                name=f"some_event_value_{index}",
+                property_type="String",
+                type=PropertyDefinition.Type.EVENT,
+            )
+
         query = "select properties. from events"
         results = self._query_response(query=query, start=18, end=18)
         assert results.incomplete_list is True
+
+    def test_autocomplete_joined_tables(self):
+        query = "select p. from events e left join persons p on e.person_id = p.id"
+        results = self._query_response(query=query, start=9, end=9)
+
+        assert len(results.suggestions) != 0
+
+        keys = list(PERSONS_FIELDS.keys())
+
+        for index, key in enumerate(keys):
+            assert results.suggestions[index].label == key
+
+    def test_autocomplete_joined_table_contraints(self):
+        query = "select p.id from events e left join persons p on e.person_id = p."
+        results = self._query_response(query=query, start=65, end=65)
+
+        assert len(results.suggestions) != 0
+
+        keys = list(PERSONS_FIELDS.keys())
+
+        for index, key in enumerate(keys):
+            assert results.suggestions[index].label == key
+
+    def test_autocomplete_joined_tables_aliases(self):
+        query = "select  from events e left join persons p on e.person_id = p.id"
+        results = self._query_response(query=query, start=7, end=7)
+
+        assert len(results.suggestions) == 2
+        assert results.suggestions[0].label == "e"
+        assert results.suggestions[1].label == "p"
+
+    def test_autocomplete_non_existing_alias(self):
+        query = "select o. from events e"
+        results = self._query_response(query=query, start=9, end=9)
+
+        assert len(results.suggestions) == 0

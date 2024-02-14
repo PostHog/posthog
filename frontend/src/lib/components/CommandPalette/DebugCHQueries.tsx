@@ -157,7 +157,6 @@ function DebugCHQueries(): JSX.Element {
                 dataSource={filteredQueries}
                 loading={queriesLoading}
                 loadingSkeletonRows={5}
-                size="small"
                 pagination={undefined}
             />
         </>

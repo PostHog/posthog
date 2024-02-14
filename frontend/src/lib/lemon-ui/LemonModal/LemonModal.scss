@@ -33,7 +33,7 @@
     max-height: 90%;
     margin: 1rem auto;
     background-color: var(--bg-light);
-    border: 1px solid var(--border-3000);
+    border: 1px solid var(--secondary-3000-button-border);
     border-radius: var(--radius);
     box-shadow: var(--modal-shadow-elevation);
     opacity: 0;
@@ -90,10 +90,6 @@
         display: flex;
         height: 100%;
         overflow: hidden;
-    }
-
-    .posthog-3000 & {
-        border-color: var(--secondary-3000-button-border);
     }
 }
 
