@@ -6,7 +6,7 @@ try:
     # Docker containers should have a commit.txt file in the base directory with the git
     # commit hash used to generate them.
     with open("commit.txt") as f:
-        _git_commit_baked_in = f.read()
+        _git_commit_baked_in = f.read().strip()
 except FileNotFoundError:
     pass
 
