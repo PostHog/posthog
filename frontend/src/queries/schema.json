@@ -4993,6 +4993,9 @@
         "WebOverviewQuery": {
             "additionalProperties": false,
             "properties": {
+                "compare": {
+                    "type": "boolean"
+                },
                 "dateRange": {
                     "$ref": "#/definitions/DateRange"
                 },
