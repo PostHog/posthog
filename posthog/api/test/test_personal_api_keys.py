@@ -130,7 +130,7 @@ class TestPersonalAPIKeysAPIAuthentication(APIBaseTest):
         self.key = PersonalAPIKey.objects.create(label="Test", user=self.user, secure_value=hash_key_value(self.value))
         self.value_390000 = generate_random_token_personal()
         self.key_390000 = PersonalAPIKey.objects.create(
-            label="Test", user=self.user, secure_value=hash_key_value(self.value_390000, iterations=390000)
+            label="Test", user=self.user, secure_value=hash_key_value(self.value_390000, "pbkdf2", iterations=390000)
         )
         self.value_hardcoded = "phx_0a1b2c3d4e5f6g7h8i9j0k1l2m3n4o5p"
         self.key_hardcoded = PersonalAPIKey.objects.create(
@@ -154,7 +154,8 @@ class TestPersonalAPIKeysAPIAuthentication(APIBaseTest):
         )
 
     def test_header_resilient(self):
-        key_before = PersonalAPIKey.objects.get(id=self.key.id)
+        key_before = PersonalAPIKey.objects.get(id=self.key.id).secure_value
+        self.assertTrue(key_before.startswith("sha256$"))
 
         response = self.client.get(
             f"/api/projects/{self.team.id}/dashboards/",
@@ -163,11 +164,12 @@ class TestPersonalAPIKeysAPIAuthentication(APIBaseTest):
         self.assertEqual(response.status_code, 200)
 
         # Retrieve key from db to check that no update was made
-        key_after = PersonalAPIKey.objects.get(id=self.key.id)
-        self.assertEqual(key_after.secure_value, key_before.secure_value)
+        key_after = PersonalAPIKey.objects.get(id=self.key.id).secure_value
+        self.assertEqual(key_after, key_before)
 
     def test_header_alternative_iteration_count(self):
-        key_before = PersonalAPIKey.objects.get(id=self.key.id)
+        key_before = PersonalAPIKey.objects.get(id=self.key_390000.id).secure_value
+        self.assertTrue(key_before.startswith("pbkdf2_sha256$390000$"))
 
         response = self.client.get(
             f"/api/projects/{self.team.id}/dashboards/",
@@ -176,9 +178,9 @@ class TestPersonalAPIKeysAPIAuthentication(APIBaseTest):
         self.assertEqual(response.status_code, 200)
 
         # Retrieve key from db to check if hash was updated to latest mode
-        key_after = PersonalAPIKey.objects.get(id=self.key_390000.id)
-        self.assertEqual(key_after.secure_value, hash_key_value(self.value_390000))
-        self.assertNotEqual(key_after.secure_value, key_before.secure_value)
+        key_after = PersonalAPIKey.objects.get(id=self.key_390000.id).secure_value
+        self.assertEqual(key_after, hash_key_value(self.value_390000))
+        self.assertNotEqual(key_after, key_before)
 
     def test_header_hardcoded(self):
         response = self.client.get(

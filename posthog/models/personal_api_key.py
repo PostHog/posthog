@@ -8,7 +8,7 @@ from django.utils import timezone
 from .utils import generate_random_token
 
 PERSONAL_API_KEY_MODES_TO_TRY = (
-    ("hash", None),  # Moved to simple hashing in 2024-02
+    ("sha256", None),  # Moved to simple hashing in 2024-02
     ("pbkdf2", 260000),  # This is the iteration count used by PostHog since the beginning of time.
     ("pbkdf2", 390000),  # This is the iteration count used briefly on some API keys.
 )
@@ -16,13 +16,16 @@ PERSONAL_API_KEY_MODES_TO_TRY = (
 LEGACY_PERSONAL_API_KEY_SALT = "posthog_personal_api_key"
 
 
-def hash_key_value(value: str, mode: Literal["pbkdf2", "hash"] = "hash", iterations: Optional[int] = None) -> str:
+def hash_key_value(value: str, mode: Literal["pbkdf2", "sha256"] = "sha256", iterations: Optional[int] = None) -> str:
     if mode == "pbkdf2":
         if not iterations:
             raise ValueError("Iterations must be provided when using legacy PBKDF2 mode")
 
         hasher = PBKDF2PasswordHasher()
         return hasher.encode(value, LEGACY_PERSONAL_API_KEY_SALT, iterations=iterations)
+
+    if iterations:
+        raise ValueError("Iterations must not be provided when using simple hashing mode")
 
     # Inspiration on why no salt:
     # https://github.com/jazzband/django-rest-knox/issues/188
