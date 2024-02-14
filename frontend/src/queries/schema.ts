@@ -296,6 +296,8 @@ export interface AutocompleteCompletionItem {
 
 export interface HogQLAutocompleteResponse {
     suggestions: AutocompleteCompletionItem[]
+    /** Whether or not the suggestions returned are complete */
+    incomplete_list: boolean
 }
 
 export interface HogQLMetadata extends DataNode {
@@ -966,6 +968,7 @@ export interface WebAnalyticsQueryBase {
 export interface WebOverviewQuery extends WebAnalyticsQueryBase {
     kind: NodeKind.WebOverviewQuery
     response?: WebOverviewQueryResponse
+    compare?: boolean
 }
 
 export interface WebOverviewItem {

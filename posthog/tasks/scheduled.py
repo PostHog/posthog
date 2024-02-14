@@ -45,6 +45,7 @@ from posthog.tasks.tasks import (
     update_event_partitions,
     update_quota_limiting,
     verify_persons_data_in_sync,
+    calculate_replay_embeddings,
 )
 from posthog.utils import get_crontab
 
@@ -238,6 +239,16 @@ def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
         )
 
     if settings.EE_AVAILABLE:
+        # every interval seconds, we calculate N replay embeddings
+        # the goal is to process _enough_ every 24 hours that
+        # there is a meaningful playlist to test with
+        add_periodic_task_with_expiry(
+            sender,
+            settings.REPLAY_EMBEDDINGS_CALCULATION_CELERY_INTERVAL_SECONDS,
+            calculate_replay_embeddings.s(),
+            name="calculate replay embeddings",
+        )
+
         sender.add_periodic_task(
             crontab(hour="0", minute=str(randrange(0, 40))),
             clickhouse_send_license_usage.s(),

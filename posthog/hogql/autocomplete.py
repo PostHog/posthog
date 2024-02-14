@@ -1,4 +1,4 @@
-from copy import copy
+from copy import copy, deepcopy
 from typing import Callable, Dict, List, Optional, cast
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.database import create_hogql_database
@@ -82,7 +82,7 @@ def constant_type_to_database_field(constant_type: ConstantType, name: str) -> D
     return DatabaseField(name=name)
 
 
-def convert_field_or_table_to_type_string(field_or_table: FieldOrTable) -> str:
+def convert_field_or_table_to_type_string(field_or_table: FieldOrTable) -> str | None:
     if isinstance(field_or_table, ast.BooleanDatabaseField):
         return "Boolean"
     if isinstance(field_or_table, ast.IntegerDatabaseField):
@@ -97,10 +97,12 @@ def convert_field_or_table_to_type_string(field_or_table: FieldOrTable) -> str:
         return "Date"
     if isinstance(field_or_table, ast.StringJSONDatabaseField):
         return "Object"
+    if isinstance(field_or_table, ast.ExpressionField):
+        return "Expression"
     if isinstance(field_or_table, (ast.Table, ast.LazyJoin)):
         return "Table"
 
-    return ""
+    return None
 
 
 def get_table(context: HogQLContext, join_expr: ast.JoinExpr, ctes: Optional[Dict[str, CTE]]) -> None | Table:
@@ -181,6 +183,75 @@ def get_table(context: HogQLContext, join_expr: ast.JoinExpr, ctes: Optional[Dic
     return None
 
 
+def get_tables_aliases(query: ast.SelectQuery, context: HogQLContext) -> Dict[str, ast.Table]:
+    tables: Dict[str, ast.Table] = {}
+
+    if query.select_from is not None and query.select_from.alias is not None:
+        table = get_table(context, query.select_from, query.ctes)
+        if table is not None:
+            tables[query.select_from.alias] = table
+
+    if query.select_from is not None and query.select_from.next_join is not None:
+        next_join: ast.JoinExpr | None = query.select_from.next_join
+        while next_join is not None:
+            if next_join.alias is not None:
+                table = get_table(context, next_join, query.ctes)
+                if table is not None:
+                    tables[next_join.alias] = table
+            next_join = next_join.next_join
+
+    return tables
+
+
+# Replaces all ast.FieldTraverser with the underlying node
+def resolve_table_field_traversers(table: Table) -> Table:
+    new_table = deepcopy(table)
+    new_fields: Dict[str, FieldOrTable] = {}
+    for key, field in list(new_table.fields.items()):
+        if not isinstance(field, ast.FieldTraverser):
+            new_fields[key] = field
+            continue
+
+        current_table_or_field: FieldOrTable = new_table
+        for chain in field.chain:
+            if isinstance(current_table_or_field, Table):
+                chain_field = current_table_or_field.fields.get(chain)
+            elif isinstance(current_table_or_field, LazyJoin):
+                chain_field = current_table_or_field.join_table.fields.get(chain)
+            elif isinstance(current_table_or_field, DatabaseField):
+                chain_field = current_table_or_field
+            else:
+                # Cant find the field, default back
+                new_fields[key] = field
+                break
+
+            if chain_field is not None:
+                current_table_or_field = chain_field
+                new_fields[key] = chain_field
+
+    new_table.fields = new_fields
+    return new_table
+
+
+def append_table_field_to_response(table: Table, suggestions: List[AutocompleteCompletionItem]) -> None:
+    keys: List[str] = []
+    details: List[str | None] = []
+    table_fields = list(table.fields.items())
+    for field_name, field_or_table in table_fields:
+        keys.append(field_name)
+        details.append(convert_field_or_table_to_type_string(field_or_table))
+
+    extend_responses(keys=keys, suggestions=suggestions, details=details)
+
+    available_functions = ALL_EXPOSED_FUNCTION_NAMES
+    extend_responses(
+        available_functions,
+        suggestions,
+        Kind.Function,
+        insert_text=lambda key: f"{key}()",
+    )
+
+
 def extend_responses(
     keys: List[str],
     suggestions: List[AutocompleteCompletionItem],
@@ -207,7 +278,7 @@ PROPERTY_DEFINITION_LIMIT = 220
 
 # TODO: Support ast.SelectUnionQuery nodes
 def get_hogql_autocomplete(query: HogQLAutocomplete, team: Team) -> HogQLAutocompleteResponse:
-    response = HogQLAutocompleteResponse(suggestions=[])
+    response = HogQLAutocompleteResponse(suggestions=[], incomplete_list=False)
 
     database = create_hogql_database(team_id=team.pk, team_arg=team)
     context = HogQLContext(team_id=team.pk, team=team, database=database)
@@ -259,8 +330,6 @@ def get_hogql_autocomplete(query: HogQLAutocomplete, team: Team) -> HogQLAutocom
                 and nearest_select.select_from is not None
                 and not isinstance(parent_node, ast.JoinExpr)
             ):
-                # TODO: add logic for FieldTraverser field types
-
                 # Handle fields
                 table = get_table(context, nearest_select.select_from, ctes)
                 if table is None:
@@ -271,33 +340,34 @@ def get_hogql_autocomplete(query: HogQLAutocomplete, team: Team) -> HogQLAutocom
                 for index, chain_part in enumerate(node.chain):
                     # Return just the table alias
                     if table_has_alias and index == 0 and chain_len == 1:
-                        extend_responses([str(chain_part)], response.suggestions, Kind.Folder)
+                        table_aliases = list(get_tables_aliases(nearest_select, context).keys())
+                        extend_responses(
+                            keys=table_aliases,
+                            suggestions=response.suggestions,
+                            kind=Kind.Folder,
+                            details=["Table"] * len(table_aliases),  # type: ignore
+                        )
                         break
 
                     if table_has_alias and index == 0:
-                        continue
+                        tables = get_tables_aliases(nearest_select, context)
+                        aliased_table = tables.get(str(chain_part))
+                        if aliased_table is not None:
+                            last_table = aliased_table
+                            continue
+                        else:
+                            # Dont continue if the alias is not found in the query
+                            break
 
                     # Ignore last chain part, it's likely an incomplete word or added characters
                     is_last_part = index >= (chain_len - 2)
 
+                    # Replaces all ast.FieldTraverser with the underlying node
+                    last_table = resolve_table_field_traversers(last_table)
+
                     if is_last_part:
                         if last_table.fields.get(str(chain_part)) is None:
-                            keys: List[str] = []
-                            details: List[str | None] = []
-                            table_fields = list(table.fields.items())
-                            for field_name, field_or_table in table_fields:
-                                keys.append(field_name)
-                                details.append(convert_field_or_table_to_type_string(field_or_table))
-
-                            extend_responses(keys=keys, suggestions=response.suggestions, details=details)
-
-                            available_functions = ALL_EXPOSED_FUNCTION_NAMES
-                            extend_responses(
-                                available_functions,
-                                response.suggestions,
-                                Kind.Function,
-                                insert_text=lambda key: f"{key}()",
-                            )
+                            append_table_field_to_response(table=last_table, suggestions=response.suggestions)
                             break
 
                         field = last_table.fields[str(chain_part)]
@@ -317,23 +387,36 @@ def get_hogql_autocomplete(query: HogQLAutocomplete, team: Team) -> HogQLAutocom
                                 if match_term == MATCH_ANY_CHARACTER:
                                     match_term = ""
 
-                                properties = PropertyDefinition.objects.filter(
+                                property_query = PropertyDefinition.objects.filter(
                                     name__contains=match_term,
                                     team_id=team.pk,
                                     type=property_type,
-                                )[:PROPERTY_DEFINITION_LIMIT].values("name", "property_type")
+                                )
+
+                                total_property_count = property_query.count()
+                                properties = property_query[:PROPERTY_DEFINITION_LIMIT].values("name", "property_type")
 
                                 extend_responses(
                                     keys=[prop["name"] for prop in properties],
                                     suggestions=response.suggestions,
                                     details=[prop["property_type"] for prop in properties],
                                 )
+                                response.incomplete_list = total_property_count > PROPERTY_DEFINITION_LIMIT
                         elif isinstance(field, VirtualTable) or isinstance(field, LazyTable):
-                            fields = list(last_table.fields.keys())
-                            extend_responses(fields, response.suggestions)
+                            fields = list(last_table.fields.items())
+                            extend_responses(
+                                keys=[key for key, field in fields],
+                                suggestions=response.suggestions,
+                                details=[convert_field_or_table_to_type_string(field) for key, field in fields],
+                            )
                         elif isinstance(field, LazyJoin):
-                            fields = list(field.join_table.fields.keys())
-                            extend_responses(fields, response.suggestions)
+                            fields = list(field.join_table.fields.items())
+
+                            extend_responses(
+                                keys=[key for key, field in fields],
+                                suggestions=response.suggestions,
+                                details=[convert_field_or_table_to_type_string(field) for key, field in fields],
+                            )
                         break
                     else:
                         field = last_table.fields[str(chain_part)]
@@ -345,7 +428,12 @@ def get_hogql_autocomplete(query: HogQLAutocomplete, team: Team) -> HogQLAutocom
                 # Handle table names
                 if len(node.chain) == 1:
                     table_names = database.get_all_tables()
-                    extend_responses(table_names, response.suggestions, Kind.Folder)
+                    extend_responses(
+                        keys=table_names,
+                        suggestions=response.suggestions,
+                        kind=Kind.Folder,
+                        details=["Table"] * len(table_names),  # type: ignore
+                    )
         except Exception:
             pass
 

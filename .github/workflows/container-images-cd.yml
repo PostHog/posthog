@@ -107,7 +107,7 @@ jobs:
                   message: |
                       {
                         "image_tag": "${{ steps.build.outputs.digest }}"
-                      }                      
+                      }
 
             - name: Check for changes in plugins directory
               id: check_changes_plugins

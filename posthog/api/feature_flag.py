@@ -1,5 +1,5 @@
 import json
-from typing import Any, Dict, List, Optional, cast
+from typing import Any, Dict, Optional, cast
 from datetime import datetime
 
 from django.db.models import QuerySet, Q, deletion
@@ -473,33 +473,26 @@ class FeatureFlagViewSet(
         if not request.user.is_authenticated:  # for mypy
             raise exceptions.NotAuthenticated()
 
-        feature_flags = (
-            FeatureFlag.objects.filter(team=self.team, deleted=False)
-            .prefetch_related("experiment_set")
-            .prefetch_related("features")
-            .prefetch_related("analytics_dashboards")
-            .prefetch_related("surveys_linked_flag")
-            .select_related("created_by")
-            .order_by("-created_at")
-        )
+        feature_flags = list(FeatureFlag.objects.filter(team=self.team, deleted=False).order_by("-created_at"))
+
+        if not feature_flags:
+            return Response([])
+
         groups = json.loads(request.GET.get("groups", "{}"))
-        flags: List[dict] = []
+        matches, *_ = get_all_feature_flags(self.team_id, request.user.distinct_id, groups)
 
-        feature_flag_list = list(feature_flags)
-
-        if not feature_flag_list:
-            return Response(flags)
-
-        matches, _, _, _ = get_all_feature_flags(self.team_id, request.user.distinct_id, groups)
-        for feature_flag in feature_flags:
-            flags.append(
+        all_serialized_flags = MinimalFeatureFlagSerializer(
+            feature_flags, many=True, context=self.get_serializer_context()
+        ).data
+        return Response(
+            (
                 {
-                    "feature_flag": FeatureFlagSerializer(feature_flag, context=self.get_serializer_context()).data,
-                    "value": matches.get(feature_flag.key, False),
+                    "feature_flag": feature_flag,
+                    "value": matches.get(feature_flag["key"], False),
                 }
+                for feature_flag in all_serialized_flags
             )
-
-        return Response(flags)
+        )
 
     @action(methods=["GET"], detail=False, throttle_classes=[FeatureFlagThrottle])
     def local_evaluation(self, request: request.Request, **kwargs):

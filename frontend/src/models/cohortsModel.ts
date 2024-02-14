@@ -8,6 +8,7 @@ import { permanentlyMount } from 'lib/utils/kea-logic-builders'
 import { BehavioralFilterKey } from 'scenes/cohorts/CohortFilters/types'
 import { personsLogic } from 'scenes/persons/personsLogic'
 import { isAuthenticatedTeam, teamLogic } from 'scenes/teamLogic'
+import { urls } from 'scenes/urls'
 
 import {
     AnyCohortCriteriaType,
@@ -131,7 +132,7 @@ export const cohortsModel = kea<cohortsModelType>([
     listeners(({ actions }) => ({
         loadCohortsSuccess: async ({ cohorts }: { cohorts: CohortType[] }) => {
             const is_calculating = cohorts.filter((cohort) => cohort.is_calculating).length > 0
-            if (!is_calculating) {
+            if (!is_calculating || !window.location.pathname.includes(urls.cohorts())) {
                 return
             }
             actions.setPollTimeout(window.setTimeout(actions.loadCohorts, POLL_TIMEOUT))

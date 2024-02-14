@@ -4,8 +4,8 @@ import { EarlyAccessFeature } from 'posthog-js'
 
 import { setFeatureFlags, useStorybookMocks } from '~/mocks/browser'
 
+import { FeaturePreviews } from './FeaturePreviews'
 import { CONSTRAINED_PREVIEWS } from './featurePreviewsLogic'
-import { FeaturePreviewsModal as FeaturePreviewsModalComponent } from './FeaturePreviewsModal'
 
 interface StoryProps {
     earlyAccessFeatures: EarlyAccessFeature[]
@@ -14,7 +14,7 @@ interface StoryProps {
 
 type Story = StoryObj<(props: StoryProps) => JSX.Element>
 const meta: Meta<(props: StoryProps) => JSX.Element> = {
-    title: 'Layout/Feature Previews Modal',
+    title: 'Layout/Feature Previews',
     parameters: {
         layout: 'fullscreen',
         viewMode: 'story',
@@ -33,8 +33,8 @@ const Template: StoryFn<StoryProps> = ({ earlyAccessFeatures, enabledFeatureFlag
     setFeatureFlags(enabledFeatureFlags)
 
     return (
-        <div className="bg-default p-2">
-            <FeaturePreviewsModalComponent inline />
+        <div className="w-160 p-4 border rounded mx-auto my-2">
+            <FeaturePreviews />
         </div>
     )
 }
