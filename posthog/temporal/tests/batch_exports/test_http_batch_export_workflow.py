@@ -1,4 +1,3 @@
-from aiohttp.client_exceptions import ClientResponseError
 import asyncio
 import datetime as dt
 import json
@@ -26,6 +25,8 @@ from posthog.temporal.batch_exports.http_batch_export import (
     HttpBatchExportInputs,
     HttpBatchExportWorkflow,
     HttpInsertInputs,
+    NonRetryableResponseError,
+    RetryableResponseError,
     insert_into_http_activity,
     http_default_fields,
 )
@@ -92,12 +93,14 @@ async def assert_clickhouse_records_in_mock_server(
             expected_record = {}
 
             for k, v in record.items():
-                if k in {"properties", "set", "set_once", "person_properties"} and v is not None:
-                    expected_record[k] = json.loads(v)
+                if k == "properties":
+                    expected_record[k] = json.loads(v) if v else {}
                 elif isinstance(v, dt.datetime):
                     expected_record[k] = v.replace(tzinfo=dt.timezone.utc).isoformat()
                 else:
                     expected_record[k] = v
+
+            expected_record["properties"]["$geoip_disable"] = True
 
             elements_chain = expected_record.pop("elements_chain", None)
             if expected_record["event"] == "$autocapture" and elements_chain is not None:
@@ -236,14 +239,21 @@ async def test_insert_into_http_activity_throws_on_bad_http_status(
         BATCH_EXPORT_HTTP_UPLOAD_CHUNK_SIZE_BYTES=5 * 1024**2
     ):
         m.post(TEST_URL, status=400, repeat=True)
-        with pytest.raises(ClientResponseError):
+        with pytest.raises(NonRetryableResponseError):
+            await activity_environment.run(insert_into_http_activity, insert_inputs)
+
+    with aioresponses(passthrough=[settings.CLICKHOUSE_HTTP_URL]) as m, override_settings(
+        BATCH_EXPORT_HTTP_UPLOAD_CHUNK_SIZE_BYTES=5 * 1024**2
+    ):
+        m.post(TEST_URL, status=429, repeat=True)
+        with pytest.raises(RetryableResponseError):
             await activity_environment.run(insert_into_http_activity, insert_inputs)
 
     with aioresponses(passthrough=[settings.CLICKHOUSE_HTTP_URL]) as m, override_settings(
         BATCH_EXPORT_HTTP_UPLOAD_CHUNK_SIZE_BYTES=5 * 1024**2
     ):
         m.post(TEST_URL, status=500, repeat=True)
-        with pytest.raises(ClientResponseError):
+        with pytest.raises(RetryableResponseError):
             await activity_environment.run(insert_into_http_activity, insert_inputs)
 
 

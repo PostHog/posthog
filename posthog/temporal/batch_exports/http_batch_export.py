@@ -28,6 +28,30 @@ from posthog.temporal.batch_exports.metrics import (
 from posthog.temporal.common.logger import bind_temporal_worker_logger
 
 
+class RetryableResponseError(Exception):
+    """Error for HTTP status >=500 (plus 429)."""
+
+    def __init__(self, status):
+        super().__init__(f"RetryableResponseError status: {status}")
+
+
+class NonRetryableResponseError(Exception):
+    """Error for HTTP status >= 400 and < 500 (excluding 429)."""
+
+    def __init__(self, status):
+        super().__init__(f"NonRetryableResponseError status: {status}")
+
+
+def raise_for_status(response: aiohttp.ClientResponse):
+    """Like aiohttp raise_for_status, but it distinguishes between retryable and non-retryable
+    errors."""
+    if not response.ok:
+        if response.status >= 500 or response.status == 429:
+            raise RetryableResponseError(response.status)
+        else:
+            raise NonRetryableResponseError(response.status)
+
+
 def http_default_fields() -> list[BatchExportField]:
     return [
         BatchExportField(expression="toString(uuid)", alias="uuid"),
@@ -35,7 +59,7 @@ def http_default_fields() -> list[BatchExportField]:
         BatchExportField(expression="event", alias="event"),
         BatchExportField(expression="nullIf(properties, '')", alias="properties"),
         BatchExportField(expression="toString(distinct_id)", alias="distinct_id"),
-        BatchExportField(expression="toJSONString(elements_chain)", alias="elements_chain"),
+        BatchExportField(expression="elements_chain", alias="elements_chain"),
     ]
 
 
@@ -57,7 +81,8 @@ async def post_json_file_to_url(url, batch_file):
     batch_file.seek(0)
     async with aiohttp.ClientSession() as session:
         headers = {"Content-Type": "application/json"}
-        async with session.post(url, data=batch_file, headers=headers, raise_for_status=True) as response:
+        async with session.post(url, data=batch_file, headers=headers) as response:
+            raise_for_status(response)
             return response
 
 
@@ -160,7 +185,9 @@ async def insert_into_http_activity(inputs: HttpInsertInputs):
                     # Format result row as PostHog event, write JSON to the batch file.
 
                     properties = row["properties"]
-                    properties = json.loads(properties) if properties else None
+                    properties = json.loads(properties) if properties else {}
+                    properties["$geoip_disable"] = True
+
                     if row["event"] == "$autocapture" and row["elements_chain"] is not None:
                         properties["$elements_chain"] = row["elements_chain"]
 
@@ -220,7 +247,9 @@ class HttpBatchExportWorkflow(PostHogWorkflow):
                 initial_interval=dt.timedelta(seconds=10),
                 maximum_interval=dt.timedelta(seconds=60),
                 maximum_attempts=0,
-                non_retryable_error_types=[],
+                non_retryable_error_types=[
+                    "NonRetryableResponseError",
+                ],
             ),
         )
 
@@ -244,7 +273,9 @@ class HttpBatchExportWorkflow(PostHogWorkflow):
         await execute_batch_export_insert_activity(
             insert_into_http_activity,
             insert_inputs,
-            non_retryable_error_types=[],
+            non_retryable_error_types=[
+                "NonRetryableResponseError",
+            ],
             update_inputs=update_inputs,
             # Disable heartbeat timeout until we add heartbeat support.
             heartbeat_timeout_seconds=None,
