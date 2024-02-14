@@ -60,25 +60,19 @@
 # ---
 # name: TestPreviewList.test_early_access_features.1
   '''
-  SELECT "posthog_featureflag"."id",
-         "posthog_featureflag"."key",
-         "posthog_featureflag"."name",
-         "posthog_featureflag"."filters",
-         "posthog_featureflag"."rollout_percentage",
-         "posthog_featureflag"."team_id",
-         "posthog_featureflag"."created_by_id",
-         "posthog_featureflag"."created_at",
-         "posthog_featureflag"."deleted",
-         "posthog_featureflag"."active",
-         "posthog_featureflag"."rollback_conditions",
-         "posthog_featureflag"."performed_rollback",
-         "posthog_featureflag"."ensure_experience_continuity",
-         "posthog_featureflag"."usage_dashboard_id",
-         "posthog_featureflag"."has_enriched_analytics"
-  FROM "posthog_featureflag"
-  WHERE ("posthog_featureflag"."active"
-         AND NOT "posthog_featureflag"."deleted"
-         AND "posthog_featureflag"."team_id" = 2)
+  SELECT "posthog_person"."id",
+         "posthog_person"."created_at",
+         "posthog_person"."properties_last_updated_at",
+         "posthog_person"."properties_last_operation",
+         "posthog_person"."team_id",
+         "posthog_person"."properties",
+         "posthog_person"."is_user_id",
+         "posthog_person"."is_identified",
+         "posthog_person"."uuid",
+         "posthog_person"."version"
+  FROM "posthog_person"
+  WHERE "posthog_person"."id" = 2
+  LIMIT 21
   '''
 # ---
 # name: TestPreviewList.test_early_access_features.2
@@ -105,6 +99,29 @@
   '''
 # ---
 # name: TestPreviewList.test_early_access_features.3
+  '''
+  SELECT "posthog_featureflag"."id",
+         "posthog_featureflag"."key",
+         "posthog_featureflag"."name",
+         "posthog_featureflag"."filters",
+         "posthog_featureflag"."rollout_percentage",
+         "posthog_featureflag"."team_id",
+         "posthog_featureflag"."created_by_id",
+         "posthog_featureflag"."created_at",
+         "posthog_featureflag"."deleted",
+         "posthog_featureflag"."active",
+         "posthog_featureflag"."rollback_conditions",
+         "posthog_featureflag"."performed_rollback",
+         "posthog_featureflag"."ensure_experience_continuity",
+         "posthog_featureflag"."usage_dashboard_id",
+         "posthog_featureflag"."has_enriched_analytics"
+  FROM "posthog_featureflag"
+  WHERE ("posthog_featureflag"."active"
+         AND NOT "posthog_featureflag"."deleted"
+         AND "posthog_featureflag"."team_id" = 2)
+  '''
+# ---
+# name: TestPreviewList.test_early_access_features.4
   '''
   SELECT "posthog_user"."id",
          "posthog_user"."password",
@@ -135,7 +152,7 @@
   LIMIT 21
   '''
 # ---
-# name: TestPreviewList.test_early_access_features.4
+# name: TestPreviewList.test_early_access_features.5
   '''
   SELECT "posthog_team"."id",
          "posthog_team"."uuid",
@@ -187,7 +204,7 @@
   LIMIT 21 /*controller='posthog.api.early_access_feature.early_access_features',route='%5Eapi/early_access_features/%3F%28%3F%3A%5B%3F%23%5D.%2A%29%3F%24'*/
   '''
 # ---
-# name: TestPreviewList.test_early_access_features.5
+# name: TestPreviewList.test_early_access_features.6
   '''
   SELECT "posthog_earlyaccessfeature"."id",
          "posthog_earlyaccessfeature"."team_id",
