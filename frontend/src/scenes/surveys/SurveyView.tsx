@@ -320,6 +320,7 @@ export function SurveyResult({ disableEventsTable }: { disableEventsTable?: bool
             <div className="max-w-40 mb-4">
                 <LemonButton
                     type="primary"
+                    data-attr="survey-results-explore"
                     to={urls.insightNew({
                         insight: InsightType.TRENDS,
                         events: [
