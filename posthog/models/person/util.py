@@ -180,6 +180,17 @@ def create_person(
     return uuid
 
 
+def create_person_distinct_id_for_model_instance(instance: PersonDistinctId, sync: bool = False) -> None:
+    return create_person_distinct_id(
+        team_id=instance.team_id,
+        distinct_id=instance.distinct_id,
+        person_id=str(instance.person.uuid if instance.person is not None else DELETED_PERSON_UUID_PLACEHOLDER),
+        version=instance.version or 0,
+        is_deleted=instance.person is None,
+        sync=sync,
+    )
+
+
 def create_person_distinct_id(
     team_id: int,
     distinct_id: str,

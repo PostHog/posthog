@@ -1,6 +1,6 @@
 import json
 import logging
-from uuid import UUID
+from typing import NamedTuple
 
 import structlog
 from django.core.management.base import BaseCommand
@@ -12,10 +12,8 @@ from posthog.models.group.util import raw_create_group_ch
 from posthog.models.person import PersonDistinctId
 from posthog.models.person.person import Person, PersonOverride
 from posthog.models.person.util import (
-    DELETED_PERSON_UUID_PLACEHOLDER,
-    _delete_ch_distinct_id,
     create_person,
-    create_person_distinct_id,
+    create_person_distinct_id_for_model_instance,
     create_person_override,
 )
 
@@ -127,60 +125,100 @@ def run_person_sync(team_id: int, live_run: bool, deletes: bool, sync: bool):
                     )
 
 
+class ClickHouseDistinctIdInfo(NamedTuple):
+    distinct_id: str
+    version: int
+    is_deleted: bool
+
+
 def run_distinct_id_sync(team_id: int, live_run: bool, deletes: bool, sync: bool):
+    if not live_run:
+        raise NotImplementedError  # TODO
+
+    if not deletes:
+        raise NotImplementedError  # TODO
+
     logger.info("Running person distinct id table sync")
     # lookup what needs to be updated in ClickHouse and send kafka messages for only those
-    person_distinct_ids = PersonDistinctId.objects.filter(team_id=team_id)
-    rows = sync_execute(
-        """
-            SELECT distinct_id, max(version) FROM person_distinct_id2 WHERE team_id = %(team_id)s GROUP BY distinct_id HAVING max(is_deleted) = 0
-        """,
-        {
-            "team_id": team_id,
-        },
+
+    # TODO: Should possibly select_related for person?
+    postgres_rows = {row.distinct_id: row for row in PersonDistinctId.objects.filter(team_id=team_id)}
+    clickhouse_rows = {
+        row[0]: ClickHouseDistinctIdInfo(row[0], int(row[1]), bool(row[2]))
+        for row in sync_execute(
+            """
+            SELECT
+                distinct_id,
+                max(version),
+                argMax(is_deleted, version)
+            FROM person_distinct_id2
+            WHERE team_id = %(team_id)s
+            GROUP BY distinct_id
+            """,
+            {"team_id": team_id},
+        )
+    }
+
+    distinct_ids = postgres_rows.keys() | clickhouse_rows.keys()
+    logger.info(
+        "Fetched %s rows from PG and %s rows from CH, %s total",
+        len(postgres_rows),
+        len(clickhouse_rows),
+        len(distinct_ids),
     )
-    ch_distinct_id_to_version = {row[0]: row[1] for row in rows}
 
-    total_pg = len(person_distinct_ids)
-    logger.info(f"Got ${total_pg} in PG and ${len(ch_distinct_id_to_version)} in CH")
+    for i, distinct_id in enumerate(distinct_ids):
+        if i % (max(len(distinct_ids) // 10, 1)) == 0 and i > 0:
+            logger.info("Processed %0.2f%%", i / len(distinct_ids) * 100)
 
-    for i, person_distinct_id in enumerate(person_distinct_ids):
-        if i % (max(total_pg // 10, 1)) == 0 and i > 0:
-            logger.info(f"Processed {i / total_pg * 100}%")
-        ch_version = ch_distinct_id_to_version.get(person_distinct_id.distinct_id, None)
-        pg_version = person_distinct_id.version or 0
-        if ch_version is None or ch_version < pg_version:
-            logger.info(f"Updating {person_distinct_id.distinct_id} to version {pg_version}")
-            if live_run:
-                # Update ClickHouse via Kafka message
-                create_person_distinct_id(
-                    team_id=team_id,
-                    distinct_id=person_distinct_id.distinct_id,
-                    person_id=str(
-                        person_distinct_id.person.uuid
-                        if person_distinct_id.person is not None
-                        else DELETED_PERSON_UUID_PLACEHOLDER
-                    ),
-                    version=pg_version,
-                    is_deleted=False,
-                    sync=sync,
+        match (postgres_rows.get(distinct_id), clickhouse_rows.get(distinct_id)):
+            case (None, None):
+                raise ValueError("unexpected value")
+            case (postgres_row, None):
+                # Likely a missed update -- this can be safely retried, even if
+                # newer versions than the one we've got have already been written.
+                create_person_distinct_id_for_model_instance(postgres_row, sync=sync)
+            case (None, clickhouse_row):
+                # Likely a missing tombstone from before when we kept old rows
+                # around in Postgres to preserve their versions. The distinct ID
+                # may be in use by the time we query for it, though -- in that
+                # case, we'll need to make sure that the version is advanced far
+                # enough that it will override the stored version in ClickHouse.
+                instances = PersonDistinctId.objects.raw(
+                    """
+                    INSERT INTO posthog_persondistinctid AS pdi
+                        (team_id, distinct_id, person_id, version)
+                        VALUES (%s, %s, %s, %s + 1)
+                    ON CONFLICT (team_id, distinct_id)
+                        DO UPDATE SET
+                            version = greatest(COALESCE(pdi.version, 0)::numeric, %s) + 1
+                    RETURNING *
+                    """,
+                    [team_id, distinct_id, None, clickhouse_row.version, clickhouse_row.version],
                 )
-        elif ch_version > pg_version:
-            # This could be happening due to person deletions - check out fix_person_distinct_ids_after_delete management cmd.
-            # Ignoring here to be safe.
-            logger.info(
-                f"Clickhouse version ({ch_version}) for '{person_distinct_id.distinct_id}' is higher than in Postgres ({pg_version}). Ignoring."
-            )
-            continue
-
-    if deletes:
-        logger.info("Processing distinct id deletions")
-        postgres_distinct_ids = {person_distinct_id.distinct_id for person_distinct_id in person_distinct_ids}
-        for distinct_id, version in ch_distinct_id_to_version.items():
-            if distinct_id not in postgres_distinct_ids:
-                logger.info(f"Deleting distinct ID {distinct_id}")
-                if live_run:
-                    _delete_ch_distinct_id(team_id, UUID(int=0), distinct_id, version, sync=sync)
+                for instance in instances:  # TODO: check length, should only have one result
+                    create_person_distinct_id_for_model_instance(instance)
+            case (postgres_row, clickhouse_row):
+                postgres_row_version = postgres_row.version or 0
+                if postgres_row_version > clickhouse_row.version:
+                    # Missed update!
+                    create_person_distinct_id_for_model_instance(postgres_row, sync=sync)
+                elif clickhouse_row.version > postgres_row_version:
+                    # If the ClickHouse row version is greater than the Postgres
+                    # version, the ClickHouse row is likely from a prior
+                    # generation of this distinct ID before we wrote tombstone
+                    # rows. If the Postgres version has advanced past the
+                    instances = PersonDistinctId.objects.raw(
+                        """
+                        UPDATE posthog_persondistinctid
+                        SET version = %s + 1
+                        WHERE id = %s AND COALESCE(version, 0)::numeric <= %s
+                        RETURNING *
+                        """,
+                        [postgres_row.id, clickhouse_row.version],
+                    )
+                    for updated_row in instances:  # TODO: check length, should only have one result
+                        create_person_distinct_id_for_model_instance(updated_row)
 
 
 def run_person_override_sync(team_id: int, live_run: bool, deletes: bool, sync: bool):
