@@ -353,6 +353,14 @@ function InsightDetailsInternal({ insight }: { insight: InsightModel }, ref: Rea
                         <TZLabel time={insight.last_modified_at} />
                     </section>
                 </div>
+                {insight.last_refresh && (
+                    <div>
+                        <h5>Last computed</h5>
+                        <section>
+                            <TZLabel time={insight.last_refresh} />
+                        </section>
+                    </div>
+                )}
             </div>
         </div>
     )
