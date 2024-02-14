@@ -3,7 +3,7 @@ import { BindLogic, useActions, useValues } from 'kea'
 import { IconInfo } from 'lib/lemon-ui/icons'
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
-import { useEffect } from 'react'
+import { useEffect, useState } from 'react'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { LineGraph } from 'scenes/insights/views/LineGraph/LineGraph'
 import { PieChart } from 'scenes/insights/views/LineGraph/PieChart'
@@ -378,6 +378,7 @@ export function MultipleChoiceQuestionBarChart({
 }): JSX.Element {
     const { loadSurveyMultipleChoiceResults } = useActions(surveyLogic)
     const { survey } = useValues(surveyLogic)
+    const [chartHeight, setChartHeight] = useState(200)
     const barColor = '#1d4aff'
 
     const question = survey.questions[questionIndex]
@@ -389,6 +390,12 @@ export function MultipleChoiceQuestionBarChart({
         loadSurveyMultipleChoiceResults({ questionIndex })
     }, [questionIndex])
 
+    useEffect(() => {
+        if (surveyMultipleChoiceResults?.[questionIndex]?.data?.length) {
+            setChartHeight(100 + 20 * surveyMultipleChoiceResults[questionIndex].data.length)
+        }
+    }, [surveyMultipleChoiceResults])
+
     return (
         <div className="mb-4">
             {!surveyMultipleChoiceResultsReady[questionIndex] ? (
@@ -399,7 +406,12 @@ export function MultipleChoiceQuestionBarChart({
                 <div className="mb-8">
                     <div className="font-semibold text-muted-alt">Multiple choice</div>
                     <div className="text-xl font-bold mb-2">{question.question}</div>
-                    <div className="border rounded pt-6 pr-10">
+
+                    <div
+                        className="border rounded pt-6 pr-10"
+                        // eslint-disable-next-line react/forbid-dom-props
+                        style={{ height: Math.min(chartHeight, 600) }}
+                    >
                         <BindLogic logic={insightLogic} props={insightProps}>
                             <LineGraph
                                 inSurveyView={true}
