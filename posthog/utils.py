@@ -345,6 +345,7 @@ def render_template(
             "preflight": json.loads(preflight_check(request).getvalue()),
             "default_event_name": "$pageview",
             "switched_team": getattr(request, "switched_team", None),
+            "commit_sha": get_git_commit(),
             **posthog_app_context,
         }
 
