@@ -40,6 +40,13 @@ const productKeyToURL = {
     [ProductKey.SURVEYS]: urls.surveys(),
 }
 
+const productKeyToScene = {
+    [ProductKey.PRODUCT_ANALYTICS]: Scene.SavedInsights,
+    [ProductKey.SESSION_REPLAY]: Scene.Replay,
+    [ProductKey.FEATURE_FLAGS]: Scene.FeatureFlags,
+    [ProductKey.SURVEYS]: Scene.Surveys,
+}
+
 export const stepKeyToTitle = (stepKey?: OnboardingStepKey): undefined | string => {
     return (
         stepKey &&
@@ -148,7 +155,7 @@ export const onboardingLogic = kea<onboardingLogicType>([
                         path: productKeyToURL[productKey ?? ''],
                     },
                     {
-                        key: Scene.Onboarding,
+                        key: productKeyToScene[productKey],
                         name: stepKeyToTitle(stepKey),
                         path: urls.onboarding(productKey ?? '', stepKey),
                     },
