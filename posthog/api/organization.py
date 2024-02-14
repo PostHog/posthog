@@ -168,11 +168,10 @@ class OrganizationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 organization = cast(User, self.request.user).organization
                 if organization is None:
                     raise exceptions.NotFound("Current organization not found.")
-            else:
-                filter_kwargs = {self.lookup_field: lookup_value}
-                organization = get_object_or_404(queryset, **filter_kwargs)
+                return organization
 
-            return organization
+            filter_kwargs = {self.lookup_field: lookup_value}
+            return get_object_or_404(queryset, **filter_kwargs)
 
         raise exceptions.NotFound("Organization not found.")
 
