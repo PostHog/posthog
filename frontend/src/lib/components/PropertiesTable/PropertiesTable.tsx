@@ -402,7 +402,6 @@ export function PropertiesTable({
                 <LemonTable
                     columns={columns}
                     showHeader={!embedded}
-                    size="small"
                     rowKey="0"
                     embedded={embedded}
                     dataSource={objectProperties}
