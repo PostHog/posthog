@@ -2,7 +2,7 @@ from typing import cast
 from posthog.constants import INSIGHT_FUNNELS, TRENDS_LINEAR, FunnelOrderType
 from posthog.hogql_queries.insights.funnels.funnels_query_runner import FunnelsQueryRunner
 from posthog.hogql_queries.legacy_compatibility.filter_to_query import filter_to_query
-from posthog.schema import FunnelsQuery
+from posthog.schema import FunnelTimeToConvertResults, FunnelsQuery
 from posthog.test.base import (
     APIBaseTest,
     ClickhouseTestMixin,
@@ -80,7 +80,8 @@ class TestFunnelTimeToConvert(ClickhouseTestMixin, APIBaseTest):
             "date_to": "2021-06-13 23:59:59",
             "funnel_from_step": 0,
             "funnel_to_step": 1,
-            "funnel_window_days": 7,
+            "funnel_window_interval": 7,
+            "funnel_window_interval_unit": "day",
             "events": [
                 {"id": "step one", "order": 0},
                 {"id": "step two", "order": 1},
@@ -94,23 +95,23 @@ class TestFunnelTimeToConvert(ClickhouseTestMixin, APIBaseTest):
         # Autobinned using the minimum time to convert, maximum time to convert, and sample count
         self.assertEqual(
             results,
-            {
-                "bins": [
-                    (
-                        2220.0,
+            FunnelTimeToConvertResults(
+                bins=[
+                    [
+                        2220,
                         2,
-                    ),  # Reached step 1 from step 0 in at least 2200 s but less than 29_080 s - users A and B
-                    (
-                        42510.0,
+                    ],  # Reached step 1 from step 0 in at least 2200 s but less than 29_080 s - users A and B
+                    [
+                        42510,
                         0,
-                    ),  # Analogous to above, just an interval (in this case 26_880 s) up - no users
-                    (
-                        82800.0,
+                    ],  # Analogous to above, just an interval (in this case 26_880 s) up - no users
+                    [
+                        82800,
                         1,
-                    ),  # Reached step 1 from step 0 in at least 82_800 s but less than 109_680 s - user C
+                    ],  # Reached step 1 from step 0 in at least 82_800 s but less than 109_680 s - user C
                 ],
-                "average_conversion_time": 29_540,
-            },
+                average_conversion_time=29_540,
+            ),
         )
 
     def test_auto_bin_count_single_step_duplicate_events(self):
@@ -190,23 +191,23 @@ class TestFunnelTimeToConvert(ClickhouseTestMixin, APIBaseTest):
         # Autobinned using the minimum time to convert, maximum time to convert, and sample count
         self.assertEqual(
             results,
-            {
-                "bins": [
-                    (
-                        2220.0,
+            FunnelTimeToConvertResults(
+                bins=[
+                    [
+                        2220,
                         2,
-                    ),  # Reached step 1 from step 0 in at least 2200 s but less than 29_080 s - users A and B
-                    (
-                        42510.0,
+                    ],  # Reached step 1 from step 0 in at least 2200 s but less than 29_080 s - users A and B
+                    [
+                        42510,
                         0,
-                    ),  # Analogous to above, just an interval (in this case 26_880 s) up - no users
-                    (
-                        82800.0,
+                    ],  # Analogous to above, just an interval (in this case 26_880 s) up - no users
+                    [
+                        82800,
                         1,
-                    ),  # Reached step 1 from step 0 in at least 82_800 s but less than 109_680 s - user C
+                    ],  # Reached step 1 from step 0 in at least 82_800 s but less than 109_680 s - user C
                 ],
-                "average_conversion_time": 29_540,
-            },
+                average_conversion_time=29_540,
+            ),
         )
 
     def test_custom_bin_count_single_step(self):
@@ -285,31 +286,30 @@ class TestFunnelTimeToConvert(ClickhouseTestMixin, APIBaseTest):
         # 7 bins, autoscaled to work best with minimum time to convert and maximum time to convert at hand
         self.assertEqual(
             results,
-            {
-                "bins": [
-                    (
-                        2220.0,
+            FunnelTimeToConvertResults(
+                bins=[
+                    [
+                        2220,
                         2,
-                    ),  # Reached step 1 from step 0 in at least 2200 s but less than 13_732 s - users A and B
-                    (
-                        13732.0,
+                    ],  # Reached step 1 from step 0 in at least 2200 s but less than 13_732 s - users A and B
+                    [
+                        13732,
                         0,
-                    ),  # Analogous to above, just an interval (in this case 13_732 s) up - no users
-                    (25244.0, 0),  # And so on
-                    (36756.0, 0),
-                    (48268.0, 0),
-                    (59780.0, 0),
-                    (
-                        71292.0,
+                    ],  # Analogous to above, just an interval (in this case 13_732 s) up - no users
+                    [25244, 0],  # And so on
+                    [36756, 0],
+                    [48268, 0],
+                    [59780, 0],
+                    [
+                        71292,
                         1,
-                    ),  # Reached step 1 from step 0 in at least 71_292 s but less than 82_804 s - user C
-                    (82804.0, 0),
+                    ],  # Reached step 1 from step 0 in at least 71_292 s but less than 82_804 s - user C
+                    [82804, 0],
                 ],
-                "average_conversion_time": 29_540,
-            },
+                average_conversion_time=29_540,
+            ),
         )
 
-    @snapshot_clickhouse_queries
     def test_auto_bin_count_total(self):
         _create_person(distinct_ids=["user a"], team=self.team)
         _create_person(distinct_ids=["user b"], team=self.team)
@@ -380,19 +380,19 @@ class TestFunnelTimeToConvert(ClickhouseTestMixin, APIBaseTest):
 
         self.assertEqual(
             results,
-            {
-                "bins": [
-                    (
-                        10800.0,
+            FunnelTimeToConvertResults(
+                bins=[
+                    [
+                        10800,
                         1,
-                    ),  # Reached step 2 from step 0 in at least 10_800 s but less than 10_860 s - user A
-                    (
-                        10860.0,
+                    ],  # Reached step 2 from step 0 in at least 10_800 s but less than 10_860 s - user A
+                    [
+                        10860,
                         0,
-                    ),  # Analogous to above, just an interval (in this case 60 s) up - no users
+                    ],  # Analogous to above, just an interval (in this case 60 s) up - no users
                 ],
-                "average_conversion_time": 10_800.0,
-            },
+                average_conversion_time=10_800,
+            ),
         )
 
         # Let's verify that behavior with steps unspecified is the same as when first and last steps specified
@@ -479,23 +479,23 @@ class TestFunnelTimeToConvert(ClickhouseTestMixin, APIBaseTest):
         # Autobinned using the minimum time to convert, maximum time to convert, and sample count
         self.assertEqual(
             results,
-            {
-                "bins": [
-                    (
-                        2220.0,
+            FunnelTimeToConvertResults(
+                bins=[
+                    [
+                        2220,
                         2,
-                    ),  # Reached step 1 from step 0 in at least 2200 s but less than 29_080 s - users A and B
-                    (
-                        42510.0,
+                    ],  # Reached step 1 from step 0 in at least 2200 s but less than 29_080 s - users A and B
+                    [
+                        42510,
                         0,
-                    ),  # Analogous to above, just an interval (in this case 26_880 s) up - no users
-                    (
-                        82800.0,
+                    ],  # Analogous to above, just an interval (in this case 26_880 s) up - no users
+                    [
+                        82800,
                         1,
-                    ),  # Reached step 1 from step 0 in at least 82_800 s but less than 109_680 s - user C
+                    ],  # Reached step 1 from step 0 in at least 82_800 s but less than 109_680 s - user C
                 ],
-                "average_conversion_time": 29540,
-            },
+                average_conversion_time=29540,
+            ),
         )
 
     @snapshot_clickhouse_queries
@@ -609,21 +609,21 @@ class TestFunnelTimeToConvert(ClickhouseTestMixin, APIBaseTest):
         # Autobinned using the minimum time to convert, maximum time to convert, and sample count
         self.assertEqual(
             results,
-            {
-                "bins": [
-                    (
-                        2220.0,
+            FunnelTimeToConvertResults(
+                bins=[
+                    [
+                        2220,
                         2,
-                    ),  # Reached step 1 from step 0 in at least 2200 s but less than 29_080 s - users A and B
-                    (
-                        42510.0,
+                    ],  # Reached step 1 from step 0 in at least 2200 s but less than 29_080 s - users A and B
+                    [
+                        42510,
                         0,
-                    ),  # Analogous to above, just an interval (in this case 26_880 s) up - no users
-                    (
-                        82800.0,
+                    ],  # Analogous to above, just an interval (in this case 26_880 s) up - no users
+                    [
+                        82800,
                         1,
-                    ),  # Reached step 1 from step 0 in at least 82_800 s but less than 109_680 s - user C
+                    ],  # Reached step 1 from step 0 in at least 82_800 s but less than 109_680 s - user C
                 ],
-                "average_conversion_time": 29540,
-            },
+                average_conversion_time=29540,
+            ),
         )

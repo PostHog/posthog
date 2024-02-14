@@ -65,7 +65,6 @@ class FunnelTimeToConvert(FunnelBase):
         time_to_convert_query = parse_select(
             f"""
             WITH
-                -- step_runs AS (SELECT 1),
                 step_runs AS (
                     {{steps_per_person_query}}
                 ),
@@ -95,7 +94,7 @@ class FunnelTimeToConvert(FunnelBase):
                 ( SELECT to_seconds FROM histogram_params ) AS histogram_to_seconds,
                 ( SELECT average_conversion_time FROM histogram_params ) AS histogram_average_conversion_time
             SELECT
-                bin_from_seconds,
+                fill.bin_from_seconds,
                 person_count,
                 histogram_average_conversion_time AS average_conversion_time
             FROM (
@@ -109,18 +108,14 @@ class FunnelTimeToConvert(FunnelBase):
             RIGHT OUTER JOIN (
                 /* Making sure bin_count bins are returned */
                 /* Those not present in the results query due to lack of data simply get person_count 0 */
-                SELECT histogram_from_seconds + number * bin_width_seconds AS bin_from_seconds FROM system.numbers LIMIT ifNull({bin_count_identifier}, 0) + 1
+                SELECT histogram_from_seconds + number * bin_width_seconds AS bin_from_seconds FROM numbers(ifNull({bin_count_identifier}, 0) + 1)
             ) fill
-            ORDER BY bin_from_seconds
+            -- USING (bin_from_seconds)
+            ON results.bin_from_seconds = fill.bin_from_seconds
+            -- ORDER BY bin_from_seconds
+            ORDER BY fill.bin_from_seconds
         """,
             placeholders={"steps_per_person_query": steps_per_person_query},
-            # placeholders={
-            #     "step_runs_cte": ast.CTE(
-            #         name="step_runs",
-            #         expr=steps_per_person_query,
-            #         cte_type="subquery",
-            #     )
-            # },
         )
 
         assert isinstance(time_to_convert_query, ast.SelectQuery)

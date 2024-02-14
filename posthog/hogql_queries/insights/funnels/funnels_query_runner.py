@@ -71,15 +71,7 @@ class FunnelsQueryRunner(QueryRunner):
         return refresh_frequency
 
     def to_query(self) -> ast.SelectQuery:
-        funnelVizType = self.context.funnelsFilter.funnelVizType
-
-        if funnelVizType == FunnelVizType.trends:
-            # return FunnelTrends(context=self.context).get_query()
-            return self.funnel_order_class.get_query()
-        elif funnelVizType == FunnelVizType.time_to_convert:
-            return FunnelTimeToConvert(context=self.context).get_query()
-        else:
-            return self.funnel_order_class.get_query()
+        return self.funnel_class.get_query()
 
     def calculate(self):
         query = self.to_query()
@@ -96,7 +88,7 @@ class FunnelsQueryRunner(QueryRunner):
             modifiers=self.modifiers,
         )
 
-        results = self.funnel_order_class._format_results(response.results)
+        results = self.funnel_class._format_results(response.results)
 
         if response.timings is not None:
             timings.extend(response.timings)
@@ -106,6 +98,18 @@ class FunnelsQueryRunner(QueryRunner):
     @cached_property
     def funnel_order_class(self):
         return get_funnel_order_class(self.context.funnelsFilter)(context=self.context)
+
+    @cached_property
+    def funnel_class(self):
+        funnelVizType = self.context.funnelsFilter.funnelVizType
+
+        if funnelVizType == FunnelVizType.trends:
+            # return FunnelTrends(context=self.context)
+            return self.funnel_order_class
+        elif funnelVizType == FunnelVizType.time_to_convert:
+            return FunnelTimeToConvert(context=self.context)
+        else:
+            return self.funnel_order_class
 
     @cached_property
     def query_date_range(self):
