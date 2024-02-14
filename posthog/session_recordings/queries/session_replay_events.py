@@ -1,4 +1,4 @@
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Optional, Tuple, List
 
 from django.conf import settings
@@ -124,8 +124,10 @@ class SessionReplayEvents:
         hq = HogQLQuery(
             query=q,
             values={
-                "start_time": metadata["start_time"],
-                "end_time": metadata["end_time"],
+                # add some wiggle room to the timings, to ensure we get all the events
+                # the time range is only to stop CH loading too much data to find the session
+                "start_time": metadata["start_time"] - timedelta(seconds=100),
+                "end_time": metadata["end_time"] + timedelta(seconds=100),
                 "session_id": session_id,
                 "events_to_ignore": events_to_ignore,
             },

@@ -275,7 +275,6 @@ export function FeatureFlag({ id }: { id?: string } = {}): JSX.Element {
                                 </div>
                             }
                         />
-                        <LemonDivider className="my-2 non-3000" />
                         {featureFlag.experiment_set && featureFlag.experiment_set?.length > 0 && (
                             <LemonBanner type="warning">
                                 This feature flag is linked to an experiment. Edit settings here only for advanced
@@ -285,7 +284,7 @@ export function FeatureFlag({ id }: { id?: string } = {}): JSX.Element {
                                 </Link>
                             </LemonBanner>
                         )}
-                        <div className="mt-4 mb-8">
+                        <div className="my-4">
                             <div className="max-w-1/2 space-y-4">
                                 <LemonField
                                     name="key"

@@ -968,6 +968,7 @@ export interface WebAnalyticsQueryBase {
 export interface WebOverviewQuery extends WebAnalyticsQueryBase {
     kind: NodeKind.WebOverviewQuery
     response?: WebOverviewQueryResponse
+    compare?: boolean
 }
 
 export interface WebOverviewItem {

@@ -97,6 +97,8 @@ def convert_field_or_table_to_type_string(field_or_table: FieldOrTable) -> str |
         return "Date"
     if isinstance(field_or_table, ast.StringJSONDatabaseField):
         return "Object"
+    if isinstance(field_or_table, ast.ExpressionField):
+        return "Expression"
     if isinstance(field_or_table, (ast.Table, ast.LazyJoin)):
         return "Table"
 
@@ -179,6 +181,26 @@ def get_table(context: HogQLContext, join_expr: ast.JoinExpr, ctes: Optional[Dic
 
         return resolve_fields_on_table(underlying_table, join_expr.table)
     return None
+
+
+def get_tables_aliases(query: ast.SelectQuery, context: HogQLContext) -> Dict[str, ast.Table]:
+    tables: Dict[str, ast.Table] = {}
+
+    if query.select_from is not None and query.select_from.alias is not None:
+        table = get_table(context, query.select_from, query.ctes)
+        if table is not None:
+            tables[query.select_from.alias] = table
+
+    if query.select_from is not None and query.select_from.next_join is not None:
+        next_join: ast.JoinExpr | None = query.select_from.next_join
+        while next_join is not None:
+            if next_join.alias is not None:
+                table = get_table(context, next_join, query.ctes)
+                if table is not None:
+                    tables[next_join.alias] = table
+            next_join = next_join.next_join
+
+    return tables
 
 
 # Replaces all ast.FieldTraverser with the underlying node
@@ -316,21 +338,26 @@ def get_hogql_autocomplete(query: HogQLAutocomplete, team: Team) -> HogQLAutocom
                 chain_len = len(node.chain)
                 last_table: Table = table
                 for index, chain_part in enumerate(node.chain):
-                    # TODO: Include joined table aliases
                     # Return just the table alias
                     if table_has_alias and index == 0 and chain_len == 1:
-                        alias = nearest_select.select_from.alias
-                        assert alias is not None
+                        table_aliases = list(get_tables_aliases(nearest_select, context).keys())
                         extend_responses(
-                            keys=[alias],
+                            keys=table_aliases,
                             suggestions=response.suggestions,
                             kind=Kind.Folder,
-                            details=["Table"],
+                            details=["Table"] * len(table_aliases),  # type: ignore
                         )
                         break
 
                     if table_has_alias and index == 0:
-                        continue
+                        tables = get_tables_aliases(nearest_select, context)
+                        aliased_table = tables.get(str(chain_part))
+                        if aliased_table is not None:
+                            last_table = aliased_table
+                            continue
+                        else:
+                            # Dont continue if the alias is not found in the query
+                            break
 
                     # Ignore last chain part, it's likely an incomplete word or added characters
                     is_last_part = index >= (chain_len - 2)
@@ -360,18 +387,21 @@ def get_hogql_autocomplete(query: HogQLAutocomplete, team: Team) -> HogQLAutocom
                                 if match_term == MATCH_ANY_CHARACTER:
                                     match_term = ""
 
-                                properties = PropertyDefinition.objects.filter(
+                                property_query = PropertyDefinition.objects.filter(
                                     name__contains=match_term,
                                     team_id=team.pk,
                                     type=property_type,
-                                )[:PROPERTY_DEFINITION_LIMIT].values("name", "property_type")
+                                )
+
+                                total_property_count = property_query.count()
+                                properties = property_query[:PROPERTY_DEFINITION_LIMIT].values("name", "property_type")
 
                                 extend_responses(
                                     keys=[prop["name"] for prop in properties],
                                     suggestions=response.suggestions,
                                     details=[prop["property_type"] for prop in properties],
                                 )
-                                response.incomplete_list = True
+                                response.incomplete_list = total_property_count > PROPERTY_DEFINITION_LIMIT
                         elif isinstance(field, VirtualTable) or isinstance(field, LazyTable):
                             fields = list(last_table.fields.items())
                             extend_responses(
