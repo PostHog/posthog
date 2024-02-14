@@ -72,7 +72,6 @@ export const APIScopes: APIScope[] = [
         },
     },
     { key: 'property_definition' },
-    { key: 'scheduled_change' },
     { key: 'session_recording' },
     { key: 'session_recording_playlist' },
     { key: 'sharing_configuration' },
@@ -80,6 +79,14 @@ export const APIScopes: APIScope[] = [
     { key: 'survey' },
     { key: 'user' },
 ]
+
+export type EditingKeyFormValues = Pick<
+    PersonalAPIKeyType,
+    'label' | 'scopes' | 'scoped_organizations' | 'scoped_teams'
+> & {
+    preset?: string
+    access_type?: 'all' | 'organizations' | 'teams'
+}
 
 export const personalAPIKeysLogic = kea<personalAPIKeysLogicType>([
     path(['lib', 'components', 'PersonalAPIKeys', 'personalAPIKeysLogic']),
@@ -130,13 +137,24 @@ export const personalAPIKeysLogic = kea<personalAPIKeysLogicType>([
     })),
     forms(({ values, actions }) => ({
         editingKey: {
-            defaults: { label: '', scopes: [], scoped_organizations: [], scoped_teams: [] } as Pick<
-                PersonalAPIKeyType,
-                'label' | 'scopes' | 'scoped_organizations' | 'scoped_teams'
-            > & { preset?: string },
-            errors: ({ label, scopes }) => ({
+            defaults: {
+                label: '',
+                scopes: [],
+                scoped_organizations: [],
+                scoped_teams: [],
+                access_type: 'all',
+            } as EditingKeyFormValues,
+            errors: ({ label, scopes, scoped_organizations, scoped_teams, access_type }) => ({
                 label: !label ? 'Your API key needs a label' : undefined,
                 scopes: !scopes?.length ? ('Your API key needs at least one scope' as any) : undefined,
+                scoped_organizations:
+                    access_type === 'organizations' && !scoped_organizations?.length
+                        ? ('Select at least one organization' as any)
+                        : undefined,
+                scoped_teams:
+                    access_type === 'teams' && !scoped_teams?.length
+                        ? ('Select at least one project' as any)
+                        : undefined,
             }),
             submit: async (payload, breakpoint) => {
                 if (!values.editingKeyId) {
@@ -186,16 +204,6 @@ export const personalAPIKeysLogic = kea<personalAPIKeysLogicType>([
                 return user?.organizations ?? []
             },
         ],
-
-        teamsWithinSelectedOrganizations: [
-            (s) => [s.allTeams, s.editingKey],
-            (allTeams, editingKey): TeamBasicType[] => {
-                if (!editingKey?.scoped_organizations?.length) {
-                    return allTeams ?? []
-                }
-                return allTeams?.filter((team) => editingKey.scoped_organizations?.includes(team.organization)) ?? []
-            },
-        ],
     })),
     listeners(({ actions, values }) => ({
         setEditingKeyValue: async ({ name, value }) => {
@@ -217,18 +225,26 @@ export const personalAPIKeysLogic = kea<personalAPIKeysLogicType>([
             }
 
             // When the user changes the list of valid orgs, clear the teams
-            if (key === 'scoped_organizations' && values.editingKey.scoped_teams) {
-                actions.setEditingKeyValue('scoped_teams', undefined)
+            if (key === 'access_type') {
+                actions.setEditingKeyValue('scoped_teams', [])
+                actions.setEditingKeyValue('scoped_organizations', [])
             }
         },
 
         setEditingKeyId: async ({ id }) => {
             if (id) {
                 const key = values.keys.find((key) => key.id === id)
-                const formValues = {
+                const formValues: EditingKeyFormValues = {
                     label: key?.label ?? '',
                     scopes: key?.scopes ?? [],
                     preset: key?.scopes.includes('*') ? 'all_access' : undefined,
+                    scoped_organizations: key?.scoped_organizations ?? [],
+                    scoped_teams: key?.scoped_teams ?? [],
+                    access_type: key?.scoped_organizations?.length
+                        ? 'organizations'
+                        : key?.scoped_teams?.length
+                        ? 'teams'
+                        : 'all',
                 }
 
                 actions.resetEditingKey(formValues)

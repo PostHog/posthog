@@ -14,6 +14,8 @@ class PersonalAPIKeySerializer(serializers.ModelSerializer):
     # Specifying method name because the serializer class already has a get_value method
     value = serializers.SerializerMethodField(method_name="get_key_value", read_only=True)
     scopes = serializers.ListField(child=serializers.CharField(required=True))
+    scoped_teams = serializers.ListField(child=serializers.IntegerField(required=False))
+    scoped_organizations = serializers.ListField(child=serializers.CharField(required=False))
 
     class Meta:
         model = PersonalAPIKey

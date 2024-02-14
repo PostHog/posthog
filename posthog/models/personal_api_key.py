@@ -82,7 +82,6 @@ APIScopeObject = Literal[
     "plugin",
     "project",
     "property_definition",
-    "scheduled_change",
     "session_recording",
     "session_recording_playlist",
     "sharing_configuration",
