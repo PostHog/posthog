@@ -38,7 +38,6 @@ import {
     InsightVizNode,
     NodeKind,
     PersonsNode,
-    QueryResponse,
     QueryTiming,
 } from '~/queries/schema'
 import { isActorsQuery, isEventsQuery, isInsightActorsQuery, isInsightQueryNode, isPersonsNode } from '~/queries/utils'
@@ -218,7 +217,7 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
                     if (isEventsQuery(props.query) || isActorsQuery(props.query)) {
                         const newResponse = (await query(values.nextQuery)) ?? null
                         actions.setElapsedTime(performance.now() - now)
-                        const queryResponse = values.response as QueryResponse
+                        const queryResponse = values.response as EventsQueryResponse | ActorsQueryResponse
                         return {
                             ...queryResponse,
                             results: [...(queryResponse?.results ?? []), ...(newResponse?.results ?? [])],
@@ -394,7 +393,7 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
                 if ((isEventsQuery(query) || isActorsQuery(query)) && !responseError && !dataLoading) {
                     if ((response as EventsQueryResponse | ActorsQueryResponse)?.hasMore) {
                         const sortKey = query.orderBy?.[0] ?? 'timestamp DESC'
-                        const typedResults = (response as QueryResponse)?.results
+                        const typedResults = (response as EventsQueryResponse | ActorsQueryResponse)?.results
                         if (isEventsQuery(query) && sortKey === 'timestamp DESC') {
                             const sortColumnIndex = query.select
                                 .map((hql) => removeExpressionComment(hql))
