@@ -1,5 +1,6 @@
 import { LemonButton, Tooltip } from '@posthog/lemon-ui'
-import { useActions } from 'kea'
+import clsx from 'clsx'
+import { useActions, useValues } from 'kea'
 import { IconClose } from 'lib/lemon-ui/icons'
 
 import { sidePanelStateLogic } from '../sidePanelStateLogic'
@@ -10,15 +11,27 @@ export type SidePanelPaneHeaderProps = {
 }
 
 export function SidePanelPaneHeader({ children, title }: SidePanelPaneHeaderProps): JSX.Element {
+    const { modalMode } = useValues(sidePanelStateLogic)
     const { closeSidePanel } = useActions(sidePanelStateLogic)
 
     return (
-        <header className="border-b shrink-0 p-1 flex items-center justify-end gap-1 h-10">
+        <header
+            className={clsx('border-b shrink-0 flex items-center justify-end gap-1', {
+                'p-1 h-10': !modalMode,
+                'pb-2 mt-2 mx-3': modalMode,
+            })}
+        >
             {title ? (
-                <h4 className="flex-1 flex items-center gap-1 font-semibold px-2 mb-0 truncate">{title}</h4>
+                <h3
+                    className={clsx('flex-1 flex items-center gap-1 font-semibold mb-0 truncate', {
+                        'text-base px-2': !modalMode,
+                    })}
+                >
+                    {title}
+                </h3>
             ) : null}
             {children}
-            <Tooltip placement="bottom-end" title="Close this side panel">
+            <Tooltip placement={modalMode ? 'top' : 'bottom-end'} title={modalMode ? 'Close' : 'Close this side panel'}>
                 <LemonButton size="small" sideIcon={<IconClose />} onClick={() => closeSidePanel()} />
             </Tooltip>
         </header>

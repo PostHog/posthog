@@ -7,13 +7,9 @@
     height: 0;
     padding: 0.05rem !important;
     overflow: hidden;
-    background: var(--primary-bg-active);
+    background: var(--primary-3000-highlight);
     border: none !important;
     transition: height 200ms ease, top 200ms ease;
-
-    .posthog-3000 & {
-        background: var(--primary-3000-highlight);
-    }
 
     &::after {
         position: absolute;
@@ -22,12 +18,8 @@
         width: 50%;
         height: 100%;
         content: '';
-        background: var(--primary);
+        background: var(--primary-3000);
         animation: LemonTableLoader__swooping 1.5s linear infinite;
-
-        .posthog-3000 & {
-            background: var(--primary-3000);
-        }
     }
 
     &.LemonTableLoader--enter-active,

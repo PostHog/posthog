@@ -5,10 +5,10 @@ import { combineUrl, router } from 'kea-router'
 import { EditableField } from 'lib/components/EditableField/EditableField'
 import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
 import { PageHeader } from 'lib/components/PageHeader'
-import { Field } from 'lib/forms/Field'
 import { IconInfo, IconPlayCircle, IconPlus, IconWarning } from 'lib/lemon-ui/icons'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonCheckbox } from 'lib/lemon-ui/LemonCheckbox'
+import { LemonField } from 'lib/lemon-ui/LemonField'
 import { LemonLabel } from 'lib/lemon-ui/LemonLabel/LemonLabel'
 import { Link } from 'lib/lemon-ui/Link'
 import { Spinner } from 'lib/lemon-ui/Spinner/Spinner'
@@ -69,7 +69,7 @@ export function ActionEdit({ action: loadedAction, id }: ActionEditLogicProps): 
                 <PageHeader
                     caption={
                         <>
-                            <Field name="description">
+                            <LemonField name="description">
                                 {({ value, onChange }) => (
                                     <EditableField
                                         multiline
@@ -99,8 +99,8 @@ export function ActionEdit({ action: loadedAction, id }: ActionEditLogicProps): 
                                         paywall={!hasAvailableFeature(AvailableFeature.INGESTION_TAXONOMY)}
                                     />
                                 )}
-                            </Field>
-                            <Field name="tags" className="mt-2">
+                            </LemonField>
+                            <LemonField name="tags" className="mt-2">
                                 {({ value, onChange }) => (
                                     <ObjectTags
                                         tags={value ?? []}
@@ -110,7 +110,7 @@ export function ActionEdit({ action: loadedAction, id }: ActionEditLogicProps): 
                                         tagsAvailable={tags.filter((tag) => !action.tags?.includes(tag))}
                                     />
                                 )}
-                            </Field>
+                            </LemonField>
                         </>
                     }
                     buttons={
@@ -175,7 +175,7 @@ export function ActionEdit({ action: loadedAction, id }: ActionEditLogicProps): 
                             <IconInfo className="ml-1 text-muted text-xl" />
                         </Link>
                     </div>
-                    <Field name="steps">
+                    <LemonField name="steps">
                         {({ onChange }) => (
                             <div className="flex justify-end mb-2">
                                 <LemonButton
@@ -187,8 +187,8 @@ export function ActionEdit({ action: loadedAction, id }: ActionEditLogicProps): 
                                 </LemonButton>
                             </div>
                         )}
-                    </Field>
-                    <Field name="steps">
+                    </LemonField>
+                    <LemonField name="steps">
                         {({ value: stepsValue, onChange }) => (
                             <div className="grid grid-cols-2 gap-3">
                                 {stepsValue.map((step: ActionStepType, index: number) => {
@@ -239,10 +239,10 @@ export function ActionEdit({ action: loadedAction, id }: ActionEditLogicProps): 
                                 </div>
                             </div>
                         )}
-                    </Field>
+                    </LemonField>
                 </div>
                 <div className="my-8">
-                    <Field name="post_to_slack">
+                    <LemonField name="post_to_slack">
                         {({ value, onChange }) => (
                             <div>
                                 <LemonCheckbox
@@ -270,10 +270,10 @@ export function ActionEdit({ action: loadedAction, id }: ActionEditLogicProps): 
                                 </div>
                             </div>
                         )}
-                    </Field>
+                    </LemonField>
                     {!action.bytecode_error && action.post_to_slack && (
                         <>
-                            <Field name="slack_message_format">
+                            <LemonField name="slack_message_format">
                                 {({ value, onChange }) => (
                                     <>
                                         <LemonLabel showOptional>Message format</LemonLabel>
@@ -294,7 +294,7 @@ export function ActionEdit({ action: loadedAction, id }: ActionEditLogicProps): 
                                         </small>
                                     </>
                                 )}
-                            </Field>
+                            </LemonField>
                         </>
                     )}
                 </div>

@@ -5,9 +5,9 @@ import { AnimatedCollapsible } from 'lib/components/AnimatedCollapsible'
 import { BridgePage } from 'lib/components/BridgePage/BridgePage'
 import SignupReferralSource from 'lib/components/SignupReferralSource'
 import SignupRoleSelect from 'lib/components/SignupRoleSelect'
-import { Field } from 'lib/forms/Field'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
+import { LemonField } from 'lib/lemon-ui/LemonField'
 import { LemonInput } from 'lib/lemon-ui/LemonInput/LemonInput'
 import { organizationLogic } from 'scenes/organizationLogic'
 import { SceneExport } from 'scenes/sceneTypes'
@@ -62,21 +62,21 @@ export function ConfirmOrganization(): JSX.Element {
                 enableFormOnSubmit
                 className="space-y-4"
             >
-                <Field name="email" label="Email">
+                <LemonField name="email" label="Email">
                     <LemonInput className="ph-ignore-input" value={email} disabled />
-                </Field>
+                </LemonField>
 
-                <Field name="first_name" label="Your name">
+                <LemonField name="first_name" label="Your name">
                     <LemonInput className="ph-ignore-input" placeholder="Jane Doe" />
-                </Field>
+                </LemonField>
 
-                <Field
+                <LemonField
                     name="organization_name"
                     label="Organization name"
                     help="You can always rename your organization later"
                 >
                     <LemonInput className="ph-ignore-input" placeholder="Hogflix Movies" />
-                </Field>
+                </LemonField>
 
                 <SignupRoleSelect />
                 <SignupReferralSource disabled={isConfirmOrganizationSubmitting} />

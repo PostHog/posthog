@@ -3,7 +3,6 @@ import { forms } from 'kea-forms'
 import { loaders } from 'kea-loaders'
 import { beforeUnload } from 'kea-router'
 import api from 'lib/api'
-import { FormErrors } from 'lib/forms/Errors'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { validateJson } from 'lib/utils'
 import { frontendAppsLogic } from 'scenes/apps/frontendAppsLogic'
@@ -153,7 +152,6 @@ export const pluginSourceLogic = kea<pluginSourceLogicType>([
                 <>
                     <div>Please fix the following errors:</div>
                     <pre>{String(error?.message || error)}</pre>
-                    <FormErrors errors={values.pluginSourceErrors} />
                 </>,
                 { position: 'top-right' }
             )

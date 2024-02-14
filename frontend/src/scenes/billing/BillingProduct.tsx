@@ -539,7 +539,7 @@ export const BillingProduct = ({ product }: { product: BillingProductV2Type }): 
                                     <LemonTable
                                         stealth
                                         embedded
-                                        size="xs"
+                                        size="small"
                                         uppercaseHeader={false}
                                         columns={tableColumns}
                                         dataSource={tableTierData}
@@ -562,7 +562,7 @@ export const BillingProduct = ({ product }: { product: BillingProductV2Type }): 
                                 <LemonTable
                                     stealth
                                     embedded
-                                    size="xs"
+                                    size="small"
                                     uppercaseHeader={false}
                                     columns={[
                                         { title: '', dataIndex: 'name' },

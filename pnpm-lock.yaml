@@ -1,4 +1,4 @@
-lockfileVersion: '6.1'
+lockfileVersion: '6.0'
 
 settings:
   autoInstallPeers: true
@@ -35,8 +35,8 @@ dependencies:
     specifier: ^3.4.7
     version: 3.4.7(react@18.2.0)
   '@medv/finder':
-    specifier: ^2.1.0
-    version: 2.1.0
+    specifier: ^3.1.0
+    version: 3.1.0
   '@microlink/react-json-view':
     specifier: ^1.21.3
     version: 1.22.2(@types/react@17.0.52)(react-dom@18.2.0)(react@18.2.0)
@@ -245,8 +245,8 @@ dependencies:
     specifier: ^9.3.0
     version: 9.3.0(postcss@8.4.31)
   posthog-js:
-    specifier: 1.105.7
-    version: 1.105.7
+    specifier: 1.105.8
+    version: 1.105.8
   posthog-js-lite:
     specifier: 2.5.0
     version: 2.5.0
@@ -340,9 +340,6 @@ dependencies:
   use-resize-observer:
     specifier: ^8.0.0
     version: 8.0.0(react-dom@18.2.0)(react@18.2.0)
-  wildcard-match:
-    specifier: ^5.1.2
-    version: 5.1.2
   zxcvbn:
     specifier: ^4.4.2
     version: 4.4.2
@@ -350,7 +347,7 @@ dependencies:
 optionalDependencies:
   fsevents:
     specifier: ^2.3.2
-    version: 2.3.2
+    version: 2.3.3
 
 devDependencies:
   '@babel/core':
@@ -4939,8 +4936,8 @@ packages:
       react: 18.2.0
     dev: true
 
-  /@medv/finder@2.1.0:
-    resolution: {integrity: sha512-Egrg5XO4kLol24b1Kv50HDfi5hW0yQ6aWSsO0Hea1eJ4rogKElIN0M86FdVnGF4XIGYyA7QWx0MgbOzVPA0qkA==}
+  /@medv/finder@3.1.0:
+    resolution: {integrity: sha512-ojkXjR3K0Zz3jnCR80tqPL+0yvbZk/lEodb6RIVjLz7W8RVA2wrw8ym/CzCpXO9SYVUIKHFUpc7jvf8UKfIM3w==}
     dev: false
 
   /@microlink/react-json-view@1.22.2(@types/react@17.0.52)(react-dom@18.2.0)(react@18.2.0):
@@ -12716,6 +12713,7 @@ packages:
     engines: {node: ^8.16.0 || ^10.6.0 || >=11.0.0}
     os: [darwin]
     requiresBuild: true
+    dev: true
     optional: true
 
   /fsevents@2.3.3:
@@ -17320,8 +17318,8 @@ packages:
     resolution: {integrity: sha512-Urvlp0Vu9h3td0BVFWt0QXFJDoOZcaAD83XM9d91NKMKTVPZtfU0ysoxstIf5mw/ce9ZfuMgpWPaagrZI4rmSg==}
     dev: false
 
-  /posthog-js@1.105.7:
-    resolution: {integrity: sha512-skpVufQrYllZ4Hi5bdBfe1F9pzeym1rlXUuvKbEYbMhmA+FCz47ZZ0zDX6a72A5hqPW5h7ZBTEJZbwad7jYt1A==}
+  /posthog-js@1.105.8:
+    resolution: {integrity: sha512-zKZKNVLLQQgkJyY3DnzHHTasu6x4xM4MOvH7UbMz6BmrgUPboS6/3akgz+WKD+JV6qFj68bm80iJw0Jtj+pt8Q==}
     dependencies:
       fflate: 0.4.8
       preact: 10.19.4
@@ -21400,10 +21398,6 @@ packages:
     dependencies:
       isexe: 2.0.0
     dev: true
-
-  /wildcard-match@5.1.2:
-    resolution: {integrity: sha512-qNXwI591Z88c8bWxp+yjV60Ch4F8Riawe3iGxbzquhy8Xs9m+0+SLFBGb/0yCTIDElawtaImC37fYZ+dr32KqQ==}
-    dev: false
 
   /wildcard@2.0.0:
     resolution: {integrity: sha512-JcKqAHLPxcdb9KM49dufGXn2x3ssnfjbcaQdLlfZsL9rH9wgDQjUtDxbo8NE0F6SFvydeu1VhZe7hZuHsB2/pw==}

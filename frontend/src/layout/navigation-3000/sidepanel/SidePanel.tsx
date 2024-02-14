@@ -1,7 +1,7 @@
 import './SidePanel.scss'
 
 import { IconEllipsis, IconFeatures, IconGear, IconInfo, IconNotebook, IconSupport } from '@posthog/icons'
-import { LemonButton, LemonMenu, LemonMenuItems } from '@posthog/lemon-ui'
+import { LemonButton, LemonMenu, LemonMenuItems, LemonModal } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { Resizer } from 'lib/components/Resizer/Resizer'
@@ -22,11 +22,15 @@ import { SidePanelSupport } from './panels/SidePanelSupport'
 import { sidePanelLogic } from './sidePanelLogic'
 import { sidePanelStateLogic } from './sidePanelStateLogic'
 
-export const SIDE_PANEL_TABS: Record<SidePanelTab, { label: string; Icon: any; Content: any }> = {
+export const SIDE_PANEL_TABS: Record<
+    SidePanelTab,
+    { label: string; Icon: any; Content: any; noModalSupport?: boolean }
+> = {
     [SidePanelTab.Notebooks]: {
         label: 'Notebooks',
         Icon: IconNotebook,
         Content: NotebookPanel,
+        noModalSupport: true,
     },
     [SidePanelTab.Support]: {
         label: 'Support',
@@ -37,6 +41,7 @@ export const SIDE_PANEL_TABS: Record<SidePanelTab, { label: string; Icon: any; C
         label: 'Docs',
         Icon: IconInfo,
         Content: SidePanelDocs,
+        noModalSupport: true,
     },
 
     [SidePanelTab.Activation]: {
@@ -70,6 +75,7 @@ export const SIDE_PANEL_TABS: Record<SidePanelTab, { label: string; Icon: any; C
         label: 'System status',
         Icon: SidePanelStatusIcon,
         Content: SidePanelStatus,
+        noModalSupport: true,
     },
 }
 
@@ -77,7 +83,7 @@ const DEFAULT_WIDTH = 512
 
 export function SidePanel(): JSX.Element | null {
     const { visibleTabs, extraTabs } = useValues(sidePanelLogic)
-    const { selectedTab, sidePanelOpen } = useValues(sidePanelStateLogic)
+    const { selectedTab, sidePanelOpen, modalMode } = useValues(sidePanelStateLogic)
     const { openSidePanel, closeSidePanel, setSidePanelAvailable } = useActions(sidePanelStateLogic)
 
     const activeTab = sidePanelOpen && selectedTab
@@ -129,6 +135,21 @@ export function SidePanel(): JSX.Element | null {
           ]
         : undefined
 
+    if (modalMode) {
+        const supportsModal = activeTab ? !SIDE_PANEL_TABS[activeTab]?.noModalSupport : true
+        return (
+            <LemonModal
+                simple
+                isOpen={!!PanelConent && supportsModal}
+                onClose={closeSidePanel}
+                hideCloseButton
+                width="40rem"
+            >
+                {PanelConent ? <PanelConent /> : null}
+            </LemonModal>
+        )
+    }
+
     return (
         <div
             className={clsx(
@@ -156,6 +177,7 @@ export function SidePanel(): JSX.Element | null {
                                         activeTab === tab ? closeSidePanel() : openSidePanel(tab as SidePanelTab)
                                     }
                                     data-attr={`sidepanel-tab-${tab}`}
+                                    data-ph-capture-attribute-state-before-click={activeTab === tab ? 'open' : 'closed'}
                                     active={activeTab === tab}
                                     type="secondary"
                                     status="alt"

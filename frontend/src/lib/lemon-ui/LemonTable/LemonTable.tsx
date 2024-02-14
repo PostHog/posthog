@@ -47,7 +47,7 @@ export interface LemonTableProps<T extends Record<string, any>> {
     /** Function that for each row determines what props should its `tr` element have based on the row's record. */
     onRow?: (record: T) => Omit<HTMLProps<HTMLTableRowElement>, 'key'>
     /** How tall should rows be. The default value is `"middle"`. */
-    size?: 'xs' | 'small' | 'middle'
+    size?: 'small' | 'middle'
     /** Whether this table already is inset, meaning it needs reduced horizontal padding (0.5rem instead of 1rem). */
     inset?: boolean
     /** An embedded table has no border around it and no background. This way it blends better into other components. */
