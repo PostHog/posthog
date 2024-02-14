@@ -143,22 +143,6 @@ export const onboardingLogic = kea<onboardingLogicType>([
                 return !product?.subscribed || !hasAllAddons || subscribedDuringOnboarding
             },
         ],
-        shouldShowOtherProductsStep: [
-            (s) => [s.suggestedProducts, s.isFirstProductOnboarding],
-            (suggestedProducts: BillingProductV2Type[], isFirstProductOnboarding: boolean) =>
-                suggestedProducts.length > 0 && isFirstProductOnboarding,
-        ],
-        suggestedProducts: [
-            (s) => [s.billing, s.product, s.currentTeam],
-            (billing, product, currentTeam) =>
-                billing?.products?.filter(
-                    (p) =>
-                        p.type !== product?.type &&
-                        !p.contact_support &&
-                        !p.inclusion_only &&
-                        !currentTeam?.has_completed_onboarding_for?.[p.type]
-                ) || [],
-        ],
         isStepKeyInvalid: [
             (s) => [s.stepKey, s.allOnboardingSteps, s.currentOnboardingStep],
             (stepKey: string, allOnboardingSteps: AllOnboardingSteps, currentOnboardingStep: React.ReactNode | null) =>

@@ -62,7 +62,7 @@ export function Navigation({
                     {children}
                 </div>
             </main>
-            {!mobileLayout && <SidePanel />}
+            <SidePanel />
             <CommandBar />
         </div>
     )
