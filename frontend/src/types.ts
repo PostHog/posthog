@@ -271,8 +271,8 @@ export interface PersonalAPIKeyType {
     team_id: number
     user_id: string
     scopes: string[]
-    scoped_organizations?: string[] | null
-    scoped_teams?: string[] | null
+    scoped_organizations?: OrganizationType['id'][] | null
+    scoped_teams?: TeamType['id'][] | null
 }
 
 export interface OrganizationBasicType {

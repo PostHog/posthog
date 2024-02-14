@@ -297,7 +297,7 @@ class UserViewSet(
     mixins.ListModelMixin,
     viewsets.GenericViewSet,
 ):
-    base_scope = "not_supported"
+    scope_object = "not_supported"
     throttle_classes = [UserAuthenticationThrottle]
     serializer_class = UserSerializer
     permission_classes = [IsAuthenticated, APIScopePermission]

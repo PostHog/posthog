@@ -77,7 +77,7 @@ class QuerySerializer(serializers.Serializer):
 
 
 class SearchViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
-    base_scope = "not_supported"
+    scope_object = "not_supported"
 
     def list(self, request: Request, **kw) -> HttpResponse:
         # parse query params

@@ -70,7 +70,7 @@ class DashboardTemplateSerializer(serializers.ModelSerializer):
 
 
 class DashboardTemplateViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.ModelViewSet):
-    base_scope = "dashboard_template"
+    scope_object = "dashboard_template"
     permission_classes = [OnlyStaffCanEditDashboardTemplate]
     serializer_class = DashboardTemplateSerializer
 

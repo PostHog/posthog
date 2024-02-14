@@ -81,7 +81,7 @@ def download(request, *args, **kwargs) -> HttpResponse:
 
 
 class MediaViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
-    base_scope = "not_supported"
+    scope_object = "not_supported"
     queryset = UploadedMedia.objects.all()
     parser_classes = (MultiPartParser, FormParser)
 

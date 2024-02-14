@@ -40,7 +40,7 @@ class PersonalAPIKeyScheme(OpenApiAuthenticationExtension):
                     scopes = permission.get_required_scopes(request, view)
                     return [{self.name: scopes}]
                 except (PermissionDenied, ImproperlyConfigured):
-                    # TODO: This should never happen - it indicates that we shouldn't be including it in the docs
+                    # NOTE: This should never happen - it indicates that we shouldn't be including it in the docs
                     pass
 
     def get_security_definition(self, auto_schema):
@@ -201,7 +201,7 @@ def preprocess_exclude_path_format(endpoints, **kwargs):
             and callback.cls.derive_current_team_from_user_only
         ):
             pass
-        elif hasattr(callback.cls, "base_scope") and callback.cls.base_scope != "not_supported":
+        elif hasattr(callback.cls, "scope_object") and callback.cls.scope_object != "not_supported":
             # If there is an API Scope set then we implictly support it and should have it in the documentation
             path = path.replace("{parent_lookup_team_id}", "{project_id}")
             path = path.replace("{parent_lookup_", "{")

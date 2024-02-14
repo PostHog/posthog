@@ -253,7 +253,7 @@ class SurveySerializerCreateUpdateOnly(SurveySerializer):
 
 
 class SurveyViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
-    base_scope = "survey"
+    scope_object = "survey"
     queryset = Survey.objects.select_related("linked_flag", "targeting_flag").all()
 
     def get_serializer_class(self) -> Type[serializers.Serializer]:

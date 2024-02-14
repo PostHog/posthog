@@ -71,7 +71,7 @@ class EventDefinitionViewSet(
     mixins.DestroyModelMixin,
     viewsets.GenericViewSet,
 ):
-    base_scope = "event_definition"
+    scope_object = "event_definition"
     serializer_class = EventDefinitionSerializer
     lookup_field = "id"
     filter_backends = [TermSearchFilterBackend]

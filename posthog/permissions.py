@@ -265,13 +265,13 @@ class APIScopePermission(BasePermission):
     def has_permission(self, request, view) -> bool:
         # NOTE: We do this first to error out quickly if the view is missing the required attribute
         # Helps devs remember to add it.
-        self.get_base_scope(request, view)
+        self.get_scope_object(request, view)
 
         # API Scopes currently only apply to PersonalAPIKeyAuthentication
         if not isinstance(request.successful_authenticator, PersonalAPIKeyAuthentication):
             return True
 
-        key_scopes = request.successful_authenticator.personal_api_key.scopes_list
+        key_scopes = request.successful_authenticator.personal_api_key.scopes
 
         # TRICKY: Legacy API keys have no scopes and are allowed to do anything, even if the view is unsupported.
         if not key_scopes:
@@ -287,18 +287,18 @@ class APIScopePermission(BasePermission):
             valid_scopes = [required_scope]
 
             # For all valid scopes with :read we also add :write
-            for scope in valid_scopes:
-                if scope.endswith(":read"):
-                    valid_scopes.append(scope.replace(":read", ":write"))
+            if required_scope.endswith(":read"):
+                valid_scopes.append(required_scope.replace(":read", ":write"))
 
             if not any(scope in key_scopes for scope in valid_scopes):
-                raise PermissionDenied(f"API key missing required scope '{required_scope}'")
+                self.message = f"API key missing required scope '{required_scope}'"
+                return False
 
         return True
 
     def check_team_and_org_permissions(self, request, view) -> None:
-        scoped_organizations = request.successful_authenticator.personal_api_key.scoped_organizations_list
-        scoped_teams = request.successful_authenticator.personal_api_key.scoped_teams_list
+        scoped_organizations = request.successful_authenticator.personal_api_key.scoped_organizations
+        scoped_teams = request.successful_authenticator.personal_api_key.scoped_teams
 
         if scoped_organizations:
             try:
@@ -323,29 +323,29 @@ class APIScopePermission(BasePermission):
 
     def get_required_scopes(self, request, view) -> list[str]:
         # If required_scopes is set on the view method then use that
-        # Otherwise use the base_scope and derive the required scope from the action
+        # Otherwise use the scope_object and derive the required scope from the action
         if getattr(view, "required_scopes", None):
             return view.required_scopes
 
-        base_scope = self.get_base_scope(request, view)
+        scope_object = self.get_scope_object(request, view)
 
-        if base_scope == "not_supported":
+        if scope_object == "not_supported":
             raise PermissionDenied(f"This action does not support Personal API Key access")
 
-        read_actions = getattr(view, "base_scope_read_actions", self.read_actions)
-        write_actions = getattr(view, "base_scope_write_actions", self.write_actions)
+        read_actions = getattr(view, "scope_object_read_actions", self.read_actions)
+        write_actions = getattr(view, "scope_object_write_actions", self.write_actions)
 
         if view.action in write_actions:
-            return [f"{base_scope}:write"]
+            return [f"{scope_object}:write"]
         elif view.action in read_actions or request.method == "OPTIONS":
-            return [f"{base_scope}:read"]
+            return [f"{scope_object}:read"]
 
         # If we get here this typically means an action was called without a required scope
         # It is essentially "not_supported"
         raise PermissionDenied(f"This action does not support Personal API Key access")
 
-    def get_base_scope(self, request, view) -> APIScopeObjectOrNotSupported:
-        if not getattr(view, "base_scope", None):
-            raise ImproperlyConfigured("APIScopePermission requires the view to define the base_scope attribute.")
+    def get_scope_object(self, request, view) -> APIScopeObjectOrNotSupported:
+        if not getattr(view, "scope_object", None):
+            raise ImproperlyConfigured("APIScopePermission requires the view to define the scope_object attribute.")
 
-        return view.base_scope
+        return view.scope_object

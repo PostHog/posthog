@@ -33,7 +33,7 @@ class PersonalAPIKeyAuthentication(authentication.BaseAuthentication):
     """
 
     keyword = "Bearer"
-    api_key: PersonalAPIKey
+    personal_api_key: PersonalAPIKey
 
     @classmethod
     def find_key_with_source(

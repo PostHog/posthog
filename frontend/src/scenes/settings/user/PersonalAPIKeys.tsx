@@ -3,6 +3,7 @@ import {
     LemonDialog,
     LemonInput,
     LemonLabel,
+    LemonMenu,
     LemonModal,
     LemonSegmentedButton,
     LemonSelect,
@@ -14,8 +15,9 @@ import {
 } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
-import { IconPlus } from 'lib/lemon-ui/icons'
+import { IconEllipsis, IconPlus } from 'lib/lemon-ui/icons'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
+import { More } from 'lib/lemon-ui/LemonButton/More'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { capitalizeFirstLetter, humanFriendlyDetailedTime } from 'lib/utils'
 import { Fragment, useEffect } from 'react'
@@ -42,33 +44,31 @@ function EditKeyModal(): JSX.Element {
     return (
         <Form logic={personalAPIKeysLogic} formKey="editingKey">
             <LemonModal
-                title={(isNew ? 'Create a' : 'Edit your') + ' Personal API Key'}
+                title={`${isNew ? 'Create a' : 'Edit this'} personal API key`}
                 onClose={() => setEditingKeyId(null)}
                 isOpen={!!editingKeyId}
                 width="40rem"
                 footer={
-                    <div>
-                        <div className="flex flex-1 gap-2 justify-end">
-                            <LemonButton type="secondary" onClick={() => setEditingKeyId(null)}>
-                                Cancel
-                            </LemonButton>
+                    <>
+                        <LemonButton type="secondary" onClick={() => setEditingKeyId(null)}>
+                            Cancel
+                        </LemonButton>
 
-                            <LemonButton
-                                type="primary"
-                                htmlType="submit"
-                                loading={isEditingKeySubmitting}
-                                disabled={!editingKeyChanged}
-                                onClick={() => submitEditingKey()}
-                            >
-                                {isNew ? 'Create key' : 'Save key'}
-                            </LemonButton>
-                        </div>
-                    </div>
+                        <LemonButton
+                            type="primary"
+                            htmlType="submit"
+                            loading={isEditingKeySubmitting}
+                            disabled={!editingKeyChanged}
+                            onClick={() => submitEditingKey()}
+                        >
+                            {isNew ? 'Create key' : 'Save key'}
+                        </LemonButton>
+                    </>
                 }
             >
                 <div className="space-y-2">
                     <LemonField name="label" label="Label">
-                        <LemonInput placeholder='for example "Zapier"' maxLength={40} />
+                        <LemonInput placeholder='For example "Reports bot" or "Zapier"' maxLength={40} />
                     </LemonField>
 
                     <LemonField
@@ -265,9 +265,11 @@ function PersonalAPIKeysTable(): JSX.Element {
                                     </>
                                 ))}
                                 {key.scopes.length > 4 && (
-                                    <LemonTag onClick={() => setEditingKeyId(key.id)}>
-                                        +{key.scopes.length - 4} more
-                                    </LemonTag>
+                                    <Tooltip title={key.scopes.slice(4).join(', ')}>
+                                        <LemonTag onClick={() => setEditingKeyId(key.id)}>
+                                            +{key.scopes.length - 4} more
+                                        </LemonTag>
+                                    </Tooltip>
                                 )}
                             </span>
                         )
@@ -292,25 +294,61 @@ function PersonalAPIKeysTable(): JSX.Element {
                     width: 0,
                     render: (_, key) => {
                         return (
-                            <LemonButton
-                                status="danger"
-                                type="tertiary"
-                                size="xsmall"
-                                onClick={() => {
-                                    LemonDialog.open({
-                                        title: `Permanently delete key "${key.label}"?`,
-                                        description:
-                                            'This action cannot be undone. Make sure to have removed the key from any live integrations first.',
-                                        primaryButton: {
-                                            status: 'danger',
-                                            children: 'Permanently delete',
-                                            onClick: () => deleteKey(key.id),
+                            <LemonMenu
+                                items={[
+                                    {
+                                        label: 'Edit',
+                                        onClick: () => setEditingKeyId(key.id),
+                                    },
+                                    {
+                                        label: 'Delete',
+                                        status: 'danger',
+                                        onClick: () => {
+                                            LemonDialog.open({
+                                                title: `Permanently delete key "${key.label}"?`,
+                                                description:
+                                                    'This action cannot be undone. Make sure to have removed the key from any live integrations first.',
+                                                primaryButton: {
+                                                    status: 'danger',
+                                                    children: 'Permanently delete',
+                                                    onClick: () => deleteKey(key.id),
+                                                },
+                                            })
                                         },
-                                    })
-                                }}
+                                    },
+                                ]}
                             >
-                                Delete
-                            </LemonButton>
+                                <LemonButton size="small" icon={<IconEllipsis />} />
+                            </LemonMenu>
+                            // <More
+                            //     overlay={
+                            //         <>
+                            //             <LemonButton fullWidth>View</LemonButton>
+                            //             <LemonButton fullWidth>Edit</LemonButton>
+                            //             <LemonDivider />
+                            //             <LemonButton
+                            //                 status="danger"
+                            //                 type="tertiary"
+                            //                 size="xsmall"
+                            //                 fullWidth
+                            //                 onClick={() => {
+                            //                     LemonDialog.open({
+                            //                         title: `Permanently delete key "${key.label}"?`,
+                            //                         description:
+                            //                             'This action cannot be undone. Make sure to have removed the key from any live integrations first.',
+                            //                         primaryButton: {
+                            //                             status: 'danger',
+                            //                             children: 'Permanently delete',
+                            //                             onClick: () => deleteKey(key.id),
+                            //                         },
+                            //                     })
+                            //                 }}
+                            //             >
+                            //                 Delete
+                            //             </LemonButton>
+                            //         </>
+                            //     }
+                            // />
                         )
                     },
                 },

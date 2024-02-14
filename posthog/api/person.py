@@ -223,7 +223,7 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     To create or update persons, use a PostHog library of your choice and [use an identify call](/docs/integrate/identifying-users). This API endpoint is only for reading and deleting.
     """
 
-    base_scope = "person"
+    scope_object = "person"
     renderer_classes = tuple(api_settings.DEFAULT_RENDERER_CLASSES) + (csvrenderers.PaginatedCSVRenderer,)
     queryset = Person.objects.all()
     serializer_class = PersonSerializer

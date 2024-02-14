@@ -84,7 +84,7 @@ class EventViewSet(
     mixins.ListModelMixin,
     viewsets.GenericViewSet,
 ):
-    base_scope = "query"
+    scope_object = "query"
     renderer_classes = tuple(api_settings.DEFAULT_RENDERER_CLASSES) + (csvrenderers.PaginatedCSVRenderer,)
     serializer_class = ClickhouseEventSerializer
     throttle_classes = [ClickHouseBurstRateThrottle, ClickHouseSustainedRateThrottle]

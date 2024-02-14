@@ -369,7 +369,7 @@ class FeatureFlagViewSet(
     If you're looking to use feature flags on your application, you can either use our JavaScript Library or our dedicated endpoint to check if feature flags are enabled for a given user.
     """
 
-    base_scope = "feature_flag"
+    scope_object = "feature_flag"
     queryset = FeatureFlag.objects.all()
     serializer_class = FeatureFlagSerializer
     permission_classes = [CanEditFeatureFlag]

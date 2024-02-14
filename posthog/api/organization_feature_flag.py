@@ -22,7 +22,7 @@ class OrganizationFeatureFlagView(
     viewsets.ViewSet,
     mixins.RetrieveModelMixin,
 ):
-    base_scope = "not_supported"
+    scope_object = "not_supported"
     """
     Retrieves all feature flags for a given organization and key.
     """

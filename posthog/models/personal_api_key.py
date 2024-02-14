@@ -1,5 +1,6 @@
 from typing import Literal, Tuple, get_args
 from django.contrib.auth.hashers import PBKDF2PasswordHasher
+from django.contrib.postgres.fields import ArrayField
 from django.db import models
 from django.utils import timezone
 
@@ -38,9 +39,9 @@ class PersonalAPIKey(models.Model):
     )
     created_at: models.DateTimeField = models.DateTimeField(default=timezone.now)
     last_used_at: models.DateTimeField = models.DateTimeField(null=True, blank=True)
-    scopes: models.CharField = models.CharField(max_length=1000, null=True, blank=True)
-    scoped_teams: models.CharField = models.CharField(max_length=1000, null=True, blank=True)
-    scoped_organizations: models.CharField = models.CharField(max_length=1000, null=True, blank=True)
+    scopes: ArrayField = ArrayField(models.CharField(max_length=100), null=True)
+    scoped_teams: ArrayField = ArrayField(models.IntegerField(), null=True)
+    scoped_organizations: ArrayField = ArrayField(models.CharField(max_length=100), null=True)
 
     # DEPRECATED: personal API keys are now specifically personal, without team affiliation
     team = models.ForeignKey(
@@ -50,18 +51,6 @@ class PersonalAPIKey(models.Model):
         null=True,
         blank=True,
     )
-
-    @property
-    def scopes_list(self) -> list[str]:
-        return self.scopes.split(",") if self.scopes else []
-
-    @property
-    def scoped_organizations_list(self) -> list[str]:
-        return self.scoped_organizations.split(",") if self.scoped_organizations else []
-
-    @property
-    def scoped_teams_list(self) -> list[int]:
-        return [int(x) for x in self.scoped_teams.split(",")] if self.scoped_teams else []
 
 
 ## API Scopes
@@ -91,7 +80,7 @@ APIScopeObject = Literal[
     "organization_member",
     "person",
     "plugin",
-    "project",  # Alias for team - TODO: Should we just call this team?
+    "project",
     "property_definition",
     "scheduled_change",
     "session_recording",

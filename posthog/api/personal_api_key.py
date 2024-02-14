@@ -10,29 +10,10 @@ from posthog.models.utils import generate_random_token_personal
 from posthog.user_permissions import UserPermissions
 
 
-class StringListField(serializers.Field):
-    def to_representation(self, value):
-        return value.split(",") if value else None
-
-    def to_internal_value(self, data):
-        return ",".join(data)
-
-
-class StringListIntsField(serializers.Field):
-    def to_representation(self, value):
-        return [int(x) for x in value.split(",")] if value else None
-
-    def to_internal_value(self, data):
-        return ",".join(str(x) for x in data)
-
-
 class PersonalAPIKeySerializer(serializers.ModelSerializer):
-    scopes = StringListField(required=True)
-    scoped_teams = StringListIntsField(required=False)
-    scoped_organizations = StringListField(required=False)
-
     # Specifying method name because the serializer class already has a get_value method
     value = serializers.SerializerMethodField(method_name="get_key_value", read_only=True)
+    scopes = serializers.ListField(child=serializers.CharField(required=True))
 
     class Meta:
         model = PersonalAPIKey
@@ -53,7 +34,7 @@ class PersonalAPIKeySerializer(serializers.ModelSerializer):
         return getattr(obj, "_value", None)  # type: ignore
 
     def validate_scopes(self, scopes):
-        for scope in scopes.split(","):
+        for scope in scopes:
             if scope == "*":
                 continue
 
@@ -71,10 +52,9 @@ class PersonalAPIKeySerializer(serializers.ModelSerializer):
         requesting_user: User = self.context["request"].user
         user_permissions = UserPermissions(requesting_user)
 
-        scoped_teams_list = scoped_teams.split(",")
-        teams = Team.objects.filter(pk__in=scoped_teams_list)
+        teams = Team.objects.filter(pk__in=scoped_teams)
 
-        if len(teams) != len(scoped_teams_list):
+        if len(teams) != len(scoped_teams):
             raise serializers.ValidationError(f"You must be a member of all teams that you are scoping the key to.")
 
         for team in teams:
@@ -89,7 +69,7 @@ class PersonalAPIKeySerializer(serializers.ModelSerializer):
         org_memberships = user_permissions.organization_memberships
 
         try:
-            organization_uuids = [uuid.UUID(organization_id) for organization_id in scoped_organizations.split(",")]
+            organization_uuids = [uuid.UUID(organization_id) for organization_id in scoped_organizations]
 
             for organization_id in organization_uuids:
                 if organization_id not in org_memberships or not org_memberships[organization_id].level:

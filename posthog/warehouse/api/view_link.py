@@ -87,7 +87,7 @@ class ViewLinkViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     Create, Read, Update and Delete View Columns.
     """
 
-    base_scope = "not_supported"
+    scope_object = "not_supported"
     queryset = DataWarehouseViewLink.objects.all()
     serializer_class = ViewLinkSerializer
     filter_backends = [filters.SearchFilter]

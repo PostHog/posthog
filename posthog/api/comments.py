@@ -69,7 +69,7 @@ class CommentViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.ModelV
     serializer_class = CommentSerializer
     pagination_class = CommentPagination
     # TODO: Update when fully released
-    base_scope = "not_supported"
+    scope_object = "not_supported"
 
     def get_queryset(self) -> QuerySet:
         queryset = super().get_queryset()

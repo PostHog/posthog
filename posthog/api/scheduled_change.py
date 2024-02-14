@@ -42,7 +42,7 @@ class ScheduledChangeViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     Create, read, update and delete scheduled changes.
     """
 
-    base_scope = "scheduled_change"
+    scope_object = "scheduled_change"
     serializer_class = ScheduledChangeSerializer
     queryset = ScheduledChange.objects.all()
 

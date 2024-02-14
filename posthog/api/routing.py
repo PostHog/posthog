@@ -52,7 +52,7 @@ class TeamAndOrgViewSetMixin(_GenericViewSet):
     permission_classes = []
 
     # NOTE: Could we type this? Would be pretty cool as a helper
-    base_scope: Optional[APIScopeObjectOrNotSupported] = None
+    scope_object: Optional[APIScopeObjectOrNotSupported] = None
     required_scopes: Optional[list[str]] = None
     sharing_enabled_actions: list[str] = []
 

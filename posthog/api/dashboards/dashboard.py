@@ -407,7 +407,7 @@ class DashboardsViewSet(
     ForbidDestroyModel,
     viewsets.ModelViewSet,
 ):
-    base_scope = "dashboard"
+    scope_object = "dashboard"
     queryset = Dashboard.objects.order_by("name")
     permission_classes = [CanEditDashboard]
 

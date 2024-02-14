@@ -234,7 +234,7 @@ class NotebookSerializer(NotebookMinimalSerializer):
     )
 )
 class NotebookViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.ModelViewSet):
-    base_scope = "notebook"
+    scope_object = "notebook"
     queryset = Notebook.objects.all()
     filter_backends = [DjangoFilterBackend]
     filterset_fields = ["short_id"]

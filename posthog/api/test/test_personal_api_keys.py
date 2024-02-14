@@ -57,7 +57,9 @@ class TestPersonalAPIKeysAPI(APIBaseTest):
             label="Test",
             user=self.user,
             secure_value=hash_key_value(generate_random_token_personal()),
-            scopes="insight:read",
+            scopes=[
+                "insight:read",
+            ],
         )
         response = self.client.patch(
             f"/api/personal_api_keys/{key.id}", {"label": "test-update", "scopes": ["insight:write"]}
@@ -292,7 +294,7 @@ class TestPersonalAPIKeysWithScopeAPIAuthentication(APIBaseTest):
     def setUp(self):
         self.value = generate_random_token_personal()
         self.key = PersonalAPIKey.objects.create(
-            label="Test", user=self.user, secure_value=hash_key_value(self.value), scopes="feature_flag:read"
+            label="Test", user=self.user, secure_value=hash_key_value(self.value), scopes=["feature_flag:read"]
         )
         return super().setUp()
 
@@ -307,7 +309,7 @@ class TestPersonalAPIKeysWithScopeAPIAuthentication(APIBaseTest):
 
     def test_forbids_scoped_access_for_unsupported_endpoint(self):
         # Even * scope isn't allowed for unsupported endpoints
-        self.key.scopes = "*"
+        self.key.scopes = ["*"]
         self.key.save()
         response = self._do_request("/api/users/@me/")
         assert response.status_code == status.HTTP_403_FORBIDDEN
@@ -345,7 +347,7 @@ class TestPersonalAPIKeysWithScopeAPIAuthentication(APIBaseTest):
         assert response.json()["detail"] == "API key missing required scope 'activity_log:read'"
 
     def test_denies_action_with_other_scope_with_updated_scope(self):
-        self.key.scopes = "feature_flag:write,activity_log:read"
+        self.key.scopes = ["feature_flag:write", "activity_log:read"]
         self.key.save()
         response = self._do_request(f"/api/projects/{self.team.id}/feature_flags/activity")
         assert response.status_code == status.HTTP_200_OK
@@ -367,9 +369,9 @@ class TestPersonalAPIKeysWithTeamOrgScopeAPIAuthentication(APIBaseTest):
             label="Test",
             user=self.user,
             secure_value=hash_key_value(self.value),
-            scopes="*",
-            scoped_teams=f"{self.team.id}",
-            scoped_organizations=str(self.organization.id),
+            scopes=["*"],
+            scoped_teams=[self.team.id],
+            scoped_organizations=[str(self.organization.id)],
         )
         return super().setUp()
 

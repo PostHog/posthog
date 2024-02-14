@@ -90,7 +90,7 @@ class SubscriptionSerializer(serializers.ModelSerializer):
 
 
 class SubscriptionViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.ModelViewSet):
-    base_scope = "subscription"
+    scope_object = "subscription"
     queryset = Subscription.objects.all()
     serializer_class = SubscriptionSerializer
     permission_classes = [PremiumFeaturePermission]

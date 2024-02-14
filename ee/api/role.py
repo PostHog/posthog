@@ -93,7 +93,7 @@ class RoleViewSet(
     mixins.DestroyModelMixin,
     viewsets.GenericViewSet,
 ):
-    base_scope = "organization"
+    scope_object = "organization"
     permission_classes = [RolePermissions]
     serializer_class = RoleSerializer
     queryset = Role.objects.all()
@@ -134,7 +134,7 @@ class RoleMembershipViewSet(
     mixins.DestroyModelMixin,
     viewsets.GenericViewSet,
 ):
-    base_scope = "organization"
+    scope_object = "organization"
     permission_classes = [RolePermissions]
     serializer_class = RoleMembershipSerializer
     queryset = RoleMembership.objects.select_related("role")

@@ -88,7 +88,7 @@ class DashboardCollaboratorViewSet(
     mixins.DestroyModelMixin,
     viewsets.GenericViewSet,
 ):
-    base_scope = "not_supported"
+    scope_object = "not_supported"
     permission_classes = [CanEditDashboardCollaborator]
     pagination_class = None
     queryset = DashboardPrivilege.objects.select_related("dashboard").filter(user__is_active=True)

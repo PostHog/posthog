@@ -218,7 +218,7 @@ class EarlyAccessFeatureSerializerCreateOnly(EarlyAccessFeatureSerializer):
 
 
 class EarlyAccessFeatureViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
-    base_scope = "early_access_feature"
+    scope_object = "early_access_feature"
     queryset = EarlyAccessFeature.objects.select_related("feature_flag").all()
 
     def get_serializer_class(self) -> Type[serializers.Serializer]:

@@ -19,7 +19,7 @@ class PluginLogEntrySerializer(DataclassSerializer):
 
 
 class PluginLogEntryViewSet(TeamAndOrgViewSetMixin, mixins.ListModelMixin, viewsets.GenericViewSet):
-    base_scope = "plugin"
+    scope_object = "plugin"
     serializer_class = PluginLogEntrySerializer
     permission_classes = [PluginsAccessLevelPermission, PluginOwnershipPermission]
 

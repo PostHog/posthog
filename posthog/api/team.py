@@ -341,7 +341,7 @@ class TeamViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     Projects for the current organization.
     """
 
-    base_scope: APIScopeObjectOrNotSupported = "project"
+    scope_object: APIScopeObjectOrNotSupported = "project"
     serializer_class = TeamSerializer
     queryset = Team.objects.all().select_related("organization")
     lookup_field = "id"
@@ -512,4 +512,4 @@ class TeamViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
 # NOTE: We don't want people managing projects via the "current_organization" concept. Rather specifying the org ID at the top level
 class RootTeamViewSet(TeamViewSet):
-    base_scope = "not_supported"
+    scope_object = "not_supported"

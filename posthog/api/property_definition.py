@@ -447,7 +447,7 @@ class PropertyDefinitionViewSet(
     mixins.DestroyModelMixin,
     viewsets.GenericViewSet,
 ):
-    base_scope = "property_definition"
+    scope_object = "property_definition"
     serializer_class = PropertyDefinitionSerializer
     lookup_field = "id"
     filter_backends = [TermSearchFilterBackend]

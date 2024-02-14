@@ -155,8 +155,6 @@ export const personalAPIKeysLogic = kea<personalAPIKeysLogicType>([
                     actions.createKeySuccess(key)
                 }
 
-                lemonToast.success(`Personal API Key saved.`)
-
                 actions.loadKeysSuccess([key].concat(values.keys.filter((k) => k.id !== values.editingKeyId)))
                 actions.setEditingKeyId(null)
             },
@@ -262,7 +260,7 @@ export const personalAPIKeysLogic = kea<personalAPIKeysLogicType>([
                 title: 'Personal API Key Created',
                 content: (
                     <>
-                        <p>Your API key has been created and copied to your clipboard.</p>
+                        <p>Your API key has been created.</p>
 
                         <CodeSnippet thing="personal API key">{value}</CodeSnippet>
 
@@ -274,8 +272,6 @@ export const personalAPIKeysLogic = kea<personalAPIKeysLogicType>([
                     </>
                 ),
             })
-
-            await copyToClipboard(value, 'personal API key value')
         },
         deleteKeySuccess: () => {
             lemonToast.success(`Personal API key deleted`)

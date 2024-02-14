@@ -48,7 +48,7 @@ class IntegrationViewSet(
     mixins.DestroyModelMixin,
     viewsets.GenericViewSet,
 ):
-    base_scope = "not_supported"
+    scope_object = "not_supported"
     queryset = Integration.objects.all()
     serializer_class = IntegrationSerializer
 

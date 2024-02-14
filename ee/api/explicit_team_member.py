@@ -102,7 +102,7 @@ class ExplicitTeamMemberSerializer(serializers.ModelSerializer, UserPermissionsS
 
 
 class ExplicitTeamMemberViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
-    base_scope = "project"
+    scope_object = "project"
     pagination_class = None
     queryset = ExplicitTeamMembership.objects.filter(parent_membership__user__is_active=True).select_related(
         "team", "parent_membership", "parent_membership__user"

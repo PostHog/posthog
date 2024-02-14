@@ -96,7 +96,7 @@ class TableViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     Create, Read, Update and Delete Warehouse Tables.
     """
 
-    base_scope = "not_supported"
+    scope_object = "not_supported"
     queryset = DataWarehouseTable.objects.all()
     serializer_class = TableSerializer
     filter_backends = [filters.SearchFilter]
