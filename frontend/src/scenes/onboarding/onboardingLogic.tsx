@@ -155,7 +155,7 @@ export const onboardingLogic = kea<onboardingLogicType>([
                         path: productKeyToURL[productKey ?? ''],
                     },
                     {
-                        key: productKeyToScene[productKey],
+                        key: productKeyToScene[productKey ?? ''],
                         name: stepKeyToTitle(stepKey),
                         path: urls.onboarding(productKey ?? '', stepKey),
                     },
