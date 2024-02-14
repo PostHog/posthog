@@ -39,6 +39,8 @@ class PersonalAPIKey(models.Model):
     created_at: models.DateTimeField = models.DateTimeField(default=timezone.now)
     last_used_at: models.DateTimeField = models.DateTimeField(null=True, blank=True)
     scopes: models.CharField = models.CharField(max_length=1000, null=True, blank=True)
+    scoped_teams: models.CharField = models.CharField(max_length=1000, null=True, blank=True)
+    scoped_organizations: models.CharField = models.CharField(max_length=1000, null=True, blank=True)
 
     # DEPRECATED: personal API keys are now specifically personal, without team affiliation
     team = models.ForeignKey(
@@ -52,6 +54,14 @@ class PersonalAPIKey(models.Model):
     @property
     def scopes_list(self) -> list[str]:
         return self.scopes.split(",") if self.scopes else []
+
+    @property
+    def scoped_organizations_list(self) -> list[str]:
+        return self.scoped_organizations.split(",") if self.scoped_organizations else []
+
+    @property
+    def scoped_teams_list(self) -> list[int]:
+        return [int(x) for x in self.scoped_teams.split(",")] if self.scoped_teams else []
 
 
 ## API Scopes

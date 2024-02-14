@@ -1,13 +1,14 @@
 import { LemonDialog } from '@posthog/lemon-ui'
-import { actions, kea, listeners, path, reducers, selectors } from 'kea'
+import { actions, afterMount, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { forms } from 'kea-forms'
 import { loaders } from 'kea-loaders'
 import api from 'lib/api'
 import { CodeSnippet } from 'lib/components/CodeSnippet'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
+import { userLogic } from 'scenes/userLogic'
 
-import { PersonalAPIKeyType } from '~/types'
+import { OrganizationBasicType, PersonalAPIKeyType, TeamBasicType } from '~/types'
 
 import type { personalAPIKeysLogicType } from './personalAPIKeysLogicType'
 
@@ -83,6 +84,9 @@ export const APIScopes: APIScope[] = [
 
 export const personalAPIKeysLogic = kea<personalAPIKeysLogicType>([
     path(['lib', 'components', 'PersonalAPIKeys', 'personalAPIKeysLogic']),
+    connect({
+        values: [userLogic, ['user']],
+    }),
     actions({
         setEditingKeyId: (id: PersonalAPIKeyType['id'] | null) => ({ id }),
         loadKeys: true,
@@ -91,6 +95,7 @@ export const personalAPIKeysLogic = kea<personalAPIKeysLogicType>([
         deleteKey: (id: PersonalAPIKeyType['id']) => ({ id }),
         setScopeRadioValue: (key: string, action: string) => ({ key, action }),
         resetScopes: true,
+        loadAllTeams: true,
     }),
 
     reducers({
@@ -114,10 +119,22 @@ export const personalAPIKeysLogic = kea<personalAPIKeysLogicType>([
                 },
             },
         ],
+
+        allTeams: [
+            null as TeamBasicType[] | null,
+            {
+                loadAllTeams: async () => {
+                    return await api.loadPaginatedResults('api/projects')
+                },
+            },
+        ],
     })),
     forms(({ values, actions }) => ({
         editingKey: {
-            defaults: { label: '', scopes: [] } as Pick<PersonalAPIKeyType, 'label' | 'scopes'> & { preset?: string },
+            defaults: { label: '', scopes: [], scoped_organizations: [], scoped_teams: [] } as Pick<
+                PersonalAPIKeyType,
+                'label' | 'scopes' | 'scoped_organizations' | 'scoped_teams'
+            > & { preset?: string },
             errors: ({ label, scopes }) => ({
                 label: !label ? 'Your API key needs a label' : undefined,
                 scopes: !scopes?.length ? ('Your API key needs at least one scope' as any) : undefined,
@@ -165,6 +182,23 @@ export const personalAPIKeysLogic = kea<personalAPIKeysLogicType>([
                 return editingKey.scopes.includes('*')
             },
         ],
+
+        allOrganizations: [
+            (s) => [s.user],
+            (user): OrganizationBasicType[] => {
+                return user?.organizations ?? []
+            },
+        ],
+
+        teamsWithinSelectedOrganizations: [
+            (s) => [s.allTeams, s.editingKey],
+            (allTeams, editingKey): TeamBasicType[] => {
+                if (!editingKey?.scoped_organizations?.length) {
+                    return allTeams ?? []
+                }
+                return allTeams?.filter((team) => editingKey.scoped_organizations?.includes(team.organization)) ?? []
+            },
+        ],
     })),
     listeners(({ actions, values }) => ({
         setEditingKeyValue: async ({ name, value }) => {
@@ -183,6 +217,11 @@ export const personalAPIKeysLogic = kea<personalAPIKeysLogicType>([
                 if (preset?.scopes.join(',') !== value.join(',')) {
                     actions.setEditingKeyValue('preset', undefined)
                 }
+            }
+
+            // When the user changes the list of valid orgs, clear the teams
+            if (key === 'scoped_organizations' && values.editingKey.scoped_teams) {
+                actions.setEditingKeyValue('scoped_teams', undefined)
             }
         },
 
@@ -242,4 +281,8 @@ export const personalAPIKeysLogic = kea<personalAPIKeysLogicType>([
             lemonToast.success(`Personal API key deleted`)
         },
     })),
+
+    afterMount(({ actions }) => {
+        actions.loadAllTeams()
+    }),
 ])

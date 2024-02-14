@@ -3,7 +3,9 @@ from datetime import timedelta
 from rest_framework import status
 
 from posthog.jwt import PosthogJwtAudience, encode_jwt
+from posthog.models.organization import Organization
 from posthog.models.personal_api_key import PersonalAPIKey, hash_key_value
+from posthog.models.team.team import Team
 from posthog.models.utils import generate_random_token_personal
 from posthog.test.base import APIBaseTest
 
@@ -24,6 +26,8 @@ class TestPersonalAPIKeysAPI(APIBaseTest):
             "last_used_at": None,
             "user_id": self.user.id,
             "scopes": ["insight:read"],
+            "scoped_organizations": None,
+            "scoped_teams": None,
             "value": data["value"],
         }
         assert data["value"].startswith("phx_")  # Personal API key prefix
@@ -118,6 +122,8 @@ class TestPersonalAPIKeysAPI(APIBaseTest):
             "last_used_at": None,
             "user_id": self.user.id,
             "scopes": ["*"],
+            "scoped_organizations": None,
+            "scoped_teams": None,
             "value": None,
         }
 
@@ -143,6 +149,43 @@ class TestPersonalAPIKeysAPI(APIBaseTest):
         assert response.status_code == 404
         response_data = response.json()
         assert response_data, self.not_found_response()
+
+    def test_organization_scoping(self):
+        response = self.client.post(
+            "/api/personal_api_keys/",
+            {"label": "test", "scopes": ["*"], "scoped_organizations": [str(self.organization.id)]},
+        )
+        assert response.status_code == 201, response.json()
+        assert response.json()["scoped_organizations"] == [str(self.organization.id)]
+
+    def test_organization_scoping_forbids_other(self):
+        other_org = Organization.objects.create(name="other org")
+        response = self.client.post(
+            "/api/personal_api_keys/",
+            {
+                "label": "test",
+                "scopes": ["*"],
+                "scoped_organizations": [str(self.organization.id), str(other_org.id)],
+            },
+        )
+        assert response.status_code == 400, response.json()
+        assert response.json()["detail"] == "You must be a member of all organizations that you are scoping the key to."
+
+    def test_team_scoping(self):
+        response = self.client.post(
+            "/api/personal_api_keys/", {"label": "test", "scopes": ["*"], "scoped_teams": [self.team.id]}
+        )
+        assert response.status_code == 201, response.json()
+        assert response.json()["scoped_teams"] == [self.team.id]
+
+    def test_team_scoping_forbids_other(self):
+        other_org = Organization.objects.create(name="other org")
+        other_team = Team.objects.create(organization=other_org, name="other team")
+        response = self.client.post(
+            "/api/personal_api_keys/", {"label": "test", "scopes": ["*"], "scoped_teams": [self.team.id, other_team.id]}
+        )
+        assert response.status_code == 400, response.json()
+        assert response.json()["detail"] == "You must be a member of all teams that you are scoping the key to."
 
 
 class TestPersonalAPIKeysAPIAuthentication(APIBaseTest):
@@ -306,3 +349,41 @@ class TestPersonalAPIKeysWithScopeAPIAuthentication(APIBaseTest):
         self.key.save()
         response = self._do_request(f"/api/projects/{self.team.id}/feature_flags/activity")
         assert response.status_code == status.HTTP_200_OK
+
+
+class TestPersonalAPIKeysWithTeamOrgScopeAPIAuthentication(APIBaseTest):
+    CONFIG_AUTO_LOGIN = False
+
+    value: str
+    key: PersonalAPIKey
+
+    def setUp(self):
+        other_organization, _, other_team = Organization.objects.bootstrap(self.user)
+        self.other_organization = other_organization
+        self.other_team = other_team
+
+        self.value = generate_random_token_personal()
+        self.key = PersonalAPIKey.objects.create(
+            label="Test",
+            user=self.user,
+            secure_value=hash_key_value(self.value),
+            scopes="*",
+            scoped_teams=f"{self.team.id}",
+            scoped_organizations=str(self.organization.id),
+        )
+        return super().setUp()
+
+    def _do_request(self, url: str):
+        return self.client.get(url, HTTP_AUTHORIZATION=f"Bearer {self.value}")
+
+    def test_allows_access_to_scoped_org_and_team(self):
+        response = self._do_request(f"/api/organizations/{self.organization.id}")
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        response = self._do_request(f"/api/projects/{self.team.id}/feature_flags")
+        assert response.status_code == status.HTTP_200_OK, response.json()
+
+    def test_denies_access_to_non_scoped_org_and_team(self):
+        response = self._do_request(f"/api/organizations/{self.other_organization.id}")
+        assert response.status_code == status.HTTP_403_FORBIDDEN, response.json()
+        response = self._do_request(f"/api/projects/{self.other_team.id}/feature_flags")
+        assert response.status_code == status.HTTP_403_FORBIDDEN, response.json()

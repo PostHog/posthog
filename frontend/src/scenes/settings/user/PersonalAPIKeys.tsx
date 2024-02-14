@@ -6,9 +6,11 @@ import {
     LemonModal,
     LemonSegmentedButton,
     LemonSelect,
+    LemonSelectMultiple,
     LemonTable,
     LemonTag,
     Link,
+    Tooltip,
 } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
@@ -23,8 +25,16 @@ import { PersonalAPIKeyType } from '~/types'
 import { API_KEY_SCOPE_PRESETS, APIScopes, personalAPIKeysLogic } from './personalAPIKeysLogic'
 
 function EditKeyModal(): JSX.Element {
-    const { editingKeyId, isEditingKeySubmitting, editingKeyChanged, formScopeRadioValues, allAccessSelected } =
-        useValues(personalAPIKeysLogic)
+    const {
+        editingKeyId,
+        isEditingKeySubmitting,
+        editingKeyChanged,
+        formScopeRadioValues,
+        allAccessSelected,
+        teamsWithinSelectedOrganizations,
+        allTeamsLoading,
+        allOrganizations,
+    } = useValues(personalAPIKeysLogic)
     const { setEditingKeyId, setScopeRadioValue, submitEditingKey, resetScopes } = useActions(personalAPIKeysLogic)
 
     const isNew = editingKeyId === 'new'
@@ -61,7 +71,73 @@ function EditKeyModal(): JSX.Element {
                         <LemonInput placeholder='for example "Zapier"' maxLength={40} />
                     </LemonField>
 
-                    <LemonLabel>Scopes</LemonLabel>
+                    <LemonField
+                        name="scoped_organizations"
+                        label="Organization access"
+                        info="Limit this API key to only perform operations on certain organizations."
+                    >
+                        <LemonSelectMultiple
+                            mode="multiple"
+                            data-attr="organizations"
+                            options={
+                                allOrganizations.map((org) => ({
+                                    key: `${org.id}`,
+                                    label: org.name,
+                                    labelComponent: (
+                                        <Tooltip
+                                            title={
+                                                <div>
+                                                    <div className="font-semibold">{org.name}</div>
+                                                    <div className="text-xs whitespace-nowrap">ID: {org.id}</div>
+                                                </div>
+                                            }
+                                        >
+                                            <span className="flex-1">{org.name}</span>
+                                        </Tooltip>
+                                    ),
+                                })) ?? []
+                            }
+                            placeholder="All organizations"
+                        />
+                    </LemonField>
+
+                    <LemonField
+                        name="scoped_teams"
+                        label="Project access"
+                        info="Limit this API key to only perform operations on certain projects."
+                    >
+                        <LemonSelectMultiple
+                            mode="multiple"
+                            data-attr="teams"
+                            options={
+                                teamsWithinSelectedOrganizations.map((team) => ({
+                                    key: `${team.id}`,
+                                    label: team.name,
+                                    labelComponent: (
+                                        <Tooltip
+                                            title={
+                                                <div>
+                                                    <div className="font-semibold">{team.name}</div>
+                                                    <div className="text-xs whitespace-nowrap">
+                                                        Token: {team.api_token}
+                                                    </div>
+                                                    <div className="text-xs whitespace-nowrap">
+                                                        Organization ID: {team.organization}
+                                                    </div>
+                                                </div>
+                                            }
+                                        >
+                                            <span className="flex-1">{team.name}</span>
+                                        </Tooltip>
+                                    ),
+                                })) ?? []
+                            }
+                            loading={allTeamsLoading}
+                            placeholder="All projects permitted"
+                        />
+                    </LemonField>
+
+                    <LemonLabel>Permissions</LemonLabel>
                     <LemonField name="scopes">
                         {({ error }) => (
                             <>
@@ -69,7 +145,10 @@ function EditKeyModal(): JSX.Element {
                                     API Keys are scoped to limit what they are able to do. We highly recommend you only
                                     give the key the permissions it needs to do its job. You can add or revoke scopes
                                     later.
+                                    <br />
+                                    Your API key can never do more than your user can do.
                                 </p>
+
                                 <div className="flex justify-between">
                                     <div className="flex-1">
                                         {error && <span className="text-danger">{error}</span>}

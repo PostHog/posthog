@@ -1,3 +1,4 @@
+from functools import cached_property
 from typing import Any, Dict, List, Optional, Union, cast
 
 from django.db.models import Model, QuerySet
@@ -153,17 +154,27 @@ class OrganizationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         return cast(User, self.request.user).organizations.all()
 
     def get_object(self):
-        queryset = self.filter_queryset(self.get_queryset())
-        lookup_value = self.kwargs[self.lookup_field]
-        if lookup_value == "@current":
-            organization = cast(User, self.request.user).organization
-            if organization is None:
-                raise exceptions.NotFound("Current organization not found.")
-        else:
-            filter_kwargs = {self.lookup_field: lookup_value}
-            organization = get_object_or_404(queryset, **filter_kwargs)
+        organization = self.organization
         self.check_object_permissions(self.request, organization)
         return organization
+
+    # Override base view as the "parent_query_dict" for an organization is the same as the organization itself
+    @cached_property
+    def organization(self) -> Organization:
+        if self.detail:
+            queryset = self.filter_queryset(self.get_queryset())
+            lookup_value = self.kwargs[self.lookup_field]
+            if lookup_value == "@current":
+                organization = cast(User, self.request.user).organization
+                if organization is None:
+                    raise exceptions.NotFound("Current organization not found.")
+            else:
+                filter_kwargs = {self.lookup_field: lookup_value}
+                organization = get_object_or_404(queryset, **filter_kwargs)
+
+            return organization
+
+        raise exceptions.NotFound("Organization not found.")
 
     def perform_destroy(self, organization: Organization):
         user = cast(User, self.request.user)

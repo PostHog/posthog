@@ -271,15 +271,16 @@ class APIScopePermission(BasePermission):
         if not isinstance(request.successful_authenticator, PersonalAPIKeyAuthentication):
             return True
 
-        requester_scopes = request.successful_authenticator.personal_api_key.scopes_list
+        key_scopes = request.successful_authenticator.personal_api_key.scopes_list
 
         # TRICKY: Legacy API keys have no scopes and are allowed to do anything, even if the view is unsupported.
-        if not requester_scopes:
+        if not key_scopes:
             return True
 
+        self.check_team_and_org_permissions(request, view)
         required_scopes = self.get_required_scopes(request, view)
 
-        if "*" in requester_scopes:
+        if "*" in key_scopes:
             return True
 
         for required_scope in required_scopes:
@@ -290,10 +291,35 @@ class APIScopePermission(BasePermission):
                 if scope.endswith(":read"):
                     valid_scopes.append(scope.replace(":read", ":write"))
 
-            if not any(scope in requester_scopes for scope in valid_scopes):
+            if not any(scope in key_scopes for scope in valid_scopes):
                 raise PermissionDenied(f"API key missing required scope '{required_scope}'")
 
         return True
+
+    def check_team_and_org_permissions(self, request, view) -> None:
+        scoped_organizations = request.successful_authenticator.personal_api_key.scoped_organizations_list
+        scoped_teams = request.successful_authenticator.personal_api_key.scoped_teams_list
+
+        if scoped_organizations:
+            try:
+                organization = get_organization_from_view(view)
+            except ValueError:
+                # Indicates this is not an organization scoped view
+                pass
+            if str(organization.id) not in scoped_organizations:
+                raise PermissionDenied(
+                    f"API key does not have access to the requested organization '{organization.id}'"
+                )
+
+        if scoped_teams:
+            try:
+                team = view.team
+                if team.id not in scoped_teams:
+                    raise PermissionDenied(f"API key does not have access to the requested team '{team.id}'")
+
+            except (ValueError, KeyError):
+                # Indicates this is not a team scoped view
+                pass
 
     def get_required_scopes(self, request, view) -> list[str]:
         # If required_scopes is set on the view method then use that
