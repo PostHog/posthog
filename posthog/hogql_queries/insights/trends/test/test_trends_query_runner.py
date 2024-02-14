@@ -473,9 +473,9 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         assert len(response.results) == 3
         assert breakdown_labels == ["true", "false", "$$_posthog_breakdown_other_$$"]
 
-        assert response.results[0]["label"] == f"$pageview - true"
-        assert response.results[1]["label"] == f"$pageview - false"
-        assert response.results[2]["label"] == f"$pageview - Other"
+        assert response.results[0]["label"] == f"true"
+        assert response.results[1]["label"] == f"false"
+        assert response.results[2]["label"] == f"Other"
 
         assert response.results[0]["count"] == 7
         assert response.results[1]["count"] == 3
@@ -544,7 +544,7 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
 
         assert len(response.results) == 1
 
-        assert response.results[0]["label"] == f"$pageview - cohort"
+        assert response.results[0]["label"] == f"cohort"
         assert response.results[0]["count"] == 6
         assert response.results[0]["data"] == [
             0,
