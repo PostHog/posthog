@@ -339,7 +339,7 @@ class TrendsQueryRunner(QueryRunner):
 
         real_series_count = series_count
         if self.query.trendsFilter is not None and self.query.trendsFilter.compare:
-            real_series_count = series_count / 2
+            real_series_count = ceil(series_count / 2)
 
         res = []
         for val in response.results:
