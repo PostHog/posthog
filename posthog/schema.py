@@ -1291,7 +1291,7 @@ class QueryResponse(BaseModel):
     is_cached: Optional[bool] = None
     last_refresh: Optional[str] = None
     next_allowed_client_refresh: Optional[str] = None
-    results: List
+    results: Any
     timings: Optional[List[QueryTiming]] = None
 
 

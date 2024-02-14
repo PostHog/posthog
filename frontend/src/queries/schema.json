@@ -3221,10 +3221,7 @@
                 "next_allowed_client_refresh": {
                     "type": "string"
                 },
-                "results": {
-                    "items": {},
-                    "type": "array"
-                },
+                "results": {},
                 "timings": {
                     "items": {
                         "$ref": "#/definitions/QueryTiming"

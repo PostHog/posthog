@@ -863,7 +863,7 @@ export interface QueryRequest {
 }
 
 export interface QueryResponse {
-    results: unknown[]
+    results: unknown
     timings?: QueryTiming[]
     hogql?: string
     is_cached?: boolean
