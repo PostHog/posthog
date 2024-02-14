@@ -28,12 +28,10 @@
     }
 
     &--subtle {
-        .posthog-3000 & {
-            color: var(--default);
+        color: var(--default);
 
-            &:not(:disabled):hover {
-                color: var(--primary-3000-hover);
-            }
+        &:not(:disabled):hover {
+            color: var(--primary-3000-hover);
         }
     }
 }

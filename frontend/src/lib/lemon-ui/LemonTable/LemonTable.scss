@@ -1,5 +1,5 @@
 .LemonTable {
-    --row-base-height: 3rem;
+    --row-base-height: auto;
     --row-horizontal-padding: 1rem;
     --lemon-table-background-color: var(--bg-table);
 
@@ -7,6 +7,7 @@
     flex: 1;
     width: 100%;
     overflow: hidden;
+    font-size: 13px;
     background: var(--lemon-table-background-color);
     border: 1px solid var(--border);
     border-radius: var(--radius);
@@ -22,12 +23,6 @@
     .WebAnalyticsModal & {
         // Special override for scenes where the surroundings provide a border
         border: none;
-    }
-
-    .posthog-3000 & {
-        --row-base-height: auto;
-
-        font-size: 13px;
     }
 
     &.LemonTable--with-ribbon {
@@ -49,16 +44,10 @@
     }
 
     &--xs {
-        --row-base-height: 2rem;
-
         .LemonTable__content > table > tbody > tr > td {
             padding-top: 0.25rem;
             padding-bottom: 0.25rem;
         }
-    }
-
-    &--small {
-        --row-base-height: 2.5rem;
     }
 
     &--embedded {
@@ -72,11 +61,8 @@
 
         .LemonTable__content > table {
             > thead {
+                background: none;
                 border-bottom: none;
-
-                .posthog-3000 & {
-                    background: none;
-                }
             }
 
             > thead,
@@ -127,12 +113,10 @@
     }
 
     a.Link {
-        .posthog-3000 & {
-            color: var(--default);
+        color: var(--default);
 
-            &:not(:disabled):hover {
-                color: var(--primary-3000-hover);
-            }
+        &:not(:disabled):hover {
+            color: var(--primary-3000-hover);
         }
     }
 }
@@ -147,14 +131,12 @@
         font-size: 0.75rem;
         text-transform: uppercase;
         letter-spacing: 0.03125rem;
-        background: var(--mid);
-
-        .posthog-3000 & {
-            background: var(--lemon-table-background-color);
-        }
+        background: var(--lemon-table-background-color);
 
         > tr {
             > th {
+                padding-top: 0.5rem;
+                padding-bottom: 0.5rem;
                 font-weight: 700;
                 text-align: left;
 
@@ -162,15 +144,8 @@
                 // Also it needs to be on the th - any higher and safari will not render the shadow
                 box-shadow: inset 0 -1px var(--border);
 
-                .posthog-3000 & {
-                    padding-top: 0.5rem;
-                    padding-bottom: 0.5rem;
-                }
-
                 .LemonButton {
-                    .posthog-3000 & {
-                        margin: -0.5rem 0;
-                    }
+                    margin: -0.5rem 0;
                 }
             }
 
@@ -293,28 +268,24 @@
 .LemonTable__header {
     cursor: default;
 
-    .posthog-3000 & {
-        .LemonTable__header-content {
-            color: var(--text-secondary);
-        }
+    .LemonTable__header-content {
+        color: var(--text-secondary);
     }
 
     &.LemonTable__header--actionable {
         cursor: pointer;
 
-        .posthog-3000 & {
-            &:hover {
-                &:not(:has(.LemonTable__header--no-hover:hover)) {
-                    .LemonTable__header-content {
-                        color: var(--default);
-                    }
-                }
-            }
-
-            &:active {
+        &:hover {
+            &:not(:has(.LemonTable__header--no-hover:hover)) {
                 .LemonTable__header-content {
                     color: var(--default);
                 }
+            }
+        }
+
+        &:active {
+            .LemonTable__header-content {
+                color: var(--default);
             }
         }
     }
@@ -346,11 +317,7 @@
 }
 
 .LemonTable__header--sticky::before {
-    background: var(--mid);
-
-    .posthog-3000 & {
-        background: var(--lemon-table-background-color);
-    }
+    background: var(--lemon-table-background-color);
 }
 
 // Stickiness is disabled in snapshots due to flakiness

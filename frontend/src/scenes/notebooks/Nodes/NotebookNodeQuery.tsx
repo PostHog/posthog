@@ -36,6 +36,9 @@ const Component = ({
     const { expanded } = useValues(nodeLogic)
     const { setTitlePlaceholder } = useActions(nodeLogic)
     const summarizeInsight = useSummarizeInsight()
+    const { insightName } = useValues(
+        insightLogic({ dashboardItemId: query.kind === NodeKind.SavedInsightNode ? query.shortId : 'new' })
+    )
 
     useEffect(() => {
         let title = 'Query'
@@ -58,13 +61,13 @@ const Component = ({
                 }
             }
         }
+
         if (query.kind === NodeKind.SavedInsightNode) {
-            const logic = insightLogic.findMounted({ dashboardItemId: query.shortId })
-            title = (logic?.values.insight.name || logic?.values.insight.derived_name) ?? 'Saved Insight'
+            title = insightName ?? 'Saved Insight'
         }
 
         setTitlePlaceholder(title)
-    }, [query])
+    }, [query, insightName])
 
     const modifiedQuery = useMemo(() => {
         const modifiedQuery = { ...query, full: false }

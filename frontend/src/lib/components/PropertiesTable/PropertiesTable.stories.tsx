@@ -10,7 +10,7 @@ const meta: Meta<typeof PropertiesTableComponent> = {
 }
 export default meta
 
-export const PropertiesTable: StoryFn = () => {
+export const Basic: StoryFn = () => {
     const properties = {
         name: 'John Doe',
         age: 30,
@@ -24,4 +24,37 @@ export const PropertiesTable: StoryFn = () => {
         },
     }
     return <PropertiesTableComponent type={PropertyDefinitionType.Event} properties={properties} />
+}
+
+export const DollarPropertiesOnEvent: StoryFn = () => {
+    const properties = {
+        pineapple_enjoyment_score: 3,
+        $browser: 'Chrome',
+        utm_campaign: 'summer_sale',
+        $geoip_country_code: 'US',
+        $set: {
+            $browser: 'Chrome',
+            utm_campaign: 'summer_sale',
+            $geoip_country_code: 'US',
+        },
+        $set_once: {
+            $initial_browser: 'Chrome',
+            $initial_utm_campaign: 'summer_sale',
+            $initial_geoip_country_code: 'US',
+        },
+    }
+    return <PropertiesTableComponent type={PropertyDefinitionType.Event} properties={properties} />
+}
+
+export const DollarPropertiesOnPerson: StoryFn = () => {
+    const properties = {
+        pineapple_enjoyment_score: 3,
+        $browser: 'Chrome',
+        utm_campaign: 'summer_sale',
+        $geoip_country_code: 'US',
+        $initial_browser: 'Chrome',
+        $initial_utm_campaign: 'summer_sale',
+        $initial_geoip_country_code: 'US',
+    }
+    return <PropertiesTableComponent type={PropertyDefinitionType.Person} properties={properties} />
 }

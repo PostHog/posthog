@@ -314,6 +314,10 @@
         "AutocompleteCompletionItem": {
             "additionalProperties": false,
             "properties": {
+                "detail": {
+                    "description": "A human-readable string with additional information about this item, like type or symbol information.",
+                    "type": "string"
+                },
                 "documentation": {
                     "description": "A human-readable string that represents a doc-comment.",
                     "type": "string"
@@ -657,6 +661,10 @@
                 },
                 "showSearch": {
                     "description": "Include a free text search field (PersonsNode only)",
+                    "type": "boolean"
+                },
+                "showTestAccountFilters": {
+                    "description": "Show filter to exclude test accounts",
                     "type": "boolean"
                 },
                 "showTimings": {
@@ -1127,6 +1135,10 @@
                 "event": {
                     "description": "Limit to events matching this string",
                     "type": ["string", "null"]
+                },
+                "filterTestAccounts": {
+                    "description": "Filter test accounts",
+                    "type": "boolean"
                 },
                 "fixedProperties": {
                     "description": "Fixed properties in the query, can't be edited in the interface (e.g. scoping down by person)",
@@ -1934,6 +1946,10 @@
         "HogQLAutocompleteResponse": {
             "additionalProperties": false,
             "properties": {
+                "incomplete_list": {
+                    "description": "Whether or not the suggestions returned are complete",
+                    "type": "boolean"
+                },
                 "suggestions": {
                     "items": {
                         "$ref": "#/definitions/AutocompleteCompletionItem"
@@ -1941,7 +1957,7 @@
                     "type": "array"
                 }
             },
-            "required": ["suggestions"],
+            "required": ["suggestions", "incomplete_list"],
             "type": "object"
         },
         "HogQLExpression": {
@@ -1953,6 +1969,9 @@
             "properties": {
                 "dateRange": {
                     "$ref": "#/definitions/DateRange"
+                },
+                "filterTestAccounts": {
+                    "type": "boolean"
                 },
                 "properties": {
                     "items": {
@@ -3568,6 +3587,10 @@
                 {
                     "additionalProperties": false,
                     "properties": {
+                        "incomplete_list": {
+                            "description": "Whether or not the suggestions returned are complete",
+                            "type": "boolean"
+                        },
                         "suggestions": {
                             "items": {
                                 "$ref": "#/definitions/AutocompleteCompletionItem"
@@ -3575,7 +3598,7 @@
                             "type": "array"
                         }
                     },
-                    "required": ["suggestions"],
+                    "required": ["suggestions", "incomplete_list"],
                     "type": "object"
                 },
                 {
@@ -4329,6 +4352,10 @@
                 "showTable": {
                     "type": "boolean"
                 },
+                "showTestAccountFilters": {
+                    "description": "Show filter to exclude test accounts",
+                    "type": "boolean"
+                },
                 "showTimings": {
                     "description": "Show a detailed query timing breakdown",
                     "type": "boolean"
@@ -4981,6 +5008,9 @@
         "WebOverviewQuery": {
             "additionalProperties": false,
             "properties": {
+                "compare": {
+                    "type": "boolean"
+                },
                 "dateRange": {
                     "$ref": "#/definitions/DateRange"
                 },

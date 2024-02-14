@@ -79,11 +79,11 @@ export const dataVisualizationLogic = kea<dataVisualizationLogicType>([
                         return []
                     }
 
-                    const columns: string[] = response['columns']
-                    const types: string[][] = response['types']
+                    const columns: string[] = response['columns'] ?? []
+                    const types: string[][] = response['types'] ?? []
 
                     return columns.map((column, index) => {
-                        const type = types[index][1]
+                        const type = types[index]?.[1]
                         return {
                             name: column,
                             type,

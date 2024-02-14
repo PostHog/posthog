@@ -16,11 +16,10 @@ from drf_spectacular.utils import extend_schema
 from loginas.utils import is_impersonated_session
 from rest_framework import exceptions, request, serializers, viewsets
 from rest_framework.decorators import action
-from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 
 from posthog.api.person import MinimalPersonSerializer
-from posthog.api.routing import StructuredViewSetMixin
+from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.auth import SharingAccessTokenAuthentication
 from posthog.cloud_utils import is_cloud
 from posthog.constants import SESSION_RECORDINGS_FILTER_IDS
@@ -28,10 +27,6 @@ from posthog.models import User
 from posthog.models.filters.session_recordings_filter import SessionRecordingsFilter
 from posthog.models.person.person import PersonDistinctId
 from posthog.session_recordings.models.session_recording import SessionRecording
-from posthog.permissions import (
-    SharingTokenPermission,
-    TeamMemberAccessPermission,
-)
 from posthog.session_recordings.models.session_recording_event import (
     SessionRecordingViewed,
 )
@@ -49,7 +44,7 @@ from posthog.rate_limit import (
 )
 from posthog.session_recordings.queries.session_replay_events import SessionReplayEvents
 from posthog.session_recordings.realtime_snapshots import get_realtime_snapshots, publish_subscription
-from posthog.session_recordings.session_summary.summarize_session import summarize_recording
+from ee.session_recordings.session_summary.summarize_session import summarize_recording
 from posthog.session_recordings.snapshots.convert_legacy_snapshots import (
     convert_original_version_lts_recording,
 )
@@ -179,22 +174,14 @@ def list_recordings_response(
     return response
 
 
-class SessionRecordingViewSet(StructuredViewSetMixin, viewsets.GenericViewSet):
-    permission_classes = [IsAuthenticated, TeamMemberAccessPermission]
+# NOTE: Could we put the sharing stuff in the shared mixin :thinking:
+class SessionRecordingViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     throttle_classes = [ClickHouseBurstRateThrottle, ClickHouseSustainedRateThrottle]
     serializer_class = SessionRecordingSerializer
     # We don't use this
     queryset = SessionRecording.objects.none()
 
     sharing_enabled_actions = ["retrieve", "snapshots", "snapshot_file"]
-
-    def get_permissions(self):
-        if isinstance(self.request.successful_authenticator, SharingAccessTokenAuthentication):
-            return [SharingTokenPermission()]
-        return super().get_permissions()
-
-    def get_authenticators(self):
-        return [SharingAccessTokenAuthentication(), *super().get_authenticators()]
 
     def get_serializer_class(self) -> Type[serializers.Serializer]:
         if isinstance(self.request.successful_authenticator, SharingAccessTokenAuthentication):

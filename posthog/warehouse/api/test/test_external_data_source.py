@@ -7,7 +7,6 @@ from posthog.temporal.data_imports.pipelines.schemas import (
 )
 from django.test import override_settings
 from django.conf import settings
-from posthog.cloud_utils import TEST_clear_cloud_cache
 from posthog.models import Team
 import psycopg
 
@@ -194,9 +193,7 @@ class TestSavedQuery(APIBaseTest):
     def test_internal_postgres(self, patch_get_postgres_schemas):
         patch_get_postgres_schemas.return_value = ["table_1"]
 
-        TEST_clear_cloud_cache(True)
-
-        with override_settings(REGION="US"):
+        with override_settings(CLOUD_DEPLOYMENT="US"):
             team_2, _ = Team.objects.get_or_create(id=2, organization=self.team.organization)
             response = self.client.get(
                 f"/api/projects/{team_2.id}/external_data_sources/database_schema/",
@@ -228,7 +225,7 @@ class TestSavedQuery(APIBaseTest):
             self.assertEqual(response.status_code, 400)
             self.assertEqual(response.json(), {"message": "Cannot use internal Postgres database"})
 
-        with override_settings(REGION="EU"):
+        with override_settings(CLOUD_DEPLOYMENT="EU"):
             team_1, _ = Team.objects.get_or_create(id=1, organization=self.team.organization)
             response = self.client.get(
                 f"/api/projects/{team_1.id}/external_data_sources/database_schema/",

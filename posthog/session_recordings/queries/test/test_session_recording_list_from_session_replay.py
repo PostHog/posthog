@@ -7,7 +7,6 @@ from freezegun.api import freeze_time
 
 from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.log_entries import TRUNCATE_LOG_ENTRIES_TABLE_SQL
-from posthog.cloud_utils import TEST_clear_cloud_cache
 from posthog.constants import AvailableFeature
 from posthog.models import Person, Cohort, GroupTypeMapping
 from posthog.models.action import Action
@@ -690,7 +689,6 @@ class TestClickhouseSessionRecordingsListFromSessionReplay(ClickhouseTestMixin, 
     def test_ttl_days(self):
         assert ttl_days(self.team) == 21
 
-        TEST_clear_cloud_cache()
         with self.is_cloud(True):
             # Far enough in the future from `days_since_blob_ingestion` but not paid
             with freeze_time("2023-09-01T12:00:01Z"):

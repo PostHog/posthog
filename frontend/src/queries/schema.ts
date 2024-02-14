@@ -206,6 +206,7 @@ export interface HogQLQueryResponse {
 export interface HogQLFilters {
     properties?: AnyPropertyFilter[]
     dateRange?: DateRange
+    filterTestAccounts?: boolean
 }
 
 export interface HogQLQuery extends DataNode {
@@ -250,6 +251,11 @@ export interface AutocompleteCompletionItem {
      */
     documentation?: string
     /**
+     * A human-readable string with additional information
+     * about this item, like type or symbol information.
+     */
+    detail?: string
+    /**
      * A string or snippet that should be inserted in a document when selecting
      * this completion.
      */
@@ -291,6 +297,8 @@ export interface AutocompleteCompletionItem {
 
 export interface HogQLAutocompleteResponse {
     suggestions: AutocompleteCompletionItem[]
+    /** Whether or not the suggestions returned are complete */
+    incomplete_list: boolean
 }
 
 export interface HogQLMetadata extends DataNode {
@@ -402,6 +410,8 @@ export interface EventsQuery extends DataNode {
     properties?: AnyPropertyFilter[]
     /** Fixed properties in the query, can't be edited in the interface (e.g. scoping down by person) */
     fixedProperties?: AnyPropertyFilter[]
+    /** Filter test accounts */
+    filterTestAccounts?: boolean
     /** Limit to events matching this string */
     event?: string | null
     /**
@@ -501,6 +511,8 @@ interface DataTableNodeViewProps {
     showSearch?: boolean
     /** Include a property filter above the table */
     showPropertyFilter?: boolean
+    /** Show filter to exclude test accounts */
+    showTestAccountFilters?: boolean
     /** Include a HogQL query editor above HogQL tables */
     showHogQLEditor?: boolean
     /** Show the kebab menu at the end of the row */
@@ -961,6 +973,7 @@ export interface WebAnalyticsQueryBase {
 export interface WebOverviewQuery extends WebAnalyticsQueryBase {
     kind: NodeKind.WebOverviewQuery
     response?: WebOverviewQueryResponse
+    compare?: boolean
 }
 
 export interface WebOverviewItem {
