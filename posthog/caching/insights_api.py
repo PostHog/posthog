@@ -6,7 +6,6 @@ import zoneinfo
 from rest_framework import request
 
 from posthog.caching.calculate_results import (
-    CLICKHOUSE_MAX_EXECUTION_TIME,
     calculate_cache_key,
 )
 from posthog.caching.insight_caching_state import InsightCachingState
@@ -18,6 +17,11 @@ from posthog.utils import refresh_requested_by_client
 Utilities used by the insights API to determine whether
 or not to refresh an insight upon a client request to do so
 """
+
+# ClickHouse query timeout in seconds
+# From https://github.com/PostHog/posthog-cloud-infra/blob/master/ansible/config/clickhouse-users.xml#L11
+# Keep in sync with the above!
+CLICKHOUSE_MAX_EXECUTION_TIME = timedelta(seconds=180)
 
 # Default minimum wait time for refreshing an insight
 BASE_MINIMUM_INSIGHT_REFRESH_INTERVAL = timedelta(minutes=15)

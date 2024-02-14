@@ -6,10 +6,10 @@ from django.http import HttpRequest
 
 from freezegun import freeze_time
 from rest_framework.request import Request
-from posthog.caching.calculate_results import CLICKHOUSE_MAX_EXECUTION_TIME
 from posthog.caching.insight_caching_state import InsightCachingState
 from posthog.caching.insights_api import (
     BASE_MINIMUM_INSIGHT_REFRESH_INTERVAL,
+    CLICKHOUSE_MAX_EXECUTION_TIME,
     should_refresh_insight,
 )
 from posthog.test.base import BaseTest, ClickhouseTestMixin, _create_insight
@@ -154,7 +154,8 @@ class TestShouldRefreshInsight(ClickhouseTestMixin, BaseTest):
             # This insight is being calculated _somewhere_, since it was last refreshed
             # earlier than the recent refresh has been queued
             last_refresh_queued_at=datetime.now(tz=ZoneInfo("UTC"))
-            - timedelta(seconds=CLICKHOUSE_MAX_EXECUTION_TIME - 0.5),  # Half a second before timeout
+            - CLICKHOUSE_MAX_EXECUTION_TIME
+            - timedelta(seconds=0.5),  # Half a second before timeout
         )
 
         should_refresh_now, _ = should_refresh_insight(insight, None, request=self.refresh_request)
@@ -170,7 +171,7 @@ class TestShouldRefreshInsight(ClickhouseTestMixin, BaseTest):
         InsightCachingState.objects.filter(team=self.team, insight_id=insight.pk).update(
             last_refresh=datetime.now(tz=ZoneInfo("UTC")) - timedelta(days=1),
             # last_refresh is earlier than last_refresh_queued_at BUT last_refresh_queued_at is more than
-            # CLICKHOUSE_MAX_EXECUTION_TIME seconds ago. This means the query CANNOT be running at this time.
+            # CLICKHOUSE_MAX_EXECUTION_TIME ago. This means the query CANNOT be running at this time.
             last_refresh_queued_at=datetime.now(tz=ZoneInfo("UTC")) - timedelta(seconds=500),
         )
 
