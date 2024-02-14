@@ -7,6 +7,8 @@ from posthog.hogql.timings import HogQLTimings
 from posthog.hogql_queries.insights.trends.data_warehouse_trends_query_builder import DataWarehouseTrendsQueryBuilder
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 from posthog.schema import (
+    BreakdownFilter,
+    BreakdownType,
     DateRange,
     DataWarehouseNode,
     TrendsQuery,
@@ -187,3 +189,33 @@ class TestDataWarehouseQueryBuilder(ClickhouseTestMixin, BaseTest):
         assert response.columns is not None
         assert set(response.columns).issubset({"date", "total"})
         assert response.results[0][1] == [1, 0, 0, 0, 0, 0, 0]
+
+    def test_trends_breakdown(self):
+        table_name = self.create_parquet_file()
+
+        trends_query = TrendsQuery(
+            kind="TrendsQuery",
+            dateRange=DateRange(date_from="2023-01-01"),
+            series=[DataWarehouseNode(table_name=table_name, id_field="id", timestamp_field="created")],
+            breakdownFilter=BreakdownFilter(breakdown_type=BreakdownType.data_warehouse, breakdown="prop_1"),
+        )
+
+        with freeze_time("2023-01-07"):
+            response = self.get_response(trends_query=trends_query)
+
+        assert response.columns is not None
+        assert set(response.columns).issubset({"date", "total", "breakdown_value"})
+        assert response.results[0][1] == [1, 0, 0, 0, 0, 0, 0]
+        assert response.results[0][2] == "a"
+
+        assert response.results[1][1] == [0, 1, 0, 0, 0, 0, 0]
+        assert response.results[1][2] == "b"
+
+        assert response.results[2][1] == [0, 0, 1, 0, 0, 0, 0]
+        assert response.results[2][2] == "c"
+
+        assert response.results[3][1] == [0, 0, 0, 1, 0, 0, 0]
+        assert response.results[3][2] == "d"
+
+        assert response.results[4][1] == [0, 0, 0, 0, 0, 0, 0]
+        assert response.results[4][2] == "$$_posthog_breakdown_other_$$"

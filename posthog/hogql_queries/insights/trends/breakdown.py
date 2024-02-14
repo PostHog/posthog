@@ -12,7 +12,6 @@ from posthog.hogql_queries.insights.trends.breakdown_values import (
 from posthog.hogql_queries.insights.trends.display import TrendsDisplay
 from posthog.hogql_queries.insights.trends.utils import (
     get_properties_chain,
-    series_event_name,
 )
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 from posthog.models.filters.mixins.utils import cached_property
@@ -222,7 +221,7 @@ class Breakdown:
         with self.timings.measure("breakdown_values_query"):
             breakdown = BreakdownValues(
                 team=self.team,
-                event_name=series_event_name(self.series) or "",
+                series=self.series,
                 events_filter=self.events_filter,
                 chart_display_type=self._trends_display().display_type,
                 breakdown_filter=self.query.breakdownFilter,

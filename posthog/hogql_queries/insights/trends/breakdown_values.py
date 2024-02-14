@@ -5,7 +5,8 @@ from posthog.hogql.parser import parse_expr, parse_select
 from posthog.hogql.query import execute_hogql_query
 from posthog.hogql_queries.insights.trends.utils import get_properties_chain
 from posthog.models.team.team import Team
-from posthog.schema import BreakdownFilter, BreakdownType, ChartDisplayType
+from posthog.schema import BreakdownFilter, BreakdownType, ChartDisplayType, SeriesType, DataWarehouseNode
+from functools import cached_property
 
 BREAKDOWN_OTHER_STRING_LABEL = "$$_posthog_breakdown_other_$$"
 BREAKDOWN_OTHER_NUMERIC_LABEL = 9007199254740991  # pow(2, 53) - 1, for JS compatibility
@@ -15,7 +16,7 @@ BREAKDOWN_NULL_NUMERIC_LABEL = 9007199254740990  # pow(2, 53) - 2, for JS compat
 
 class BreakdownValues:
     team: Team
-    event_name: str
+    series: SeriesType
     breakdown_field: Union[str, float, List[Union[str, float]]]
     breakdown_type: BreakdownType
     events_filter: ast.Expr
@@ -28,13 +29,13 @@ class BreakdownValues:
     def __init__(
         self,
         team: Team,
-        event_name: str,
+        series: SeriesType,
         events_filter: ast.Expr,
         chart_display_type: ChartDisplayType,
         breakdown_filter: BreakdownFilter,
     ):
         self.team = team
-        self.event_name = event_name
+        self.series = series
         self.breakdown_field = breakdown_filter.breakdown  # type: ignore
         self.breakdown_type = breakdown_filter.breakdown_type  # type: ignore
         self.events_filter = events_filter
@@ -88,9 +89,8 @@ class BreakdownValues:
             """
                 SELECT
                     {select_field},
-                    count(e.uuid) as count
-                FROM
-                    events e
+                    count({id_field}) as count
+                FROM {table} e
                 WHERE
                     {events_where}
                 GROUP BY
@@ -104,6 +104,8 @@ class BreakdownValues:
                 "events_where": self.events_filter,
                 "select_field": select_field,
                 "breakdown_limit": ast.Constant(value=breakdown_limit),
+                "table": self._table,
+                "id_field": self._id_field,
             },
         )
 
@@ -166,3 +168,17 @@ class BreakdownValues:
             qunatile_expression = f"quantiles({','.join([f'{quantile:.2f}' for quantile in quantiles])})(value)"
 
         return parse_expr(f"arrayCompact(arrayMap(x -> floor(x, 2), {qunatile_expression}))")
+
+    @cached_property
+    def _id_field(self) -> ast.Field:
+        if isinstance(self.series, DataWarehouseNode):
+            return ast.Field(chain=["e", self.series.id_field])
+
+        return ast.Field(chain=["e", "uuid"])
+
+    @cached_property
+    def _table(self) -> ast.Field:
+        if isinstance(self.series, DataWarehouseNode):
+            return ast.Field(chain=[self.series.table_name])
+
+        return ast.Field(chain=["events"])

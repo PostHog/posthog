@@ -97,6 +97,7 @@ class BreakdownAttributionType(str, Enum):
 class BreakdownType(str, Enum):
     cohort = "cohort"
     person = "person"
+    data_warehouse = "data_warehouse"
     event = "event"
     group = "group"
     session = "session"
