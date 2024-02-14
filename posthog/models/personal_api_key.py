@@ -1,4 +1,5 @@
 import hashlib
+from typing import Optional
 
 from django.contrib.auth.hashers import PBKDF2PasswordHasher
 from django.db import models
@@ -22,8 +23,9 @@ PERSONAL_API_KEY_ITERATIONS_TO_TRY = (
 PERSONAL_API_KEY_SALT = "posthog_personal_api_key"
 
 
-def hash_key_value(value: str, mode: str = "hash", iterations: int = PERSONAL_API_KEY_ITERATIONS) -> str:
+def hash_key_value(value: str, mode: str = "hash", iterations: Optional[int] = None) -> str:
     if mode == "pbkdf2":
+        iterations = iterations or PERSONAL_API_KEY_ITERATIONS
         hasher = PBKDF2PasswordHasher()
         return hasher.encode(value, PERSONAL_API_KEY_SALT, iterations=iterations)
 
