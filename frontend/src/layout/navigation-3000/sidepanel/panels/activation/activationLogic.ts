@@ -1,6 +1,6 @@
 import { actions, connect, events, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
-import { router, urlToAction } from 'kea-router'
+import { router } from 'kea-router'
 import api from 'lib/api'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { permanentlyMount } from 'lib/utils/kea-logic-builders'
@@ -13,7 +13,7 @@ import { urls } from 'scenes/urls'
 
 import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
 import { dashboardsModel } from '~/models/dashboardsModel'
-import { EventDefinitionType, ProductKey, SidePanelTab, TeamBasicType } from '~/types'
+import { EventDefinitionType, ProductKey, TeamBasicType } from '~/types'
 
 import type { activationLogicType } from './activationLogicType'
 
@@ -360,13 +360,6 @@ export const activationLogic = kea<activationLogicType>([
         afterMount: () => {
             actions.loadCustomEvents()
             actions.loadInsights()
-        },
-    })),
-    urlToAction(({ actions, values }) => ({
-        '*': (_, params) => {
-            if (params?.onboarding_completed && !values.hasCompletedAllTasks) {
-                actions.openSidePanel(SidePanelTab.Activation)
-            }
         },
     })),
     permanentlyMount(),

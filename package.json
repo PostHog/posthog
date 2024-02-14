@@ -71,7 +71,7 @@
         "@dnd-kit/utilities": "^3.2.1",
         "@floating-ui/react": "^0.16.0",
         "@lottiefiles/react-lottie-player": "^3.4.7",
-        "@medv/finder": "^2.1.0",
+        "@medv/finder": "^3.1.0",
         "@microlink/react-json-view": "^1.21.3",
         "@monaco-editor/react": "4.4.6",
         "@posthog/icons": "0.5.1",
@@ -141,7 +141,7 @@
         "pmtiles": "^2.11.0",
         "postcss": "^8.4.31",
         "postcss-preset-env": "^9.3.0",
-        "posthog-js": "1.105.8",
+        "posthog-js": "1.105.9",
         "posthog-js-lite": "2.5.0",
         "prettier": "^2.8.8",
         "prop-types": "^15.7.2",
@@ -173,7 +173,6 @@
         "tailwindcss": "^3.4.0",
         "use-debounce": "^9.0.3",
         "use-resize-observer": "^8.0.0",
-        "wildcard-match": "^5.1.2",
         "zxcvbn": "^4.4.2"
     },
     "devDependencies": {

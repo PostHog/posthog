@@ -663,6 +663,10 @@
                     "description": "Include a free text search field (PersonsNode only)",
                     "type": "boolean"
                 },
+                "showTestAccountFilters": {
+                    "description": "Show filter to exclude test accounts",
+                    "type": "boolean"
+                },
                 "showTimings": {
                     "description": "Show a detailed query timing breakdown",
                     "type": "boolean"
@@ -1131,6 +1135,10 @@
                 "event": {
                     "description": "Limit to events matching this string",
                     "type": ["string", "null"]
+                },
+                "filterTestAccounts": {
+                    "description": "Filter test accounts",
+                    "type": "boolean"
                 },
                 "fixedProperties": {
                     "description": "Fixed properties in the query, can't be edited in the interface (e.g. scoping down by person)",
@@ -1961,6 +1969,9 @@
             "properties": {
                 "dateRange": {
                     "$ref": "#/definitions/DateRange"
+                },
+                "filterTestAccounts": {
+                    "type": "boolean"
                 },
                 "properties": {
                     "items": {
@@ -4341,6 +4352,10 @@
                 "showTable": {
                     "type": "boolean"
                 },
+                "showTestAccountFilters": {
+                    "description": "Show filter to exclude test accounts",
+                    "type": "boolean"
+                },
                 "showTimings": {
                     "description": "Show a detailed query timing breakdown",
                     "type": "boolean"
@@ -4993,6 +5008,9 @@
         "WebOverviewQuery": {
             "additionalProperties": false,
             "properties": {
+                "compare": {
+                    "type": "boolean"
+                },
                 "dateRange": {
                     "$ref": "#/definitions/DateRange"
                 },

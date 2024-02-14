@@ -1490,6 +1490,7 @@ class SavedInsightNode(BaseModel):
     showSavedQueries: Optional[bool] = Field(default=None, description="Shows a list of saved queries")
     showSearch: Optional[bool] = Field(default=None, description="Include a free text search field (PersonsNode only)")
     showTable: Optional[bool] = None
+    showTestAccountFilters: Optional[bool] = Field(default=None, description="Show filter to exclude test accounts")
     showTimings: Optional[bool] = Field(default=None, description="Show a detailed query timing breakdown")
     suppressSessionAnalysisWarning: Optional[bool] = None
     vizSpecificOptions: Optional[VizSpecificOptions] = None
@@ -1540,6 +1541,7 @@ class WebOverviewQuery(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
+    compare: Optional[bool] = None
     dateRange: Optional[DateRange] = None
     kind: Literal["WebOverviewQuery"] = "WebOverviewQuery"
     properties: List[Union[EventPropertyFilter, PersonPropertyFilter]]
@@ -1743,6 +1745,7 @@ class EventsQuery(BaseModel):
     after: Optional[str] = Field(default=None, description="Only fetch events that happened after this timestamp")
     before: Optional[str] = Field(default=None, description="Only fetch events that happened before this timestamp")
     event: Optional[str] = Field(default=None, description="Limit to events matching this string")
+    filterTestAccounts: Optional[bool] = Field(default=None, description="Filter test accounts")
     fixedProperties: Optional[
         List[
             Union[
@@ -1903,6 +1906,7 @@ class HogQLFilters(BaseModel):
         extra="forbid",
     )
     dateRange: Optional[DateRange] = None
+    filterTestAccounts: Optional[bool] = None
     properties: Optional[
         List[
             Union[
@@ -2653,6 +2657,7 @@ class DataTableNode(BaseModel):
     showResultsTable: Optional[bool] = Field(default=None, description="Show a results table")
     showSavedQueries: Optional[bool] = Field(default=None, description="Shows a list of saved queries")
     showSearch: Optional[bool] = Field(default=None, description="Include a free text search field (PersonsNode only)")
+    showTestAccountFilters: Optional[bool] = Field(default=None, description="Show filter to exclude test accounts")
     showTimings: Optional[bool] = Field(default=None, description="Show a detailed query timing breakdown")
     source: Union[
         EventsNode,

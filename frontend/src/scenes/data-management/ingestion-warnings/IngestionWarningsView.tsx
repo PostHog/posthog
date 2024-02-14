@@ -239,7 +239,6 @@ function RenderNestedWarnings(warningSummary: IngestionWarningSummary): JSX.Elem
                 },
             ]}
             embedded
-            size="small"
             showHeader={false}
         />
     )

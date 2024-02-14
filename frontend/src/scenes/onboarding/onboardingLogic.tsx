@@ -65,8 +65,8 @@ export const getProductUri = (productKey: ProductKey, featureFlags?: FeatureFlag
     switch (productKey) {
         case ProductKey.PRODUCT_ANALYTICS:
             return featureFlags && featureFlags[FEATURE_FLAGS.REDIRECT_WEB_PRODUCT_ANALYTICS_ONBOARDING] === 'test'
-                ? combineUrl(urls.webAnalytics(), { onboarding_completed: true }).url
-                : combineUrl(urls.insights(), { onboarding_completed: true }).url
+                ? combineUrl(urls.webAnalytics(), {}, { panel: 'activation' }).url
+                : combineUrl(urls.insights(), {}, { panel: 'activation' }).url
         case ProductKey.SESSION_REPLAY:
             return urls.replay()
         case ProductKey.FEATURE_FLAGS:
