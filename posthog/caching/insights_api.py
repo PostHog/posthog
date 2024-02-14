@@ -112,7 +112,7 @@ def _is_refresh_currently_running_somewhere_else(caching_state: Optional[Insight
         # A refresh must have been queued at some point in the past
         and caching_state.last_refresh_queued_at is not None
         # That point was recent enough that the query might still be running
-        and caching_state.last_refresh_queued_at > now - timedelta(seconds=CLICKHOUSE_MAX_EXECUTION_TIME)
+        and caching_state.last_refresh_queued_at > now - CLICKHOUSE_MAX_EXECUTION_TIME
         # And refreshing must have either never finished or last finished before it was queued now
         and (caching_state.last_refresh is None or caching_state.last_refresh < caching_state.last_refresh_queued_at)
     ):

@@ -155,7 +155,7 @@ class TestShouldRefreshInsight(ClickhouseTestMixin, BaseTest):
             # earlier than the recent refresh has been queued
             last_refresh_queued_at=datetime.now(tz=ZoneInfo("UTC"))
             - CLICKHOUSE_MAX_EXECUTION_TIME
-            - timedelta(seconds=0.5),  # Half a second before timeout
+            + timedelta(seconds=0.5),  # Half a second before latest possible timeout
         )
 
         should_refresh_now, _ = should_refresh_insight(insight, None, request=self.refresh_request)
