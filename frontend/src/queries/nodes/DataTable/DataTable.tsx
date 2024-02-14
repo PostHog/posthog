@@ -19,6 +19,7 @@ import { DateRange } from '~/queries/nodes/DataNode/DateRange'
 import { ElapsedTime } from '~/queries/nodes/DataNode/ElapsedTime'
 import { LoadNext } from '~/queries/nodes/DataNode/LoadNext'
 import { Reload } from '~/queries/nodes/DataNode/Reload'
+import { TestAccountFilters } from '~/queries/nodes/DataNode/TestAccountFilters'
 import { BackToSource } from '~/queries/nodes/DataTable/BackToSource'
 import { ColumnConfigurator } from '~/queries/nodes/DataTable/ColumnConfigurator/ColumnConfigurator'
 import { DataTableExport } from '~/queries/nodes/DataTable/DataTableExport'
@@ -130,6 +131,7 @@ export function DataTable({
     const {
         showActions,
         showDateRange,
+        showTestAccountFilters,
         showSearch,
         showEventFilter,
         showPropertyFilter,
@@ -420,6 +422,9 @@ export function DataTable({
     ].filter((x) => !!x)
 
     const firstRowRight = [
+        showTestAccountFilters && sourceFeatures.has(QueryFeature.testAccountFilters) ? (
+            <TestAccountFilters key="test-account-filters" query={query.source} setQuery={setQuerySource} />
+        ) : null,
         showSavedQueries && sourceFeatures.has(QueryFeature.savedEventsQueries) ? (
             <SavedQueries key="saved-queries" query={query} setQuery={setQuery} />
         ) : null,
