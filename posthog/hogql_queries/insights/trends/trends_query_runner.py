@@ -337,6 +337,10 @@ class TrendsQueryRunner(QueryRunner):
             index = response.columns.index(name)
             return val[index]
 
+        real_series_count = series_count
+        if self.query.trendsFilter is not None and self.query.trendsFilter.compare:
+            real_series_count = series_count / 2
+
         res = []
         for val in response.results:
             try:
@@ -434,13 +438,20 @@ class TrendsQueryRunner(QueryRunner):
                             continue
                         remapped_label = "none"
 
-                    series_object["label"] = "{} - {}".format(series_object["label"], remapped_label)
+                    # if count of series == 1, then we don't need to include the object label in the series label
+                    if real_series_count > 1:
+                        series_object["label"] = "{} - {}".format(series_object["label"], remapped_label)
+                    else:
+                        series_object["label"] = remapped_label
                     series_object["breakdown_value"] = remapped_label
                 elif self.query.breakdownFilter.breakdown_type == "cohort":
                     cohort_id = get_value("breakdown_value", val)
                     cohort_name = "all users" if str(cohort_id) == "0" else Cohort.objects.get(pk=cohort_id).name
 
-                    series_object["label"] = "{} - {}".format(series_object["label"], cohort_name)
+                    if real_series_count > 1:
+                        series_object["label"] = "{} - {}".format(series_object["label"], cohort_name)
+                    else:
+                        series_object["label"] = remapped_label
                     series_object["breakdown_value"] = "all" if str(cohort_id) == "0" else int(cohort_id)
                 else:
                     remapped_label = get_value("breakdown_value", val)
@@ -451,7 +462,7 @@ class TrendsQueryRunner(QueryRunner):
                         remapped_label = "none"
 
                     # If there's multiple series, include the object label in the series label
-                    if series_count > 1:
+                    if real_series_count > 1:
                         series_object["label"] = "{} - {}".format(series_object["label"], remapped_label)
                     else:
                         series_object["label"] = remapped_label
@@ -465,7 +476,7 @@ class TrendsQueryRunner(QueryRunner):
                     or remapped_label == float(BREAKDOWN_OTHER_NUMERIC_LABEL)
                 ):
                     series_object["breakdown_value"] = BREAKDOWN_OTHER_STRING_LABEL
-                    if series_count > 1 or self._is_breakdown_field_boolean():
+                    if real_series_count > 1 or self._is_breakdown_field_boolean():
                         series_object["label"] = "{} - {}".format(series_label or "All events", "Other")
                     else:
                         series_object["label"] = "Other"
