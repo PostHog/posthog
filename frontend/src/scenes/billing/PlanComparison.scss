@@ -2,26 +2,11 @@
     max-width: 900px;
 }
 
-.PlanUpgradeCard {
-    display: flex;
-    flex-direction: column;
-    width: 50%;
-    padding: 1.5rem;
-    background-color: var(--glass-bg-3000);
-    border: 2px solid var(--border-bold-3000);
-    border-radius: 8px;
-}
-
-.PlanUpgradeCard__Item {
-    display: grid;
-    grid-template-columns: minmax(max-content, 1fr) 1fr;
-    text-align: left;
-}
-
 table.PlanComparison {
     table-layout: fixed;
-    background-color: var(--glass-bg-3000);
-    border: 1px solid var(--border-bold-3000);
+
+    // background-color: var(--glass-bg-3000);
+    // border: 1px solid var(--border-bold-3000);
 
     td {
         padding: 0.75rem 1.25rem;

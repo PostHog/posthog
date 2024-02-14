@@ -1,4 +1,4 @@
-import { LemonBanner, LemonButton, LemonDivider, LemonSwitch } from '@posthog/lemon-ui'
+import { LemonBanner, LemonButton } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { StarHog } from 'lib/components/hedgehogs'
 import { IconCheckCircleOutline } from 'lib/lemon-ui/icons'
@@ -6,6 +6,7 @@ import { Spinner } from 'lib/lemon-ui/Spinner'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { useState } from 'react'
 import { getUpgradeProductLink } from 'scenes/billing/billing-utils'
+import { BillingHero } from 'scenes/billing/BillingHero'
 import { billingLogic } from 'scenes/billing/billingLogic'
 import { billingProductLogic } from 'scenes/billing/billingProductLogic'
 import { PlanComparison } from 'scenes/billing/PlanComparison'
@@ -29,48 +30,7 @@ export const OnboardingBillingStep = ({
     const plan = currentAndUpgradePlans?.upgradePlan
     const currentPlan = currentAndUpgradePlans?.currentPlan
 
-    const [addOnsChecked, setAddOnsChecked] = useState(true)
     const [showPlanComp, setShowPlanComp] = useState(false)
-
-    const ChoosePlanButton = ({
-        planKey,
-        currentPlan,
-        isFreePlan,
-    }: {
-        planKey: string | undefined
-        currentPlan: boolean
-        isFreePlan: boolean
-        hasAddons: boolean
-    }): JSX.Element => {
-        return (
-            <>
-                <LemonButton
-                    className="mt-auto"
-                    to={getUpgradeProductLink(product, planKey || '', redirectPath, addOnsChecked)}
-                    type={isFreePlan ? 'secondary' : 'primary'}
-                    status={isFreePlan ? 'default' : 'alt'}
-                    fullWidth
-                    center
-                    disableClientSideRouting
-                    onClick={() => {
-                        if (!currentPlan) {
-                            reportBillingUpgradeClicked(product.type)
-                        }
-                    }}
-                >
-                    Choose Plan {currentPlan && '(Current Plan)'}
-                </LemonButton>
-            </>
-        )
-    }
-
-    const formatCompactNumber = (number: number): string => {
-        const formatter = Intl.NumberFormat('en', {
-            notation: 'compact',
-            compactDisplay: number < 999999 ? 'short' : 'long',
-        })
-        return formatter.format(number).toLowerCase()
-    }
 
     return (
         <OnboardingStep
@@ -128,77 +88,7 @@ export const OnboardingBillingStep = ({
 
                     {(!product.subscribed || showPlanComp) && (
                         <>
-                            <h3>Pick a Plan</h3>
-                            <LemonDivider />
-                            <div className="flex justify-between gap-8">
-                                {product.plans.map((plan) => {
-                                    const isFreePlan = (plan.free_allocation && !plan.tiers) as boolean
-                                    const formattedUnit = plan.unit![0].toUpperCase() + plan.unit?.substring(1) + 's'
-                                    const dataRetentionFeature = plan.features.find((feature) =>
-                                        feature.key.includes('data_retention')
-                                    )
-                                    const dataRetentionFormatted = `${dataRetentionFeature?.limit} ${dataRetentionFeature?.unit}`
-                                    const priceTierFree =
-                                        plan.tiers?.[0].up_to &&
-                                        `First ${formatCompactNumber(plan.tiers?.[0].up_to)} ${plan.unit}s/mo free`
-                                    const priceTierPaid = `Then ${parseFloat(plan.tiers?.[1]?.unit_amount_usd || '')}/${
-                                        plan.unit
-                                    }`
-                                    return (
-                                        <div className="PlanUpgradeCard" key={plan.plan_key}>
-                                            <div className="flex justify-between">
-                                                <h2 className="mb-0">{isFreePlan ? 'Free' : 'Paid'}</h2>
-                                                {!isFreePlan && product.addons.length > 0 && (
-                                                    <LemonSwitch
-                                                        className="float-right"
-                                                        label="With addons"
-                                                        checked={addOnsChecked}
-                                                        onChange={setAddOnsChecked}
-                                                    />
-                                                )}
-                                            </div>
-                                            <h4 className="mb-6">
-                                                {isFreePlan
-                                                    ? 'No credit card required'
-                                                    : 'All features, no limitations'}
-                                            </h4>
-                                            <div>
-                                                <div className="PlanUpgradeCard__Item">
-                                                    <p>{formattedUnit}</p>
-                                                    <p className="font-bold">{plan.free_allocation || 'Unlimited'}</p>
-                                                </div>
-                                                <div className="PlanUpgradeCard__Item">
-                                                    <p>Data Retention</p>
-                                                    <p className="font-bold">{dataRetentionFormatted}</p>
-                                                </div>
-                                                <div className="PlanUpgradeCard__Item">
-                                                    <p>Features</p>
-                                                    <p className="font-bold">
-                                                        {isFreePlan ? 'Basic features' : 'All features (see below)'}
-                                                    </p>
-                                                </div>
-                                                <div className="PlanUpgradeCard__Item">
-                                                    <p>Price</p>
-                                                    <div>
-                                                        <p className="font-bold mb-0">
-                                                            {isFreePlan ? 'Free' : priceTierFree}
-                                                        </p>
-                                                        {!isFreePlan && <p>{priceTierPaid}</p>}
-                                                    </div>
-                                                </div>
-                                            </div>
-                                            <ChoosePlanButton
-                                                planKey={plan.plan_key}
-                                                currentPlan={plan.current_plan}
-                                                isFreePlan={isFreePlan}
-                                                hasAddons={product.addons.length > 0}
-                                            />
-                                        </div>
-                                    )
-                                })}
-                            </div>
-                            <h3 className="mt-8">Compare Plans for {product.name}</h3>
-                            <LemonDivider />
+                            <BillingHero />
                             <PlanComparison product={product} includeAddons />
                         </>
                     )}

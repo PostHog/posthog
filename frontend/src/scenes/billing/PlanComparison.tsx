@@ -176,6 +176,11 @@ export const PlanComparison = ({
                         ) : null
                     })}
 
+                <tr>
+                    <th colSpan={1} className="PlanTable__th__section rounded text-left">
+                        <h3 className="mt-6 mb-2">Product Features:</h3>
+                    </th>
+                </tr>
                 {fullyFeaturedPlan?.features?.map((feature, i) => (
                     <tr
                         key={`tr-${feature.key}`}
@@ -210,12 +215,12 @@ export const PlanComparison = ({
                 {!billing?.has_active_subscription && (
                     <>
                         <tr>
-                            <th colSpan={3} className="PlanTable__th__section rounded text-left">
-                                <p className="mt-6 mb-2 italic text-center text-muted">
+                            <th colSpan={1} className="PlanTable__th__section rounded text-left">
+                                <h3 className="mt-6 mb-2">
                                     <Tooltip title="Organizations with any paid subscription get access to additional features.">
                                         Included platform features:
                                     </Tooltip>
-                                </p>
+                                </h3>
                             </th>
                         </tr>
                         {billing?.products
