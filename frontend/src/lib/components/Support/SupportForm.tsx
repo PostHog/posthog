@@ -90,6 +90,7 @@ export function SupportForm(): JSX.Element | null {
                     options={Object.entries(TARGET_AREA_TO_NAME).map(([key, value]) => ({
                         label: value,
                         value: key,
+                        'data-attr': `support-form-target-area-${key}`,
                     }))}
                 />
             </LemonField>
