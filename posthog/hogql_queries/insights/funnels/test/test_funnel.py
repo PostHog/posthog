@@ -64,10 +64,10 @@ class TestFunnelBreakdown(
 
 class TestFunnelGroupBreakdown(
     ClickhouseTestMixin,
-    funnel_breakdown_group_test_factory(
+    funnel_breakdown_group_test_factory(  # type: ignore
         ClickhouseFunnelActors,
     ),
-):  # type: ignore
+):
     pass
 
 

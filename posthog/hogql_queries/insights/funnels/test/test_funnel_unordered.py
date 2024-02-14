@@ -638,10 +638,10 @@ class TestFunnelUnorderedStepsBreakdown(
 
 class TestUnorderedFunnelGroupBreakdown(
     ClickhouseTestMixin,
-    funnel_breakdown_group_test_factory(
+    funnel_breakdown_group_test_factory(  # type: ignore
         ClickhouseFunnelUnorderedActors,
     ),
-):  # type: ignore
+):
     pass
 
 
