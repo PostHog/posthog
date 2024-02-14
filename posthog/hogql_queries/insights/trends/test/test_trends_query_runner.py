@@ -475,7 +475,7 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
 
         assert response.results[0]["label"] == f"true"
         assert response.results[1]["label"] == f"false"
-        assert response.results[2]["label"] == f"Other"
+        assert response.results[2]["label"] == f"$pageview - Other"
 
         assert response.results[0]["count"] == 7
         assert response.results[1]["count"] == 3
