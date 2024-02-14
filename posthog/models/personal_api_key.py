@@ -7,7 +7,8 @@ from django.utils import timezone
 
 from .utils import generate_random_token
 
-PERSONAL_API_KEY_MODES_TO_TRY = (
+ModeType = Literal["sha256", "pbkdf2"]
+PERSONAL_API_KEY_MODES_TO_TRY: tuple[tuple[ModeType, Optional[int]], ...] = (
     ("sha256", None),  # Moved to simple hashing in 2024-02
     ("pbkdf2", 260000),  # This is the iteration count used by PostHog since the beginning of time.
     ("pbkdf2", 390000),  # This is the iteration count used briefly on some API keys.
@@ -16,7 +17,7 @@ PERSONAL_API_KEY_MODES_TO_TRY = (
 LEGACY_PERSONAL_API_KEY_SALT = "posthog_personal_api_key"
 
 
-def hash_key_value(value: str, mode: Literal["pbkdf2", "sha256"] = "sha256", iterations: Optional[int] = None) -> str:
+def hash_key_value(value: str, mode: ModeType = "sha256", iterations: Optional[int] = None) -> str:
     if mode == "pbkdf2":
         if not iterations:
             raise ValueError("Iterations must be provided when using legacy PBKDF2 mode")
