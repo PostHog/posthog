@@ -24,8 +24,9 @@ class WebOverviewQueryRunner(WebAnalyticsQueryRunner):
             mid = self.query_date_range.date_from_as_hogql()
             end = self.query_date_range.date_to_as_hogql()
         with self.timings.measure("overview_stats_query"):
-            query = parse_select(
-                """
+            if self.query.compare:
+                return parse_select(
+                    """
 WITH pages_query AS (
         SELECT
         uniq(if(timestamp >= {mid} AND timestamp < {end}, events.person_id, NULL)) AS unique_users,
@@ -86,21 +87,86 @@ SELECT
 FROM pages_query
 CROSS JOIN sessions_query
                 """,
-                timings=self.timings,
-                placeholders={
-                    "start": start,
-                    "mid": mid,
-                    "end": end,
-                    "event_properties": self.event_properties(),
-                    "session_where": self.session_where(include_previous_period=True),
-                    "session_having": self.session_having(include_previous_period=True),
-                    "sample_rate": self._sample_ratio,
-                    "sample_expr": ast.SampleExpr(sample_value=self._sample_ratio),
-                },
-                backend="cpp",
-            )
+                    timings=self.timings,
+                    placeholders={
+                        "start": start,
+                        "mid": mid,
+                        "end": end,
+                        "event_properties": self.event_properties(),
+                        "session_where": self.session_where(include_previous_period=True),
+                        "session_having": self.session_having(include_previous_period=True),
+                        "sample_rate": self._sample_ratio,
+                    },
+                )
+            else:
+                return parse_select(
+                    """
+WITH pages_query AS (
+        SELECT
+        uniq(events.person_id) AS unique_users,
+        count() AS current_pageviews,
+        uniq(events.properties.$session_id) AS unique_sessions
+    FROM
+        events
+    SAMPLE {sample_rate}
+    WHERE
+        event = '$pageview' AND
+        timestamp >= {mid} AND
+        timestamp < {end} AND
+        {event_properties}
+    ),
+sessions_query AS (
+    SELECT
+        avg(duration_s) AS avg_duration_s,
+        avg(is_bounce) AS bounce_rate
+    FROM (SELECT
+            events.properties.`$session_id` AS session_id,
+            min(events.timestamp) AS min_timestamp,
+            max(events.timestamp) AS max_timestamp,
+            dateDiff('second', min_timestamp, max_timestamp) AS duration_s,
+            countIf(events.event == '$pageview') AS num_pageviews,
+            countIf(events.event == '$autocapture') AS num_autocaptures,
 
-        return query
+            -- definition of a GA4 bounce from here https://support.google.com/analytics/answer/12195621?hl=en
+            (num_autocaptures == 0 AND num_pageviews <= 1 AND duration_s < 10) AS is_bounce
+        FROM
+            events
+        SAMPLE {sample_rate}
+        WHERE
+            session_id IS NOT NULL
+            AND (events.event == '$pageview' OR events.event == '$autocapture' OR events.event == '$pageleave')
+            AND ({session_where})
+        GROUP BY
+            events.properties.`$session_id`
+        HAVING
+            ({session_having})
+        )
+    )
+SELECT
+    unique_users,
+    NULL as previous_unique_users,
+    current_pageviews,
+    NULL as previous_pageviews,
+    unique_sessions,
+    NULL as previous_unique_sessions,
+    avg_duration_s,
+    NULL as prev_avg_duration_s,
+    bounce_rate,
+    NULL as prev_bounce_rate
+FROM pages_query
+CROSS JOIN sessions_query
+                """,
+                    timings=self.timings,
+                    placeholders={
+                        "start": start,
+                        "mid": mid,
+                        "end": end,
+                        "event_properties": self.event_properties(),
+                        "session_where": self.session_where(include_previous_period=False),
+                        "session_having": self.session_having(include_previous_period=False),
+                        "sample_rate": self._sample_ratio,
+                    },
+                )
 
     def calculate(self):
         response = execute_hogql_query(

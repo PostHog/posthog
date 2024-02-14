@@ -1,6 +1,7 @@
 from typing import cast
 
 from django.db.models import Model
+from rest_framework.exceptions import NotFound
 from rest_framework.permissions import SAFE_METHODS, BasePermission, IsAdminUser
 from rest_framework.request import Request
 from rest_framework.views import APIView
@@ -137,6 +138,9 @@ class TeamMemberAccessPermission(BasePermission):
             view.team  # noqa: B018
         except Team.DoesNotExist:
             return True  # This will be handled as a 404 in the viewset
+
+        # NOTE: The naming here is confusing - "current_team" refers to the team that the user_permissions was initialized with
+        # - not the "current_team" property of the user
         requesting_level = view.user_permissions.current_team.effective_membership_level
         return requesting_level is not None
 
@@ -228,6 +232,13 @@ class SharingTokenPermission(BasePermission):
         ), "SharingTokenPermission requires the `sharing_enabled_actions` attribute to be set in the view"
 
         if isinstance(request.successful_authenticator, SharingAccessTokenAuthentication):
+            try:
+                view.team  # noqa: B018
+                if request.successful_authenticator.sharing_configuration.team != view.team:
+                    return False
+            except NotFound:
+                return False
+
             return view.action in view.sharing_enabled_actions
 
         return False
