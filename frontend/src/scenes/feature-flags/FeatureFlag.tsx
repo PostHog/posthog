@@ -12,13 +12,13 @@ import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
 import { PageHeader } from 'lib/components/PageHeader'
 import { PayGateMini } from 'lib/components/PayGateMini/PayGateMini'
 import { FEATURE_FLAGS } from 'lib/constants'
-import { Field } from 'lib/forms/Field'
 import { IconDelete, IconLock, IconPlus, IconUnfoldLess, IconUnfoldMore } from 'lib/lemon-ui/icons'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { More } from 'lib/lemon-ui/LemonButton/More'
 import { LemonCheckbox } from 'lib/lemon-ui/LemonCheckbox'
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
+import { LemonField } from 'lib/lemon-ui/LemonField'
 import { LemonInput } from 'lib/lemon-ui/LemonInput/LemonInput'
 import { LemonTab, LemonTabs } from 'lib/lemon-ui/LemonTabs'
 import { LemonTag } from 'lib/lemon-ui/LemonTag/LemonTag'
@@ -275,7 +275,6 @@ export function FeatureFlag({ id }: { id?: string } = {}): JSX.Element {
                                 </div>
                             }
                         />
-                        <LemonDivider className="my-2 non-3000" />
                         {featureFlag.experiment_set && featureFlag.experiment_set?.length > 0 && (
                             <LemonBanner type="warning">
                                 This feature flag is linked to an experiment. Edit settings here only for advanced
@@ -285,9 +284,9 @@ export function FeatureFlag({ id }: { id?: string } = {}): JSX.Element {
                                 </Link>
                             </LemonBanner>
                         )}
-                        <div className="mt-4 mb-8">
+                        <div className="my-4">
                             <div className="max-w-1/2 space-y-4">
-                                <Field
+                                <LemonField
                                     name="key"
                                     label="Key"
                                     help={
@@ -328,17 +327,17 @@ export function FeatureFlag({ id }: { id?: string } = {}): JSX.Element {
                                             <span className="text-muted text-sm">Feature flag keys must be unique</span>
                                         </>
                                     )}
-                                </Field>
+                                </LemonField>
 
-                                <Field name="name" label="Description">
+                                <LemonField name="name" label="Description">
                                     <LemonTextArea
                                         className="ph-ignore-input"
                                         data-attr="feature-flag-description"
                                         defaultValue={featureFlag.name || ''}
                                     />
-                                </Field>
+                                </LemonField>
                                 {hasAvailableFeature(AvailableFeature.TAGGING) && (
-                                    <Field name="tags" label="Tags">
+                                    <LemonField name="tags" label="Tags">
                                         {({ value, onChange }) => {
                                             return (
                                                 <ObjectTags
@@ -352,9 +351,9 @@ export function FeatureFlag({ id }: { id?: string } = {}): JSX.Element {
                                                 />
                                             )
                                         }}
-                                    </Field>
+                                    </LemonField>
                                 )}
-                                <Field name="active">
+                                <LemonField name="active">
                                     {({ value, onChange }) => (
                                         <div className="border rounded p-4">
                                             <LemonCheckbox
@@ -365,8 +364,8 @@ export function FeatureFlag({ id }: { id?: string } = {}): JSX.Element {
                                             />
                                         </div>
                                     )}
-                                </Field>
-                                <Field name="ensure_experience_continuity">
+                                </LemonField>
+                                <LemonField name="ensure_experience_continuity">
                                     {({ value, onChange }) => (
                                         <div className="border rounded p-4">
                                             <LemonCheckbox
@@ -390,7 +389,7 @@ export function FeatureFlag({ id }: { id?: string } = {}): JSX.Element {
                                             </div>
                                         </div>
                                     )}
-                                </Field>
+                                </LemonField>
                             </div>
                         </div>
                         <LemonDivider />
@@ -876,12 +875,12 @@ function FeatureFlagRollout({ readOnly }: { readOnly?: boolean }): JSX.Element {
                                 </strong>
                             </div>
                             <Group name={['filters', 'payloads']}>
-                                <Field name="true">
+                                <LemonField name="true">
                                     <JSONEditorInput
                                         readOnly={readOnly}
                                         placeholder={'Examples: "A string", 2500, {"key": "value"}'}
                                     />
-                                </Field>
+                                </LemonField>
                             </Group>
                         </div>
                     )}
@@ -916,7 +915,7 @@ function FeatureFlagRollout({ readOnly }: { readOnly?: boolean }): JSX.Element {
                                         <Lettermark name={alphabet[index]} color={LettermarkColor.Gray} />
                                     </div>
                                     <div className="col-span-4">
-                                        <Field name={['multivariate', 'variants', index, 'key']}>
+                                        <LemonField name={['multivariate', 'variants', index, 'key']}>
                                             <LemonInput
                                                 data-attr="feature-flag-variant-key"
                                                 data-key-index={index.toString()}
@@ -933,19 +932,19 @@ function FeatureFlagRollout({ readOnly }: { readOnly?: boolean }): JSX.Element {
                                                     )
                                                 }
                                             />
-                                        </Field>
+                                        </LemonField>
                                     </div>
                                     <div className="col-span-6">
-                                        <Field name={['multivariate', 'variants', index, 'name']}>
+                                        <LemonField name={['multivariate', 'variants', index, 'name']}>
                                             <LemonInput
                                                 data-attr="feature-flag-variant-name"
                                                 className="ph-ignore-input"
                                                 placeholder="Description"
                                             />
-                                        </Field>
+                                        </LemonField>
                                     </div>
                                     <div className="col-span-8">
-                                        <Field name={['payloads', index]}>
+                                        <LemonField name={['payloads', index]}>
                                             {({ value, onChange }) => {
                                                 return (
                                                     <JSONEditorInput
@@ -955,10 +954,10 @@ function FeatureFlagRollout({ readOnly }: { readOnly?: boolean }): JSX.Element {
                                                     />
                                                 )
                                             }}
-                                        </Field>
+                                        </LemonField>
                                     </div>
                                     <div className="col-span-3">
-                                        <Field name={['multivariate', 'variants', index, 'rollout_percentage']}>
+                                        <LemonField name={['multivariate', 'variants', index, 'rollout_percentage']}>
                                             {({ value, onChange }) => (
                                                 <div>
                                                     <LemonInput
@@ -1004,7 +1003,7 @@ function FeatureFlagRollout({ readOnly }: { readOnly?: boolean }): JSX.Element {
                                                     )}
                                                 </div>
                                             )}
-                                        </Field>
+                                        </LemonField>
                                     </div>
                                     <div className="flex items-center justify-center">
                                         {variants.length > 1 && (

@@ -76,7 +76,8 @@ export const versionCheckerLogic = kea<versionCheckerLogicType>([
         ],
         versionWarning: [
             null as SDKVersionWarning | null,
-            { persist: true },
+            // bumping cache key due to an incorrect tag being cached on 2024-02-12
+            { persist: true, prefix: '2024-02-12' },
             {
                 setVersionWarning: (_, { versionWarning }) => versionWarning,
             },

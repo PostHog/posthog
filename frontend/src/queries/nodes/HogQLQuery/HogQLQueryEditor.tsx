@@ -205,10 +205,6 @@ export function HogQLQueryEditor(props: HogQLQueryEditorProps): JSX.Element {
                                 monaco.languages.registerCompletionItemProvider('mysql', {
                                     triggerCharacters: [' ', ',', '.'],
                                     provideCompletionItems: async (model, position) => {
-                                        if (!logic.isMounted()) {
-                                            return undefined
-                                        }
-
                                         if (!featureFlags[FEATURE_FLAGS.HOGQL_AUTOCOMPLETE]) {
                                             return undefined
                                         }
@@ -226,7 +222,7 @@ export function HogQLQueryEditor(props: HogQLQueryEditorProps): JSX.Element {
 
                                         const response = await query<HogQLAutocomplete>({
                                             kind: NodeKind.HogQLAutocomplete,
-                                            select: logic.values.queryInput,
+                                            select: model.getValue(), // Use the text from the model instead of logic due to a race condition on the logic values updating quick enough
                                             filters: props.query.filters,
                                             startPosition: startOffset,
                                             endPosition: endOffset,
@@ -239,7 +235,10 @@ export function HogQLQueryEditor(props: HogQLQueryEditorProps): JSX.Element {
                                             const sortText = kindToSortText(item.kind, item.label)
 
                                             return {
-                                                label: item.label,
+                                                label: {
+                                                    label: item.label,
+                                                    detail: item.detail,
+                                                },
                                                 documentation: item.documentation,
                                                 insertText: item.insertText,
                                                 range: {
@@ -262,6 +261,7 @@ export function HogQLQueryEditor(props: HogQLQueryEditorProps): JSX.Element {
 
                                         return {
                                             suggestions,
+                                            incomplete: response.incomplete_list,
                                         }
                                     },
                                 })
@@ -338,6 +338,9 @@ export function HogQLQueryEditor(props: HogQLQueryEditorProps): JSX.Element {
                                 scrollBeyondLastLine: false,
                                 automaticLayout: true,
                                 fixedOverflowWidgets: true,
+                                suggest: {
+                                    showInlineDetails: true,
+                                },
                             }}
                         />
                     </div>

@@ -3,7 +3,6 @@ from typing import Any, Literal, Tuple, Type, cast
 from django.db.models import Manager, Prefetch
 from rest_framework import (
     mixins,
-    permissions,
     serializers,
     viewsets,
     request,
@@ -11,7 +10,7 @@ from rest_framework import (
     response,
 )
 
-from posthog.api.routing import StructuredViewSetMixin
+from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 from posthog.api.tagged_item import TaggedItemSerializerMixin, TaggedItemViewSetMixin
 from posthog.api.utils import create_event_definitions_sql
@@ -23,10 +22,6 @@ from posthog.models import EventDefinition, TaggedItem
 from posthog.models.activity_logging.activity_log import Detail, log_activity
 from posthog.models.user import User
 from posthog.models.utils import UUIDT
-from posthog.permissions import (
-    OrganizationMemberPermissions,
-    TeamMemberAccessPermission,
-)
 from posthog.settings import EE_AVAILABLE
 from loginas.utils import is_impersonated_session
 
@@ -69,7 +64,7 @@ class EventDefinitionSerializer(TaggedItemSerializerMixin, serializers.ModelSeri
 
 class EventDefinitionViewSet(
     TaggedItemViewSetMixin,
-    StructuredViewSetMixin,
+    TeamAndOrgViewSetMixin,
     mixins.ListModelMixin,
     mixins.RetrieveModelMixin,
     mixins.UpdateModelMixin,
@@ -77,11 +72,6 @@ class EventDefinitionViewSet(
     viewsets.GenericViewSet,
 ):
     serializer_class = EventDefinitionSerializer
-    permission_classes = [
-        permissions.IsAuthenticated,
-        OrganizationMemberPermissions,
-        TeamMemberAccessPermission,
-    ]
     lookup_field = "id"
     filter_backends = [TermSearchFilterBackend]
 

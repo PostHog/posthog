@@ -35,3 +35,4 @@ class CeleryQueue(Enum):
     EXPORTS = "exports"
     SUBSCRIPTION_DELIVERY = "subscription_delivery"
     USAGE_REPORTS = "usage_reports"
+    SESSION_REPLAY_EMBEDDINGS = "session_replay_embeddings"
