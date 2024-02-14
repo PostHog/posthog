@@ -40,6 +40,7 @@ PropertyType = Literal[
     "behavioral",
     "session",
     "hogql",
+    "data_warehouse",
 ]
 
 PropertyName = str
@@ -88,6 +89,7 @@ CLICKHOUSE_ONLY_PROPERTY_TYPES = [
 VALIDATE_PROP_TYPES = {
     "event": ["key", "value"],
     "person": ["key", "value"],
+    "data_warehouse": ["key", "value"],
     "cohort": ["key", "value"],
     "element": ["key", "value"],
     "static-cohort": ["key", "value"],

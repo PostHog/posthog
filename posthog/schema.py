@@ -1107,6 +1107,17 @@ class EventsQueryResponse(BaseModel):
     types: List[str]
 
 
+class DataWarehousePropertyFilter(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    key: str
+    label: Optional[str] = None
+    operator: PropertyOperator
+    type: Literal["data_warehouse"] = Field(default="data_warehouse", description="Data Warehouse properties")
+    value: Optional[Union[str, float, List[Union[str, float]]]] = None
+
+
 class FeaturePropertyFilter(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -2183,6 +2194,7 @@ class DataWarehouseNode(BaseModel):
                 FeaturePropertyFilter,
                 HogQLPropertyFilter,
                 EmptyPropertyFilter,
+                DataWarehousePropertyFilter,
             ]
         ]
     ] = Field(default=None, description="Properties configurable in the interface")
@@ -2352,6 +2364,7 @@ class TrendsQuery(BaseModel):
                     FeaturePropertyFilter,
                     HogQLPropertyFilter,
                     EmptyPropertyFilter,
+                    DataWarehousePropertyFilter,
                 ]
             ],
             PropertyGroupFilter,
@@ -2404,6 +2417,7 @@ class FilterType(BaseModel):
                     FeaturePropertyFilter,
                     HogQLPropertyFilter,
                     EmptyPropertyFilter,
+                    DataWarehousePropertyFilter,
                 ]
             ],
             PropertyGroupFilter,

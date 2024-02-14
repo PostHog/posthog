@@ -30,6 +30,9 @@ from posthog.test.base import (
     ClickhouseTestMixin,
     snapshot_clickhouse_queries,
 )
+from posthog.hogql_queries.legacy_compatibility.filter_to_query import (
+    clean_entity_properties,
+)
 
 TEST_BUCKET = "test_storage_bucket-posthog.hogql.datawarehouse.trendquery"
 
@@ -93,10 +96,12 @@ class TestDataWarehouseQueryBuilder(ClickhouseTestMixin, BaseTest):
 
         id = pa.array(["1", "2", "3", "4"])
         created = pa.array([datetime(2023, 1, 1), datetime(2023, 1, 2), datetime(2023, 1, 3), datetime(2023, 1, 4)])
-        names = ["id", "created"]
+        prop_1 = pa.array(["a", "b", "c", "d"])
+        prop_2 = pa.array(["e", "f", "g", "h"])
+        names = ["id", "created", "prop_1", "prop_2"]
 
         pq.write_to_dataset(
-            pa.Table.from_arrays([id, created], names=names),
+            pa.Table.from_arrays([id, created, prop_1, prop_2], names=names),
             path_to_s3_object,
             filesystem=fs,
             use_dictionary=True,
@@ -104,29 +109,36 @@ class TestDataWarehouseQueryBuilder(ClickhouseTestMixin, BaseTest):
             version="2.0",
         )
 
-    @snapshot_clickhouse_queries
-    def test_trends_data_warehouse(self):
-        self.create_parquet_file()
+        table_name = "test_table_1"
+
         credential = DataWarehouseCredential.objects.create(
             access_key=OBJECT_STORAGE_ACCESS_KEY_ID, access_secret=OBJECT_STORAGE_SECRET_ACCESS_KEY, team=self.team
         )
 
         DataWarehouseTable.objects.create(
-            name="stripe_charges",
+            name=table_name,
             url_pattern=f"http://host.docker.internal:19000/{OBJECT_STORAGE_BUCKET}/{TEST_BUCKET}/*.parquet",
             format=DataWarehouseTable.TableFormat.Parquet,
             team=self.team,
             columns={
                 "id": "String",
                 "created": "DateTime64(3, 'UTC')",
+                "prop_1": "String",
+                "prop_2": "String",
             },
             credential=credential,
         )
 
+        return table_name
+
+    @snapshot_clickhouse_queries
+    def test_trends_data_warehouse(self):
+        table_name = self.create_parquet_file()
+
         trends_query = TrendsQuery(
             kind="TrendsQuery",
             dateRange=DateRange(date_from="2023-01-01"),
-            series=[DataWarehouseNode(table_name="stripe_charges", id_field="id", timestamp_field="created")],
+            series=[DataWarehouseNode(table_name=table_name, id_field="id", timestamp_field="created")],
         )
 
         with freeze_time("2023-01-07"):
@@ -135,3 +147,26 @@ class TestDataWarehouseQueryBuilder(ClickhouseTestMixin, BaseTest):
         assert response.columns is not None
         assert set(response.columns).issubset({"date", "total"})
         assert response.results[0][1] == [1, 1, 1, 1, 0, 0, 0]
+
+    def test_trends_property(self):
+        table_name = self.create_parquet_file()
+
+        trends_query = TrendsQuery(
+            kind="TrendsQuery",
+            dateRange=DateRange(date_from="2023-01-01"),
+            series=[
+                DataWarehouseNode(
+                    table_name=table_name,
+                    id_field="id",
+                    timestamp_field="created",
+                    properties=clean_entity_properties([{"key": "prop_1", "value": "a", "type": "data_warehouse"}]),
+                )
+            ],
+        )
+
+        with freeze_time("2023-01-07"):
+            response = self.get_response(trends_query=trends_query)
+
+        assert response.columns is not None
+        assert set(response.columns).issubset({"date", "total"})
+        assert response.results[0][1] == [1, 0, 0, 0, 0, 0, 0]

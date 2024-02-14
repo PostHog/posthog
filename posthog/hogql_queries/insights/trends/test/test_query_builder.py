@@ -4,7 +4,7 @@ from posthog.hogql.modifiers import create_default_modifiers_for_team
 
 from posthog.hogql.query import execute_hogql_query
 from posthog.hogql.timings import HogQLTimings
-from posthog.hogql_queries.insights.trends.query_builder import TrendsQueryBuilder
+from posthog.hogql_queries.insights.trends.trends_query_builder import TrendsQueryBuilder
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 from posthog.schema import (
     BaseMathType,
