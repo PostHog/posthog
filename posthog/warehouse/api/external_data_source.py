@@ -90,7 +90,7 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     Create, Read, Update and Delete External data Sources.
     """
 
-    scope_object = "not_supported"
+    scope_object = "INTERNAL"
     queryset = ExternalDataSource.objects.all()
     serializer_class = ExternalDataSourceSerializers
     filter_backends = [filters.SearchFilter]

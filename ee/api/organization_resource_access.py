@@ -41,7 +41,7 @@ class OrganizationResourceAccessViewSet(
     mixins.DestroyModelMixin,
     viewsets.GenericViewSet,
 ):
-    scope_object = "not_supported"
+    scope_object = "INTERNAL"
     permission_classes = [RolePermissions]
     serializer_class = OrganizationResourceAccessSerializer
     queryset = OrganizationResourceAccess.objects.all()

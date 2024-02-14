@@ -329,7 +329,7 @@ class APIScopePermission(BasePermission):
 
         scope_object = self.get_scope_object(request, view)
 
-        if scope_object == "not_supported":
+        if scope_object == "INTERNAL":
             raise PermissionDenied(f"This action does not support Personal API Key access")
 
         read_actions = getattr(view, "scope_object_read_actions", self.read_actions)
@@ -341,7 +341,7 @@ class APIScopePermission(BasePermission):
             return [f"{scope_object}:read"]
 
         # If we get here this typically means an action was called without a required scope
-        # It is essentially "not_supported"
+        # It is essentially "INTERNAL"
         raise PermissionDenied(f"This action does not support Personal API Key access")
 
     def get_scope_object(self, request, view) -> APIScopeObjectOrNotSupported:

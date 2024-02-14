@@ -10,7 +10,7 @@ from rest_framework import request
 
 
 class DataManagementViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
-    scope_object = "not_supported"
+    scope_object = "INTERNAL"
 
     @action(methods=["GET"], url_path="activity", detail=False, required_scopes=["activity_log:read"])
     def all_activity(self, request: request.Request, **kwargs):

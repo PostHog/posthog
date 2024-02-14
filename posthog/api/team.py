@@ -512,4 +512,4 @@ class TeamViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
 # NOTE: We don't want people managing projects via the "current_organization" concept. Rather specifying the org ID at the top level
 class RootTeamViewSet(TeamViewSet):
-    scope_object = "not_supported"
+    scope_object = "INTERNAL"

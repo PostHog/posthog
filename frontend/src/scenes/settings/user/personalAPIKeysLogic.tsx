@@ -5,7 +5,6 @@ import { loaders } from 'kea-loaders'
 import api from 'lib/api'
 import { CodeSnippet } from 'lib/components/CodeSnippet'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
-import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { userLogic } from 'scenes/userLogic'
 
 import { OrganizationBasicType, PersonalAPIKeyType, TeamBasicType } from '~/types'

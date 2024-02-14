@@ -98,7 +98,7 @@ APIScopeActions = Literal[
 
 APIScopeObjectOrNotSupported = Literal[
     APIScopeObject,
-    "not_supported",
+    "INTERNAL",
 ]
 
 

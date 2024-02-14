@@ -31,7 +31,7 @@ class HookViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     Retrieve, create, update or destroy REST hooks.
     """
 
-    scope_object = "not_supported"
+    scope_object = "INTERNAL"
     queryset = Hook.objects.all()
     ordering = "-created_at"
     serializer_class = HookSerializer

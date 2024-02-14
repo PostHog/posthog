@@ -83,7 +83,7 @@ class OrganizationInviteViewSet(
     mixins.ListModelMixin,
     viewsets.GenericViewSet,
 ):
-    scope_object = "not_supported"
+    scope_object = "INTERNAL"
     serializer_class = OrganizationInviteSerializer
     queryset = OrganizationInvite.objects.all()
     lookup_field = "id"
