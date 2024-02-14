@@ -1,7 +1,6 @@
 import {
     LemonBanner,
     LemonDialog,
-    LemonDivider,
     LemonInput,
     LemonLabel,
     LemonMenu,
@@ -92,7 +91,7 @@ function EditKeyModal(): JSX.Element {
                                             value: 'teams',
                                         },
                                     ]}
-                                    size="xsmall"
+                                    size="small"
                                 />
                             )}
                         </LemonField>
@@ -148,8 +147,8 @@ function EditKeyModal(): JSX.Element {
                                     <LemonSelectMultiple
                                         mode="multiple"
                                         data-attr="teams"
-                                        value={value.map((x) => String(x))}
-                                        onChange={(val) => onChange(val.map((x) => parseInt(x)))}
+                                        value={value.map((x: number) => String(x))}
+                                        onChange={(val: string[]) => onChange(val.map((x) => parseInt(x)))}
                                         options={
                                             allTeams?.map((team) => ({
                                                 key: `${team.id}`,
@@ -169,7 +168,7 @@ function EditKeyModal(): JSX.Element {
                                                         }
                                                     >
                                                         {allOrganizations.length > 1 ? (
-                                                            <>
+                                                            <span>
                                                                 <span>
                                                                     {
                                                                         allOrganizations.find(
@@ -181,9 +180,9 @@ function EditKeyModal(): JSX.Element {
                                                                 <span className="flex-1 font-semibold">
                                                                     {team.name}
                                                                 </span>
-                                                            </>
+                                                            </span>
                                                         ) : (
-                                                            <span className="flex-1">{team.name}</span>
+                                                            <span>{team.name}</span>
                                                         )}
                                                     </Tooltip>
                                                 ),
@@ -197,7 +196,7 @@ function EditKeyModal(): JSX.Element {
                         </>
                     ) : null}
 
-                    <div className="flex items-center justify-between mt-8">
+                    <div className="flex items-center justify-between mt-4 mb-2">
                         <LemonLabel>Permissions</LemonLabel>
                         <LemonField name="preset">
                             <LemonSelect
