@@ -6,9 +6,9 @@ import { useValues } from 'kea'
 import { Form } from 'kea-forms'
 import { BridgePage } from 'lib/components/BridgePage/BridgePage'
 import PasswordStrength from 'lib/components/PasswordStrength'
-import { Field } from 'lib/forms/Field'
 import { IconErrorOutline } from 'lib/lemon-ui/icons'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
+import { LemonField } from 'lib/lemon-ui/LemonField'
 import { Spinner } from 'lib/lemon-ui/Spinner/Spinner'
 import { SceneExport } from 'scenes/sceneTypes'
 
@@ -54,7 +54,7 @@ function NewPasswordForm(): JSX.Element {
                 </LemonBanner>
             )}
             <Form logic={passwordResetLogic} formKey="passwordReset" className="space-y-4" enableFormOnSubmit>
-                <Field
+                <LemonField
                     name="password"
                     label={
                         <div className="flex flex-1 items-center justify-between">
@@ -72,9 +72,9 @@ function NewPasswordForm(): JSX.Element {
                         placeholder="••••••••••"
                         data-attr="password"
                     />
-                </Field>
+                </LemonField>
 
-                <Field name="passwordConfirm" label="Confirm Password">
+                <LemonField name="passwordConfirm" label="Confirm Password">
                     <LemonInput
                         autoComplete="new-password"
                         type="password"
@@ -82,7 +82,7 @@ function NewPasswordForm(): JSX.Element {
                         placeholder="••••••••••"
                         data-attr="password-confirm"
                     />
-                </Field>
+                </LemonField>
 
                 <LemonButton
                     fullWidth

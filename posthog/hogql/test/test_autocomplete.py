@@ -148,3 +148,24 @@ class TestAutocomplete(ClickhouseTestMixin, APIBaseTest):
         assert results.suggestions[0].label == "potato"
         assert "event" not in [suggestion.label for suggestion in results.suggestions]
         assert "properties" not in [suggestion.label for suggestion in results.suggestions]
+
+    def test_autocomplete_field_traversers(self):
+        query = "select person. from events"
+        results = self._query_response(query=query, start=14, end=14)
+        assert len(results.suggestions) != 0
+
+    def test_autocomplete_table_alias(self):
+        query = "select  from events e"
+        results = self._query_response(query=query, start=7, end=7)
+        assert len(results.suggestions) != 0
+        assert results.suggestions[0].label == "e"
+
+    def test_autocomplete_complete_list(self):
+        query = "select event from events"
+        results = self._query_response(query=query, start=7, end=12)
+        assert results.incomplete_list is False
+
+    def test_autocomplete_incomplete_list(self):
+        query = "select properties. from events"
+        results = self._query_response(query=query, start=18, end=18)
+        assert results.incomplete_list is True

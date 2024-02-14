@@ -1,7 +1,9 @@
 import secrets
-from typing import List
+from typing import List, cast
 
 from django.db import models
+
+from posthog.models.insight import Insight
 
 
 def get_default_access_token() -> str:
@@ -36,6 +38,9 @@ class SharingConfiguration(models.Model):
     def can_access_object(self, obj: models.Model):
         if obj.team_id != self.team_id:  # type: ignore
             return False
+
+        if obj._meta.object_name == "Insight" and self.dashboard:
+            return cast(Insight, obj).id in self.get_connected_insight_ids()
 
         for comparison in [self.insight, self.dashboard, self.recording]:
             if comparison and comparison == obj:

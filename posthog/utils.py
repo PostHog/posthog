@@ -817,7 +817,7 @@ def get_instance_region() -> Optional[str]:
     """
     Returns the region for the current Cloud instance. `US` or 'EU'.
     """
-    return settings.REGION
+    return settings.CLOUD_DEPLOYMENT
 
 
 def get_can_create_org(user: Union["AbstractBaseUser", "AnonymousUser"]) -> bool:
