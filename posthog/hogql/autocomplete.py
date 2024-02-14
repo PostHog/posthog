@@ -354,7 +354,10 @@ def get_hogql_autocomplete(query: HogQLAutocomplete, team: Team) -> HogQLAutocom
                         aliased_table = tables.get(str(chain_part))
                         if aliased_table is not None:
                             last_table = aliased_table
-                        continue
+                            continue
+                        else:
+                            # Dont continue if the alias is not found in the query
+                            break
 
                     # Ignore last chain part, it's likely an incomplete word or added characters
                     is_last_part = index >= (chain_len - 2)
@@ -384,18 +387,21 @@ def get_hogql_autocomplete(query: HogQLAutocomplete, team: Team) -> HogQLAutocom
                                 if match_term == MATCH_ANY_CHARACTER:
                                     match_term = ""
 
-                                properties = PropertyDefinition.objects.filter(
+                                property_query = PropertyDefinition.objects.filter(
                                     name__contains=match_term,
                                     team_id=team.pk,
                                     type=property_type,
-                                )[:PROPERTY_DEFINITION_LIMIT].values("name", "property_type")
+                                )
+
+                                total_property_count = property_query.count()
+                                properties = property_query[:PROPERTY_DEFINITION_LIMIT].values("name", "property_type")
 
                                 extend_responses(
                                     keys=[prop["name"] for prop in properties],
                                     suggestions=response.suggestions,
                                     details=[prop["property_type"] for prop in properties],
                                 )
-                                response.incomplete_list = True
+                                response.incomplete_list = total_property_count > PROPERTY_DEFINITION_LIMIT
                         elif isinstance(field, VirtualTable) or isinstance(field, LazyTable):
                             fields = list(last_table.fields.items())
                             extend_responses(

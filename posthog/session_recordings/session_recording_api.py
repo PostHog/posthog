@@ -44,7 +44,7 @@ from posthog.rate_limit import (
 )
 from posthog.session_recordings.queries.session_replay_events import SessionReplayEvents
 from posthog.session_recordings.realtime_snapshots import get_realtime_snapshots, publish_subscription
-from posthog.session_recordings.session_summary.summarize_session import summarize_recording
+from ee.session_recordings.session_summary.summarize_session import summarize_recording
 from posthog.session_recordings.snapshots.convert_legacy_snapshots import (
     convert_original_version_lts_recording,
 )
