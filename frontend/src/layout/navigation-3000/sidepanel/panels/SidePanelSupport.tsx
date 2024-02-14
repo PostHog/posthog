@@ -19,7 +19,7 @@ export const SidePanelSupport = (): JSX.Element => {
         <>
             <SidePanelPaneHeader title={title} />
 
-            <div className="overflow-y-auto">
+            <div className="overflow-y-auto" data-attr="side-panel-support-container">
                 <div className="p-3 max-w-160 w-full mx-auto">
                     <SupportForm />
 

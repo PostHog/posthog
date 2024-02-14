@@ -402,7 +402,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                     date_from: dateFrom,
                     date_to: dateTo,
                 }
-                const compare = !!(dateRange.date_from && dateRange.date_to)
+                const compare = !!dateRange.date_from && dateRange.date_from !== 'all'
 
                 const sampling = {
                     enabled: !!values.featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_SAMPLING],
@@ -428,6 +428,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                             properties: webAnalyticsFilters,
                             dateRange,
                             sampling,
+                            compare,
                         },
                         insightProps: createInsightProps(TileId.OVERVIEW),
                         canOpenModal: false,

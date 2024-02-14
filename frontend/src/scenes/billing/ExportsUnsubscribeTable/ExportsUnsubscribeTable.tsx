@@ -19,7 +19,7 @@ export function ExportsUnsubscribeTable(): JSX.Element {
     return (
         <LemonTable
             dataSource={itemsToDisable}
-            size="xs"
+            size="small"
             loading={loading}
             columns={[
                 {

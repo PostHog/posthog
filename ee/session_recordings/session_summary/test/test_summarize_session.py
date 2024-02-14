@@ -2,7 +2,7 @@ from datetime import timezone, datetime
 
 from dateutil.parser import isoparse
 
-from posthog.session_recordings.session_summary.summarize_session import (
+from ee.session_recordings.session_summary.summarize_session import (
     format_dates,
     simplify_window_id,
     deduplicate_urls,
