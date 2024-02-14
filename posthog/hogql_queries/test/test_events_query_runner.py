@@ -125,14 +125,16 @@ class TestEventsQueryRunner(ClickhouseTestMixin, APIBaseTest):
 
         # matching team
         query_ast = EventsQueryRunner(query=query, team=self.team).to_query()
-        where_expr = cast(ast.And, query_ast.where).exprs[0]
-        self.assertEqual(where_expr.right.value, ["id1", "id2"])
+        where_expr = cast(ast.CompareOperation, cast(ast.And, query_ast.where).exprs[0])
+        right_expr = cast(ast.Constant, where_expr.right)
+        self.assertEqual(right_expr.value, ["id1", "id2"])
 
         # another team
         another_team = Team.objects.create(organization=Organization.objects.create())
         query_ast = EventsQueryRunner(query=query, team=another_team).to_query()
-        where_expr = cast(ast.And, query_ast.where).exprs[0]
-        self.assertEqual(where_expr.right.value, [])
+        where_expr = cast(ast.CompareOperation, cast(ast.And, query_ast.where).exprs[0])
+        right_expr = cast(ast.Constant, where_expr.right)
+        self.assertEqual(right_expr.value, [])
 
     def test_test_account_filters(self):
         self.team.test_account_filters = [
@@ -144,8 +146,9 @@ class TestEventsQueryRunner(ClickhouseTestMixin, APIBaseTest):
             }
         ]
         self.team.save()
-        query = EventsQuery(kind="EventsQuery", select=["*"], filterTestAccounts=True)  # type: ignore
+        query = EventsQuery(kind="EventsQuery", select=["*"], filterTestAccounts=True)
         query_ast = EventsQueryRunner(query=query, team=self.team).to_query()
-        where_expr = cast(ast.And, query_ast.where).exprs[0]
-        self.assertEqual(where_expr.right.value, "%posthog.com%")
+        where_expr = cast(ast.CompareOperation, cast(ast.And, query_ast.where).exprs[0])
+        right_expr = cast(ast.Constant, where_expr.right)
+        self.assertEqual(right_expr.value, "%posthog.com%")
         self.assertEqual(where_expr.op, CompareOperationOp.NotILike)
