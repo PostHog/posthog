@@ -63,7 +63,7 @@ export function PropertiesTimeline({ actor, filter }: PropertiesTimelineProps): 
                                         : "This insight doesn't rely on any person properties in its query definition. If it did, a timeline showing the values of those key properties would be shown here."
                                 }
                             >
-                                <span>
+                                <span className="flex items-center">
                                     <IconInfo className="ml-1 text-muted text-xl shrink-0" />
                                 </span>
                             </Tooltip>

@@ -65,7 +65,7 @@ const DashboardRelationRow = ({
             </Link>
             {isPrimary && (
                 <Tooltip title="Primary dashboards are shown on the project home page">
-                    <span>
+                    <span className="flex items-center">
                         <IconCottage className="text-warning text-base" />
                     </span>
                 </Tooltip>

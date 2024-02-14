@@ -203,7 +203,7 @@ export function EditableField({
                                 <div className="EditableField__actions">
                                     {markdown && (
                                         <Tooltip title="Markdown formatting support">
-                                            <span>
+                                            <span className="flex items-center">
                                                 <IconMarkdown className="text-muted text-2xl" />
                                             </span>
                                         </Tooltip>
@@ -274,7 +274,7 @@ export function EditableField({
             </Tooltip>
             {!isEditing && notice && (
                 <Tooltip title={notice.tooltip} placement="right">
-                    <span>
+                    <span className="flex items-center">
                         {React.cloneElement(notice.icon, {
                             ...notice.icon.props,
                             className: clsx(notice.icon.props.className, 'EditableField__notice'),
