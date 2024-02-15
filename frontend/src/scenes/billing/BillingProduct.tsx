@@ -64,13 +64,12 @@ export const BillingProductAddon = ({ addon }: { addon: BillingProductV2AddonTyp
         tierDisplayOptions.push({ label: `Current bill`, value: 'total' })
     }
 
-    const showPipelineAddonNotice =
+    const isOGPipeineAddon =
         addon.type === 'data_pipelines' &&
         addon.subscribed &&
-        featureFlags['data-pipelines-notice'] &&
         addon.plans?.[0]?.plan_key === 'addon-20240111-og-customers'
 
-    if (showPipelineAddonNotice) {
+    if (isOGPipeineAddon && featureFlags['data-pipelines-notice']) {
         setProductSpecificAlert({
             status: 'info',
             title: 'Welcome to the data pipelines addon!',
@@ -110,13 +109,24 @@ export const BillingProductAddon = ({ addon }: { addon: BillingProductV2AddonTyp
                             <h4 className="leading-5 mb-1 font-bold">{addon.name}</h4>
                             {addon.subscribed && (
                                 <div>
-                                    <LemonTag type="completion" icon={<IconCheckmark />}>
+                                    <LemonTag type="primary" icon={<IconCheckmark />}>
                                         Subscribed
                                     </LemonTag>
                                 </div>
                             )}
                         </div>
                         <p className="ml-0 mb-0">{addon.description}</p>
+                        {isOGPipeineAddon && (
+                            <div className="mt-2">
+                                <Link
+                                    targetBlankIcon
+                                    target="_blank"
+                                    to="https://posthog.com/changelog/2024#data-pipeline-add-on-launched"
+                                >
+                                    <span className="text-xs italic">Why am I subscribed to this?</span>
+                                </Link>
+                            </div>
+                        )}
                     </div>
                 </div>
                 <div className="ml-4 mr-4 mt-2 self-center flex gap-x-2 whitespace-nowrap">
