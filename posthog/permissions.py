@@ -305,7 +305,6 @@ class APIScopePermission(BasePermission):
                 team = view.team
                 if team.id not in scoped_teams:
                     raise PermissionDenied(f"API key does not have access to the requested project '{team.id}'")
-
             except (ValueError, KeyError):
                 raise PermissionDenied(f"API key with scoped projects are only supported on project-based views.")
 
