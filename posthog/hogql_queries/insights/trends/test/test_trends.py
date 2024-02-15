@@ -3892,7 +3892,7 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
                 self.team,
             )
 
-        self.assertEqual(event_response[0]["label"], "$pageview - all users")
+        self.assertEqual(event_response[0]["label"], "all users")
         self.assertEqual(sum(event_response[0]["data"]), 1)
 
     @also_test_with_person_on_events_v2

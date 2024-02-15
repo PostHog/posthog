@@ -34,8 +34,8 @@ export const getProductUri = (productKey: ProductKey, featureFlags?: FeatureFlag
     switch (productKey) {
         case ProductKey.PRODUCT_ANALYTICS:
             return featureFlags && featureFlags[FEATURE_FLAGS.REDIRECT_WEB_PRODUCT_ANALYTICS_ONBOARDING] === 'test'
-                ? combineUrl(urls.webAnalytics(), { onboarding_completed: true }).url
-                : combineUrl(urls.insights(), { onboarding_completed: true }).url
+                ? combineUrl(urls.webAnalytics(), {}, { panel: 'activation' }).url
+                : combineUrl(urls.insights(), {}, { panel: 'activation' }).url
         case ProductKey.SESSION_REPLAY:
             return urls.replay()
         case ProductKey.FEATURE_FLAGS:
@@ -142,22 +142,6 @@ export const onboardingLogic = kea<onboardingLogicType>([
                 const hasAllAddons = product?.addons?.every((addon) => addon.subscribed)
                 return !product?.subscribed || !hasAllAddons || subscribedDuringOnboarding
             },
-        ],
-        shouldShowOtherProductsStep: [
-            (s) => [s.suggestedProducts, s.isFirstProductOnboarding],
-            (suggestedProducts: BillingProductV2Type[], isFirstProductOnboarding: boolean) =>
-                suggestedProducts.length > 0 && isFirstProductOnboarding,
-        ],
-        suggestedProducts: [
-            (s) => [s.billing, s.product, s.currentTeam],
-            (billing, product, currentTeam) =>
-                billing?.products?.filter(
-                    (p) =>
-                        p.type !== product?.type &&
-                        !p.contact_support &&
-                        !p.inclusion_only &&
-                        !currentTeam?.has_completed_onboarding_for?.[p.type]
-                ) || [],
         ],
         isStepKeyInvalid: [
             (s) => [s.stepKey, s.allOnboardingSteps, s.currentOnboardingStep],

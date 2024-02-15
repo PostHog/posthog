@@ -33,6 +33,7 @@ export interface LemonModalProps {
     /** When enabled, the modal content will only include children allowing greater customisation */
     simple?: boolean
     closable?: boolean
+    hideCloseButton?: boolean
     /** If there is unsaved input that's not persisted, the modal can't be closed closed on overlay click. */
     hasUnsavedInput?: boolean
     /** Expands the modal to fill the entire screen */
@@ -78,6 +79,7 @@ export function LemonModal({
     forceAbovePopovers = false,
     contentRef,
     overlayRef,
+    hideCloseButton = false,
 }: LemonModalProps): JSX.Element {
     const nodeRef = useRef(null)
     const [ignoredOverlayClickCount, setIgnoredOverlayClickCount] = useState(0)
@@ -86,7 +88,7 @@ export function LemonModal({
 
     const modalContent = (
         <div ref={nodeRef} className="LemonModal__container">
-            {closable && (
+            {closable && !hideCloseButton && (
                 // The key causes the div to be re-rendered, which restarts the animation,
                 // providing immediate visual feedback on click
                 <div
@@ -159,6 +161,7 @@ export function LemonModal({
             {modalContent}
         </div>
     ) : (
+        // eslint-disable-next-line posthog/warn-elements
         <Modal
             isOpen={isOpen}
             onRequestClose={(e) => {

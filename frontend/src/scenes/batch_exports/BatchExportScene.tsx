@@ -125,7 +125,6 @@ export function RunsTab(): JSX.Element {
                                         <LemonTable
                                             dataSource={groupedRuns.runs}
                                             embedded={true}
-                                            size="small"
                                             columns={[
                                                 {
                                                     title: 'Status',
@@ -373,7 +372,6 @@ export function LogsTab({ batchExportId }: BatchExportLogsProps): JSX.Element {
                 dataSource={batchExportLogs}
                 columns={columns}
                 loading={batchExportLogsLoading}
-                size="small"
                 className="ph-no-capture"
                 pagination={{ pageSize: 200, hideOnSinglePage: true }}
             />

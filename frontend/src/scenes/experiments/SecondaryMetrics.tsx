@@ -5,9 +5,9 @@ import { useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
 import { getSeriesColor } from 'lib/colors'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
-import { Field } from 'lib/forms/Field'
 import { IconDelete, IconEdit } from 'lib/lemon-ui/icons'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
+import { LemonField } from 'lib/lemon-ui/LemonField'
 import { LemonTableColumns } from 'lib/lemon-ui/LemonTable'
 import { capitalizeFirstLetter, humanFriendlyNumber } from 'lib/utils'
 import { ActionFilter } from 'scenes/insights/filters/ActionFilter/ActionFilter'
@@ -152,16 +152,16 @@ export function SecondaryMetrics({
                     id="secondary-metric-modal-form"
                     className="space-y-4"
                 >
-                    <Field name="name" label="Name">
+                    <LemonField name="name" label="Name">
                         <LemonInput data-attr="secondary-metric-name" />
-                    </Field>
-                    <Field name="filters" label="Query">
+                    </LemonField>
+                    <LemonField name="filters" label="Query">
                         <MetricSelector
                             dashboardItemId={SECONDARY_METRIC_INSIGHT_ID}
                             setPreviewInsight={setPreviewInsight}
                             showDateRangeBanner={isExperimentRunning}
                         />
-                    </Field>
+                    </LemonField>
                 </Form>
             </LemonModal>
             {experimentId == 'new' || editingExistingExperiment ? (
