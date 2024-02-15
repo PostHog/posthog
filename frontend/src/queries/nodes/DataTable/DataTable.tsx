@@ -102,6 +102,7 @@ export function DataTable({
         query: query.source,
         key: dataNodeLogicKey ?? dataKey,
         cachedResults: cachedResults,
+        dataNodeCollectionId: context?.insightProps?.dataNodeCollectionId || dataKey,
     }
     const builtDataNodeLogic = dataNodeLogic(dataNodeLogicProps)
 

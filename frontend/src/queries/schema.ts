@@ -299,6 +299,8 @@ export interface HogQLAutocompleteResponse {
     suggestions: AutocompleteCompletionItem[]
     /** Whether or not the suggestions returned are complete */
     incomplete_list: boolean
+    /** Measured timings for different parts of the query generation process */
+    timings?: QueryTiming[]
 }
 
 export interface HogQLMetadata extends DataNode {
