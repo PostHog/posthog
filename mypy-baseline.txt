@@ -591,10 +591,6 @@ posthog/hogql_queries/insights/test/test_paginators.py:0: error: Argument 2 to "
 posthog/hogql_queries/insights/test/test_paginators.py:0: error: Value of type "object" is not indexable  [index]
 posthog/hogql_queries/insights/test/test_paginators.py:0: error: Value of type "object" is not indexable  [index]
 posthog/hogql_queries/insights/test/test_paginators.py:0: error: Value of type "object" is not indexable  [index]
-posthog/hogql_queries/insights/test/test_events_query_runner.py:0: error: Item "Expr" of "Expr | None" has no attribute "exprs"  [union-attr]
-posthog/hogql_queries/insights/test/test_events_query_runner.py:0: error: Item "None" of "Expr | None" has no attribute "exprs"  [union-attr]
-posthog/hogql_queries/insights/test/test_events_query_runner.py:0: error: Item "Expr" of "Expr | None" has no attribute "exprs"  [union-attr]
-posthog/hogql_queries/insights/test/test_events_query_runner.py:0: error: Item "None" of "Expr | None" has no attribute "exprs"  [union-attr]
 posthog/hogql/test/test_timings.py:0: error: No overload variant of "__setitem__" of "list" matches argument types "int", "float"  [call-overload]
 posthog/hogql/test/test_timings.py:0: note: Possible overload variants:
 posthog/hogql/test/test_timings.py:0: note: def __setitem__(self, SupportsIndex, int, /) -> None
