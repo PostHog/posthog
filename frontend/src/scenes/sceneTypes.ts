@@ -75,7 +75,6 @@ export enum Scene {
     Canvas = 'Canvas',
     Products = 'Products',
     Onboarding = 'Onboarding',
-    OnboardingProductIntroduction = 'OnboardingProductIntroduction',
     Settings = 'Settings',
     MoveToPostHogCloud = 'MoveToPostHogCloud',
 }
