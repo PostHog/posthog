@@ -618,10 +618,12 @@ async def test_delete_squashed_person_overrides_from_clickhouse(
     await activity_environment.run(prepare_person_overrides, query_inputs)
     await activity_environment.run(prepare_dictionary, query_inputs)
 
-    await activity_environment.run(delete_squashed_person_overrides_from_clickhouse, query_inputs)
+    try:
+        await activity_environment.run(delete_squashed_person_overrides_from_clickhouse, query_inputs)
 
-    await activity_environment.run(drop_dictionary, query_inputs)
-    await activity_environment.run(re_attach_person_overrides_kafka_table, query_inputs)
+    finally:
+        await activity_environment.run(drop_dictionary, query_inputs)
+        await activity_environment.run(re_attach_person_overrides_kafka_table, query_inputs)
 
     response = await clickhouse_client.read_query(
         "SELECT team_id, distinct_id, person_id FROM person_distinct_id_overrides"

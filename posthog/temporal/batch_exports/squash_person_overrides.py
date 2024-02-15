@@ -47,12 +47,13 @@ CREATE_JOIN_TABLE_FOR_DELETES_QUERY = """
 CREATE TABLE {database}.person_overrides_to_delete
 ENGINE = Join(ANY, LEFT, team_id, distinct_id) AS
 SELECT
-    team_id, distinct_id, 1 AS exists
+    team_id, distinct_id, groupArray(_partition_id) AS partitions
 FROM
     {database}.sharded_events
 WHERE
     dictHas('{database}.{dictionary_name}', (team_id, distinct_id))
-    AND _partition_id IN %(partition_ids)s
+GROUP BY
+    team_id, distinct_id
 """
 
 DROP_JOIN_TABLE_FOR_DELETES_QUERY = """
@@ -63,7 +64,7 @@ DELETE_SQUASHED_PERSON_OVERRIDES_QUERY = """
 ALTER TABLE
     {database}.person_distinct_id_overrides
 DELETE WHERE
-    joinGet('{database}.person_overrides_to_delete', 'exists', team_id, distinct_id) = 1
+    hasAll(joinGet('{database}.person_overrides_to_delete', 'partitions', team_id, distinct_id), %(partition_ids)s)
 """
 
 
@@ -307,9 +308,6 @@ async def delete_squashed_person_overrides_from_clickhouse(inputs: QueryInputs) 
             CREATE_JOIN_TABLE_FOR_DELETES_QUERY.format(
                 database=settings.CLICKHOUSE_DATABASE, dictionary_name=inputs.dictionary_name
             ),
-            query_parameters={
-                "partition_ids": tuple(inputs.partition_ids),
-            },
         )
 
         try:
@@ -317,6 +315,9 @@ async def delete_squashed_person_overrides_from_clickhouse(inputs: QueryInputs) 
                 DELETE_SQUASHED_PERSON_OVERRIDES_QUERY.format(
                     database=settings.CLICKHOUSE_DATABASE, dictionary_name=inputs.dictionary_name
                 ),
+                query_parameters={
+                    "partition_ids": inputs.partition_ids,
+                },
             )
 
         finally:
