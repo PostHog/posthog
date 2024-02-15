@@ -23,6 +23,7 @@ from posthog.hogql.parser import parse_select
 from posthog.hogql import ast
 from posthog.hogql.base import AST, CTE, ConstantType
 from posthog.hogql.resolver import resolve_types
+from posthog.hogql.timings import HogQLTimings
 from posthog.hogql.visitor import TraversingVisitor
 from posthog.models.property_definition import PropertyDefinition
 from posthog.models.team.team import Team
@@ -279,6 +280,7 @@ PROPERTY_DEFINITION_LIMIT = 220
 # TODO: Support ast.SelectUnionQuery nodes
 def get_hogql_autocomplete(query: HogQLAutocomplete, team: Team) -> HogQLAutocompleteResponse:
     response = HogQLAutocompleteResponse(suggestions=[], incomplete_list=False)
+    timings = HogQLTimings()
 
     database = create_hogql_database(team_id=team.pk, team_arg=team)
     context = HogQLContext(team_id=team.pk, team=team, database=database)
@@ -300,19 +302,21 @@ def get_hogql_autocomplete(query: HogQLAutocomplete, team: Team) -> HogQLAutocom
             )
             query.endPosition = original_end_position + length_to_add
 
-            select_ast = parse_select(query.select)
-            if query.filters:
-                try:
-                    select_ast = cast(ast.SelectQuery, replace_filters(select_ast, query.filters, team))
-                except Exception:
-                    pass
+            with timings.measure("parse_select"):
+                select_ast = parse_select(query.select)
+                if query.filters:
+                    try:
+                        select_ast = cast(ast.SelectQuery, replace_filters(select_ast, query.filters, team))
+                    except Exception:
+                        pass
 
             if isinstance(select_ast, ast.SelectQuery):
                 ctes = select_ast.ctes
             else:
                 ctes = select_ast.select_queries[0].ctes
 
-            find_node = GetNodeAtPositionTraverser(select_ast, query.startPosition, query.endPosition)
+            with timings.measure("find_node"):
+                find_node = GetNodeAtPositionTraverser(select_ast, query.startPosition, query.endPosition)
             node = find_node.node
             parent_node = find_node.parent_node
             nearest_select = find_node.nearest_select_query or select_ast
@@ -331,107 +335,122 @@ def get_hogql_autocomplete(query: HogQLAutocomplete, team: Team) -> HogQLAutocom
                 and not isinstance(parent_node, ast.JoinExpr)
             ):
                 # Handle fields
-                table = get_table(context, nearest_select.select_from, ctes)
-                if table is None:
-                    continue
-
-                chain_len = len(node.chain)
-                last_table: Table = table
-                for index, chain_part in enumerate(node.chain):
-                    # Return just the table alias
-                    if table_has_alias and index == 0 and chain_len == 1:
-                        table_aliases = list(get_tables_aliases(nearest_select, context).keys())
-                        extend_responses(
-                            keys=table_aliases,
-                            suggestions=response.suggestions,
-                            kind=Kind.Folder,
-                            details=["Table"] * len(table_aliases),  # type: ignore
-                        )
-                        break
-
-                    if table_has_alias and index == 0:
-                        tables = get_tables_aliases(nearest_select, context)
-                        aliased_table = tables.get(str(chain_part))
-                        if aliased_table is not None:
-                            last_table = aliased_table
+                with timings.measure("select_field"):
+                    table = get_table(context, nearest_select.select_from, ctes)
+                    if table is None:
                         continue
 
-                    # Ignore last chain part, it's likely an incomplete word or added characters
-                    is_last_part = index >= (chain_len - 2)
-
-                    # Replaces all ast.FieldTraverser with the underlying node
-                    last_table = resolve_table_field_traversers(last_table)
-
-                    if is_last_part:
-                        if last_table.fields.get(str(chain_part)) is None:
-                            append_table_field_to_response(table=last_table, suggestions=response.suggestions)
+                    chain_len = len(node.chain)
+                    last_table: Table = table
+                    for index, chain_part in enumerate(node.chain):
+                        # Return just the table alias
+                        if table_has_alias and index == 0 and chain_len == 1:
+                            table_aliases = list(get_tables_aliases(nearest_select, context).keys())
+                            extend_responses(
+                                keys=table_aliases,
+                                suggestions=response.suggestions,
+                                kind=Kind.Folder,
+                                details=["Table"] * len(table_aliases),  # type: ignore
+                            )
                             break
 
-                        field = last_table.fields[str(chain_part)]
-
-                        if isinstance(field, StringJSONDatabaseField):
-                            if last_table.to_printed_hogql() == "events":
-                                property_type = PropertyDefinition.Type.EVENT
-                            elif last_table.to_printed_hogql() == "persons":
-                                property_type = PropertyDefinition.Type.PERSON
-                            elif last_table.to_printed_hogql() == "groups":
-                                property_type = PropertyDefinition.Type.GROUP
+                        if table_has_alias and index == 0:
+                            tables = get_tables_aliases(nearest_select, context)
+                            aliased_table = tables.get(str(chain_part))
+                            if aliased_table is not None:
+                                last_table = aliased_table
+                                continue
                             else:
-                                property_type = None
+                                # Dont continue if the alias is not found in the query
+                                break
 
-                            if property_type is not None:
-                                match_term = query.select[query.startPosition : query.endPosition]
-                                if match_term == MATCH_ANY_CHARACTER:
-                                    match_term = ""
+                        # Ignore last chain part, it's likely an incomplete word or added characters
+                        is_last_part = index >= (chain_len - 2)
 
-                                properties = PropertyDefinition.objects.filter(
-                                    name__contains=match_term,
-                                    team_id=team.pk,
-                                    type=property_type,
-                                )[:PROPERTY_DEFINITION_LIMIT].values("name", "property_type")
+                        # Replaces all ast.FieldTraverser with the underlying node
+                        last_table = resolve_table_field_traversers(last_table)
+
+                        if is_last_part:
+                            if last_table.fields.get(str(chain_part)) is None:
+                                append_table_field_to_response(table=last_table, suggestions=response.suggestions)
+                                break
+
+                            field = last_table.fields[str(chain_part)]
+
+                            if isinstance(field, StringJSONDatabaseField):
+                                if last_table.to_printed_hogql() == "events":
+                                    property_type = PropertyDefinition.Type.EVENT
+                                elif last_table.to_printed_hogql() == "persons":
+                                    property_type = PropertyDefinition.Type.PERSON
+                                elif last_table.to_printed_hogql() == "groups":
+                                    property_type = PropertyDefinition.Type.GROUP
+                                else:
+                                    property_type = None
+
+                                if property_type is not None:
+                                    match_term = query.select[query.startPosition : query.endPosition]
+                                    if match_term == MATCH_ANY_CHARACTER:
+                                        match_term = ""
+
+                                    with timings.measure("property_filter"):
+                                        property_query = PropertyDefinition.objects.filter(
+                                            name__contains=match_term,
+                                            team_id=team.pk,
+                                            type=property_type,
+                                        )
+
+                                    with timings.measure("property_count"):
+                                        total_property_count = property_query.count()
+
+                                    with timings.measure("property_get_values"):
+                                        properties = property_query[:PROPERTY_DEFINITION_LIMIT].values(
+                                            "name", "property_type"
+                                        )
+
+                                    extend_responses(
+                                        keys=[prop["name"] for prop in properties],
+                                        suggestions=response.suggestions,
+                                        details=[prop["property_type"] for prop in properties],
+                                    )
+                                    response.incomplete_list = total_property_count > PROPERTY_DEFINITION_LIMIT
+                            elif isinstance(field, VirtualTable) or isinstance(field, LazyTable):
+                                fields = list(last_table.fields.items())
+                                extend_responses(
+                                    keys=[key for key, field in fields],
+                                    suggestions=response.suggestions,
+                                    details=[convert_field_or_table_to_type_string(field) for key, field in fields],
+                                )
+                            elif isinstance(field, LazyJoin):
+                                fields = list(field.join_table.fields.items())
 
                                 extend_responses(
-                                    keys=[prop["name"] for prop in properties],
+                                    keys=[key for key, field in fields],
                                     suggestions=response.suggestions,
-                                    details=[prop["property_type"] for prop in properties],
+                                    details=[convert_field_or_table_to_type_string(field) for key, field in fields],
                                 )
-                                response.incomplete_list = True
-                        elif isinstance(field, VirtualTable) or isinstance(field, LazyTable):
-                            fields = list(last_table.fields.items())
-                            extend_responses(
-                                keys=[key for key, field in fields],
-                                suggestions=response.suggestions,
-                                details=[convert_field_or_table_to_type_string(field) for key, field in fields],
-                            )
-                        elif isinstance(field, LazyJoin):
-                            fields = list(field.join_table.fields.items())
-
-                            extend_responses(
-                                keys=[key for key, field in fields],
-                                suggestions=response.suggestions,
-                                details=[convert_field_or_table_to_type_string(field) for key, field in fields],
-                            )
-                        break
-                    else:
-                        field = last_table.fields[str(chain_part)]
-                        if isinstance(field, Table):
-                            last_table = field
-                        elif isinstance(field, LazyJoin):
-                            last_table = field.join_table
+                            break
+                        else:
+                            field = last_table.fields[str(chain_part)]
+                            if isinstance(field, Table):
+                                last_table = field
+                            elif isinstance(field, LazyJoin):
+                                last_table = field.join_table
             elif isinstance(node, ast.Field) and isinstance(parent_node, ast.JoinExpr):
                 # Handle table names
-                if len(node.chain) == 1:
-                    table_names = database.get_all_tables()
-                    extend_responses(
-                        keys=table_names,
-                        suggestions=response.suggestions,
-                        kind=Kind.Folder,
-                        details=["Table"] * len(table_names),  # type: ignore
-                    )
+                with timings.measure("table_name"):
+                    if len(node.chain) == 1:
+                        table_names = database.get_all_tables()
+                        extend_responses(
+                            keys=table_names,
+                            suggestions=response.suggestions,
+                            kind=Kind.Folder,
+                            details=["Table"] * len(table_names),  # type: ignore
+                        )
         except Exception:
             pass
 
         if len(response.suggestions) != 0:
             break
 
+    response.timings = timings.to_list()
     return response
