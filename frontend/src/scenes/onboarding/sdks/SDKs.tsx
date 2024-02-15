@@ -1,50 +1,55 @@
-import { IconArrowLeft, IconEye } from '@posthog/icons'
-import { LemonButton, LemonCard, LemonDivider, LemonSelect, Link, Spinner } from '@posthog/lemon-ui'
+import { IconArrowLeft, IconArrowRight, IconCheck } from '@posthog/icons'
+import { LemonButton, LemonCard, LemonDivider, LemonSelect, Spinner } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
-import { LaptopHog1 } from 'lib/components/hedgehogs'
+import { useInterval } from 'lib/hooks/useInterval'
 import { useWindowSize } from 'lib/hooks/useWindowSize'
 import { useEffect } from 'react'
 import React from 'react'
+import { teamLogic } from 'scenes/teamLogic'
 
 import { InviteMembersButton } from '~/layout/navigation/TopBar/AccountPopover'
-import { ProductKey, SDKInstructionsMap } from '~/types'
+import { SDKInstructionsMap } from '~/types'
 
 import { onboardingLogic, OnboardingStepKey } from '../onboardingLogic'
 import { OnboardingStep } from '../OnboardingStep'
-import { multiInstallProducts, sdksLogic } from './sdksLogic'
+import { sdksLogic } from './sdksLogic'
 import { SDKSnippet } from './SDKSnippet'
 
 export function SDKs({
-    usersAction,
     sdkInstructionMap,
-    subtitle,
-    stepKey = OnboardingStepKey.SDKS,
+    stepKey = OnboardingStepKey.INSTALL,
+    listeningForName = 'event',
+    teamPropertyToVerify = 'ingested_event',
 }: {
     usersAction?: string
     sdkInstructionMap: SDKInstructionsMap
     subtitle?: string
     stepKey?: OnboardingStepKey
+    listeningForName?: string
+    teamPropertyToVerify?: string
 }): JSX.Element {
-    const {
-        setSourceFilter,
-        setSelectedSDK,
-        setAvailableSDKInstructionsMap,
-        setShowSideBySide,
-        setPanel,
-        setHasSnippetEvents,
-    } = useActions(sdksLogic)
-    const {
-        sourceFilter,
-        sdks,
-        selectedSDK,
-        sourceOptions,
-        showSourceOptionsSelect,
-        showSideBySide,
-        panel,
-        hasSnippetEvents,
-    } = useValues(sdksLogic)
-    const { productKey, product, isFirstProductOnboarding } = useValues(onboardingLogic)
+    const { loadCurrentTeam } = useActions(teamLogic)
+    const { currentTeam } = useValues(teamLogic)
+    const { setSourceFilter, setSelectedSDK, setAvailableSDKInstructionsMap, setShowSideBySide, setPanel } =
+        useActions(sdksLogic)
+    const { sourceFilter, sdks, selectedSDK, sourceOptions, showSourceOptionsSelect, showSideBySide, panel } =
+        useValues(sdksLogic)
+    const { productKey, hasNextStep } = useValues(onboardingLogic)
+    const { goToNextStep, completeOnboarding } = useActions(onboardingLogic)
+    const [showListeningFor, setShowListeningFor] = React.useState(false)
+    const [hasCheckedInstallation, setHasCheckedInstallation] = React.useState(false)
+
     const { width } = useWindowSize()
+
+    useEffect(() => {
+        if (showListeningFor && !currentTeam?.[teamPropertyToVerify]) {
+            setHasCheckedInstallation(true)
+            setTimeout(() => {
+                setShowListeningFor(false)
+            }, 5000)
+        }
+    }, [showListeningFor])
+
     const minimumSideBySideSize = 768
 
     useEffect(() => {
@@ -55,38 +60,44 @@ export function SDKs({
         width && setShowSideBySide(width > minimumSideBySideSize)
     }, [width])
 
-    return !isFirstProductOnboarding && hasSnippetEvents === null ? (
-        <OnboardingStep title="Checking for snippet installation..." stepKey={stepKey} hedgehog={<LaptopHog1 />}>
-            <div className="flex justify-center mt-6">
-                <Spinner className="text-xl" />
-            </div>
-        </OnboardingStep>
-    ) : !isFirstProductOnboarding && hasSnippetEvents ? (
+    useInterval(() => {
+        if (!currentTeam?.[teamPropertyToVerify]) {
+            loadCurrentTeam()
+        }
+    }, 2000)
+
+    return (
         <OnboardingStep
-            title={`Huzzah! You've already installed PostHog.js.`}
+            title="Install"
             stepKey={stepKey}
-            hedgehog={<LaptopHog1 />}
+            continueOverride={
+                <div className="flex gap-x-4 items-center justify-center">
+                    {!showSideBySide && panel === 'options' ? (
+                        <></>
+                    ) : !currentTeam?.[teamPropertyToVerify] ? (
+                        <>
+                            <LemonButton
+                                type="tertiary"
+                                onClick={() => (!hasNextStep ? completeOnboarding() : goToNextStep())}
+                            >
+                                Skip setup
+                            </LemonButton>
+                        </>
+                    ) : (
+                        <>
+                            <LemonButton
+                                sideIcon={hasNextStep ? <IconArrowRight /> : null}
+                                type="primary"
+                                status="alt"
+                                onClick={() => (!hasNextStep ? completeOnboarding() : goToNextStep())}
+                            >
+                                Continue
+                            </LemonButton>
+                        </>
+                    )}
+                </div>
+            }
         >
-            <p>{product?.name} works with PostHog.js with no extra installation required. Easy peasy, huh?</p>
-            {multiInstallProducts.includes(productKey as ProductKey) && (
-                <p>
-                    Need to install somewhere else?{' '}
-                    <Link onClick={() => setHasSnippetEvents(false)}>
-                        <IconEye /> Show SDK instructions
-                    </Link>
-                </p>
-            )}
-        </OnboardingStep>
-    ) : (
-        <OnboardingStep
-            title={`Where are you ${usersAction || 'collecting data'} from?`}
-            subtitle={subtitle || 'Pick one or two to start and add more sources later.'}
-            stepKey={stepKey}
-            continueOverride={!showSideBySide && panel === 'options' ? <></> : undefined}
-            backActionOverride={!showSideBySide && panel === 'instructions' ? () => setPanel('options') : undefined}
-            hedgehog={<LaptopHog1 />}
-        >
-            <LemonDivider className="my-8" />
             <div className="flex gap-x-8 mt-8">
                 <div
                     className={`flex-col gap-y-2 flex-wrap gap-x-4 ${showSideBySide && 'min-w-[12.5rem] w-50'} ${
@@ -127,7 +138,7 @@ export function SDKs({
                     <LemonCard className="mt-6" hoverEffect={false}>
                         <h3 className="font-bold">Need help with this step?</h3>
                         <p>Invite a team member to help you get set up.</p>
-                        <InviteMembersButton type="primary" />
+                        <InviteMembersButton type="secondary" />
                     </LemonCard>
                 </div>
                 {selectedSDK && productKey && !!sdkInstructionMap[selectedSDK.key] && (
@@ -145,6 +156,32 @@ export function SDKs({
                             </LemonButton>
                         )}
                         <SDKSnippet sdk={selectedSDK} sdkInstructions={sdkInstructionMap[selectedSDK.key]} />
+                        <LemonDivider className="my-8" />
+                        <h2 className="font-bold mb-4">Verify installation</h2>
+                        {!showListeningFor && !currentTeam?.[teamPropertyToVerify] ? (
+                            <>
+                                <LemonButton type="primary" onClick={() => setShowListeningFor(true)}>
+                                    Check installation
+                                </LemonButton>
+                                {hasCheckedInstallation && !showListeningFor && (
+                                    <p className="italic text-muted mt-2 text-xs">
+                                        No {listeningForName}s received. Please check your implementation and try again.
+                                    </p>
+                                )}
+                            </>
+                        ) : (
+                            <p className="flex items-center italic text-muted">
+                                {!currentTeam?.[teamPropertyToVerify] ? (
+                                    <>
+                                        <Spinner className="text-3xl mr-2" /> Verifying installation...
+                                    </>
+                                ) : (
+                                    <>
+                                        <IconCheck className="text-xl text-success mr-2" /> Installation complete
+                                    </>
+                                )}
+                            </p>
+                        )}
                     </div>
                 )}
             </div>
