@@ -172,7 +172,7 @@ export const onboardingLogic = kea<onboardingLogicType>([
             (s) => [s.allOnboardingSteps],
             (allOnboardingSteps: AllOnboardingSteps) => allOnboardingSteps.length,
         ],
-        onboardingStepNames: [
+        onboardingStepKeys: [
             (s) => [s.allOnboardingSteps],
             (allOnboardingSteps: AllOnboardingSteps) => {
                 return allOnboardingSteps.map((step) => step.props.stepKey)
