@@ -259,7 +259,12 @@ class FunnelTrends(FunnelBase):
             ast.OrderExpr(expr=ast.Field(chain=["fill", "entrance_period_start"]), order="ASC")
         ]
 
-        return ast.SelectQuery(select=select, select_from=select_from, order_by=order_by)
+        return ast.SelectQuery(
+            select=select,
+            select_from=select_from,
+            order_by=order_by,
+            limit=ast.Constant(value=1_000),  # increased limit (default 100) for hourly breakdown
+        )
 
     def get_step_counts_without_aggregation_query(
         self, *, specific_entrance_period_start: Optional[datetime] = None
