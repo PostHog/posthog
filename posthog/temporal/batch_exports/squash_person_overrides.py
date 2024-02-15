@@ -329,7 +329,7 @@ async def delete_squashed_person_overrides_from_clickhouse(inputs: QueryInputs) 
 @contextlib.asynccontextmanager
 async def person_overrides_dictionary(
     workflow, query_inputs: QueryInputs, retry_policy: RetryPolicy
-) -> AsyncIterator[int]:
+) -> AsyncIterator[None]:
     """This context manager manages the person_overrides DICTIONARY used during a squash job.
 
     Managing the DICTIONARY involves setup activities:
@@ -358,7 +358,7 @@ async def person_overrides_dictionary(
     )
 
     try:
-        yield
+        yield None
 
     finally:
         await workflow.execute_activity(
