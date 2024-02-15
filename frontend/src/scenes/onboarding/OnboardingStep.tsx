@@ -29,7 +29,7 @@ export const OnboardingStep = ({
     continueOverride?: JSX.Element
     hideHeader?: boolean
 }): JSX.Element => {
-    const { hasNextStep, onboardingStepNames, currentOnboardingStep } = useValues(onboardingLogic)
+    const { hasNextStep, onboardingStepKeys, currentOnboardingStep } = useValues(onboardingLogic)
     const { completeOnboarding, goToNextStep, setStepKey } = useActions(onboardingLogic)
     const { openSupportForm } = useActions(supportLogic)
 
@@ -49,7 +49,7 @@ export const OnboardingStep = ({
                         {title || stepKeyToTitle(currentOnboardingStep?.props.stepKey)}
                     </h1>
                     <div className="flex items-center gap-x-3">
-                        {onboardingStepNames.map((stepName, idx) => {
+                        {onboardingStepKeys.map((stepName, idx) => {
                             return (
                                 <React.Fragment key={`stepKey-${idx}`}>
                                     <Link
@@ -68,7 +68,7 @@ export const OnboardingStep = ({
                                             {stepKeyToTitle(stepName)}
                                         </span>
                                     </Link>
-                                    {onboardingStepNames.length > 1 && idx !== onboardingStepNames.length - 1 && (
+                                    {onboardingStepKeys.length > 1 && idx !== onboardingStepKeys.length - 1 && (
                                         <IconChevronRight className="text-xl" />
                                     )}
                                 </React.Fragment>

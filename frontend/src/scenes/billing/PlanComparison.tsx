@@ -1,17 +1,18 @@
 import './PlanComparison.scss'
 
-import { LemonModal, LemonTag } from '@posthog/lemon-ui'
+import { LemonButton, LemonModal, LemonTag, Link } from '@posthog/lemon-ui'
 import clsx from 'clsx'
-import { useValues } from 'kea'
+import { useActions, useValues } from 'kea'
 import { IconCheckmark, IconClose, IconWarning } from 'lib/lemon-ui/icons'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
+import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import React from 'react'
 import { getProductIcon } from 'scenes/products/Products'
 import useResizeObserver from 'use-resize-observer'
 
 import { BillingProductV2AddonType, BillingProductV2Type, BillingV2FeatureType, BillingV2PlanType } from '~/types'
 
-import { convertLargeNumberToWords } from './billing-utils'
+import { convertLargeNumberToWords, getUpgradeProductLink } from './billing-utils'
 import { billingLogic } from './billingLogic'
 
 export function PlanIcon({
@@ -108,8 +109,43 @@ export const PlanComparison = ({
         return null
     }
     const fullyFeaturedPlan = plans[plans.length - 1]
-    const { billing } = useValues(billingLogic)
+    const { billing, redirectPath } = useValues(billingLogic)
     const { width, ref: planComparisonRef } = useResizeObserver()
+    const { reportBillingUpgradeClicked } = useActions(eventUsageLogic)
+
+    const upgradeButtons = plans?.map((plan) => {
+        return (
+            <td key={`${plan.plan_key}-cta`} className="PlanTable__td__upgradeButton">
+                <LemonButton
+                    to={getUpgradeProductLink(product, plan.plan_key || '', redirectPath, includeAddons)}
+                    type={plan.current_plan ? 'secondary' : 'primary'}
+                    status={plan.current_plan ? 'default' : 'alt'}
+                    fullWidth
+                    center
+                    disableClientSideRouting
+                    disabled={plan.current_plan}
+                    onClick={() => {
+                        if (!plan.current_plan) {
+                            reportBillingUpgradeClicked(product.type)
+                        }
+                    }}
+                >
+                    {plan.current_plan ? 'Current plan' : 'Subscribe'}
+                </LemonButton>
+                {!plan.current_plan && includeAddons && product.addons?.length > 0 && (
+                    <p className="text-center ml-0 mt-2 mb-0">
+                        <Link
+                            to={`/api/billing-v2/activation?products=${product.type}:${plan.plan_key}&redirect_path=${redirectPath}`}
+                            className="text-muted text-xs"
+                            disableClientSideRouting
+                        >
+                            or subscribe without addons
+                        </Link>
+                    </p>
+                )}
+            </td>
+        )
+    })
 
     return (
         <table className="PlanComparison w-full table-fixed" ref={planComparisonRef}>
@@ -132,7 +168,6 @@ export const PlanComparison = ({
                         </td>
                     ))}
                 </tr>
-
                 <tr className="PlanTable__tr__border">
                     <th scope="row">
                         {includeAddons && product.addons?.length > 0 && (
@@ -146,7 +181,6 @@ export const PlanComparison = ({
                         <td key={`${plan.plan_key}-tiers-td`}>{getProductTiers(plan, product)}</td>
                     ))}
                 </tr>
-
                 {includeAddons &&
                     product.addons?.map((addon) => {
                         return addon.tiered ? (
@@ -175,7 +209,10 @@ export const PlanComparison = ({
                             </tr>
                         ) : null
                     })}
-
+                <tr>
+                    <td />
+                    {upgradeButtons}
+                </tr>
                 <tr>
                     <th colSpan={1} className="PlanTable__th__section rounded text-left">
                         <h3 className="mt-6 mb-2">Product Features:</h3>
@@ -211,7 +248,6 @@ export const PlanComparison = ({
                         ))}
                     </tr>
                 ))}
-
                 {!billing?.has_active_subscription && (
                     <>
                         <tr>
