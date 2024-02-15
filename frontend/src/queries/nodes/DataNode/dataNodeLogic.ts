@@ -26,6 +26,7 @@ import { compareInsightQuery } from 'scenes/insights/utils/compareInsightQuery'
 import { teamLogic } from 'scenes/teamLogic'
 import { userLogic } from 'scenes/userLogic'
 
+import { dataNodeCollectionLogic, DataNodeCollectionProps } from '~/queries/nodes/DataNode/dataNodeCollectionLogic'
 import { removeExpressionComment } from '~/queries/nodes/DataTable/utils'
 import { query } from '~/queries/query'
 import {
@@ -56,6 +57,8 @@ export interface DataNodeLogicProps {
     onData?: (data: Record<string, unknown> | null | undefined) => void
     /** Load priority. Higher priority (smaller number) queries will be loaded first. */
     loadPriority?: number
+
+    dataNodeCollectionId?: string
 }
 
 export const AUTOLOAD_INTERVAL = 30000
@@ -73,11 +76,21 @@ const queryEqual = (a: DataNode, b: DataNode): boolean => {
 
 export const dataNodeLogic = kea<dataNodeLogicType>([
     path(['queries', 'nodes', 'dataNodeLogic']),
-    connect({
-        values: [userLogic, ['user'], teamLogic, ['currentTeamId'], featureFlagLogic, ['featureFlags']],
-    }),
-    props({ query: {} } as DataNodeLogicProps),
     key((props) => props.key),
+    connect((props: DataNodeLogicProps) => ({
+        values: [userLogic, ['user'], teamLogic, ['currentTeamId'], featureFlagLogic, ['featureFlags']],
+        actions: [
+            dataNodeCollectionLogic({ key: props.dataNodeCollectionId || props.key } as DataNodeCollectionProps),
+            [
+                'mountDataNode',
+                'unmountDataNode',
+                'collectionNodeLoadData',
+                'collectionNodeLoadDataSuccess',
+                'collectionNodeLoadDataFailure',
+            ],
+        ],
+    })),
+    props({ query: {} } as DataNodeLogicProps),
     propsChanged(({ actions, props }, oldProps) => {
         if (!props.query) {
             return // Can't do anything without a query
@@ -553,8 +566,15 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
         cancelQuery: () => {
             actions.abortAnyRunningQuery()
         },
+        loadData: () => {
+            actions.collectionNodeLoadData(props.key)
+        },
         loadDataSuccess: ({ response }) => {
             props.onData?.(response)
+            actions.collectionNodeLoadDataSuccess(props.key)
+        },
+        loadDataFailure: () => {
+            actions.collectionNodeLoadDataFailure(props.key)
         },
         loadNewDataSuccess: ({ response }) => {
             props.onData?.(response)
@@ -588,13 +608,21 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
         if (Object.keys(props.query || {}).length > 0) {
             actions.loadData()
         }
+
+        actions.mountDataNode(props.key, {
+            id: props.key,
+            loadData: actions.loadData,
+            cancelQuery: actions.cancelQuery,
+        })
     }),
-    beforeUnmount(({ actions, values }) => {
+    beforeUnmount(({ actions, props, values }) => {
         if (values.autoLoadRunning) {
             actions.stopAutoLoad()
         }
         if (values.dataLoading) {
             actions.abortAnyRunningQuery()
         }
+
+        actions.unmountDataNode(props.key)
     }),
 ])

@@ -85,7 +85,7 @@
         WHERE and(equals(e.team_id, 2), greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-01 00:00:00', 6, 'UTC')))), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-07 23:59:59', 6, 'UTC'))), ifNull(equals(e__pdi__person.`properties___$bool_prop`, 'x'), 0), and(equals(e.event, 'sign up'), ifNull(in(e__pdi.person_id,
                                                                                                                                                                                                                                                                                                                                                                                                                                      (SELECT cohortpeople.person_id AS person_id
                                                                                                                                                                                                                                                                                                                                                                                                                                       FROM cohortpeople
-                                                                                                                                                                                                                                                                                                                                                                                                                                      WHERE and(equals(cohortpeople.team_id, 2), equals(cohortpeople.cohort_id, 4))
+                                                                                                                                                                                                                                                                                                                                                                                                                                      WHERE and(equals(cohortpeople.team_id, 2), equals(cohortpeople.cohort_id, 6))
                                                                                                                                                                                                                                                                                                                                                                                                                                       GROUP BY cohortpeople.person_id, cohortpeople.cohort_id, cohortpeople.version
                                                                                                                                                                                                                                                                                                                                                                                                                                       HAVING ifNull(greater(sum(cohortpeople.sign), 0), 0))), 0)))
         GROUP BY day_start)
@@ -172,7 +172,7 @@
         WHERE and(equals(e.team_id, 2), greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-01 00:00:00', 6, 'UTC')))), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-07 23:59:59', 6, 'UTC'))), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.person_properties, '$bool_prop'), ''), 'null'), '^"|"$', ''), 'x'), 0), and(equals(e.event, 'sign up'), ifNull(in(ifNull(nullIf(e__override.override_person_id, '00000000-0000-0000-0000-000000000000'), e.person_id),
                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          (SELECT cohortpeople.person_id AS person_id
                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                           FROM cohortpeople
-                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          WHERE and(equals(cohortpeople.team_id, 2), equals(cohortpeople.cohort_id, 5))
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          WHERE and(equals(cohortpeople.team_id, 2), equals(cohortpeople.cohort_id, 7))
                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                           GROUP BY cohortpeople.person_id, cohortpeople.cohort_id, cohortpeople.version
                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                           HAVING ifNull(greater(sum(cohortpeople.sign), 0), 0))), 0)))
         GROUP BY day_start)
@@ -688,7 +688,7 @@
      WHERE and(equals(e.team_id, 2), and(equals(e.event, '$pageview'), and(or(ifNull(equals(e__pdi__person.properties___name, 'p1'), 0), ifNull(equals(e__pdi__person.properties___name, 'p2'), 0), ifNull(equals(e__pdi__person.properties___name, 'p3'), 0)), ifNull(in(e__pdi.person_id,
                                                                                                                                                                                                                                                                             (SELECT cohortpeople.person_id AS person_id
                                                                                                                                                                                                                                                                              FROM cohortpeople
-                                                                                                                                                                                                                                                                             WHERE and(equals(cohortpeople.team_id, 2), equals(cohortpeople.cohort_id, 24))
+                                                                                                                                                                                                                                                                             WHERE and(equals(cohortpeople.team_id, 2), equals(cohortpeople.cohort_id, 26))
                                                                                                                                                                                                                                                                              GROUP BY cohortpeople.person_id, cohortpeople.cohort_id, cohortpeople.version
                                                                                                                                                                                                                                                                              HAVING ifNull(greater(sum(cohortpeople.sign), 0), 0))), 0))))
      GROUP BY value
@@ -757,7 +757,7 @@
               WHERE and(equals(e.team_id, 2), and(and(equals(e.event, '$pageview'), and(or(ifNull(equals(e__pdi__person.properties___name, 'p1'), 0), ifNull(equals(e__pdi__person.properties___name, 'p2'), 0), ifNull(equals(e__pdi__person.properties___name, 'p3'), 0)), ifNull(in(e__pdi.person_id,
                                                                                                                                                                                                                                                                                          (SELECT cohortpeople.person_id AS person_id
                                                                                                                                                                                                                                                                                           FROM cohortpeople
-                                                                                                                                                                                                                                                                                          WHERE and(equals(cohortpeople.team_id, 2), equals(cohortpeople.cohort_id, 24))
+                                                                                                                                                                                                                                                                                          WHERE and(equals(cohortpeople.team_id, 2), equals(cohortpeople.cohort_id, 26))
                                                                                                                                                                                                                                                                                           GROUP BY cohortpeople.person_id, cohortpeople.cohort_id, cohortpeople.version
                                                                                                                                                                                                                                                                                           HAVING ifNull(greater(sum(cohortpeople.sign), 0), 0))), 0))), or(ifNull(equals(transform(ifNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, 'key'), ''), 'null'), '^"|"$', ''), '$$_posthog_breakdown_null_$$'), ['$$_posthog_breakdown_other_$$', 'val'], ['$$_posthog_breakdown_other_$$', 'val'], '$$_posthog_breakdown_other_$$'), '$$_posthog_breakdown_other_$$'), 0), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, 'key'), ''), 'null'), '^"|"$', ''), 'val'), 0))), ifNull(greaterOrEquals(timestamp, minus(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-01 00:00:00', 6, 'UTC')), toIntervalDay(7))), 0), ifNull(lessOrEquals(timestamp, assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-12 23:59:59', 6, 'UTC'))), 0))
               GROUP BY timestamp, actor_id,
@@ -1592,7 +1592,7 @@
      WHERE and(equals(e.team_id, 2), greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-28 00:00:00', 6, 'UTC')))), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-04 23:59:59', 6, 'UTC'))), and(equals(e.event, 'sign up'), ifNull(in(e__pdi.person_id,
                                                                                                                                                                                                                                                                                                                                                                 (SELECT cohortpeople.person_id AS person_id
                                                                                                                                                                                                                                                                                                                                                                  FROM cohortpeople
-                                                                                                                                                                                                                                                                                                                                                                 WHERE and(equals(cohortpeople.team_id, 2), equals(cohortpeople.cohort_id, 37))
+                                                                                                                                                                                                                                                                                                                                                                 WHERE and(equals(cohortpeople.team_id, 2), equals(cohortpeople.cohort_id, 39))
                                                                                                                                                                                                                                                                                                                                                                  GROUP BY cohortpeople.person_id, cohortpeople.cohort_id, cohortpeople.version
                                                                                                                                                                                                                                                                                                                                                                  HAVING ifNull(greater(sum(cohortpeople.sign), 0), 0))), 0)))
      GROUP BY value
@@ -1640,7 +1640,7 @@
         WHERE and(equals(e.team_id, 2), greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-28 00:00:00', 6, 'UTC')))), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-04 23:59:59', 6, 'UTC'))), and(equals(e.event, 'sign up'), ifNull(in(e__pdi.person_id,
                                                                                                                                                                                                                                                                                                                                                                    (SELECT cohortpeople.person_id AS person_id
                                                                                                                                                                                                                                                                                                                                                                     FROM cohortpeople
-                                                                                                                                                                                                                                                                                                                                                                    WHERE and(equals(cohortpeople.team_id, 2), equals(cohortpeople.cohort_id, 37))
+                                                                                                                                                                                                                                                                                                                                                                    WHERE and(equals(cohortpeople.team_id, 2), equals(cohortpeople.cohort_id, 39))
                                                                                                                                                                                                                                                                                                                                                                     GROUP BY cohortpeople.person_id, cohortpeople.cohort_id, cohortpeople.version
                                                                                                                                                                                                                                                                                                                                                                     HAVING ifNull(greater(sum(cohortpeople.sign), 0), 0))), 0)), or(ifNull(equals(transform(ifNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$some_property'), ''), 'null'), '^"|"$', ''), '$$_posthog_breakdown_null_$$'), ['$$_posthog_breakdown_other_$$', 'value', 'other_value'], ['$$_posthog_breakdown_other_$$', 'value', 'other_value'], '$$_posthog_breakdown_other_$$'), '$$_posthog_breakdown_other_$$'), 0), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$some_property'), ''), 'null'), '^"|"$', ''), 'value'), 0), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$some_property'), ''), 'null'), '^"|"$', ''), 'other_value'), 0)))
         GROUP BY day_start,
@@ -1691,7 +1691,7 @@
      WHERE and(equals(e.team_id, 2), greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-28 00:00:00', 6, 'UTC')))), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-04 23:59:59', 6, 'UTC'))), and(equals(e.event, 'sign up'), ifNull(in(ifNull(nullIf(e__override.override_person_id, '00000000-0000-0000-0000-000000000000'), e.person_id),
                                                                                                                                                                                                                                                                                                                                                                 (SELECT cohortpeople.person_id AS person_id
                                                                                                                                                                                                                                                                                                                                                                  FROM cohortpeople
-                                                                                                                                                                                                                                                                                                                                                                 WHERE and(equals(cohortpeople.team_id, 2), equals(cohortpeople.cohort_id, 38))
+                                                                                                                                                                                                                                                                                                                                                                 WHERE and(equals(cohortpeople.team_id, 2), equals(cohortpeople.cohort_id, 40))
                                                                                                                                                                                                                                                                                                                                                                  GROUP BY cohortpeople.person_id, cohortpeople.cohort_id, cohortpeople.version
                                                                                                                                                                                                                                                                                                                                                                  HAVING ifNull(greater(sum(cohortpeople.sign), 0), 0))), 0)))
      GROUP BY value
@@ -1738,7 +1738,7 @@
         WHERE and(equals(e.team_id, 2), greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-28 00:00:00', 6, 'UTC')))), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-04 23:59:59', 6, 'UTC'))), and(equals(e.event, 'sign up'), ifNull(in(ifNull(nullIf(e__override.override_person_id, '00000000-0000-0000-0000-000000000000'), e.person_id),
                                                                                                                                                                                                                                                                                                                                                                    (SELECT cohortpeople.person_id AS person_id
                                                                                                                                                                                                                                                                                                                                                                     FROM cohortpeople
-                                                                                                                                                                                                                                                                                                                                                                    WHERE and(equals(cohortpeople.team_id, 2), equals(cohortpeople.cohort_id, 38))
+                                                                                                                                                                                                                                                                                                                                                                    WHERE and(equals(cohortpeople.team_id, 2), equals(cohortpeople.cohort_id, 40))
                                                                                                                                                                                                                                                                                                                                                                     GROUP BY cohortpeople.person_id, cohortpeople.cohort_id, cohortpeople.version
                                                                                                                                                                                                                                                                                                                                                                     HAVING ifNull(greater(sum(cohortpeople.sign), 0), 0))), 0)), or(ifNull(equals(transform(ifNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$some_property'), ''), 'null'), '^"|"$', ''), '$$_posthog_breakdown_null_$$'), ['$$_posthog_breakdown_other_$$', 'value', 'other_value'], ['$$_posthog_breakdown_other_$$', 'value', 'other_value'], '$$_posthog_breakdown_other_$$'), '$$_posthog_breakdown_other_$$'), 0), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$some_property'), ''), 'null'), '^"|"$', ''), 'value'), 0), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$some_property'), ''), 'null'), '^"|"$', ''), 'other_value'), 0)))
         GROUP BY day_start,
@@ -2018,6 +2018,144 @@
   '''
 # ---
 # name: TestTrends.test_same_day_with_person_on_events_v2.2
+  '''
+  SELECT groupArray(day_start) AS date,
+         groupArray(count) AS total
+  FROM
+    (SELECT sum(total) AS count,
+            day_start AS day_start
+     FROM
+       (SELECT 0 AS total,
+               minus(toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-03 23:59:59', 6, 'UTC'))), toIntervalDay(numbers.number)) AS day_start
+        FROM numbers(coalesce(dateDiff('day', assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-03 00:00:00', 6, 'UTC')), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-03 23:59:59', 6, 'UTC'))), 0)) AS numbers
+        UNION ALL SELECT 0 AS total,
+                         toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-03 00:00:00', 6, 'UTC'))) AS day_start
+        UNION ALL SELECT count(DISTINCT ifNull(nullIf(e__override.override_person_id, '00000000-0000-0000-0000-000000000000'), e.person_id)) AS total,
+                         toStartOfDay(toTimeZone(e.timestamp, 'UTC')) AS day_start
+        FROM events AS e SAMPLE 1
+        LEFT OUTER JOIN
+          (SELECT argMax(person_overrides.override_person_id, person_overrides.version) AS override_person_id,
+                  person_overrides.old_person_id AS old_person_id
+           FROM person_overrides
+           WHERE equals(person_overrides.team_id, 2)
+           GROUP BY person_overrides.old_person_id) AS e__override ON equals(e.person_id, e__override.old_person_id)
+        WHERE and(equals(e.team_id, 2), greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-03 00:00:00', 6, 'UTC')))), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-03 23:59:59', 6, 'UTC'))), equals(e.event, 'sign up'))
+        GROUP BY day_start)
+     GROUP BY day_start
+     ORDER BY day_start ASC)
+  ORDER BY sum(count) DESC
+  LIMIT 100 SETTINGS readonly=2,
+                     max_execution_time=60,
+                     allow_experimental_object_type=1
+  '''
+# ---
+# name: TestTrends.test_same_day_with_person_on_events_v2_latest_override
+  '''
+  
+  SELECT distinct_id,
+         person_id
+  FROM events
+  WHERE team_id = 2
+    AND distinct_id IN ('distinctid1',
+                        'distinctid2')
+  GROUP BY distinct_id,
+           person_id
+  ORDER BY if(distinct_id = 'distinctid1', -1, 0)
+  '''
+# ---
+# name: TestTrends.test_same_day_with_person_on_events_v2_latest_override.1
+  '''
+  SELECT groupArray(day_start) AS date,
+         groupArray(count) AS total
+  FROM
+    (SELECT sum(total) AS count,
+            day_start AS day_start
+     FROM
+       (SELECT 0 AS total,
+               minus(toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-03 23:59:59', 6, 'UTC'))), toIntervalDay(numbers.number)) AS day_start
+        FROM numbers(coalesce(dateDiff('day', assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-03 00:00:00', 6, 'UTC')), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-03 23:59:59', 6, 'UTC'))), 0)) AS numbers
+        UNION ALL SELECT 0 AS total,
+                         toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-03 00:00:00', 6, 'UTC'))) AS day_start
+        UNION ALL SELECT count(DISTINCT ifNull(nullIf(e__override.override_person_id, '00000000-0000-0000-0000-000000000000'), e.person_id)) AS total,
+                         toStartOfDay(toTimeZone(e.timestamp, 'UTC')) AS day_start
+        FROM events AS e SAMPLE 1
+        LEFT OUTER JOIN
+          (SELECT argMax(person_overrides.override_person_id, person_overrides.version) AS override_person_id,
+                  person_overrides.old_person_id AS old_person_id
+           FROM person_overrides
+           WHERE equals(person_overrides.team_id, 2)
+           GROUP BY person_overrides.old_person_id) AS e__override ON equals(e.person_id, e__override.old_person_id)
+        WHERE and(equals(e.team_id, 2), greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-03 00:00:00', 6, 'UTC')))), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-03 23:59:59', 6, 'UTC'))), equals(e.event, 'sign up'))
+        GROUP BY day_start)
+     GROUP BY day_start
+     ORDER BY day_start ASC)
+  ORDER BY sum(count) DESC
+  LIMIT 100 SETTINGS readonly=2,
+                     max_execution_time=60,
+                     allow_experimental_object_type=1
+  '''
+# ---
+# name: TestTrends.test_same_day_with_person_on_events_v2_latest_override.2
+  '''
+  
+  SELECT distinct_id,
+         person_id
+  FROM events
+  WHERE team_id = 2
+    AND distinct_id IN ('distinctid1',
+                        'distinctid3')
+  GROUP BY distinct_id,
+           person_id
+  ORDER BY if(distinct_id = 'distinctid1', -1, 0)
+  '''
+# ---
+# name: TestTrends.test_same_day_with_person_on_events_v2_latest_override.3
+  '''
+  SELECT groupArray(day_start) AS date,
+         groupArray(count) AS total
+  FROM
+    (SELECT sum(total) AS count,
+            day_start AS day_start
+     FROM
+       (SELECT 0 AS total,
+               minus(toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-03 23:59:59', 6, 'UTC'))), toIntervalDay(numbers.number)) AS day_start
+        FROM numbers(coalesce(dateDiff('day', assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-03 00:00:00', 6, 'UTC')), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-03 23:59:59', 6, 'UTC'))), 0)) AS numbers
+        UNION ALL SELECT 0 AS total,
+                         toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-03 00:00:00', 6, 'UTC'))) AS day_start
+        UNION ALL SELECT count(DISTINCT ifNull(nullIf(e__override.override_person_id, '00000000-0000-0000-0000-000000000000'), e.person_id)) AS total,
+                         toStartOfDay(toTimeZone(e.timestamp, 'UTC')) AS day_start
+        FROM events AS e SAMPLE 1
+        LEFT OUTER JOIN
+          (SELECT argMax(person_overrides.override_person_id, person_overrides.version) AS override_person_id,
+                  person_overrides.old_person_id AS old_person_id
+           FROM person_overrides
+           WHERE equals(person_overrides.team_id, 2)
+           GROUP BY person_overrides.old_person_id) AS e__override ON equals(e.person_id, e__override.old_person_id)
+        WHERE and(equals(e.team_id, 2), greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-03 00:00:00', 6, 'UTC')))), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-03 23:59:59', 6, 'UTC'))), equals(e.event, 'sign up'))
+        GROUP BY day_start)
+     GROUP BY day_start
+     ORDER BY day_start ASC)
+  ORDER BY sum(count) DESC
+  LIMIT 100 SETTINGS readonly=2,
+                     max_execution_time=60,
+                     allow_experimental_object_type=1
+  '''
+# ---
+# name: TestTrends.test_same_day_with_person_on_events_v2_latest_override.4
+  '''
+  
+  SELECT distinct_id,
+         person_id
+  FROM events
+  WHERE team_id = 2
+    AND distinct_id IN ('distinctid1',
+                        'distinctid2')
+  GROUP BY distinct_id,
+           person_id
+  ORDER BY if(distinct_id = 'distinctid1', -1, 0)
+  '''
+# ---
+# name: TestTrends.test_same_day_with_person_on_events_v2_latest_override.5
   '''
   SELECT groupArray(day_start) AS date,
          groupArray(count) AS total
@@ -4160,6 +4298,62 @@
            GROUP BY day_start))
      GROUP BY day_start
      ORDER BY day_start ASC)
+  ORDER BY sum(count) DESC
+  LIMIT 100 SETTINGS readonly=2,
+                     max_execution_time=60,
+                     allow_experimental_object_type=1
+  '''
+# ---
+# name: TestTrends.test_trends_groups_per_day
+  '''
+  SELECT groupArray(day_start) AS date,
+         groupArray(count) AS total
+  FROM
+    (SELECT sum(total) AS count,
+            day_start AS day_start
+     FROM
+       (SELECT 0 AS total,
+               minus(toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-06 23:59:59', 6, 'UTC'))), toIntervalDay(numbers.number)) AS day_start
+        FROM numbers(coalesce(dateDiff('day', assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-30 00:00:00', 6, 'UTC')), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-06 23:59:59', 6, 'UTC'))), 0)) AS numbers
+        UNION ALL SELECT 0 AS total,
+                         toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-30 00:00:00', 6, 'UTC'))) AS day_start
+        UNION ALL SELECT count(DISTINCT e.`$group_0`) AS total,
+                         toStartOfDay(toTimeZone(e.timestamp, 'UTC')) AS day_start
+        FROM events AS e SAMPLE 1
+        WHERE and(equals(e.team_id, 2), greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-30 00:00:00', 6, 'UTC')))), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-06 23:59:59', 6, 'UTC'))), equals(e.event, 'viewed video'), ifNull(notEquals(nullIf(nullIf(e.`$group_0`, ''), 'null'), ''), 1), notEquals(e.`$group_0`, ''))
+        GROUP BY day_start)
+     GROUP BY day_start
+     ORDER BY day_start ASC)
+  ORDER BY sum(count) DESC
+  LIMIT 100 SETTINGS readonly=2,
+                     max_execution_time=60,
+                     allow_experimental_object_type=1
+  '''
+# ---
+# name: TestTrends.test_trends_groups_per_day_cumulative
+  '''
+  SELECT groupArray(day_start) AS date,
+         groupArray(count) AS total
+  FROM
+    (SELECT day_start AS day_start,
+            sum(count) OVER (
+                             ORDER BY day_start ASC) AS count
+     FROM
+       (SELECT sum(total) AS count,
+               day_start AS day_start
+        FROM
+          (SELECT 0 AS total,
+                  minus(toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-06 23:59:59', 6, 'UTC'))), toIntervalDay(numbers.number)) AS day_start
+           FROM numbers(coalesce(dateDiff('day', assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-30 00:00:00', 6, 'UTC')), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-06 23:59:59', 6, 'UTC'))), 0)) AS numbers
+           UNION ALL SELECT 0 AS total,
+                            toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-30 00:00:00', 6, 'UTC'))) AS day_start
+           UNION ALL SELECT count(DISTINCT e.`$group_0`) AS total,
+                            toStartOfDay(toTimeZone(e.timestamp, 'UTC')) AS day_start
+           FROM events AS e SAMPLE 1
+           WHERE and(equals(e.team_id, 2), greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-30 00:00:00', 6, 'UTC')))), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-06 23:59:59', 6, 'UTC'))), equals(e.event, 'viewed video'), ifNull(notEquals(nullIf(nullIf(e.`$group_0`, ''), 'null'), ''), 1), notEquals(e.`$group_0`, ''))
+           GROUP BY day_start)
+        GROUP BY day_start
+        ORDER BY day_start ASC))
   ORDER BY sum(count) DESC
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,

@@ -8,9 +8,9 @@ import { NotFound } from 'lib/components/NotFound'
 import { PageHeader } from 'lib/components/PageHeader'
 import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
-import { Field, PureField } from 'lib/forms/Field'
 import { IconClose, IconFlag, IconHelpOutline } from 'lib/lemon-ui/icons'
 import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
+import { LemonField } from 'lib/lemon-ui/LemonField'
 import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
 import { featureFlagLogic } from 'scenes/feature-flags/featureFlagLogic'
 import { personsLogic, PersonsLogicProps } from 'scenes/persons/personsLogic'
@@ -187,12 +187,12 @@ export function EarlyAccessFeature({ id }: { id?: string } = {}): JSX.Element {
             >
                 <div className="flex flex-col gap-4 flex-2 min-w-[15rem]">
                     {isNewEarlyAccessFeature && (
-                        <Field name="name" label="Name">
+                        <LemonField name="name" label="Name">
                             <LemonInput data-attr="feature-name" />
-                        </Field>
+                        </LemonField>
                     )}
                     {'feature_flag' in earlyAccessFeature ? (
-                        <PureField label="Connected Feature flag">
+                        <LemonField.Pure label="Connected Feature flag">
                             <div>
                                 <LemonButton
                                     type="secondary"
@@ -205,9 +205,9 @@ export function EarlyAccessFeature({ id }: { id?: string } = {}): JSX.Element {
                                     {earlyAccessFeature.feature_flag.key}
                                 </LemonButton>
                             </div>
-                        </PureField>
+                        </LemonField.Pure>
                     ) : (
-                        <Field
+                        <LemonField
                             name="feature_flag_id"
                             label="Link feature flag (optional)"
                             info={<>A feature flag will be generated from feature name if not provided</>}
@@ -226,7 +226,7 @@ export function EarlyAccessFeature({ id }: { id?: string } = {}): JSX.Element {
                                     )}
                                 </div>
                             )}
-                        </Field>
+                        </LemonField>
                     )}
                     {isEditingFeature || isNewEarlyAccessFeature ? (
                         <></>
@@ -250,12 +250,12 @@ export function EarlyAccessFeature({ id }: { id?: string } = {}): JSX.Element {
                         </div>
                     )}
                     {isEditingFeature || isNewEarlyAccessFeature ? (
-                        <Field name="description" label="Description" showOptional>
+                        <LemonField name="description" label="Description" showOptional>
                             <LemonTextArea
                                 className="ph-ignore-input"
                                 placeholder="Help your users understand the feature"
                             />
-                        </Field>
+                        </LemonField>
                     ) : (
                         <div className="mb-2">
                             <b>Description</b>
@@ -269,9 +269,9 @@ export function EarlyAccessFeature({ id }: { id?: string } = {}): JSX.Element {
                         </div>
                     )}
                     {isEditingFeature || isNewEarlyAccessFeature ? (
-                        <Field name="documentation_url" label="Documentation URL" showOptional>
+                        <LemonField name="documentation_url" label="Documentation URL" showOptional>
                             <LemonInput autoComplete="off" autoCapitalize="off" autoCorrect="off" spellCheck={false} />
-                        </Field>
+                        </LemonField>
                     ) : (
                         <div className="mb-2">
                             <b>Documentation URL</b>

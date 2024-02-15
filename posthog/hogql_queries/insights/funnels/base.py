@@ -400,7 +400,7 @@ class FunnelBase(ABC):
         # for prop in self._include_properties:
         #     extra_fields.append(prop)
 
-        funnel_events_query = FunnelEventQuery(context=self.context).to_query()
+        funnel_events_query = FunnelEventQuery(context=self.context).to_query(skip_entity_filter=skip_entity_filter)
         # funnel_events_query, params = FunnelEventQuery(
         #     extra_fields=[*self._extra_event_fields, *extra_fields],
         #     extra_event_properties=self._extra_event_properties,

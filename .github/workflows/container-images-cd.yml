@@ -33,11 +33,6 @@ jobs:
               with:
                   fetch-depth: 2
 
-            - name: Override git.py
-              run: >
-                  echo "def get_git_commit(): return '${GITHUB_SHA}'" > posthog/git.py
-                  echo "def get_git_branch(): return '${GITHUB_REF_NAME}'" >> posthog/git.py
-
             - name: Set up Docker Buildx
               uses: docker/setup-buildx-action@v2
 
@@ -107,7 +102,7 @@ jobs:
                   message: |
                       {
                         "image_tag": "${{ steps.build.outputs.digest }}"
-                      }                      
+                      }
 
             - name: Check for changes in plugins directory
               id: check_changes_plugins

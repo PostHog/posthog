@@ -1,6 +1,6 @@
 import { LemonBanner } from '@posthog/lemon-ui'
 
-import { FeaturePreviews } from '~/layout/FeaturePreviews/FeaturePreviewsModal'
+import { FeaturePreviews } from '~/layout/FeaturePreviews/FeaturePreviews'
 
 import { SidePanelPaneHeader } from '../components/SidePanelPaneHeader'
 
