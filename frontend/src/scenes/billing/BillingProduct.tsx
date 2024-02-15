@@ -64,12 +64,12 @@ export const BillingProductAddon = ({ addon }: { addon: BillingProductV2AddonTyp
         tierDisplayOptions.push({ label: `Current bill`, value: 'total' })
     }
 
-    const isOGPipeineAddon =
+    const isOGPipelineAddon =
         addon.type === 'data_pipelines' &&
         addon.subscribed &&
         addon.plans?.[0]?.plan_key === 'addon-20240111-og-customers'
 
-    if (isOGPipeineAddon && featureFlags['data-pipelines-notice']) {
+    if (isOGPipelineAddon && featureFlags['data-pipelines-notice']) {
         setProductSpecificAlert({
             status: 'info',
             title: 'Welcome to the data pipelines addon!',
@@ -116,7 +116,7 @@ export const BillingProductAddon = ({ addon }: { addon: BillingProductV2AddonTyp
                             )}
                         </div>
                         <p className="ml-0 mb-0">{addon.description}</p>
-                        {isOGPipeineAddon && (
+                        {isOGPipelineAddon && (
                             <div className="mt-2">
                                 <Link
                                     targetBlankIcon
