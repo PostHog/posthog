@@ -44,8 +44,8 @@ export function ExperimentResult(): JSX.Element {
                 </div>
             ) : (
                 <div className="experiment-result">
-                    {experimentResults ? (
-                        (experiment?.parameters?.feature_flag_variants?.length || 0) > 4 ? (
+                    {experimentResults &&
+                        ((experiment?.parameters?.feature_flag_variants?.length || 0) > 4 ? (
                             <>
                                 <div className="flex justify-between py-2 border-t">
                                     <Col span={2 * secondaryColumnSpan}>Variant</Col>
@@ -171,10 +171,7 @@ export function ExperimentResult(): JSX.Element {
                                         ))
                                 }
                             </div>
-                        )
-                    ) : (
-                        !experimentResults && experimentResultsLoading && <LoadingState />
-                    )}
+                        ))}
                     {experimentResults && !experimentResultsLoading ? (
                         // :KLUDGE: using `insights-page` for proper styling, should rather adapt styles
                         <div className="mt-4 Insight">
