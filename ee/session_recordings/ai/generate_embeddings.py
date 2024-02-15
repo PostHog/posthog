@@ -66,7 +66,7 @@ def fetch_recordings_without_embeddings(team: Team | int, offset=0) -> List[str]
                 from
                     events
                 where
-                    team_id = 2
+                    team_id = %(team_id)s
                     -- don't load all data for all time
                     and timestamp > now() - INTERVAL 7 DAY
                     and timestamp < now()
