@@ -1955,6 +1955,13 @@
                         "$ref": "#/definitions/AutocompleteCompletionItem"
                     },
                     "type": "array"
+                },
+                "timings": {
+                    "description": "Measured timings for different parts of the query generation process",
+                    "items": {
+                        "$ref": "#/definitions/QueryTiming"
+                    },
+                    "type": "array"
                 }
             },
             "required": ["suggestions", "incomplete_list"],
@@ -3594,6 +3601,13 @@
                         "suggestions": {
                             "items": {
                                 "$ref": "#/definitions/AutocompleteCompletionItem"
+                            },
+                            "type": "array"
+                        },
+                        "timings": {
+                            "description": "Measured timings for different parts of the query generation process",
+                            "items": {
+                                "$ref": "#/definitions/QueryTiming"
                             },
                             "type": "array"
                         }

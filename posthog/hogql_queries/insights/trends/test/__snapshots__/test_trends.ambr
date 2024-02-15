@@ -2049,6 +2049,144 @@
                      allow_experimental_object_type=1
   '''
 # ---
+# name: TestTrends.test_same_day_with_person_on_events_v2_latest_override
+  '''
+  
+  SELECT distinct_id,
+         person_id
+  FROM events
+  WHERE team_id = 2
+    AND distinct_id IN ('distinctid1',
+                        'distinctid2')
+  GROUP BY distinct_id,
+           person_id
+  ORDER BY if(distinct_id = 'distinctid1', -1, 0)
+  '''
+# ---
+# name: TestTrends.test_same_day_with_person_on_events_v2_latest_override.1
+  '''
+  SELECT groupArray(day_start) AS date,
+         groupArray(count) AS total
+  FROM
+    (SELECT sum(total) AS count,
+            day_start AS day_start
+     FROM
+       (SELECT 0 AS total,
+               minus(toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-03 23:59:59', 6, 'UTC'))), toIntervalDay(numbers.number)) AS day_start
+        FROM numbers(coalesce(dateDiff('day', assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-03 00:00:00', 6, 'UTC')), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-03 23:59:59', 6, 'UTC'))), 0)) AS numbers
+        UNION ALL SELECT 0 AS total,
+                         toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-03 00:00:00', 6, 'UTC'))) AS day_start
+        UNION ALL SELECT count(DISTINCT ifNull(nullIf(e__override.override_person_id, '00000000-0000-0000-0000-000000000000'), e.person_id)) AS total,
+                         toStartOfDay(toTimeZone(e.timestamp, 'UTC')) AS day_start
+        FROM events AS e SAMPLE 1
+        LEFT OUTER JOIN
+          (SELECT argMax(person_overrides.override_person_id, person_overrides.version) AS override_person_id,
+                  person_overrides.old_person_id AS old_person_id
+           FROM person_overrides
+           WHERE equals(person_overrides.team_id, 2)
+           GROUP BY person_overrides.old_person_id) AS e__override ON equals(e.person_id, e__override.old_person_id)
+        WHERE and(equals(e.team_id, 2), greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-03 00:00:00', 6, 'UTC')))), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-03 23:59:59', 6, 'UTC'))), equals(e.event, 'sign up'))
+        GROUP BY day_start)
+     GROUP BY day_start
+     ORDER BY day_start ASC)
+  ORDER BY sum(count) DESC
+  LIMIT 100 SETTINGS readonly=2,
+                     max_execution_time=60,
+                     allow_experimental_object_type=1
+  '''
+# ---
+# name: TestTrends.test_same_day_with_person_on_events_v2_latest_override.2
+  '''
+  
+  SELECT distinct_id,
+         person_id
+  FROM events
+  WHERE team_id = 2
+    AND distinct_id IN ('distinctid1',
+                        'distinctid3')
+  GROUP BY distinct_id,
+           person_id
+  ORDER BY if(distinct_id = 'distinctid1', -1, 0)
+  '''
+# ---
+# name: TestTrends.test_same_day_with_person_on_events_v2_latest_override.3
+  '''
+  SELECT groupArray(day_start) AS date,
+         groupArray(count) AS total
+  FROM
+    (SELECT sum(total) AS count,
+            day_start AS day_start
+     FROM
+       (SELECT 0 AS total,
+               minus(toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-03 23:59:59', 6, 'UTC'))), toIntervalDay(numbers.number)) AS day_start
+        FROM numbers(coalesce(dateDiff('day', assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-03 00:00:00', 6, 'UTC')), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-03 23:59:59', 6, 'UTC'))), 0)) AS numbers
+        UNION ALL SELECT 0 AS total,
+                         toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-03 00:00:00', 6, 'UTC'))) AS day_start
+        UNION ALL SELECT count(DISTINCT ifNull(nullIf(e__override.override_person_id, '00000000-0000-0000-0000-000000000000'), e.person_id)) AS total,
+                         toStartOfDay(toTimeZone(e.timestamp, 'UTC')) AS day_start
+        FROM events AS e SAMPLE 1
+        LEFT OUTER JOIN
+          (SELECT argMax(person_overrides.override_person_id, person_overrides.version) AS override_person_id,
+                  person_overrides.old_person_id AS old_person_id
+           FROM person_overrides
+           WHERE equals(person_overrides.team_id, 2)
+           GROUP BY person_overrides.old_person_id) AS e__override ON equals(e.person_id, e__override.old_person_id)
+        WHERE and(equals(e.team_id, 2), greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-03 00:00:00', 6, 'UTC')))), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-03 23:59:59', 6, 'UTC'))), equals(e.event, 'sign up'))
+        GROUP BY day_start)
+     GROUP BY day_start
+     ORDER BY day_start ASC)
+  ORDER BY sum(count) DESC
+  LIMIT 100 SETTINGS readonly=2,
+                     max_execution_time=60,
+                     allow_experimental_object_type=1
+  '''
+# ---
+# name: TestTrends.test_same_day_with_person_on_events_v2_latest_override.4
+  '''
+  
+  SELECT distinct_id,
+         person_id
+  FROM events
+  WHERE team_id = 2
+    AND distinct_id IN ('distinctid1',
+                        'distinctid2')
+  GROUP BY distinct_id,
+           person_id
+  ORDER BY if(distinct_id = 'distinctid1', -1, 0)
+  '''
+# ---
+# name: TestTrends.test_same_day_with_person_on_events_v2_latest_override.5
+  '''
+  SELECT groupArray(day_start) AS date,
+         groupArray(count) AS total
+  FROM
+    (SELECT sum(total) AS count,
+            day_start AS day_start
+     FROM
+       (SELECT 0 AS total,
+               minus(toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-03 23:59:59', 6, 'UTC'))), toIntervalDay(numbers.number)) AS day_start
+        FROM numbers(coalesce(dateDiff('day', assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-03 00:00:00', 6, 'UTC')), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-03 23:59:59', 6, 'UTC'))), 0)) AS numbers
+        UNION ALL SELECT 0 AS total,
+                         toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-03 00:00:00', 6, 'UTC'))) AS day_start
+        UNION ALL SELECT count(DISTINCT ifNull(nullIf(e__override.override_person_id, '00000000-0000-0000-0000-000000000000'), e.person_id)) AS total,
+                         toStartOfDay(toTimeZone(e.timestamp, 'UTC')) AS day_start
+        FROM events AS e SAMPLE 1
+        LEFT OUTER JOIN
+          (SELECT argMax(person_overrides.override_person_id, person_overrides.version) AS override_person_id,
+                  person_overrides.old_person_id AS old_person_id
+           FROM person_overrides
+           WHERE equals(person_overrides.team_id, 2)
+           GROUP BY person_overrides.old_person_id) AS e__override ON equals(e.person_id, e__override.old_person_id)
+        WHERE and(equals(e.team_id, 2), greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-03 00:00:00', 6, 'UTC')))), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-03 23:59:59', 6, 'UTC'))), equals(e.event, 'sign up'))
+        GROUP BY day_start)
+     GROUP BY day_start
+     ORDER BY day_start ASC)
+  ORDER BY sum(count) DESC
+  LIMIT 100 SETTINGS readonly=2,
+                     max_execution_time=60,
+                     allow_experimental_object_type=1
+  '''
+# ---
 # name: TestTrends.test_timezones_daily
   '''
   SELECT groupArray(day_start) AS date,
@@ -4160,6 +4298,62 @@
            GROUP BY day_start))
      GROUP BY day_start
      ORDER BY day_start ASC)
+  ORDER BY sum(count) DESC
+  LIMIT 100 SETTINGS readonly=2,
+                     max_execution_time=60,
+                     allow_experimental_object_type=1
+  '''
+# ---
+# name: TestTrends.test_trends_groups_per_day
+  '''
+  SELECT groupArray(day_start) AS date,
+         groupArray(count) AS total
+  FROM
+    (SELECT sum(total) AS count,
+            day_start AS day_start
+     FROM
+       (SELECT 0 AS total,
+               minus(toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-06 23:59:59', 6, 'UTC'))), toIntervalDay(numbers.number)) AS day_start
+        FROM numbers(coalesce(dateDiff('day', assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-30 00:00:00', 6, 'UTC')), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-06 23:59:59', 6, 'UTC'))), 0)) AS numbers
+        UNION ALL SELECT 0 AS total,
+                         toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-30 00:00:00', 6, 'UTC'))) AS day_start
+        UNION ALL SELECT count(DISTINCT e.`$group_0`) AS total,
+                         toStartOfDay(toTimeZone(e.timestamp, 'UTC')) AS day_start
+        FROM events AS e SAMPLE 1
+        WHERE and(equals(e.team_id, 2), greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-30 00:00:00', 6, 'UTC')))), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-06 23:59:59', 6, 'UTC'))), equals(e.event, 'viewed video'), ifNull(notEquals(nullIf(nullIf(e.`$group_0`, ''), 'null'), ''), 1), notEquals(e.`$group_0`, ''))
+        GROUP BY day_start)
+     GROUP BY day_start
+     ORDER BY day_start ASC)
+  ORDER BY sum(count) DESC
+  LIMIT 100 SETTINGS readonly=2,
+                     max_execution_time=60,
+                     allow_experimental_object_type=1
+  '''
+# ---
+# name: TestTrends.test_trends_groups_per_day_cumulative
+  '''
+  SELECT groupArray(day_start) AS date,
+         groupArray(count) AS total
+  FROM
+    (SELECT day_start AS day_start,
+            sum(count) OVER (
+                             ORDER BY day_start ASC) AS count
+     FROM
+       (SELECT sum(total) AS count,
+               day_start AS day_start
+        FROM
+          (SELECT 0 AS total,
+                  minus(toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-06 23:59:59', 6, 'UTC'))), toIntervalDay(numbers.number)) AS day_start
+           FROM numbers(coalesce(dateDiff('day', assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-30 00:00:00', 6, 'UTC')), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-06 23:59:59', 6, 'UTC'))), 0)) AS numbers
+           UNION ALL SELECT 0 AS total,
+                            toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-30 00:00:00', 6, 'UTC'))) AS day_start
+           UNION ALL SELECT count(DISTINCT e.`$group_0`) AS total,
+                            toStartOfDay(toTimeZone(e.timestamp, 'UTC')) AS day_start
+           FROM events AS e SAMPLE 1
+           WHERE and(equals(e.team_id, 2), greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-30 00:00:00', 6, 'UTC')))), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-06 23:59:59', 6, 'UTC'))), equals(e.event, 'viewed video'), ifNull(notEquals(nullIf(nullIf(e.`$group_0`, ''), 'null'), ''), 1), notEquals(e.`$group_0`, ''))
+           GROUP BY day_start)
+        GROUP BY day_start
+        ORDER BY day_start ASC))
   ORDER BY sum(count) DESC
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,

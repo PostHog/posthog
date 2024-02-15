@@ -284,7 +284,7 @@ export const WebStatsTrendTile = ({
     }, [onWorldMapClick, insightProps])
 
     return (
-        <div className="border rounded bg-bg-light">
+        <div className="border rounded bg-bg-light flex-1">
             {showIntervalTile && (
                 <div className="flex flex-row items-center justify-end m-2 mr-4">
                     <div className="flex flex-row items-center">
@@ -361,7 +361,7 @@ export const WebStatsTableTile = ({
 
     const pathCleaningSettingsUrl = urls.settings('project-product-analytics', 'path-cleaning')
     return (
-        <div className="border rounded bg-bg-light">
+        <div className="border rounded bg-bg-light flex-1">
             {showPathCleaningControls && (
                 <div className="flex flex-row items-center justify-end m-2 mr-4">
                     <div className="flex flex-row items-center space-x-2">

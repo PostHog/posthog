@@ -967,6 +967,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
             // array of functions that reload each item
             const fetchItemFunctions = insights.map((insight) => async () => {
                 // :TODO: Support query cancellation and use this queryId in the actual query.
+                // :TODO: in the future we should use dataNodeCollectionLogic.reloadAll()
                 const queryId = `${dashboardQueryId}::${uuid()}`
                 const queryStartTime = performance.now()
                 const apiUrl = `api/projects/${values.currentTeamId}/insights/${insight.id}/?${toParams({
