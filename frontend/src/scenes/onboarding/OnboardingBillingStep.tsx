@@ -72,7 +72,7 @@ export const OnboardingBillingStep = ({
                                 </div>
                             </div>
                             <LemonButton className="mt-2" onClick={() => setShowPlanComp(!showPlanComp)}>
-                                {showPlanComp ? 'Hide' : 'See'} Plans
+                                {showPlanComp ? 'Hide' : 'Show'} plans
                             </LemonButton>
                             {currentPlan?.initial_billing_limit && (
                                 <div className="mt-2">
