@@ -44,13 +44,11 @@ const Filters = (): JSX.Element => {
             }}
         >
             <div className="flex flex-row flex-wrap gap-2">
+                <DateFilter dateFrom={dateFrom} dateTo={dateTo} onChange={setDates} />
                 <WebPropertyFilters
                     setWebAnalyticsFilters={setWebAnalyticsFilters}
                     webAnalyticsFilters={webAnalyticsFilters}
                 />
-                <div className="flex-1">
-                    <DateFilter dateFrom={dateFrom} dateTo={dateTo} onChange={setDates} />
-                </div>
                 <ReloadAll />
             </div>
             <div className="bg-border h-px w-full mt-2" />
@@ -62,7 +60,7 @@ const Tiles = (): JSX.Element => {
     const { tiles } = useValues(webAnalyticsLogic)
 
     return (
-        <div className="mt-8 grid grid-cols-1 md:grid-cols-2 xxl:grid-cols-3 gap-x-4 gap-y-12">
+        <div className="mt-2 grid grid-cols-1 md:grid-cols-2 xxl:grid-cols-3 gap-x-4 gap-y-12">
             {tiles.map((tile, i) => {
                 if ('query' in tile) {
                     return <QueryTileItem key={i} tile={tile} />
