@@ -16,6 +16,7 @@ import {
     isTrendsFilter,
 } from 'scenes/insights/sharedUtils'
 
+import { getCurrentExporterData } from '~/exporter/exporterViewLogic'
 import { AnyPartialFilterType, OnlineExportContext, QueryExportContext } from '~/types'
 
 import { queryNodeToFilter } from './nodes/InsightQuery/utils/queryNodeToFilter'
@@ -181,7 +182,7 @@ export async function query<N extends DataNode = DataNode>(
             client_query_id: queryId,
             session_id: currentSessionId(),
         }
-        const [resp] = await legacyInsightQuery({
+        const resp = await legacyInsightQuery({
             filters: params,
             currentTeamId: getCurrentTeamId(),
             methodOptions,
@@ -460,10 +461,22 @@ export async function legacyInsightQuery({
     currentTeamId,
     methodOptions,
     refresh,
-}: LegacyInsightQueryParams): Promise<[Response, string]> {
-    const [apiUrl, data] = legacyInsightQueryData({ filters, currentTeamId, refresh })
+}: LegacyInsightQueryParams): Promise<Response> {
+    const exporterContext = getCurrentExporterData()
     let fetchResponse: Response
+
+    // Special case for insights that require an access token, which only works with GET
     if (
+        exporterContext &&
+        exporterContext.accessToken &&
+        (isTrendsFilter(filters) ||
+            isStickinessFilter(filters) ||
+            isLifecycleFilter(filters) ||
+            isRetentionFilter(filters))
+    ) {
+        const apiUrl = legacyInsightQueryURL({ filters, currentTeamId, refresh })
+        fetchResponse = await api.getResponse(apiUrl, methodOptions)
+    } else if (
         isTrendsFilter(filters) ||
         isStickinessFilter(filters) ||
         isLifecycleFilter(filters) ||
@@ -471,11 +484,12 @@ export async function legacyInsightQuery({
         isFunnelsFilter(filters) ||
         isPathsFilter(filters)
     ) {
+        const [apiUrl, data] = legacyInsightQueryData({ filters, currentTeamId, refresh })
         fetchResponse = await api.createResponse(apiUrl, data, methodOptions)
     } else {
         throw new Error(`Unsupported insight type: ${filters.insight}`)
     }
-    return [fetchResponse, apiUrl]
+    return fetchResponse
 }
 
 export async function hogqlQuery(queryString: string, values?: Record<string, any>): Promise<HogQLQueryResponse> {
