@@ -44,13 +44,11 @@ const Filters = (): JSX.Element => {
             }}
         >
             <div className="flex flex-row flex-wrap gap-2">
+                <DateFilter dateFrom={dateFrom} dateTo={dateTo} onChange={setDates} />
                 <WebPropertyFilters
                     setWebAnalyticsFilters={setWebAnalyticsFilters}
                     webAnalyticsFilters={webAnalyticsFilters}
                 />
-                <div className="flex-1">
-                    <DateFilter dateFrom={dateFrom} dateTo={dateTo} onChange={setDates} />
-                </div>
                 <ReloadAll />
             </div>
             <div className="bg-border h-px w-full mt-2" />
