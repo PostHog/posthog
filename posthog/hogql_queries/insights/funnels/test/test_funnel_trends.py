@@ -7,12 +7,14 @@ from freezegun.api import freeze_time
 from posthog.constants import INSIGHT_FUNNELS, TRENDS_LINEAR, FunnelOrderType
 from posthog.hogql_queries.insights.funnels.funnels_query_runner import FunnelsQueryRunner
 from posthog.hogql_queries.legacy_compatibility.filter_to_query import filter_to_query
+from posthog.models.cohort.cohort import Cohort
 from posthog.models.filters import Filter
 from posthog.queries.funnels.funnel_trends_persons import ClickhouseFunnelTrendsActors
 from posthog.schema import FunnelsQuery
 from posthog.test.base import (
     APIBaseTest,
     ClickhouseTestMixin,
+    _create_person,
     snapshot_clickhouse_queries,
 )
 from posthog.test.test_journeys import journeys_for
@@ -1118,145 +1120,147 @@ class TestFunnelTrends(ClickhouseTestMixin, APIBaseTest):
             else:
                 self.fail(msg="Invalid breakdown value")
 
-    # def test_funnel_step_breakdown_person(self):
-    #     _create_person(distinct_ids=["user_one"], team=self.team, properties={"$browser": "Chrome"})
-    #     _create_person(distinct_ids=["user_two"], team=self.team, properties={"$browser": "Chrome"})
-    #     _create_person(
-    #         distinct_ids=["user_three"],
-    #         team=self.team,
-    #         properties={"$browser": "Safari"},
-    #     )
-    #     journeys_for(
-    #         {
-    #             "user_one": [
-    #                 {"event": "step one", "timestamp": datetime(2021, 5, 1)},
-    #                 {"event": "step two", "timestamp": datetime(2021, 5, 3)},
-    #                 {"event": "step three", "timestamp": datetime(2021, 5, 5)},
-    #             ],
-    #             "user_two": [
-    #                 {"event": "step one", "timestamp": datetime(2021, 5, 2)},
-    #                 {"event": "step two", "timestamp": datetime(2021, 5, 3)},
-    #                 {"event": "step three", "timestamp": datetime(2021, 5, 5)},
-    #             ],
-    #             "user_three": [
-    #                 {"event": "step one", "timestamp": datetime(2021, 5, 3)},
-    #                 {"event": "step two", "timestamp": datetime(2021, 5, 4)},
-    #                 {"event": "step three", "timestamp": datetime(2021, 5, 5)},
-    #             ],
-    #         },
-    #         self.team,
-    #     )
+    def test_funnel_step_breakdown_person(self):
+        _create_person(distinct_ids=["user_one"], team=self.team, properties={"$browser": "Chrome"})
+        _create_person(distinct_ids=["user_two"], team=self.team, properties={"$browser": "Chrome"})
+        _create_person(
+            distinct_ids=["user_three"],
+            team=self.team,
+            properties={"$browser": "Safari"},
+        )
+        journeys_for(
+            {
+                "user_one": [
+                    {"event": "step one", "timestamp": datetime(2021, 5, 1)},
+                    {"event": "step two", "timestamp": datetime(2021, 5, 3)},
+                    {"event": "step three", "timestamp": datetime(2021, 5, 5)},
+                ],
+                "user_two": [
+                    {"event": "step one", "timestamp": datetime(2021, 5, 2)},
+                    {"event": "step two", "timestamp": datetime(2021, 5, 3)},
+                    {"event": "step three", "timestamp": datetime(2021, 5, 5)},
+                ],
+                "user_three": [
+                    {"event": "step one", "timestamp": datetime(2021, 5, 3)},
+                    {"event": "step two", "timestamp": datetime(2021, 5, 4)},
+                    {"event": "step three", "timestamp": datetime(2021, 5, 5)},
+                ],
+            },
+            self.team,
+        )
 
-    #     filters = {
-    #         "insight": INSIGHT_FUNNELS,
-    #         "funnel_viz_type": "trends",
-    #         "display": TRENDS_LINEAR,
-    #         "interval": "day",
-    #         "date_from": "2021-05-01 00:00:00",
-    #         "date_to": "2021-05-13 23:59:59",
-    #         "funnel_window_days": 7,
-    #         "events": [
-    #             {"id": "step one", "order": 0},
-    #             {"id": "step two", "order": 1},
-    #             {"id": "step three", "order": 2},
-    #         ],
-    #         "breakdown_type": "person",
-    #         "breakdown": "$browser",
-    #     }
+        filters = {
+            "insight": INSIGHT_FUNNELS,
+            "funnel_viz_type": "trends",
+            "display": TRENDS_LINEAR,
+            "interval": "day",
+            "date_from": "2021-05-01 00:00:00",
+            "date_to": "2021-05-13 23:59:59",
+            "funnel_window_days": 7,
+            "events": [
+                {"id": "step one", "order": 0},
+                {"id": "step two", "order": 1},
+                {"id": "step three", "order": 2},
+            ],
+            "breakdown_type": "person",
+            "breakdown": "$browser",
+        }
 
-    #     query = cast(FunnelsQuery, filter_to_query(filters))
-    #     results = FunnelsQueryRunner(query=query, team=self.team).calculate().results
+        query = cast(FunnelsQuery, filter_to_query(filters))
+        results = FunnelsQueryRunner(query=query, team=self.team).calculate().results
 
-    #     self.assertEqual(len(results), 2)
+        self.assertEqual(len(results), 2)
 
-    #     for res in results:
-    #         if res["breakdown_value"] == ["Chrome"]:
-    #             self.assertEqual(
-    #                 res["data"],
-    #                 [
-    #                     100.0,
-    #                     100.0,
-    #                     0.0,
-    #                     0.0,
-    #                     0.0,
-    #                     0.0,
-    #                     0.0,
-    #                     0.0,
-    #                     0.0,
-    #                     0.0,
-    #                     0.0,
-    #                     0.0,
-    #                     0.0,
-    #                 ],
-    #             )
-    #         elif res["breakdown_value"] == ["Safari"]:
-    #             self.assertEqual(
-    #                 res["data"],
-    #                 [0.0, 0.0, 100.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0],
-    #             )
-    #         else:
-    #             self.fail(msg="Invalid breakdown value")
+        for res in results:
+            if res["breakdown_value"] == ["Chrome"]:
+                self.assertEqual(
+                    res["data"],
+                    [
+                        100.0,
+                        100.0,
+                        0.0,
+                        0.0,
+                        0.0,
+                        0.0,
+                        0.0,
+                        0.0,
+                        0.0,
+                        0.0,
+                        0.0,
+                        0.0,
+                        0.0,
+                    ],
+                )
+            elif res["breakdown_value"] == ["Safari"]:
+                self.assertEqual(
+                    res["data"],
+                    [0.0, 0.0, 100.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0],
+                )
+            else:
+                self.fail(msg="Invalid breakdown value")
 
-    # def test_funnel_trend_cohort_breakdown(self):
-    #     _create_person(distinct_ids=["user_one"], team=self.team, properties={"key": "value"})
-    #     _create_person(distinct_ids=["user_two"], team=self.team, properties={"key": "value"})
-    #     _create_person(
-    #         distinct_ids=["user_three"],
-    #         team=self.team,
-    #         properties={"$browser": "Safari"},
-    #     )
+    def test_funnel_trend_cohort_breakdown(self):
+        _create_person(distinct_ids=["user_one"], team=self.team, properties={"key": "value"})
+        _create_person(distinct_ids=["user_two"], team=self.team, properties={"key": "value"})
+        _create_person(
+            distinct_ids=["user_three"],
+            team=self.team,
+            properties={"$browser": "Safari"},
+        )
 
-    #     journeys_for(
-    #         {
-    #             "user_one": [
-    #                 {"event": "step one", "timestamp": datetime(2021, 5, 1)},
-    #                 {"event": "step two", "timestamp": datetime(2021, 5, 3)},
-    #                 {"event": "step three", "timestamp": datetime(2021, 5, 5)},
-    #             ],
-    #             "user_two": [
-    #                 {"event": "step one", "timestamp": datetime(2021, 5, 2)},
-    #                 {"event": "step two", "timestamp": datetime(2021, 5, 3)},
-    #                 {"event": "step three", "timestamp": datetime(2021, 5, 5)},
-    #             ],
-    #             "user_three": [
-    #                 {"event": "step one", "timestamp": datetime(2021, 5, 3)},
-    #                 {"event": "step two", "timestamp": datetime(2021, 5, 4)},
-    #                 {"event": "step three", "timestamp": datetime(2021, 5, 5)},
-    #             ],
-    #         },
-    #         self.team,
-    #     )
+        journeys_for(
+            {
+                "user_one": [
+                    {"event": "step one", "timestamp": datetime(2021, 5, 1)},
+                    {"event": "step two", "timestamp": datetime(2021, 5, 3)},
+                    {"event": "step three", "timestamp": datetime(2021, 5, 5)},
+                ],
+                "user_two": [
+                    {"event": "step one", "timestamp": datetime(2021, 5, 2)},
+                    {"event": "step two", "timestamp": datetime(2021, 5, 3)},
+                    {"event": "step three", "timestamp": datetime(2021, 5, 5)},
+                ],
+                "user_three": [
+                    {"event": "step one", "timestamp": datetime(2021, 5, 3)},
+                    {"event": "step two", "timestamp": datetime(2021, 5, 4)},
+                    {"event": "step three", "timestamp": datetime(2021, 5, 5)},
+                ],
+            },
+            self.team,
+        )
 
-    #     cohort = Cohort.objects.create(
-    #         team=self.team,
-    #         name="test_cohort",
-    #         groups=[{"properties": [{"key": "key", "value": "value", "type": "person"}]}],
-    #     )
-    #     filters = {
-    #         "insight": INSIGHT_FUNNELS,
-    #         "funnel_viz_type": "trends",
-    #         "display": TRENDS_LINEAR,
-    #         "interval": "day",
-    #         "date_from": "2021-05-01 00:00:00",
-    #         "date_to": "2021-05-13 23:59:59",
-    #         "funnel_window_days": 7,
-    #         "events": [
-    #             {"id": "step one", "order": 0},
-    #             {"id": "step two", "order": 1},
-    #             {"id": "step three", "order": 2},
-    #         ],
-    #         "breakdown_type": "cohort",
-    #         "breakdown": [cohort.pk],
-    #     }
+        cohort = Cohort.objects.create(
+            team=self.team,
+            name="test_cohort",
+            groups=[{"properties": [{"key": "key", "value": "value", "type": "person"}]}],
+        )
+        cohort.calculate_people_ch(pending_version=0)
 
-    #     query = cast(FunnelsQuery, filter_to_query(filters))
-    #     results = FunnelsQueryRunner(query=query, team=self.team).calculate().results
+        filters = {
+            "insight": INSIGHT_FUNNELS,
+            "funnel_viz_type": "trends",
+            "display": TRENDS_LINEAR,
+            "interval": "day",
+            "date_from": "2021-05-01 00:00:00",
+            "date_to": "2021-05-13 23:59:59",
+            "funnel_window_days": 7,
+            "events": [
+                {"id": "step one", "order": 0},
+                {"id": "step two", "order": 1},
+                {"id": "step three", "order": 2},
+            ],
+            "breakdown_type": "cohort",
+            "breakdown": [cohort.pk],
+        }
 
-    #     self.assertEqual(len(results), 1)
-    #     self.assertEqual(
-    #         results[0]["data"],
-    #         [100.0, 100.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0],
-    #     )
+        query = cast(FunnelsQuery, filter_to_query(filters))
+        results = FunnelsQueryRunner(query=query, team=self.team).calculate().results
+
+        self.assertEqual(len(results), 1)
+        self.assertEqual(
+            results[0]["data"],
+            [100.0, 100.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0],
+        )
 
     @snapshot_clickhouse_queries
     def test_timezones_trends(self):

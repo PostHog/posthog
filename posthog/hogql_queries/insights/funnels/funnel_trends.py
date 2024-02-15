@@ -203,14 +203,13 @@ class FunnelTrends(FunnelBase):
                 [
                     ast.Alias(
                         alias="breakdown_value",
-                        expr=ast.Tuple(exprs=[parse_expr(str(value)) for value in self.breakdown_values]),
+                        expr=ast.Array(exprs=[parse_expr(str(value)) for value in self.breakdown_values]),
                         hidden=False,
                     )
                 ]
                 if len(breakdown_clause) > 0
                 else None
             ),
-            # TODO: {'ARRAY JOIN (%(breakdown_values)s) AS breakdown_value' if breakdown_clause else ''}
         )
         fill_breakdown_join_constraint = []
         if len(breakdown_clause) > 0:
@@ -248,7 +247,7 @@ class FunnelTrends(FunnelBase):
             parse_expr(
                 "if(reached_from_step_count > 0, round(reached_to_step_count / reached_from_step_count * 100, 2), 0) AS conversion_rate"
             ),
-            *breakdown_clause,
+            *([ast.Field(chain=["fill", *breakdown_field.chain])] if len(breakdown_clause) > 0 else []),
         ]
         select_from = ast.JoinExpr(
             table=data_query,
