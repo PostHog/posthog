@@ -67,8 +67,8 @@ const WebOverviewItemCellSkeleton = (): JSX.Element => {
     return (
         <div className={OVERVIEW_ITEM_CELL_CLASSES}>
             <LemonSkeleton className="h-2 w-10" />
-
-            <LemonSkeleton />
+            <LemonSkeleton className="h-6 w-20" />
+            <LemonSkeleton className="h-2 w-10" />
         </div>
     )
 }
