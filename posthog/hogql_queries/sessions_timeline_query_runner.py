@@ -41,6 +41,7 @@ class SessionsTimelineQueryRunner(QueryRunner):
         before = relative_date_parse(self.query.before or "-0h", self.team.timezone_info)
         with self.timings.measure("build_events_subquery"):
             event_conditions: list[ast.Expr] = [
+                # TODO: Optimize by removing `ifNull` wrapping
                 ast.CompareOperation(
                     op=ast.CompareOperationOp.Gt,
                     left=ast.Field(chain=["timestamp"]),
@@ -54,7 +55,7 @@ class SessionsTimelineQueryRunner(QueryRunner):
             ]
             if self.query.personId:
                 event_conditions.append(
-                    ast.CompareOperation(
+                    ast.CompareOperation(  # TODO: Optimize by using `person_id IN (...)` instead of `JOIN``
                         left=ast.Field(chain=["person_id"]),
                         right=ast.Constant(value=self.query.personId),
                         op=ast.CompareOperationOp.Eq,
@@ -114,6 +115,7 @@ class SessionsTimelineQueryRunner(QueryRunner):
                     FROM ({events_subquery})
                 ) e
                 LEFT JOIN (
+                    -- TODO: Optimize by filtering on timestamps
                     SELECT start_time AS start_time, end_time AS end_time, session_id FROM session_replay_events
                 ) AS sre
                 ON e.session_id = sre.session_id
