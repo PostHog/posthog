@@ -102,7 +102,7 @@ export function SupportForm(): JSX.Element | null {
             <LemonField name="kind" label="What type of message is this?">
                 <LemonSegmentedButton fullWidth options={SUPPORT_TICKET_OPTIONS} />
             </LemonField>
-            {true &&
+            {posthog.getFeatureFlag('show-troubleshooting-docs-in-support-form') === 'test-replay-banner' &&
                 sendSupportRequest.target_area === 'session_replay' && (
                     <LemonBanner type="info">
                         <>
@@ -125,7 +125,7 @@ export function SupportForm(): JSX.Element | null {
                         </>
                     </LemonBanner>
                 )}
-            {true &&
+            {posthog.getFeatureFlag('show-troubleshooting-docs-in-support-form') === 'test-replay-banner' &&
                 sendSupportRequest.target_area === 'toolbar' && (
                     <LemonBanner type="info">
                         <>
