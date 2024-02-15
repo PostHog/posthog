@@ -138,7 +138,7 @@ class FunnelTrends(FunnelBase):
         ) = self.get_steps_reached_conditions()
         interval_func = get_interval_func_ch(interval.value)
 
-        if date_range.date_from is None:
+        if date_range.date_from() is None:
             _date_from = get_earliest_timestamp(team.pk)
         else:
             _date_from = date_range.date_from()
@@ -214,7 +214,8 @@ class FunnelTrends(FunnelBase):
         )
         fill_breakdown_join_constraint = []
         if len(breakdown_clause) > 0:
-            breakdown_field: ast.Field = breakdown_clause[0]
+            # can only be a field here, since group_remaining is false
+            breakdown_field: ast.Field = breakdown_clause[0]  # type: ignore
             fill_breakdown_join_constraint = [
                 ast.CompareOperation(
                     left=ast.Field(chain=["data", *breakdown_field.chain]),

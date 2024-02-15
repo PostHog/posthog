@@ -53,10 +53,10 @@ class FunnelBase(ABC):
     def get_query(self) -> ast.SelectQuery:
         raise NotImplementedError()
 
-    def get_step_counts_query(self) -> str:
+    def get_step_counts_query(self) -> ast.SelectQuery:
         raise NotImplementedError()
 
-    def get_step_counts_without_aggregation_query(self) -> str:
+    def get_step_counts_without_aggregation_query(self) -> ast.SelectQuery:
         raise NotImplementedError()
 
     @cached_property
