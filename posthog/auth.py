@@ -95,7 +95,7 @@ class PersonalAPIKeyAuthentication(authentication.BaseAuthentication):
 
         # Upgrade the key if it's not in the latest mode. We can do this since above we've already checked
         # that the key is valid in some mode, and we do check for all modes one by one.
-        if mode_used != PERSONAL_API_KEY_MODES_TO_TRY[0][0]:
+        if mode_used != "sha256":
             key_to_update = PersonalAPIKey.objects.select_for_update().get(id=personal_api_key_object.id)
             key_to_update.secure_value = hash_key_value(personal_api_key)
             key_to_update.save(update_fields=["secure_value"])
