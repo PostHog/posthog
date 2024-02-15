@@ -22,15 +22,19 @@ import pytz
 GENERATE_RECORDING_EMBEDDING_TIMING = Histogram(
     "posthog_session_recordings_generate_recording_embedding",
     "Time spent generating recording embeddings for a single session",
+    buckets=[0.1, 0.2, 0.3, 0.4, 0.5, 1, 1.5, 2, 2.5, 3, 3.5, 4, 5, 6, 7, 8, 9, 10, 12, 14, 16, 18, 20],
 )
+
 SESSION_SKIPPED_WHEN_GENERATING_EMBEDDINGS = Counter(
     "posthog_session_recordings_skipped_when_generating_embeddings",
     "Number of sessions skipped when generating embeddings",
 )
+
 SESSION_EMBEDDINGS_GENERATED = Counter(
     "posthog_session_recordings_embeddings_generated",
     "Number of session embeddings generated",
 )
+
 SESSION_EMBEDDINGS_WRITTEN_TO_CLICKHOUSE = Counter(
     "posthog_session_recordings_embeddings_written_to_clickhouse",
     "Number of session embeddings written to Clickhouse",
