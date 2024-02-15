@@ -15,7 +15,7 @@ class TestCorsResponse(TestCase):
             ("my-amazing.site", "*"),
             ("my-amazing.site/path", "*"),
             ("null", "*"),
-            ("", "*"),
+            ("", None),
         ]
 
         FakeRequest = namedtuple("FakeRequest", "META")
@@ -24,6 +24,6 @@ class TestCorsResponse(TestCase):
                 request = FakeRequest(META={"HTTP_ORIGIN": origin})
                 self.assertEqual(
                     expected,
-                    cors_response(request, {})["Access-Control-Allow-Origin"],
+                    cors_response(request, {}).get("Access-Control-Allow-Origin"),
                     msg=f"with origin='{origin}', actual did not equal {expected}",
                 )
