@@ -1,17 +1,35 @@
+from prometheus_client import Histogram, Counter
+
+from typing import List
+
 from posthog.clickhouse.client import sync_execute
 from posthog.models.team import Team
 from posthog.session_recordings.models.session_recording import SessionRecording
+
+FIND_RECORDING_NEIGHBOURS_TIMING = Histogram(
+    "posthog_session_recordings_find_recording_neighbours",
+    "Time spent finding the most similar recording embeddings for a single session",
+)
+
+SIMILAR_RECORDING_SKIPPED_WHEN_FINDING_NEIGHBOURS = Counter(
+    "posthog_session_recordings_skipped_when_finding_neighbours",
+    "Number of sessions skipped when finding neighbours",
+)
 
 
 def similar_recordings(recording: SessionRecording, team: Team):
     target_embeddings = find_target_embeddings(session_id=recording.session_id, team_id=team.pk)
 
     if target_embeddings is None:
+        SIMILAR_RECORDING_SKIPPED_WHEN_FINDING_NEIGHBOURS.inc()
         return []
 
-    similar_embeddings = closest_embeddings(target=target_embeddings, session_id=recording.session_id, team_id=team.pk)
+    with FIND_RECORDING_NEIGHBOURS_TIMING.time():
+        similar_embeddings = closest_embeddings(
+            target=target_embeddings, session_id=recording.session_id, team_id=team.pk
+        )
 
-    # TODO: join session recording context (person, duration, etc)
+    # TODO: join session recording context (person, duration, etc) to show in frontend
 
     return similar_embeddings
 
@@ -35,7 +53,7 @@ def find_target_embeddings(session_id: str, team_id: int):
     return result[0] if len(result) > 0 else None
 
 
-def closest_embeddings(target: [float], session_id: str, team_id: int):
+def closest_embeddings(target: List[float], session_id: str, team_id: int):
     query = """
             SELECT
                 session_id,
@@ -50,7 +68,7 @@ def closest_embeddings(target: [float], session_id: str, team_id: int):
                 -- skip the target recording
                 AND session_id != %(session_id)s
             ORDER BY similarity_score DESC
-            -- only return up to three results
+            -- only return a max number of results
             LIMIT %(limit)s;
         """
 
@@ -58,8 +76,3 @@ def closest_embeddings(target: [float], session_id: str, team_id: int):
         query,
         {"target": target, "team_id": team_id, "session_id": session_id, "limit": 3},
     )
-
-
-# from posthog.session_recordings.ai.similar_recordings import closest_embeddings, find_target_embeddings
-
-# closest_embeddings([0.2, 0.4, 0.2], team_id=1, session_id="4")

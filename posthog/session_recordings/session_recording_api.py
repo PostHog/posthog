@@ -515,6 +515,11 @@ class SessionRecordingViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         if cached_response is not None:
             return Response(cached_response)
 
+        user = cast(User, request.user)
+
+        if not posthoganalytics.feature_enabled("session-replay-similar-recordings", str(user.distinct_id)):
+            raise exceptions.ValidationError("similar recordings is not enabled for this user")
+
         recording = self.get_object()
 
         if not SessionReplayEvents().exists(session_id=str(recording.session_id), team=self.team):
