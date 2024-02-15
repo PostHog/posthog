@@ -9,6 +9,7 @@ import { PageHeader } from 'lib/components/PageHeader'
 import { SharingModal } from 'lib/components/Sharing/SharingModal'
 import { SubscribeButton, SubscriptionsModal } from 'lib/components/Subscriptions/SubscriptionsModal'
 import { UserActivityIndicator } from 'lib/components/UserActivityIndicator/UserActivityIndicator'
+import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { More } from 'lib/lemon-ui/LemonButton/More'
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
@@ -325,6 +326,13 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
                 }
                 tabbedPage={insightMode === ItemMode.Edit} // Insight type tabs are only shown in edit mode
             />
+
+            {insight.onDashboard && (
+                <LemonBanner type="warning" className="mb-4">
+                    You are viewing this insight with filters from a dashboard. Editing will take you to edit the
+                    underlying insight.
+                </LemonBanner>
+            )}
         </>
     )
 }

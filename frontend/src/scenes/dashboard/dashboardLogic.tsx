@@ -218,6 +218,13 @@ export const dashboardLogic = kea<dashboardLogicType>([
                         const dashboardResponse: Response = await api.getResponse(apiUrl)
                         const dashboard: DashboardType = await getJSONOrThrow(dashboardResponse)
 
+                        // add onDashboard to all insights
+                        dashboard.tiles.forEach((tile) => {
+                            if (tile.insight) {
+                                tile.insight.onDashboard = true
+                            }
+                        })
+
                         actions.setInitialLoadResponseBytes(getResponseBytes(dashboardResponse))
 
                         return dashboard
@@ -983,6 +990,8 @@ export const dashboardLogic = kea<dashboardLogicType>([
 
                     const refreshedInsightResponse: Response = await api.getResponse(apiUrl, methodOptions)
                     const refreshedInsight: InsightModel = await getJSONOrThrow(refreshedInsightResponse)
+                    // add onDashboard: true to the insight, so we can tell it's being used in a dashboard
+                    refreshedInsight.onDashboard = true
                     breakpoint()
                     updateExistingInsightState({ cachedInsight: insight, dashboardId, refreshedInsight })
                     dashboardsModel.actions.updateDashboardInsight(
