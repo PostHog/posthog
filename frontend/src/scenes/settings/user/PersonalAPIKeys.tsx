@@ -235,42 +235,60 @@ function EditKeyModal(): JSX.Element {
                                     </LemonBanner>
                                 ) : (
                                     <div>
-                                        {APIScopes.map(({ key, disabledActions, warnings }) => (
-                                            <Fragment key={key}>
-                                                <div className="flex items-center justify-between gap-2 min-h-8">
-                                                    <div>
-                                                        <b>{capitalizeFirstLetter(key.replace(/_/g, ' '))}</b>
-                                                    </div>
-                                                    <LemonSegmentedButton
-                                                        onChange={(value) => setScopeRadioValue(key, value)}
-                                                        value={formScopeRadioValues[key] ?? 'none'}
-                                                        options={[
-                                                            { label: 'No access', value: 'none' },
-                                                            {
-                                                                label: 'Read',
-                                                                value: 'read',
-                                                                disabledReason: disabledActions?.includes('read')
-                                                                    ? 'Does not apply to this resource'
-                                                                    : undefined,
-                                                            },
-                                                            {
-                                                                label: 'Write',
-                                                                value: 'write',
-                                                                disabledReason: disabledActions?.includes('write')
-                                                                    ? 'Does not apply to this resource'
-                                                                    : undefined,
-                                                            },
-                                                        ]}
-                                                        size="xsmall"
-                                                    />
-                                                </div>
-                                                {warnings?.[formScopeRadioValues[key]] && (
-                                                    <div className="text-xs italic p-2">
-                                                        {warnings[formScopeRadioValues[key]]}
-                                                    </div>
-                                                )}
-                                            </Fragment>
-                                        ))}
+                                        {APIScopes.map(
+                                            ({ key, disabledActions, warnings, disabledWhenProjectScoped }) => {
+                                                const disabledDueToProjectScope =
+                                                    disabledWhenProjectScoped && editingKey.access_type === 'teams'
+                                                return (
+                                                    <Fragment key={key}>
+                                                        <div className="flex items-center justify-between gap-2 min-h-8">
+                                                            <div
+                                                                className={
+                                                                    disabledDueToProjectScope ? 'text-muted' : undefined
+                                                                }
+                                                            >
+                                                                <b>{capitalizeFirstLetter(key.replace(/_/g, ' '))}</b>
+                                                            </div>
+                                                            <LemonSegmentedButton
+                                                                onChange={(value) => setScopeRadioValue(key, value)}
+                                                                value={formScopeRadioValues[key] ?? 'none'}
+                                                                options={[
+                                                                    { label: 'No access', value: 'none' },
+                                                                    {
+                                                                        label: 'Read',
+                                                                        value: 'read',
+                                                                        disabledReason: disabledActions?.includes(
+                                                                            'read'
+                                                                        )
+                                                                            ? 'Does not apply to this resource'
+                                                                            : disabledDueToProjectScope
+                                                                            ? 'Not available for project scoped keys'
+                                                                            : undefined,
+                                                                    },
+                                                                    {
+                                                                        label: 'Write',
+                                                                        value: 'write',
+                                                                        disabledReason: disabledActions?.includes(
+                                                                            'write'
+                                                                        )
+                                                                            ? 'Does not apply to this resource'
+                                                                            : disabledDueToProjectScope
+                                                                            ? 'Not available for project scoped keys'
+                                                                            : undefined,
+                                                                    },
+                                                                ]}
+                                                                size="xsmall"
+                                                            />
+                                                        </div>
+                                                        {warnings?.[formScopeRadioValues[key]] && (
+                                                            <div className="text-xs italic p-2">
+                                                                {warnings[formScopeRadioValues[key]]}
+                                                            </div>
+                                                        )}
+                                                    </Fragment>
+                                                )
+                                            }
+                                        )}
                                     </div>
                                 )}
                             </>

@@ -25,6 +25,7 @@ export const API_KEY_SCOPE_PRESETS = [
 export type APIScope = {
     key: string
     disabledActions?: ('read' | 'write')[]
+    disabledWhenProjectScoped?: boolean
     description?: string
     warnings?: { [key: string]: JSX.Element }
 }
@@ -46,9 +47,10 @@ export const APIScopes: APIScope[] = [
     { key: 'insight' },
     { key: 'query', disabledActions: ['write'] },
     { key: 'notebook' },
-    { key: 'organization' },
+    { key: 'organization', disabledWhenProjectScoped: true },
     {
         key: 'organization_member',
+        disabledWhenProjectScoped: true,
         warnings: {
             write: (
                 <>
@@ -77,7 +79,6 @@ export const APIScopes: APIScope[] = [
     { key: 'sharing_configuration' },
     { key: 'subscription' },
     { key: 'survey' },
-    { key: 'user' },
 ]
 
 export type EditingKeyFormValues = Pick<
