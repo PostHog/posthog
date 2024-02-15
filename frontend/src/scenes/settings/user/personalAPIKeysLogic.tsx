@@ -1,4 +1,4 @@
-import { LemonDialog } from '@posthog/lemon-ui'
+import { LemonBanner, LemonDialog } from '@posthog/lemon-ui'
 import { actions, afterMount, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { forms } from 'kea-forms'
 import { loaders } from 'kea-loaders'
@@ -143,11 +143,12 @@ export const personalAPIKeysLogic = kea<personalAPIKeysLogicType>([
                 scopes: [],
                 scoped_organizations: [],
                 scoped_teams: [],
-                access_type: 'all',
+                access_type: undefined,
             } as EditingKeyFormValues,
-            errors: ({ label, scopes, scoped_organizations, scoped_teams, access_type }) => ({
+            errors: ({ label, access_type, scopes, scoped_organizations, scoped_teams }) => ({
                 label: !label ? 'Your API key needs a label' : undefined,
                 scopes: !scopes?.length ? ('Your API key needs at least one scope' as any) : undefined,
+                access_type: !access_type ? ('Select access mode' as any) : undefined,
                 scoped_organizations:
                     access_type === 'organizations' && !scoped_organizations?.length
                         ? ('Select at least one organization' as any)
@@ -245,7 +246,9 @@ export const personalAPIKeysLogic = kea<personalAPIKeysLogicType>([
                         ? 'organizations'
                         : key?.scoped_teams?.length
                         ? 'teams'
-                        : 'all',
+                        : id !== 'new'
+                        ? 'all'
+                        : undefined,
                 }
 
                 actions.resetEditingKey(formValues)
@@ -273,18 +276,18 @@ export const personalAPIKeysLogic = kea<personalAPIKeysLogicType>([
             }
 
             LemonDialog.open({
-                title: 'Personal API Key Created',
+                title: 'Personal API key ready',
                 content: (
                     <>
-                        <p>Your API key has been created.</p>
+                        <p className="mb-4">You can now use key "{key.label}" for authentication:</p>
 
                         <CodeSnippet thing="personal API key">{value}</CodeSnippet>
 
-                        <p>
-                            <b>WARNING:</b> For security reasons the key value <b>will only ever be shown once</b>.
+                        <LemonBanner type="warning" className="mt-4">
+                            For security reasons the value above <em>will never be shown again</em>.
                             <br />
                             Copy it to your destination right away.
-                        </p>
+                        </LemonBanner>
                     </>
                 ),
             })

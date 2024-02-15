@@ -15,7 +15,7 @@ import {
 } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
-import { IconEllipsis, IconPlus } from 'lib/lemon-ui/icons'
+import { IconEllipsis, IconErrorOutline, IconPlus } from 'lib/lemon-ui/icons'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { capitalizeFirstLetter, humanFriendlyDetailedTime } from 'lib/utils'
@@ -44,7 +44,7 @@ function EditKeyModal(): JSX.Element {
     return (
         <Form logic={personalAPIKeysLogic} formKey="editingKey">
             <LemonModal
-                title={`${isNew ? 'Create a' : 'Edit this'} personal API key`}
+                title={`${isNew ? 'Create' : 'Edit'} personal API key`}
                 onClose={() => setEditingKeyId(null)}
                 isOpen={!!editingKeyId}
                 width="40rem"
@@ -72,16 +72,15 @@ function EditKeyModal(): JSX.Element {
                         <LemonInput placeholder='For example "Reports bot" or "Zapier"' maxLength={40} />
                     </LemonField>
 
-                    <div className="flex items-center justify-between mt-4 mb-2">
-                        <LemonLabel>Organization & project access</LemonLabel>
-
-                        <LemonField name="access_type">
-                            {({ value, onChange }) => (
+                    <LemonField name="access_type" className="mt-4 mb-2">
+                        {({ value, onChange }) => (
+                            <div className="flex items-center justify-between gap-2">
+                                <LemonLabel>Organization & project access</LemonLabel>
                                 <LemonSegmentedButton
                                     onChange={onChange}
                                     value={value}
                                     options={[
-                                        { label: 'All access', value: 'all' },
+                                        { label: 'All-access', value: 'all' },
                                         {
                                             label: 'Organizations',
                                             value: 'organizations',
@@ -93,20 +92,19 @@ function EditKeyModal(): JSX.Element {
                                     ]}
                                     size="small"
                                 />
-                            )}
-                        </LemonField>
-                    </div>
+                            </div>
+                        )}
+                    </LemonField>
 
                     {editingKey.access_type === 'all' ? (
-                        <p>
-                            This API key will be able to perform all permitted actions on any of your Organizations and
-                            projects.
+                        <p className="mb-0">
+                            This API key will allow access to all organizations and projects you're in.
                         </p>
                     ) : editingKey.access_type === 'organizations' ? (
                         <>
-                            <p>
-                                This API key will only be able to perform permitted actions on the specified
-                                Organizations and all their Projects.
+                            <p className="mb-2">
+                                This API key will only allow access to selected organizations and all project within
+                                them.
                             </p>
 
                             <LemonField name="scoped_organizations">
@@ -139,9 +137,7 @@ function EditKeyModal(): JSX.Element {
                         </>
                     ) : editingKey.access_type === 'teams' ? (
                         <>
-                            <p>
-                                This API key will only be able to perform permitted actions on the specified Projects.
-                            </p>
+                            <p className="mb-2">This API key will only allow access to selected projects.</p>
                             <LemonField name="scoped_teams">
                                 {({ value, onChange }) => (
                                     <LemonSelectMultiple
@@ -197,11 +193,11 @@ function EditKeyModal(): JSX.Element {
                     ) : null}
 
                     <div className="flex items-center justify-between mt-4 mb-2">
-                        <LemonLabel>Permissions</LemonLabel>
+                        <LemonLabel>Scopes</LemonLabel>
                         <LemonField name="preset">
                             <LemonSelect
                                 size="small"
-                                placeholder="Select a preset"
+                                placeholder="Select preset"
                                 options={API_KEY_SCOPE_PRESETS}
                                 dropdownMatchSelectWidth={false}
                                 dropdownPlacement="bottom-end"
@@ -212,15 +208,20 @@ function EditKeyModal(): JSX.Element {
                     <LemonField name="scopes">
                         {({ error }) => (
                             <>
-                                <p>
-                                    API Keys are scoped to limit what actions they are able to do. We highly recommend
+                                <p className="mb-0">
+                                    API keys are scoped to limit what actions they are able to do. We highly recommend
                                     you only give the key the permissions it needs to do its job. You can add or revoke
                                     scopes later.
-                                    <br />
-                                    Your API key can never do more than your user can do.
+                                </p>
+                                <p className="m-0">
+                                    Your API key can never take actions for which your account is missing permissions.
                                 </p>
 
-                                {error && <div className="text-danger">{error}</div>}
+                                {error && (
+                                    <div className="text-danger flex items-center gap-1 text-sm">
+                                        <IconErrorOutline className="text-xl" /> {error}
+                                    </div>
+                                )}
 
                                 {allAccessSelected ? (
                                     <LemonBanner
