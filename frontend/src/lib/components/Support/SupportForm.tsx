@@ -1,6 +1,9 @@
 import { IconBug } from '@posthog/icons'
 import {
     LemonBanner,
+    LemonButton,
+    LemonButtonWithDropdown,
+    LemonDivider,
     LemonInput,
     LemonSegmentedButton,
     LemonSegmentedButtonOption,
@@ -8,7 +11,7 @@ import {
     Link,
 } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
-import { Form } from 'kea-forms'
+import { Field, Form } from 'kea-forms'
 import { useUploadFiles } from 'lib/hooks/useUploadFiles'
 import { IconFeedback, IconHelpOutline } from 'lib/lemon-ui/icons'
 import { LemonField } from 'lib/lemon-ui/LemonField'
@@ -20,7 +23,13 @@ import { useEffect, useRef } from 'react'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { userLogic } from 'scenes/userLogic'
 
-import { SEVERITY_LEVEL_TO_NAME, supportLogic, SupportTicketKind, TARGET_AREA_TO_NAME } from './supportLogic'
+import {
+    getLabelBasedOnTargetArea,
+    SEVERITY_LEVEL_TO_NAME,
+    supportLogic,
+    SupportTicketKind,
+    TARGET_AREA_TO_NAME,
+} from './supportLogic'
 
 const SUPPORT_TICKET_OPTIONS: LemonSegmentedButtonOption<SupportTicketKind>[] = [
     {
@@ -93,17 +102,7 @@ export function SupportForm(): JSX.Element | null {
             <LemonField name="kind" label="What type of message is this?">
                 <LemonSegmentedButton fullWidth options={SUPPORT_TICKET_OPTIONS} />
             </LemonField>
-            <LemonField name="target_area" label="What area does this best relate to?">
-                <LemonSelect
-                    fullWidth
-                    options={Object.entries(TARGET_AREA_TO_NAME).map(([key, value]) => ({
-                        label: value,
-                        value: key,
-                        'data-attr': `support-form-target-area-${key}`,
-                    }))}
-                />
-            </LemonField>
-            {posthog.getFeatureFlag('show-troubleshooting-docs-in-support-form') === 'test-replay-banner' &&
+            {true &&
                 sendSupportRequest.target_area === 'session_replay' && (
                     <LemonBanner type="info">
                         <>
@@ -126,7 +125,7 @@ export function SupportForm(): JSX.Element | null {
                         </>
                     </LemonBanner>
                 )}
-            {posthog.getFeatureFlag('show-troubleshooting-docs-in-support-form') === 'test-replay-banner' &&
+            {true &&
                 sendSupportRequest.target_area === 'toolbar' && (
                     <LemonBanner type="info">
                         <>
@@ -137,7 +136,48 @@ export function SupportForm(): JSX.Element | null {
                         </>
                     </LemonBanner>
                 )}
-            <LemonField name="severity_level" label="What is the severity of this issue?">
+            <Field name="target_area" label="What area does this best relate to?">
+                {({ value, onChange }) => (
+                    <LemonButtonWithDropdown
+                        fullWidth
+                        type="secondary"
+                        sideIcon={undefined}
+                        dropdown={{
+                            className: 'Popover__TargetAreaField',
+                            placement: 'bottom-start',
+                            overlay: (
+                                <div className="TargetAreaField__dropdown">
+                                    {TARGET_AREA_TO_NAME.map(({ label, values }, i) =>
+                                        Object.keys(values).length != 0 ? (
+                                            <div key={i}>
+                                                {i !== 0 && <LemonDivider />}
+                                                <h5>{label}</h5>
+                                                {Object.entries(values).map(([key, _value]) => (
+                                                    <LemonButton
+                                                        key={key}
+                                                        onClick={() => {
+                                                            onChange(key)
+                                                        }}
+                                                        active={key == value}
+                                                        fullWidth
+                                                    >
+                                                        {_value}
+                                                    </LemonButton>
+                                                ))}
+                                            </div>
+                                        ) : null
+                                    )}
+                                </div>
+                            ),
+                        }}
+                    >
+                        <span className="font-medium">
+                            {getLabelBasedOnTargetArea(value) ?? <span className="text-muted">Select a value</span>}
+                        </span>
+                    </LemonButtonWithDropdown>
+                )}
+            </Field>
+            <Field name="severity_level" label="What is the severity of this issue?">
                 <LemonSelect
                     fullWidth
                     options={Object.entries(SEVERITY_LEVEL_TO_NAME).map(([key, value]) => ({
@@ -145,7 +185,7 @@ export function SupportForm(): JSX.Element | null {
                         value: key,
                     }))}
                 />
-            </LemonField>
+            </Field>
             <span className="text-muted">
                 Check out the{' '}
                 <Link target="_blank" to="https://posthog.com/docs/support-options#severity-levels">
