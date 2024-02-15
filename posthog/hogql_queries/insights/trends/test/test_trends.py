@@ -554,9 +554,32 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(response[0]["labels"][5], "2-Jan-2020")
         self.assertEqual(response[0]["data"][5], 4.0)
 
-    @pytest.mark.skip(
-        reason="This gets very complicated. To be revisited with team on definition of what a unique video view is"
-    )
+    @snapshot_clickhouse_queries
+    def test_trends_groups_per_day(self):
+        self._create_event_count_per_actor_events()
+        with freeze_time("2020-01-06T13:00:01Z"):
+            response = self._run(
+                Filter(
+                    team=self.team,
+                    data={
+                        "date_from": "-7d",
+                        "display": "ActionsLineGraph",
+                        "events": [
+                            {
+                                "id": "viewed video",
+                                "math": "unique_group",
+                                "math_group_type_index": 0,
+                            }
+                        ],
+                    },
+                ),
+                self.team,
+            )
+
+        self.assertEqual(response[0]["label"], "viewed video")
+        self.assertEqual(response[0]["labels"][-1], "6-Jan-2020")
+        self.assertEqual(response[0]["data"], [0.0, 0.0, 1.0, 0, 0, 1, 2, 0])
+
     @snapshot_clickhouse_queries
     def test_trends_groups_per_day_cumulative(self):
         self._create_event_count_per_actor_events()
@@ -581,7 +604,7 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
 
         self.assertEqual(response[0]["label"], "viewed video")
         self.assertEqual(response[0]["labels"][-1], "6-Jan-2020")
-        self.assertEqual(response[0]["data"], [0.0, 0.0, 1.0, 1.0, 1.0, 2.0, 2.0, 2.0])
+        self.assertEqual(response[0]["data"], [0.0, 0.0, 1.0, 1.0, 1.0, 2.0, 4.0, 4.0])
 
     @also_test_with_person_on_events_v2
     @snapshot_clickhouse_queries
@@ -7233,7 +7256,6 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
         )
         self.assertEqual(response[0]["data"], [1.0])
 
-    @pytest.mark.skip(reason="PoE V2 doesnt work with HogQL yet")
     @override_settings(PERSON_ON_EVENTS_V2_OVERRIDE=True)
     @snapshot_clickhouse_queries
     def test_same_day_with_person_on_events_v2_latest_override(self):
