@@ -50,7 +50,7 @@ def find_target_embeddings(session_id: str, team_id: int):
         """
 
     result = sync_execute(query, {"team_id": team_id, "session_id": session_id})
-    return result[0] if len(result) > 0 else None
+    return result[0][0] if len(result) > 0 else None
 
 
 def closest_embeddings(target: List[float], session_id: str, team_id: int):
