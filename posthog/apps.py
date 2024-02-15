@@ -5,7 +5,7 @@ import structlog
 from django.apps import AppConfig
 from django.conf import settings
 from posthoganalytics.client import Client
-from posthog.git import get_git_branch, get_git_commit
+from posthog.git import get_git_branch, get_git_commit_short
 
 from posthog.settings import SELF_CAPTURE, SKIP_ASYNC_MIGRATIONS_SETUP
 from posthog.tasks.tasks import sync_all_organization_available_features
@@ -43,7 +43,7 @@ class PostHogConfig(AppConfig):
                 phcloud_client.capture(
                     get_machine_id(),
                     "development server launched",
-                    {"git_rev": get_git_commit(), "git_branch": get_git_branch()},
+                    {"git_rev": get_git_commit_short(), "git_branch": get_git_branch()},
                 )
 
             local_api_key = get_self_capture_api_token(None)

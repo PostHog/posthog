@@ -3,6 +3,7 @@ import { IconRefresh } from 'lib/lemon-ui/icons'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { Spinner } from 'lib/lemon-ui/Spinner'
 
+import { dataNodeCollectionLogic } from '~/queries/nodes/DataNode/dataNodeCollectionLogic'
 import { dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
 
 export function Reload(): JSX.Element {
@@ -23,6 +24,26 @@ export function Reload(): JSX.Element {
             icon={responseLoading ? <Spinner textColored /> : <IconRefresh />}
         >
             {responseLoading ? 'Cancel' : 'Reload'}
+        </LemonButton>
+    )
+}
+
+export function ReloadAll(): JSX.Element {
+    const { areAnyLoading } = useValues(dataNodeCollectionLogic)
+    const { reloadAll } = useActions(dataNodeCollectionLogic)
+
+    return (
+        <LemonButton
+            type="secondary"
+            size="small"
+            onClick={() => {
+                reloadAll()
+            }}
+            // Setting the loading icon manually to capture clicks while spinning.
+            icon={areAnyLoading ? <Spinner textColored /> : <IconRefresh />}
+            disabledReason={areAnyLoading ? 'Loading' : undefined}
+        >
+            Reload
         </LemonButton>
     )
 }

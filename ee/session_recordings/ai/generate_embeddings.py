@@ -22,15 +22,19 @@ import pytz
 GENERATE_RECORDING_EMBEDDING_TIMING = Histogram(
     "posthog_session_recordings_generate_recording_embedding",
     "Time spent generating recording embeddings for a single session",
+    buckets=[0.1, 0.2, 0.3, 0.4, 0.5, 1, 1.5, 2, 2.5, 3, 3.5, 4, 5, 6, 7, 8, 9, 10, 12, 14, 16, 18, 20],
 )
+
 SESSION_SKIPPED_WHEN_GENERATING_EMBEDDINGS = Counter(
     "posthog_session_recordings_skipped_when_generating_embeddings",
     "Number of sessions skipped when generating embeddings",
 )
+
 SESSION_EMBEDDINGS_GENERATED = Counter(
     "posthog_session_recordings_embeddings_generated",
     "Number of session embeddings generated",
 )
+
 SESSION_EMBEDDINGS_WRITTEN_TO_CLICKHOUSE = Counter(
     "posthog_session_recordings_embeddings_written_to_clickhouse",
     "Number of session embeddings written to Clickhouse",
@@ -58,6 +62,19 @@ def fetch_recordings_without_embeddings(team: Team | int, offset=0) -> List[str]
                     team_id = %(team_id)s
                     -- don't load all data for all time
                     and generation_timestamp > now() - INTERVAL 7 DAY
+            ),
+            replay_with_events AS
+            (
+                SELECT
+                    distinct $session_id
+                from
+                    events
+                where
+                    team_id = %(team_id)s
+                    -- don't load all data for all time
+                    and timestamp > now() - INTERVAL 7 DAY
+                    and timestamp < now()
+                    and $session_id is not null and $session_id != ''
             )
             SELECT session_id
             FROM
@@ -70,6 +87,7 @@ def fetch_recordings_without_embeddings(team: Team | int, offset=0) -> List[str]
                 -- let's not load all data for all time
                 -- will definitely need to do something about this length of time
                 and min_first_timestamp > now() - INTERVAL 7 DAY
+                and session_id in replay_with_events
             GROUP BY session_id
             HAVING dateDiff('second', min(min_first_timestamp), max(max_last_timestamp)) > %(min_duration_include_seconds)s
             LIMIT %(batch_flush_size)s
