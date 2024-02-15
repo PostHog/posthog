@@ -52,7 +52,8 @@ export const dataNodeCollectionLogic = kea<dataNodeCollectionLogicType>([
                     return { ...state, [payload.id]: { isLoading: false, hasError: false } }
                 },
                 unmountDataNode: (state, payload) => {
-                    return { ...state, [payload.id]: undefined }
+                    const { [payload.id]: _discard, ...rest } = state
+                    return rest
                 },
                 collectionNodeLoadData: (state, payload) => {
                     return { ...state, [payload.id]: { isLoading: true, hasError: false } }
