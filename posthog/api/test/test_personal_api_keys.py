@@ -210,6 +210,9 @@ class PersonalAPIKeysBaseTest(APIBaseTest):
     value: str
     key: PersonalAPIKey
 
+    def _do_request(self, url: str):
+        return self.client.get(url, HTTP_AUTHORIZATION=f"Bearer {self.value}")
+
     def setUp(self):
         other_organization, _, other_team = Organization.objects.bootstrap(self.user)
         self.other_organization = other_organization
@@ -323,9 +326,6 @@ class TestPersonalAPIKeysWithScopeAPIAuthentication(PersonalAPIKeysBaseTest):
         self.key.scopes = ["feature_flag:read"]
         self.key.save()
 
-    def _do_request(self, url: str):
-        return self.client.get(url, HTTP_AUTHORIZATION=f"Bearer {self.value}")
-
     def test_allows_legacy_api_key_to_access_all(self):
         self.key.scopes = None
         self.key.save()
@@ -381,44 +381,54 @@ class TestPersonalAPIKeysWithScopeAPIAuthentication(PersonalAPIKeysBaseTest):
 class TestPersonalAPIKeysWithOrganizationScopeAPIAuthentication(PersonalAPIKeysBaseTest):
     def setUp(self):
         super().setUp()
+        self.key.scopes = ["*"]
         self.key.scoped_organizations = [str(self.organization.id)]
         self.key.scoped_teams = []
         self.key.save()
 
-    def _do_request(self, url: str):
-        return self.client.get(url, HTTP_AUTHORIZATION=f"Bearer {self.value}")
+    # TODO: Test special case for organization routes
 
     def test_allows_access_to_scoped_org(self):
         response = self._do_request(f"/api/organizations/{self.organization.id}")
         assert response.status_code == status.HTTP_200_OK, response.json()
-        response = self._do_request(f"/api/organizations")
+        response = self._do_request(f"/api/organizations/{self.organization.id}/projects")
         assert response.status_code == status.HTTP_200_OK, response.json()
-        assert len(response.json()["results"]) == 1
-        assert response.json()["results"]["id"] == str(self.organization.id)
 
-    # def test_allows_access_to_scoped_org_teams(self):
-    #     response = self._do_request(f"/api/projects/{self.team.id}")
-    #     assert response.status_code == status.HTTP_200_OK, response.json()
-    #     response = self._do_request(f"/api/projects/{self.team.id}/feature_flags")
-    #     assert response.status_code == status.HTTP_200_OK, response.json()
+    def test_allows_access_to_scoped_org_teams(self):
+        response = self._do_request(f"/api/organizations/{self.organization.id}/projects/{self.team.id}")
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        response = self._do_request(f"/api/projects/{self.team.id}/feature_flags")
+        assert response.status_code == status.HTTP_200_OK, response.json()
 
-    # def test_denies_access_to_non_scoped_org_and_team(self):
-    #     self.key.scoped_teams = [self.team.id]
-    #     self.key.save()
-    #     response = self._do_request(f"/api/organizations/{self.other_organization.id}")
-    #     assert response.status_code == status.HTTP_403_FORBIDDEN, response.json()
-    #     response = self._do_request(f"/api/projects/{self.other_team.id}/feature_flags")
-    #     assert response.status_code == status.HTTP_403_FORBIDDEN, response.json()
-
-    # TODO: Add tests to make sure
-    # 1. If team scoped, you can only access organizations that the team is part of
-    # 2. If organization scoped, you can only list organizations that the team is part of
+    def test_denies_access_to_non_scoped_org_and_team(self):
+        response = self._do_request(f"/api/organizations/{self.other_organization.id}")
+        assert response.status_code == status.HTTP_403_FORBIDDEN, response.json()
+        response = self._do_request(f"/api/projects/{self.other_team.id}/feature_flags")
+        assert response.status_code == status.HTTP_403_FORBIDDEN, response.json()
 
 
-class TestPersonalAPIKeysWithTeamScopeAPIAuthentication(TestPersonalAPIKeysWithOrganizationScopeAPIAuthentication):
+class TestPersonalAPIKeysWithTeamScopeAPIAuthentication(PersonalAPIKeysBaseTest):
     def setUp(self):
         super().setUp()
-
+        self.key.scopes = ["*"]
         self.key.scoped_organizations = []
         self.key.scoped_teams = [self.team.id]
         self.key.save()
+
+    def test_allows_access_to_team_resources(self):
+        response = self._do_request(f"/api/organizations/{self.organization.id}/projects/{self.team.id}")
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        response = self._do_request(f"/api/projects/{self.team.id}/feature_flags")
+        assert response.status_code == status.HTTP_200_OK, response.json()
+
+    def test_denies_access_to_org_resources(self):
+        response = self._do_request(f"/api/organizations/{self.organization.id}/projects")
+        assert response.status_code == status.HTTP_403_FORBIDDEN, response.json()
+        response = self._do_request(f"/api/organizations/{self.organization.id}")
+        assert response.status_code == status.HTTP_403_FORBIDDEN, response.json()
+
+    def test_denies_access_to_non_scoped_org_and_team(self):
+        response = self._do_request(f"/api/organizations/{self.other_organization.id}")
+        assert response.status_code == status.HTTP_403_FORBIDDEN, response.json()
+        response = self._do_request(f"/api/projects/{self.other_team.id}/feature_flags")
+        assert response.status_code == status.HTTP_403_FORBIDDEN, response.json()

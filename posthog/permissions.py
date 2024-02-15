@@ -277,8 +277,8 @@ class APIScopePermission(BasePermission):
         if not key_scopes:
             return True
 
-        self.check_team_and_org_permissions(request, view)
         required_scopes = self.get_required_scopes(request, view)
+        self.check_team_and_org_permissions(request, view)
 
         if "*" in key_scopes:
             return True
@@ -304,11 +304,10 @@ class APIScopePermission(BasePermission):
             try:
                 team = view.team
                 if team.id not in scoped_teams:
-                    raise PermissionDenied(f"API key does not have access to the requested team '{team.id}'")
+                    raise PermissionDenied(f"API key does not have access to the requested project '{team.id}'")
 
             except (ValueError, KeyError):
-                # Indicates this is not a team scoped view
-                pass
+                raise PermissionDenied(f"API key with scoped projects are only supported on project-based views.")
 
         if scoped_organizations:
             try:
