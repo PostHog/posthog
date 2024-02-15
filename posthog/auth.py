@@ -192,10 +192,10 @@ class SharingAccessTokenAuthentication(authentication.BaseAuthentication):
     sharing_configuration: SharingConfiguration
 
     def authenticate(self, request: Union[HttpRequest, Request]) -> Optional[Tuple[Any, Any]]:
-        if request.method not in ("POST", "GET", "HEAD"):
-            raise AuthenticationFailed(detail="Sharing access token cannot be used with this request method.")
-
         if sharing_access_token := request.GET.get("sharing_access_token"):
+            if request.method not in ("POST", "GET", "HEAD"):
+                raise AuthenticationFailed(detail="Sharing access token cannot be used with this request method.")
+
             try:
                 sharing_configuration = SharingConfiguration.objects.get(
                     access_token=sharing_access_token, enabled=True

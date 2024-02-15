@@ -574,7 +574,7 @@ class InsightViewSet(
     filter_backends = [DjangoFilterBackend]
     filterset_fields = ["short_id", "created_by"]
     include_in_docs = True
-    sharing_enabled_actions = ["retrieve", "list"]
+    sharing_enabled_actions = ["retrieve", "list", "trend", "funnel", "retention", "path", "timing"]
 
     retention_query_class = Retention
     stickiness_query_class = Stickiness
