@@ -203,7 +203,7 @@ class FunnelTrends(FunnelBase):
                 [
                     ast.Alias(
                         alias="breakdown_value",
-                        expr=ast.Tuple(exprs=[ast.Constant(value=value) for value in self.breakdown_values]),
+                        expr=ast.Tuple(exprs=[parse_expr(str(value)) for value in self.breakdown_values]),
                         hidden=False,
                     )
                 ]

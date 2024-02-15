@@ -1010,113 +1010,113 @@ class TestFunnelTrends(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(day_4["reached_to_step_count"], 1)
         self.assertEqual(day_4["conversion_rate"], 50)
 
-    # def test_funnel_step_breakdown_event(self):
-    #     journeys_for(
-    #         {
-    #             "user_one": [
-    #                 {
-    #                     "event": "step one",
-    #                     "timestamp": datetime(2021, 5, 1),
-    #                     "properties": {"$browser": "Chrome"},
-    #                 },
-    #                 {
-    #                     "event": "step two",
-    #                     "timestamp": datetime(2021, 5, 3),
-    #                     "properties": {"$browser": "Chrome"},
-    #                 },
-    #                 {
-    #                     "event": "step three",
-    #                     "timestamp": datetime(2021, 5, 5),
-    #                     "properties": {"$browser": "Chrome"},
-    #                 },
-    #             ],
-    #             "user_two": [
-    #                 {
-    #                     "event": "step one",
-    #                     "timestamp": datetime(2021, 5, 2),
-    #                     "properties": {"$browser": "Chrome"},
-    #                 },
-    #                 {
-    #                     "event": "step two",
-    #                     "timestamp": datetime(2021, 5, 3),
-    #                     "properties": {"$browser": "Chrome"},
-    #                 },
-    #                 {
-    #                     "event": "step three",
-    #                     "timestamp": datetime(2021, 5, 5),
-    #                     "properties": {"$browser": "Chrome"},
-    #                 },
-    #             ],
-    #             "user_three": [
-    #                 {
-    #                     "event": "step one",
-    #                     "timestamp": datetime(2021, 5, 3),
-    #                     "properties": {"$browser": "Safari"},
-    #                 },
-    #                 {
-    #                     "event": "step two",
-    #                     "timestamp": datetime(2021, 5, 4),
-    #                     "properties": {"$browser": "Safari"},
-    #                 },
-    #                 {
-    #                     "event": "step three",
-    #                     "timestamp": datetime(2021, 5, 5),
-    #                     "properties": {"$browser": "Safari"},
-    #                 },
-    #             ],
-    #         },
-    #         self.team,
-    #     )
+    def test_funnel_step_breakdown_event(self):
+        journeys_for(
+            {
+                "user_one": [
+                    {
+                        "event": "step one",
+                        "timestamp": datetime(2021, 5, 1),
+                        "properties": {"$browser": "Chrome"},
+                    },
+                    {
+                        "event": "step two",
+                        "timestamp": datetime(2021, 5, 3),
+                        "properties": {"$browser": "Chrome"},
+                    },
+                    {
+                        "event": "step three",
+                        "timestamp": datetime(2021, 5, 5),
+                        "properties": {"$browser": "Chrome"},
+                    },
+                ],
+                "user_two": [
+                    {
+                        "event": "step one",
+                        "timestamp": datetime(2021, 5, 2),
+                        "properties": {"$browser": "Chrome"},
+                    },
+                    {
+                        "event": "step two",
+                        "timestamp": datetime(2021, 5, 3),
+                        "properties": {"$browser": "Chrome"},
+                    },
+                    {
+                        "event": "step three",
+                        "timestamp": datetime(2021, 5, 5),
+                        "properties": {"$browser": "Chrome"},
+                    },
+                ],
+                "user_three": [
+                    {
+                        "event": "step one",
+                        "timestamp": datetime(2021, 5, 3),
+                        "properties": {"$browser": "Safari"},
+                    },
+                    {
+                        "event": "step two",
+                        "timestamp": datetime(2021, 5, 4),
+                        "properties": {"$browser": "Safari"},
+                    },
+                    {
+                        "event": "step three",
+                        "timestamp": datetime(2021, 5, 5),
+                        "properties": {"$browser": "Safari"},
+                    },
+                ],
+            },
+            self.team,
+        )
 
-    #     filters = {
-    #         "insight": INSIGHT_FUNNELS,
-    #         "funnel_viz_type": "trends",
-    #         "display": TRENDS_LINEAR,
-    #         "interval": "day",
-    #         "date_from": "2021-05-01 00:00:00",
-    #         "date_to": "2021-05-13 23:59:59",
-    #         "funnel_window_days": 7,
-    #         "events": [
-    #             {"id": "step one", "order": 0},
-    #             {"id": "step two", "order": 1},
-    #             {"id": "step three", "order": 2},
-    #         ],
-    #         "breakdown_type": "event",
-    #         "breakdown": "$browser",
-    #     }
+        filters = {
+            "insight": INSIGHT_FUNNELS,
+            "funnel_viz_type": "trends",
+            "display": TRENDS_LINEAR,
+            "interval": "day",
+            "date_from": "2021-05-01 00:00:00",
+            "date_to": "2021-05-13 23:59:59",
+            "funnel_window_days": 7,
+            "events": [
+                {"id": "step one", "order": 0},
+                {"id": "step two", "order": 1},
+                {"id": "step three", "order": 2},
+            ],
+            "breakdown_type": "event",
+            "breakdown": "$browser",
+        }
 
-    #     query = cast(FunnelsQuery, filter_to_query(filters))
-    #     results = FunnelsQueryRunner(query=query, team=self.team).calculate().results
+        query = cast(FunnelsQuery, filter_to_query(filters))
+        results = FunnelsQueryRunner(query=query, team=self.team).calculate().results
 
-    #     self.assertEqual(len(results), 2)
+        self.assertEqual(len(results), 2)
 
-    #     for res in results:
-    #         if res["breakdown_value"] == ["Chrome"]:
-    #             self.assertEqual(
-    #                 res["data"],
-    #                 [
-    #                     100.0,
-    #                     100.0,
-    #                     0.0,
-    #                     0.0,
-    #                     0.0,
-    #                     0.0,
-    #                     0.0,
-    #                     0.0,
-    #                     0.0,
-    #                     0.0,
-    #                     0.0,
-    #                     0.0,
-    #                     0.0,
-    #                 ],
-    #             )
-    #         elif res["breakdown_value"] == ["Safari"]:
-    #             self.assertEqual(
-    #                 res["data"],
-    #                 [0.0, 0.0, 100.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0],
-    #             )
-    #         else:
-    #             self.fail(msg="Invalid breakdown value")
+        for res in results:
+            if res["breakdown_value"] == ["Chrome"]:
+                self.assertEqual(
+                    res["data"],
+                    [
+                        100.0,
+                        100.0,
+                        0.0,
+                        0.0,
+                        0.0,
+                        0.0,
+                        0.0,
+                        0.0,
+                        0.0,
+                        0.0,
+                        0.0,
+                        0.0,
+                        0.0,
+                    ],
+                )
+            elif res["breakdown_value"] == ["Safari"]:
+                self.assertEqual(
+                    res["data"],
+                    [0.0, 0.0, 100.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0],
+                )
+            else:
+                self.fail(msg="Invalid breakdown value")
 
     # def test_funnel_step_breakdown_person(self):
     #     _create_person(distinct_ids=["user_one"], team=self.team, properties={"$browser": "Chrome"})
