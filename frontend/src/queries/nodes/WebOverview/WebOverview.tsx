@@ -7,10 +7,15 @@ import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { humanFriendlyDuration, humanFriendlyLargeNumber, isNotNil, range } from 'lib/utils'
 import { useState } from 'react'
 
+import { EvenlyDistributedRows } from '~/queries/nodes/WebOverview/EvenlyDistributedRows'
 import { AnyResponseType, WebOverviewItem, WebOverviewQuery, WebOverviewQueryResponse } from '~/queries/schema'
 import { QueryContext } from '~/queries/types'
 
 import { dataNodeLogic } from '../DataNode/dataNodeLogic'
+
+const OVERVIEW_ITEM_CELL_MIN_WIDTH_REMS = 10
+
+const OVERVIEW_ITEM_CELL_CLASSES = `flex-1 border p-2 bg-bg-light rounded min-w-[${OVERVIEW_ITEM_CELL_MIN_WIDTH_REMS}rem] h-30 flex flex-col items-center text-center justify-between`
 
 let uniqueNode = 0
 export function WebOverview(props: {
@@ -36,14 +41,17 @@ export function WebOverview(props: {
 
     return (
         <>
-            <div className="flex justify-center items-center flex-wrap w-full gap-x-2 gap-y-8">
+            <EvenlyDistributedRows
+                className="flex justify-center items-center flex-wrap w-full gap-2"
+                minWidthRems={OVERVIEW_ITEM_CELL_MIN_WIDTH_REMS + 2}
+            >
                 {responseLoading
                     ? range(5).map((i) => <WebOverviewItemCellSkeleton key={i} />)
                     : webOverviewQueryResponse?.results?.map((item) => (
                           <WebOverviewItemCell key={item.key} item={item} />
                       )) || []}
                 {}
-            </div>
+            </EvenlyDistributedRows>
             {samplingRate && !(samplingRate.numerator === 1 && (samplingRate.denominator ?? 1) === 1) ? (
                 <LemonBanner type="info" className="my-4">
                     These results using a sampling factor of {samplingRate.numerator}
@@ -54,9 +62,6 @@ export function WebOverview(props: {
         </>
     )
 }
-
-const OVERVIEW_ITEM_CELL_CLASSES =
-    'flex-1 border p-2 bg-bg-light rounded min-w-[10rem] h-30 flex flex-col items-center text-center justify-between'
 
 const WebOverviewItemCellSkeleton = (): JSX.Element => {
     return (
