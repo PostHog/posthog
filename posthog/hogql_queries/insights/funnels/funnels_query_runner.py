@@ -16,6 +16,7 @@ from posthog.hogql.query import execute_hogql_query
 from posthog.hogql.timings import HogQLTimings
 from posthog.hogql_queries.insights.funnels.funnel_query_context import FunnelQueryContext
 from posthog.hogql_queries.insights.funnels.funnel_time_to_convert import FunnelTimeToConvert
+from posthog.hogql_queries.insights.funnels.funnel_trends import FunnelTrends
 from posthog.hogql_queries.insights.funnels.utils import get_funnel_order_class
 from posthog.hogql_queries.query_runner import QueryRunner
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
@@ -41,12 +42,14 @@ class FunnelsQueryRunner(QueryRunner):
         timings: Optional[HogQLTimings] = None,
         modifiers: Optional[HogQLQueryModifiers] = None,
         limit_context: Optional[LimitContext] = None,
+        **kwargs,
     ):
         super().__init__(query, team=team, timings=timings, modifiers=modifiers, limit_context=limit_context)
 
         self.context = FunnelQueryContext(
             query=self.query, team=team, timings=timings, modifiers=modifiers, limit_context=limit_context
         )
+        self.kwargs = kwargs
 
     def _is_stale(self, cached_result_package):
         date_to = self.query_date_range.date_to()
@@ -104,8 +107,7 @@ class FunnelsQueryRunner(QueryRunner):
         funnelVizType = self.context.funnelsFilter.funnelVizType
 
         if funnelVizType == FunnelVizType.trends:
-            # return FunnelTrends(context=self.context)
-            return self.funnel_order_class
+            return FunnelTrends(context=self.context, **self.kwargs)
         elif funnelVizType == FunnelVizType.time_to_convert:
             return FunnelTimeToConvert(context=self.context)
         else:

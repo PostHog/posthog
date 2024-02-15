@@ -39,10 +39,7 @@ class FunnelBase(ABC):
     _extra_event_fields: List[ColumnName]
     _extra_event_properties: List[PropertyName]
 
-    def __init__(
-        self,
-        context: FunnelQueryContext,
-    ):
+    def __init__(self, context: FunnelQueryContext):
         self.context = context
 
         self._extra_event_fields: List[ColumnName] = []

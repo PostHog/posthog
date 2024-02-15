@@ -1675,6 +1675,12 @@
             "required": ["average_conversion_time", "bins"],
             "type": "object"
         },
+        "FunnelTrendsResults": {
+            "items": {
+                "type": "object"
+            },
+            "type": "array"
+        },
         "FunnelVizType": {
             "enum": ["steps", "time_to_convert", "trends"],
             "type": "string"
@@ -1873,6 +1879,9 @@
                         },
                         {
                             "$ref": "#/definitions/FunnelTimeToConvertResults"
+                        },
+                        {
+                            "$ref": "#/definitions/FunnelTrendsResults"
                         }
                     ]
                 },
