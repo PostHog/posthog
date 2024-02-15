@@ -64,7 +64,6 @@ ACTIVITIES = [
     noop_activity,
     prepare_dictionary,
     prepare_person_overrides,
-    select_persons_to_delete,
     squash_events_partition,
     update_batch_export_backfill_model_status,
     update_export_run_status,

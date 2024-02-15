@@ -1,9 +1,9 @@
+import collections.abc
 import contextlib
 import json
-from collections.abc import Iterator
 from dataclasses import asdict, dataclass, field
 from datetime import datetime, timedelta, timezone
-from typing import AsyncIterator, Iterable, NamedTuple, Sequence
+from typing import AsyncIterator, Iterable, NamedTuple
 from uuid import UUID
 
 from temporalio import activity, workflow
@@ -14,36 +14,15 @@ from posthog.temporal.common.clickhouse import get_client
 
 EPOCH = datetime(1970, 1, 1, 0, 0, tzinfo=timezone.utc)
 
-SELECT_PERSONS_TO_DELETE_QUERY = """
-SELECT
-    team_id,
-    old_person_id,
-    override_person_id,
-    max(created_at) AS latest_created_at,
-    max(version) AS latest_version,
-    min(oldest_event) AS oldest_event_at
-FROM
-    {database}.person_overrides
-WHERE
-    created_at <= %(latest_created_at)s
-GROUP BY
-    team_id, old_person_id, override_person_id
-"""
-
-SELECT_LATEST_CREATED_AT_QUERY = """
-SELECT
-    max(created_at)
-FROM {database}.person_overrides;
-"""
 
 CREATE_DICTIONARY_QUERY = """
 CREATE OR REPLACE DICTIONARY {database}.{dictionary_name} ON CLUSTER {cluster_name} (
-    `team_id` INT,
-    `old_person_id` UUID,
-    `override_person_id` UUID
+    `team_id` Int64,
+    `distinct_id` String,
+    `person_id` UUID
 )
-PRIMARY KEY team_id, old_person_id
-SOURCE(CLICKHOUSE(USER '{user}' PASSWORD '{password}' TABLE 'person_overrides' DB '{database}'))
+PRIMARY KEY team_id, distinct_id
+SOURCE(CLICKHOUSE(USER '{user}' PASSWORD '{password}' TABLE 'person_distinct_id_overrides' DB '{database}'))
 LAYOUT(complex_key_hashed())
 LIFETIME(0)
 """
@@ -52,38 +31,39 @@ SQUASH_EVENTS_QUERY = """
 ALTER TABLE
     {database}.sharded_events
 UPDATE
-    person_id = dictGet('{database}.{dictionary_name}', 'override_person_id', (toInt32(team_id), person_id))
+    person_id = dictGet('{database}.{dictionary_name}', 'person_id', (team_id, distinct_id))
 IN PARTITION
     %(partition_id)s
 WHERE
-    dictHas('{database}.{dictionary_name}', (toInt32(team_id), person_id))
-    {team_id_filter}
-    AND created_at <= %(latest_created_at)s;
+    dictHas('{database}.{dictionary_name}', (team_id, distinct_id))
+    {in_team_ids}
 """
 
 DROP_DICTIONARY_QUERY = """
 DROP DICTIONARY {database}.{dictionary_name};
 """
 
-DELETE_SQUASHED_PERSON_OVERRIDES_QUERY = """
-ALTER TABLE
-    {database}.person_overrides
-DELETE WHERE
-    old_person_id IN %(old_person_ids)s
-    AND created_at <= %(latest_created_at)s;
-"""
-
-SELECT_CREATED_AT_FOR_PERSON_EVENT_QUERY = """
+CREATE_JOIN_TABLE_FOR_DELETES_QUERY = """
+CREATE TABLE {database}.person_overrides_to_delete
+ENGINE = Join(ANY, LEFT, team_id, distinct_id) AS
 SELECT
-    min(created_at) AS oldest_event_at
+    team_id, distinct_id, 1 AS exists
 FROM
     {database}.sharded_events
 WHERE
-    team_id = %(team_id)s
-    AND person_id = %(old_person_id)s
-    -- Not necessary, but can speed up query.
-    AND created_at <= %(oldest_event_at)s
-    AND created_at >= 0;
+    dictHas('{database}.{dictionary_name}', (team_id, distinct_id))
+    AND _partition_id IN %(partition_ids)s
+"""
+
+DROP_JOIN_TABLE_FOR_DELETES_QUERY = """
+DROP TABLE IF EXISTS {database}.person_overrides_to_delete
+"""
+
+DELETE_SQUASHED_PERSON_OVERRIDES_QUERY = """
+ALTER TABLE
+    {database}.person_distinct_id_overrides
+DELETE WHERE
+    joinGet('{database}.person_overrides_to_delete', 'exists', team_id, distinct_id) = 1
 """
 
 
@@ -105,20 +85,24 @@ class PersonOverrideToDelete(NamedTuple):
     """
 
     team_id: int
-    old_person_id: UUID
+    distinct_id: str
     override_person_id: UUID
-    latest_created_at: datetime
     latest_version: int
-    oldest_event_at: datetime
 
     def _make_serializable(self) -> "SerializablePersonOverrideToDelete":
         return SerializablePersonOverrideToDelete._make(
             value.isoformat() if isinstance(value, datetime) else value for value in self
         )
 
-    def is_in_partitions(self, partition_ids: list[str]):
-        """Check if this PersonOverrideToDelete's oldest_event_at is in a list of partitions."""
-        return self.oldest_event_at.strftime("%Y%m") in partition_ids
+    @classmethod
+    def from_response_line(cls, response_line: str) -> "PersonOverrideToDelete":
+        splitted = response_line.split("\t")
+        return cls(
+            team_id=int(splitted[0]),
+            distinct_id=str(splitted[1]),
+            override_person_id=UUID(splitted[2]),
+            latest_version=int(splitted[4]),
+        )
 
 
 class SerializablePersonOverrideToDelete(NamedTuple):
@@ -129,98 +113,14 @@ class SerializablePersonOverrideToDelete(NamedTuple):
     """
 
     team_id: int
-    old_person_id: UUID
+    distinct_id: str
     override_person_id: UUID
-    latest_created_at: str
     latest_version: int
-    oldest_event_at: str
 
 
 class PersonOverrideTuple(NamedTuple):
-    old_person_id: UUID
-    override_person_id: UUID
-
-
-class FlatPostgresPersonOverridesManager:
-    def __init__(self, connection):
-        self.connection = connection
-
-    def fetchall(self, team_id: int) -> Sequence[PersonOverrideTuple]:
-        with self.connection.cursor() as cursor:
-            cursor.execute(
-                """
-                SELECT
-                    old_person_id,
-                    override_person_id
-                FROM posthog_flatpersonoverride
-                WHERE team_id = %(team_id)s
-                """,
-                {"team_id": team_id},
-            )
-            return [PersonOverrideTuple(*row) for row in cursor.fetchall()]
-
-    def insert(self, team_id: int, override: PersonOverrideTuple) -> None:
-        with self.connection.cursor() as cursor:
-            cursor.execute(
-                """
-                INSERT INTO posthog_flatpersonoverride(
-                    team_id,
-                    old_person_id,
-                    override_person_id,
-                    oldest_event,
-                    version
-                )
-                VALUES (
-                    %(team_id)s,
-                    %(old_person_id)s,
-                    %(override_person_id)s,
-                    NOW(),
-                    1
-                );
-                """,
-                {
-                    "team_id": team_id,
-                    "old_person_id": override.old_person_id,
-                    "override_person_id": override.override_person_id,
-                },
-            )
-
-    def delete(self, person_override: SerializablePersonOverrideToDelete, dry_run: bool = False) -> None:
-        query = """
-            DELETE FROM
-                posthog_flatpersonoverride
-            WHERE
-                team_id = %(team_id)s
-                AND old_person_id = %(old_person_id)s
-                AND override_person_id = %(override_person_id)s
-                AND version = %(latest_version)s
-        """
-
-        parameters = {
-            "team_id": person_override.team_id,
-            "old_person_id": person_override.old_person_id,
-            "override_person_id": person_override.override_person_id,
-            "latest_version": person_override.latest_version,
-        }
-
-        if dry_run is True:
-            activity.logger.info("This is a DRY RUN so nothing will be deleted.")
-            activity.logger.info(
-                "Would have run query: %s with parameters %s",
-                query,
-                parameters,
-            )
-            return
-
-        with self.connection.cursor() as cursor:
-            cursor.execute(query, parameters)
-
-    def clear(self, team_id: int) -> None:
-        with self.connection.cursor() as cursor:
-            cursor.execute(
-                "DELETE FROM posthog_flatpersonoverride WHERE team_id = %s",
-                [team_id],
-            )
+    distinct_id: str
+    person_id: UUID
 
 
 @dataclass
@@ -247,24 +147,6 @@ class QueryInputs:
     dictionary_name: str = "person_overrides_join_dict"
     dry_run: bool = True
     wait_for_mutations: bool = False
-    _latest_created_at: str | datetime | None = None
-
-    def __post_init__(self) -> None:
-        if isinstance(self._latest_created_at, datetime):
-            self.latest_created_at = self._latest_created_at
-
-    @property
-    def latest_created_at(self) -> datetime | None:
-        if isinstance(self._latest_created_at, str):
-            return datetime.fromisoformat(self._latest_created_at)
-        return self._latest_created_at
-
-    @latest_created_at.setter
-    def latest_created_at(self, v: datetime | str | None) -> None:
-        if isinstance(v, datetime):
-            self._latest_created_at = v.isoformat()
-        else:
-            self._latest_created_at = v
 
     def iter_person_overides_to_delete(self) -> Iterable[SerializablePersonOverrideToDelete]:
         """Iterate over SerializablePersonOverrideToDelete ensuring they are of that type.
@@ -285,41 +167,61 @@ async def prepare_person_overrides(inputs: QueryInputs) -> None:
     """
     from django.conf import settings
 
-    activity.logger.info("Preparing person_overrides table for squashing")
-
-    optimize_query = "OPTIMIZE TABLE {database}.person_overrides ON CLUSTER {cluster} FINAL"
+    detach_query = "DETACH TABLE {database}.kafka_person_distinct_id_overrides ON CLUSTER {cluster} SYNC"
+    optimize_query = "OPTIMIZE TABLE {database}.person_distinct_id_overrides ON CLUSTER {cluster} FINAL"
 
     if inputs.dry_run is True:
         activity.logger.info("This is a DRY RUN so nothing will be detached or optimized.")
-        activity.logger.info("Would have run query: %s", optimize_query)
+        activity.logger.debug("Detach query: %s", detach_query)
+        activity.logger.debug("Optimize query: %s", optimize_query)
         return
-
-    activity.logger.info("Optimizing person_overrides")
 
     async with get_client(mutations_sync=2) as clickhouse_client:
         await clickhouse_client.execute_query(
+            detach_query.format(database=settings.CLICKHOUSE_DATABASE, cluster=settings.CLICKHOUSE_CLUSTER)
+        )
+        activity.logger.info("Detached kafka_person_distinct_id_overrides")
+
+        await clickhouse_client.execute_query(
             optimize_query.format(database=settings.CLICKHOUSE_DATABASE, cluster=settings.CLICKHOUSE_CLUSTER)
         )
+    activity.logger.info("Optimized person_distinct_id_overrides")
 
 
 @activity.defn
-async def prepare_dictionary(inputs: QueryInputs) -> str:
-    """Prepare the DICTIONARY to be used in the squash workflow.
+async def re_attach_person_overrides_kafka_table(inputs: QueryInputs) -> None:
+    """Prepare the person_overrides table to be used in a squash.
+
+    This activity executes an OPTIMIZE TABLE query to ensure we assign the latest overrides for each old_person_id.
+    """
+    from django.conf import settings
+
+    attach_query = "ATTACH TABLE {database}.kafka_person_distinct_id_overrides ON CLUSTER {cluster}"
+
+    if inputs.dry_run is True:
+        activity.logger.info("This is a DRY RUN so nothing will be re-attached.")
+        activity.logger.debug("Attach query: %s", attach_query)
+        return
+
+    async with get_client(mutations_sync=2) as clickhouse_client:
+        await clickhouse_client.execute_query(
+            attach_query.format(database=settings.CLICKHOUSE_DATABASE, cluster=settings.CLICKHOUSE_CLUSTER)
+        )
+
+    activity.logger.info("Re-attached kafka_person_distinct_id_overrides")
+
+
+@activity.defn
+async def prepare_dictionary(inputs: QueryInputs) -> None:
+    """Prepare the dictionary to be used in the squash workflow.
 
     We also lock in the latest merged_at to ensure we do not process overrides that arrive after
     we have started the job.
     """
     from django.conf import settings
 
-    activity.logger.info("Preparing DICTIONARY %s", inputs.dictionary_name)
-
     async with get_client() as clickhouse_client:
-        response = await clickhouse_client.read_query(
-            SELECT_LATEST_CREATED_AT_QUERY.format(database=settings.CLICKHOUSE_DATABASE)
-        )
-        latest_created_at = parse_clickhouse_timestamp(response.decode("utf-8"))
-
-        activity.logger.info("Creating DICTIONARY %s", inputs.dictionary_name)
+        activity.logger.info("Creating squash dictionary: %s", inputs.dictionary_name)
 
         await clickhouse_client.execute_query(
             CREATE_DICTIONARY_QUERY.format(
@@ -331,15 +233,13 @@ async def prepare_dictionary(inputs: QueryInputs) -> str:
             )
         )
 
-    return latest_created_at.isoformat()
-
 
 @activity.defn
 async def drop_dictionary(inputs: QueryInputs) -> None:
-    """DROP the DICTIONARY used in the squash workflow."""
+    """DROP the dictionary used in the squash workflow."""
     from django.conf import settings
 
-    activity.logger.info("Dropping DICTIONARY %s", inputs.dictionary_name)
+    activity.logger.info("Dropping dictionary %s", inputs.dictionary_name)
 
     async with get_client() as clickhouse_client:
         await clickhouse_client.execute_query(
@@ -348,106 +248,6 @@ async def drop_dictionary(inputs: QueryInputs) -> None:
                 dictionary_name=inputs.dictionary_name,
             )
         )
-
-
-@activity.defn
-async def select_persons_to_delete(inputs: QueryInputs) -> list[SerializablePersonOverrideToDelete]:
-    """Select the persons we'll override to lock them in and safely delete afterwards
-
-    New overrides may come in while we are executing this workflow, so we need to
-    preemptively select which persons we are going to override to ignore any new ones
-    coming in.
-
-    It's important that we only select those persons for which the first partition_id
-    in which they appear is covered by the current squash workflow. Otherwise, if there
-    is an override in an older partition that is not covered by the current workflow
-    we want to keep the override as there could still be events to squash.
-
-    The output of this activity is a dictionary that maps integer team_ids to sets of
-    person ids that are safe to delete. Team_id is used as a filter in later queries.
-    """
-    from django.conf import settings
-
-    latest_created_at = inputs.latest_created_at.timestamp() if inputs.latest_created_at else inputs.latest_created_at
-
-    async with get_client() as clickhouse_client:
-        response = await clickhouse_client.read_query(
-            SELECT_PERSONS_TO_DELETE_QUERY.format(database=settings.CLICKHOUSE_DATABASE),
-            query_parameters={"latest_created_at": latest_created_at},
-        )
-
-        if not response:
-            return []
-
-        schema = (
-            int,
-            UUID,
-            UUID,
-            parse_clickhouse_timestamp,
-            int,
-            parse_clickhouse_timestamp,
-        )
-        to_delete_rows = (
-            (schema[field_index](field_value) for field_index, field_value in enumerate(line.split("\t")))
-            for line in response.decode("utf-8").splitlines()
-        )
-
-    # We need to be absolutely sure which is the oldest event for a given person
-    # as we cannot delete persons that have events in the past that aren't being
-    # squashed by this workflow.
-    persons_to_delete = []
-    older_persons_to_delete = []
-    for row in to_delete_rows:
-        person_to_delete = PersonOverrideToDelete._make(row)
-        person_oldest_event_at = person_to_delete.oldest_event_at
-
-        async with get_client() as clickhouse_client:
-            response = await clickhouse_client.read_query(
-                SELECT_CREATED_AT_FOR_PERSON_EVENT_QUERY.format(database=settings.CLICKHOUSE_DATABASE),
-                query_parameters={
-                    "team_id": person_to_delete.team_id,
-                    "old_person_id": person_to_delete.old_person_id,
-                    "oldest_event_at": person_oldest_event_at,
-                },
-            )
-
-            if not response:
-                absolute_oldest_event_at = EPOCH
-
-            else:
-                absolute_oldest_event_at = parse_clickhouse_timestamp(response.decode("utf-8"))
-
-        # ClickHouse min() likes to return the epoch when no rows found.
-        # Granted, I'm assuming that we were not ingesting events in 1970...
-        if absolute_oldest_event_at != EPOCH:
-            min_oldest_event_at = min(
-                person_oldest_event_at,
-                absolute_oldest_event_at,
-            )
-        else:
-            min_oldest_event_at = person_oldest_event_at
-
-        person_to_delete = person_to_delete._replace(oldest_event_at=min_oldest_event_at)
-
-        if person_to_delete.is_in_partitions(inputs.partition_ids):
-            persons_to_delete.append(person_to_delete._make_serializable())
-        else:
-            older_persons_to_delete.append(person_to_delete)
-
-    # There could be older overrides that we haven't cleaned up yet.
-    # As the squash logic will always prefer new ones, there is no reason to keep the
-    # older ones around if we schedule the old ones to be deleted.
-    # So, let's delete those too.
-    persons_to_delete_ids = set(person.old_person_id for person in persons_to_delete)
-    persons_to_delete.extend(
-        (
-            older_person._make_serializable()
-            for older_person in older_persons_to_delete
-            if older_person.old_person_id in persons_to_delete_ids
-        )
-    )
-
-    return persons_to_delete
 
 
 @activity.defn
@@ -466,15 +266,12 @@ async def squash_events_partition(inputs: QueryInputs) -> None:
 
     query = SQUASH_EVENTS_QUERY
 
-    latest_created_at = inputs.latest_created_at
-
     for partition_id in inputs.partition_ids:
         activity.logger.info("Executing squash query on partition %s", partition_id)
 
         parameters = {
             "partition_id": partition_id,
             "team_ids": inputs.team_ids,
-            "latest_created_at": latest_created_at,
         }
 
         if inputs.dry_run is True:
@@ -486,7 +283,7 @@ async def squash_events_partition(inputs: QueryInputs) -> None:
             query = query.format(
                 database=settings.CLICKHOUSE_DATABASE,
                 dictionary_name=inputs.dictionary_name,
-                team_id_filter="AND team_id in %(team_ids)s" if inputs.team_ids else "",
+                in_team_ids="AND team_id IN %(team_ids)s" if inputs.team_ids else "",
             )
             await clickhouse_client.execute_query(
                 query,
@@ -501,34 +298,37 @@ async def delete_squashed_person_overrides_from_clickhouse(inputs: QueryInputs) 
 
     activity.logger.info("Deleting squashed persons from ClickHouse")
 
-    old_person_ids_to_delete = tuple(person.old_person_id for person in inputs.iter_person_overides_to_delete())
-    activity.logger.debug("%s", old_person_ids_to_delete)
-
-    query = DELETE_SQUASHED_PERSON_OVERRIDES_QUERY
-    latest_created_at = inputs.latest_created_at.timestamp() if inputs.latest_created_at else inputs.latest_created_at
-    parameters = {
-        "old_person_ids": old_person_ids_to_delete,
-        # We pass this as a timestamp ourselves as clickhouse-driver will drop any microseconds from the datetime.
-        # This would cause the latest merge event to be ignored.
-        # See: https://github.com/mymarilyn/clickhouse-driver/issues/306
-        "latest_created_at": latest_created_at,
-    }
-
     if inputs.dry_run is True:
         activity.logger.info("This is a DRY RUN so nothing will be deleted.")
-        activity.logger.info("Would have run query: %s with parameters %s", query, parameters)
         return
 
-    async with get_client(mutations_sync=1 if inputs.wait_for_mutations is True else 0) as clickhouse_client:
+    async with get_client(mutations_sync=2 if inputs.wait_for_mutations is True else 0) as clickhouse_client:
         await clickhouse_client.execute_query(
-            query.format(database=settings.CLICKHOUSE_DATABASE), query_parameters=parameters
+            CREATE_JOIN_TABLE_FOR_DELETES_QUERY.format(
+                database=settings.CLICKHOUSE_DATABASE, dictionary_name=inputs.dictionary_name
+            ),
+            query_parameters={
+                "partition_ids": tuple(inputs.partition_ids),
+            },
         )
+
+        try:
+            await clickhouse_client.execute_query(
+                DELETE_SQUASHED_PERSON_OVERRIDES_QUERY.format(
+                    database=settings.CLICKHOUSE_DATABASE, dictionary_name=inputs.dictionary_name
+                ),
+            )
+
+        finally:
+            await clickhouse_client.execute_query(
+                DROP_JOIN_TABLE_FOR_DELETES_QUERY.format(database=settings.CLICKHOUSE_DATABASE),
+            )
 
 
 @contextlib.asynccontextmanager
 async def person_overrides_dictionary(
     workflow, query_inputs: QueryInputs, retry_policy: RetryPolicy
-) -> AsyncIterator[str]:
+) -> AsyncIterator[int]:
     """This context manager manages the person_overrides DICTIONARY used during a squash job.
 
     Managing the DICTIONARY involves setup activities:
@@ -548,7 +348,8 @@ async def person_overrides_dictionary(
         start_to_close_timeout=timedelta(seconds=60),
         retry_policy=retry_policy,
     )
-    latest_created_at = await workflow.execute_activity(
+
+    await workflow.execute_activity(
         prepare_dictionary,
         query_inputs,
         start_to_close_timeout=timedelta(seconds=60),
@@ -556,11 +357,18 @@ async def person_overrides_dictionary(
     )
 
     try:
-        yield latest_created_at
+        yield
 
     finally:
         await workflow.execute_activity(
             drop_dictionary,
+            query_inputs,
+            start_to_close_timeout=timedelta(seconds=60),
+            retry_policy=retry_policy,
+        )
+
+        await workflow.execute_activity(
+            re_attach_person_overrides_kafka_table,
             query_inputs,
             start_to_close_timeout=timedelta(seconds=60),
             retry_policy=retry_policy,
@@ -588,7 +396,7 @@ class SquashPersonOverridesInputs:
     dry_run: bool = True
     wait_for_mutations: bool = False
 
-    def iter_partition_ids(self) -> Iterator[str]:
+    def iter_partition_ids(self) -> collections.abc.Iterator[str]:
         """Iterate over configured partition ids.
 
         If partition_ids is set, then we will just yield from that.
@@ -601,7 +409,7 @@ class SquashPersonOverridesInputs:
         for month in self.iter_last_n_months():
             yield month.strftime("%Y%m")
 
-    def iter_last_n_months(self) -> Iterator[datetime]:
+    def iter_last_n_months(self) -> collections.abc.Iterator[datetime]:
         """Iterate over the last N months.
 
         Returns the first day of the last N months. The current month
@@ -669,19 +477,9 @@ class SquashPersonOverridesWorkflow(PostHogWorkflow):
             query_inputs,
             # Let's be kinder to ClickHouse when running ON CLUSTER queries.
             # We use a higher initial_interval for retries so that we let ClickHouse finish up.
-            retry_policy=RetryPolicy(maximum_attempts=3, initial_interval=timedelta(seconds=10)),
-        ) as latest_created_at:
-            query_inputs._latest_created_at = latest_created_at
+            retry_policy=RetryPolicy(maximum_attempts=3, initial_interval=timedelta(seconds=20)),
+        ):
             query_inputs.partition_ids = list(inputs.iter_partition_ids())
-
-            persons_to_delete = await workflow.execute_activity(
-                select_persons_to_delete,
-                query_inputs,
-                start_to_close_timeout=timedelta(seconds=60),
-                retry_policy=retry_policy,
-            )
-
-            query_inputs.person_overrides_to_delete = persons_to_delete
 
             await workflow.execute_activity(
                 squash_events_partition,
@@ -691,10 +489,6 @@ class SquashPersonOverridesWorkflow(PostHogWorkflow):
             )
 
             workflow.logger.info("Squash finished for all requested partitions, running clean up activities")
-
-            if not persons_to_delete:
-                workflow.logger.info("No overrides to delete were found, workflow done")
-                return
 
             await workflow.execute_activity(
                 delete_squashed_person_overrides_from_clickhouse,

@@ -75,7 +75,7 @@ def clickhouse_client():
         # This parameter is disabled (0) in production.
         # Durting testing, it's useful to enable it to wait for mutations.
         # Otherwise, tests that rely on running a mutation may become flaky.
-        mutations_sync=1,
+        mutations_sync=2,
     )
 
     yield client
