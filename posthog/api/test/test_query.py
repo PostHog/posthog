@@ -781,9 +781,10 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
                 },
             )
             query = HogQLQuery(query="select * from event_view")
-            api_response = self.client.post(f"/api/projects/{self.team.id}/query/", {"query": query.dict()}).json()
-            query.response = HogQLQueryResponse.model_validate(api_response)
+            api_response = self.client.post(f"/api/projects/{self.team.id}/query/", {"query": query.dict()})
+            query.response = HogQLQueryResponse.model_validate(api_response.json())
 
+            self.assertEqual(api_response.status_code, 200)
             self.assertEqual(query.response.results and len(query.response.results), 4)
             self.assertEqual(
                 query.response.results,
@@ -793,6 +794,54 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
                     ["sign out", "3", "test_val2"],
                     ["sign out", "4", "test_val3"],
                 ],
+            )
+
+    @snapshot_clickhouse_queries
+    def test_full_hogql_query_async(self):
+        with freeze_time("2020-01-10 12:00:00"):
+            _create_person(
+                properties={"email": "tom@posthog.com"},
+                distinct_ids=["2", "some-random-uid"],
+                team=self.team,
+                immediate=True,
+            )
+            _create_event(
+                team=self.team,
+                event="sign up",
+                distinct_id="2",
+                properties={"key": "test_val1"},
+            )
+        with freeze_time("2020-01-10 12:11:00"):
+            _create_event(
+                team=self.team,
+                event="sign out",
+                distinct_id="2",
+                properties={"key": "test_val2"},
+            )
+        flush_persons_and_events()
+
+        with freeze_time("2020-01-10 12:14:00"):
+            query = HogQLQuery(query="select * from events")
+            api_response = self.client.post(
+                f"/api/projects/{self.team.id}/query/", {"query": query.dict(), "async": True}
+            )
+
+            self.assertEqual(api_response.status_code, 202)  # This means "Accepted" (for processing)
+            self.assertEqual(
+                api_response.json(),
+                {
+                    "complete": False,
+                    "end_time": None,
+                    "error": False,
+                    "error_message": "",
+                    "expiration_time": None,
+                    "id": mock.ANY,
+                    "query_async": True,
+                    "results": None,
+                    "start_time": "2020-01-10T12:14:00Z",
+                    "task_id": mock.ANY,
+                    "team_id": mock.ANY,
+                },
             )
 
     def test_full_hogql_query_values(self):

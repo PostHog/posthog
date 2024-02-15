@@ -4,11 +4,12 @@ import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic, FeatureFlagsSet } from 'lib/logic/featureFlagLogic'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { billingLogic } from 'scenes/billing/billingLogic'
+import { Scene } from 'scenes/sceneTypes'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
-import { BillingProductV2Type, ProductKey } from '~/types'
+import { BillingProductV2Type, Breadcrumb, ProductKey } from '~/types'
 
 import type { onboardingLogicType } from './onboardingLogicType'
 
@@ -18,12 +19,42 @@ export interface OnboardingLogicProps {
 
 export enum OnboardingStepKey {
     PRODUCT_INTRO = 'product_intro',
-    SDKS = 'sdks',
-    BILLING = 'billing',
-    OTHER_PRODUCTS = 'other_products',
+    INSTALL = 'install',
+    PLANS = 'plans',
     VERIFY = 'verify',
     PRODUCT_CONFIGURATION = 'configure',
     INVITE_TEAMMATES = 'invite_teammates',
+}
+
+const productKeyToProductName = {
+    [ProductKey.PRODUCT_ANALYTICS]: 'Product Analytics',
+    [ProductKey.SESSION_REPLAY]: 'Session Replay',
+    [ProductKey.FEATURE_FLAGS]: 'Feature Flags',
+    [ProductKey.SURVEYS]: 'Surveys',
+}
+
+const productKeyToURL = {
+    [ProductKey.PRODUCT_ANALYTICS]: urls.insights(),
+    [ProductKey.SESSION_REPLAY]: urls.replay(),
+    [ProductKey.FEATURE_FLAGS]: urls.featureFlags(),
+    [ProductKey.SURVEYS]: urls.surveys(),
+}
+
+const productKeyToScene = {
+    [ProductKey.PRODUCT_ANALYTICS]: Scene.SavedInsights,
+    [ProductKey.SESSION_REPLAY]: Scene.Replay,
+    [ProductKey.FEATURE_FLAGS]: Scene.FeatureFlags,
+    [ProductKey.SURVEYS]: Scene.Surveys,
+}
+
+export const stepKeyToTitle = (stepKey?: OnboardingStepKey): undefined | string => {
+    return (
+        stepKey &&
+        stepKey
+            .split('_')
+            .map((part, i) => (i == 0 ? part[0].toUpperCase() + part.substring(1) : part))
+            .join(' ')
+    )
 }
 
 // These types have to be set like this, so that kea typegen is happy
@@ -70,6 +101,7 @@ export const onboardingLogic = kea<onboardingLogicType>([
         setAllOnboardingSteps: (allOnboardingSteps: AllOnboardingSteps) => ({ allOnboardingSteps }),
         setStepKey: (stepKey: OnboardingStepKey) => ({ stepKey }),
         setSubscribedDuringOnboarding: (subscribedDuringOnboarding: boolean) => ({ subscribedDuringOnboarding }),
+        setIncludeIntro: (includeIntro: boolean) => ({ includeIntro }),
         goToNextStep: true,
         goToPreviousStep: true,
         resetStepKey: true,
@@ -105,8 +137,31 @@ export const onboardingLogic = kea<onboardingLogicType>([
                 setSubscribedDuringOnboarding: (_, { subscribedDuringOnboarding }) => subscribedDuringOnboarding,
             },
         ],
+        includeIntro: [
+            true,
+            {
+                setIncludeIntro: (_, { includeIntro }) => includeIntro,
+            },
+        ],
     })),
     selectors({
+        breadcrumbs: [
+            (s) => [s.productKey, s.stepKey],
+            (productKey, stepKey): Breadcrumb[] => {
+                return [
+                    {
+                        key: Scene.Onboarding,
+                        name: productKeyToProductName[productKey ?? ''],
+                        path: productKeyToURL[productKey ?? ''],
+                    },
+                    {
+                        key: productKeyToScene[productKey ?? ''],
+                        name: stepKeyToTitle(stepKey),
+                        path: urls.onboarding(productKey ?? '', stepKey),
+                    },
+                ]
+            },
+        ],
         onCompleteOnboardingRedirectUrl: [
             (s) => [s.featureFlags, s.productKey],
             (featureFlags: FeatureFlagsSet, productKey: string | null) => {
@@ -116,6 +171,12 @@ export const onboardingLogic = kea<onboardingLogicType>([
         totalOnboardingSteps: [
             (s) => [s.allOnboardingSteps],
             (allOnboardingSteps: AllOnboardingSteps) => allOnboardingSteps.length,
+        ],
+        onboardingStepKeys: [
+            (s) => [s.allOnboardingSteps],
+            (allOnboardingSteps: AllOnboardingSteps) => {
+                return allOnboardingSteps.map((step) => step.props.stepKey)
+            },
         ],
         currentOnboardingStep: [
             (s) => [s.allOnboardingSteps, s.stepKey],
@@ -169,13 +230,6 @@ export const onboardingLogic = kea<onboardingLogicType>([
                 window.location.href = urls.default()
             } else {
                 actions.resetStepKey()
-                const includeFirstOnboardingProductOnUserProperties = values.user?.date_joined
-                    ? new Date(values.user?.date_joined) > new Date('2024-01-10T00:00:00Z')
-                    : false
-                eventUsageLogic.actions.reportOnboardingProductSelected(
-                    product.type,
-                    includeFirstOnboardingProductOnUserProperties
-                )
                 switch (product.type) {
                     case ProductKey.PRODUCT_ANALYTICS:
                         return
@@ -210,6 +264,7 @@ export const onboardingLogic = kea<onboardingLogicType>([
                 eventUsageLogic.actions.reportSubscribedDuringOnboarding(productKey)
             }
         },
+
         completeOnboarding: ({ nextProductKey }) => {
             if (values.productKey) {
                 const product = values.productKey
@@ -277,15 +332,12 @@ export const onboardingLogic = kea<onboardingLogicType>([
         },
     })),
     urlToAction(({ actions, values }) => ({
-        '/onboarding/:productKey(/:intro)': ({ productKey, intro }, { success, upgraded, step }) => {
+        '/onboarding/:productKey': ({ productKey }, { success, upgraded, step }) => {
             if (!productKey) {
                 window.location.href = urls.default()
                 return
             }
-            if (intro === 'intro') {
-                // this prevents us from jumping straight back into onboarding if they are trying to see the intro again
-                actions.setAllOnboardingSteps([])
-            }
+
             if (success || upgraded) {
                 actions.setSubscribedDuringOnboarding(true)
             }

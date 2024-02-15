@@ -394,7 +394,7 @@ export default function SurveyEdit(): JSX.Element {
                                         value={!hasTargetingSet}
                                         options={[
                                             { label: 'All users', value: true },
-                                            { label: 'Users who match...', value: false },
+                                            { label: 'Users who match all of the following...', value: false },
                                         ]}
                                     />
                                     {!hasTargetingSet ? (

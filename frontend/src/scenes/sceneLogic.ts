@@ -15,9 +15,11 @@ import { AvailableFeature, ProductKey } from '~/types'
 
 import { appContextLogic } from './appContextLogic'
 import { handleLoginRedirect } from './authentication/loginLogic'
+import { OnboardingStepKey } from './onboarding/onboardingLogic'
 import { organizationLogic } from './organizationLogic'
 import { preflightLogic } from './PreflightCheck/preflightLogic'
 import type { sceneLogicType } from './sceneLogicType'
+import { inviteLogic } from './settings/organization/inviteLogic'
 import { teamLogic } from './teamLogic'
 import { userLogic } from './userLogic'
 
@@ -37,7 +39,7 @@ export const sceneLogic = kea<sceneLogicType>([
     path(['scenes', 'sceneLogic']),
     connect(() => ({
         logic: [router, userLogic, preflightLogic, appContextLogic],
-        actions: [router, ['locationChanged'], commandBarLogic, ['setCommandBar']],
+        actions: [router, ['locationChanged'], commandBarLogic, ['setCommandBar'], inviteLogic, ['hideInviteModal']],
         values: [featureFlagLogic, ['featureFlags']],
     })),
     actions({
@@ -249,10 +251,7 @@ export const sceneLogic = kea<sceneLogicType>([
                         !removeProjectIdIfPresent(location.pathname).startsWith(urls.products()) &&
                         !removeProjectIdIfPresent(location.pathname).startsWith(urls.settings())
                     ) {
-                        if (
-                            !teamLogic.values.currentTeam.completed_snippet_onboarding &&
-                            !Object.keys(teamLogic.values.currentTeam.has_completed_onboarding_for || {}).length
-                        ) {
+                        if (!teamLogic.values.hasOnboardedAnyProduct) {
                             console.warn('No onboarding completed, redirecting to /products')
                             router.actions.replace(urls.products())
                             return
@@ -283,7 +282,9 @@ export const sceneLogic = kea<sceneLogicType>([
                                 console.warn(
                                     `Onboarding not completed for ${productKeyFromUrl}, redirecting to onboarding intro`
                                 )
-                                router.actions.replace(urls.onboardingProductIntroduction(productKeyFromUrl))
+                                router.actions.replace(
+                                    urls.onboarding(productKeyFromUrl, OnboardingStepKey.PRODUCT_INTRO)
+                                )
                                 return
                             }
                         }

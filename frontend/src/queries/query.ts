@@ -93,6 +93,8 @@ export function queryExportContext<N extends DataNode = DataNode>(
     }
 }
 
+const SYNC_ONLY_QUERY_KINDS = ['HogQLMetadata', 'EventsQuery', 'HogQLAutocomplete'] satisfies NodeKind[keyof NodeKind][]
+
 /**
  * Execute a query node and return the response, use async query if enabled
  */
@@ -102,12 +104,13 @@ async function executeQuery<N extends DataNode = DataNode>(
     refresh?: boolean,
     queryId?: string
 ): Promise<NonNullable<N['response']>> {
-    const queryAsyncEnabled = Boolean(featureFlagLogic.findMounted()?.values.featureFlags?.[FEATURE_FLAGS.QUERY_ASYNC])
-    const excludedKinds = ['HogQLMetadata', 'EventsQuery', 'HogQLAutocomplete']
-    const queryAsync = queryAsyncEnabled && !excludedKinds.includes(queryNode.kind)
-    const response = await api.query(queryNode, methodOptions, queryId, refresh, queryAsync)
+    const isAsyncQuery =
+        !SYNC_ONLY_QUERY_KINDS.includes(queryNode.kind) &&
+        !!featureFlagLogic.findMounted()?.values.featureFlags?.[FEATURE_FLAGS.QUERY_ASYNC]
 
-    if (!queryAsync || !response.query_async) {
+    const response = await api.query(queryNode, methodOptions, queryId, refresh, isAsyncQuery)
+
+    if (!isAsyncQuery || !response.query_async) {
         return response
     }
 
