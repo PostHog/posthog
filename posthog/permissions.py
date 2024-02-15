@@ -300,17 +300,6 @@ class APIScopePermission(BasePermission):
         scoped_organizations = request.successful_authenticator.personal_api_key.scoped_organizations
         scoped_teams = request.successful_authenticator.personal_api_key.scoped_teams
 
-        if scoped_organizations:
-            try:
-                organization = get_organization_from_view(view)
-            except ValueError:
-                # Indicates this is not an organization scoped view
-                pass
-            if str(organization.id) not in scoped_organizations:
-                raise PermissionDenied(
-                    f"API key does not have access to the requested organization '{organization.id}'"
-                )
-
         if scoped_teams:
             try:
                 team = view.team
@@ -319,6 +308,17 @@ class APIScopePermission(BasePermission):
 
             except (ValueError, KeyError):
                 # Indicates this is not a team scoped view
+                pass
+
+        if scoped_organizations:
+            try:
+                organization = get_organization_from_view(view)
+                if str(organization.id) not in scoped_organizations:
+                    raise PermissionDenied(
+                        f"API key does not have access to the requested organization '{organization.id}'"
+                    )
+            except ValueError:
+                # Indicates this is not an organization scoped view
                 pass
 
     def get_required_scopes(self, request, view) -> list[str]:

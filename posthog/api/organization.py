@@ -146,6 +146,7 @@ class OrganizationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 for permission in [
                     permissions.IsAuthenticated,
                     PremiumMultiorganizationPermissions,
+                    APIScopePermission,
                 ]
             ]
         return super().get_permissions()
@@ -161,19 +162,18 @@ class OrganizationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     # Override base view as the "parent_query_dict" for an organization is the same as the organization itself
     @cached_property
     def organization(self) -> Organization:
-        if self.detail:
-            queryset = self.filter_queryset(self.get_queryset())
-            lookup_value = self.kwargs[self.lookup_field]
-            if lookup_value == "@current":
-                organization = cast(User, self.request.user).organization
-                if organization is None:
-                    raise exceptions.NotFound("Current organization not found.")
-                return organization
+        if not self.detail:
+            raise AttributeError("Not valid for non-detail routes.")
+        queryset = self.filter_queryset(self.get_queryset())
+        lookup_value = self.kwargs[self.lookup_field]
+        if lookup_value == "@current":
+            organization = cast(User, self.request.user).organization
+            if organization is None:
+                raise exceptions.NotFound("Current organization not found.")
+            return organization
 
-            filter_kwargs = {self.lookup_field: lookup_value}
-            return get_object_or_404(queryset, **filter_kwargs)
-
-        raise exceptions.NotFound("Organization not found.")
+        filter_kwargs = {self.lookup_field: lookup_value}
+        return get_object_or_404(queryset, **filter_kwargs)
 
     def perform_destroy(self, organization: Organization):
         user = cast(User, self.request.user)

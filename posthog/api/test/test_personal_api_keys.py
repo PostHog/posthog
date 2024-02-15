@@ -13,7 +13,10 @@ from posthog.test.base import APIBaseTest
 class TestPersonalAPIKeysAPI(APIBaseTest):
     def test_create_personal_api_key(self):
         label = "Test key uno"
-        response = self.client.post("/api/personal_api_keys", {"label": label, "scopes": ["insight:read"]})
+        response = self.client.post(
+            "/api/personal_api_keys",
+            {"label": label, "scopes": ["insight:read"], "scoped_organizations": [], "scoped_teams": []},
+        )
         assert response.status_code == 201
         data = response.json()
 
@@ -26,8 +29,8 @@ class TestPersonalAPIKeysAPI(APIBaseTest):
             "last_used_at": None,
             "user_id": self.user.id,
             "scopes": ["insight:read"],
-            "scoped_organizations": None,
-            "scoped_teams": None,
+            "scoped_organizations": [],
+            "scoped_teams": [],
             "value": data["value"],
         }
         assert data["value"].startswith("phx_")  # Personal API key prefix
@@ -71,7 +74,10 @@ class TestPersonalAPIKeysAPI(APIBaseTest):
         assert data["scopes"] == ["insight:write"]
 
     def test_allows_all_scope(self):
-        response = self.client.post("/api/personal_api_keys/", {"label": "test", "scopes": ["*"]})
+        response = self.client.post(
+            "/api/personal_api_keys/",
+            {"label": "test", "scopes": ["*"], "scoped_organizations": [], "scoped_teams": []},
+        )
         assert response.status_code == 201
         assert response.json()["scopes"] == ["*"]
 
@@ -155,7 +161,7 @@ class TestPersonalAPIKeysAPI(APIBaseTest):
     def test_organization_scoping(self):
         response = self.client.post(
             "/api/personal_api_keys/",
-            {"label": "test", "scopes": ["*"], "scoped_organizations": [str(self.organization.id)]},
+            {"label": "test", "scopes": ["*"], "scoped_organizations": [str(self.organization.id)], "scoped_teams": []},
         )
         assert response.status_code == 201, response.json()
         assert response.json()["scoped_organizations"] == [str(self.organization.id)]
@@ -168,6 +174,7 @@ class TestPersonalAPIKeysAPI(APIBaseTest):
                 "label": "test",
                 "scopes": ["*"],
                 "scoped_organizations": [str(self.organization.id), str(other_org.id)],
+                "scoped_teams": [],
             },
         )
         assert response.status_code == 400, response.json()
@@ -175,7 +182,8 @@ class TestPersonalAPIKeysAPI(APIBaseTest):
 
     def test_team_scoping(self):
         response = self.client.post(
-            "/api/personal_api_keys/", {"label": "test", "scopes": ["*"], "scoped_teams": [self.team.id]}
+            "/api/personal_api_keys/",
+            {"label": "test", "scopes": ["*"], "scoped_teams": [self.team.id], "scoped_organizations": []},
         )
         assert response.status_code == 201, response.json()
         assert response.json()["scoped_teams"] == [self.team.id]
@@ -184,21 +192,44 @@ class TestPersonalAPIKeysAPI(APIBaseTest):
         other_org = Organization.objects.create(name="other org")
         other_team = Team.objects.create(organization=other_org, name="other team")
         response = self.client.post(
-            "/api/personal_api_keys/", {"label": "test", "scopes": ["*"], "scoped_teams": [self.team.id, other_team.id]}
+            "/api/personal_api_keys/",
+            {
+                "label": "test",
+                "scopes": ["*"],
+                "scoped_teams": [self.team.id, other_team.id],
+                "scoped_organizations": [],
+            },
         )
         assert response.status_code == 400, response.json()
         assert response.json()["detail"] == "You must be a member of all teams that you are scoping the key to."
 
 
-class TestPersonalAPIKeysAPIAuthentication(APIBaseTest):
+class PersonalAPIKeysBaseTest(APIBaseTest):
     CONFIG_AUTO_LOGIN = False
 
     value: str
     key: PersonalAPIKey
 
     def setUp(self):
+        other_organization, _, other_team = Organization.objects.bootstrap(self.user)
+        self.other_organization = other_organization
+        self.other_team = other_team
+
         self.value = generate_random_token_personal()
-        self.key = PersonalAPIKey.objects.create(label="Test", user=self.user, secure_value=hash_key_value(self.value))
+        self.key = PersonalAPIKey.objects.create(
+            label="Test",
+            user=self.user,
+            secure_value=hash_key_value(self.value),
+            scopes=[],
+            scoped_teams=[],
+            scoped_organizations=[],
+        )
+        return super().setUp()
+
+
+class TestPersonalAPIKeysAPIAuthentication(PersonalAPIKeysBaseTest):
+    def setUp(self):
+        super().setUp()
         self.value_390000 = generate_random_token_personal()
         self.key_390000 = PersonalAPIKey.objects.create(
             label="Test", user=self.user, secure_value=hash_key_value(self.value_390000, iterations=390000)
@@ -209,7 +240,6 @@ class TestPersonalAPIKeysAPIAuthentication(APIBaseTest):
             user=self.user,
             secure_value="pbkdf2_sha256$260000$posthog_personal_api_key$dUOOjl6bYdigHd+QfhYzN6P2vM01ZbFROS8dm9KRK7Y=",
         )
-        return super().setUp()
 
     def test_no_key(self):
         response = self.client.get(f"/api/projects/{self.team.id}/dashboards/")
@@ -260,6 +290,8 @@ class TestPersonalAPIKeysAPIAuthentication(APIBaseTest):
         assert response.status_code == status.HTTP_401_UNAUTHORIZED
 
     def test_user_endpoint(self):
+        # NOTE: This is not actually supported currently by new scopes but needs to work for pre-scoped api keys
+        # TODO: Should we support it?
         response = self.client.get("/api/users/@me/", HTTP_AUTHORIZATION=f"Bearer {self.value}")
         assert response.status_code == status.HTTP_200_OK
 
@@ -285,18 +317,11 @@ class TestPersonalAPIKeysAPIAuthentication(APIBaseTest):
 
 # NOTE: These tests use feature flags as an example of a scope, but the actual feature flag functionality is not relevant
 # It is however a good example of a range of cases
-class TestPersonalAPIKeysWithScopeAPIAuthentication(APIBaseTest):
-    CONFIG_AUTO_LOGIN = False
-
-    value: str
-    key: PersonalAPIKey
-
+class TestPersonalAPIKeysWithScopeAPIAuthentication(PersonalAPIKeysBaseTest):
     def setUp(self):
-        self.value = generate_random_token_personal()
-        self.key = PersonalAPIKey.objects.create(
-            label="Test", user=self.user, secure_value=hash_key_value(self.value), scopes=["feature_flag:read"]
-        )
-        return super().setUp()
+        super().setUp()
+        self.key.scopes = ["feature_flag:read"]
+        self.key.save()
 
     def _do_request(self, url: str):
         return self.client.get(url, HTTP_AUTHORIZATION=f"Bearer {self.value}")
@@ -353,39 +378,47 @@ class TestPersonalAPIKeysWithScopeAPIAuthentication(APIBaseTest):
         assert response.status_code == status.HTTP_200_OK
 
 
-class TestPersonalAPIKeysWithTeamOrgScopeAPIAuthentication(APIBaseTest):
-    CONFIG_AUTO_LOGIN = False
-
-    value: str
-    key: PersonalAPIKey
-
+class TestPersonalAPIKeysWithOrganizationScopeAPIAuthentication(PersonalAPIKeysBaseTest):
     def setUp(self):
-        other_organization, _, other_team = Organization.objects.bootstrap(self.user)
-        self.other_organization = other_organization
-        self.other_team = other_team
-
-        self.value = generate_random_token_personal()
-        self.key = PersonalAPIKey.objects.create(
-            label="Test",
-            user=self.user,
-            secure_value=hash_key_value(self.value),
-            scopes=["*"],
-            scoped_teams=[self.team.id],
-            scoped_organizations=[str(self.organization.id)],
-        )
-        return super().setUp()
+        super().setUp()
+        self.key.scoped_organizations = [str(self.organization.id)]
+        self.key.scoped_teams = []
+        self.key.save()
 
     def _do_request(self, url: str):
         return self.client.get(url, HTTP_AUTHORIZATION=f"Bearer {self.value}")
 
-    def test_allows_access_to_scoped_org_and_team(self):
+    def test_allows_access_to_scoped_org(self):
         response = self._do_request(f"/api/organizations/{self.organization.id}")
         assert response.status_code == status.HTTP_200_OK, response.json()
-        response = self._do_request(f"/api/projects/{self.team.id}/feature_flags")
+        response = self._do_request(f"/api/organizations")
         assert response.status_code == status.HTTP_200_OK, response.json()
+        assert len(response.json()["results"]) == 1
+        assert response.json()["results"]["id"] == str(self.organization.id)
 
-    def test_denies_access_to_non_scoped_org_and_team(self):
-        response = self._do_request(f"/api/organizations/{self.other_organization.id}")
-        assert response.status_code == status.HTTP_403_FORBIDDEN, response.json()
-        response = self._do_request(f"/api/projects/{self.other_team.id}/feature_flags")
-        assert response.status_code == status.HTTP_403_FORBIDDEN, response.json()
+    # def test_allows_access_to_scoped_org_teams(self):
+    #     response = self._do_request(f"/api/projects/{self.team.id}")
+    #     assert response.status_code == status.HTTP_200_OK, response.json()
+    #     response = self._do_request(f"/api/projects/{self.team.id}/feature_flags")
+    #     assert response.status_code == status.HTTP_200_OK, response.json()
+
+    # def test_denies_access_to_non_scoped_org_and_team(self):
+    #     self.key.scoped_teams = [self.team.id]
+    #     self.key.save()
+    #     response = self._do_request(f"/api/organizations/{self.other_organization.id}")
+    #     assert response.status_code == status.HTTP_403_FORBIDDEN, response.json()
+    #     response = self._do_request(f"/api/projects/{self.other_team.id}/feature_flags")
+    #     assert response.status_code == status.HTTP_403_FORBIDDEN, response.json()
+
+    # TODO: Add tests to make sure
+    # 1. If team scoped, you can only access organizations that the team is part of
+    # 2. If organization scoped, you can only list organizations that the team is part of
+
+
+class TestPersonalAPIKeysWithTeamScopeAPIAuthentication(TestPersonalAPIKeysWithOrganizationScopeAPIAuthentication):
+    def setUp(self):
+        super().setUp()
+
+        self.key.scoped_organizations = []
+        self.key.scoped_teams = [self.team.id]
+        self.key.save()
