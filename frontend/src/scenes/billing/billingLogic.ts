@@ -193,8 +193,7 @@ export const billingLogic = kea<billingLogicType>([
                     return productSpecificAlert
                 }
 
-                if (!billing) {
-                    //  || !preflight?.cloud) {
+                if (!billing || !preflight?.cloud) {
                     return
                 }
 
@@ -239,7 +238,10 @@ export const billingLogic = kea<billingLogicType>([
                     }
                 }
 
-                localStorage.setItem('usage-limit-exceeded', 'false')
+                localStorage.setItem(
+                    'components.lemon-banner.lemonBannerLogic.usage-limit-exceeded.isDismissed',
+                    'false'
+                )
 
                 const productApproachingLimit = billing.products?.find(
                     (x) => x.percentage_usage > ALLOCATION_THRESHOLD_ALERT
