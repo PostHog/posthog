@@ -7,6 +7,7 @@ from posthog.models.organization import Organization
 from posthog.models.personal_api_key import PersonalAPIKey, hash_key_value
 from posthog.models.team.team import Team
 from posthog.models.utils import generate_random_token_personal
+from posthog.schema import EventsQuery
 from posthog.test.base import APIBaseTest
 
 
@@ -400,6 +401,16 @@ class TestPersonalAPIKeysWithScopeAPIAuthentication(PersonalAPIKeysBaseTest):
         self.key.scopes = ["feature_flag:write", "activity_log:read"]
         self.key.save()
         response = self._do_request(f"/api/projects/{self.team.id}/feature_flags/activity")
+        assert response.status_code == status.HTTP_200_OK
+
+    def test_allows_overriding_write_scopes(self):
+        self.key.scopes = ["query:read"]
+        self.key.save()
+
+        query = EventsQuery(select=["event", "distinct_id"])
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/query/", {"query": query.dict()}, HTTP_AUTHORIZATION=f"Bearer {self.value}"
+        )
         assert response.status_code == status.HTTP_200_OK
 
 
