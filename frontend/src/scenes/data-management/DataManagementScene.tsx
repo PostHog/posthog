@@ -1,10 +1,10 @@
+import { IconInfo } from '@posthog/icons'
 import { actions, connect, kea, path, reducers, selectors, useActions, useValues } from 'kea'
 import { actionToUrl, combineUrl, router, urlToAction } from 'kea-router'
 import { ActivityLog } from 'lib/components/ActivityLog/ActivityLog'
 import { PageHeader } from 'lib/components/PageHeader'
 import { TitleWithIcon } from 'lib/components/TitleWithIcon'
 import { FEATURE_FLAGS } from 'lib/constants'
-import { IconInfo } from 'lib/lemon-ui/icons'
 import { LemonTab, LemonTabs } from 'lib/lemon-ui/LemonTabs'
 import { LemonTag } from 'lib/lemon-ui/LemonTag/LemonTag'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
@@ -51,9 +51,7 @@ const tabs: Record<
             <TitleWithIcon
                 icon={
                     <Tooltip title="Actions consist of one or more events that you have decided to put into a deliberately-labeled bucket. They're used in insights and dashboards.">
-                        <span>
-                            <IconInfo />
-                        </span>
+                        <IconInfo />
                     </Tooltip>
                 }
             >
@@ -69,9 +67,7 @@ const tabs: Record<
             <TitleWithIcon
                 icon={
                     <Tooltip title="Properties are additional data sent along with an event capture. Use properties to understand additional information about events and the actors that generate them.">
-                        <span>
-                            <IconInfo />
-                        </span>
+                        <IconInfo />
                     </Tooltip>
                 }
             >

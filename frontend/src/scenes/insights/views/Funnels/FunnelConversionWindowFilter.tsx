@@ -64,9 +64,7 @@ export function FunnelConversionWindowFilter({ insightProps }: Pick<EditorFilter
                         </>
                     }
                 >
-                    <span>
-                        <IconInfo className="w-4 info-indicator" />
-                    </span>
+                    <IconInfo className="w-4 info-indicator" />
                 </Tooltip>
             </span>
             <div className="flex items-center gap-2">

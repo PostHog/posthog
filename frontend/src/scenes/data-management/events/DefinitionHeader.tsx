@@ -17,26 +17,20 @@ export function getPropertyDefinitionIcon(definition: PropertyDefinition): JSX.E
     if (CORE_FILTER_DEFINITIONS_BY_GROUP.event_properties[definition.name]) {
         return (
             <Tooltip title="PostHog event property">
-                <span>
-                    <IconList className="taxonomy-icon taxonomy-icon-muted" />
-                </span>
+                <IconList className="taxonomy-icon taxonomy-icon-muted" />
             </Tooltip>
         )
     }
     if (definition.verified) {
         return (
             <Tooltip title="Verified event property">
-                <span>
-                    <IconList className="taxonomy-icon taxonomy-icon-muted" />
-                </span>
+                <IconList className="taxonomy-icon taxonomy-icon-muted" />
             </Tooltip>
         )
     }
     return (
         <Tooltip title="Event property">
-            <span>
-                <IconList className="taxonomy-icon taxonomy-icon-muted" />
-            </span>
+            <IconList className="taxonomy-icon taxonomy-icon-muted" />
         </Tooltip>
     )
 }
@@ -46,18 +40,14 @@ export function getEventDefinitionIcon(definition: EventDefinition & { value: st
     if (definition.name === '$pageview' || definition.name === '$screen') {
         return (
             <Tooltip title="Pageview">
-                <span>
-                    <IconEye className="taxonomy-icon taxonomy-icon-ph taxonomy-icon-muted" />
-                </span>
+                <IconEye className="taxonomy-icon taxonomy-icon-ph taxonomy-icon-muted" />
             </Tooltip>
         )
     }
     if (definition.name === '$pageleave') {
         return (
             <Tooltip title="PostHog event">
-                <span>
-                    <IconLeave className="taxonomy-icon taxonomy-icon-ph taxonomy-icon-muted" />
-                </span>
+                <IconLeave className="taxonomy-icon taxonomy-icon-ph taxonomy-icon-muted" />
             </Tooltip>
         )
     }
@@ -67,35 +57,27 @@ export function getEventDefinitionIcon(definition: EventDefinition & { value: st
     if (definition.name && definition.verified) {
         return (
             <Tooltip title="Custom event">
-                <span>
-                    <IconCursor className="taxonomy-icon taxonomy-icon-muted" />
-                </span>
+                <IconCursor className="taxonomy-icon taxonomy-icon-muted" />
             </Tooltip>
         )
     }
     if (definition.name && !!CORE_FILTER_DEFINITIONS_BY_GROUP.events[definition.name]) {
         return (
             <Tooltip title="PostHog event">
-                <span>
-                    <IconLogomark className="taxonomy-icon taxonomy-icon-muted" />
-                </span>
+                <IconLogomark className="taxonomy-icon taxonomy-icon-muted" />
             </Tooltip>
         )
     }
     if (definition.value === null) {
         return (
             <Tooltip title="All events">
-                <span>
-                    <IconSelectAll className="taxonomy-icon taxonomy-icon-built-in" />
-                </span>
+                <IconSelectAll className="taxonomy-icon taxonomy-icon-built-in" />
             </Tooltip>
         )
     }
     return (
         <Tooltip title="Custom event">
-            <span>
-                <IconCursor className="taxonomy-icon taxonomy-icon-muted" />
-            </span>
+            <IconCursor className="taxonomy-icon taxonomy-icon-muted" />
         </Tooltip>
     )
 }
@@ -151,23 +133,19 @@ function RawDefinitionHeader({
                                             : 'Verified'
                                     } event`}
                                 >
-                                    <span>
-                                        <IconBadge
-                                            className="w-5 h-5 taxonomy-icon taxonomy-icon-muted"
-                                            style={{ width: '1.25rem' }}
-                                        />
-                                    </span>
+                                    <IconBadge
+                                        className="w-5 h-5 taxonomy-icon taxonomy-icon-muted"
+                                        style={{ width: '1.25rem' }}
+                                    />
                                 </Tooltip>
                             </>
                         )}
                         {!!CORE_FILTER_DEFINITIONS_BY_GROUP.events[definition.name] && (
                             <Tooltip title="PostHog event">
-                                <span>
-                                    <IconBadge
-                                        className="w-5 h-5 taxonomy-icon taxonomy-icon-muted"
-                                        style={{ width: '1.25rem' }}
-                                    />
-                                </span>
+                                <IconBadge
+                                    className="w-5 h-5 taxonomy-icon taxonomy-icon-muted"
+                                    style={{ width: '1.25rem' }}
+                                />
                             </Tooltip>
                         )}
                     </div>

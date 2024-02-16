@@ -1,3 +1,4 @@
+import { IconLock } from '@posthog/icons'
 import { LemonInput, LemonSelect, LemonTag } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
@@ -9,7 +10,6 @@ import { PageHeader } from 'lib/components/PageHeader'
 import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductIntroduction'
 import PropertyFiltersDisplay from 'lib/components/PropertyFilters/components/PropertyFiltersDisplay'
 import { FEATURE_FLAGS } from 'lib/constants'
-import { IconLock } from 'lib/lemon-ui/icons'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { More } from 'lib/lemon-ui/LemonButton/More'
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
@@ -88,15 +88,13 @@ export function OverViewTab({
                             </Link>
                             {!featureFlag.can_edit && (
                                 <Tooltip title="You don't have edit permissions for this feature flag.">
-                                    <span>
-                                        <IconLock
-                                            style={{
-                                                marginLeft: 6,
-                                                verticalAlign: '-0.125em',
-                                                display: 'inline',
-                                            }}
-                                        />
-                                    </span>
+                                    <IconLock
+                                        style={{
+                                            marginLeft: 6,
+                                            verticalAlign: '-0.125em',
+                                            display: 'inline',
+                                        }}
+                                    />
                                 </Tooltip>
                             )}
                         </div>

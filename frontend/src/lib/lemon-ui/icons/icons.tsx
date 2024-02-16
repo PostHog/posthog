@@ -974,6 +974,18 @@ export function IconHelpOutline(props: LemonIconProps): JSX.Element {
     )
 }
 
+/** Material Design Info icon. */
+export function IconInfo(props: LemonIconProps): JSX.Element {
+    return (
+        <LemonIconBase {...props}>
+            <path
+                d="m11 7h2v2h-2zm0 4h2v6h-2zm1-9c-5.52 0-10 4.48-10 10s4.48 10 10 10 10-4.48 10-10-4.48-10-10-10zm0 18c-4.41 0-8-3.59-8-8s3.59-8 8-8 8 3.59 8 8-3.59 8-8 8z"
+                fill="currentColor"
+            />
+        </LemonIconBase>
+    )
+}
+
 /** Material Design Mail icon. */
 export function IconMail(props: LemonIconProps): JSX.Element {
     return (

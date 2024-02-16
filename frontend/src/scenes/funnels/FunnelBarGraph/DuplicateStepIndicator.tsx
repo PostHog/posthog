@@ -1,4 +1,4 @@
-import { IconInfo } from 'lib/lemon-ui/icons'
+import { IconInfo } from '@posthog/icons'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 
 export function DuplicateStepIndicator(): JSX.Element {
@@ -15,9 +15,7 @@ export function DuplicateStepIndicator(): JSX.Element {
                 </>
             }
         >
-            <span>
-                <IconInfo style={{ marginLeft: '0.375rem', fontSize: '1.25rem', color: 'var(--muted-alt)' }} />
-            </span>
+            <IconInfo style={{ marginLeft: '0.375rem', fontSize: '1.25rem', color: 'var(--muted-alt)' }} />
         </Tooltip>
     )
 }

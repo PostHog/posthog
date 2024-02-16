@@ -1,5 +1,6 @@
 import './Experiment.scss'
 
+import { IconWarning } from '@posthog/icons'
 import {
     LemonDivider,
     LemonInput,
@@ -20,7 +21,7 @@ import { EditableField } from 'lib/components/EditableField/EditableField'
 import { NotFound } from 'lib/components/NotFound'
 import { PageHeader } from 'lib/components/PageHeader'
 import { dayjs } from 'lib/dayjs'
-import { IconDelete, IconPlusMini, IconWarning } from 'lib/lemon-ui/icons'
+import { IconDelete, IconPlusMini } from 'lib/lemon-ui/icons'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { More } from 'lib/lemon-ui/LemonButton/More'
@@ -624,13 +625,11 @@ export function Experiment(): JSX.Element {
                                                     placement="bottom"
                                                     title="Your experiment is running, but the linked flag is disabled. No data is being collected."
                                                 >
-                                                    <span>
-                                                        <IconWarning
-                                                            style={{ transform: 'translateY(2px)' }}
-                                                            className="mr-1 text-danger"
-                                                            fontSize="18px"
-                                                        />
-                                                    </span>
+                                                    <IconWarning
+                                                        style={{ transform: 'translateY(2px)' }}
+                                                        className="mr-1 text-danger"
+                                                        fontSize="18px"
+                                                    />
                                                 </Tooltip>
                                             )}
                                         <CopyToClipboardInline

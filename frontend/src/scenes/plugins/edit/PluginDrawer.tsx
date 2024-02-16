@@ -1,10 +1,9 @@
-import { IconCode } from '@posthog/icons'
+import { IconCode, IconLock } from '@posthog/icons'
 import { LemonButton, LemonSwitch, LemonTag, Link } from '@posthog/lemon-ui'
 import { Form } from 'antd'
 import { useActions, useValues } from 'kea'
 import { Drawer } from 'lib/components/Drawer'
 import { MOCK_NODE_PROCESS } from 'lib/constants'
-import { IconLock } from 'lib/lemon-ui/icons'
 import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { endWithPunctation } from 'lib/utils'
@@ -50,9 +49,7 @@ const SecretFieldIcon = (): JSX.Element => (
             placement="top-start"
             title="This is a secret write-only field. Its value is not available after saving."
         >
-            <span>
-                <IconLock style={{ marginRight: 5 }} />
-            </span>
+            <IconLock style={{ marginRight: 5 }} />
         </Tooltip>
     </>
 )

@@ -1,3 +1,4 @@
+import { IconInfo } from '@posthog/icons'
 import { actions, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { forms } from 'kea-forms'
 import { loaders } from 'kea-loaders'
@@ -5,7 +6,6 @@ import { router, urlToAction } from 'kea-router'
 import api from 'lib/api'
 import { FunnelLayout } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
-import { IconInfo } from 'lib/lemon-ui/icons'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { toParams } from 'lib/utils'
@@ -727,9 +727,7 @@ export const experimentLogic = kea<experimentLogicType>([
                                     <>Current value is {((experimentResults?.expected_loss || 0) * 100)?.toFixed(2)}%</>
                                 }
                             >
-                                <span>
-                                    <IconInfo className="ml-1 text-muted text-xl" />
-                                </span>
+                                <IconInfo className="ml-1 text-muted text-xl" />
                             </Tooltip>
                             .
                         </>
@@ -744,9 +742,7 @@ export const experimentLogic = kea<experimentLogicType>([
                                 placement="right"
                                 title={<>Current value is {experimentResults?.p_value?.toFixed(3) || 1}.</>}
                             >
-                                <span>
-                                    <IconInfo className="ml-1 text-muted text-xl" />
-                                </span>
+                                <IconInfo className="ml-1 text-muted text-xl" />
                             </Tooltip>
                             .
                         </>

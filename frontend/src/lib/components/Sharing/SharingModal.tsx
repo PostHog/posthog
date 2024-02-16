@@ -1,12 +1,13 @@
 import './SharingModal.scss'
 
+import { IconInfo, IconLock } from '@posthog/icons'
 import { LemonButton, LemonSwitch } from '@posthog/lemon-ui'
 import { captureException } from '@sentry/react'
 import { useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
 import { CodeSnippet, Language } from 'lib/components/CodeSnippet'
 import { TitleWithIcon } from 'lib/components/TitleWithIcon'
-import { IconGlobeLock, IconInfo, IconLink, IconLock, IconUnfoldLess, IconUnfoldMore } from 'lib/lemon-ui/icons'
+import { IconGlobeLock, IconLink, IconUnfoldLess, IconUnfoldMore } from 'lib/lemon-ui/icons'
 import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { LemonModal } from 'lib/lemon-ui/LemonModal'
@@ -106,9 +107,7 @@ export function SharingModalContent({
                                             <Tooltip
                                                 title={`Use this HTML snippet to embed the ${resource} on your website`}
                                             >
-                                                <span>
-                                                    <IconInfo />
-                                                </span>
+                                                <IconInfo />
                                             </Tooltip>
                                         }
                                     >
@@ -150,9 +149,7 @@ export function SharingModalContent({
                                                     <span>Show PostHog branding</span>
                                                     {!whitelabelAvailable ? (
                                                         <Tooltip title="Upgrade to any paid plan to hide PostHog branding">
-                                                            <span>
-                                                                <IconLock className="ml-2" />
-                                                            </span>
+                                                            <IconLock className="ml-2" />
                                                         </Tooltip>
                                                     ) : null}
                                                 </div>

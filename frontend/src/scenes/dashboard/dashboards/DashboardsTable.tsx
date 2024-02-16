@@ -1,10 +1,10 @@
-import { IconPin, IconPinFilled, IconShare } from '@posthog/icons'
+import { IconLock, IconPin, IconPinFilled, IconShare } from '@posthog/icons'
 import { LemonInput } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { MemberSelect } from 'lib/components/MemberSelect'
 import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
 import { DashboardPrivilegeLevel } from 'lib/constants'
-import { IconCottage, IconLock } from 'lib/lemon-ui/icons'
+import { IconCottage } from 'lib/lemon-ui/icons'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { More } from 'lib/lemon-ui/LemonButton/More'
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
@@ -91,16 +91,12 @@ export function DashboardsTable({
                             </Link>
                             {is_shared && (
                                 <Tooltip title="This dashboard is shared publicly.">
-                                    <span>
-                                        <IconShare className="ml-1 text-base text-link" />
-                                    </span>
+                                    <IconShare className="ml-1 text-base text-link" />
                                 </Tooltip>
                             )}
                             {!canEditDashboard && (
                                 <Tooltip title={DASHBOARD_CANNOT_EDIT_MESSAGE}>
-                                    <span>
-                                        <IconLock className="ml-1 text-base text-muted" />
-                                    </span>
+                                    <IconLock className="ml-1 text-base text-muted" />
                                 </Tooltip>
                             )}
                             {isPrimary && (

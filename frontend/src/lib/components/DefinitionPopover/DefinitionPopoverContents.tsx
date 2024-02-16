@@ -1,4 +1,5 @@
 import { hide } from '@floating-ui/react'
+import { IconInfo, IconLock } from '@posthog/icons'
 import { LemonButton, LemonCheckbox, LemonDivider } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { ActionPopoverInfo } from 'lib/components/DefinitionPopover/ActionPopoverInfo'
@@ -13,7 +14,7 @@ import {
     TaxonomicFilterGroup,
     TaxonomicFilterGroupType,
 } from 'lib/components/TaxonomicFilter/types'
-import { IconInfo, IconLock, IconOpenInNew } from 'lib/lemon-ui/icons'
+import { IconOpenInNew } from 'lib/lemon-ui/icons'
 import { LemonTextArea } from 'lib/lemon-ui/LemonTextArea/LemonTextArea'
 import { Link } from 'lib/lemon-ui/Link'
 import { Popover } from 'lib/lemon-ui/Popover'
@@ -29,9 +30,7 @@ function TaxonomyIntroductionSection(): JSX.Element {
     const Lock = (): JSX.Element => (
         <div className="h-full w-full overflow-hidden text-ellipsis text-muted">
             <Tooltip title="Viewing ingestion data requires a premium license">
-                <span className="flex items-center">
-                    <IconLock className="mr-1 text-warning text-xl shrink-0" />
-                </span>
+                <IconLock className="mr-1 text-warning text-xl shrink-0" />
             </Tooltip>
         </div>
     )
@@ -84,9 +83,7 @@ export function VerifiedDefinitionCheckbox({
                             Verified {isProperty ? 'property' : 'event'}
                             {compact && (
                                 <Tooltip title={copy}>
-                                    <span className="flex items-center">
-                                        <IconInfo className="ml-2 text-muted text-xl shrink-0" />
-                                    </span>
+                                    <IconInfo className="ml-2 text-muted text-xl shrink-0" />
                                 </Tooltip>
                             )}
                         </span>

@@ -1,6 +1,6 @@
+import { IconInfo } from '@posthog/icons'
 import { Link } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
-import { IconInfo } from 'lib/lemon-ui/icons'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { humanFriendlyDuration, percentage } from 'lib/utils'
 import React from 'react'
@@ -24,9 +24,7 @@ export function FunnelCanvasLabel(): JSX.Element | null {
                           <Tooltip
                               title={`Overall conversion rate for all ${aggregationTargetLabel.plural} on the entire funnel.`}
                           >
-                              <span>
-                                  <IconInfo className="mr-1 text-xl shrink-0" />
-                              </span>
+                              <IconInfo className="mr-1 text-xl shrink-0" />
                           </Tooltip>
                           <span>Total conversion rate:</span>
                       </span>
@@ -41,9 +39,7 @@ export function FunnelCanvasLabel(): JSX.Element | null {
                           <Tooltip
                               title={`Average (arithmetic mean) of the total time each ${aggregationTargetLabel.singular} spent in the entire funnel.`}
                           >
-                              <span>
-                                  <IconInfo className="mr-1 text-xl shrink-0" />
-                              </span>
+                              <IconInfo className="mr-1 text-xl shrink-0" />
                           </Tooltip>
                           <span>Average time to convert</span>
                       </span>

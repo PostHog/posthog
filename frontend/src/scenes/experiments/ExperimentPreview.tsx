@@ -1,3 +1,4 @@
+import { IconInfo } from '@posthog/icons'
 import { LemonButton, LemonDivider, LemonInput, LemonModal, Tooltip } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { Field, Form } from 'kea-forms'
@@ -5,7 +6,6 @@ import { InsightLabel } from 'lib/components/InsightLabel'
 import { PropertyFilterButton } from 'lib/components/PropertyFilters/components/PropertyFilterButton'
 import { TZLabel } from 'lib/components/TZLabel'
 import { dayjs } from 'lib/dayjs'
-import { IconInfo } from 'lib/lemon-ui/icons'
 import { LemonSlider } from 'lib/lemon-ui/LemonSlider'
 import { humanFriendlyNumber } from 'lib/utils'
 import { groupFilters } from 'scenes/feature-flags/FeatureFlags'
@@ -109,9 +109,7 @@ export function ExperimentPreview({
                         <div className="flex items-center">
                             <b>Minimum acceptable improvement</b>
                             <Tooltip title="Minimum acceptable improvement is a calculation that estimates the smallest significant improvement you are willing to accept.">
-                                <span>
-                                    <IconInfo className="ml-1 text-muted text-xl" />
-                                </span>
+                                <IconInfo className="ml-1 text-muted text-xl" />
                             </Tooltip>
                         </div>
                         <div className="flex gap-2">
@@ -297,9 +295,7 @@ export function ExperimentPreview({
                                                 <Tooltip
                                                     title={`This metric determines how we calculate exposure for the experiment. Only users who have this event alongside the property '$feature/${experiment.feature_flag_key}' are included in exposure calculations.`}
                                                 >
-                                                    <span>
-                                                        <IconInfo className="ml-1 text-muted text-sm" />
-                                                    </span>
+                                                    <IconInfo className="ml-1 text-muted text-sm" />
                                                 </Tooltip>
                                             </div>
                                             {experiment.parameters?.custom_exposure_filter ? (

@@ -1,6 +1,6 @@
+import { IconInfo } from '@posthog/icons'
 import { useActions, useValues } from 'kea'
 import { TZLabel } from 'lib/components/TZLabel'
-import { IconInfo } from 'lib/lemon-ui/icons'
 import { LemonSelect } from 'lib/lemon-ui/LemonSelect'
 import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
 import { LemonTable } from 'lib/lemon-ui/LemonTable'
@@ -92,9 +92,7 @@ export function MetricsOverview({
                         {DescriptionColumns[tab].successes}{' '}
                         {DescriptionColumns[tab].successes_tooltip && (
                             <Tooltip title={DescriptionColumns[tab].successes_tooltip}>
-                                <span>
-                                    <IconInfo />
-                                </span>
+                                <IconInfo />
                             </Tooltip>
                         )}
                     </div>
@@ -106,9 +104,7 @@ export function MetricsOverview({
                             {DescriptionColumns[tab].successes_on_retry}{' '}
                             {DescriptionColumns[tab].successes_on_retry_tooltip && (
                                 <Tooltip title={DescriptionColumns[tab].successes_on_retry_tooltip}>
-                                    <span>
-                                        <IconInfo />
-                                    </span>
+                                    <IconInfo />
                                 </Tooltip>
                             )}
                         </div>
@@ -120,9 +116,7 @@ export function MetricsOverview({
                         {DescriptionColumns[tab].failures}{' '}
                         {DescriptionColumns[tab].failures_tooltip && (
                             <Tooltip title={DescriptionColumns[tab].failures_tooltip}>
-                                <span>
-                                    <IconInfo />
-                                </span>
+                                <IconInfo />
                             </Tooltip>
                         )}
                     </div>

@@ -1,9 +1,9 @@
+import { IconInfo } from '@posthog/icons'
 import { useActions, useValues } from 'kea'
 import { Chart, ChartDataset, ChartItem } from 'lib/Chart'
 import { getColorVar } from 'lib/colors'
 import { CodeSnippet, Language } from 'lib/components/CodeSnippet'
 import { TZLabel } from 'lib/components/TZLabel'
-import { IconInfo } from 'lib/lemon-ui/icons'
 import { IconChevronLeft, IconChevronRight, IconUnfoldLess, IconUnfoldMore } from 'lib/lemon-ui/icons'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonLabel } from 'lib/lemon-ui/LemonLabel/LemonLabel'
@@ -76,9 +76,7 @@ function MetricsOverview({ metrics, metricsLoading }: MetricsOverviewProps): JSX
                     <div className="text-muted font-semibold mb-2">
                         Events Processed successfully
                         <Tooltip title="Total number of events processed successfully">
-                            <span>
-                                <IconInfo />
-                            </span>
+                            <IconInfo />
                         </Tooltip>
                     </div>
                     <div className="text-4xl">{renderNumber(metrics?.totals?.successes)}</div>
@@ -87,9 +85,7 @@ function MetricsOverview({ metrics, metricsLoading }: MetricsOverviewProps): JSX
                     <div className="text-muted font-semibold mb-2">
                         Events Failed
                         <Tooltip title="Total number of events that threw an error during processing">
-                            <span>
-                                <IconInfo />
-                            </span>
+                            <IconInfo />
                         </Tooltip>
                     </div>
                     <div className="text-4xl">{renderNumber(metrics?.totals?.failures)}</div>

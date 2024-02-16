@@ -1,7 +1,7 @@
+import { IconLock } from '@posthog/icons'
 import { LemonButton, LemonSkeleton, Tooltip } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
-import { IconLock } from 'lib/lemon-ui/icons'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
 import React from 'react'
@@ -88,9 +88,7 @@ function PluginConfigurationFields({
                                     placement="top-start"
                                     title="This field is write-only. Its value won't be visible after saving."
                                 >
-                                    <span>
-                                        <IconLock className="ml-1.5" />
-                                    </span>
+                                    <IconLock className="ml-1.5" />
                                 </Tooltip>
                             )}
                             {fieldConfig.markdown && <LemonMarkdown>{fieldConfig.markdown}</LemonMarkdown>}

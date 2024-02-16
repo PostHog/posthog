@@ -27,9 +27,7 @@ export function InsightDateFilter({ disabled }: InsightDateFilterProps): JSX.Ele
                     <IconCalendar /> {key}
                     {key == 'All time' && (
                         <Tooltip title="Only events dated after 2015 will be shown">
-                            <span>
-                                <IconInfo className="info-indicator" />
-                            </span>
+                            <IconInfo className="info-indicator" />
                         </Tooltip>
                     )}
                 </>

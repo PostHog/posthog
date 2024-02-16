@@ -2,6 +2,7 @@ import './PersonScene.scss'
 
 // eslint-disable-next-line no-restricted-imports
 import { DownOutlined } from '@ant-design/icons'
+import { IconInfo } from '@posthog/icons'
 import { LemonButton, LemonDivider, LemonSelect, LemonTag, Link } from '@posthog/lemon-ui'
 import { Dropdown, Menu } from 'antd'
 import { useActions, useValues } from 'kea'
@@ -12,7 +13,6 @@ import { PageHeader } from 'lib/components/PageHeader'
 import { PropertiesTable } from 'lib/components/PropertiesTable'
 import { TZLabel } from 'lib/components/TZLabel'
 import { groupsAccessLogic } from 'lib/introductions/groupsAccessLogic'
-import { IconInfo } from 'lib/lemon-ui/icons'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
 import { SpinnerOverlay } from 'lib/lemon-ui/Spinner/Spinner'
@@ -99,9 +99,7 @@ function PersonCaption({ person }: { person: PersonType }): JSX.Element {
                             </>
                         }
                     >
-                        <span>
-                            <IconInfo className="ml-1 text-base shrink-0" />
-                        </span>
+                        <IconInfo className="ml-1 text-base shrink-0" />
                     </Tooltip>
                 </Link>
             </div>
@@ -261,9 +259,7 @@ export function PersonScene(): JSX.Element | null {
                                   <span className="flex items-center" data-attr="persons-related-tab">
                                       Related groups
                                       <Tooltip title="People and groups that have shared events with this person in the last 90 days.">
-                                          <span>
-                                              <IconInfo className="ml-1 text-base shrink-0" />
-                                          </span>
+                                          <IconInfo className="ml-1 text-base shrink-0" />
                                       </Tooltip>
                                   </span>
                               ),
@@ -280,9 +276,7 @@ export function PersonScene(): JSX.Element | null {
                                           <div className="flex items-center">
                                               Choose ID:
                                               <Tooltip title="Feature flags values can depend on person distincts IDs. Turn on persistence in feature flag settings if you'd like these to be constant always.">
-                                                  <span>
-                                                      <IconInfo className="ml-1 text-base" />
-                                                  </span>
+                                                  <IconInfo className="ml-1 text-base" />
                                               </Tooltip>
                                           </div>
                                           <LemonSelect

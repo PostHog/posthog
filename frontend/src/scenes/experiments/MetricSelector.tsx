@@ -170,9 +170,7 @@ export function AttributionSelect({ insightProps }: EditorFilterProps): JSX.Elem
                         </div>
                     }
                 >
-                    <span>
-                        <IconInfo className="w-4 info-indicator" />
-                    </span>
+                    <IconInfo className="w-4 info-indicator" />
                 </Tooltip>
             </div>
             <Attribution insightProps={insightProps} />
