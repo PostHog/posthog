@@ -1,10 +1,10 @@
+import { IconInfo } from '@posthog/icons'
 import { LemonButton, LemonCheckbox, LemonTable } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { PayGateMini } from 'lib/components/PayGateMini/PayGateMini'
 import { useRestrictedArea } from 'lib/components/RestrictedArea'
 import { TitleWithIcon } from 'lib/components/TitleWithIcon'
 import { OrganizationMembershipLevel } from 'lib/constants'
-import { IconInfo } from 'lib/lemon-ui/icons'
 import { LemonTableColumns } from 'lib/lemon-ui/LemonTable'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { organizationLogic } from 'scenes/organizationLogic'
@@ -70,9 +70,7 @@ export function PermissionsGrid(): JSX.Element {
                         <TitleWithIcon
                             icon={
                                 <Tooltip title={`You can extend permissions on a per ${getSingularType(name)} basis.`}>
-                                    <span>
-                                        <IconInfo />
-                                    </span>
+                                    <IconInfo />
                                 </Tooltip>
                             }
                         >

@@ -1,17 +1,8 @@
-import { IconX } from '@posthog/icons'
+import { IconInfo, IconPause, IconTerminal, IconX } from '@posthog/icons'
 import { LemonButton, LemonCheckbox, LemonInput, LemonSelect, Tooltip } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { FEATURE_FLAGS } from 'lib/constants'
-import {
-    IconBugShield,
-    IconGauge,
-    IconInfo,
-    IconPause,
-    IconPlayCircle,
-    IconSchedule,
-    IconTerminal,
-    IconUnverifiedEvent,
-} from 'lib/lemon-ui/icons'
+import { IconBugShield, IconGauge, IconPlayCircle, IconSchedule, IconUnverifiedEvent } from 'lib/lemon-ui/icons'
 import { Spinner } from 'lib/lemon-ui/Spinner/Spinner'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { capitalizeFirstLetter } from 'lib/utils'
@@ -144,9 +135,7 @@ export function PlayerInspectorControls({ onClose }: { onClose: () => void }): J
                             fullWidth
                             suffix={
                                 <Tooltip title={<InspectorSearchInfo />}>
-                                    <span>
-                                        <IconInfo />
-                                    </span>
+                                    <IconInfo />
                                 </Tooltip>
                             }
                         />
@@ -176,9 +165,7 @@ export function PlayerInspectorControls({ onClose }: { onClose: () => void }): J
                                 title="Each recording window translates to a distinct browser tab or window."
                                 className="text-base text-muted-alt"
                             >
-                                <span>
-                                    <IconInfo />
-                                </span>
+                                <IconInfo />
                             </Tooltip>
                         </div>
                     ) : null}
@@ -238,9 +225,7 @@ export function PlayerInspectorControls({ onClose }: { onClose: () => void }): J
                             title="Display only the events that match the global filter."
                             className="text-base text-muted-alt"
                         >
-                            <span>
-                                <IconInfo />
-                            </span>
+                            <IconInfo />
                         </Tooltip>
                     </span>
 

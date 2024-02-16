@@ -1,10 +1,11 @@
+import { IconKeyboard, IconPinFilled } from '@posthog/icons'
 import clsx from 'clsx'
 import { useValues } from 'kea'
 import { FlaggedFeature } from 'lib/components/FlaggedFeature'
 import { PropertyIcon } from 'lib/components/PropertyIcon'
 import { TZLabel } from 'lib/components/TZLabel'
 import { FEATURE_FLAGS } from 'lib/constants'
-import { IconAutoAwesome, IconAutocapture, IconKeyboard, IconPinFilled, IconSchedule } from 'lib/lemon-ui/icons'
+import { IconAutoAwesome, IconAutocapture, IconSchedule } from 'lib/lemon-ui/icons'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
 import { Popover } from 'lib/lemon-ui/Popover'
@@ -208,9 +209,7 @@ function FirstURL(props: { startUrl: string | undefined }): JSX.Element {
 function PinnedIndicator(): JSX.Element | null {
     return (
         <Tooltip placement="top-end" title="This recording is pinned to this list.">
-            <span className="flex">
-                <IconPinFilled className="text-sm text-orange shrink-0" />
-            </span>
+            <IconPinFilled className="text-sm text-orange shrink-0" />
         </Tooltip>
     )
 }

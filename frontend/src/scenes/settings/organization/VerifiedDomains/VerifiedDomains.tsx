@@ -74,11 +74,9 @@ function VerifiedDomainsTable(): JSX.Element {
                       key: 'is_verified',
                       title: (
                           <div className="flex items-center space-x-1">
-                              Verification
+                              <span>Verification</span>
                               <Tooltip title="Verification (through DNS) is required to use domains for authentication (e.g. SAML or enforce SSO).">
-                                  <span className="flex">
-                                      <IconInfo />
-                                  </span>
+                                  <IconInfo />
                               </Tooltip>
                           </div>
                       ),
@@ -110,9 +108,7 @@ function VerifiedDomainsTable(): JSX.Element {
                             currentOrganization?.name || 'this organization'
                         } if it does not exist.`}
                     >
-                        <span className="flex">
-                            <IconInfo />
-                        </span>
+                        <IconInfo />
                     </Tooltip>
                 </div>
             ),
@@ -139,9 +135,7 @@ function VerifiedDomainsTable(): JSX.Element {
                 <div className="flex items-center space-x-1">
                     <span>Enforce SSO</span>
                     <Tooltip title="Require users with email addresses on this domain to always log in using a specific SSO provider.">
-                        <span className="flex">
-                            <IconInfo />
-                        </span>
+                        <IconInfo />
                     </Tooltip>
                 </div>
             ),

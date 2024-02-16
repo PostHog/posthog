@@ -1,4 +1,4 @@
-import { IconInfo } from 'lib/lemon-ui/icons'
+import { IconInfo } from '@posthog/icons'
 import { LemonInput } from 'lib/lemon-ui/LemonInput/LemonInput'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 
@@ -50,9 +50,7 @@ export function PersonsSearch({ query, setQuery }: PersonSearchProps): JSX.Eleme
                 onChange={onChange}
             />
             <Tooltip title={labels[target].description}>
-                <span>
-                    <IconInfo className="text-2xl text-muted-alt shrink-0" />
-                </span>
+                <IconInfo className="text-2xl text-muted-alt shrink-0" />
             </Tooltip>
         </div>
     )
