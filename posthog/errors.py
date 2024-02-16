@@ -4,7 +4,7 @@ from typing import Dict
 
 from clickhouse_driver.errors import ServerException
 
-from posthog.exceptions import EstimatedQueryExecutionTimeTooLong
+from posthog.exceptions import EstimatedQueryExecutionTimeTooLong, QuerySizeExceeded
 
 
 class InternalCHQueryError(ServerException):
@@ -44,11 +44,14 @@ def wrap_query_error(err: Exception) -> Exception:
         return err
 
     # Return a 512 error for queries which would time out
-    match = re.search(r"Estimated query execution time \(.* seconds\) is too long.", err.message)
+    match = re.search(r"Estimated query execution time \(.+\) seconds is too long.", err.message)
     if match:
         return EstimatedQueryExecutionTimeTooLong(
-            detail=f"{match.group(0)} Try reducing its scope by changing the time range."
+            # Don't print seconds, so that Sentry can group these errors together
+            detail="Estimated query execution time is too long. Try reducing its scope by changing the time range."
         )
+    elif "max query size exceeded" in err.message:
+        return QuerySizeExceeded()
 
     # :TRICKY: Return a custom class for every code by looking up the short name and creating a class dynamically.
     if hasattr(err, "code"):

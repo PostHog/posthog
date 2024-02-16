@@ -218,10 +218,9 @@ export const dashboardLogic = kea<dashboardLogicType>([
                         const dashboardResponse: Response = await api.getResponse(apiUrl)
                         const dashboard: DashboardType = await getJSONOrThrow(dashboardResponse)
 
-                        // add onDashboard to all insights
                         dashboard.tiles.forEach((tile) => {
                             if (tile.insight) {
-                                tile.insight.onDashboard = true
+                                tile.insight.transient = true
                             }
                         })
 
@@ -369,7 +368,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
                         }
                     }
                     return state
-                },
+                } /*
                 [dashboardsModel.actionTypes.updateDashboardInsight]: (
                     state,
                     { insight, extraDashboardIds, updateTileOnDashboards }
@@ -405,6 +404,8 @@ export const dashboardLogic = kea<dashboardLogicType>([
                             // will reload all items in a listener to pick up the new tile
                         }
 
+                        console.log("We are changing state for the insight", insight.short_id)
+
                         return {
                             ...state,
                             tiles: newTiles.filter((t) => !t.deleted || !t.insight?.deleted),
@@ -412,7 +413,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
                     }
 
                     return null
-                },
+                },*/,
                 [dashboardsModel.actionTypes.updateDashboardTile]: (state, { tile, extraDashboardIds }) => {
                     const targetDashboards = (tile.insight?.dashboards || []).concat(extraDashboardIds || [])
 
@@ -990,8 +991,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
 
                     const refreshedInsightResponse: Response = await api.getResponse(apiUrl, methodOptions)
                     const refreshedInsight: InsightModel = await getJSONOrThrow(refreshedInsightResponse)
-                    // add onDashboard: true to the insight, so we can tell it's being used in a dashboard
-                    refreshedInsight.onDashboard = true
+                    refreshedInsight.transient = true
                     breakpoint()
                     updateExistingInsightState({ cachedInsight: insight, dashboardId, refreshedInsight })
                     dashboardsModel.actions.updateDashboardInsight(

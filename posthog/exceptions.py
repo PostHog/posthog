@@ -43,6 +43,10 @@ class EstimatedQueryExecutionTimeTooLong(APIException):
     default_detail = "Estimated query execution time is too long. Try reducing its scope by changing the time range."
 
 
+class QuerySizeExceeded(APIException):
+    default_detail = "Query size exceeded."
+
+
 class ExceptionContext(TypedDict):
     request: HttpRequest
 
@@ -52,7 +56,7 @@ def exception_reporting(exception: Exception, context: ExceptionContext) -> Opti
     Determines which exceptions to report and sends them to Sentry.
     Used through drf-exceptions-hog
     """
-    if not isinstance(exception, APIException):
+    if not isinstance(exception, APIException) or exception.status_code >= 500:
         logger.exception(exception, path=context["request"].path)
         return capture_exception(exception)
     return None

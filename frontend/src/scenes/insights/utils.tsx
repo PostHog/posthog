@@ -127,29 +127,30 @@ export function findInsightFromMountedLogic(
     insightShortId: InsightShortId | string,
     dashboardId: number | undefined
 ): Partial<InsightModel> | null {
-    if (dashboardId) {
-        const insightOnDashboard = dashboardLogic
-            .findMounted({ id: dashboardId })
-            ?.values.insightTiles?.find((tile) => tile.insight?.short_id === insightShortId)?.insight
-        if (insightOnDashboard) {
-            return insightOnDashboard
-        } else {
-            const dashboards = dashboardsModel.findMounted()?.values.rawDashboards
-            let foundOnModel: Partial<InsightModel> | undefined
-            for (const dashModelId of Object.keys(dashboards || {})) {
-                foundOnModel = dashboardLogic
-                    .findMounted({ id: parseInt(dashModelId) })
-                    ?.values.insightTiles?.find((tile) => tile.insight?.short_id === insightShortId)?.insight
-            }
-            return foundOnModel || null
-        }
-    } else {
+    if (!dashboardId) {
+        // Important: If we are not on a dashboard, don't use transient insights
         return (
             savedInsightsLogic
                 .findMounted()
-                ?.values.insights?.results?.find((item) => item.short_id === insightShortId) || null
+                ?.values.insights?.results?.find((item) => item.short_id === insightShortId && !item.transient) || null
         )
     }
+
+    const insightOnDashboard = dashboardLogic
+        .findMounted({ id: dashboardId })
+        ?.values.insightTiles?.find((tile) => tile.insight?.short_id === insightShortId)?.insight
+    if (insightOnDashboard) {
+        return insightOnDashboard
+    }
+
+    const dashboards = dashboardsModel.findMounted()?.values.rawDashboards
+    let foundOnModel: Partial<InsightModel> | undefined
+    for (const dashModelId of Object.keys(dashboards || {})) {
+        foundOnModel = dashboardLogic
+            .findMounted({ id: parseInt(dashModelId) })
+            ?.values.insightTiles?.find((tile) => tile.insight?.short_id === insightShortId)?.insight
+    }
+    return foundOnModel || null
 }
 
 export async function getInsightId(shortId: InsightShortId): Promise<number | undefined> {
