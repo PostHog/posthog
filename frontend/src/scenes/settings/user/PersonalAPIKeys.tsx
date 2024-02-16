@@ -13,9 +13,10 @@ import {
     Link,
     Tooltip,
 } from '@posthog/lemon-ui'
+import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
-import { IconEllipsis, IconErrorOutline, IconPlus } from 'lib/lemon-ui/icons'
+import { IconEllipsis, IconErrorOutline, IconInfo, IconPlus } from 'lib/lemon-ui/icons'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { capitalizeFirstLetter, humanFriendlyDetailedTime } from 'lib/utils'
@@ -237,18 +238,25 @@ function EditKeyModal(): JSX.Element {
                                 ) : (
                                     <div>
                                         {APIScopes.map(
-                                            ({ key, disabledActions, warnings, disabledWhenProjectScoped }) => {
+                                            ({ key, disabledActions, warnings, disabledWhenProjectScoped, info }) => {
                                                 const disabledDueToProjectScope =
                                                     disabledWhenProjectScoped && editingKey.access_type === 'teams'
                                                 return (
                                                     <Fragment key={key}>
                                                         <div className="flex items-center justify-between gap-2 min-h-8">
                                                             <div
-                                                                className={
-                                                                    disabledDueToProjectScope ? 'text-muted' : undefined
-                                                                }
+                                                                className={clsx(
+                                                                    'flex items-center gap-1',
+                                                                    disabledDueToProjectScope && 'text-muted'
+                                                                )}
                                                             >
                                                                 <b>{capitalizeFirstLetter(key.replace(/_/g, ' '))}</b>
+
+                                                                {info ? (
+                                                                    <Tooltip title={info}>
+                                                                        <IconInfo className="text-muted" />
+                                                                    </Tooltip>
+                                                                ) : null}
                                                             </div>
                                                             <LemonSegmentedButton
                                                                 onChange={(value) => setScopeRadioValue(key, value)}

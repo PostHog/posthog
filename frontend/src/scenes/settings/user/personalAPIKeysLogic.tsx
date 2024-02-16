@@ -16,7 +16,7 @@ export const API_KEY_SCOPE_PRESETS = [
     {
         value: 'zapier',
         label: 'Zapier integration',
-        scopes: ['action:read', 'query:read', 'project:read', 'organization:read'],
+        scopes: ['action:read', 'query:read', 'project:read', 'organization:read', 'user:read', 'webhook:write'],
     },
     { value: 'analytics', label: 'Performing analytics queries', scopes: ['query:read'] },
     {
@@ -29,6 +29,7 @@ export const API_KEY_SCOPE_PRESETS = [
 
 export type APIScope = {
     key: string
+    info?: JSX.Element
     disabledActions?: ('read' | 'write')[]
     disabledWhenProjectScoped?: boolean
     description?: string
@@ -84,6 +85,19 @@ export const APIScopes: APIScope[] = [
     { key: 'sharing_configuration' },
     { key: 'subscription' },
     { key: 'survey' },
+    {
+        key: 'user',
+        disabledActions: ['write'],
+        warnings: {
+            write: (
+                <>
+                    <b>Warning:</b> This scope allows you to retrieve your own user which can contain other information
+                    such as your organizations and projects.
+                </>
+            ),
+        },
+    },
+    { key: 'webhook', info: <>Currently webhook configuration is only enabled for the Zapier integration.</> },
 ]
 
 export type EditingKeyFormValues = Pick<
