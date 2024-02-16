@@ -9,7 +9,7 @@ from sentry_sdk.integrations.celery import CeleryIntegration
 from sentry_sdk.integrations.django import DjangoIntegration
 from sentry_sdk.integrations.logging import LoggingIntegration
 from sentry_sdk.integrations.redis import RedisIntegration
-from posthog.git import get_git_commit
+from posthog.git import get_git_commit_full
 
 from posthog.settings import get_from_env
 from posthog.settings.base_variables import TEST
@@ -144,7 +144,7 @@ def sentry_init() -> None:
         sentry_logging = LoggingIntegration(level=sentry_logging_level, event_level=None)
         profiles_sample_rate = get_from_env("SENTRY_PROFILES_SAMPLE_RATE", type_cast=float, default=0.0)
 
-        release = get_git_commit()
+        release = get_git_commit_full()
 
         sentry_sdk.init(
             send_default_pii=send_pii,

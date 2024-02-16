@@ -6,6 +6,7 @@ from urllib.parse import urlsplit
 
 import jwt
 from django.apps import apps
+from django.db import transaction
 from django.http import HttpRequest, JsonResponse
 from django.utils import timezone
 from rest_framework import authentication
@@ -17,7 +18,7 @@ from posthog.jwt import PosthogJwtAudience, decode_jwt
 from posthog.models.personal_api_key import (
     PersonalAPIKey,
     hash_key_value,
-    PERSONAL_API_KEY_ITERATIONS_TO_TRY,
+    PERSONAL_API_KEY_MODES_TO_TRY,
 )
 from posthog.models.sharing_configuration import SharingConfiguration
 from posthog.models.user import User
@@ -70,26 +71,36 @@ class PersonalAPIKeyAuthentication(authentication.BaseAuthentication):
         return key_with_source[0] if key_with_source is not None else None
 
     @classmethod
+    @transaction.atomic
     def validate_key(cls, personal_api_key_with_source):
         from posthog.models import PersonalAPIKey
 
         personal_api_key, source = personal_api_key_with_source
         personal_api_key_object = None
+        mode_used = None
 
-        for iterations in PERSONAL_API_KEY_ITERATIONS_TO_TRY:
-            secure_value = hash_key_value(personal_api_key, iterations=iterations)
+        for mode, iterations in PERSONAL_API_KEY_MODES_TO_TRY:
+            secure_value = hash_key_value(personal_api_key, mode=mode, iterations=iterations)
             try:
                 personal_api_key_object = (
                     PersonalAPIKey.objects.select_related("user")
                     .filter(user__is_active=True)
                     .get(secure_value=secure_value)
                 )
+                mode_used = mode
                 break
             except PersonalAPIKey.DoesNotExist:
                 pass
 
         if not personal_api_key_object:
             raise AuthenticationFailed(detail=f"Personal API key found in request {source} is invalid.")
+
+        # Upgrade the key if it's not in the latest mode. We can do this since above we've already checked
+        # that the key is valid in some mode, and we do check for all modes one by one.
+        if mode_used != "sha256":
+            key_to_update = PersonalAPIKey.objects.select_for_update().get(id=personal_api_key_object.id)
+            key_to_update.secure_value = hash_key_value(personal_api_key)
+            key_to_update.save(update_fields=["secure_value"])
 
         return personal_api_key_object
 

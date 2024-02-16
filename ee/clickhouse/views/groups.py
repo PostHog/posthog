@@ -177,7 +177,7 @@ class ClickhouseGroupsView(TeamAndOrgViewSetMixin, mixins.ListModelMixin, viewse
 
         group_type_index_to_properties = defaultdict(list)
         for group_type_index, key, count in rows:
-            group_type_index_to_properties[group_type_index].append({"name": key, "count": count})
+            group_type_index_to_properties[str(group_type_index)].append({"name": key, "count": count})
 
         return response.Response(group_type_index_to_properties)
 

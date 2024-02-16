@@ -324,14 +324,6 @@ class GoalLine(BaseModel):
     value: float
 
 
-class HogQLAutocompleteResponse(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    incomplete_list: bool = Field(..., description="Whether or not the suggestions returned are complete")
-    suggestions: List[AutocompleteCompletionItem]
-
-
 class HogQLNotice(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -662,14 +654,6 @@ class QueryResponseAlternative8(BaseModel):
     isValidView: Optional[bool] = None
     notices: List[HogQLNotice]
     warnings: List[HogQLNotice]
-
-
-class QueryResponseAlternative9(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    incomplete_list: bool = Field(..., description="Whether or not the suggestions returned are complete")
-    suggestions: List[AutocompleteCompletionItem]
 
 
 class QueryStatus(BaseModel):
@@ -1168,6 +1152,17 @@ class GroupPropertyFilter(BaseModel):
     value: Optional[Union[str, float, List[Union[str, float]]]] = None
 
 
+class HogQLAutocompleteResponse(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    incomplete_list: bool = Field(..., description="Whether or not the suggestions returned are complete")
+    suggestions: List[AutocompleteCompletionItem]
+    timings: Optional[List[QueryTiming]] = Field(
+        default=None, description="Measured timings for different parts of the query generation process"
+    )
+
+
 class HogQLMetadataResponse(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -1350,6 +1345,17 @@ class QueryResponseAlternative7(BaseModel):
         default=None, description="Measured timings for different parts of the query generation process"
     )
     types: Optional[List] = Field(default=None, description="Types of returned columns")
+
+
+class QueryResponseAlternative9(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    incomplete_list: bool = Field(..., description="Whether or not the suggestions returned are complete")
+    suggestions: List[AutocompleteCompletionItem]
+    timings: Optional[List[QueryTiming]] = Field(
+        default=None, description="Measured timings for different parts of the query generation process"
+    )
 
 
 class QueryResponseAlternative10(BaseModel):

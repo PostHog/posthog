@@ -1,4 +1,6 @@
-from typing import Literal, Tuple, get_args
+from typing import Optional, Literal, Tuple, get_args
+import hashlib
+
 from django.contrib.auth.hashers import PBKDF2PasswordHasher
 from django.contrib.postgres.fields import ArrayField
 from django.db import models
@@ -6,24 +8,31 @@ from django.utils import timezone
 
 from .utils import generate_random_token
 
-# Fixed iteration count for PBKDF2PasswordHasher hasher.
-# This is the iteration count used by PostHog since the beginning of time.
-# Changing this would break all existing personal API keys.
-PERSONAL_API_KEY_ITERATIONS = 260000
-
-PERSONAL_API_KEY_ITERATIONS_TO_TRY = (
-    PERSONAL_API_KEY_ITERATIONS,
-    390000,  # This is the iteration count used briefly on some API keys.
+ModeType = Literal["sha256", "pbkdf2"]
+PERSONAL_API_KEY_MODES_TO_TRY: tuple[tuple[ModeType, Optional[int]], ...] = (
+    ("sha256", None),  # Moved to simple hashing in 2024-02
+    ("pbkdf2", 260000),  # This is the iteration count used by PostHog since the beginning of time.
+    ("pbkdf2", 390000),  # This is the iteration count used briefly on some API keys.
 )
 
-# A constant salt is not nearly as good as user-specific, but we must be able to look up a personal API key
-# by itself. Some salt is slightly better than none though.
-PERSONAL_API_KEY_SALT = "posthog_personal_api_key"
+LEGACY_PERSONAL_API_KEY_SALT = "posthog_personal_api_key"
 
 
-def hash_key_value(value: str, iterations: int = PERSONAL_API_KEY_ITERATIONS) -> str:
-    hasher = PBKDF2PasswordHasher()
-    return hasher.encode(value, PERSONAL_API_KEY_SALT, iterations=iterations)
+def hash_key_value(value: str, mode: ModeType = "sha256", iterations: Optional[int] = None) -> str:
+    if mode == "pbkdf2":
+        if not iterations:
+            raise ValueError("Iterations must be provided when using legacy PBKDF2 mode")
+
+        hasher = PBKDF2PasswordHasher()
+        return hasher.encode(value, LEGACY_PERSONAL_API_KEY_SALT, iterations=iterations)
+
+    if iterations:
+        raise ValueError("Iterations must not be provided when using simple hashing mode")
+
+    # Inspiration on why no salt:
+    # https://github.com/jazzband/django-rest-knox/issues/188
+    value = hashlib.sha256(value.encode()).hexdigest()
+    return f"sha256${value}"  # Following format from Django's PBKDF2PasswordHasher
 
 
 class PersonalAPIKey(models.Model):

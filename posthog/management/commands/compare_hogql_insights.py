@@ -12,12 +12,12 @@ class Command(BaseCommand):
         from posthog.hogql_queries.legacy_compatibility.filter_to_query import filter_to_query
         from posthog.hogql_queries.query_runner import get_query_runner
 
-        insights = (
+        insights = list(
             Insight.objects.filter(filters__contains={"insight": "TRENDS"}, saved=True, deleted=False, team_id=2)
-            .order_by("id")
+            .order_by("created_at")
             .all()
         )
-        for insight in insights[0:30]:
+        for insight in insights[-30:]:
             try:
                 print("++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++")  # noqa: T201
                 insight_type = insight.filters.get("insight")
@@ -32,16 +32,36 @@ class Command(BaseCommand):
                 for row in legacy_results:
                     if row.get("persons_urls"):
                         del row["persons_urls"]
+            except Exception as e:
+                url = f"https://us.posthog.com/project/{insight.team_id}/insights/{insight.short_id}/edit"
+                print(f"LEGACY Insight {url} ({insight.id}). ERROR: {e}")  # noqa: T201
+                continue
+            try:
                 query = filter_to_query(insight.filters)
                 modifiers = HogQLQueryModifiers(materializationMode=MaterializationMode.legacy_null_as_string)
                 query_runner = get_query_runner(query, insight.team, modifiers=modifiers)
                 hogql_results = cast(HogQLQueryResponse, query_runner.calculate()).results or []
+            except Exception as e:
+                url = f"https://us.posthog.com/project/{insight.team_id}/insights/{insight.short_id}/edit"
+                print(f"HogQL Insight {url} ({insight.id}). ERROR: {e}")  # noqa: T201
+                continue
+            try:
                 all_ok = True
                 for legacy_result, hogql_result in zip(legacy_results, hogql_results):
                     fields = ["label", "count", "data", "labels", "days"]
                     for field in fields:
-                        if legacy_result.get(field) != hogql_result.get(field):
-                            if field == "labels" and insight.filters.get("interval") == "month":
+                        legacy_value = legacy_result.get(field)
+                        hogql_value = hogql_result.get(field)
+                        if legacy_value != hogql_value:
+                            if (
+                                (field == "labels" and insight.filters.get("interval") == "month")
+                                or (field == "labels" and legacy_value == [] and hogql_value is None)
+                                or (
+                                    field == "label"
+                                    and legacy_value == "Other"
+                                    and hogql_value == "$$_posthog_breakdown_other_$$"
+                                )
+                            ):
                                 continue
                             print(  # noqa: T201
                                 f"Insight https://us.posthog.com/project/{insight.team_id}/insights/{insight.short_id}/edit"
@@ -55,4 +75,4 @@ class Command(BaseCommand):
                     print("ALL OK!")  # noqa: T201
             except Exception as e:
                 url = f"https://us.posthog.com/project/{insight.team_id}/insights/{insight.short_id}/edit"
-                print(f"Insight {url} ({insight.id}). ERROR: {e}")  # noqa: T201
+                print(f"Comparison Insight {url} ({insight.id}). ERROR: {e}")  # noqa: T201
