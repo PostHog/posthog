@@ -1,6 +1,6 @@
+import { IconX } from '@posthog/icons'
 import { LemonButton, LemonDivider, TooltipProps } from '@posthog/lemon-ui'
 import { useValues } from 'kea'
-import { IconClose } from 'lib/lemon-ui/icons'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import posthog from 'posthog-js'
 import React, { Fragment, useState } from 'react'
@@ -75,7 +75,7 @@ export function SidebarChangeNoticeContent({
                 ))}
             </div>
 
-            <LemonButton size="small" onClick={onAcknowledged} icon={<IconClose />} />
+            <LemonButton size="small" onClick={onAcknowledged} icon={<IconX />} />
         </div>
     )
 }

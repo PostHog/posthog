@@ -1,9 +1,10 @@
 import './ViewLinkModal.scss'
 
+import { IconTrash } from '@posthog/icons'
 import { LemonButton, LemonDivider, LemonModal, LemonSelect, LemonTag } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { Field, Form } from 'kea-forms'
-import { IconDelete, IconSwapHoriz } from 'lib/lemon-ui/icons'
+import { IconSwapHoriz } from 'lib/lemon-ui/icons'
 import { viewLinkLogic } from 'scenes/data-warehouse/viewLinkLogic'
 
 import { DatabaseSchemaQueryResponseField } from '~/queries/schema'
@@ -116,7 +117,7 @@ export function ViewLinkDeleteButton({ table, column }: ViewLinkDeleteButtonProp
 
     return (
         <LemonButton
-            icon={<IconDelete />}
+            icon={<IconTrash />}
             onClick={() => deleteViewLink(table, column)}
             tooltip="Remove view association"
             tooltipPlacement="bottomLeft"

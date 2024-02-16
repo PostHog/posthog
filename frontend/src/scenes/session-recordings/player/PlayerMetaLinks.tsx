@@ -1,6 +1,6 @@
-import { IconNotebook } from '@posthog/icons'
+import { IconNotebook, IconTrash } from '@posthog/icons'
 import { useActions, useValues } from 'kea'
-import { IconComment, IconDelete, IconLink, IconPinFilled, IconPinOutline } from 'lib/lemon-ui/icons'
+import { IconComment, IconLink, IconPinFilled, IconPinOutline } from 'lib/lemon-ui/icons'
 import { LemonButton, LemonButtonProps } from 'lib/lemon-ui/LemonButton'
 import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
 import { useNotebookNode } from 'scenes/notebooks/Nodes/NotebookNodeContext'
@@ -140,7 +140,7 @@ export function PlayerMetaLinks(): JSX.Element {
                     {logicProps.playerKey !== 'modal' && (
                         <LemonButton
                             tooltip="Delete"
-                            icon={<IconDelete />}
+                            icon={<IconTrash />}
                             onClick={onDelete}
                             {...commonProps}
                             status="danger"

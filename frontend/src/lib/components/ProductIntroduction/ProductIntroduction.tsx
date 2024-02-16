@@ -1,6 +1,5 @@
-import { IconOpenSidebar } from '@posthog/icons'
+import { IconOpenSidebar, IconPlus, IconX } from '@posthog/icons'
 import { useActions } from 'kea'
-import { IconClose, IconPlus } from 'lib/lemon-ui/icons'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { userLogic } from 'scenes/userLogic'
 
@@ -51,7 +50,7 @@ export const ProductIntroduction = ({
                 <div className="flex justify-end -mb-6 -mt-2 -mr-2">
                     <div>
                         <LemonButton
-                            icon={<IconClose />}
+                            icon={<IconX />}
                             onClick={() => {
                                 updateHasSeenProductIntroFor(productKey, true)
                             }}

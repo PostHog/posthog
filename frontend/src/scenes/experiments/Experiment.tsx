@@ -1,5 +1,6 @@
 import './Experiment.scss'
 
+import { IconPlusSmall, IconTrash, IconWarning } from '@posthog/icons'
 import {
     LemonDivider,
     LemonInput,
@@ -20,7 +21,6 @@ import { EditableField } from 'lib/components/EditableField/EditableField'
 import { NotFound } from 'lib/components/NotFound'
 import { PageHeader } from 'lib/components/PageHeader'
 import { dayjs } from 'lib/dayjs'
-import { IconDelete, IconPlusMini, IconWarning } from 'lib/lemon-ui/icons'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { More } from 'lib/lemon-ui/LemonButton/More'
@@ -300,7 +300,7 @@ export function Experiment(): JSX.Element {
                                                                         >
                                                                             <LemonButton
                                                                                 size="small"
-                                                                                icon={<IconDelete />}
+                                                                                icon={<IconTrash />}
                                                                                 onClick={() =>
                                                                                     removeExperimentGroup(index)
                                                                                 }
@@ -318,7 +318,7 @@ export function Experiment(): JSX.Element {
                                                         <div className="feature-flag-variant border-b">
                                                             <LemonButton
                                                                 onClick={() => addExperimentGroup()}
-                                                                icon={<IconPlusMini />}
+                                                                icon={<IconPlusSmall />}
                                                                 data-attr="add-test-variant"
                                                             >
                                                                 Add test variant

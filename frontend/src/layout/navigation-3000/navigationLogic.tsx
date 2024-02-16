@@ -9,6 +9,7 @@ import {
     IconNotebook,
     IconPeople,
     IconPieChart,
+    IconPlusSmall,
     IconRewindPlay,
     IconRocket,
     IconServer,
@@ -21,7 +22,6 @@ import { actions, connect, events, kea, listeners, path, props, reducers, select
 import { router } from 'kea-router'
 import { subscriptions } from 'kea-subscriptions'
 import { FEATURE_FLAGS } from 'lib/constants'
-import { IconPlusMini } from 'lib/lemon-ui/icons'
 import { LemonMenuOverlay } from 'lib/lemon-ui/LemonMenu/LemonMenu'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { isNotNil } from 'lib/utils'
@@ -402,7 +402,7 @@ export const navigation3000Logic = kea<navigation3000LogicType>([
                             logic: isUsingSidebar ? insightsSidebarLogic : undefined,
                             to: isUsingSidebar ? undefined : urls.savedInsights(),
                             sideAction: {
-                                icon: <IconPlusMini />, // The regular plus is too big
+                                icon: <IconPlusSmall />, // The regular plus is too big
                                 to: urls.insightNew(),
                                 tooltip: 'New insight',
                                 identifier: Scene.Insight,

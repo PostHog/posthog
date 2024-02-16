@@ -1,7 +1,7 @@
+import { IconTrash } from '@posthog/icons'
 import { LemonDivider, LemonModal, Link } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { usersLemonSelectOptions } from 'lib/components/UserSelectItem'
-import { IconDelete } from 'lib/lemon-ui/icons'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonSelectMultiple } from 'lib/lemon-ui/LemonSelectMultiple/LemonSelectMultiple'
 import { LemonTable, LemonTableColumns } from 'lib/lemon-ui/LemonTable'
@@ -53,7 +53,7 @@ export function StaffUsersTab(): JSX.Element {
                 return (
                     <LemonButton
                         data-attr="invite-delete"
-                        icon={<IconDelete />}
+                        icon={<IconTrash />}
                         status="danger"
                         disabledReason={staffUsers.length < 2 && 'At least one staff user must remain'}
                         title={

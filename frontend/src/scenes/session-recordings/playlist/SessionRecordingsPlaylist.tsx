@@ -1,5 +1,6 @@
 import './SessionRecordingsPlaylist.scss'
 
+import { IconGear } from '@posthog/icons'
 import { LemonButton, Link } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { range } from 'd3'
@@ -9,7 +10,7 @@ import { FlaggedFeature } from 'lib/components/FlaggedFeature'
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { useResizeBreakpoints } from 'lib/hooks/useResizeObserver'
-import { IconFilter, IconSettings, IconWithCount } from 'lib/lemon-ui/icons'
+import { IconFilter, IconWithCount } from 'lib/lemon-ui/icons'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { LemonTableLoader } from 'lib/lemon-ui/LemonTable/LemonTableLoader'
 import { Spinner } from 'lib/lemon-ui/Spinner'
@@ -198,7 +199,7 @@ function RecordingsLists(): JSX.Element {
                         tooltip="Playlist settings"
                         size="small"
                         active={showSettings}
-                        icon={<IconSettings />}
+                        icon={<IconGear />}
                         onClick={() => setShowSettings(!showSettings)}
                     />
                     <LemonTableLoader loading={sessionRecordingsResponseLoading} />

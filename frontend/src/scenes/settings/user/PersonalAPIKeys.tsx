@@ -1,6 +1,6 @@
+import { IconPlus } from '@posthog/icons'
 import { LemonDialog, LemonInput, LemonModal, LemonTable, Link } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
-import { IconPlus } from 'lib/lemon-ui/icons'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { humanFriendlyDetailedTime } from 'lib/utils'
