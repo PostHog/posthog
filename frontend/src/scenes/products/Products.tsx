@@ -108,18 +108,10 @@ export function Products(): JSX.Element {
                     <h1 className="text-center text-4xl">Welcome back. What would you like to set up?</h1>
                 )}
                 {isFirstProductOnboarding && <p className="text-center">You can set up additional products later.</p>}
-                {/* <h1 className="text-center text-4xl">
-                    Pick your {isFirstProductOnboarding ? 'first' : 'next'} product.
-                </h1>
-                <p className="text-center">
-                    Pick your {isFirstProductOnboarding ? 'first' : 'next'} product to get started with. You can set up
-                    any others you'd like later.
-                </p> */}
             </div>
             {products.length > 0 ? (
                 <>
                     <div className="ProductsGrid">
-                        {/*flex w-full max-w-300 justify-center gap-6 flex-wrap">*/}
                         {products
                             .filter(
                                 (product) =>
