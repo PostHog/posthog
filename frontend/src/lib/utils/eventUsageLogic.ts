@@ -93,7 +93,7 @@ interface RecordingViewedProps {
     performance_events_load_time: number // How long it took to load all performance events
     first_paint_load_time: number // How long it took to first contentful paint (time it takes for user to see first frame)
     duration: number // How long is the total recording (milliseconds)
-    recording_id: string // End timestamp of the session
+    recording_id: string // Id of the session
     start_time?: number // Start timestamp of the session
     end_time?: number // End timestamp of the session
     page_change_events_length: number
