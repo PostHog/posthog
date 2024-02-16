@@ -343,6 +343,15 @@ class TestPersonalAPIKeysAPIAuthentication(PersonalAPIKeysBaseTest):
 
         assert response.status_code == status.HTTP_403_FORBIDDEN, response.json()
 
+    def test_cannot_edit_self(self):
+        response = self.client.post(
+            f"/api/personal_api_keys/{self.key.id}/",
+            {"scopes": ["*"]},
+            HTTP_AUTHORIZATION=f"Bearer {self.value}",
+        )
+
+        assert response.status_code == status.HTTP_403_FORBIDDEN, response.json()
+
 
 # NOTE: These tests use feature flags as an example of a scope, but the actual feature flag functionality is not relevant
 # It is however a good example of a range of cases
