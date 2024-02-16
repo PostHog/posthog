@@ -5,6 +5,7 @@ import { ActivityLogItem } from 'lib/components/ActivityLog/humanizeActivity'
 import { objectClean, toParams } from 'lib/utils'
 import posthog from 'posthog-js'
 import { SavedSessionRecordingPlaylistsResult } from 'scenes/session-recordings/saved-playlists/savedSessionRecordingPlaylistsLogic'
+import { userLogic } from 'scenes/userLogic'
 
 import { getCurrentExporterData } from '~/exporter/exporterViewLogic'
 import { QuerySchema, QueryStatus } from '~/queries/schema'
@@ -2037,10 +2038,15 @@ const api = {
         }
 
         if (!response.ok) {
+            if (response.status === 401) {
+                userLogic.findMounted()?.actions.handleUnauthorizedError()
+            }
+
             reportError('GET', url, response, startTime)
             const data = await getJSONOrThrow(response)
             throw { status: response.status, ...data }
         }
+
         return response
     },
 

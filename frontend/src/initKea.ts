@@ -92,17 +92,14 @@ export function initKea({ routerHistory, routerLocation, beforePlugins }: InitKe
                 if (
                     !ERROR_FILTER_ALLOW_LIST.includes(actionKey) &&
                     (error?.message === 'Failed to fetch' || // Likely CORS headers errors (i.e. request failing without reaching Django)
-                        (error?.status !== undefined && ![200, 201, 204].includes(error.status)))
+                        (error?.status !== undefined && ![200, 201, 204, 401].includes(error.status)))
+                    // 401 is handled by the api that marks an indicator that the web app needs reloading
                 ) {
-                    let errorMessageFallback = 'PostHog may be offline'
-                    if (error.status === 404) {
-                        errorMessageFallback = 'URL not found'
+                    let errorMessage = error.detail || error.statusText
+                    if (!errorMessage && error.status === 404) {
+                        errorMessage = 'URL not found'
                     }
-                    lemonToast.error(
-                        `${identifierToHuman(actionKey)} failed: ${
-                            error.detail || error.statusText || errorMessageFallback
-                        }`
-                    )
+                    lemonToast.error(`${identifierToHuman(actionKey)} failed: ${errorMessage}`)
                 }
                 if (!errorsSilenced) {
                     console.error({ error, reducerKey, actionKey })
