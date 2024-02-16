@@ -13,6 +13,11 @@ import type { personalAPIKeysLogicType } from './personalAPIKeysLogicType'
 
 export const API_KEY_SCOPE_PRESETS = [
     { value: 'local_evaluation', label: 'Local feature flag evaluation', scopes: ['feature_flag:read'] },
+    {
+        value: 'zapier',
+        label: 'Zapier integration',
+        scopes: ['action:read', 'query:read', 'project:read', 'organization:read'],
+    },
     { value: 'analytics', label: 'Performing analytics queries', scopes: ['query:read'] },
     {
         value: 'project_management',

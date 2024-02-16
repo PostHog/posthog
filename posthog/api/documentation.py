@@ -201,7 +201,11 @@ def preprocess_exclude_path_format(endpoints, **kwargs):
             and callback.cls.derive_current_team_from_user_only
         ):
             pass
-        elif hasattr(callback.cls, "scope_object") and callback.cls.scope_object != "INTERNAL":
+        elif (
+            hasattr(callback.cls, "scope_object")
+            and callback.cls.scope_object != "INTERNAL"
+            and not getattr(callback.cls, "hide_api_docs", False)
+        ):
             # If there is an API Scope set then we implictly support it and should have it in the documentation
             path = path.replace("{parent_lookup_team_id}", "{project_id}")
             path = path.replace("{parent_lookup_", "{")
