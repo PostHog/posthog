@@ -131,7 +131,7 @@ class TestUserAPI(APIBaseTest):
     def test_unauthenticated_user_cannot_fetch_endpoint(self):
         self.client.logout()
         response = self.client.get("/api/users/@me/")
-        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
         self.assertEqual(response.json(), self.unauthenticated_response())
 
     # CREATING USERS
