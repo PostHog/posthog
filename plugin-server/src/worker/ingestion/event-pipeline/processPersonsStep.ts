@@ -33,7 +33,8 @@ export async function processPersonsStep(
         String(event.distinct_id),
         timestamp,
         runner.hub.db,
-        overridesWriter
+        overridesWriter,
+        runner.hub.skipPersonPropertiesUpdateForTeams
     ).update()
 
     return [event, person]

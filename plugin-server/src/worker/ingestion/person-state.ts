@@ -6,7 +6,7 @@ import { Counter } from 'prom-client'
 import { KafkaProducerWrapper } from 'utils/db/kafka-producer-wrapper'
 
 import { KAFKA_PERSON_OVERRIDE } from '../../config/kafka-topics'
-import { Person, PropertyUpdateOperation, TimestampFormat } from '../../types'
+import { Person, PropertyUpdateOperation, TimestampFormat, ValueMatcher } from '../../types'
 import { DB } from '../../utils/db/db'
 import { PostgresRouter, PostgresUse, TransactionClient } from '../../utils/db/postgres'
 import { timeoutGuard } from '../../utils/db/utils'
@@ -100,6 +100,7 @@ export class PersonState {
         timestamp: DateTime,
         db: DB,
         private personOverrideWriter?: DeferredPersonOverrideWriter,
+        private skipPersonPropertiesUpdateForTeams: ValueMatcher<number> = () => false,
         uuid: UUIDT | undefined = undefined,
         maxMergeAttempts: number = MAX_FAILED_PERSON_MERGE_ATTEMPTS
     ) {
@@ -142,7 +143,10 @@ export class PersonState {
 
     async updateProperties(): Promise<Person> {
         const [person, propertiesHandled] = await this.createOrGetPerson()
-        if (propertiesHandled) {
+        if (propertiesHandled || this.skipPersonPropertiesUpdateForTeams(this.teamId)) {
+            // Skipping person properties updates based on teamIDs provided in the config
+            // This is useful for teams that don't need to update person properties, but might get those
+            // from our system around geo-IP or other data enrichment
             return person
         }
         return await this.updatePersonProperties(person)

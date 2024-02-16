@@ -198,6 +198,10 @@ export async function createHub(
         poeEmbraceJoinForTeams: buildIntegerMatcher(process.env.POE_EMBRACE_JOIN_FOR_TEAMS, true),
         poeWritesExcludeTeams: buildIntegerMatcher(process.env.POE_WRITES_EXCLUDE_TEAMS, false),
         eventsToDropByToken: createEventsToDropByToken(process.env.DROP_EVENTS_BY_TOKEN_DISTINCT_ID),
+        skipPersonPropertiesUpdateForTeams: buildIntegerMatcher(
+            process.env.SKIP_PERSON_PROPERTIES_UPDATE_FOR_TEAMS,
+            false
+        ),
     }
 
     // :TODO: This is only used on worker threads, not main
