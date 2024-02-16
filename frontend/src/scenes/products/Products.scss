@@ -1,0 +1,12 @@
+@import '../../styles/vars';
+
+.ProductsGrid {
+    display: grid;
+    grid-template-rows: 120px;
+    grid-template-columns: repeat(4, minmax(min-content, 150px));
+    grid-gap: 1rem;
+
+    @media (max-width: $md) {
+        grid-template-columns: repeat(2, minmax(min-content, 150px));
+    }
+}

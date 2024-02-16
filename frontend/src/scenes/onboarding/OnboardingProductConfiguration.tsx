@@ -1,4 +1,6 @@
-import { LemonSelect, LemonSwitch } from '@posthog/lemon-ui'
+import './Onboarding.scss'
+
+import { LemonDivider, LemonSelect, LemonSwitch } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { useEffect } from 'react'
 
@@ -21,10 +23,13 @@ export const OnboardingProductConfiguration = ({
 
     return configOptions ? (
         <OnboardingStep title="Set up your configuration" stepKey={stepKey} continueAction={saveConfiguration}>
+            <h2 className="pt-2">Options</h2>
             {configOptions?.map((option: ProductConfigOption) => (
-                <div className="my-8" key={option.teamProperty}>
-                    {option.type == 'toggle' ? (
-                        <>
+                <>
+                    <LemonDivider className="my-4" />
+                    <div className="ConfigGrid">
+                        <label className="text-base font-semibold">{option.title}</label>
+                        {option.type == 'toggle' ? (
                             <LemonSwitch
                                 data-attr="opt-in-session-recording-switch"
                                 onChange={(checked) => {
@@ -34,18 +39,11 @@ export const OnboardingProductConfiguration = ({
                                         )
                                     )
                                 }}
-                                label={option.title}
-                                fullWidth={true}
-                                labelClassName="text-base font-semibold"
+                                className="self-center"
                                 checked={option.value || false}
                             />
-                            <p className="prompt-text ml-0">{option.description}</p>
-                        </>
-                    ) : (
-                        <>
-                            <label className="text-base font-semibold">{option.title}</label>
+                        ) : (
                             <div className="flex justify-between items-center mb-1 gap-x-4">
-                                <p className="prompt-text m-0">{option.description}</p>
                                 <LemonSelect
                                     dropdownMatchSelectWidth={false}
                                     onChange={(v) => {
@@ -59,9 +57,10 @@ export const OnboardingProductConfiguration = ({
                                     value={option.value}
                                 />
                             </div>
-                        </>
-                    )}
-                </div>
+                        )}
+                        <p className="prompt-text ml-0 mb-0">{option.description}</p>
+                    </div>
+                </>
             ))}
         </OnboardingStep>
     ) : null
