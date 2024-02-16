@@ -23,7 +23,7 @@ from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 from posthog.api.tagged_item import TaggedItemSerializerMixin, TaggedItemViewSetMixin
 from posthog.api.dashboards.dashboard import Dashboard
-from posthog.auth import TemporaryTokenAuthentication
+from posthog.auth import PersonalAPIKeyAuthentication, TemporaryTokenAuthentication
 from posthog.constants import FlagRequestType
 from posthog.event_usage import report_user_action
 from posthog.helpers.dashboard_templates import (
@@ -397,7 +397,7 @@ class FeatureFlagViewSet(
         return queryset.select_related("created_by").order_by("-created_at")
 
     def list(self, request, *args, **kwargs):
-        if getattr(request, "using_personal_api_key", False):
+        if isinstance(request.successful_authenticator, PersonalAPIKeyAuthentication):
             # Add request for analytics only if request coming with personal API key authentication
             increment_request_count(self.team.pk, 1, FlagRequestType.LOCAL_EVALUATION)
 

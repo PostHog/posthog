@@ -127,8 +127,6 @@ class PersonalAPIKeyAuthentication(authentication.BaseAuthentication):
             access_method="personal_api_key",
         )
 
-        request.using_personal_api_key = True  # type: ignore
-
         self.personal_api_key = personal_api_key_object
 
         return personal_api_key_object.user, None
