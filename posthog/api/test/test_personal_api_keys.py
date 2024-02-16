@@ -294,7 +294,6 @@ class TestPersonalAPIKeysAPIAuthentication(PersonalAPIKeysBaseTest):
 
     def test_user_endpoint(self):
         # NOTE: This is not actually supported currently by new scopes but needs to work for pre-scoped api keys
-        # TODO: Should we support it?
         response = self.client.get("/api/users/@me/", HTTP_AUTHORIZATION=f"Bearer {self.value}")
         assert response.status_code == status.HTTP_200_OK
 
@@ -385,8 +384,6 @@ class TestPersonalAPIKeysWithOrganizationScopeAPIAuthentication(PersonalAPIKeysB
         self.key.scoped_organizations = [str(self.organization.id)]
         self.key.scoped_teams = []
         self.key.save()
-
-    # TODO: Test special case for organization routes
 
     def test_allows_access_to_scoped_org(self):
         response = self._do_request(f"/api/organizations/{self.organization.id}")
