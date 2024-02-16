@@ -259,8 +259,10 @@ class APIScopePermission(BasePermission):
 
     """
 
-    write_actions = ["create", "update", "partial_update", "destroy"]
-    read_actions = ["list", "retrieve"]
+    write_actions: list[str] = ["create", "update", "partial_update", "destroy"]
+    read_actions: list[str] = ["list", "retrieve"]
+    scope_object_read_actions: list[str] = []
+    scope_object_write_actions: list[str] = []
 
     def has_permission(self, request, view) -> bool:
         # NOTE: We do this first to error out quickly if the view is missing the required attribute
