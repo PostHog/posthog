@@ -289,7 +289,9 @@ class TestPersonalAPIKeysAPIAuthentication(PersonalAPIKeysBaseTest):
     def test_user_not_active(self):
         self.user.is_active = False
         self.user.save()
-        response = self.client.get("/api/users/@me/", HTTP_AUTHORIZATION=f"Bearer {self.value}")
+        response = self.client.get(
+            f"/api/projects/{self.team.id}/dashboards", HTTP_AUTHORIZATION=f"Bearer {self.value}"
+        )
         assert response.status_code == status.HTTP_401_UNAUTHORIZED
 
     def test_user_endpoint(self):
@@ -315,6 +317,15 @@ class TestPersonalAPIKeysAPIAuthentication(PersonalAPIKeysBaseTest):
             HTTP_AUTHORIZATION=f"Bearer {impersonated_access_token}",
         )
         assert response.status_code == status.HTTP_200_OK
+
+    def test_cannot_create_other_keys(self):
+        response = self.client.post(
+            "/api/personal_api_keys",
+            {"label": "test", "scopes": ["insight:read"], "scoped_organizations": [], "scoped_teams": []},
+            HTTP_AUTHORIZATION=f"Bearer {self.value}",
+        )
+
+        assert response.status_code == status.HTTP_403_FORBIDDEN, response.json()
 
 
 # NOTE: These tests use feature flags as an example of a scope, but the actual feature flag functionality is not relevant
