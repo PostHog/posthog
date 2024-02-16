@@ -361,7 +361,7 @@ class TestPersonalAPIKeysWithScopeAPIAuthentication(PersonalAPIKeysBaseTest):
         # Even * scope isn't allowed for unsupported endpoints
         self.key.scopes = ["*"]
         self.key.save()
-        response = self._do_request("/api/users/@me/")
+        response = self._do_request(f"/api/projects/{self.team.id}/search")
         assert response.status_code == status.HTTP_403_FORBIDDEN
         assert response.json()["detail"] == "This action does not support Personal API Key access"
 

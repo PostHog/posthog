@@ -97,7 +97,7 @@ APIScopeObject = Literal[
     "subscription",
     "survey",
     "user",
-    "webhooks",
+    "webhook",
 ]
 
 APIScopeActions = Literal[

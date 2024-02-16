@@ -89,7 +89,7 @@ export const APIScopes: APIScope[] = [
         key: 'user',
         disabledActions: ['write'],
         warnings: {
-            write: (
+            read: (
                 <>
                     <b>Warning:</b> This scope allows you to retrieve your own user which can contain other information
                     such as your organizations and projects.

@@ -31,7 +31,7 @@ class HookViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     Retrieve, create, update or destroy REST hooks.
     """
 
-    scope_object = "webhooks"
+    scope_object = "webhook"
     # NOTE: This permissions is needed for Zapier calls but we don't want to expose it in the API docs until
     # it is able to support more than Zapier
     hide_api_docs = True

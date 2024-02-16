@@ -298,9 +298,7 @@ class UserViewSet(
     mixins.ListModelMixin,
     viewsets.GenericViewSet,
 ):
-    # NOTE: This is not exposed for public use, but was supported before scopes were added so is left to cover
-    # legacy API keys
-    scope_object = "INTERNAL"
+    scope_object = "user"
     throttle_classes = [UserAuthenticationThrottle]
     serializer_class = UserSerializer
     authentication_classes = [SessionAuthentication, PersonalAPIKeyAuthentication]
