@@ -1,4 +1,3 @@
-import asyncio
 import operator
 import random
 from collections import defaultdict
@@ -32,14 +31,6 @@ from posthog.temporal.batch_exports.squash_person_overrides import (
 from posthog.temporal.common.clickhouse import get_client
 
 pytestmark = [pytest.mark.asyncio(scope="session")]
-
-
-@pytest.fixture(scope="module")
-def event_loop():
-    """Module scoped event loop fixture."""
-    loop = asyncio.new_event_loop()
-    yield loop
-    loop.close()
 
 
 @freeze_time("2023-03-14")
@@ -255,12 +246,78 @@ async def test_prepare_dictionary_with_older_overrides_present(
 
     Since person_distinct_id_overrides is using a ReplacingMergeTree engine, the latest version
     should be the only available in the dictionary.
+
+    This test is a bit deceptive as optimizing the table is what takes care of older overrides,
+    not the dictionary creation process.
     """
     query_inputs.dictionary_name = "fancy_dictionary"
     query_inputs.dry_run = False
 
     await activity_environment.run(optimize_person_distinct_id_overrides, query_inputs)
     await activity_environment.run(prepare_dictionary, query_inputs)
+
+    for team_id, person_overrides in person_overrides_data.items():
+        for person_override in person_overrides:
+            response = await clickhouse_client.read_query(
+                f"""
+                SELECT
+                    distinct_id,
+                    dictGet(
+                        '{settings.CLICKHOUSE_DATABASE}.fancy_dictionary',
+                        'person_id',
+                        (team_id, distinct_id)
+                    ) AS person_id
+                FROM (
+                    SELECT
+                        {team_id} AS team_id,
+                        '{person_override.distinct_id}' AS distinct_id
+                )
+                """
+            )
+            ids = response.decode("utf-8").strip().split("\t")
+
+            assert ids[0] == person_override.distinct_id
+            assert UUID(ids[1]) == person_override.person_id
+
+    await activity_environment.run(drop_dictionary, query_inputs)
+
+
+@pytest.mark.django_db
+async def test_prepare_dictionary_with_newer_overrides_after_create(
+    query_inputs,
+    activity_environment,
+    person_overrides_data,
+    clickhouse_client,
+):
+    """Test a dictionary contains a static set of mappings, even if new overrides arrive.
+
+    The dictionary should be created with a LIFETIME(0) setting to avoid pulling new updates,
+    and the dictionary remaining static.
+    """
+    query_inputs.dictionary_name = "fancy_dictionary"
+    query_inputs.dry_run = False
+
+    await activity_environment.run(prepare_dictionary, query_inputs)
+
+    newer_values_to_insert = []
+    for team_id, person_override in person_overrides_data.items():
+        for distinct_id, _ in person_override:
+            newer_person_id = uuid4()
+            values = {
+                "team_id": team_id,
+                "distinct_id": distinct_id,
+                "person_id": newer_person_id,
+                "version": LATEST_VERSION + 1,
+            }
+
+            newer_values_to_insert.append(values)
+
+    await clickhouse_client.execute_query(
+        "INSERT INTO person_distinct_id_overrides FORMAT JSONEachRow", *newer_values_to_insert
+    )
+
+    # Ensure new updates have landed
+    await clickhouse_client.execute_query("OPTIMIZE TABLE person_distinct_id_overrides FINAL")
 
     for team_id, person_overrides in person_overrides_data.items():
         for person_override in person_overrides:

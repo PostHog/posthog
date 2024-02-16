@@ -23,7 +23,11 @@ CREATE OR REPLACE DICTIONARY {database}.{dictionary_name} ON CLUSTER {cluster_na
 PRIMARY KEY team_id, distinct_id
 SOURCE(CLICKHOUSE(USER '{user}' PASSWORD '{password}' TABLE 'person_distinct_id_overrides' DB '{database}'))
 LAYOUT(complex_key_hashed())
-LIFETIME(0)
+LIFETIME(MIN 0 MAX 0)
+"""
+
+RELOAD_DICTIONARY_QUERY = """
+SYSTEM RELOAD DICTIONARY {database}.{dictionary_name}
 """
 
 SQUASH_EVENTS_QUERY = """
@@ -130,6 +134,16 @@ async def prepare_dictionary(inputs: QueryInputs) -> None:
                     user=settings.CLICKHOUSE_USER,
                     password=settings.CLICKHOUSE_PASSWORD,
                     cluster_name=settings.CLICKHOUSE_CLUSTER,
+                )
+            )
+            # ClickHouse may delay populating the dictionary until we read from it.
+            # We force a reload here to ensure the values are populated. This way,
+            # they remain static from this point onwards as the dictionary's lifetime
+            # is 0 (no updates).
+            await clickhouse_client.execute_query(
+                RELOAD_DICTIONARY_QUERY.format(
+                    database=settings.CLICKHOUSE_DATABASE,
+                    dictionary_name=inputs.dictionary_name,
                 )
             )
 
