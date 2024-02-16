@@ -1,6 +1,8 @@
 {
     "settings": {
-        "max_body_size": 22020096
+        "http": {
+            "max_body_size": 22020096
+        }
     },
     "listeners": {
         "*:8000": {
