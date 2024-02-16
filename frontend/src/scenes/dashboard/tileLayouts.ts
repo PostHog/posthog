@@ -45,7 +45,7 @@ export const calculateLayouts = (tiles: DashboardTile[]): Partial<Record<Dashboa
             let minH = 3
             let defaultW = 6
             let defaultH = 5
-            // Content-adjusted constraints
+            // Content-adjusted constraints (note that widths should be factors of 12)
             if (tile.text) {
                 minW = 1
                 minH = 1
@@ -65,7 +65,7 @@ export const calculateLayouts = (tiles: DashboardTile[]): Partial<Record<Dashboa
                 defaultH = 7
             } else if (isTrendsFilter(filters) && filters.display === ChartDisplayType.BoldNumber) {
                 minW = 2
-                minH = 3
+                minH = 2
             }
             // Single-column layout width override
             if (breakpoint === 'xs') {
