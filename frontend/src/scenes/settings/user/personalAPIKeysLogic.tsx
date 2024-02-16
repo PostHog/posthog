@@ -213,6 +213,13 @@ export const personalAPIKeysLogic = kea<personalAPIKeysLogicType>([
         ],
     })),
     listeners(({ actions, values }) => ({
+        touchEditingKeyField: ({ key }) => {
+            if (key === 'label') {
+                if (values.editingKey.label.toLowerCase().includes('zapier') && !values.editingKey.preset) {
+                    actions.setEditingKeyValue('preset', 'zapier')
+                }
+            }
+        },
         setEditingKeyValue: async ({ name, value }) => {
             const key = Array.isArray(name) ? name[0] : name
             // When we select a preset, update the scopes
