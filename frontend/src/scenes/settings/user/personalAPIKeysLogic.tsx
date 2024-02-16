@@ -231,6 +231,7 @@ export const personalAPIKeysLogic = kea<personalAPIKeysLogicType>([
             if (key === 'label') {
                 if (values.editingKey.label.toLowerCase().includes('zapier') && !values.editingKey.preset) {
                     actions.setEditingKeyValue('preset', 'zapier')
+                    actions.setEditingKeyValue('access_type', 'all')
                 }
             }
         },
