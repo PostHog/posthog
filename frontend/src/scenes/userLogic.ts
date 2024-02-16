@@ -28,7 +28,6 @@ export const userLogic = kea<userLogicType>([
         setUserScenePersonalisation: (scene: DashboardCompatibleScenes, dashboard: number) => ({ scene, dashboard }),
         updateHasSeenProductIntroFor: (productKey: ProductKey, value: boolean) => ({ productKey, value }),
         switchTeam: (teamId: string | number) => ({ teamId }),
-        handleUnauthorizedError: true,
     })),
     forms(({ actions }) => ({
         userDetails: {
