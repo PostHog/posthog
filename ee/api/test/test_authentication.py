@@ -281,7 +281,7 @@ class TestEESAMLAuthenticationAPI(APILicensedTest):
 
     def test_need_to_be_authenticated_to_get_saml_metadata(self):
         response = self.client.get("/api/saml/metadata/")
-        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
         self.assertEqual(response.json(), self.unauthenticated_response())
 
     def test_only_admins_can_get_saml_metadata(self):
@@ -498,7 +498,7 @@ YotAcSbU3p5bzd11wpyebYHB"""
 
         # Test logged in request fails
         response = self.client.get("/api/users/@me/")
-        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
 
     @freeze_time("2021-08-25T22:09:14.252Z")
     def test_cannot_signup_with_saml_if_jit_provisioning_is_disabled(self):
@@ -539,7 +539,7 @@ YotAcSbU3p5bzd11wpyebYHB"""
 
         # Test logged in request fails
         response = self.client.get("/api/users/@me/")
-        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
 
     @freeze_time("2021-08-25T23:53:51.000Z")
     def test_cannot_create_account_without_first_name_in_payload(self):
@@ -617,7 +617,7 @@ YotAcSbU3p5bzd11wpyebYHB"""
 
         # Assert user is not logged in
         response = self.client.get("/api/users/@me/")
-        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
 
     def test_saml_can_be_enforced(self):
         User.objects.create_and_join(
