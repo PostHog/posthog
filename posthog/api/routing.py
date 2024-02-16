@@ -9,7 +9,12 @@ from rest_framework_extensions.routers import ExtendedDefaultRouter
 from rest_framework_extensions.settings import extensions_api_settings
 
 from posthog.api.utils import get_token
-from posthog.auth import JwtAuthentication, PersonalAPIKeyAuthentication, SharingAccessTokenAuthentication
+from posthog.auth import (
+    JwtAuthentication,
+    PersonalAPIKeyAuthentication,
+    SessionAuthentication,
+    SharingAccessTokenAuthentication,
+)
 from posthog.models.organization import Organization
 from posthog.models.personal_api_key import APIScopeObjectOrNotSupported
 from posthog.models.team import Team
@@ -87,7 +92,7 @@ class TeamAndOrgViewSetMixin(_GenericViewSet):
             [
                 JwtAuthentication,
                 PersonalAPIKeyAuthentication,
-                authentication.SessionAuthentication,
+                SessionAuthentication,
             ]
         )
 

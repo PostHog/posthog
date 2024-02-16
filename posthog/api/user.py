@@ -19,7 +19,6 @@ from django_otp import login as otp_login
 from django_otp.util import random_hex
 from loginas.utils import is_impersonated_session
 from rest_framework import exceptions, mixins, serializers, viewsets
-from rest_framework.authentication import SessionAuthentication
 from rest_framework.decorators import action
 from rest_framework.exceptions import NotFound
 from rest_framework.permissions import IsAuthenticated, AllowAny
@@ -36,7 +35,7 @@ from posthog.api.email_verification import EmailVerifier
 from posthog.api.organization import OrganizationSerializer
 from posthog.api.shared import OrganizationBasicSerializer, TeamBasicSerializer
 from posthog.api.utils import raise_if_user_provided_url_unsafe
-from posthog.auth import PersonalAPIKeyAuthentication, authenticate_secondarily
+from posthog.auth import PersonalAPIKeyAuthentication, SessionAuthentication, authenticate_secondarily
 from posthog.email import is_email_available
 from posthog.event_usage import (
     report_user_logged_in,

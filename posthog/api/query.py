@@ -44,7 +44,7 @@ class QueryViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet)
     scope_object = "query"
     # Special case for query - these are all essentially read actions
     scope_object_read_actions = ["retrieve", "create", "list", "destroy"]
-    scope_object_write_actions = []
+    scope_object_write_actions: list[str] = []
 
     def get_throttles(self):
         if self.action == "draft_sql":
