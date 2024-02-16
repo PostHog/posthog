@@ -1,3 +1,4 @@
+import { IconWarning } from '@posthog/icons'
 import {
     LemonBanner,
     LemonDialog,
@@ -254,7 +255,7 @@ function EditKeyModal(): JSX.Element {
 
                                                                 {info ? (
                                                                     <Tooltip title={info}>
-                                                                        <IconInfo className="text-muted" />
+                                                                        <IconInfo className="text-muted text-base" />
                                                                     </Tooltip>
                                                                 ) : null}
                                                             </div>
@@ -290,8 +291,9 @@ function EditKeyModal(): JSX.Element {
                                                             />
                                                         </div>
                                                         {warnings?.[formScopeRadioValues[key]] && (
-                                                            <div className="text-xs italic p-2">
-                                                                {warnings[formScopeRadioValues[key]]}
+                                                            <div className="flex items-start gap-2 text-xs italic pb-2">
+                                                                <IconWarning className="text-base text-muted mt-0.5" />
+                                                                <span>{warnings[formScopeRadioValues[key]]}</span>
                                                             </div>
                                                         )}
                                                     </Fragment>

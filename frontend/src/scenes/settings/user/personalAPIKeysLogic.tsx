@@ -29,11 +29,11 @@ export const API_KEY_SCOPE_PRESETS = [
 
 export type APIScope = {
     key: string
-    info?: JSX.Element
+    info?: string | JSX.Element
     disabledActions?: ('read' | 'write')[]
     disabledWhenProjectScoped?: boolean
     description?: string
-    warnings?: { [key: string]: JSX.Element }
+    warnings?: Partial<Record<'read' | 'write', string | JSX.Element>>
 }
 
 export const APIScopes: APIScope[] = [
@@ -60,8 +60,9 @@ export const APIScopes: APIScope[] = [
         warnings: {
             write: (
                 <>
-                    <b>Warning:</b> This scope can be used to add or remove users from your organization which
-                    effectively allows it to give access to many other scopes via the added user.
+                    This scope can be used to invite users to your organization,
+                    <br />
+                    effectively <strong>allowing access to other scopes via the added user</strong>.
                 </>
             ),
         },
@@ -71,12 +72,7 @@ export const APIScopes: APIScope[] = [
     {
         key: 'project',
         warnings: {
-            write: (
-                <>
-                    <b>Warning:</b> This scope can be used to create or modify projects within your organization,
-                    including settings about how data is ingested.
-                </>
-            ),
+            write: 'This scope can be used to create or modify projects, including settings about how data is ingested.',
         },
     },
     { key: 'property_definition' },
@@ -91,13 +87,14 @@ export const APIScopes: APIScope[] = [
         warnings: {
             read: (
                 <>
-                    <b>Warning:</b> This scope allows you to retrieve your own user which can contain other information
-                    such as your organizations and projects.
+                    This scope allows you to retrieve your own user object.
+                    <br />
+                    Note that the user object <strong>lists all organizations and projects you're in</strong>.
                 </>
             ),
         },
     },
-    { key: 'webhook', info: <>Currently webhook configuration is only enabled for the Zapier integration.</> },
+    { key: 'webhook', info: 'Webhook configuration is currently only enabled for the Zapier integration.' },
 ]
 
 export type EditingKeyFormValues = Pick<
