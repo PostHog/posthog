@@ -23,8 +23,6 @@ from posthog.temporal.batch_exports.squash_person_overrides import (
     QueryInputs,
     SquashPersonOverridesInputs,
     SquashPersonOverridesWorkflow,
-    attach_person_overrides_kafka_table,
-    deattach_person_overrides_kafka_table,
     delete_squashed_person_overrides_from_clickhouse,
     drop_dictionary,
     optimize_person_distinct_id_overrides,
@@ -146,23 +144,17 @@ def query_inputs():
 
 
 @pytest_asyncio.fixture
-async def person_overrides_preparation(activity_environment, query_inputs):
-    """Prepare the person overrides table for testing.
+async def optimized_person_overrides(activity_environment, query_inputs):
+    """Provide an optimized person_distinct_id_overrides table for testing.
 
-    Some activities that run in unit tests depend on the person overrides table being 'prepared': These preparation
-    steps can include optimization (to remove duplicates and older versions) and detachment (to avoid ingesting new
-    values while the workflow is running). So, this fixture runs the preparation activity for those tests.
+    Some activities that run in unit tests depend on the person overrides table being optimized (to remove
+    duplicates and older versions). So, this fixture runs the activity for those tests.
     """
     query_inputs.dry_run = False
     query_inputs.wait_for_mutations = True
     await activity_environment.run(optimize_person_distinct_id_overrides, query_inputs)
-    await activity_environment.run(deattach_person_overrides_kafka_table, query_inputs)
 
     yield
-
-    query_inputs.dry_run = False
-    query_inputs.wait_for_mutations = True
-    await activity_environment.run(attach_person_overrides_kafka_table, query_inputs)
 
 
 @pytest.mark.django_db
@@ -427,7 +419,7 @@ def dictionary_name(request) -> str:
 
 
 @pytest_asyncio.fixture
-async def overrides_dictionary(person_overrides_preparation, query_inputs, activity_environment, dictionary_name):
+async def overrides_dictionary(optimized_person_overrides, query_inputs, activity_environment, dictionary_name):
     """Create a person overrides dictionary for testing.
 
     Some activities that run in unit tests depend on the overrides dictionary. We create the dictionary in
@@ -698,8 +690,6 @@ async def test_squash_person_overrides_workflow(
         task_queue=settings.TEMPORAL_TASK_QUEUE,
         workflows=[SquashPersonOverridesWorkflow],
         activities=[
-            attach_person_overrides_kafka_table,
-            deattach_person_overrides_kafka_table,
             delete_squashed_person_overrides_from_clickhouse,
             drop_dictionary,
             optimize_person_distinct_id_overrides,
@@ -745,8 +735,6 @@ async def test_squash_person_overrides_workflow_with_newer_overrides(
         task_queue=settings.TEMPORAL_TASK_QUEUE,
         workflows=[SquashPersonOverridesWorkflow],
         activities=[
-            attach_person_overrides_kafka_table,
-            deattach_person_overrides_kafka_table,
             delete_squashed_person_overrides_from_clickhouse,
             drop_dictionary,
             optimize_person_distinct_id_overrides,
@@ -789,8 +777,6 @@ async def test_squash_person_overrides_workflow_with_limited_team_ids(
         task_queue=settings.TEMPORAL_TASK_QUEUE,
         workflows=[SquashPersonOverridesWorkflow],
         activities=[
-            attach_person_overrides_kafka_table,
-            deattach_person_overrides_kafka_table,
             delete_squashed_person_overrides_from_clickhouse,
             drop_dictionary,
             optimize_person_distinct_id_overrides,

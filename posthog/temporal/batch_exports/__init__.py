@@ -49,11 +49,9 @@ WORKFLOWS = [
 ]
 
 ACTIVITIES = [
-    attach_person_overrides_kafka_table,
     backfill_schedule,
     create_batch_export_backfill_model,
     create_export_run,
-    deattach_person_overrides_kafka_table,
     delete_squashed_person_overrides_from_clickhouse,
     drop_dictionary,
     get_schedule_frequency,

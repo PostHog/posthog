@@ -113,52 +113,6 @@ async def optimize_person_distinct_id_overrides(inputs: QueryInputs) -> None:
 
 
 @activity.defn
-async def deattach_person_overrides_kafka_table(inputs: QueryInputs) -> None:
-    """Prepare the person_overrides table to be used in a squash.
-
-    This activity executes an OPTIMIZE TABLE query to ensure we assign the latest overrides for each old_person_id.
-    """
-    from django.conf import settings
-
-    detach_query = "DETACH TABLE {database}.kafka_person_distinct_id_overrides ON CLUSTER {cluster} SYNC"
-
-    if inputs.dry_run is True:
-        activity.logger.info("This is a DRY RUN so nothing will be detached.")
-        activity.logger.debug("Detach query: %s", detach_query)
-        return
-
-    async with heartbeat_every():
-        async with get_client(mutations_sync=2) as clickhouse_client:
-            await clickhouse_client.execute_query(
-                detach_query.format(database=settings.CLICKHOUSE_DATABASE, cluster=settings.CLICKHOUSE_CLUSTER)
-            )
-    activity.logger.info("Detached kafka_person_distinct_id_overrides")
-
-
-@activity.defn
-async def attach_person_overrides_kafka_table(inputs: QueryInputs) -> None:
-    """Prepare the person_overrides table to be used in a squash.
-
-    This activity executes an OPTIMIZE TABLE query to ensure we assign the latest overrides for each old_person_id.
-    """
-    from django.conf import settings
-
-    attach_query = "ATTACH TABLE {database}.kafka_person_distinct_id_overrides ON CLUSTER {cluster}"
-
-    if inputs.dry_run is True:
-        activity.logger.info("This is a DRY RUN so nothing will be attached.")
-        activity.logger.debug("Attach query: %s", attach_query)
-        return
-
-    async with get_client(mutations_sync=2) as clickhouse_client:
-        await clickhouse_client.execute_query(
-            attach_query.format(database=settings.CLICKHOUSE_DATABASE, cluster=settings.CLICKHOUSE_CLUSTER)
-        )
-
-    activity.logger.info("Attached kafka_person_distinct_id_overrides")
-
-
-@activity.defn
 async def prepare_dictionary(inputs: QueryInputs) -> None:
     """Prepare the dictionary to be used in the squash workflow.
 
@@ -323,45 +277,27 @@ async def person_overrides_dictionary(workflow, query_inputs: QueryInputs) -> co
     leaves us no time to clean-up.
     """
     await workflow.execute_activity(
-        deattach_person_overrides_kafka_table,
+        optimize_person_distinct_id_overrides,
         query_inputs,
-        start_to_close_timeout=timedelta(seconds=60),
+        start_to_close_timeout=timedelta(minutes=30),
         retry_policy=RetryPolicy(maximum_attempts=3, initial_interval=timedelta(seconds=20)),
-        heartbeat_timeout=timedelta(seconds=10),
+        heartbeat_timeout=timedelta(minutes=1),
+    )
+
+    await workflow.execute_activity(
+        prepare_dictionary,
+        query_inputs,
+        start_to_close_timeout=timedelta(minutes=30),
+        retry_policy=RetryPolicy(maximum_attempts=3, initial_interval=timedelta(seconds=20)),
+        heartbeat_timeout=timedelta(minutes=1),
     )
 
     try:
-        await workflow.execute_activity(
-            optimize_person_distinct_id_overrides,
-            query_inputs,
-            start_to_close_timeout=timedelta(minutes=30),
-            retry_policy=RetryPolicy(maximum_attempts=3, initial_interval=timedelta(seconds=20)),
-            heartbeat_timeout=timedelta(minutes=1),
-        )
-
-        await workflow.execute_activity(
-            prepare_dictionary,
-            query_inputs,
-            start_to_close_timeout=timedelta(minutes=30),
-            retry_policy=RetryPolicy(maximum_attempts=3, initial_interval=timedelta(seconds=20)),
-            heartbeat_timeout=timedelta(minutes=1),
-        )
-
-        try:
-            yield None
-
-        finally:
-            await workflow.execute_activity(
-                drop_dictionary,
-                query_inputs,
-                start_to_close_timeout=timedelta(seconds=60),
-                retry_policy=RetryPolicy(maximum_attempts=10, initial_interval=timedelta(seconds=60)),
-                heartbeat_timeout=timedelta(seconds=10),
-            )
+        yield None
 
     finally:
         await workflow.execute_activity(
-            attach_person_overrides_kafka_table,
+            drop_dictionary,
             query_inputs,
             start_to_close_timeout=timedelta(seconds=60),
             retry_policy=RetryPolicy(maximum_attempts=10, initial_interval=timedelta(seconds=60)),
