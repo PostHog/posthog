@@ -39,7 +39,7 @@ pytestmark = [pytest.mark.asyncio(scope="session")]
 @pytest.fixture(scope="module")
 def event_loop():
     """Module scoped event loop fixture."""
-    loop = asyncio.get_event_loop()
+    loop = asyncio.new_event_loop()
     yield loop
     loop.close()
 
