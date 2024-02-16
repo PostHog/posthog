@@ -3,6 +3,7 @@ import { router, urlToAction } from 'kea-router'
 import { commandBarLogic } from 'lib/components/CommandBar/commandBarLogic'
 import { BarStatus } from 'lib/components/CommandBar/types'
 import { FEATURE_FLAGS } from 'lib/constants'
+import { apiStatusLogic } from 'lib/logic/apiStatusLogic'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { addProjectIdIfMissing, removeProjectIdIfPresent } from 'lib/utils/router-utils'
@@ -38,7 +39,7 @@ export const sceneLogic = kea<sceneLogicType>([
     ),
     path(['scenes', 'sceneLogic']),
     connect(() => ({
-        logic: [router, userLogic, preflightLogic, appContextLogic],
+        logic: [router, userLogic, preflightLogic, appContextLogic, apiStatusLogic],
         actions: [router, ['locationChanged'], commandBarLogic, ['setCommandBar'], inviteLogic, ['hideInviteModal']],
         values: [featureFlagLogic, ['featureFlags']],
     })),

@@ -2,10 +2,10 @@ import { decompressSync, strFromU8 } from 'fflate'
 import { encodeParams } from 'kea-router'
 import { ActivityLogProps } from 'lib/components/ActivityLog/ActivityLog'
 import { ActivityLogItem } from 'lib/components/ActivityLog/humanizeActivity'
+import { apiStatusLogic } from 'lib/logic/apiStatusLogic'
 import { objectClean, toParams } from 'lib/utils'
 import posthog from 'posthog-js'
 import { SavedSessionRecordingPlaylistsResult } from 'scenes/session-recordings/saved-playlists/savedSessionRecordingPlaylistsLogic'
-import { userLogic } from 'scenes/userLogic'
 
 import { getCurrentExporterData } from '~/exporter/exporterViewLogic'
 import { QuerySchema, QueryStatus } from '~/queries/schema'
@@ -2023,58 +2023,36 @@ const api = {
     async getResponse(url: string, options?: ApiMethodOptions): Promise<Response> {
         url = prepareUrl(url)
         ensureProjectIdNotInvalid(url)
-        let response
-        const startTime = new Date().getTime()
-        try {
-            response = await fetch(url, {
+        return await handleFetch(url, 'GET', () => {
+            return fetch(url, {
                 signal: options?.signal,
                 headers: {
                     ...objectClean(options?.headers ?? {}),
                     ...(getSessionId() ? { 'X-POSTHOG-SESSION-ID': getSessionId() } : {}),
                 },
             })
-        } catch (e) {
-            throw { status: 0, message: e }
-        }
-
-        if (!response.ok) {
-            if (response.status === 401) {
-                userLogic.findMounted()?.actions.handleUnauthorizedError()
-            }
-
-            reportError('GET', url, response, startTime)
-            const data = await getJSONOrThrow(response)
-            throw { status: response.status, ...data }
-        }
-
-        return response
+        })
     },
 
     async update(url: string, data: any, options?: ApiMethodOptions): Promise<any> {
         url = prepareUrl(url)
         ensureProjectIdNotInvalid(url)
         const isFormData = data instanceof FormData
-        const startTime = new Date().getTime()
-        const response = await fetch(url, {
-            method: 'PATCH',
-            headers: {
-                ...objectClean(options?.headers ?? {}),
-                ...(isFormData ? {} : { 'Content-Type': 'application/json' }),
-                'X-CSRFToken': getCookie(CSRF_COOKIE_NAME) || '',
-                ...(getSessionId() ? { 'X-POSTHOG-SESSION-ID': getSessionId() } : {}),
-            },
-            body: isFormData ? data : JSON.stringify(data),
-            signal: options?.signal,
+
+        const response = await handleFetch(url, 'PATCH', async () => {
+            return await fetch(url, {
+                method: 'PATCH',
+                headers: {
+                    ...objectClean(options?.headers ?? {}),
+                    ...(isFormData ? {} : { 'Content-Type': 'application/json' }),
+                    'X-CSRFToken': getCookie(CSRF_COOKIE_NAME) || '',
+                    ...(getSessionId() ? { 'X-POSTHOG-SESSION-ID': getSessionId() } : {}),
+                },
+                body: isFormData ? data : JSON.stringify(data),
+                signal: options?.signal,
+            })
         })
 
-        if (!response.ok) {
-            reportError('PATCH', url, response, startTime)
-            const jsonData = await getJSONOrThrow(response)
-            if (Array.isArray(jsonData)) {
-                throw jsonData
-            }
-            throw { status: response.status, ...jsonData }
-        }
         return await getJSONOrThrow(response)
     },
 
@@ -2087,49 +2065,35 @@ const api = {
         url = prepareUrl(url)
         ensureProjectIdNotInvalid(url)
         const isFormData = data instanceof FormData
-        const startTime = new Date().getTime()
-        const response = await fetch(url, {
-            method: 'POST',
-            headers: {
-                ...objectClean(options?.headers ?? {}),
-                ...(isFormData ? {} : { 'Content-Type': 'application/json' }),
-                'X-CSRFToken': getCookie(CSRF_COOKIE_NAME) || '',
-                ...(getSessionId() ? { 'X-POSTHOG-SESSION-ID': getSessionId() } : {}),
-            },
-            body: data ? (isFormData ? data : JSON.stringify(data)) : undefined,
-            signal: options?.signal,
-        })
 
-        if (!response.ok) {
-            reportError('POST', url, response, startTime)
-            const jsonData = await getJSONOrThrow(response)
-            if (Array.isArray(jsonData)) {
-                throw jsonData
-            }
-            throw { status: response.status, ...jsonData }
-        }
-        return response
+        return await handleFetch(url, 'POST', () =>
+            fetch(url, {
+                method: 'POST',
+                headers: {
+                    ...objectClean(options?.headers ?? {}),
+                    ...(isFormData ? {} : { 'Content-Type': 'application/json' }),
+                    'X-CSRFToken': getCookie(CSRF_COOKIE_NAME) || '',
+                    ...(getSessionId() ? { 'X-POSTHOG-SESSION-ID': getSessionId() } : {}),
+                },
+                body: data ? (isFormData ? data : JSON.stringify(data)) : undefined,
+                signal: options?.signal,
+            })
+        )
     },
 
     async delete(url: string): Promise<any> {
         url = prepareUrl(url)
         ensureProjectIdNotInvalid(url)
-        const startTime = new Date().getTime()
-        const response = await fetch(url, {
-            method: 'DELETE',
-            headers: {
-                'Content-Type': 'application/x-www-form-urlencoded',
-                'X-CSRFToken': getCookie(CSRF_COOKIE_NAME) || '',
-                ...(getSessionId() ? { 'X-POSTHOG-SESSION-ID': getSessionId() } : {}),
-            },
-        })
-
-        if (!response.ok) {
-            reportError('DELETE', url, response, startTime)
-            const data = await getJSONOrThrow(response)
-            throw { status: response.status, ...data }
-        }
-        return response
+        return await handleFetch(url, 'DELETE', () =>
+            fetch(url, {
+                method: 'DELETE',
+                headers: {
+                    'Content-Type': 'application/x-www-form-urlencoded',
+                    'X-CSRFToken': getCookie(CSRF_COOKIE_NAME) || '',
+                    ...(getSessionId() ? { 'X-POSTHOG-SESSION-ID': getSessionId() } : {}),
+                },
+            })
+        )
     },
 
     async loadPaginatedResults(
@@ -2150,10 +2114,36 @@ const api = {
     },
 }
 
-function reportError(method: string, url: string, response: Response, startTime: number): void {
-    const duration = new Date().getTime() - startTime
-    const pathname = new URL(url, location.origin).pathname
-    posthog.capture('client_request_failure', { pathname, method, duration, status: response.status })
+async function handleFetch(url: string, method: string, fetcher: () => Promise<Response>): Promise<Response> {
+    const startTime = new Date().getTime()
+
+    let response
+    let error
+    try {
+        response = await fetcher()
+    } catch (e) {
+        error = e
+    }
+
+    apiStatusLogic.findMounted()?.actions.onApiResponse(response, error)
+
+    if (error || !response) {
+        throw { status: 0, message: error ?? 'Unknown error' }
+    }
+
+    if (!response.ok) {
+        const duration = new Date().getTime() - startTime
+        const pathname = new URL(url, location.origin).pathname
+        posthog.capture('client_request_failure', { pathname, method, duration, status: response.status })
+
+        const data = await getJSONOrThrow(response)
+        if (Array.isArray(data)) {
+            throw data
+        }
+        throw { status: response.status, ...data }
+    }
+
+    return response
 }
 
 export default api

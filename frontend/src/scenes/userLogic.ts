@@ -108,7 +108,7 @@ export const userLogic = kea<userLogicType>([
             },
         ],
     }),
-    listeners(({ actions, values, cache }) => ({
+    listeners(({ actions, values }) => ({
         logout: () => {
             posthog.reset()
             window.location.href = '/logout'
@@ -195,24 +195,6 @@ export const userLogic = kea<userLogicType>([
         },
         switchTeam: ({ teamId }) => {
             window.location.href = urls.project(teamId)
-        },
-
-        handleUnauthorizedError: async (_, breakpoint) => {
-            // api.ts calls this if we see a 401
-            const now = Date.now()
-
-            // We don't want to check too often (multiple api calls might fail at once)
-            if (now - 10000 > (cache.lastUnauthorizedCheck ?? 0)) {
-                cache.lastUnauthorizedCheck = Date.now()
-
-                await breakpoint(100)
-
-                await api.get('api/users/@me/').catch((error: any) => {
-                    if (error.status === 401) {
-                        actions.logout()
-                    }
-                })
-            }
         },
     })),
     selectors({

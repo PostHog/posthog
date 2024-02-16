@@ -108,6 +108,15 @@ export function ProjectNotice(): JSX.Element | null {
                 children: 'Log out',
             },
         },
+        internet_connection_issue: {
+            message: 'PostHog is having trouble connecting to the internet. Please check your connection.',
+            type: 'warning',
+            action: {
+                'data-attr': 'reload-page',
+                onClick: () => window.location.reload(),
+                children: 'Reload page',
+            },
+        },
     }
 
     const relevantNotice = NOTICES[projectNoticeVariant]
