@@ -63,7 +63,7 @@ def activity_environment():
     return ActivityEnvironment()
 
 
-@pytest.fixture
+@pytest.fixture(scope="module")
 def clickhouse_client():
     """Provide a ClickHouseClient to use in tests."""
     client = ClickHouseClient(

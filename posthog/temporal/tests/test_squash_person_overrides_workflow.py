@@ -1,9 +1,9 @@
-import collections.abc
+import asyncio
 import operator
 import random
 from collections import defaultdict
-from datetime import datetime, timedelta
-from typing import TypedDict
+from datetime import datetime
+from typing import NamedTuple, TypedDict
 from uuid import UUID, uuid4
 
 import pytest
@@ -20,20 +20,28 @@ from posthog.models.person.sql import (
     PERSON_DISTINCT_ID_OVERRIDES_TABLE_SQL,
 )
 from posthog.temporal.batch_exports.squash_person_overrides import (
-    PersonOverrideTuple,
     QueryInputs,
     SquashPersonOverridesInputs,
     SquashPersonOverridesWorkflow,
+    attach_person_overrides_kafka_table,
+    deattach_person_overrides_kafka_table,
     delete_squashed_person_overrides_from_clickhouse,
     drop_dictionary,
+    optimize_person_distinct_id_overrides,
     prepare_dictionary,
-    prepare_person_overrides,
-    re_attach_person_overrides_kafka_table,
     squash_events_partition,
 )
 from posthog.temporal.common.clickhouse import get_client
 
 pytestmark = [pytest.mark.asyncio(scope="session")]
+
+
+@pytest.fixture(scope="module")
+def event_loop():
+    """Module scoped event loop fixture."""
+    loop = asyncio.get_event_loop()
+    yield loop
+    loop.close()
 
 
 @freeze_time("2023-03-14")
@@ -67,38 +75,37 @@ def activity_environment():
     return ActivityEnvironment()
 
 
-@pytest_asyncio.fixture
-async def person_overrides_table(clickhouse_client):
-    """Manage person_overrides tables for testing."""
+@pytest_asyncio.fixture(scope="module", autouse=True)
+async def ensure_database_tables(clickhouse_client):
+    """Ensure necessary person_distinct_id_overrides table and related exist.
+
+    This is a module scoped fixture as most if not all tests in this module require the
+    person_distinct_id_overrides table in one way or another.
+    """
     await clickhouse_client.execute_query(PERSON_DISTINCT_ID_OVERRIDES_TABLE_SQL())
     await clickhouse_client.execute_query(KAFKA_PERSON_DISTINCT_ID_OVERRIDES_TABLE_SQL())
     await clickhouse_client.execute_query(PERSON_DISTINCT_ID_OVERRIDES_MV_SQL)
-    await clickhouse_client.execute_query("TRUNCATE TABLE person_distinct_id_overrides")
 
     yield
 
-    await clickhouse_client.execute_query("DROP TABLE person_distinct_id_overrides_mv")
-    await clickhouse_client.execute_query("DROP TABLE kafka_person_distinct_id_overrides")
-    await clickhouse_client.execute_query("DROP TABLE person_distinct_id_overrides")
+
+@pytest_asyncio.fixture(autouse=True)
+async def truncate_table(ensure_database_tables, clickhouse_client):
+    """Truncate person_distinct_id_overrides after every test."""
+    await clickhouse_client.execute_query("TRUNCATE TABLE person_distinct_id_overrides")
 
 
-OVERRIDES_TIMESTAMP = datetime.fromisoformat("2020-01-02T00:00:00.123123+00:00")
-OLDEST_EVENT_AT = OVERRIDES_TIMESTAMP - timedelta(days=1)
+EVENT_TIMESTAMP = datetime.fromisoformat("2020-01-02T00:00:00.123123+00:00")
 LATEST_VERSION = 8
 
 
-@pytest.fixture
-def ensure_create_and_drop_of_person_overrides(person_overrides_table) -> collections.abc.Iterator[None]:
-    """Ensure an async fixture happens after table creation and/or before table drop.
-
-    Async fixtures can be collected and ran simultaneously by pytest_asyncio. This can break fixtures that depend
-    on other fixtures that are running simultaneously.
-    """
-    yield
+class PersonOverrideTuple(NamedTuple):
+    distinct_id: str
+    person_id: UUID
 
 
 @pytest_asyncio.fixture
-async def person_overrides_data(ensure_create_and_drop_of_person_overrides, clickhouse_client):
+async def person_overrides_data(clickhouse_client):
     """Produce some fake person_overrides data for testing.
 
     We yield a dictionary of team_id to sets of PersonOverrideTuple. These dict can be
@@ -139,7 +146,7 @@ def query_inputs():
 
 
 @pytest_asyncio.fixture
-async def person_overrides_preparation(ensure_create_and_drop_of_person_overrides, activity_environment, query_inputs):
+async def person_overrides_preparation(activity_environment, query_inputs):
     """Prepare the person overrides table for testing.
 
     Some activities that run in unit tests depend on the person overrides table being 'prepared': These preparation
@@ -148,13 +155,14 @@ async def person_overrides_preparation(ensure_create_and_drop_of_person_override
     """
     query_inputs.dry_run = False
     query_inputs.wait_for_mutations = True
-    await activity_environment.run(prepare_person_overrides, query_inputs)
+    await activity_environment.run(optimize_person_distinct_id_overrides, query_inputs)
+    await activity_environment.run(deattach_person_overrides_kafka_table, query_inputs)
 
     yield
 
     query_inputs.dry_run = False
     query_inputs.wait_for_mutations = True
-    await activity_environment.run(re_attach_person_overrides_kafka_table, query_inputs)
+    await activity_environment.run(attach_person_overrides_kafka_table, query_inputs)
 
 
 @pytest.mark.django_db
@@ -259,7 +267,7 @@ async def test_prepare_dictionary_with_older_overrides_present(
     query_inputs.dictionary_name = "fancy_dictionary"
     query_inputs.dry_run = False
 
-    await activity_environment.run(prepare_person_overrides, query_inputs)
+    await activity_environment.run(optimize_person_distinct_id_overrides, query_inputs)
     await activity_environment.run(prepare_dictionary, query_inputs)
 
     for team_id, person_overrides in person_overrides_data.items():
@@ -286,7 +294,6 @@ async def test_prepare_dictionary_with_older_overrides_present(
             assert UUID(ids[1]) == person_override.person_id
 
     await activity_environment.run(drop_dictionary, query_inputs)
-    await activity_environment.run(re_attach_person_overrides_kafka_table, query_inputs)
 
 
 @pytest.mark.django_db
@@ -357,7 +364,7 @@ async def events_to_override(person_overrides_data, clickhouse_client):
             values = {
                 "uuid": uuid4(),
                 "event": "test-event",
-                "timestamp": OLDEST_EVENT_AT,
+                "timestamp": EVENT_TIMESTAMP,
                 "team_id": team_id,
                 "person_id": uuid4(),
                 "distinct_id": distinct_id,
@@ -524,7 +531,7 @@ async def test_squash_events_partition_with_older_overrides(
     query_inputs.dry_run = False
     query_inputs.wait_for_mutations = True
 
-    await activity_environment.run(prepare_person_overrides, query_inputs)
+    await activity_environment.run(optimize_person_distinct_id_overrides, query_inputs)
     await activity_environment.run(prepare_dictionary, query_inputs)
 
     await activity_environment.run(squash_events_partition, query_inputs)
@@ -532,7 +539,6 @@ async def test_squash_events_partition_with_older_overrides(
     await assert_events_have_been_overriden(events_to_override, person_overrides_data)
 
     await activity_environment.run(drop_dictionary, query_inputs)
-    await activity_environment.run(re_attach_person_overrides_kafka_table, query_inputs)
 
 
 @pytest.mark.django_db
@@ -615,7 +621,7 @@ async def test_delete_squashed_person_overrides_from_clickhouse(
         "INSERT INTO person_distinct_id_overrides FORMAT JSONEachRow", not_overriden_person
     )
 
-    await activity_environment.run(prepare_person_overrides, query_inputs)
+    await activity_environment.run(optimize_person_distinct_id_overrides, query_inputs)
     await activity_environment.run(prepare_dictionary, query_inputs)
 
     try:
@@ -623,7 +629,6 @@ async def test_delete_squashed_person_overrides_from_clickhouse(
 
     finally:
         await activity_environment.run(drop_dictionary, query_inputs)
-        await activity_environment.run(re_attach_person_overrides_kafka_table, query_inputs)
 
     response = await clickhouse_client.read_query(
         "SELECT team_id, distinct_id, person_id FROM person_distinct_id_overrides"
@@ -693,12 +698,13 @@ async def test_squash_person_overrides_workflow(
         task_queue=settings.TEMPORAL_TASK_QUEUE,
         workflows=[SquashPersonOverridesWorkflow],
         activities=[
-            prepare_person_overrides,
+            attach_person_overrides_kafka_table,
+            deattach_person_overrides_kafka_table,
+            delete_squashed_person_overrides_from_clickhouse,
+            drop_dictionary,
+            optimize_person_distinct_id_overrides,
             prepare_dictionary,
             squash_events_partition,
-            drop_dictionary,
-            delete_squashed_person_overrides_from_clickhouse,
-            re_attach_person_overrides_kafka_table,
         ],
         workflow_runner=UnsandboxedWorkflowRunner(),
     ):
@@ -732,7 +738,6 @@ async def test_squash_person_overrides_workflow_with_newer_overrides(
     inputs = SquashPersonOverridesInputs(
         partition_ids=["202001"],
         dry_run=False,
-        wait_for_mutations=True,
     )
 
     async with Worker(
@@ -740,12 +745,13 @@ async def test_squash_person_overrides_workflow_with_newer_overrides(
         task_queue=settings.TEMPORAL_TASK_QUEUE,
         workflows=[SquashPersonOverridesWorkflow],
         activities=[
-            prepare_person_overrides,
+            attach_person_overrides_kafka_table,
+            deattach_person_overrides_kafka_table,
+            delete_squashed_person_overrides_from_clickhouse,
+            drop_dictionary,
+            optimize_person_distinct_id_overrides,
             prepare_dictionary,
             squash_events_partition,
-            drop_dictionary,
-            delete_squashed_person_overrides_from_clickhouse,
-            re_attach_person_overrides_kafka_table,
         ],
         workflow_runner=UnsandboxedWorkflowRunner(),
     ):
@@ -776,7 +782,6 @@ async def test_squash_person_overrides_workflow_with_limited_team_ids(
         partition_ids=["202001"],
         team_ids=[random_team],
         dry_run=False,
-        wait_for_mutations=True,
     )
 
     async with Worker(
@@ -784,12 +789,13 @@ async def test_squash_person_overrides_workflow_with_limited_team_ids(
         task_queue=settings.TEMPORAL_TASK_QUEUE,
         workflows=[SquashPersonOverridesWorkflow],
         activities=[
-            prepare_person_overrides,
+            attach_person_overrides_kafka_table,
+            deattach_person_overrides_kafka_table,
+            delete_squashed_person_overrides_from_clickhouse,
+            drop_dictionary,
+            optimize_person_distinct_id_overrides,
             prepare_dictionary,
             squash_events_partition,
-            drop_dictionary,
-            delete_squashed_person_overrides_from_clickhouse,
-            re_attach_person_overrides_kafka_table,
         ],
         workflow_runner=UnsandboxedWorkflowRunner(),
     ):

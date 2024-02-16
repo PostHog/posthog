@@ -49,9 +49,11 @@ WORKFLOWS = [
 ]
 
 ACTIVITIES = [
+    attach_person_overrides_kafka_table,
     backfill_schedule,
     create_batch_export_backfill_model,
     create_export_run,
+    deattach_person_overrides_kafka_table,
     delete_squashed_person_overrides_from_clickhouse,
     drop_dictionary,
     get_schedule_frequency,
@@ -62,8 +64,8 @@ ACTIVITIES = [
     insert_into_snowflake_activity,
     insert_into_http_activity,
     noop_activity,
+    optimize_person_distinct_id_overrides,
     prepare_dictionary,
-    prepare_person_overrides,
     squash_events_partition,
     update_batch_export_backfill_model_status,
     update_export_run_status,
