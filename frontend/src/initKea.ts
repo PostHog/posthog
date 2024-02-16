@@ -93,7 +93,7 @@ export function initKea({ routerHistory, routerLocation, beforePlugins }: InitKe
                     !ERROR_FILTER_ALLOW_LIST.includes(actionKey) &&
                     (error?.message === 'Failed to fetch' || // Likely CORS headers errors (i.e. request failing without reaching Django)
                         (error?.status !== undefined && ![200, 201, 204, 401].includes(error.status)))
-                    // 401 is handled by the api that marks an indicator that the web app needs reloading
+                    // 401 is handled by api.ts and the userLogic
                 ) {
                     let errorMessage = error.detail || error.statusText
                     if (!errorMessage && error.status === 404) {
