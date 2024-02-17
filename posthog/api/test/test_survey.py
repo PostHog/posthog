@@ -450,6 +450,9 @@ class TestSurvey(APIBaseTest):
         assert updated_survey_deletes_targeting_flag.json()["name"] == "survey with targeting"
         assert updated_survey_deletes_targeting_flag.json()["targeting_flag"] is None
 
+        flags = self.client.get(f"/api/projects/{self.team.id}/feature_flags/").json()
+        assert flagId not in [flag["id"] for flag in flags["results"]]
+
         with self.assertRaises(FeatureFlag.DoesNotExist):
             FeatureFlag.objects.get(id=flagId)
 

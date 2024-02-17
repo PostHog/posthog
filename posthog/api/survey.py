@@ -196,12 +196,6 @@ class SurveySerializerCreateUpdateOnly(SurveySerializer):
         return super().create(validated_data)
 
     def update(self, instance: Survey, validated_data):
-        if validated_data.get("remove_targeting_flag"):
-            if instance.targeting_flag:
-                instance.targeting_flag.delete()
-                validated_data["targeting_flag_id"] = None
-            validated_data.pop("remove_targeting_flag")
-
         # if the target flag filters come back with data, update the targeting feature flag if there is one, otherwise create a new one
         if validated_data.get("targeting_flag_filters"):
             new_filters = validated_data["targeting_flag_filters"]
@@ -232,7 +226,12 @@ class SurveySerializerCreateUpdateOnly(SurveySerializer):
             else:
                 instance.targeting_flag.active = False
             instance.targeting_flag.save()
-
+        # it's important to do this last because even after deleting the targeting flag, instance.targeting_flag will still return the feature flag and we don't want it to override with a saveq
+        if validated_data.get("remove_targeting_flag"):
+            if instance.targeting_flag:
+                instance.targeting_flag.delete()
+                validated_data["targeting_flag_id"] = None
+            validated_data.pop("remove_targeting_flag")
         return super().update(instance, validated_data)
 
     def _create_new_targeting_flag(self, name, filters, active=False):
