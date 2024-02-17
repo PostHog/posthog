@@ -17,6 +17,7 @@ import { castTimestampOrNow, UUIDT } from '../../utils/utils'
 import { captureIngestionWarning } from './utils'
 
 const MAX_FAILED_PERSON_MERGE_ATTEMPTS = 3
+const MAX_PERSON_VERSION_ALLOWING_PROPERTIES_UPDATES = 10000
 
 export const mergeFinalFailuresCounter = new Counter({
     name: 'person_merge_final_failure_total',
@@ -144,6 +145,14 @@ export class PersonState {
         const [person, propertiesHandled] = await this.createOrGetPerson()
         if (propertiesHandled) {
             return person
+        }
+        // This indicates an implementation problem on the user side and can cause lock contention in our
+        // ingestion pipeline.
+        if (person.version > MAX_PERSON_VERSION_ALLOWING_PROPERTIES_UPDATES) {
+            await captureIngestionWarning(this.db, this.teamId, 'too_many_person_properties_updates', {
+                personUuid: person.uuid,
+                eventUuid: this.event.uuid,
+            })
         }
         return await this.updatePersonProperties(person)
     }
