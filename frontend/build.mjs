@@ -54,6 +54,9 @@ await buildInParallel(
             // This isn't great, but we load some static assets at runtime for the toolbar, and we can't sub in
             // a variable at runtime it seems...
             publicPath: isDev ? '/static/' : 'https://app.posthog.com/static/',
+            alias: {
+                'posthog-js': 'posthog-js-lite',
+            },
             ...common,
         },
     ],
