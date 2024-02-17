@@ -311,7 +311,11 @@ export async function buildOrWatch(config) {
 
     async function runBuild() {
         if (!esbuildContext) {
-            esbuildContext = await context({ ...commonConfig, ..._config })
+            const extraPlugins = config.plugins || []
+            delete config.plugins
+            const combinedConfig = { ...commonConfig, ..._config }
+            combinedConfig.plugins = [...commonConfig.plugins, ...extraPlugins]
+            esbuildContext = await context(combinedConfig)
         }
 
         buildCount++
