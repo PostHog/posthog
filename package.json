@@ -353,7 +353,6 @@
     },
     "sideEffects": [
         "frontend/src/styles/index.tsx",
-        "frontend/src/initKea.ts",
-        "frontend/src/lib/lemon-ui/*"
+        "frontend/src/initKea.ts"
     ]
 }
