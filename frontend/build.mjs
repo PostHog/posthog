@@ -61,6 +61,16 @@ await buildInParallel(
                 {
                     name: 'no-side-effects',
                     setup(build) {
+                        // sideEffects in package.json lists files that _have_ side effects,
+                        // but we only want to mark lemon-ui as having no side effects,
+                        // so we'd have to list every other file and keep that up to date
+                        // no thanks!
+                        // a glob that negates the path doesn't seem to work
+                        // so based off a comment from the esbuild auther here
+                        // https://github.com/evanw/esbuild/issues/1895#issuecomment-1003404929
+                        // we can add a plugin just for the toolbar build to mark lemon-ui as having no side effects
+                        // that will allow tree-shaking and reduce the toolbar bundle size
+                        // by over 40% at implementation time
                         build.onResolve({ filter: /^(lib|@posthog)\/lemon-ui/ }, async (args) => {
                             if (args.pluginData) {
                                 return
