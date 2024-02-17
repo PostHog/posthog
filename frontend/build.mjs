@@ -57,7 +57,8 @@ await buildInParallel(
             alias: {
                 'posthog-js': 'posthog-js-lite',
             },
-            plugins: [
+            writeMetaFile: true,
+            extraPlugins: [
                 {
                     name: 'no-side-effects',
                     setup(build) {

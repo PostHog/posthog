@@ -247,7 +247,7 @@ function getBuiltEntryPoints(config, result) {
 let buildsInProgress = 0
 
 export async function buildOrWatch(config) {
-    const { absWorkingDir, name, onBuildStart, onBuildComplete, ..._config } = config
+    const { absWorkingDir, name, onBuildStart, onBuildComplete, writeMetaFile, extraPlugins, ..._config } = config
 
     let buildPromise = null
     let buildAgain = false
@@ -311,10 +311,8 @@ export async function buildOrWatch(config) {
 
     async function runBuild() {
         if (!esbuildContext) {
-            const extraPlugins = _config.plugins || []
-            delete _config.plugins
             const combinedConfig = { ...commonConfig, ..._config }
-            combinedConfig.plugins = [...commonConfig.plugins, ...extraPlugins]
+            combinedConfig.plugins = [...commonConfig.plugins, ...(extraPlugins || [])]
             esbuildContext = await context(combinedConfig)
         }
 
@@ -324,8 +322,11 @@ export async function buildOrWatch(config) {
         try {
             const buildResult = await esbuildContext.rebuild()
 
-            if (config.name === 'Toolbar') {
-                await fs.writeFile('toolbar-esbuild-meta.json', JSON.stringify(buildResult.metafile))
+            if (writeMetaFile) {
+                await fs.writeFile(
+                    `${config.name.toLowerCase().replace(' ', '-')}-esbuild-meta.json`,
+                    JSON.stringify(buildResult.metafile)
+                )
             }
 
             inputFiles = getInputFiles(buildResult)
