@@ -1,8 +1,0 @@
-.ConfigGrid {
-    display: grid;
-    grid-template-columns: minmax(min-content, 2fr) 1fr minmax(min-content, 3fr);
-
-    & * {
-        align-self: center;
-    }
-}

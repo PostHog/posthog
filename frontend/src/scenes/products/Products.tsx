@@ -33,7 +33,7 @@ const ProductNameToColor = {
 export function getProductIcon(productName: string, iconKey?: string | null, className?: string): JSX.Element {
     return Icons[iconKey || 'IconLogomark']({
         className,
-        color: productName ? ProductNameToColor[productName] : 'black',
+        color: ProductNameToColor[productName] || 'none',
     })
 }
 

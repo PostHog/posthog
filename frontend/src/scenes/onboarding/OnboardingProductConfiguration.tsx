@@ -27,7 +27,7 @@ export const OnboardingProductConfiguration = ({
             {configOptions?.map((option: ProductConfigOption) => (
                 <>
                     <LemonDivider className="my-4" />
-                    <div className="ConfigGrid">
+                    <div className="grid grid-cols-[minmax(min-content,_2fr)_1fr_minmax(min-content,_3fr)] items-center">
                         <label className="text-base font-semibold">{option.title}</label>
                         {option.type == 'toggle' ? (
                             <LemonSwitch
