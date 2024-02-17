@@ -185,6 +185,14 @@ export const personsModalLogic = kea<personsModalLogicType>([
                 resetActors: () => [],
             },
         ],
+        errorObject: [
+            null as Record<string, any> | null,
+            {
+                loadActors: () => null,
+                loadActorsFailure: (_, { errorObject }) => errorObject,
+                loadActorsSuccess: () => null,
+            },
+        ],
         missingActorsCount: [
             0,
             {
@@ -282,6 +290,13 @@ export const personsModalLogic = kea<personsModalLogicType>([
                     return { singular: 'result', plural: 'results' }
                 }
                 return aggregationLabel(isGroupType(firstResult) ? firstResult.group_type_index : undefined)
+            },
+        ],
+        validationError: [
+            (s) => [s.errorObject],
+            (errorObject): string | null => {
+                // We use 512 for query timeouts
+                return errorObject?.status === 400 || errorObject?.status === 512 ? errorObject.detail : null
             },
         ],
         propertiesTimelineFilterFromUrl: [

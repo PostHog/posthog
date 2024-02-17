@@ -1,16 +1,10 @@
-import { LemonButton } from '@posthog/lemon-ui'
+import { LemonButton, Link } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
-import { router } from 'kea-router'
-import { BridgePage } from 'lib/components/BridgePage/BridgePage'
-import { PhonePairHogs } from 'lib/components/hedgehogs'
 import { supportLogic } from 'lib/components/Support/supportLogic'
-import { IconArrowLeft, IconArrowRight } from 'lib/lemon-ui/icons'
+import { IconArrowRight, IconChevronRight } from 'lib/lemon-ui/icons'
 import React from 'react'
-import { urls } from 'scenes/urls'
 
-import { ProductKey } from '~/types'
-
-import { getProductUri, onboardingLogic, OnboardingStepKey } from './onboardingLogic'
+import { onboardingLogic, OnboardingStepKey, stepKeyToTitle } from './onboardingLogic'
 
 export const OnboardingStep = ({
     stepKey,
@@ -22,8 +16,7 @@ export const OnboardingStep = ({
     onSkip,
     continueAction,
     continueOverride,
-    backActionOverride,
-    hedgehog,
+    hideHeader,
 }: {
     stepKey: OnboardingStepKey
     title: string
@@ -34,51 +27,58 @@ export const OnboardingStep = ({
     onSkip?: () => void
     continueAction?: () => void
     continueOverride?: JSX.Element
-    backActionOverride?: () => void
-    hedgehog?: JSX.Element
+    hideHeader?: boolean
 }): JSX.Element => {
-    const { hasNextStep, hasPreviousStep, productKey, isFirstProductOnboarding } = useValues(onboardingLogic)
-    const { completeOnboarding, goToNextStep, goToPreviousStep } = useActions(onboardingLogic)
+    const { hasNextStep, onboardingStepKeys, currentOnboardingStep } = useValues(onboardingLogic)
+    const { completeOnboarding, goToNextStep, setStepKey } = useActions(onboardingLogic)
     const { openSupportForm } = useActions(supportLogic)
-
-    const hedgehogToRender = React.cloneElement(hedgehog || <PhonePairHogs />, {
-        className: 'h-full w-full',
-    })
 
     if (!stepKey) {
         throw new Error('stepKey is required in any OnboardingStep')
     }
 
     return (
-        <BridgePage
-            view="onboarding-step"
-            noLogo
-            hedgehog={false}
-            fixedWidth={false}
-            header={
-                <div className="mb-4">
-                    <LemonButton
-                        icon={<IconArrowLeft />}
-                        onClick={() =>
-                            backActionOverride
-                                ? backActionOverride()
-                                : hasPreviousStep
-                                ? goToPreviousStep()
-                                : !isFirstProductOnboarding
-                                ? router.actions.push(getProductUri(productKey as ProductKey))
-                                : router.actions.push(urls.products())
-                        }
-                    >
-                        Back
-                    </LemonButton>
+        <>
+            <div className="pb-2">
+                <div
+                    className={`flex justify-between items-center text-muted max-w-screen-lg mx-auto ${
+                        hideHeader && 'hidden'
+                    }`}
+                >
+                    <h1 className="font-bold m-0 pl-2">
+                        {title || stepKeyToTitle(currentOnboardingStep?.props.stepKey)}
+                    </h1>
+                    <div className="flex items-center gap-x-3">
+                        {onboardingStepKeys.map((stepName, idx) => {
+                            return (
+                                <React.Fragment key={`stepKey-${idx}`}>
+                                    <Link
+                                        className={`text-sm ${
+                                            currentOnboardingStep?.props.stepKey === stepName && 'font-bold'
+                                        } font-bold`}
+                                        data-text={stepKeyToTitle(stepName)}
+                                        key={stepName}
+                                        onClick={() => setStepKey(stepName)}
+                                    >
+                                        <span
+                                            className={`text-sm ${
+                                                currentOnboardingStep?.props.stepKey !== stepName && 'text-muted'
+                                            }`}
+                                        >
+                                            {stepKeyToTitle(stepName)}
+                                        </span>
+                                    </Link>
+                                    {onboardingStepKeys.length > 1 && idx !== onboardingStepKeys.length - 1 && (
+                                        <IconChevronRight className="text-xl" />
+                                    )}
+                                </React.Fragment>
+                            )
+                        })}
+                    </div>
                 </div>
-            }
-        >
-            <div className="max-w-192">
-                {hedgehog && <div className="-mt-20 absolute right-4 h-16">{hedgehogToRender}</div>}
-
-                <h1 className="font-bold">{title}</h1>
-                <p>{subtitle}</p>
+            </div>
+            <div className={`${stepKey !== 'product_intro' && 'p-2 max-w-screen-lg mx-auto'}`}>
+                {subtitle && <p>{subtitle}</p>}
                 {children}
                 <div className="mt-8 flex justify-end gap-x-2">
                     {showHelpButton && (
@@ -91,6 +91,7 @@ export const OnboardingStep = ({
                     )}
                     {showSkip && (
                         <LemonButton
+                            type="secondary"
                             onClick={() => {
                                 onSkip && onSkip()
                                 !hasNextStep ? completeOnboarding() : goToNextStep()
@@ -104,17 +105,18 @@ export const OnboardingStep = ({
                     ) : (
                         <LemonButton
                             type="primary"
+                            status="alt"
                             onClick={() => {
                                 continueAction && continueAction()
                                 !hasNextStep ? completeOnboarding() : goToNextStep()
                             }}
                             sideIcon={hasNextStep ? <IconArrowRight /> : null}
                         >
-                            {!hasNextStep ? 'Finish' : 'Continue'}
+                            {!hasNextStep ? 'Finish' : 'Next'}
                         </LemonButton>
                     )}
                 </div>
             </div>
-        </BridgePage>
+        </>
     )
 }

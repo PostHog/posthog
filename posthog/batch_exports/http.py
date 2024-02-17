@@ -14,10 +14,9 @@ from rest_framework.exceptions import (
     ValidationError,
 )
 from rest_framework.pagination import CursorPagination
-from rest_framework.permissions import IsAuthenticated
 from rest_framework_dataclasses.serializers import DataclassSerializer
 
-from posthog.api.routing import StructuredViewSetMixin
+from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.batch_exports.models import (
     BATCH_EXPORT_INTERVALS,
     BatchExportLogEntry,
@@ -26,6 +25,7 @@ from posthog.batch_exports.models import (
 )
 from posthog.batch_exports.service import (
     BatchExportIdError,
+    BatchExportSchema,
     BatchExportServiceError,
     BatchExportServiceRPCError,
     BatchExportServiceScheduleNotFound,
@@ -47,11 +47,6 @@ from posthog.models import (
     BatchExportRun,
     Team,
     User,
-)
-from posthog.permissions import (
-    OrganizationMemberPermissions,
-    ProjectMembershipNecessaryPermissions,
-    TeamMemberAccessPermission,
 )
 from posthog.temporal.common.client import sync_connect
 from posthog.utils import relative_date_parse
@@ -97,13 +92,8 @@ class RunsCursorPagination(CursorPagination):
     page_size = 100
 
 
-class BatchExportRunViewSet(StructuredViewSetMixin, viewsets.ReadOnlyModelViewSet):
+class BatchExportRunViewSet(TeamAndOrgViewSetMixin, viewsets.ReadOnlyModelViewSet):
     queryset = BatchExportRun.objects.all()
-    permission_classes = [
-        IsAuthenticated,
-        ProjectMembershipNecessaryPermissions,
-        TeamMemberAccessPermission,
-    ]
     serializer_class = BatchExportRunSerializer
     pagination_class = RunsCursorPagination
 
@@ -165,7 +155,19 @@ class HogQLSelectQueryField(serializers.Field):
         except Exception:
             raise serializers.ValidationError("Failed to parse query")
 
-        return parsed_query
+        try:
+            prepared_select_query: ast.SelectQuery = cast(
+                ast.SelectQuery,
+                prepare_ast_for_printing(
+                    parsed_query,
+                    context=HogQLContext(team_id=self.context["team_id"], enable_select_queries=True),
+                    dialect="hogql",
+                ),
+            )
+        except errors.ResolverException:
+            raise serializers.ValidationError("Invalid HogQL query")
+
+        return prepared_select_query
 
 
 class BatchExportsField(TypedDict):
@@ -176,6 +178,7 @@ class BatchExportsField(TypedDict):
 class BatchExportsSchema(TypedDict):
     fields: list[BatchExportsField]
     values: dict[str, str]
+    hogql_query: str
 
 
 class BatchExportSerializer(serializers.ModelSerializer):
@@ -202,14 +205,9 @@ class BatchExportSerializer(serializers.ModelSerializer):
             "end_at",
             "latest_runs",
             "hogql_query",
+            "schema",
         ]
-        read_only_fields = [
-            "id",
-            "team_id",
-            "created_at",
-            "last_updated_at",
-            "latest_runs",
-        ]
+        read_only_fields = ["id", "team_id", "created_at", "last_updated_at", "latest_runs", "schema"]
 
     def create(self, validated_data: dict) -> BatchExport:
         """Create a BatchExport."""
@@ -233,43 +231,9 @@ class BatchExportSerializer(serializers.ModelSerializer):
             ):
                 raise PermissionDenied("Higher frequency exports are not enabled for this team.")
 
+        hogql_query = None
         if hogql_query := validated_data.pop("hogql_query", None):
-            context = HogQLContext(
-                team_id=team_id,
-                enable_select_queries=True,
-            )
-
-            try:
-                prepared_select_query: ast.SelectQuery = cast(
-                    ast.SelectQuery,
-                    prepare_ast_for_printing(hogql_query, context=context, dialect="clickhouse"),
-                )
-            except errors.ResolverException:
-                raise serializers.ValidationError(f"Invalid HogQL query")
-
-            batch_export_schema: BatchExportsSchema = {
-                "fields": [],
-                "values": {},
-            }
-            for field in prepared_select_query.select:
-                expression = print_prepared_ast(
-                    field.expr,  # type: ignore
-                    context=context,
-                    dialect="clickhouse",
-                )
-
-                if isinstance(field, ast.Alias):
-                    alias = field.alias
-                else:
-                    alias = expression
-
-                batch_export_field: BatchExportsField = {
-                    "expression": expression,
-                    "alias": alias,
-                }
-                batch_export_schema["fields"].append(batch_export_field)
-
-            batch_export_schema["values"] = context.values
+            batch_export_schema = self.serialize_hogql_query_to_batch_export_schema(hogql_query)
             validated_data["schema"] = batch_export_schema
 
         destination = BatchExportDestination(**destination_data)
@@ -281,6 +245,45 @@ class BatchExportSerializer(serializers.ModelSerializer):
             batch_export.save()
 
         return batch_export
+
+    def serialize_hogql_query_to_batch_export_schema(self, hogql_query: ast.SelectQuery) -> BatchExportSchema:
+        """Return a batch export schema from a HogQL query ast."""
+        context = HogQLContext(
+            team_id=self.context["team_id"],
+            enable_select_queries=True,
+            limit_top_select=False,
+        )
+
+        try:
+            batch_export_schema: BatchExportsSchema = {
+                "fields": [],
+                "values": {},
+                "hogql_query": print_prepared_ast(hogql_query, context=context, dialect="hogql"),
+            }
+        except errors.HogQLException:
+            raise serializers.ValidationError("Unsupported HogQL query")
+
+        for field in hogql_query.select:
+            expression = print_prepared_ast(
+                field.expr,  # type: ignore
+                context=context,
+                dialect="clickhouse",
+            )
+
+            if isinstance(field, ast.Alias):
+                alias = field.alias
+            else:
+                alias = expression
+
+            batch_export_field: BatchExportsField = {
+                "expression": expression,
+                "alias": alias,
+            }
+            batch_export_schema["fields"].append(batch_export_field)
+
+        batch_export_schema["values"] = context.values
+
+        return batch_export_schema
 
     def validate_hogql_query(self, hogql_query: ast.SelectQuery | ast.SelectUnionQuery) -> ast.SelectQuery:
         """Validate a HogQLQuery being used for batch exports.
@@ -322,6 +325,10 @@ class BatchExportSerializer(serializers.ModelSerializer):
                     **destination_data.get("config", {}),
                 }
 
+            if hogql_query := validated_data.pop("hogql_query", None):
+                batch_export_schema = self.serialize_hogql_query_to_batch_export_schema(hogql_query)
+                validated_data["schema"] = batch_export_schema
+
             batch_export.destination.save()
             batch_export = super().update(batch_export, validated_data)
 
@@ -330,13 +337,8 @@ class BatchExportSerializer(serializers.ModelSerializer):
         return batch_export
 
 
-class BatchExportViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
+class BatchExportViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     queryset = BatchExport.objects.all()
-    permission_classes = [
-        IsAuthenticated,
-        ProjectMembershipNecessaryPermissions,
-        TeamMemberAccessPermission,
-    ]
     serializer_class = BatchExportSerializer
 
     def get_queryset(self):
@@ -448,7 +450,6 @@ class BatchExportViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
 
 
 class BatchExportOrganizationViewSet(BatchExportViewSet):
-    permission_classes = [IsAuthenticated, OrganizationMemberPermissions]
     filter_rewrite_rules = {"organization_id": "team__organization_id"}
 
 
@@ -457,12 +458,7 @@ class BatchExportLogEntrySerializer(DataclassSerializer):
         dataclass = BatchExportLogEntry
 
 
-class BatchExportLogViewSet(StructuredViewSetMixin, mixins.ListModelMixin, viewsets.GenericViewSet):
-    permission_classes = [
-        IsAuthenticated,
-        ProjectMembershipNecessaryPermissions,
-        TeamMemberAccessPermission,
-    ]
+class BatchExportLogViewSet(TeamAndOrgViewSetMixin, mixins.ListModelMixin, viewsets.GenericViewSet):
     serializer_class = BatchExportLogEntrySerializer
 
     def get_queryset(self):

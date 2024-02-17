@@ -1,12 +1,16 @@
+import { IconGear } from '@posthog/icons'
 import { useActions, useValues } from 'kea'
 import { IntervalFilterStandalone } from 'lib/components/IntervalFilter'
+import { LemonButton } from 'lib/lemon-ui/LemonButton'
+import { LemonSwitch } from 'lib/lemon-ui/LemonSwitch'
 import { UnexpectedNeverError } from 'lib/utils'
 import { useCallback, useMemo } from 'react'
 import { countryCodeToFlag, countryCodeToName } from 'scenes/insights/views/WorldMap'
+import { urls } from 'scenes/urls'
 import { DeviceTab, GeographyTab, webAnalyticsLogic } from 'scenes/web-analytics/webAnalyticsLogic'
 
 import { Query } from '~/queries/Query/Query'
-import { DataTableNode, InsightVizNode, NodeKind, WebStatsBreakdown } from '~/queries/schema'
+import { DataTableNode, InsightVizNode, NodeKind, QuerySchema, WebStatsBreakdown } from '~/queries/schema'
 import { QueryContext, QueryContextColumnComponent, QueryContextColumnTitleComponent } from '~/queries/types'
 import { ChartDisplayType, GraphPointPayload, InsightLogicProps, PropertyFilterType } from '~/types'
 
@@ -280,7 +284,7 @@ export const WebStatsTrendTile = ({
     }, [onWorldMapClick, insightProps])
 
     return (
-        <div className="border rounded bg-bg-light">
+        <div className="border rounded bg-bg-light flex-1">
             {showIntervalTile && (
                 <div className="flex flex-row items-center justify-end m-2 mr-4">
                     <div className="flex flex-row items-center">
@@ -307,12 +311,16 @@ export const WebStatsTableTile = ({
     query,
     breakdownBy,
     insightProps,
+    showPathCleaningControls,
 }: {
     query: DataTableNode
     breakdownBy: WebStatsBreakdown
     insightProps: InsightLogicProps
+    showPathCleaningControls?: boolean
 }): JSX.Element => {
-    const { togglePropertyFilter } = useActions(webAnalyticsLogic)
+    const { togglePropertyFilter, setIsPathCleaningEnabled } = useActions(webAnalyticsLogic)
+    const { isPathCleaningEnabled } = useValues(webAnalyticsLogic)
+
     const { key, type } = webStatsBreakdownToPropertyName(breakdownBy) || {}
 
     const onClick = useCallback(
@@ -327,6 +335,15 @@ export const WebStatsTableTile = ({
 
     const context = useMemo((): QueryContext => {
         const rowProps: QueryContext['rowProps'] = (record: unknown) => {
+            if (
+                (breakdownBy === WebStatsBreakdown.InitialPage || breakdownBy === WebStatsBreakdown.Page) &&
+                isPathCleaningEnabled
+            ) {
+                // if the path cleaning is enabled, don't allow toggling a path by clicking a row, as this wouldn't
+                // work due to the order that the regex and filters are applied
+                return {}
+            }
+
             const breakdownValue = getBreakdownValue(record, breakdownBy)
             if (breakdownValue === undefined) {
                 return {}
@@ -342,7 +359,37 @@ export const WebStatsTableTile = ({
         }
     }, [onClick, insightProps])
 
-    return <Query query={query} readOnly={true} context={context} />
+    const pathCleaningSettingsUrl = urls.settings('project-product-analytics', 'path-cleaning')
+    return (
+        <div className="border rounded bg-bg-light flex-1">
+            {showPathCleaningControls && (
+                <div className="flex flex-row items-center justify-end m-2 mr-4">
+                    <div className="flex flex-row items-center space-x-2">
+                        <LemonSwitch
+                            label={
+                                <div className="flex flex-row space-x-2">
+                                    <span>Enable path cleaning</span>
+                                    <LemonButton
+                                        icon={<IconGear />}
+                                        type="tertiary"
+                                        status="alt"
+                                        size="small"
+                                        noPadding={true}
+                                        tooltip="Edit path cleaning settings"
+                                        to={pathCleaningSettingsUrl}
+                                    />
+                                </div>
+                            }
+                            checked={isPathCleaningEnabled}
+                            onChange={setIsPathCleaningEnabled}
+                            className="h-full"
+                        />
+                    </div>
+                </div>
+            )}
+            <Query query={query} readOnly={true} context={context} />
+        </div>
+    )
 }
 
 const getBreakdownValue = (record: unknown, breakdownBy: WebStatsBreakdown): string | undefined => {
@@ -378,4 +425,32 @@ const getBreakdownValue = (record: unknown, breakdownBy: WebStatsBreakdown): str
         return undefined
     }
     return breakdownValue
+}
+
+export const WebQuery = ({
+    query,
+    showIntervalSelect,
+    showPathCleaningControls,
+    insightProps,
+}: {
+    query: QuerySchema
+    showIntervalSelect?: boolean
+    showPathCleaningControls?: boolean
+    insightProps: InsightLogicProps
+}): JSX.Element => {
+    if (query.kind === NodeKind.DataTableNode && query.source.kind === NodeKind.WebStatsTableQuery) {
+        return (
+            <WebStatsTableTile
+                query={query}
+                breakdownBy={query.source.breakdownBy}
+                insightProps={insightProps}
+                showPathCleaningControls={showPathCleaningControls}
+            />
+        )
+    }
+    if (query.kind === NodeKind.InsightVizNode) {
+        return <WebStatsTrendTile query={query} showIntervalTile={showIntervalSelect} insightProps={insightProps} />
+    }
+
+    return <Query query={query} readOnly={true} context={{ ...webAnalyticsDataTableQueryContext, insightProps }} />
 }

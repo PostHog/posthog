@@ -9,12 +9,10 @@ import {
     IconBugReport,
     IconFeedback,
     IconHelpOutline,
-    IconMessages,
     IconQuestionAnswer,
     IconSupport,
 } from 'lib/lemon-ui/icons'
 import { LemonMenu } from 'lib/lemon-ui/LemonMenu'
-import { DefaultAction, inAppPromptLogic } from 'lib/logic/inAppPrompt/inAppPromptLogic'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 
@@ -83,9 +81,6 @@ export function HelpButton({
     const { reportHelpButtonUsed } = useActions(eventUsageLogic)
     const { isHelpVisible } = useValues(helpButtonLogic({ key: customKey }))
     const { toggleHelp, hideHelp } = useActions(helpButtonLogic({ key: customKey }))
-    const { validProductTourSequences } = useValues(inAppPromptLogic)
-    const { runFirstValidSequence, promptAction } = useActions(inAppPromptLogic)
-    const { isPromptVisible } = useValues(inAppPromptLogic)
     const { openSupportForm } = useActions(supportLogic)
     const { isCloudOrDev } = useValues(preflightLogic)
 
@@ -151,18 +146,6 @@ export function HelpButton({
                                 },
                                 to: `https://posthog.com/docs${HELP_UTM_TAGS}`,
                                 targetBlank: true,
-                            },
-                            validProductTourSequences.length > 0 && {
-                                label: isPromptVisible ? 'Stop tutorial' : 'Explain this page',
-                                icon: <IconMessages />,
-                                onClick: () => {
-                                    if (isPromptVisible) {
-                                        promptAction(DefaultAction.SKIP)
-                                    } else {
-                                        runFirstValidSequence({ runDismissedOrCompleted: true })
-                                    }
-                                    hideHelp()
-                                },
                             },
                         ],
                     },

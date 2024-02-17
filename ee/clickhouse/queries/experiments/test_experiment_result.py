@@ -408,6 +408,50 @@ class TestFunnelExperimentCalculator(unittest.TestCase):
         self.assertAlmostEqual(loss, 1, places=2)
         self.assertEqual(significant, ExperimentSignificanceCode.LOW_WIN_PROBABILITY)
 
+    def test_calculate_results_control_is_significant(self):
+        variant_test = Variant("test", 100, 18)
+        variant_control = Variant("control", 100, 10)
+
+        probabilities = ClickhouseFunnelExperimentResult.calculate_results(variant_control, [variant_test])
+
+        self.assertAlmostEqual(probabilities[0], 0.918, places=2)
+
+        significant, loss = ClickhouseFunnelExperimentResult.are_results_significant(
+            variant_control, [variant_test], probabilities
+        )
+
+        self.assertAlmostEqual(loss, 0.0016, places=3)
+        self.assertEqual(significant, ExperimentSignificanceCode.SIGNIFICANT)
+
+    def test_calculate_results_many_variants_control_is_significant(self):
+        variant_test_1 = Variant("test_1", 100, 20)
+        variant_test_2 = Variant("test_2", 100, 21)
+        variant_test_3 = Variant("test_3", 100, 22)
+        variant_test_4 = Variant("test_4", 100, 23)
+        variant_test_5 = Variant("test_5", 100, 24)
+        variant_test_6 = Variant("test_6", 100, 25)
+        variant_control = Variant("control", 100, 10)
+
+        variants_test = [
+            variant_test_1,
+            variant_test_2,
+            variant_test_3,
+            variant_test_4,
+            variant_test_5,
+            variant_test_6,
+        ]
+
+        probabilities = ClickhouseFunnelExperimentResult.calculate_results(variant_control, variants_test)
+
+        self.assertAlmostEqual(probabilities[0], 0.901, places=2)
+
+        significant, loss = ClickhouseFunnelExperimentResult.are_results_significant(
+            variant_control, variants_test, probabilities
+        )
+
+        self.assertAlmostEqual(loss, 0.0008, places=3)
+        self.assertEqual(significant, ExperimentSignificanceCode.SIGNIFICANT)
+
 
 # calculation: https://www.evanmiller.org/bayesian-ab-testing.html#count_ab
 def calculate_probability_of_winning_for_target_count_data(

@@ -135,7 +135,7 @@ class TestPropertyDefinitionAPI(APIBaseTest):
         # Also can't fetch for a team to which the user doesn't have permissions
         response = self.client.get(f"/api/projects/{team.pk}/property_definitions/")
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
-        self.assertEqual(response.json(), self.permission_denied_response())
+        self.assertEqual(response.json(), self.permission_denied_response("You don't have access to the project."))
 
     def test_query_property_definitions(self):
         # no search at all

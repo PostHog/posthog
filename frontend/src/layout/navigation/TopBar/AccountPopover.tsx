@@ -21,7 +21,6 @@ import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { inviteLogic } from 'scenes/settings/organization/inviteLogic'
 import { ThemeSwitcher } from 'scenes/settings/user/ThemeSwitcher'
 
-import { featurePreviewsLogic } from '~/layout/FeaturePreviews/featurePreviewsLogic'
 import {
     AccessLevelIndicator,
     NewOrganizationButton,
@@ -161,13 +160,13 @@ function InstanceSettings(): JSX.Element | null {
 
 function FeaturePreviewsButton(): JSX.Element {
     const { closeAccountPopover } = useActions(navigationLogic)
-    const { showFeaturePreviewsModal } = useActions(featurePreviewsLogic)
+    const { openSidePanel } = useActions(sidePanelStateLogic)
 
     return (
         <LemonButton
             onClick={() => {
                 closeAccountPopover()
-                showFeaturePreviewsModal()
+                openSidePanel(SidePanelTab.FeaturePreviews)
             }}
             icon={<IconFeatures />}
             fullWidth
@@ -192,7 +191,7 @@ export function AccountPopoverOverlay(): JSX.Element {
     const { currentOrganization } = useValues(organizationLogic)
     const { mobileLayout } = useValues(navigationLogic)
     const { openSidePanel } = useActions(sidePanelStateLogic)
-    const { preflight, isCloudOrDev } = useValues(preflightLogic)
+    const { preflight, isCloudOrDev, isCloud } = useValues(preflightLogic)
     const { closeAccountPopover } = useActions(navigationLogic)
 
     return (
@@ -248,7 +247,7 @@ export function AccountPopoverOverlay(): JSX.Element {
                 <FeaturePreviewsButton />
                 {user?.is_staff && <InstanceSettings />}
             </AccountPopoverSection>
-            {!isCloudOrDev && (
+            {!isCloud && (
                 <AccountPopoverSection>
                     <LemonButton
                         onClick={closeAccountPopover}

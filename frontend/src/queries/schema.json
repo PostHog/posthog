@@ -211,6 +211,9 @@
                     "$ref": "#/definitions/HogQLMetadata"
                 },
                 {
+                    "$ref": "#/definitions/HogQLAutocomplete"
+                },
+                {
                     "$ref": "#/definitions/WebOverviewQuery"
                 },
                 {
@@ -218,6 +221,16 @@
                 },
                 {
                     "$ref": "#/definitions/WebTopClicksQuery"
+                }
+            ]
+        },
+        "AnyEntityNode": {
+            "anyOf": [
+                {
+                    "$ref": "#/definitions/EventsNode"
+                },
+                {
+                    "$ref": "#/definitions/ActionsNode"
                 }
             ]
         },
@@ -267,6 +280,9 @@
                     "$ref": "#/definitions/HogQLMetadataResponse"
                 },
                 {
+                    "$ref": "#/definitions/HogQLAutocompleteResponse"
+                },
+                {
                     "anyOf": [
                         {
                             "additionalProperties": false,
@@ -294,6 +310,63 @@
                     "$ref": "#/definitions/EventsQueryResponse"
                 }
             ]
+        },
+        "AutocompleteCompletionItem": {
+            "additionalProperties": false,
+            "properties": {
+                "detail": {
+                    "description": "A human-readable string with additional information about this item, like type or symbol information.",
+                    "type": "string"
+                },
+                "documentation": {
+                    "description": "A human-readable string that represents a doc-comment.",
+                    "type": "string"
+                },
+                "insertText": {
+                    "description": "A string or snippet that should be inserted in a document when selecting this completion.",
+                    "type": "string"
+                },
+                "kind": {
+                    "description": "The kind of this completion item. Based on the kind an icon is chosen by the editor.",
+                    "enum": [
+                        "Method",
+                        "Function",
+                        "Constructor",
+                        "Field",
+                        "Variable",
+                        "Class",
+                        "Struct",
+                        "Interface",
+                        "Module",
+                        "Property",
+                        "Event",
+                        "Operator",
+                        "Unit",
+                        "Value",
+                        "Constant",
+                        "Enum",
+                        "EnumMember",
+                        "Keyword",
+                        "Text",
+                        "Color",
+                        "File",
+                        "Reference",
+                        "Customcolor",
+                        "Folder",
+                        "TypeParameter",
+                        "User",
+                        "Issue",
+                        "Snippet"
+                    ],
+                    "type": "string"
+                },
+                "label": {
+                    "description": "The label of this completion item. By default this is also the text that is inserted when selecting this completion.",
+                    "type": "string"
+                }
+            },
+            "required": ["label", "insertText", "kind"],
+            "type": "object"
         },
         "BaseMathType": {
             "enum": ["total", "dau", "weekly_active", "monthly_active", "unique_session"],
@@ -588,6 +661,10 @@
                 },
                 "showSearch": {
                     "description": "Include a free text search field (PersonsNode only)",
+                    "type": "boolean"
+                },
+                "showTestAccountFilters": {
+                    "description": "Show filter to exclude test accounts",
                     "type": "boolean"
                 },
                 "showTimings": {
@@ -1059,6 +1136,10 @@
                     "description": "Limit to events matching this string",
                     "type": ["string", "null"]
                 },
+                "filterTestAccounts": {
+                    "description": "Filter test accounts",
+                    "type": "boolean"
+                },
                 "fixedProperties": {
                     "description": "Fixed properties in the query, can't be edited in the interface (e.g. scoping down by person)",
                     "items": {
@@ -1323,33 +1404,183 @@
             "type": "string"
         },
         "FunnelExclusion": {
+            "anyOf": [
+                {
+                    "$ref": "#/definitions/FunnelExclusionEventsNode"
+                },
+                {
+                    "$ref": "#/definitions/FunnelExclusionActionsNode"
+                }
+            ]
+        },
+        "FunnelExclusionActionsNode": {
             "additionalProperties": false,
             "properties": {
                 "custom_name": {
-                    "type": ["string", "null"]
+                    "type": "string"
+                },
+                "fixedProperties": {
+                    "description": "Fixed properties in the query, can't be edited in the interface (e.g. scoping down by person)",
+                    "items": {
+                        "$ref": "#/definitions/AnyPropertyFilter"
+                    },
+                    "type": "array"
                 },
                 "funnelFromStep": {
-                    "type": "number"
+                    "type": "integer"
                 },
                 "funnelToStep": {
-                    "type": "number"
+                    "type": "integer"
                 },
                 "id": {
-                    "type": ["string", "number", "null"]
+                    "type": "integer"
                 },
-                "index": {
+                "kind": {
+                    "const": "ActionsNode",
+                    "type": "string"
+                },
+                "math": {
+                    "anyOf": [
+                        {
+                            "$ref": "#/definitions/BaseMathType"
+                        },
+                        {
+                            "$ref": "#/definitions/PropertyMathType"
+                        },
+                        {
+                            "$ref": "#/definitions/CountPerActorMathType"
+                        },
+                        {
+                            "$ref": "#/definitions/GroupMathType"
+                        },
+                        {
+                            "$ref": "#/definitions/HogQLMathType"
+                        }
+                    ]
+                },
+                "math_group_type_index": {
+                    "enum": [0, 1, 2, 3, 4],
                     "type": "number"
+                },
+                "math_hogql": {
+                    "type": "string"
+                },
+                "math_property": {
+                    "type": "string"
                 },
                 "name": {
-                    "type": ["string", "null"]
+                    "type": "string"
                 },
-                "order": {
-                    "type": "number"
+                "properties": {
+                    "description": "Properties configurable in the interface",
+                    "items": {
+                        "$ref": "#/definitions/AnyPropertyFilter"
+                    },
+                    "type": "array"
                 },
-                "type": {
-                    "$ref": "#/definitions/EntityType"
+                "response": {
+                    "description": "Cached query response",
+                    "type": "object"
                 }
             },
+            "required": ["funnelFromStep", "funnelToStep", "id", "kind"],
+            "type": "object"
+        },
+        "FunnelExclusionEventsNode": {
+            "additionalProperties": false,
+            "properties": {
+                "custom_name": {
+                    "type": "string"
+                },
+                "event": {
+                    "description": "The event or `null` for all events.",
+                    "type": ["string", "null"]
+                },
+                "fixedProperties": {
+                    "description": "Fixed properties in the query, can't be edited in the interface (e.g. scoping down by person)",
+                    "items": {
+                        "$ref": "#/definitions/AnyPropertyFilter"
+                    },
+                    "type": "array"
+                },
+                "funnelFromStep": {
+                    "type": "integer"
+                },
+                "funnelToStep": {
+                    "type": "integer"
+                },
+                "kind": {
+                    "const": "EventsNode",
+                    "type": "string"
+                },
+                "limit": {
+                    "type": "integer"
+                },
+                "math": {
+                    "anyOf": [
+                        {
+                            "$ref": "#/definitions/BaseMathType"
+                        },
+                        {
+                            "$ref": "#/definitions/PropertyMathType"
+                        },
+                        {
+                            "$ref": "#/definitions/CountPerActorMathType"
+                        },
+                        {
+                            "$ref": "#/definitions/GroupMathType"
+                        },
+                        {
+                            "$ref": "#/definitions/HogQLMathType"
+                        }
+                    ]
+                },
+                "math_group_type_index": {
+                    "enum": [0, 1, 2, 3, 4],
+                    "type": "number"
+                },
+                "math_hogql": {
+                    "type": "string"
+                },
+                "math_property": {
+                    "type": "string"
+                },
+                "name": {
+                    "type": "string"
+                },
+                "orderBy": {
+                    "description": "Columns to order by",
+                    "items": {
+                        "type": "string"
+                    },
+                    "type": "array"
+                },
+                "properties": {
+                    "description": "Properties configurable in the interface",
+                    "items": {
+                        "$ref": "#/definitions/AnyPropertyFilter"
+                    },
+                    "type": "array"
+                },
+                "response": {
+                    "additionalProperties": false,
+                    "description": "Return a limited set of data",
+                    "properties": {
+                        "next": {
+                            "type": "string"
+                        },
+                        "results": {
+                            "items": {
+                                "$ref": "#/definitions/EventType"
+                            },
+                            "type": "array"
+                        }
+                    },
+                    "required": ["results"],
+                    "type": "object"
+                }
+            },
+            "required": ["funnelFromStep", "funnelToStep", "kind"],
             "type": "object"
         },
         "FunnelExclusionLegacy": {
@@ -1380,6 +1611,20 @@
                     "$ref": "#/definitions/EntityType"
                 }
             },
+            "required": ["funnel_from_step", "funnel_to_step"],
+            "type": "object"
+        },
+        "FunnelExclusionSteps": {
+            "additionalProperties": false,
+            "properties": {
+                "funnelFromStep": {
+                    "type": "integer"
+                },
+                "funnelToStep": {
+                    "type": "integer"
+                }
+            },
+            "required": ["funnelFromStep", "funnelToStep"],
             "type": "object"
         },
         "FunnelLayout": {
@@ -1408,7 +1653,7 @@
                     "$ref": "#/definitions/BreakdownAttributionType"
                 },
                 "breakdownAttributionValue": {
-                    "type": "number"
+                    "type": "integer"
                 },
                 "exclusions": {
                     "items": {
@@ -1420,7 +1665,7 @@
                     "type": "string"
                 },
                 "funnelFromStep": {
-                    "type": "number"
+                    "type": "integer"
                 },
                 "funnelOrderType": {
                     "$ref": "#/definitions/StepOrderValue"
@@ -1429,13 +1674,13 @@
                     "$ref": "#/definitions/FunnelStepReference"
                 },
                 "funnelToStep": {
-                    "type": "number"
+                    "type": "integer"
                 },
                 "funnelVizType": {
                     "$ref": "#/definitions/FunnelVizType"
                 },
                 "funnelWindowInterval": {
-                    "type": "number"
+                    "type": "integer"
                 },
                 "funnelWindowIntervalUnit": {
                     "$ref": "#/definitions/FunnelConversionWindowTimeUnit"
@@ -1559,14 +1804,7 @@
                 "series": {
                     "description": "Events and actions to include",
                     "items": {
-                        "anyOf": [
-                            {
-                                "$ref": "#/definitions/EventsNode"
-                            },
-                            {
-                                "$ref": "#/definitions/ActionsNode"
-                            }
-                        ]
+                        "$ref": "#/definitions/AnyEntityNode"
                     },
                     "type": "array"
                 }
@@ -1590,10 +1828,23 @@
                     "type": "string"
                 },
                 "results": {
-                    "items": {
-                        "type": "object"
-                    },
-                    "type": "array"
+                    "anyOf": [
+                        {
+                            "items": {
+                                "type": "object"
+                            },
+                            "type": "array"
+                        },
+                        {
+                            "items": {
+                                "items": {
+                                    "type": "object"
+                                },
+                                "type": "array"
+                            },
+                            "type": "array"
+                        }
+                    ]
                 },
                 "timings": {
                     "items": {
@@ -1661,6 +1912,61 @@
                 }
             ]
         },
+        "HogQLAutocomplete": {
+            "additionalProperties": false,
+            "properties": {
+                "endPosition": {
+                    "description": "End position of the editor word",
+                    "type": "integer"
+                },
+                "filters": {
+                    "$ref": "#/definitions/HogQLFilters",
+                    "description": "Table to validate the expression against"
+                },
+                "kind": {
+                    "const": "HogQLAutocomplete",
+                    "type": "string"
+                },
+                "response": {
+                    "$ref": "#/definitions/HogQLAutocompleteResponse",
+                    "description": "Cached query response"
+                },
+                "select": {
+                    "description": "Full select query to validate",
+                    "type": "string"
+                },
+                "startPosition": {
+                    "description": "Start position of the editor word",
+                    "type": "integer"
+                }
+            },
+            "required": ["endPosition", "kind", "select", "startPosition"],
+            "type": "object"
+        },
+        "HogQLAutocompleteResponse": {
+            "additionalProperties": false,
+            "properties": {
+                "incomplete_list": {
+                    "description": "Whether or not the suggestions returned are complete",
+                    "type": "boolean"
+                },
+                "suggestions": {
+                    "items": {
+                        "$ref": "#/definitions/AutocompleteCompletionItem"
+                    },
+                    "type": "array"
+                },
+                "timings": {
+                    "description": "Measured timings for different parts of the query generation process",
+                    "items": {
+                        "$ref": "#/definitions/QueryTiming"
+                    },
+                    "type": "array"
+                }
+            },
+            "required": ["suggestions", "incomplete_list"],
+            "type": "object"
+        },
         "HogQLExpression": {
             "type": "string"
         },
@@ -1670,6 +1976,9 @@
             "properties": {
                 "dateRange": {
                     "$ref": "#/definitions/DateRange"
+                },
+                "filterTestAccounts": {
+                    "type": "boolean"
                 },
                 "properties": {
                     "items": {
@@ -1687,6 +1996,10 @@
         "HogQLMetadata": {
             "additionalProperties": false,
             "properties": {
+                "debug": {
+                    "description": "Enable more verbose output, usually run from the /debug page",
+                    "type": "boolean"
+                },
                 "expr": {
                     "description": "HogQL expression to validate (use `select` or `expr`, but not both)",
                     "type": "string"
@@ -1696,7 +2009,8 @@
                     "description": "Query within which \"expr\" is validated. Defaults to \"select * from events\""
                 },
                 "filters": {
-                    "$ref": "#/definitions/HogQLFilters"
+                    "$ref": "#/definitions/HogQLFilters",
+                    "description": "Extra filters applied to query via {filters}"
                 },
                 "kind": {
                     "const": "HogQLMetadata",
@@ -1880,6 +2194,10 @@
                 },
                 "limit": {
                     "type": "integer"
+                },
+                "metadata": {
+                    "$ref": "#/definitions/HogQLMetadataResponse",
+                    "description": "Query metadata output"
                 },
                 "modifiers": {
                     "$ref": "#/definitions/HogQLQueryModifiers",
@@ -2353,14 +2671,7 @@
                 "series": {
                     "description": "Events and actions to include",
                     "items": {
-                        "anyOf": [
-                            {
-                                "$ref": "#/definitions/EventsNode"
-                            },
-                            {
-                                "$ref": "#/definitions/ActionsNode"
-                            }
-                        ]
+                        "$ref": "#/definitions/AnyEntityNode"
                     },
                     "type": "array"
                 }
@@ -2432,6 +2743,7 @@
                 "PersonsNode",
                 "HogQLQuery",
                 "HogQLMetadata",
+                "HogQLAutocomplete",
                 "ActorsQuery",
                 "SessionsTimelineQuery",
                 "DataTableNode",
@@ -3207,6 +3519,10 @@
                         "limit": {
                             "type": "integer"
                         },
+                        "metadata": {
+                            "$ref": "#/definitions/HogQLMetadataResponse",
+                            "description": "Query metadata output"
+                        },
                         "modifiers": {
                             "$ref": "#/definitions/HogQLQueryModifiers",
                             "description": "Modifiers used when performing the query"
@@ -3278,6 +3594,30 @@
                 {
                     "additionalProperties": false,
                     "properties": {
+                        "incomplete_list": {
+                            "description": "Whether or not the suggestions returned are complete",
+                            "type": "boolean"
+                        },
+                        "suggestions": {
+                            "items": {
+                                "$ref": "#/definitions/AutocompleteCompletionItem"
+                            },
+                            "type": "array"
+                        },
+                        "timings": {
+                            "description": "Measured timings for different parts of the query generation process",
+                            "items": {
+                                "$ref": "#/definitions/QueryTiming"
+                            },
+                            "type": "array"
+                        }
+                    },
+                    "required": ["suggestions", "incomplete_list"],
+                    "type": "object"
+                },
+                {
+                    "additionalProperties": false,
+                    "properties": {
                         "hogql": {
                             "type": "string"
                         },
@@ -3316,6 +3656,9 @@
                             "items": {},
                             "type": "array"
                         },
+                        "hasMore": {
+                            "type": "boolean"
+                        },
                         "hogql": {
                             "type": "string"
                         },
@@ -3325,8 +3668,14 @@
                         "last_refresh": {
                             "type": "string"
                         },
+                        "limit": {
+                            "type": "integer"
+                        },
                         "next_allowed_client_refresh": {
                             "type": "string"
+                        },
+                        "offset": {
+                            "type": "integer"
                         },
                         "results": {
                             "items": {},
@@ -3561,6 +3910,9 @@
                 },
                 {
                     "$ref": "#/definitions/HogQLMetadata"
+                },
+                {
+                    "$ref": "#/definitions/HogQLAutocomplete"
                 },
                 {
                     "$ref": "#/definitions/WebOverviewQuery"
@@ -4014,6 +4366,10 @@
                 "showTable": {
                     "type": "boolean"
                 },
+                "showTestAccountFilters": {
+                    "description": "Show filter to exclude test accounts",
+                    "type": "boolean"
+                },
                 "showTimings": {
                     "description": "Show a detailed query timing breakdown",
                     "type": "boolean"
@@ -4197,14 +4553,7 @@
                 "series": {
                     "description": "Events and actions to include",
                     "items": {
-                        "anyOf": [
-                            {
-                                "$ref": "#/definitions/EventsNode"
-                            },
-                            {
-                                "$ref": "#/definitions/ActionsNode"
-                            }
-                        ]
+                        "$ref": "#/definitions/AnyEntityNode"
                     },
                     "type": "array"
                 },
@@ -4526,14 +4875,7 @@
                 "series": {
                     "description": "Events and actions to include",
                     "items": {
-                        "anyOf": [
-                            {
-                                "$ref": "#/definitions/EventsNode"
-                            },
-                            {
-                                "$ref": "#/definitions/ActionsNode"
-                            }
-                        ]
+                        "$ref": "#/definitions/AnyEntityNode"
                     },
                     "type": "array"
                 },
@@ -4680,6 +5022,9 @@
         "WebOverviewQuery": {
             "additionalProperties": false,
             "properties": {
+                "compare": {
+                    "type": "boolean"
+                },
                 "dateRange": {
                     "$ref": "#/definitions/DateRange"
                 },
@@ -4772,6 +5117,9 @@
                 "dateRange": {
                     "$ref": "#/definitions/DateRange"
                 },
+                "doPathCleaning": {
+                    "type": "boolean"
+                },
                 "includeBounceRate": {
                     "type": "boolean"
                 },
@@ -4781,6 +5129,9 @@
                 "kind": {
                     "const": "WebStatsTableQuery",
                     "type": "string"
+                },
+                "limit": {
+                    "type": "integer"
                 },
                 "properties": {
                     "$ref": "#/definitions/WebAnalyticsPropertyFilters"
@@ -4811,6 +5162,9 @@
                     "items": {},
                     "type": "array"
                 },
+                "hasMore": {
+                    "type": "boolean"
+                },
                 "hogql": {
                     "type": "string"
                 },
@@ -4820,8 +5174,14 @@
                 "last_refresh": {
                     "type": "string"
                 },
+                "limit": {
+                    "type": "integer"
+                },
                 "next_allowed_client_refresh": {
                     "type": "string"
+                },
+                "offset": {
+                    "type": "integer"
                 },
                 "results": {
                     "items": {},

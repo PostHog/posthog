@@ -3,22 +3,17 @@ from typing import Type
 from django.http import JsonResponse
 from rest_framework.response import Response
 from posthog.api.feature_flag import FeatureFlagSerializer, MinimalFeatureFlagSerializer
-from posthog.api.routing import StructuredViewSetMixin
+from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.utils import get_token
 from posthog.exceptions import generate_exception_response
 from posthog.models.early_access_feature import EarlyAccessFeature
 from rest_framework import serializers, viewsets
-from rest_framework.permissions import IsAuthenticated
 from rest_framework.request import Request
 from rest_framework import status
 
 
 from posthog.models.feature_flag.feature_flag import FeatureFlag
 from posthog.models.team.team import Team
-from posthog.permissions import (
-    ProjectMembershipNecessaryPermissions,
-    TeamMemberAccessPermission,
-)
 from django.utils.text import slugify
 from django.views.decorators.csrf import csrf_exempt
 
@@ -222,13 +217,8 @@ class EarlyAccessFeatureSerializerCreateOnly(EarlyAccessFeatureSerializer):
         return feature
 
 
-class EarlyAccessFeatureViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
+class EarlyAccessFeatureViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     queryset = EarlyAccessFeature.objects.select_related("feature_flag").all()
-    permission_classes = [
-        IsAuthenticated,
-        ProjectMembershipNecessaryPermissions,
-        TeamMemberAccessPermission,
-    ]
 
     def get_serializer_class(self) -> Type[serializers.Serializer]:
         if self.request.method == "POST":

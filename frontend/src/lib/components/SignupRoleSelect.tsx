@@ -1,9 +1,9 @@
-import { Field } from 'lib/forms/Field'
+import { LemonField } from 'lib/lemon-ui/LemonField'
 import { LemonSelect } from 'lib/lemon-ui/LemonSelect'
 
 export default function SignupRoleSelect({ className }: { className?: string }): JSX.Element {
     return (
-        <Field name="role_at_organization" label="What is your role?" className={className} showOptional>
+        <LemonField name="role_at_organization" label="What is your role?" className={className} showOptional>
             <LemonSelect
                 fullWidth
                 data-attr="signup-role-at-organization"
@@ -38,6 +38,6 @@ export default function SignupRoleSelect({ className }: { className?: string }):
                     },
                 ]}
             />
-        </Field>
+        </LemonField>
     )
 }

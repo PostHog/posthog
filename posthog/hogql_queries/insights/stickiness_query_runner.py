@@ -146,7 +146,7 @@ class StickinessQueryRunner(QueryRunner):
                         SELECT sum(aggregation_target) as aggregation_target, num_intervals
                         FROM (
                             SELECT 0 as aggregation_target, (number + 1) as num_intervals
-                            FROM numbers(dateDiff({interval}, {date_from}, {date_to} + {interval_addition}))
+                            FROM numbers(dateDiff({interval}, {date_from_start_of_interval}, {date_to_start_of_interval} + {interval_addition}))
                             UNION ALL
                             {events_query}
                         )
@@ -288,6 +288,16 @@ class StickinessQueryRunner(QueryRunner):
         if series.properties is not None and series.properties != []:
             filters.append(property_to_expr(series.properties, self.team))
 
+        # Ignore empty groups
+        if series.math == "unique_group" and series.math_group_type_index is not None:
+            filters.append(
+                ast.CompareOperation(
+                    op=ast.CompareOperationOp.NotEq,
+                    left=ast.Field(chain=["e", f"$group_{int(series.math_group_type_index)}"]),
+                    right=ast.Constant(value=""),
+                )
+            )
+
         if len(filters) == 0:
             return ast.Constant(value=True)
         elif len(filters) == 1:
@@ -311,7 +321,10 @@ class StickinessQueryRunner(QueryRunner):
 
     def intervals_num(self):
         delta = self.query_date_range.date_to() - self.query_date_range.date_from()
-        return delta.days + 1
+        if self.query_date_range.interval_name == "day":
+            return delta.days + 1
+        else:
+            return delta.days
 
     def setup_series(self) -> List[SeriesWithExtras]:
         series_with_extras = [

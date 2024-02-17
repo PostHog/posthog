@@ -10,10 +10,10 @@ import { FunnelCanvasLabel } from 'scenes/funnels/FunnelCanvasLabel'
 import { funnelDataLogic } from 'scenes/funnels/funnelDataLogic'
 import {
     FunnelSingleStepState,
-    FunnelValidationError,
     InsightEmptyState,
     InsightErrorState,
     InsightTimeoutState,
+    InsightValidationError,
 } from 'scenes/insights/EmptyStates'
 import { insightDataLogic } from 'scenes/insights/insightDataLogic'
 import { insightLogic } from 'scenes/insights/insightLogic'
@@ -91,7 +91,7 @@ export function InsightVizDisplay({
         }
 
         if (validationError) {
-            return <FunnelValidationError detail={validationError} />
+            return <InsightValidationError detail={validationError} />
         }
 
         // Insight specific empty states - note order is important here

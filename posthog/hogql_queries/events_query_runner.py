@@ -116,6 +116,10 @@ class EventsQueryRunner(QueryRunner):
                                 timings=self.timings,
                             )
                         )
+                if self.query.filterTestAccounts:
+                    with self.timings.measure("test_account_filters"):
+                        for prop in self.team.test_account_filters or []:
+                            where_exprs.append(property_to_expr(prop, self.team))
 
             with self.timings.measure("timestamps"):
                 # prevent accidentally future events from being visible by default

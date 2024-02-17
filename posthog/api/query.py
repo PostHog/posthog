@@ -7,14 +7,14 @@ from drf_spectacular.utils import OpenApiResponse
 from rest_framework import viewsets
 from rest_framework.decorators import action
 from rest_framework.exceptions import ValidationError, NotAuthenticated
-from rest_framework.permissions import IsAuthenticated
 from rest_framework.request import Request
 from rest_framework.response import Response
 from sentry_sdk import capture_exception
+from rest_framework import status
 
 from posthog.api.documentation import extend_schema
 from posthog.api.mixins import PydanticModelMixin
-from posthog.api.routing import StructuredViewSetMixin
+from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.services.query import process_query_model
 from posthog.clickhouse.client.execute_async import (
     cancel_query,
@@ -26,10 +26,6 @@ from posthog.errors import ExposedCHQueryError
 from posthog.hogql.ai import PromptUnclear, write_sql_from_prompt
 from posthog.hogql.errors import HogQLException
 from posthog.models.user import User
-from posthog.permissions import (
-    ProjectMembershipNecessaryPermissions,
-    TeamMemberAccessPermission,
-)
 from posthog.rate_limit import (
     AIBurstRateThrottle,
     AISustainedRateThrottle,
@@ -43,13 +39,7 @@ class QueryThrottle(TeamRateThrottle):
     rate = "120/hour"
 
 
-class QueryViewSet(PydanticModelMixin, StructuredViewSetMixin, viewsets.ViewSet):
-    permission_classes = [
-        IsAuthenticated,
-        ProjectMembershipNecessaryPermissions,
-        TeamMemberAccessPermission,
-    ]
-
+class QueryViewSet(PydanticModelMixin, TeamAndOrgViewSetMixin, viewsets.ViewSet):
     def get_throttles(self):
         if self.action == "draft_sql":
             return [AIBurstRateThrottle(), AISustainedRateThrottle()]
@@ -75,7 +65,7 @@ class QueryViewSet(PydanticModelMixin, StructuredViewSetMixin, viewsets.ViewSet)
                 query_id=client_query_id,
                 refresh_requested=data.refresh,
             )
-            return Response(query_status.model_dump())
+            return Response(query_status.model_dump(), status=status.HTTP_202_ACCEPTED)
 
         tag_queries(query=request.data["query"])
         try:

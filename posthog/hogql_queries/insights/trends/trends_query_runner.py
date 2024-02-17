@@ -58,6 +58,7 @@ from posthog.schema import (
     TrendsQueryResponse,
     HogQLQueryModifiers,
 )
+from posthog.utils import format_label_date
 
 
 class TrendsQueryRunner(QueryRunner):
@@ -99,7 +100,7 @@ class TrendsQueryRunner(QueryRunner):
 
         return refresh_frequency
 
-    def to_query(self) -> List[ast.SelectQuery | ast.SelectUnionQuery]:  # type: ignore
+    def to_query(self) -> List[ast.SelectQuery | ast.SelectUnionQuery]:
         queries = []
         with self.timings.measure("trends_to_query"):
             for series in self.series:
@@ -120,7 +121,7 @@ class TrendsQueryRunner(QueryRunner):
 
         return queries
 
-    def to_actors_query(  # type: ignore
+    def to_actors_query(
         self,
         time_frame: Optional[str | int],
         series_index: int,
@@ -135,7 +136,7 @@ class TrendsQueryRunner(QueryRunner):
 
                 delta_mappings = self.query_previous_date_range.date_from_delta_mappings()
                 if delta_mappings is not None and time_frame is not None and isinstance(time_frame, str):
-                    relative_delta = relativedelta(**delta_mappings)  # type: ignore
+                    relative_delta = relativedelta(**delta_mappings)
                     parsed_dt = parser.isoparse(time_frame)
                     parse_dt_with_relative_delta = parsed_dt - relative_delta
                     time_frame = parse_dt_with_relative_delta.strftime("%Y-%m-%d")
@@ -336,6 +337,10 @@ class TrendsQueryRunner(QueryRunner):
             index = response.columns.index(name)
             return val[index]
 
+        real_series_count = series_count
+        if self.query.trendsFilter is not None and self.query.trendsFilter.compare:
+            real_series_count = ceil(series_count / 2)
+
         res = []
         for val in response.results:
             try:
@@ -380,10 +385,7 @@ class TrendsQueryRunner(QueryRunner):
                 series_object = {
                     "data": get_value("total", val),
                     "labels": [
-                        item.strftime(
-                            "%-d-%b-%Y{}".format(" %H:%M" if self.query_date_range.interval_name == "hour" else "")
-                        )
-                        for item in get_value("date", val)
+                        format_label_date(item, self.query_date_range.interval_name) for item in get_value("date", val)
                     ],
                     "days": [
                         item.strftime(
@@ -436,13 +438,20 @@ class TrendsQueryRunner(QueryRunner):
                             continue
                         remapped_label = "none"
 
-                    series_object["label"] = "{} - {}".format(series_object["label"], remapped_label)
+                    # if count of series == 1, then we don't need to include the object label in the series label
+                    if real_series_count > 1:
+                        series_object["label"] = "{} - {}".format(series_object["label"], remapped_label)
+                    else:
+                        series_object["label"] = remapped_label
                     series_object["breakdown_value"] = remapped_label
                 elif self.query.breakdownFilter.breakdown_type == "cohort":
                     cohort_id = get_value("breakdown_value", val)
                     cohort_name = "all users" if str(cohort_id) == "0" else Cohort.objects.get(pk=cohort_id).name
 
-                    series_object["label"] = "{} - {}".format(series_object["label"], cohort_name)
+                    if real_series_count > 1:
+                        series_object["label"] = "{} - {}".format(series_object["label"], cohort_name)
+                    else:
+                        series_object["label"] = cohort_name
                     series_object["breakdown_value"] = "all" if str(cohort_id) == "0" else int(cohort_id)
                 else:
                     remapped_label = get_value("breakdown_value", val)
@@ -453,7 +462,7 @@ class TrendsQueryRunner(QueryRunner):
                         remapped_label = "none"
 
                     # If there's multiple series, include the object label in the series label
-                    if series_count > 1:
+                    if real_series_count > 1:
                         series_object["label"] = "{} - {}".format(series_object["label"], remapped_label)
                     else:
                         series_object["label"] = remapped_label
@@ -467,7 +476,7 @@ class TrendsQueryRunner(QueryRunner):
                     or remapped_label == float(BREAKDOWN_OTHER_NUMERIC_LABEL)
                 ):
                     series_object["breakdown_value"] = BREAKDOWN_OTHER_STRING_LABEL
-                    if series_count > 1 or self._is_breakdown_field_boolean():
+                    if real_series_count > 1 or self._is_breakdown_field_boolean():
                         series_object["label"] = "{} - {}".format(series_label or "All events", "Other")
                     else:
                         series_object["label"] = "Other"
@@ -534,12 +543,12 @@ class TrendsQueryRunner(QueryRunner):
             if isinstance(self.query.breakdownFilter.breakdown, List):
                 cohort_ids = self.query.breakdownFilter.breakdown
             else:
-                cohort_ids = [self.query.breakdownFilter.breakdown]  # type: ignore
+                cohort_ids = [self.query.breakdownFilter.breakdown]
 
             for cohort_id in cohort_ids:
                 for series in series_with_extras:
                     copied_query = deepcopy(self.query)
-                    copied_query.breakdownFilter.breakdown = cohort_id  # type: ignore
+                    copied_query.breakdownFilter.breakdown = cohort_id
 
                     updated_series.append(
                         SeriesWithExtras(

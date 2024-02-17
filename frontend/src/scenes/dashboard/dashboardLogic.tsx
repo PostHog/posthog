@@ -53,7 +53,7 @@ import {
     TileLayout,
 } from '~/types'
 
-import { getResponseBytes, sortDates } from '../insights/utils'
+import { getResponseBytes, sortDates, sortDayJsDates } from '../insights/utils'
 import { teamLogic } from '../teamLogic'
 import type { dashboardLogicType } from './dashboardLogicType'
 
@@ -76,6 +76,9 @@ export interface DashboardLogicProps {
 }
 
 export interface RefreshStatus {
+    /** Insight is about to be loaded */
+    queued?: boolean
+    /** Insight is currently loading */
     loading?: boolean
     refreshed?: boolean
     error?: boolean
@@ -165,8 +168,12 @@ export const dashboardLogic = kea<dashboardLogicType>([
         }),
         setProperties: (properties: AnyPropertyFilter[]) => ({ properties }),
         setAutoRefresh: (enabled: boolean, interval: number) => ({ enabled, interval }),
-        setRefreshStatus: (shortId: InsightShortId, loading = false) => ({ shortId, loading }),
-        setRefreshStatuses: (shortIds: InsightShortId[], loading = false) => ({ shortIds, loading }),
+        setRefreshStatus: (shortId: InsightShortId, loading = false, queued = false) => ({ shortId, loading, queued }),
+        setRefreshStatuses: (shortIds: InsightShortId[], loading = false, queued = false) => ({
+            shortIds,
+            loading,
+            queued,
+        }),
         setRefreshError: (shortId: InsightShortId) => ({ shortId }),
         reportDashboardViewed: true, // Reports `viewed dashboard` and `dashboard analyzed` events
         setShouldReportOnAPILoad: (shouldReport: boolean) => ({ shouldReport }), // See reducer for details
@@ -499,18 +506,22 @@ export const dashboardLogic = kea<dashboardLogicType>([
         refreshStatus: [
             {} as Record<string, RefreshStatus>,
             {
-                setRefreshStatus: (state, { shortId, loading }) => ({
+                setRefreshStatus: (state, { shortId, loading, queued }) => ({
                     ...state,
                     [shortId]: loading
-                        ? { loading: true, timer: new Date() }
+                        ? { loading: true, queued: true, timer: new Date() }
+                        : queued
+                        ? { loading: false, queued: true, timer: null }
                         : { refreshed: true, timer: state[shortId]?.timer || null },
                 }),
-                setRefreshStatuses: (state, { shortIds, loading }) =>
+                setRefreshStatuses: (state, { shortIds, loading, queued }) =>
                     Object.fromEntries(
                         shortIds.map((shortId) => [
                             shortId,
                             loading
-                                ? { loading: true, timer: new Date() }
+                                ? { loading: true, queued: true, timer: new Date() }
+                                : queued
+                                ? { loading: false, queued: true, timer: null }
                                 : { refreshed: true, timer: state[shortId]?.timer || null },
                         ])
                     ) as Record<string, RefreshStatus>,
@@ -658,6 +669,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 return dashboardLoading || Object.values(refreshStatus).some((s) => s.loading)
             },
         ],
+        isRefreshingQueued: [(s) => [s.refreshStatus], (refreshStatus) => (id: string) => !!refreshStatus[id]?.queued],
         isRefreshing: [(s) => [s.refreshStatus], (refreshStatus) => (id: string) => !!refreshStatus[id]?.loading],
         highlightedInsightId: [
             () => [router.selectors.searchParams],
@@ -670,9 +682,9 @@ export const dashboardLogic = kea<dashboardLogicType>([
                     return null
                 }
 
-                const oldest = sortDates(insightTiles.map((i) => i.last_refresh))
-                const candidateShortest = oldest.length > 0 ? dayjs(oldest[0]) : null
-                return candidateShortest?.isValid() ? candidateShortest : null
+                const validDates = insightTiles.map((i) => dayjs(i.last_refresh)).filter((date) => date.isValid())
+                const oldest = sortDayJsDates(validDates)
+                return oldest.length > 0 ? oldest[0] : null
             },
         ],
         blockRefresh: [
@@ -728,7 +740,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
             (refreshStatus) => {
                 const total = Object.keys(refreshStatus).length ?? 0
                 return {
-                    completed: total - (Object.values(refreshStatus).filter((s) => s.loading).length ?? 0),
+                    completed: total - (Object.values(refreshStatus).filter((s) => s.loading || s.queued).length ?? 0),
                     total,
                 }
             },
@@ -912,7 +924,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
         refreshAllDashboardItemsManual: () => {
             // reset auto refresh interval
             actions.resetInterval()
-            actions.refreshAllDashboardItems({ action: 'refresh_manual' })
+            actions.refreshAllDashboardItems({ action: 'refresh' })
         },
         refreshAllDashboardItems: async ({ tiles, action, initialLoad, dashboardQueryId = uuid() }, breakpoint) => {
             if (!props.id) {
@@ -934,6 +946,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
             let cancelled = false
             actions.setRefreshStatuses(
                 insights.map((item) => item.short_id),
+                false,
                 true
             )
 
@@ -949,11 +962,12 @@ export const dashboardLogic = kea<dashboardLogicType>([
             let refreshesFinished = 0
             let totalResponseBytes = 0
 
-            const hardRefreshWithoutCache = action === 'refresh_manual' || action === 'refresh_above_threshold'
+            const hardRefreshWithoutCache = ['refresh', 'load_missing'].includes(action)
 
             // array of functions that reload each item
             const fetchItemFunctions = insights.map((insight) => async () => {
                 // :TODO: Support query cancellation and use this queryId in the actual query.
+                // :TODO: in the future we should use dataNodeCollectionLogic.reloadAll()
                 const queryId = `${dashboardQueryId}::${uuid()}`
                 const queryStartTime = performance.now()
                 const apiUrl = `api/projects/${values.currentTeamId}/insights/${insight.id}/?${toParams({
@@ -962,6 +976,8 @@ export const dashboardLogic = kea<dashboardLogicType>([
                     client_query_id: queryId,
                     session_id: currentSessionId(),
                 })}`
+
+                actions.setRefreshStatus(insight.short_id, true, true)
 
                 try {
                     breakpoint()
@@ -1074,8 +1090,16 @@ export const dashboardLogic = kea<dashboardLogicType>([
             }
 
             if (values.autoRefresh.enabled) {
+                // Refresh right now after enabling if we haven't refreshed recently
+                if (
+                    !values.itemsLoading &&
+                    values.lastRefreshed &&
+                    values.lastRefreshed.isBefore(now().subtract(values.autoRefresh.interval, 'seconds'))
+                ) {
+                    actions.refreshAllDashboardItems({ action: 'refresh' })
+                }
                 cache.autoRefreshInterval = window.setInterval(() => {
-                    actions.refreshAllDashboardItems({ action: 'refresh_automatic' })
+                    actions.refreshAllDashboardItems({ action: 'refresh' })
                 }, values.autoRefresh.interval * 1000)
             }
         },
@@ -1095,7 +1119,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 values.lastRefreshed.isBefore(now().subtract(AUTO_REFRESH_DASHBOARD_THRESHOLD_HOURS, 'hours')) &&
                 !process.env.STORYBOOK // allow mocking of date in storybook without triggering refresh
             ) {
-                actions.refreshAllDashboardItems({ action: 'refresh_above_threshold', initialLoad, dashboardQueryId })
+                actions.refreshAllDashboardItems({ action: 'refresh', initialLoad, dashboardQueryId })
                 allLoaded = false
             } else {
                 const tilesWithNoResults = values.tiles?.filter((t) => !!t.insight && !t.insight.result) || []

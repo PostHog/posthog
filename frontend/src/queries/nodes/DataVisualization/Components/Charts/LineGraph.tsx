@@ -28,7 +28,7 @@ export const LineGraph = (): JSX.Element => {
 
     // TODO: Extract this logic out of this component and inject values in
     // via props. Make this a purely presentational component
-    const { xData, yData, presetChartHeight, visualizationType } = useValues(dataVisualizationLogic)
+    const { xData, yData, presetChartHeight, visualizationType, showEditingUI } = useValues(dataVisualizationLogic)
     const isBarChart = visualizationType === ChartDisplayType.ActionsBar
 
     const { goalLines } = useValues(displayLogic)
@@ -203,7 +203,6 @@ export const LineGraph = (): JSX.Element => {
                                                 },
                                             },
                                         ]}
-                                        size="small"
                                         uppercaseHeader={false}
                                         rowRibbonColor={(_datum, index) => getSeriesColor(index)}
                                         showHeader
@@ -273,6 +272,8 @@ export const LineGraph = (): JSX.Element => {
         <div
             className={clsx('rounded bg-bg-light relative flex flex-1 flex-col p-2', {
                 DataVisualization__LineGraph: presetChartHeight,
+                'h-full': !presetChartHeight,
+                border: showEditingUI,
             })}
         >
             <div className="flex flex-1 w-full h-full overflow-hidden">

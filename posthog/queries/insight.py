@@ -1,7 +1,9 @@
 from typing import Optional
 
+from rest_framework.exceptions import ValidationError
 from posthog.clickhouse.query_tagging import tag_queries
 from posthog.client import query_with_columns, sync_execute
+from posthog.errors import ExposedCHQueryError
 from posthog.types import FilterType
 
 
@@ -17,8 +19,10 @@ def insight_sync_execute(
 ):
     tag_queries(team_id=team_id)
     _tag_query(query, query_type, filter)
-
-    return sync_execute(query, args=args, team_id=team_id, **kwargs)
+    try:
+        return sync_execute(query, args=args, team_id=team_id, **kwargs)
+    except ExposedCHQueryError as e:
+        raise ValidationError(str(e), e.code_name)
 
 
 # Wrapper around `query_with_columns`

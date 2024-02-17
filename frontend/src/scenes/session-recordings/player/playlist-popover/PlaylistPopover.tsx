@@ -1,9 +1,9 @@
 import { LemonCheckbox, LemonDivider } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
-import { Field } from 'lib/forms/Field'
 import { IconOpenInNew, IconPlus, IconWithCount } from 'lib/lemon-ui/icons'
 import { LemonButton, LemonButtonProps } from 'lib/lemon-ui/LemonButton'
+import { LemonField } from 'lib/lemon-ui/LemonField'
 import { LemonInput } from 'lib/lemon-ui/LemonInput/LemonInput'
 import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
 import { Popover } from 'lib/lemon-ui/Popover'
@@ -46,9 +46,9 @@ export function PlaylistPopoverButton(props: LemonButtonProps): JSX.Element {
                                     enableFormOnSubmit
                                     className="space-y-1"
                                 >
-                                    <Field name="name">
+                                    <LemonField name="name">
                                         <LemonInput placeholder="Playlist name" fullWidth />
-                                    </Field>
+                                    </LemonField>
                                     <div className="flex items-center gap-2 justify-end">
                                         <LemonButton
                                             type="secondary"

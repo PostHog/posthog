@@ -40,7 +40,7 @@ import {
     CountPerActorMathType,
     EntityType,
     EntityTypes,
-    FunnelExclusion,
+    FunnelExclusionLegacy,
     HogQLMathType,
     PropertyFilterValue,
     PropertyMathType,
@@ -94,7 +94,11 @@ export interface ActionFilterRowProps {
     customRowSuffix?:
         | string
         | JSX.Element
-        | ((props: { filter: ActionFilterType | FunnelExclusion; index: number; onClose: () => void }) => JSX.Element) // Custom suffix element to show in each row
+        | ((props: {
+              filter: ActionFilterType | FunnelExclusionLegacy
+              index: number
+              onClose: () => void
+          }) => JSX.Element) // Custom suffix element to show in each row
     hasBreakdown: boolean // Whether the current graph has a breakdown filter applied
     showNestedArrow?: boolean // Show nested arrows to the left of property filter buttons
     actionsTaxonomicGroupTypes?: TaxonomicFilterGroupType[] // Which tabs to show for actions selector
@@ -398,7 +402,8 @@ export function ActionFilterRow({
                                                         <div /* <div> needed for <Tooltip /> to work */>
                                                             <PropertyKeyInfo
                                                                 value={currentValue}
-                                                                disablePopover={true}
+                                                                disablePopover
+                                                                type={filter.type as TaxonomicFilterGroupType}
                                                             />
                                                         </div>
                                                     </Tooltip>

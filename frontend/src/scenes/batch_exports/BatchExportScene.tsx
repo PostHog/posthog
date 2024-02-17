@@ -23,7 +23,7 @@ import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { capitalizeFirstLetter, identifierToHuman } from 'lib/utils'
 import { pluralize } from 'lib/utils'
 import { useEffect, useState } from 'react'
-import { PipelineAppLogLevel } from 'scenes/pipeline/pipelineAppLogsLogic'
+import { PipelineLogLevel } from 'scenes/pipeline/pipelineNodeLogsLogic'
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
@@ -125,7 +125,6 @@ export function RunsTab(): JSX.Element {
                                         <LemonTable
                                             dataSource={groupedRuns.runs}
                                             embedded={true}
-                                            size="small"
                                             columns={[
                                                 {
                                                     title: 'Status',
@@ -258,22 +257,22 @@ export function RunsTab(): JSX.Element {
     )
 }
 
-function BatchExportLogEntryLevelDisplay(type: PipelineAppLogLevel): JSX.Element {
+function BatchExportLogEntryLevelDisplay(type: PipelineLogLevel): JSX.Element {
     let color: string | undefined
     switch (type) {
-        case PipelineAppLogLevel.Debug:
+        case PipelineLogLevel.Debug:
             color = 'var(--muted)'
             break
-        case PipelineAppLogLevel.Log:
+        case PipelineLogLevel.Log:
             color = 'var(--default)'
             break
-        case PipelineAppLogLevel.Info:
+        case PipelineLogLevel.Info:
             color = 'var(--blue)'
             break
-        case PipelineAppLogLevel.Warning:
+        case PipelineLogLevel.Warning:
             color = 'var(--warning)'
             break
-        case PipelineAppLogLevel.Error:
+        case PipelineLogLevel.Error:
             color = 'var(--danger)'
             break
         default:
@@ -341,7 +340,7 @@ export function LogsTab({ batchExportId }: BatchExportLogsProps): JSX.Element {
             />
             <div className="flex items-center gap-4">
                 <span>Show logs of type:&nbsp;</span>
-                {Object.values(PipelineAppLogLevel).map((type) => {
+                {Object.values(PipelineLogLevel).map((type) => {
                     return (
                         <LemonCheckbox
                             key={type}
@@ -373,7 +372,6 @@ export function LogsTab({ batchExportId }: BatchExportLogsProps): JSX.Element {
                 dataSource={batchExportLogs}
                 columns={columns}
                 loading={batchExportLogsLoading}
-                size="small"
                 className="ph-no-capture"
                 pagination={{ pageSize: 200, hideOnSinglePage: true }}
             />

@@ -52,7 +52,7 @@ from sentry_sdk.api import capture_exception
 from posthog.cloud_utils import get_cached_instance_license, is_cloud
 from posthog.constants import AvailableFeature
 from posthog.exceptions import RequestParsingError
-from posthog.git import get_git_branch, get_git_commit
+from posthog.git import get_git_branch, get_git_commit_short
 from posthog.metrics import KLUDGES_COUNTER
 from posthog.redis import get_client
 
@@ -79,10 +79,13 @@ logger = structlog.get_logger(__name__)
 __location__ = os.path.realpath(os.path.join(os.getcwd(), os.path.dirname(__file__)))
 
 
-def format_label_date(date: datetime.datetime, interval: str) -> str:
-    labels_format = "%-d-%b-%Y"
-    if interval == "hour":
-        labels_format += " %H:%M"
+def format_label_date(date: datetime.datetime, interval: str = "default") -> str:
+    date_formats = {
+        "default": "%-d-%b-%Y",
+        "hour": "%-d-%b-%Y %H:%M",
+        "month": "%b %Y",
+    }
+    labels_format = date_formats.get(interval, date_formats["default"])
     return date.strftime(labels_format)
 
 
@@ -291,7 +294,7 @@ def render_template(
     if sentry_environment := os.environ.get("SENTRY_ENVIRONMENT"):
         context["sentry_environment"] = sentry_environment
 
-    context["git_rev"] = get_git_commit()  # Include commit in prod for the `console.info()` message
+    context["git_rev"] = get_git_commit_short()  # Include commit in prod for the `console.info()` message
     if settings.DEBUG and not settings.TEST:
         context["debug"] = True
         context["git_branch"] = get_git_branch()
@@ -342,6 +345,7 @@ def render_template(
             "preflight": json.loads(preflight_check(request).getvalue()),
             "default_event_name": "$pageview",
             "switched_team": getattr(request, "switched_team", None),
+            "commit_sha": context["git_rev"],
             **posthog_app_context,
         }
 
@@ -812,11 +816,9 @@ def get_instance_realm() -> str:
 
 def get_instance_region() -> Optional[str]:
     """
-    Returns the region for the current instance. `US` or 'EU'.
+    Returns the region for the current Cloud instance. `US` or 'EU'.
     """
-    if is_cloud():
-        return settings.REGION
-    return None
+    return settings.CLOUD_DEPLOYMENT
 
 
 def get_can_create_org(user: Union["AbstractBaseUser", "AnonymousUser"]) -> bool:

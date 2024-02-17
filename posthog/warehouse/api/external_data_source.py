@@ -5,13 +5,11 @@ import structlog
 from rest_framework import filters, serializers, status, viewsets
 from rest_framework.decorators import action
 from rest_framework.exceptions import NotAuthenticated
-from rest_framework.permissions import IsAuthenticated
 from rest_framework.request import Request
 from rest_framework.response import Response
 
-from posthog.api.routing import StructuredViewSetMixin
+from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.models import User
-from posthog.permissions import OrganizationMemberPermissions
 from posthog.warehouse.data_load.service import (
     sync_external_data_job_workflow,
     trigger_external_data_workflow,
@@ -87,14 +85,13 @@ class SimpleExternalDataSourceSerializers(serializers.ModelSerializer):
         read_only_fields = ["id", "created_by", "created_at", "status", "source_type"]
 
 
-class ExternalDataSourceViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
+class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     """
     Create, Read, Update and Delete External data Sources.
     """
 
     queryset = ExternalDataSource.objects.all()
     serializer_class = ExternalDataSourceSerializers
-    permission_classes = [IsAuthenticated, OrganizationMemberPermissions]
     filter_backends = [filters.SearchFilter]
     search_fields = ["source_id"]
     ordering = "-created_at"
@@ -341,7 +338,15 @@ class ExternalDataSourceViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
                 data={"message": "Cannot use internal Postgres database"},
             )
 
-        result = get_postgres_schemas(host, port, database, user, password, schema)
+        try:
+            result = get_postgres_schemas(host, port, database, user, password, schema)
+        except Exception as e:
+            logger.exception("Could not fetch Postgres schemas", exc_info=e)
+            return Response(
+                status=status.HTTP_400_BAD_REQUEST,
+                data={"message": "Could not fetch Postgres schemas. Please check all connection details are valid."},
+            )
+
         result_mapped_to_options = [{"table": row, "should_sync": False} for row in result]
         return Response(status=status.HTTP_200_OK, data=result_mapped_to_options)
 

@@ -62,3 +62,5 @@ hogvm/typescript/dist
 plugin-transpiler/dist
 toolbar-esbuild-meta.json
 toolbar-esbuild-bundle-visualization.html
+
+.dlt
