@@ -66,7 +66,7 @@ await buildInParallel(
                         // so we'd have to list every other file and keep that up to date
                         // no thanks!
                         // a glob that negates the path doesn't seem to work
-                        // so based off a comment from the esbuild auther here
+                        // so based off a comment from the esbuild author here
                         // https://github.com/evanw/esbuild/issues/1895#issuecomment-1003404929
                         // we can add a plugin just for the toolbar build to mark lemon-ui as having no side effects
                         // that will allow tree-shaking and reduce the toolbar bundle size
