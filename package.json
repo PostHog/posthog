@@ -354,6 +354,7 @@
     "sideEffects": [
         "frontend/src/styles/index.tsx",
         "frontend/src/initKea.ts",
-        "frontend/src/colors.ts"
+        "*.scss",
+        "*.css"
     ]
 }
