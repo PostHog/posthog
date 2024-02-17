@@ -321,6 +321,10 @@
             "eslint -c .eslintrc.js --fix",
             "prettier --write"
         ],
+        "frontend/*.mjs": [
+            "eslint -c .eslintrc.js --fix",
+            "prettier --write"
+        ],
         "ee/frontend/**/*.{js,jsx,mjs,ts,tsx}": [
             "eslint -c .eslintrc.js --fix",
             "prettier --write"
