@@ -350,12 +350,5 @@
     },
     "browser": {
         "path": "path-browserify"
-    },
-    "sideEffects": [
-        "frontend/src/styles/index.tsx",
-        "frontend/src/initKea.ts",
-        "*.scss",
-        "*.css",
-        "*.less"
-    ]
+    }
 }
