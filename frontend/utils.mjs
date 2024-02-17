@@ -311,8 +311,8 @@ export async function buildOrWatch(config) {
 
     async function runBuild() {
         if (!esbuildContext) {
-            const extraPlugins = config.plugins || []
-            delete config.plugins
+            const extraPlugins = _config.plugins || []
+            delete _config.plugins
             const combinedConfig = { ...commonConfig, ..._config }
             combinedConfig.plugins = [...commonConfig.plugins, ...extraPlugins]
             esbuildContext = await context(combinedConfig)
