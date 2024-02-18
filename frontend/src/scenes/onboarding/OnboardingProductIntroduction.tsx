@@ -3,6 +3,7 @@ import { LemonButton, Link, Spinner } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { WavingHog } from 'lib/components/hedgehogs'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
+import posthog from 'posthog-js'
 import React from 'react'
 import { convertLargeNumberToWords } from 'scenes/billing/billing-utils'
 import { billingProductLogic } from 'scenes/billing/billingProductLogic'
@@ -43,29 +44,42 @@ export const Subfeature = ({ name, description, icon_key }: BillingV2FeatureType
 const GetStartedButton = ({ product }: { product: BillingProductV2Type }): JSX.Element => {
     const { user } = useValues(userLogic)
     const { reportOnboardingProductSelected } = useActions(eventUsageLogic)
+    const { completeOnboarding, setTeamPropertiesForProduct } = useActions(onboardingLogic)
     const cta: Partial<Record<ProductKey, string>> = {
         [ProductKey.SESSION_REPLAY]: 'Start recording my website',
         [ProductKey.FEATURE_FLAGS]: 'Create a feature flag or experiment',
         [ProductKey.SURVEYS]: 'Create a survey',
     }
+    const includeFirstOnboardingProductOnUserProperties = user?.date_joined
+        ? new Date(user?.date_joined) > new Date('2024-01-10T00:00:00Z')
+        : false
 
     return (
         <div className="flex gap-x-4 items-center">
             <LemonButton
-                to={urls.onboarding(product.type, OnboardingStepKey.INSTALL)}
                 type="primary"
                 status="alt"
                 data-attr={`${product.type}-onboarding`}
                 center
                 className="max-w-max"
                 onClick={() => {
-                    const includeFirstOnboardingProductOnUserProperties = user?.date_joined
-                        ? new Date(user?.date_joined) > new Date('2024-01-10T00:00:00Z')
-                        : false
+                    setTeamPropertiesForProduct(product.type as ProductKey)
                     reportOnboardingProductSelected(product.type, includeFirstOnboardingProductOnUserProperties)
+                    posthog.capture('product onboarding skipped', { product_key: product.type })
+                    completeOnboarding()
                 }}
             >
                 {cta[product.type] || 'Get started'}
+            </LemonButton>
+            <LemonButton
+                type="tertiary"
+                onClick={() => {
+                    setTeamPropertiesForProduct(product.type as ProductKey)
+                    reportOnboardingProductSelected(product.type, includeFirstOnboardingProductOnUserProperties)
+                }}
+                to={urls.onboarding(product.type, OnboardingStepKey.INSTALL)}
+            >
+                View setup instructions
             </LemonButton>
         </div>
     )
