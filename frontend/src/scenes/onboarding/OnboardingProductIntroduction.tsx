@@ -15,6 +15,7 @@ import { BillingProductV2Type, BillingV2FeatureType, ProductKey } from '~/types'
 
 import { onboardingLogic, OnboardingStepKey } from './onboardingLogic'
 import { OnboardingStep } from './OnboardingStep'
+import { multiInstallProducts, sdksLogic } from './sdks/sdksLogic'
 
 export const Feature = ({ name, description, images }: BillingV2FeatureType): JSX.Element => {
     return images ? (
@@ -45,6 +46,7 @@ const GetStartedButton = ({ product }: { product: BillingProductV2Type }): JSX.E
     const { reportOnboardingProductSelected } = useActions(eventUsageLogic)
     const { completeOnboarding, setTeamPropertiesForProduct, goToNextStep } = useActions(onboardingLogic)
     const { isFirstProductOnboarding } = useValues(onboardingLogic)
+    const { hasSnippetEvents } = useValues(sdksLogic)
     const cta: Partial<Record<ProductKey, string>> = {
         [ProductKey.SESSION_REPLAY]: 'Start recording my website',
         [ProductKey.FEATURE_FLAGS]: 'Create a feature flag or experiment',
@@ -90,17 +92,22 @@ const GetStartedButton = ({ product }: { product: BillingProductV2Type }): JSX.E
                     >
                         {cta[product.type] || 'Get started'}
                     </LemonButton>
-                    <LemonButton
-                        type="tertiary"
-                        data-attr="start-onboarding"
-                        onClick={() => {
-                            setTeamPropertiesForProduct(product.type as ProductKey)
-                            reportOnboardingProductSelected(product.type, includeFirstOnboardingProductOnUserProperties)
-                            goToNextStep()
-                        }}
-                    >
-                        View setup instructions
-                    </LemonButton>
+                    {(!hasSnippetEvents || multiInstallProducts.includes(product.type as ProductKey)) && (
+                        <LemonButton
+                            type="tertiary"
+                            data-attr="start-onboarding"
+                            onClick={() => {
+                                setTeamPropertiesForProduct(product.type as ProductKey)
+                                reportOnboardingProductSelected(
+                                    product.type,
+                                    includeFirstOnboardingProductOnUserProperties
+                                )
+                                goToNextStep()
+                            }}
+                        >
+                            View SDK instructions
+                        </LemonButton>
+                    )}
                 </>
             )}
         </div>
