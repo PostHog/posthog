@@ -9,7 +9,6 @@ import { convertLargeNumberToWords } from 'scenes/billing/billing-utils'
 import { billingProductLogic } from 'scenes/billing/billingProductLogic'
 import { ProductPricingModal } from 'scenes/billing/ProductPricingModal'
 import { getProductIcon } from 'scenes/products/Products'
-import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
 import { BillingProductV2Type, BillingV2FeatureType, ProductKey } from '~/types'
@@ -44,7 +43,8 @@ export const Subfeature = ({ name, description, icon_key }: BillingV2FeatureType
 const GetStartedButton = ({ product }: { product: BillingProductV2Type }): JSX.Element => {
     const { user } = useValues(userLogic)
     const { reportOnboardingProductSelected } = useActions(eventUsageLogic)
-    const { completeOnboarding, setTeamPropertiesForProduct } = useActions(onboardingLogic)
+    const { completeOnboarding, setTeamPropertiesForProduct, goToNextStep } = useActions(onboardingLogic)
+    const { isFirstProductOnboarding } = useValues(onboardingLogic)
     const cta: Partial<Record<ProductKey, string>> = {
         [ProductKey.SESSION_REPLAY]: 'Start recording my website',
         [ProductKey.FEATURE_FLAGS]: 'Create a feature flag or experiment',
@@ -56,32 +56,53 @@ const GetStartedButton = ({ product }: { product: BillingProductV2Type }): JSX.E
 
     return (
         <div className="flex gap-x-4 items-center">
-            <LemonButton
-                type="primary"
-                status="alt"
-                data-attr="skip-onboarding"
-                center
-                className="max-w-max"
-                onClick={() => {
-                    setTeamPropertiesForProduct(product.type as ProductKey)
-                    reportOnboardingProductSelected(product.type, includeFirstOnboardingProductOnUserProperties)
-                    posthog.capture('product onboarding skipped', { product_key: product.type })
-                    completeOnboarding()
-                }}
-            >
-                {cta[product.type] || 'Get started'}
-            </LemonButton>
-            <LemonButton
-                type="tertiary"
-                data-attr="start-onboarding"
-                onClick={() => {
-                    setTeamPropertiesForProduct(product.type as ProductKey)
-                    reportOnboardingProductSelected(product.type, includeFirstOnboardingProductOnUserProperties)
-                }}
-                to={urls.onboarding(product.type, OnboardingStepKey.INSTALL)}
-            >
-                View setup instructions
-            </LemonButton>
+            {isFirstProductOnboarding ? (
+                <>
+                    <LemonButton
+                        type="primary"
+                        status="alt"
+                        data-attr="start-onboarding"
+                        center
+                        className="max-w-max"
+                        onClick={() => {
+                            setTeamPropertiesForProduct(product.type as ProductKey)
+                            reportOnboardingProductSelected(product.type, includeFirstOnboardingProductOnUserProperties)
+                            goToNextStep()
+                        }}
+                    >
+                        {cta[product.type] || 'Get started'}
+                    </LemonButton>
+                </>
+            ) : (
+                <>
+                    <LemonButton
+                        type="primary"
+                        status="alt"
+                        data-attr="skip-onboarding"
+                        center
+                        className="max-w-max"
+                        onClick={() => {
+                            setTeamPropertiesForProduct(product.type as ProductKey)
+                            reportOnboardingProductSelected(product.type, includeFirstOnboardingProductOnUserProperties)
+                            posthog.capture('product onboarding skipped', { product_key: product.type })
+                            completeOnboarding()
+                        }}
+                    >
+                        {cta[product.type] || 'Get started'}
+                    </LemonButton>
+                    <LemonButton
+                        type="tertiary"
+                        data-attr="start-onboarding"
+                        onClick={() => {
+                            setTeamPropertiesForProduct(product.type as ProductKey)
+                            reportOnboardingProductSelected(product.type, includeFirstOnboardingProductOnUserProperties)
+                            goToNextStep()
+                        }}
+                    >
+                        View setup instructions
+                    </LemonButton>
+                </>
+            )}
         </div>
     )
 }
