@@ -251,7 +251,11 @@ export const sceneLogic = kea<sceneLogicType>([
                         !removeProjectIdIfPresent(location.pathname).startsWith(urls.products()) &&
                         !removeProjectIdIfPresent(location.pathname).startsWith(urls.settings())
                     ) {
-                        if (!teamLogic.values.hasOnboardedAnyProduct) {
+                        if (
+                            !teamLogic.values.hasOnboardedAnyProduct &&
+                            // if we roll the intro pages out to everyone, this whole check should be removed
+                            values.featureFlags[FEATURE_FLAGS.PRODUCT_INTRO_PAGES] !== 'test'
+                        ) {
                             console.warn('No onboarding completed, redirecting to /products')
                             router.actions.replace(urls.products())
                             return
