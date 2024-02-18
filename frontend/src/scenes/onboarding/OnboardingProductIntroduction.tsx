@@ -59,7 +59,7 @@ const GetStartedButton = ({ product }: { product: BillingProductV2Type }): JSX.E
             <LemonButton
                 type="primary"
                 status="alt"
-                data-attr={`${product.type}-onboarding`}
+                data-attr="skip-onboarding"
                 center
                 className="max-w-max"
                 onClick={() => {
@@ -73,6 +73,7 @@ const GetStartedButton = ({ product }: { product: BillingProductV2Type }): JSX.E
             </LemonButton>
             <LemonButton
                 type="tertiary"
+                data-attr="start-onboarding"
                 onClick={() => {
                     setTeamPropertiesForProduct(product.type as ProductKey)
                     reportOnboardingProductSelected(product.type, includeFirstOnboardingProductOnUserProperties)
