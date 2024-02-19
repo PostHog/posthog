@@ -313,4 +313,4 @@ EXPOSE 8000
 EXPOSE 8001
 COPY unit.json /docker-entrypoint.d/unit.json
 USER root
-CMD ["./bin/docker"]
+CMD ["./bin/docker "]
