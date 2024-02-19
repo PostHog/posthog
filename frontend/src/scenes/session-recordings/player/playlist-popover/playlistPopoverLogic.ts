@@ -57,10 +57,12 @@ export const playlistPopoverLogic = kea<playlistPopoverLogicType>([
                 return response.results
             },
 
-            addToPlaylist: async ({ playlist }) => {
+            addToPlaylist: async ({ playlist }, breakpoint) => {
                 await addRecordingToPlaylist(playlist.short_id, props.sessionRecordingId, true)
                 actions.reportRecordingPinnedToList(true)
-                return [playlist, ...values.currentPlaylists]
+                const newVar = [playlist, ...values.currentPlaylists]
+                breakpoint()
+                return newVar
             },
 
             removeFromPlaylist: async ({ playlist }) => {
@@ -122,9 +124,6 @@ export const playlistPopoverLogic = kea<playlistPopoverLogicType>([
         },
     })),
     listeners(({ actions, values }) => ({
-        setSearchQuery: () => {
-            actions.loadPlaylists()
-        },
         setNewFormShowing: ({ show }) => {
             if (show) {
                 actions.setNewPlaylistValue('name', values.searchQuery)

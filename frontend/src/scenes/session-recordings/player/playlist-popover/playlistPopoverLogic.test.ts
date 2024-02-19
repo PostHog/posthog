@@ -57,13 +57,11 @@ describe('playlistPopoverLogic', () => {
             .toDispatchActions([
                 'loadPlaylistsForRecording',
                 'addToPlaylist',
-                'loadPlaylists',
                 'addToPlaylistSuccess',
                 'loadPlaylistsForRecordingSuccess',
-                'loadPlaylistsSuccess',
             ])
             .toMatchValues({
-                currentPlaylists: [{ id: 12345, count: 1 }],
+                currentPlaylists: [{ id: 12345, count: 1 }, { id: 23456 }],
                 allPlaylists: [
                     {
                         playlist: {
