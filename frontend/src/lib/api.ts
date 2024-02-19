@@ -2101,11 +2101,11 @@ const api = {
         return response
     },
 
-    async loadPaginatedResults(
+    async loadPaginatedResults<T>(
         url: string | null,
         maxIterations: number = PAGINATION_DEFAULT_MAX_PAGES
-    ): Promise<any[]> {
-        let results: any[] = []
+    ): Promise<T[]> {
+        let results: T[] = []
         for (let i = 0; i <= maxIterations; ++i) {
             if (!url) {
                 break

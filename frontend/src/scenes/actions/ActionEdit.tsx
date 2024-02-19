@@ -21,7 +21,7 @@ import { ActionStepType, AvailableFeature } from '~/types'
 
 import { actionEditLogic, ActionEditLogicProps } from './actionEditLogic'
 import { ActionStep } from './ActionStep'
-import { ActionWebhooks } from './ActionWebhooks'
+import { ActionWebhooks } from './webhooks/ActionWebhooks'
 
 export function ActionEdit({ action: loadedAction, id }: ActionEditLogicProps): JSX.Element {
     const logicProps: ActionEditLogicProps = {

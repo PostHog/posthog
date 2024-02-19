@@ -5,7 +5,6 @@ from django.core.exceptions import ValidationError
 from django.db import models
 from django.db.models.signals import post_delete, post_save
 from django.dispatch.dispatcher import receiver
-from posthog.models.action.action import Action
 
 from posthog.models.signals import mutable_receiver
 from posthog.models.utils import generate_random_token
