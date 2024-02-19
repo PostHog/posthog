@@ -879,6 +879,7 @@ export const CORE_FILTER_DEFINITIONS_BY_GROUP = {
             examples: ['1'],
         },
     },
+    numerical_event_properties: {}, // Same as event properties, see assignment below
     person_properties: {}, // Currently person properties are the same as event properties, see assignment below
     sessions: {
         $session_duration: {
@@ -901,6 +902,8 @@ export const CORE_FILTER_DEFINITIONS_BY_GROUP = {
         },
     },
 } satisfies Partial<Record<TaxonomicFilterGroupType, Record<string, CoreFilterDefinition>>>
+
+CORE_FILTER_DEFINITIONS_BY_GROUP.numerical_event_properties = CORE_FILTER_DEFINITIONS_BY_GROUP.event_properties
 CORE_FILTER_DEFINITIONS_BY_GROUP.person_properties = Object.fromEntries(
     Object.entries(CORE_FILTER_DEFINITIONS_BY_GROUP.event_properties).flatMap(([key, value]) =>
         eventToPersonProperties.has(key) || key.startsWith('$geoip_')
