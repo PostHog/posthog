@@ -1,6 +1,6 @@
 from posthog.api.services.query import process_query
 from posthog.test.base import APIBaseTest
-from posthog.warehouse.models import DataWarehouseSavedQuery, DataWarehouseViewLink
+from posthog.warehouse.models import DataWarehouseSavedQuery, DataWarehouseJoin
 
 
 class TestViewLinkQuery(APIBaseTest):
@@ -107,7 +107,7 @@ class TestViewLinkQuery(APIBaseTest):
         saved_query_response = response.json()
         saved_query = DataWarehouseSavedQuery.objects.get(pk=saved_query_response["id"])
 
-        DataWarehouseViewLink.objects.create(
+        DataWarehouseJoin.objects.create(
             saved_query=saved_query,
             table="events",
             to_join_key="distinct_id",
@@ -145,7 +145,7 @@ class TestViewLinkQuery(APIBaseTest):
         saved_query_response = response.json()
         saved_query = DataWarehouseSavedQuery.objects.get(pk=saved_query_response["id"])
 
-        DataWarehouseViewLink.objects.create(
+        DataWarehouseJoin.objects.create(
             saved_query=saved_query,
             table="events",
             to_join_key="fake",
@@ -176,7 +176,7 @@ class TestViewLinkQuery(APIBaseTest):
         saved_query_response = response.json()
         saved_query = DataWarehouseSavedQuery.objects.get(pk=saved_query_response["id"])
 
-        DataWarehouseViewLink.objects.create(
+        DataWarehouseJoin.objects.create(
             saved_query=saved_query,
             table="events",
             to_join_key="fake",
@@ -197,7 +197,7 @@ class TestViewLinkQuery(APIBaseTest):
         saved_query_response = response.json()
         saved_query = DataWarehouseSavedQuery.objects.get(pk=saved_query_response["id"])
 
-        DataWarehouseViewLink.objects.create(
+        DataWarehouseJoin.objects.create(
             saved_query=saved_query,
             table="events",
             to_join_key="p_distinct_id",
@@ -252,4 +252,4 @@ class TestViewLinkQuery(APIBaseTest):
         response = self.client.delete(f"/api/projects/{self.team.id}/warehouse_saved_queries/{saved_query['id']}")
         self.assertEqual(response.status_code, 204, response.content)
 
-        self.assertEqual(DataWarehouseViewLink.objects.all().count(), 0)
+        self.assertEqual(DataWarehouseJoin.objects.all().count(), 0)

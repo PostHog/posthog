@@ -1,6 +1,5 @@
-import { actions, afterMount, connect, kea, listeners, path, reducers, selectors } from 'kea'
+import { actions, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { forms } from 'kea-forms'
-import { loaders } from 'kea-loaders'
 import api from 'lib/api'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { databaseTableListLogic } from 'scenes/data-management/database/databaseTableListLogic'
@@ -8,16 +7,17 @@ import { databaseTableListLogic } from 'scenes/data-management/database/database
 import { DataWarehouseViewLink } from '~/types'
 
 import { dataWarehouseSavedQueriesLogic } from './saved_queries/dataWarehouseSavedQueriesLogic'
-import { DataWarehouseSceneRow } from './types'
+import { DataWarehouseRowType, DataWarehouseTableType } from './types'
 import type { viewLinkLogicType } from './viewLinkLogicType'
 import { ViewLinkKeyLabel } from './ViewLinkModal'
 
 const NEW_VIEW_LINK: DataWarehouseViewLink = {
     id: 'new',
-    saved_query_id: undefined,
-    table: undefined,
-    to_join_key: undefined,
-    from_join_key: undefined,
+    source_table_name: undefined,
+    source_table_key: undefined,
+    joining_table_name: undefined,
+    joining_table_key: undefined,
+    field_name: undefined,
 }
 
 export interface KeySelectOption {
@@ -28,164 +28,175 @@ export interface KeySelectOption {
 export const viewLinkLogic = kea<viewLinkLogicType>([
     path(['scenes', 'data-warehouse', 'viewLinkLogic']),
     connect({
-        values: [dataWarehouseSavedQueriesLogic, ['savedQueries'], databaseTableListLogic, ['tableOptions']],
+        values: [
+            dataWarehouseSavedQueriesLogic,
+            ['savedQueries'],
+            databaseTableListLogic,
+            ['tableOptions', 'filteredTables', 'dataWarehouse'],
+        ],
         actions: [databaseTableListLogic, ['loadDatabase']],
     }),
     actions({
-        selectView: (selectedView) => ({ selectedView }),
-        setView: (view) => ({ view }),
-        selectTableName: (selectedTableName: string) => ({ selectedTableName }),
-        toggleFieldModal: true,
+        selectJoiningTable: (selectedTableName: string) => ({ selectedTableName }),
+        selectSourceTable: (selectedTableName: string) => ({ selectedTableName }),
+        toggleJoinTableModal: true,
         saveViewLink: (viewLink) => ({ viewLink }),
         deleteViewLink: (table, column) => ({ table, column }),
-    }),
-    loaders({
-        viewLinks: {
-            __default: [] as DataWarehouseViewLink[],
-            loadViewLinks: async () => {
-                const response = await api.dataWarehouseViewLinks.list()
-                return response.results
-            },
-        },
+        setError: (error: string) => ({ error }),
+        setFieldName: (fieldName: string) => ({ fieldName }),
     }),
     reducers({
-        selectedView: [
-            null as DataWarehouseSceneRow | null,
-            {
-                setView: (_, { view }) => view,
-            },
-        ],
-        selectedTableName: [
+        selectedSourceTableName: [
             null as string | null,
             {
-                selectTableName: (_, { selectedTableName }) => selectedTableName,
+                selectSourceTable: (_, { selectedTableName }) => selectedTableName,
             },
         ],
-        isFieldModalOpen: [
+        selectedJoiningTableName: [
+            null as string | null,
+            {
+                selectJoiningTable: (_, { selectedTableName }) => selectedTableName,
+            },
+        ],
+        fieldName: [
+            '' as string,
+            {
+                setFieldName: (_, { fieldName }) => fieldName,
+                selectJoiningTable: (_, { selectedTableName }) => selectedTableName,
+            },
+        ],
+        isJoinTableModalOpen: [
             false,
             {
-                toggleFieldModal: (state) => !state,
+                toggleJoinTableModal: (state) => !state,
+            },
+        ],
+        error: [
+            null as null | string,
+            {
+                setError: (_, { error }) => error,
             },
         ],
     }),
     forms(({ actions, values }) => ({
         viewLink: {
             defaults: NEW_VIEW_LINK,
-            errors: ({ saved_query_id, to_join_key, from_join_key }) => {
-                let to_join_key_err: string | undefined = undefined
-                let from_join_key_err: string | undefined = undefined
+            errors: ({ joining_table_name, joining_table_key, source_table_key }) => {
+                let joining_table_key_err: string | undefined = undefined
+                let source_table_key_err: string | undefined = undefined
 
-                if (!to_join_key) {
-                    to_join_key_err = 'Must select a join key'
+                if (!joining_table_key) {
+                    joining_table_key_err = 'Must select a join key'
                 }
 
-                if (!from_join_key) {
-                    from_join_key_err = 'Must select a join key'
+                if (!source_table_key) {
+                    source_table_key_err = 'Must select a join key'
                 }
 
                 if (
-                    to_join_key &&
-                    from_join_key &&
-                    values.mappedToJoinKeyOptions[to_join_key]?.type !==
-                        values.mappedFromJoinKeyOptions[from_join_key]?.type
+                    joining_table_key &&
+                    source_table_key &&
+                    values.selectedJoiningTable?.columns?.find((n) => n.key == joining_table_key)?.type !==
+                        values.selectedSourceTable?.columns?.find((n) => n.key == source_table_key)?.type
                 ) {
-                    to_join_key_err = 'Join key types must match'
-                    from_join_key_err = 'Join key types must match'
+                    joining_table_key_err = 'Join key types must match'
+                    source_table_key_err = 'Join key types must match'
                 }
 
                 return {
-                    saved_query_id: !saved_query_id ? 'Must select a view' : undefined,
-                    to_join_key: to_join_key_err,
-                    from_join_key: from_join_key_err,
+                    joining_table_name: !joining_table_name ? 'Must select a table' : undefined,
+                    to_join_key: joining_table_key_err,
+                    from_join_key: source_table_key_err,
                 }
             },
-            submit: async ({ saved_query_id, to_join_key, from_join_key }) => {
-                if (values.selectedTable) {
-                    await api.dataWarehouseViewLinks.create({
-                        table: values.selectedTable.name,
-                        saved_query_id,
-                        to_join_key,
-                        from_join_key,
-                    })
-                    actions.toggleFieldModal()
-                    // actions.loadDatabase()
-                    // actions.loadViewLinks()
+            submit: async ({ joining_table_name, source_table_key, joining_table_key }) => {
+                if (values.selectedSourceTable) {
+                    try {
+                        await api.dataWarehouseViewLinks.create({
+                            source_table_name: values.selectedSourceTable.name,
+                            source_table_key,
+                            joining_table_name,
+                            joining_table_key,
+                            field_name: values.fieldName,
+                        })
+
+                        actions.toggleJoinTableModal()
+                        // actions.loadDatabase()
+                    } catch (error: any) {
+                        actions.setError(error.detail)
+                    }
                 }
             },
         },
     })),
     listeners(({ values, actions }) => ({
-        selectView: ({ selectedView }) => {
-            actions.setView(values.mappedViewOptions[selectedView])
-        },
         deleteViewLink: async ({ table, column }) => {
-            const matchedSavedQuery = values.savedQueries.find((savedQuery) => {
-                return savedQuery.name === column
-            })
-            const matchedViewLink = values.viewLinks.find((viewLink) => {
-                return viewLink.table === table && matchedSavedQuery && matchedSavedQuery.id === viewLink.saved_query
-            })
-            if (!matchedViewLink) {
-                lemonToast.error(`Error deleting view link`)
-                return
-            }
-            await api.dataWarehouseViewLinks.delete(matchedViewLink.id)
-            actions.loadDatabase()
+            // const matchedSavedQuery = values.savedQueries.find((savedQuery) => {
+            //     return savedQuery.name === column
+            // })
+            // const matchedViewLink = values.viewLinks.find((viewLink) => {
+            //     return viewLink.table === table && matchedSavedQuery && matchedSavedQuery.id === viewLink.saved_query
+            // })
+            // if (!matchedViewLink) {
+            //     lemonToast.error(`Error deleting view link`)
+            //     return
+            // }
+            // await api.dataWarehouseViewLinks.delete(matchedViewLink.id)
+            // actions.loadDatabase()
         },
     })),
     selectors({
-        selectedTable: [
-            (s) => [s.selectedTableName, s.tableOptions],
-            (selectedTableName: string, tableOptions: DataWarehouseSceneRow[]) =>
-                tableOptions.find((row) => row.name === selectedTableName),
+        tables: [
+            (s) => [s.dataWarehouse, s.filteredTables],
+            (warehouseTables, posthogTables): DataWarehouseTableType[] => {
+                const mappedWarehouseTables = (warehouseTables?.results ?? []).map(
+                    (table) =>
+                        ({
+                            id: table.id,
+                            name: table.name,
+                            columns: table.columns,
+                            payload: table,
+                            type: DataWarehouseRowType.ExternalTable,
+                        } as DataWarehouseTableType)
+                )
+
+                const mappedPosthogTables = posthogTables.map(
+                    (table) =>
+                        ({
+                            id: table.name,
+                            name: table.name,
+                            columns: table.columns,
+                            payload: table,
+                            type: DataWarehouseRowType.PostHogTable,
+                        } as DataWarehouseTableType)
+                )
+
+                return mappedPosthogTables.concat(mappedWarehouseTables)
+            },
         ],
-        viewOptions: [
-            (s) => [s.savedQueries],
-            (savedQueries: DataWarehouseSceneRow[]) =>
-                savedQueries.map((savedQuery: DataWarehouseSceneRow) => ({
-                    value: savedQuery.id,
-                    label: savedQuery.name,
+        selectedSourceTable: [
+            (s) => [s.selectedSourceTableName, s.tables],
+            (selectedSourceTableName, tables) => tables.find((row) => row.name === selectedSourceTableName),
+        ],
+        selectedJoiningTable: [
+            (s) => [s.selectedJoiningTableName, s.tables],
+            (selectedJoiningTableName, tables) => tables.find((row) => row.name === selectedJoiningTableName),
+        ],
+        joiningTableOptions: [
+            (s) => [s.tables],
+            (tables) =>
+                tables.map((table) => ({
+                    value: table.name,
+                    label: table.name,
                 })),
         ],
-        mappedViewOptions: [
-            (s) => [s.savedQueries],
-            (savedQueries: DataWarehouseSceneRow[]) =>
-                savedQueries.reduce((acc, savedQuery: DataWarehouseSceneRow) => {
-                    acc[savedQuery.id] = savedQuery
-                    return acc
-                }, {}),
-        ],
-        toJoinKeyOptions: [
-            (s) => [s.selectedView],
-            (selectedView: DataWarehouseSceneRow | null): KeySelectOption[] => {
-                if (!selectedView) {
+        sourceTableKeys: [
+            (s) => [s.selectedSourceTable],
+            (selectedSourceTable): KeySelectOption[] => {
+                if (!selectedSourceTable) {
                     return []
                 }
-                return selectedView.columns.map((column) => ({
-                    value: column.key,
-                    label: <ViewLinkKeyLabel column={column} />,
-                }))
-            },
-        ],
-        mappedToJoinKeyOptions: [
-            (s) => [s.selectedView],
-            (selectedView: DataWarehouseSceneRow | null) => {
-                if (!selectedView) {
-                    return []
-                }
-                return selectedView.columns.reduce((acc, column) => {
-                    acc[column.key] = column
-                    return acc
-                }, {})
-            },
-        ],
-        fromJoinKeyOptions: [
-            (s) => [s.selectedTable],
-            (selectedTable: DataWarehouseSceneRow | null): KeySelectOption[] => {
-                if (!selectedTable) {
-                    return []
-                }
-                return selectedTable.columns
+                return selectedSourceTable.columns
                     .filter((column) => column.type !== 'view')
                     .map((column) => ({
                         value: column.key,
@@ -193,20 +204,30 @@ export const viewLinkLogic = kea<viewLinkLogicType>([
                     }))
             },
         ],
-        mappedFromJoinKeyOptions: [
-            (s) => [s.selectedTable],
-            (selectedTable: DataWarehouseSceneRow | null) => {
-                if (!selectedTable) {
+        joiningTableKeys: [
+            (s) => [s.selectedJoiningTable],
+            (selectedJoiningTable): KeySelectOption[] => {
+                if (!selectedJoiningTable) {
                     return []
                 }
-                return selectedTable.columns.reduce((acc, column) => {
-                    acc[column.key] = column
-                    return acc
-                }, {})
+                return selectedJoiningTable.columns
+                    .filter((column) => column.type !== 'view')
+                    .map((column) => ({
+                        value: column.key,
+                        label: <ViewLinkKeyLabel column={column} />,
+                    }))
             },
         ],
-    }),
-    afterMount(({ actions }) => {
-        actions.loadViewLinks()
+        sqlCodeSnippet: [
+            (s) => [s.selectedSourceTableName, s.selectedJoiningTableName, s.fieldName],
+            (selectedSourceTableName, joiningTableName, fieldName) => {
+                if (!selectedSourceTableName || !joiningTableName) {
+                    return null
+                }
+
+                const tableAlias = selectedSourceTableName[0]
+                return `SELECT ${tableAlias}.${fieldName || ''} FROM ${selectedSourceTableName} ${tableAlias}`
+            },
+        ],
     }),
 ])

@@ -1,7 +1,5 @@
 import { lemonToast } from '@posthog/lemon-ui'
 import { actions, afterMount, connect, kea, listeners, path, reducers, selectors } from 'kea'
-import { loaders } from 'kea-loaders'
-import api, { PaginatedResponse } from 'lib/api'
 import { databaseTableListLogic } from 'scenes/data-management/database/databaseTableListLogic'
 import { userLogic } from 'scenes/userLogic'
 
@@ -18,11 +16,16 @@ export const dataWarehouseSceneLogic = kea<dataWarehouseSceneLogicType>([
             userLogic,
             ['user'],
             databaseTableListLogic,
-            ['filteredTables'],
+            ['filteredTables', 'dataWarehouse'],
             dataWarehouseSavedQueriesLogic,
             ['savedQueries'],
         ],
-        actions: [dataWarehouseSavedQueriesLogic, ['deleteDataWarehouseSavedQuery']],
+        actions: [
+            dataWarehouseSavedQueriesLogic,
+            ['deleteDataWarehouseSavedQuery'],
+            databaseTableListLogic,
+            ['loadDataWarehouse', 'deleteDataWarehouseTable'],
+        ],
     })),
     actions({
         toggleSourceModal: (isOpen?: boolean) => ({ isOpen }),
@@ -42,21 +45,6 @@ export const dataWarehouseSceneLogic = kea<dataWarehouseSceneLogicType>([
             },
         ],
     }),
-    loaders(({ values }) => ({
-        dataWarehouse: [
-            null as PaginatedResponse<DataWarehouseTable> | null,
-            {
-                loadDataWarehouse: async (): Promise<PaginatedResponse<DataWarehouseTable>> =>
-                    await api.dataWarehouseTables.list(),
-                deleteDataWarehouseTable: async (table: DataWarehouseTable) => {
-                    await api.dataWarehouseTables.delete(table.id)
-                    return {
-                        results: [...(values.dataWarehouse?.results || []).filter((t) => t.id != table.id)],
-                    }
-                },
-            },
-        ],
-    })),
     selectors({
         externalTables: [
             (s) => [s.dataWarehouse],

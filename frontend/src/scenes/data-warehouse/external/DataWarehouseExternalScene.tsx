@@ -15,6 +15,8 @@ import { urls } from 'scenes/urls'
 import { NodeKind } from '~/queries/schema'
 
 import { DataWarehouseRowType, DataWarehouseTableType } from '../types'
+import { viewLinkLogic } from '../viewLinkLogic'
+import { ViewLinkModal } from '../ViewLinkModal'
 import { dataWarehouseSceneLogic } from './dataWarehouseSceneLogic'
 import SourceModal from './SourceModal'
 
@@ -29,6 +31,7 @@ export function DataWarehouseExternalScene(): JSX.Element {
     const { toggleSourceModal, selectRow, deleteDataWarehouseSavedQuery, deleteDataWarehouseTable } =
         useActions(dataWarehouseSceneLogic)
     const { featureFlags } = useValues(featureFlagLogic)
+    const { toggleJoinTableModal, selectSourceTable } = useActions(viewLinkLogic)
 
     const deleteButton = (selectedRow: DataWarehouseTableType | null): JSX.Element => {
         if (!selectedRow) {
@@ -164,6 +167,15 @@ export function DataWarehouseExternalScene(): JSX.Element {
                             <h3>{selectedRow.name}</h3>
                             <div className="flex flex-row gap-2 justify-between">
                                 {deleteButton(selectedRow)}
+                                <LemonButton
+                                    type="primary"
+                                    onClick={() => {
+                                        selectSourceTable(selectedRow.name)
+                                        toggleJoinTableModal()
+                                    }}
+                                >
+                                    Add Join
+                                </LemonButton>
                                 <Link
                                     to={urls.insightNew(
                                         undefined,
@@ -216,6 +228,7 @@ export function DataWarehouseExternalScene(): JSX.Element {
                 )}
             </div>
             <SourceModal isOpen={isSourceModalOpen} onClose={() => toggleSourceModal(false)} />
+            <ViewLinkModal tableSelectable={false} />
         </div>
     )
 }

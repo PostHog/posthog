@@ -17,7 +17,7 @@ import { DatabaseTable } from './DatabaseTable'
 
 export function DatabaseTablesContainer(): JSX.Element {
     const { filteredTables, databaseLoading } = useValues(databaseTableListLogic)
-    const { toggleFieldModal, selectTableName } = useActions(viewLinkLogic)
+    const { toggleJoinTableModal, selectSourceTable } = useActions(viewLinkLogic)
     const { featureFlags } = useValues(featureFlagLogic)
 
     return (
@@ -37,8 +37,8 @@ export function DatabaseTablesContainer(): JSX.Element {
                                             className="mt-2"
                                             type="primary"
                                             onClick={() => {
-                                                selectTableName(row.name)
-                                                toggleFieldModal()
+                                                selectSourceTable(row.name)
+                                                toggleJoinTableModal()
                                             }}
                                         >
                                             Add link to view

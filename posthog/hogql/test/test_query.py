@@ -26,7 +26,7 @@ from posthog.test.base import (
     _create_person,
     flush_persons_and_events,
 )
-from posthog.warehouse.models import DataWarehouseSavedQuery, DataWarehouseViewLink
+from posthog.warehouse.models import DataWarehouseSavedQuery, DataWarehouseJoin
 
 
 class TestQuery(ClickhouseTestMixin, APIBaseTest):
@@ -1342,7 +1342,7 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
         saved_query_response = response.json()
         saved_query = DataWarehouseSavedQuery.objects.get(pk=saved_query_response["id"])
 
-        DataWarehouseViewLink.objects.create(
+        DataWarehouseJoin.objects.create(
             saved_query=saved_query,
             table="events",
             to_join_key="fake",
