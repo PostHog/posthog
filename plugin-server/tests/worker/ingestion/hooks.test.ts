@@ -474,6 +474,12 @@ describe('hooks', () => {
     describe('postRestHook', () => {
         let hookCommander: HookCommander
         let hook: Hook
+        const action = {
+            id: 1,
+            name: 'action1',
+            // slack_message_format: '[user.name] did thing from browser [user.brauzer]',
+        } as Action
+        const team = { person_display_name_properties: null } as Team
 
         beforeEach(() => {
             hook = {
@@ -497,7 +503,7 @@ describe('hooks', () => {
         })
 
         test('person = undefined', async () => {
-            await hookCommander.postRestHook(hook, { event: 'foo' } as any)
+            await hookCommander.postWebhook({ event: 'foo' } as any, action, team, hook)
 
             expect(fetch).toHaveBeenCalledWith('https://example.com/', {
                 body: JSON.stringify(
@@ -524,13 +530,18 @@ describe('hooks', () => {
         test('person data from the event', async () => {
             const now = new Date().toISOString()
             const uuid = new UUIDT().toString()
-            await hookCommander.postRestHook(hook, {
-                event: 'foo',
-                teamId: hook.team_id,
-                person_id: uuid,
-                person_properties: { foo: 'bar' },
-                person_created_at: DateTime.fromISO(now).toUTC(),
-            } as any)
+            await hookCommander.postWebhook(
+                {
+                    event: 'foo',
+                    teamId: hook.team_id,
+                    person_id: uuid,
+                    person_properties: { foo: 'bar' },
+                    person_created_at: DateTime.fromISO(now).toUTC(),
+                } as any,
+                action,
+                team,
+                hook
+            )
             expect(fetch).toHaveBeenCalledWith('https://example.com/', {
                 body: JSON.stringify(
                     {
@@ -562,7 +573,10 @@ describe('hooks', () => {
             process.env.NODE_ENV = 'production'
 
             await expect(
-                hookCommander.postRestHook({ ...hook, target: 'http://127.0.0.1' }, { event: 'foo' } as any)
+                hookCommander.postWebhook({ event: 'foo' } as any, action, team, {
+                    ...hook,
+                    target: 'http://127.0.0.1',
+                })
             ).rejects.toThrow(new FetchError('Internal hostname', 'posthog-host-guard'))
         })
     })
