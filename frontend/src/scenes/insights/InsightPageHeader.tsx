@@ -327,7 +327,7 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
                 tabbedPage={insightMode === ItemMode.Edit} // Insight type tabs are only shown in edit mode
             />
 
-            {insight.transient && (
+            {!!insight.dashboardKey && (
                 <LemonBanner type="warning" className="mb-4">
                     You are viewing this insight with filters from a dashboard. Editing will take you to edit the
                     underlying insight.
