@@ -1,5 +1,5 @@
 from typing import cast
-from urllib.parse import urlparse
+from django.db.models import QuerySet
 
 from django.conf import settings
 from rest_framework import exceptions, serializers, viewsets
@@ -29,6 +29,15 @@ class HookViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     queryset = Hook.objects.all()
     ordering = "-created_at"
     serializer_class = HookSerializer
+
+    def get_queryset(self) -> QuerySet:
+        queryset = super().get_queryset()
+
+        if self.action == "list":
+            if self.request.GET.get("resource_id", None):
+                queryset = queryset.filter(resource_id=self.request.GET["resource_id"])
+
+        return queryset
 
     def perform_create(self, serializer):
         user = cast(User, self.request.user)
