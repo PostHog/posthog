@@ -2,6 +2,7 @@ import { lemonToast } from '@posthog/lemon-ui'
 import { actions, afterMount, kea, key, listeners, path, props, reducers } from 'kea'
 import { forms } from 'kea-forms'
 import { loaders } from 'kea-loaders'
+import { beforeUnload } from 'kea-router'
 import api from 'lib/api'
 import { toParams } from 'lib/utils'
 
@@ -69,7 +70,7 @@ export const actionWebhooksLogic = kea<actionWebhooksLogicType>([
         ],
     })),
 
-    forms(({ values, actions }) => ({
+    forms(({ values, actions, props }) => ({
         editingWebhook: {
             defaults: {
                 target: '',
@@ -78,8 +79,27 @@ export const actionWebhooksLogic = kea<actionWebhooksLogicType>([
             errors: ({ target }) => ({
                 target: !target ? 'This field is required' : undefined,
             }),
-            submit: async (payload, breakpoint) => {
-                console.log(payload)
+            submit: async (payload) => {
+                const data = { ...payload, event: 'action_performed', resource_id: props.id }
+                try {
+                    if (values.editingWebhookId === 'new') {
+                        await api.create(`api/projects/@current/hooks`, data)
+                    } else {
+                        await api.update(`api/projects/@current/hooks/${values.editingWebhookId}`, data)
+                    }
+                } catch (err: any) {
+                    if (err.attr) {
+                        actions.setEditingWebhookManualErrors({
+                            [err.attr]: err.detail,
+                        })
+                    } else {
+                        lemonToast.error(err.detail)
+                    }
+                    return
+                }
+
+                actions.setEditingWebhookId(null)
+                actions.loadActionWebhooks()
             },
         },
     })),
@@ -97,4 +117,10 @@ export const actionWebhooksLogic = kea<actionWebhooksLogicType>([
     afterMount(({ actions }) => {
         actions.loadActionWebhooks()
     }),
+
+    beforeUnload(({ values, actions }) => ({
+        enabled: () => !!values.editingWebhookId && values.editingWebhookChanged,
+        message: `Leave action?\nChanges to your webhook configuration will be discarded.`,
+        onConfirm: () => actions.setEditingWebhookId(null),
+    })),
 ])

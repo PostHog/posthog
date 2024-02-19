@@ -20,11 +20,6 @@ class HookSerializer(serializers.ModelSerializer):
             raise exceptions.ValidationError(detail=f"Unexpected event {event}")
         return event
 
-    def validate_target(self, target):
-        if not valid_domain(target):
-            raise exceptions.ValidationError(detail=f"'hooks.zapier.com' is the only allowed target domain")
-        return target
-
 
 class HookViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     """
@@ -38,8 +33,3 @@ class HookViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     def perform_create(self, serializer):
         user = cast(User, self.request.user)
         serializer.save(user=user, team_id=self.team_id)
-
-
-def valid_domain(url) -> bool:
-    target_domain = urlparse(url).netloc
-    return target_domain == "hooks.zapier.com"

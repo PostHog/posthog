@@ -426,11 +426,14 @@ export class HookCommander {
                 } event_id=${event.eventUuid}`
             )
         }, slowWarningTimeout)
+
+        status.debug('⚠️', `Firing webhook ${url} for team ${team.id}`)
+
         try {
             await instrumentWebhookStep('fetch', async () => {
                 const request = await trackedFetch(url, {
                     method: 'POST',
-                    body,
+                    body: JSON.stringify(body, null, 2),
                     headers: { 'Content-Type': 'application/json' },
                     timeout: this.EXTERNAL_REQUEST_TIMEOUT,
                 })

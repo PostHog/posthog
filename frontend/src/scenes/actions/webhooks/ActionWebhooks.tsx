@@ -1,5 +1,13 @@
 import { IconPencil, IconTrash } from '@posthog/icons'
-import { LemonButton, LemonInput, LemonMenu, LemonModal, LemonTable, LemonTableColumns } from '@posthog/lemon-ui'
+import {
+    LemonButton,
+    LemonInput,
+    LemonMenu,
+    LemonTable,
+    LemonTableColumns,
+    LemonTextArea,
+    Link,
+} from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
 import { IconEllipsis } from 'lib/lemon-ui/icons'
@@ -9,7 +17,7 @@ import { ActionType, HookConfigType } from '~/types'
 
 import { actionWebhooksLogic } from './actionWebhooksLogic'
 
-function EditActionWebhookModal({ actionId }: { actionId: ActionType['id'] }): JSX.Element {
+export function ActionWebhookEdit({ actionId }: { actionId: ActionType['id'] }): JSX.Element {
     const logic = actionWebhooksLogic({ id: actionId })
     const { editingWebhookId, editingWebhookChanged, isEditingWebhookSubmitting } = useValues(logic)
     const { setEditingWebhookId, submitEditingWebhook } = useActions(logic)
@@ -17,51 +25,65 @@ function EditActionWebhookModal({ actionId }: { actionId: ActionType['id'] }): J
     const isNew = editingWebhookId === 'new'
 
     return (
-        <Form logic={actionWebhooksLogic} props={{ id: actionId }} formKey="editingWebhook">
-            <LemonModal
-                title={`${isNew ? 'Create' : 'Edit'} webhook configuration`}
-                onClose={() => setEditingWebhookId(null)}
-                isOpen={!!editingWebhookId}
-                width="40rem"
-                hasUnsavedInput={editingWebhookChanged}
-                footer={
-                    <>
-                        <LemonButton type="secondary" onClick={() => setEditingWebhookId(null)}>
-                            Cancel
-                        </LemonButton>
+        <Form logic={actionWebhooksLogic} props={{ id: actionId }} formKey="editingWebhook" enableFormOnSubmit>
+            <div className="space-y-2">
+                <LemonField name="target" label="Target URL">
+                    <LemonInput placeholder="e.g. https://hooks.slack.com/services/123/456/ABC" />
+                </LemonField>
 
-                        <LemonButton
-                            type="primary"
-                            htmlType="submit"
-                            loading={isEditingWebhookSubmitting}
-                            disabled={!editingWebhookChanged}
-                            onClick={() => submitEditingWebhook()}
-                        >
-                            {isNew ? 'Create webhook' : 'Save webhook'}
-                        </LemonButton>
-                    </>
-                }
-            >
-                <>
-                    <LemonField name="target" label="Target URL">
-                        <LemonInput placeholder="e.g. https://hooks.slack.com/services/123/456/ABC" />
-                    </LemonField>
-                </>
-            </LemonModal>
+                <LemonField
+                    name="format_text"
+                    label="Text message format"
+                    help={
+                        <>
+                            <p>
+                                By default webhooks will receive a JSON payload containing the entire event. You can
+                                override this to instead send
+                            </p>
+                            <Link to="https://posthog.com/docs/integrate/webhooks/message-formatting" target="_blank">
+                                See documentation on how to format webhook messages.
+                            </Link>
+                        </>
+                    }
+                >
+                    <LemonTextArea
+                        placeholder="[action.name] triggered by [person]"
+                        data-attr="edit-webhook-message-format"
+                    />
+                </LemonField>
+            </div>
+            <div className="flex items-center justify-end gap-2">
+                <LemonButton type="secondary" onClick={() => setEditingWebhookId(null)}>
+                    Cancel
+                </LemonButton>
+
+                <LemonButton
+                    type="primary"
+                    loading={isEditingWebhookSubmitting}
+                    disabled={!editingWebhookChanged}
+                    onClick={() => submitEditingWebhook()}
+                >
+                    {isNew ? 'Create webhook' : 'Save webhook'}
+                </LemonButton>
+            </div>
         </Form>
     )
 }
 
 export function ActionWebhooks({ actionId }: { actionId: number }): JSX.Element {
-    const { actionWebhooks } = useValues(actionWebhooksLogic({ id: actionId }))
-    const { deleteActionWebhook } = useActions(actionWebhooksLogic({ id: actionId }))
+    const { actionWebhooks, editingWebhookId } = useValues(actionWebhooksLogic({ id: actionId }))
+    const { deleteActionWebhook, setEditingWebhookId } = useActions(actionWebhooksLogic({ id: actionId }))
 
     const columns: LemonTableColumns<HookConfigType> = [
         {
             key: 'target',
             title: 'Webhook target URL',
             render: function Render(_, item): JSX.Element {
-                return <div className="">{item.target}</div>
+                return (
+                    <Link className="font-semibold" subtle onClick={() => setEditingWebhookId(item.id)}>
+                        {item.target}
+                    </Link>
+                )
             },
             sorter: (a, b) => String(a[0]).localeCompare(String(b[0])),
         },
@@ -89,7 +111,7 @@ export function ActionWebhooks({ actionId }: { actionId: number }): JSX.Element 
                                 label: 'Edit',
                                 icon: <IconPencil />,
                                 onClick: () => {
-                                    alert('TODO!')
+                                    setEditingWebhookId(item.id)
                                 },
                             },
                             {
@@ -110,8 +132,23 @@ export function ActionWebhooks({ actionId }: { actionId: number }): JSX.Element 
     ]
     return (
         <div className="">
-            <LemonTable columns={columns} dataSource={actionWebhooks ?? []} />
-            <EditActionWebhookModal actionId={actionId} />
+            <LemonTable
+                columns={columns}
+                dataSource={actionWebhooks ?? []}
+                expandable={{
+                    rowExpandable: () => true,
+                    expandedRowRender: () => {
+                        return (
+                            <div className="p-4">
+                                <ActionWebhookEdit actionId={actionId} />
+                            </div>
+                        )
+                    },
+                    isRowExpanded: (record) => record.id === editingWebhookId,
+                    onRowExpand: (record) => setEditingWebhookId(record.id),
+                    onRowCollapse: () => setEditingWebhookId(null),
+                }}
+            />
         </div>
     )
 }

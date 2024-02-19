@@ -21,7 +21,7 @@ import { ActionStepType, AvailableFeature } from '~/types'
 
 import { actionEditLogic, ActionEditLogicProps } from './actionEditLogic'
 import { ActionStep } from './ActionStep'
-import { ActionWebhooks } from './webhooks/ActionWebhooks'
+import { ActionWebhookEdit, ActionWebhooks } from './webhooks/ActionWebhooks'
 import { actionWebhooksLogic } from './webhooks/actionWebhooksLogic'
 
 export function ActionEdit({ action: loadedAction, id }: ActionEditLogicProps): JSX.Element {
@@ -35,7 +35,8 @@ export function ActionEdit({ action: loadedAction, id }: ActionEditLogicProps): 
     const { currentTeam } = useValues(teamLogic)
     const { hasAvailableFeature } = useValues(userLogic)
     const { tags } = useValues(tagsModel)
-    const { setEditingWebhookId } = useActions(actionWebhooksLogic({ id }))
+    const { editingWebhookId } = useValues(actionWebhooksLogic({ id: id ?? 0 }))
+    const { setEditingWebhookId } = useActions(actionWebhooksLogic({ id: id ?? 0 }))
 
     const slackEnabled = currentTeam?.slack_incoming_webhook
 
@@ -233,19 +234,23 @@ export function ActionEdit({ action: loadedAction, id }: ActionEditLogicProps): 
                     </LemonField>
                 </div>
                 <div className="my-8">
-                    <div className="flex gap-2 items-start justify-between">
-                        <div className="flex-1">
-                            <h2 className="subtitle flex items-start justify-between">Action webhooks</h2>
-                            <p>Send webhooks whenever this action is triggered. </p>
-                        </div>
-
-                        <LemonButton type="secondary" onClick={() => setEditingWebhookId('new')}>
-                            Add webhook
-                        </LemonButton>
-                    </div>
+                    <h2 className="subtitle flex items-start justify-between">Action webhooks</h2>
+                    <p>Send webhooks whenever this action is triggered.</p>
 
                     {id ? (
-                        <ActionWebhooks actionId={id} />
+                        <div className="space-y-2">
+                            <ActionWebhooks actionId={id} />
+                            {editingWebhookId !== 'new' ? (
+                                <LemonButton type="secondary" onClick={() => setEditingWebhookId('new')}>
+                                    Add webhook
+                                </LemonButton>
+                            ) : (
+                                <div className="p-4 border rounded bg-bg-light">
+                                    <h3>New action webhook</h3>
+                                    <ActionWebhookEdit actionId={id} />
+                                </div>
+                            )}
+                        </div>
                     ) : (
                         <LemonBanner type="info">
                             Please save your Action first and then you can configure webhooks for it.
