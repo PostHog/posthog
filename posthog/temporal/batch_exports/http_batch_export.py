@@ -1,5 +1,6 @@
 import asyncio
 import datetime as dt
+import io
 import json
 from dataclasses import dataclass
 
@@ -135,8 +136,13 @@ async def post_json_file_to_url(url, batch_file, session: aiohttp.ClientSession)
     batch_file.seek(0)
 
     headers = {"Content-Type": "application/json"}
-    async with session.post(url, data=batch_file, headers=headers) as response:
+    data_reader = io.BufferedReader(batch_file)
+
+    async with session.post(url, data=data_reader, headers=headers) as response:
         raise_for_status(response)
+
+        data_reader.detach()  # BufferedReader closes the file otherwise.
+
         return response
 
 
