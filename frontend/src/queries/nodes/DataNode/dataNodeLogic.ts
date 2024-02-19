@@ -20,11 +20,13 @@ import { FEATURE_FLAGS } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { objectsEqual, shouldCancelQuery, uuid } from 'lib/utils'
+import { ConcurrencyController } from 'lib/utils/concurrencyController'
 import { UNSAVED_INSIGHT_MIN_REFRESH_INTERVAL_MINUTES } from 'scenes/insights/insightLogic'
 import { compareInsightQuery } from 'scenes/insights/utils/compareInsightQuery'
 import { teamLogic } from 'scenes/teamLogic'
 import { userLogic } from 'scenes/userLogic'
 
+import { dataNodeCollectionLogic, DataNodeCollectionProps } from '~/queries/nodes/DataNode/dataNodeCollectionLogic'
 import { removeExpressionComment } from '~/queries/nodes/DataTable/utils'
 import { query } from '~/queries/query'
 import {
@@ -51,10 +53,18 @@ export interface DataNodeLogicProps {
     cachedResults?: AnyResponseType
     /** Disabled data fetching and only allow cached results. */
     doNotLoad?: boolean
+    /** Callback when data is successfully loader or provided from cache. */
+    onData?: (data: Record<string, unknown> | null | undefined) => void
+    /** Load priority. Higher priority (smaller number) queries will be loaded first. */
+    loadPriority?: number
+
+    dataNodeCollectionId?: string
 }
 
 export const AUTOLOAD_INTERVAL = 30000
 const LOAD_MORE_ROWS_LIMIT = 10000
+
+const concurrencyController = new ConcurrencyController(Infinity)
 
 const queryEqual = (a: DataNode, b: DataNode): boolean => {
     if (isInsightQueryNode(a) && isInsightQueryNode(b)) {
@@ -66,11 +76,21 @@ const queryEqual = (a: DataNode, b: DataNode): boolean => {
 
 export const dataNodeLogic = kea<dataNodeLogicType>([
     path(['queries', 'nodes', 'dataNodeLogic']),
-    connect({
-        values: [userLogic, ['user'], teamLogic, ['currentTeamId'], featureFlagLogic, ['featureFlags']],
-    }),
-    props({ query: {} } as DataNodeLogicProps),
     key((props) => props.key),
+    connect((props: DataNodeLogicProps) => ({
+        values: [userLogic, ['user'], teamLogic, ['currentTeamId'], featureFlagLogic, ['featureFlags']],
+        actions: [
+            dataNodeCollectionLogic({ key: props.dataNodeCollectionId || props.key } as DataNodeCollectionProps),
+            [
+                'mountDataNode',
+                'unmountDataNode',
+                'collectionNodeLoadData',
+                'collectionNodeLoadDataSuccess',
+                'collectionNodeLoadDataFailure',
+            ],
+        ],
+    })),
+    props({ query: {} } as DataNodeLogicProps),
     propsChanged(({ actions, props }, oldProps) => {
         if (!props.query) {
             return // Can't do anything without a query
@@ -134,24 +154,45 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
                     }
 
                     actions.abortAnyRunningQuery()
-                    cache.abortController = new AbortController()
+                    const abortController = new AbortController()
+                    cache.abortController = abortController
                     const methodOptions: ApiMethodOptions = {
                         signal: cache.abortController.signal,
                     }
-                    const now = performance.now()
+
                     try {
-                        const data = (await query<DataNode>(props.query, methodOptions, refresh, queryId)) ?? null
+                        const response = await concurrencyController.run({
+                            debugTag: props.query.kind,
+                            abortController,
+                            priority: props.loadPriority,
+                            fn: async (): Promise<{ duration: number; data: Record<string, any> }> => {
+                                const now = performance.now()
+                                try {
+                                    breakpoint()
+                                    const data =
+                                        (await query<DataNode>(props.query, methodOptions, refresh, queryId)) ?? null
+                                    const duration = performance.now() - now
+                                    return { data, duration }
+                                } catch (error: any) {
+                                    const duration = performance.now() - now
+                                    error.duration = duration
+                                    throw error
+                                }
+                            },
+                        })
                         breakpoint()
-                        actions.setElapsedTime(performance.now() - now)
-                        return data
-                    } catch (e: any) {
-                        actions.setElapsedTime(performance.now() - now)
-                        if (shouldCancelQuery(e)) {
+                        actions.setElapsedTime(response.duration)
+                        return response.data
+                    } catch (error: any) {
+                        if (error.duration) {
+                            actions.setElapsedTime(error.duration)
+                        }
+                        error.queryId = queryId
+                        if (shouldCancelQuery(error)) {
                             actions.abortQuery({ queryId })
                         }
                         breakpoint()
-                        e.queryId = queryId
-                        throw e
+                        throw error
                     }
                 },
                 loadNewData: async () => {
@@ -320,25 +361,9 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
             () => [(_, props) => props.cachedResults ?? null],
             (cachedResults: AnyResponseType | null): boolean => !!cachedResults,
         ],
-        hogQLInsightsLifecycleFlagEnabled: [
-            (s) => [s.featureFlags],
-            (featureFlags) => !!featureFlags[FEATURE_FLAGS.HOGQL_INSIGHTS_LIFECYCLE],
-        ],
-        hogQLInsightsPathsFlagEnabled: [
-            (s) => [s.featureFlags],
-            (featureFlags) => !!featureFlags[FEATURE_FLAGS.HOGQL_INSIGHTS_PATHS],
-        ],
         hogQLInsightsRetentionFlagEnabled: [
             (s) => [s.featureFlags],
             (featureFlags) => !!featureFlags[FEATURE_FLAGS.HOGQL_INSIGHTS_RETENTION],
-        ],
-        hogQLInsightsTrendsFlagEnabled: [
-            (s) => [s.featureFlags],
-            (featureFlags) => !!featureFlags[FEATURE_FLAGS.HOGQL_INSIGHTS_TRENDS],
-        ],
-        hogQLInsightsStickinessFlagEnabled: [
-            (s) => [s.featureFlags],
-            (featureFlags) => !!featureFlags[FEATURE_FLAGS.HOGQL_INSIGHTS_STICKINESS],
         ],
         query: [(_, p) => [p.query], (query) => query],
         newQuery: [
@@ -426,6 +451,25 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
             (s) => [s.nextQuery, s.isShowingCachedResults],
             (nextQuery, isShowingCachedResults) => (isShowingCachedResults ? false : !!nextQuery),
         ],
+        hasMoreData: [
+            (s) => [s.response],
+            (response): boolean => {
+                if (!response?.hasMore) {
+                    return false
+                }
+                return response.hasMore
+            },
+        ],
+        dataLimit: [
+            // get limit from response
+            (s) => [s.response],
+            (response): number | null => {
+                if (!response?.limit) {
+                    return null
+                }
+                return response.limit
+            },
+        ],
         backToSourceQuery: [
             (s) => [s.query],
             (query): InsightVizNode | null => {
@@ -504,7 +548,7 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
             },
         ],
     }),
-    listeners(({ actions, values, cache }) => ({
+    listeners(({ actions, values, cache, props }) => ({
         abortAnyRunningQuery: () => {
             if (cache.abortController) {
                 cache.abortController.abort()
@@ -522,6 +566,22 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
         cancelQuery: () => {
             actions.abortAnyRunningQuery()
         },
+        loadData: () => {
+            actions.collectionNodeLoadData(props.key)
+        },
+        loadDataSuccess: ({ response }) => {
+            props.onData?.(response)
+            actions.collectionNodeLoadDataSuccess(props.key)
+        },
+        loadDataFailure: () => {
+            actions.collectionNodeLoadDataFailure(props.key)
+        },
+        loadNewDataSuccess: ({ response }) => {
+            props.onData?.(response)
+        },
+        loadNextDataSuccess: ({ response }) => {
+            props.onData?.(response)
+        },
     })),
     subscriptions(({ actions, cache, values }) => ({
         autoLoadRunning: (autoLoadRunning) => {
@@ -538,18 +598,31 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
                 }, AUTOLOAD_INTERVAL)
             }
         },
+        featureFlags: (flags) => {
+            if (flags[FEATURE_FLAGS.DATANODE_CONCURRENCY_LIMIT]) {
+                concurrencyController.setConcurrencyLimit(1)
+            }
+        },
     })),
     afterMount(({ actions, props }) => {
         if (Object.keys(props.query || {}).length > 0) {
             actions.loadData()
         }
+
+        actions.mountDataNode(props.key, {
+            id: props.key,
+            loadData: actions.loadData,
+            cancelQuery: actions.cancelQuery,
+        })
     }),
-    beforeUnmount(({ actions, values }) => {
+    beforeUnmount(({ actions, props, values }) => {
         if (values.autoLoadRunning) {
             actions.stopAutoLoad()
         }
         if (values.dataLoading) {
             actions.abortAnyRunningQuery()
         }
+
+        actions.unmountDataNode(props.key)
     }),
 ])

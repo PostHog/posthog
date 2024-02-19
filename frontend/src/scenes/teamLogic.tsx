@@ -1,10 +1,11 @@
 import { actions, afterMount, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import api, { ApiConfig } from 'lib/api'
+import { PROPERTY_FILTER_TYPE_TO_TAXONOMIC_FILTER_GROUP_TYPE } from 'lib/components/PropertyFilters/utils'
 import { OrganizationMembershipLevel } from 'lib/constants'
 import { IconSwapHoriz } from 'lib/lemon-ui/icons'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
-import { getPropertyLabel } from 'lib/taxonomy'
+import { getFilterLabel } from 'lib/taxonomy'
 import { identifierToHuman, isUserLoggedIn, resolveWebhookService } from 'lib/utils'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { getAppContext } from 'lib/utils/getAppContext'
@@ -118,6 +119,19 @@ export const teamLogic = kea<teamLogicType>([
         ],
     })),
     selectors(() => ({
+        hasOnboardedAnyProduct: [
+            (selectors) => [selectors.currentTeam],
+            (currentTeam): boolean => {
+                if (
+                    currentTeam &&
+                    !currentTeam.completed_snippet_onboarding &&
+                    !Object.keys(currentTeam.has_completed_onboarding_for || {}).length
+                ) {
+                    return false
+                }
+                return true
+            },
+        ],
         currentTeamId: [
             (selectors) => [selectors.currentTeam],
             (currentTeam): number | null => (currentTeam ? currentTeam.id : null),
@@ -179,9 +193,10 @@ export const teamLogic = kea<teamLogicType>([
                         // person properties can be checked for a label as if they were event properties
                         // so, we can check each acceptable type and see if it returns a value
                         return (
-                            getPropertyLabel(filter.key, 'event') ||
-                            getPropertyLabel(filter.key, 'element') ||
-                            filter.key
+                            getFilterLabel(
+                                filter.key,
+                                PROPERTY_FILTER_TYPE_TO_TAXONOMIC_FILTER_GROUP_TYPE[filter.type]
+                            ) || filter.key
                         )
                     } else {
                         return filter.key

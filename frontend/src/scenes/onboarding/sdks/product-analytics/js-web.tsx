@@ -1,21 +1,14 @@
 import { LemonDivider } from '@posthog/lemon-ui'
-import { CodeSnippet, Language } from 'lib/components/CodeSnippet'
 
 import { SDKInstallJSWebInstructions } from '../sdk-install-instructions'
-
-function JSEventSnippet(): JSX.Element {
-    return (
-        <CodeSnippet language={Language.JavaScript}>{`posthog.capture('my event', { property: 'value' })`}</CodeSnippet>
-    )
-}
+import { ProductAnalyticsAllJSFinalSteps } from './AllJSFinalSteps'
 
 export function JSWebInstructions(): JSX.Element {
     return (
         <>
             <SDKInstallJSWebInstructions />
             <LemonDivider thick dashed className="my-4" />
-            <h4>Send your first event</h4>
-            <JSEventSnippet />
+            <ProductAnalyticsAllJSFinalSteps />
         </>
     )
 }

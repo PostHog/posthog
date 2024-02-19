@@ -3,6 +3,7 @@ import Fuse from 'fuse.js'
 import { useActions } from 'kea'
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
 import { SelectGradientOverflow } from 'lib/components/SelectGradientOverflow'
+import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { useState } from 'react'
 
@@ -104,7 +105,13 @@ export function PropertySelect({
                                 >
                                     <PropertyKeyInfo
                                         value={option.value}
-                                        type={group.type == 'element' ? group.type : undefined}
+                                        type={
+                                            group.type === 'element'
+                                                ? TaxonomicFilterGroupType.Elements
+                                                : group.type === 'person'
+                                                ? TaxonomicFilterGroupType.PersonProperties
+                                                : TaxonomicFilterGroupType.EventProperties
+                                        }
                                     />
                                 </Select.Option>
                             ))}

@@ -12,24 +12,25 @@ from django.conf import settings
 from temporalio import activity, workflow
 from temporalio.common import RetryPolicy
 
-from posthog.batch_exports.service import S3BatchExportInputs
+from posthog.batch_exports.service import BatchExportField, BatchExportSchema, S3BatchExportInputs
 from posthog.temporal.batch_exports.base import PostHogWorkflow
 from posthog.temporal.batch_exports.batch_exports import (
     BatchExportTemporaryFile,
     CreateBatchExportRunInputs,
     UpdateBatchExportRunStatusInputs,
     create_export_run,
+    default_fields,
     execute_batch_export_insert_activity,
     get_data_interval,
-    get_results_iterator,
     get_rows_count,
+    iter_records,
 )
 from posthog.temporal.batch_exports.clickhouse import get_client
-from posthog.temporal.common.logger import bind_temporal_worker_logger
 from posthog.temporal.batch_exports.metrics import (
     get_bytes_exported_metric,
     get_rows_exported_metric,
 )
+from posthog.temporal.common.logger import bind_temporal_worker_logger
 
 
 def get_allowed_template_variables(inputs) -> dict[str, str]:
@@ -303,6 +304,7 @@ class S3InsertInputs:
     include_events: list[str] | None = None
     encryption: str | None = None
     kms_key_id: str | None = None
+    batch_export_schema: BatchExportSchema | None = None
 
 
 async def initialize_and_resume_multipart_upload(inputs: S3InsertInputs) -> tuple[S3MultiPartUpload, str]:
@@ -359,6 +361,25 @@ async def initialize_and_resume_multipart_upload(inputs: S3InsertInputs) -> tupl
     return s3_upload, interval_start
 
 
+def s3_default_fields() -> list[BatchExportField]:
+    """Default fields for an S3 batch export.
+
+    Starting from the common default fields, we add and tweak some fields for
+    backwards compatibility.
+    """
+    batch_export_fields = default_fields()
+    batch_export_fields.append({"expression": "elements_chain", "alias": "elements_chain"})
+    batch_export_fields.append({"expression": "nullIf(person_properties, '')", "alias": "person_properties"})
+    batch_export_fields.append({"expression": "toString(person_id)", "alias": "person_id"})
+    # In contrast to other destinations, we do export this field.
+    batch_export_fields.append({"expression": "COALESCE(inserted_at, _timestamp)", "alias": "inserted_at"})
+
+    # Again, in contrast to other destinations, and for historical reasons, we do not include these fields.
+    not_exported_by_default = {"team_id", "set", "set_once"}
+
+    return [field for field in batch_export_fields if field["alias"] not in not_exported_by_default]
+
+
 @activity.defn
 async def insert_into_s3_activity(inputs: S3InsertInputs):
     """Activity to batch export data from PostHog's ClickHouse to S3.
@@ -402,24 +423,26 @@ async def insert_into_s3_activity(inputs: S3InsertInputs):
 
         s3_upload, interval_start = await initialize_and_resume_multipart_upload(inputs)
 
-        # Iterate through chunks of results from ClickHouse and push them to S3
-        # as a multipart upload. The intention here is to keep memory usage low,
-        # even if the entire results set is large. We receive results from
-        # ClickHouse, write them to a local file, and then upload the file to S3
-        # when it reaches 50MB in size.
+        if inputs.batch_export_schema is None:
+            fields = s3_default_fields()
+            query_parameters = None
 
-        results_iterator = get_results_iterator(
+        else:
+            fields = inputs.batch_export_schema["fields"]
+            query_parameters = inputs.batch_export_schema["values"]
+
+        record_iterator = iter_records(
             client=client,
             team_id=inputs.team_id,
             interval_start=interval_start,
             interval_end=inputs.data_interval_end,
             exclude_events=inputs.exclude_events,
             include_events=inputs.include_events,
-            include_person_properties=True,
+            fields=fields,
+            extra_query_parameters=query_parameters,
         )
 
-        result = None
-        last_uploaded_part_timestamp = None
+        last_uploaded_part_timestamp: str | None = None
 
         async def worker_shutdown_handler():
             """Handle the Worker shutting down by heart-beating our latest status."""
@@ -427,9 +450,16 @@ async def insert_into_s3_activity(inputs: S3InsertInputs):
             logger.warn(
                 f"Worker shutting down! Reporting back latest exported part {last_uploaded_part_timestamp}",
             )
+            if last_uploaded_part_timestamp is None:
+                # Don't heartbeat if worker shuts down before we could even send anything
+                # Just start from the beginning again.
+                return
+
             activity.heartbeat(last_uploaded_part_timestamp, s3_upload.to_state())
 
         asyncio.create_task(worker_shutdown_handler())
+
+        record = None
 
         async with s3_upload as s3_upload:
             with BatchExportTemporaryFile(compression=inputs.compression) as local_results_file:
@@ -438,7 +468,7 @@ async def insert_into_s3_activity(inputs: S3InsertInputs):
 
                 async def flush_to_s3(last_uploaded_part_timestamp: str, last=False):
                     logger.debug(
-                        "Uploading %spart %s containing %s records with size %s bytes",
+                        "Uploading %s part %s containing %s records with size %s bytes",
                         "last " if last else "",
                         s3_upload.part_number + 1,
                         local_results_file.records_since_last_reset,
@@ -451,29 +481,23 @@ async def insert_into_s3_activity(inputs: S3InsertInputs):
 
                     activity.heartbeat(last_uploaded_part_timestamp, s3_upload.to_state())
 
-                for result in results_iterator:
-                    record = {
-                        "created_at": result["created_at"],
-                        "distinct_id": result["distinct_id"],
-                        "elements_chain": result["elements_chain"],
-                        "event": result["event"],
-                        "inserted_at": result["inserted_at"],
-                        "person_id": result["person_id"],
-                        "person_properties": result["person_properties"],
-                        "properties": result["properties"],
-                        "timestamp": result["timestamp"],
-                        "uuid": result["uuid"],
-                    }
+                for record_batch in record_iterator:
+                    for record in record_batch.to_pylist():
+                        for json_column in ("properties", "person_properties", "set", "set_once"):
+                            if (json_str := record.get(json_column, None)) is not None:
+                                record[json_column] = json.loads(json_str)
 
-                    local_results_file.write_records_to_jsonl([record])
+                        inserted_at = record.pop("_inserted_at")
 
-                    if local_results_file.tell() > settings.BATCH_EXPORT_S3_UPLOAD_CHUNK_SIZE_BYTES:
-                        last_uploaded_part_timestamp = result["inserted_at"]
-                        await flush_to_s3(last_uploaded_part_timestamp)
-                        local_results_file.reset()
+                        local_results_file.write_records_to_jsonl([record])
 
-                if local_results_file.tell() > 0 and result is not None:
-                    last_uploaded_part_timestamp = result["inserted_at"]
+                        if local_results_file.tell() > settings.BATCH_EXPORT_S3_UPLOAD_CHUNK_SIZE_BYTES:
+                            last_uploaded_part_timestamp = str(inserted_at)
+                            await flush_to_s3(last_uploaded_part_timestamp)
+                            local_results_file.reset()
+
+                if local_results_file.tell() > 0 and record is not None:
+                    last_uploaded_part_timestamp = str(inserted_at)
                     await flush_to_s3(last_uploaded_part_timestamp, last=True)
 
             await s3_upload.complete()
@@ -537,6 +561,7 @@ class S3BatchExportWorkflow(PostHogWorkflow):
             include_events=inputs.include_events,
             encryption=inputs.encryption,
             kms_key_id=inputs.kms_key_id,
+            batch_export_schema=inputs.batch_export_schema,
         )
 
         await execute_batch_export_insert_activity(

@@ -12,7 +12,7 @@ from rest_framework.response import Response
 
 from posthog.async_migrations.status import async_migrations_ok
 from posthog.cloud_utils import is_cloud
-from posthog.gitsha import GIT_SHA
+from posthog.git import get_git_commit_short
 from posthog.permissions import SingleTenancyOrAdmin
 from posthog.storage import object_storage
 from posthog.utils import (
@@ -42,7 +42,9 @@ class InstanceStatusViewSet(viewsets.ViewSet):
 
         metrics: List[Dict[str, Union[str, bool, int, float, Dict[str, Any]]]] = []
 
-        metrics.append({"key": "posthog_git_sha", "metric": "PostHog Git SHA", "value": GIT_SHA})
+        metrics.append(
+            {"key": "posthog_git_sha", "metric": "PostHog Git SHA", "value": get_git_commit_short() or "unknown"}
+        )
 
         helm_info = get_helm_info_env()
         if len(helm_info) > 0:

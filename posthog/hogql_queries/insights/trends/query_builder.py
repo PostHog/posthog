@@ -41,30 +41,46 @@ class TrendsQueryBuilder:
         self.modifiers = modifiers
 
     def build_query(self) -> ast.SelectQuery | ast.SelectUnionQuery:
+        breakdown = self._breakdown(is_actors_query=False)
+
+        events_query: ast.SelectQuery | ast.SelectUnionQuery
+
         if self._trends_display.should_aggregate_values():
-            events_query = self._get_events_subquery(False)
+            events_query = self._get_events_subquery(False, is_actors_query=False, breakdown=breakdown)
         else:
-            date_subqueries = self._get_date_subqueries()
-            event_query = self._get_events_subquery(False)
+            date_subqueries = self._get_date_subqueries(breakdown=breakdown)
+            event_query = self._get_events_subquery(False, is_actors_query=False, breakdown=breakdown)
 
             events_query = ast.SelectUnionQuery(select_queries=[*date_subqueries, event_query])
 
-        inner_select = self._inner_select_query(events_query)
-        full_query = self._outer_select_query(inner_select)
+        inner_select = self._inner_select_query(inner_query=events_query, breakdown=breakdown)
+        full_query = self._outer_select_query(inner_query=inner_select, breakdown=breakdown)
 
         return full_query
 
-    def build_persons_query(self) -> ast.SelectQuery:
-        event_query = self._get_events_subquery(True)
+    def build_actors_query(
+        self, time_frame: Optional[str | int] = None, breakdown_filter: Optional[str | int] = None
+    ) -> ast.SelectQuery | ast.SelectUnionQuery:
+        breakdown = self._breakdown(is_actors_query=True, breakdown_values_override=breakdown_filter)
 
-        event_query.select = [ast.Alias(alias="person_id", expr=ast.Field(chain=["e", "person", "id"]))]
-        event_query.distinct = True
-        event_query.group_by = None
+        return parse_select(
+            """
+                SELECT DISTINCT person_id
+                FROM {subquery}
+            """,
+            placeholders={
+                "subquery": self._get_events_subquery(
+                    False,
+                    is_actors_query=True,
+                    breakdown=breakdown,
+                    breakdown_values_override=breakdown_filter,
+                    actors_query_time_frame=time_frame,
+                )
+            },
+        )
 
-        return event_query
-
-    def _get_date_subqueries(self, ignore_breakdowns: bool = False) -> List[ast.SelectQuery]:
-        if not self._breakdown.enabled or ignore_breakdowns:
+    def _get_date_subqueries(self, breakdown: Breakdown, ignore_breakdowns: bool = False) -> List[ast.SelectQuery]:
+        if not breakdown.enabled or ignore_breakdowns:
             return [
                 cast(
                     ast.SelectQuery,
@@ -128,18 +144,33 @@ class TrendsQueryBuilder:
                 """,
                     placeholders={
                         **self.query_date_range.to_placeholders(),
-                        **self._breakdown.placeholders(),
+                        **breakdown.placeholders(),
                     },
                 ),
             )
         ]
 
-    def _get_events_subquery(self, no_modifications: Optional[bool]) -> ast.SelectQuery:
+    def _get_events_subquery(
+        self,
+        no_modifications: Optional[bool],
+        is_actors_query: bool,
+        breakdown: Breakdown,
+        breakdown_values_override: Optional[str | int] = None,
+        actors_query_time_frame: Optional[str | int] = None,
+    ) -> ast.SelectQuery:
         day_start = ast.Alias(
             alias="day_start",
             expr=ast.Call(
                 name=f"toStartOf{self.query_date_range.interval_name.title()}", args=[ast.Field(chain=["timestamp"])]
             ),
+        )
+
+        events_filter = self._events_filter(
+            ignore_breakdowns=False,
+            breakdown=breakdown,
+            is_actors_query=is_actors_query,
+            breakdown_values_override=breakdown_values_override,
+            actors_query_time_frame=actors_query_time_frame,
         )
 
         default_query = cast(
@@ -153,7 +184,7 @@ class TrendsQueryBuilder:
                 WHERE {events_filter}
             """,
                 placeholders={
-                    "events_filter": self._events_filter(ignore_breakdowns=False),
+                    "events_filter": events_filter,
                     "aggregation_operation": self._aggregation_operation.select_aggregation(),
                     "sample": self._sample_value(),
                 },
@@ -162,66 +193,87 @@ class TrendsQueryBuilder:
 
         default_query.group_by = []
 
-        if not self._trends_display.should_aggregate_values():
+        if not self._trends_display.should_aggregate_values() and not is_actors_query:
             default_query.select.append(day_start)
             default_query.group_by.append(ast.Field(chain=["day_start"]))
 
+        # TODO: Move this logic into the below branches when working on adding breakdown support for the person modal
+        if is_actors_query:
+            default_query.select = [ast.Alias(alias="person_id", expr=ast.Field(chain=["e", "person", "id"]))]
+            default_query.distinct = True
+            default_query.group_by = []
+
         # No breakdowns and no complex series aggregation
         if (
-            not self._breakdown.enabled
+            not breakdown.enabled
             and not self._aggregation_operation.requires_query_orchestration()
             and not self._aggregation_operation.aggregating_on_session_duration()
         ) or no_modifications is True:
             return default_query
         # Both breakdowns and complex series aggregation
-        elif self._breakdown.enabled and self._aggregation_operation.requires_query_orchestration():
+        elif breakdown.enabled and self._aggregation_operation.requires_query_orchestration():
             orchestrator = self._aggregation_operation.get_query_orchestrator(
-                events_where_clause=self._events_filter(ignore_breakdowns=False),
+                events_where_clause=events_filter,
                 sample_value=self._sample_value(),
             )
 
-            orchestrator.events_query_builder.append_select(self._breakdown.column_expr())
-            orchestrator.events_query_builder.append_group_by(ast.Field(chain=["breakdown_value"]))
+            if is_actors_query:
+                orchestrator.events_query_builder.append_select(
+                    ast.Alias(alias="person_id", expr=ast.Field(chain=["e", "person", "id"]))
+                )
+                orchestrator.inner_select_query_builder.append_select(ast.Field(chain=["person_id"]))
+                orchestrator.parent_select_query_builder.append_select(ast.Field(chain=["person_id"]))
+            else:
+                orchestrator.events_query_builder.append_select(breakdown.column_expr())
+                orchestrator.events_query_builder.append_group_by(ast.Field(chain=["breakdown_value"]))
 
-            orchestrator.inner_select_query_builder.append_select(ast.Field(chain=["breakdown_value"]))
-            orchestrator.inner_select_query_builder.append_group_by(ast.Field(chain=["breakdown_value"]))
+                orchestrator.inner_select_query_builder.append_select(ast.Field(chain=["breakdown_value"]))
+                orchestrator.inner_select_query_builder.append_group_by(ast.Field(chain=["breakdown_value"]))
 
-            orchestrator.parent_select_query_builder.append_select(ast.Field(chain=["breakdown_value"]))
+                orchestrator.parent_select_query_builder.append_select(ast.Field(chain=["breakdown_value"]))
+
             if (
                 self._aggregation_operation.should_aggregate_values
                 and not self._aggregation_operation.is_count_per_actor_variant()
+                and not is_actors_query
             ):
                 orchestrator.parent_select_query_builder.append_group_by(ast.Field(chain=["breakdown_value"]))
 
             return orchestrator.build()
         # Breakdowns and session duration math property
-        elif self._breakdown.enabled and self._aggregation_operation.aggregating_on_session_duration():
+        elif breakdown.enabled and self._aggregation_operation.aggregating_on_session_duration():
             default_query.select = [
                 ast.Alias(
                     alias="session_duration", expr=ast.Call(name="any", args=[ast.Field(chain=["session", "duration"])])
                 ),
-                self._breakdown.column_expr(),
+                breakdown.column_expr(),
             ]
 
             default_query.group_by.extend([ast.Field(chain=["session", "id"]), ast.Field(chain=["breakdown_value"])])
 
             wrapper = self.session_duration_math_property_wrapper(default_query)
+            assert wrapper.group_by is not None
 
-            if not self._trends_display.should_aggregate_values():
+            if not self._trends_display.should_aggregate_values() and not is_actors_query:
                 default_query.select.append(day_start)
                 default_query.group_by.append(ast.Field(chain=["day_start"]))
 
                 wrapper.select.append(ast.Field(chain=["day_start"]))
                 wrapper.group_by.append(ast.Field(chain=["day_start"]))
 
-            wrapper.select.append(ast.Field(chain=["breakdown_value"]))
-            wrapper.group_by.append(ast.Field(chain=["breakdown_value"]))
+            if is_actors_query:
+                default_query.select.append(ast.Alias(alias="person_id", expr=ast.Field(chain=["e", "person", "id"])))
+                wrapper.select.append(ast.Field(chain=["person_id"]))
+            else:
+                wrapper.select.append(ast.Field(chain=["breakdown_value"]))
+                wrapper.group_by.append(ast.Field(chain=["breakdown_value"]))
 
             return wrapper
         # Just breakdowns
-        elif self._breakdown.enabled:
-            default_query.select.append(self._breakdown.column_expr())
-            default_query.group_by.append(ast.Field(chain=["breakdown_value"]))
+        elif breakdown.enabled:
+            if not is_actors_query:
+                default_query.select.append(breakdown.column_expr())
+                default_query.group_by.append(ast.Field(chain=["breakdown_value"]))
         # Just session duration math property
         elif self._aggregation_operation.aggregating_on_session_duration():
             default_query.select = [
@@ -233,24 +285,39 @@ class TrendsQueryBuilder:
 
             wrapper = self.session_duration_math_property_wrapper(default_query)
 
-            if not self._trends_display.should_aggregate_values():
+            if not self._trends_display.should_aggregate_values() and not is_actors_query:
+                assert wrapper.group_by is not None
+
                 default_query.select.append(day_start)
                 default_query.group_by.append(ast.Field(chain=["day_start"]))
 
                 wrapper.select.append(ast.Field(chain=["day_start"]))
                 wrapper.group_by.append(ast.Field(chain=["day_start"]))
 
+            if is_actors_query:
+                default_query.select.append(ast.Alias(alias="person_id", expr=ast.Field(chain=["e", "person", "id"])))
+                wrapper.select.append(ast.Field(chain=["person_id"]))
+
             return wrapper
         # Just complex series aggregation
         elif self._aggregation_operation.requires_query_orchestration():
-            return self._aggregation_operation.get_query_orchestrator(
-                events_where_clause=self._events_filter(ignore_breakdowns=False),
+            orchestrator = self._aggregation_operation.get_query_orchestrator(
+                events_where_clause=events_filter,
                 sample_value=self._sample_value(),
-            ).build()
+            )
+
+            if is_actors_query:
+                orchestrator.events_query_builder.append_select(
+                    ast.Alias(alias="person_id", expr=ast.Field(chain=["e", "person", "id"]))
+                )
+                orchestrator.inner_select_query_builder.append_select(ast.Field(chain=["person_id"]))
+                orchestrator.parent_select_query_builder.append_select(ast.Field(chain=["person_id"]))
+
+            return orchestrator.build()
 
         return default_query
 
-    def _outer_select_query(self, inner_query: ast.SelectQuery) -> ast.SelectQuery:
+    def _outer_select_query(self, breakdown: Breakdown, inner_query: ast.SelectQuery) -> ast.SelectQuery:
         query = cast(
             ast.SelectQuery,
             parse_select(
@@ -267,12 +334,14 @@ class TrendsQueryBuilder:
         query = self._trends_display.modify_outer_query(
             outer_query=query,
             inner_query=inner_query,
-            dates_queries=ast.SelectUnionQuery(select_queries=self._get_date_subqueries(ignore_breakdowns=True)),
+            dates_queries=ast.SelectUnionQuery(
+                select_queries=self._get_date_subqueries(ignore_breakdowns=True, breakdown=breakdown)
+            ),
         )
 
         query.order_by = [ast.OrderExpr(expr=ast.Call(name="sum", args=[ast.Field(chain=["count"])]), order="DESC")]
 
-        if self._breakdown.enabled:
+        if breakdown.enabled:
             query.select.append(
                 ast.Alias(
                     alias="breakdown_value",
@@ -290,7 +359,9 @@ class TrendsQueryBuilder:
 
         return query
 
-    def _inner_select_query(self, inner_query: ast.SelectQuery | ast.SelectUnionQuery) -> ast.SelectQuery:
+    def _inner_select_query(
+        self, breakdown: Breakdown, inner_query: ast.SelectQuery | ast.SelectUnionQuery
+    ) -> ast.SelectQuery:
         query = cast(
             ast.SelectQuery,
             parse_select(
@@ -339,24 +410,40 @@ class TrendsQueryBuilder:
             query.group_by.append(ast.Field(chain=["day_start"]))
             query.order_by.append(ast.OrderExpr(expr=ast.Field(chain=["day_start"]), order="ASC"))
 
-        if self._breakdown.enabled:
+        if breakdown.enabled:
             query.select.append(ast.Field(chain=["breakdown_value"]))
             query.group_by.append(ast.Field(chain=["breakdown_value"]))
             query.order_by.append(ast.OrderExpr(expr=ast.Field(chain=["breakdown_value"]), order="ASC"))
 
         if self._trends_display.should_wrap_inner_query():
-            query = self._trends_display.wrap_inner_query(query, self._breakdown.enabled)
-            if self._breakdown.enabled:
+            query = self._trends_display.wrap_inner_query(query, breakdown.enabled)
+            if breakdown.enabled:
                 query.select.append(ast.Field(chain=["breakdown_value"]))
 
         return query
 
-    def _events_filter(self, ignore_breakdowns: bool = False) -> ast.Expr:
+    def _events_filter(
+        self,
+        is_actors_query: bool,
+        breakdown: Breakdown | None,
+        ignore_breakdowns: bool = False,
+        breakdown_values_override: Optional[str | int] = None,
+        actors_query_time_frame: Optional[str | int] = None,
+    ) -> ast.Expr:
         series = self.series
         filters: List[ast.Expr] = []
 
         # Dates
-        if not self._aggregation_operation.requires_query_orchestration():
+        if is_actors_query and actors_query_time_frame is not None:
+            to_start_of_time_frame = f"toStartOf{self.query_date_range.interval_name.capitalize()}"
+            filters.append(
+                ast.CompareOperation(
+                    left=ast.Call(name=to_start_of_time_frame, args=[ast.Field(chain=["timestamp"])]),
+                    op=ast.CompareOperationOp.Eq,
+                    right=ast.Call(name="toDateTime", args=[ast.Constant(value=actors_query_time_frame)]),
+                )
+            )
+        elif not self._aggregation_operation.requires_query_orchestration():
             filters.extend(
                 [
                     parse_expr(
@@ -406,18 +493,26 @@ class TrendsQueryBuilder:
                 filters.append(parse_expr("1 = 2"))
 
         # Breakdown
-        if not ignore_breakdowns:
-            if self._breakdown.enabled and not self._breakdown.is_histogram_breakdown:
-                breakdown_filter = self._breakdown.events_where_filter()
+        if not ignore_breakdowns and breakdown is not None:
+            if breakdown.enabled and not breakdown.is_histogram_breakdown:
+                breakdown_filter = breakdown.events_where_filter()
                 if breakdown_filter is not None:
                     filters.append(breakdown_filter)
 
+        # Ignore empty groups
+        if series.math == "unique_group" and series.math_group_type_index is not None:
+            filters.append(
+                ast.CompareOperation(
+                    op=ast.CompareOperationOp.NotEq,
+                    left=ast.Field(chain=["e", f"$group_{int(series.math_group_type_index)}"]),
+                    right=ast.Constant(value=""),
+                )
+            )
+
         if len(filters) == 0:
             return ast.Constant(value=True)
-        elif len(filters) == 1:
-            return filters[0]
-        else:
-            return ast.And(exprs=filters)
+
+        return ast.And(exprs=filters)
 
     def _sample_value(self) -> ast.RatioExpr:
         if self.query.samplingFactor is None:
@@ -443,8 +538,7 @@ class TrendsQueryBuilder:
         query.group_by = []
         return query
 
-    @cached_property
-    def _breakdown(self):
+    def _breakdown(self, is_actors_query: bool, breakdown_values_override: Optional[str | int] = None):
         return Breakdown(
             team=self.team,
             query=self.query,
@@ -452,7 +546,13 @@ class TrendsQueryBuilder:
             query_date_range=self.query_date_range,
             timings=self.timings,
             modifiers=self.modifiers,
-            events_filter=self._events_filter(ignore_breakdowns=True),
+            events_filter=self._events_filter(
+                breakdown=None,  # Passing in None because we know we dont actually need it
+                ignore_breakdowns=True,
+                is_actors_query=is_actors_query,
+                breakdown_values_override=breakdown_values_override,
+            ),
+            breakdown_values_override=[breakdown_values_override] if breakdown_values_override is not None else None,
         )
 
     @cached_property

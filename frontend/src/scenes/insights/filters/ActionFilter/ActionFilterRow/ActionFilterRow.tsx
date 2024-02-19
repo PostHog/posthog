@@ -20,6 +20,7 @@ import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { getEventNamesForAction } from 'lib/utils'
 import { useState } from 'react'
 import { GroupIntroductionFooter } from 'scenes/groups/GroupsIntroduction'
+import { insightDataLogic } from 'scenes/insights/insightDataLogic'
 import { isAllEventsEntityFilter } from 'scenes/insights/utils'
 import {
     apiValueToMathType,
@@ -31,6 +32,7 @@ import {
 } from 'scenes/trends/mathsLogic'
 
 import { actionsModel } from '~/models/actionsModel'
+import { isInsightVizNode, isStickinessQuery } from '~/queries/utils'
 import {
     ActionFilter,
     ActionFilter as ActionFilterType,
@@ -38,7 +40,7 @@ import {
     CountPerActorMathType,
     EntityType,
     EntityTypes,
-    FunnelExclusion,
+    FunnelExclusionLegacy,
     HogQLMathType,
     PropertyFilterValue,
     PropertyMathType,
@@ -92,7 +94,11 @@ export interface ActionFilterRowProps {
     customRowSuffix?:
         | string
         | JSX.Element
-        | ((props: { filter: ActionFilterType | FunnelExclusion; index: number; onClose: () => void }) => JSX.Element) // Custom suffix element to show in each row
+        | ((props: {
+              filter: ActionFilterType | FunnelExclusionLegacy
+              index: number
+              onClose: () => void
+          }) => JSX.Element) // Custom suffix element to show in each row
     hasBreakdown: boolean // Whether the current graph has a breakdown filter applied
     showNestedArrow?: boolean // Show nested arrows to the left of property filter buttons
     actionsTaxonomicGroupTypes?: TaxonomicFilterGroupType[] // Which tabs to show for actions selector
@@ -396,7 +402,8 @@ export function ActionFilterRow({
                                                         <div /* <div> needed for <Tooltip /> to work */>
                                                             <PropertyKeyInfo
                                                                 value={currentValue}
-                                                                disablePopover={true}
+                                                                disablePopover
+                                                                type={filter.type as TaxonomicFilterGroupType}
                                                             />
                                                         </div>
                                                     </Tooltip>
@@ -492,6 +499,11 @@ function useMathSelectorOptions({
     mathAvailability,
     onMathSelect,
 }: MathSelectorProps): LemonSelectOptions<string> {
+    const mountedInsightDataLogic = insightDataLogic.findMounted()
+    const query = mountedInsightDataLogic?.values?.query
+
+    const isStickiness = query && isInsightVizNode(query) && isStickinessQuery(query.source)
+
     const { needsUpgradeForGroups, canStartUsingGroups, staticMathDefinitions, staticActorsOnlyMathDefinitions } =
         useValues(mathsLogic)
 
@@ -504,12 +516,21 @@ function useMathSelectorOptions({
 
     const options: LemonSelectOption<string>[] = Object.entries(
         mathAvailability != MathAvailability.ActorsOnly ? staticMathDefinitions : staticActorsOnlyMathDefinitions
-    ).map(([key, definition]) => ({
-        value: key,
-        label: definition.name,
-        tooltip: definition.description,
-        'data-attr': `math-${key}-${index}`,
-    }))
+    )
+        .filter(([key]) => {
+            if (!isStickiness) {
+                return true
+            }
+
+            // Remove WAU and MAU from stickiness insights
+            return key !== BaseMathType.WeeklyActiveUsers && key !== BaseMathType.MonthlyActiveUsers
+        })
+        .map(([key, definition]) => ({
+            value: key,
+            label: definition.name,
+            tooltip: definition.description,
+            'data-attr': `math-${key}-${index}`,
+        }))
 
     if (mathAvailability !== MathAvailability.ActorsOnly) {
         options.splice(1, 0, {

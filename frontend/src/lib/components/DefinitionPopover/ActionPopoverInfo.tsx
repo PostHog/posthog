@@ -3,7 +3,9 @@ import { genericOperatorToHumanName, propertyValueToHumanName } from 'lib/compon
 
 import { ActionType } from '~/types'
 
+import { PROPERTY_FILTER_TYPE_TO_TAXONOMIC_FILTER_GROUP_TYPE } from '../PropertyFilters/utils'
 import { PropertyKeyInfo } from '../PropertyKeyInfo'
+import { TaxonomicFilterGroupType } from '../TaxonomicFilter/types'
 
 export function ActionPopoverInfo({ entity }: { entity: ActionType }): JSX.Element | null {
     if (!entity) {
@@ -17,7 +19,8 @@ export function ActionPopoverInfo({ entity }: { entity: ActionType }): JSX.Eleme
                         <DefinitionPopover.Card
                             title={
                                 <>
-                                    Match group {index + 1}: <PropertyKeyInfo value={step.event} />
+                                    Match group {index + 1}:{' '}
+                                    <PropertyKeyInfo value={step.event} type={TaxonomicFilterGroupType.Events} />
                                 </>
                             }
                             value={
@@ -73,7 +76,15 @@ export function ActionPopoverInfo({ entity }: { entity: ActionType }): JSX.Eleme
                                             step.properties.map((property, propIndex) => (
                                                 <li key={propIndex}>
                                                     <span>
-                                                        <PropertyKeyInfo value={property.key} />{' '}
+                                                        <PropertyKeyInfo
+                                                            value={property.key}
+                                                            type={
+                                                                property.type &&
+                                                                PROPERTY_FILTER_TYPE_TO_TAXONOMIC_FILTER_GROUP_TYPE[
+                                                                    property.type
+                                                                ]
+                                                            }
+                                                        />{' '}
                                                         {genericOperatorToHumanName(property)}{' '}
                                                         <b>{propertyValueToHumanName(property.value)}</b>
                                                     </span>
@@ -84,9 +95,7 @@ export function ActionPopoverInfo({ entity }: { entity: ActionType }): JSX.Eleme
                             }
                         />
                         {entity.steps && index < entity.steps.length - 1 && (
-                            <DefinitionPopover.HorizontalLine style={{ marginTop: 4, marginBottom: 12 }}>
-                                OR
-                            </DefinitionPopover.HorizontalLine>
+                            <DefinitionPopover.HorizontalLine className="mt-1 mb-3" label="OR" />
                         )}
                     </DefinitionPopover.Section>
                 ))}

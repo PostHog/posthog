@@ -27,8 +27,7 @@ class CanEditInsight(BasePermission):
 
 
 class ClickhouseInsightsViewSet(InsightViewSet):
-    permission_classes = [*InsightViewSet.permission_classes, CanEditInsight]
-
+    permission_classes = [CanEditInsight]
     retention_query_class = ClickhouseRetention
     stickiness_query_class = ClickhouseStickiness
     paths_query_class = ClickhousePaths

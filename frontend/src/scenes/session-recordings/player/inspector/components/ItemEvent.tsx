@@ -1,6 +1,7 @@
 import { LemonButton, LemonDivider } from '@posthog/lemon-ui'
 import { ErrorDisplay } from 'lib/components/Errors/ErrorDisplay'
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
+import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { IconOpenInNew } from 'lib/lemon-ui/icons'
 import { Spinner } from 'lib/lemon-ui/Spinner'
 import { autoCaptureEventToDescription, capitalizeFirstLetter } from 'lib/utils'
@@ -34,6 +35,7 @@ export function ItemEvent({ item, expanded, setExpanded }: ItemEventProps): JSX.
                         disablePopover
                         ellipsis={true}
                         value={capitalizeFirstLetter(autoCaptureEventToDescription(item.data))}
+                        type={TaxonomicFilterGroupType.Events}
                     />
                     {item.data.event === '$autocapture' ? <span className="text-muted-alt">(Autocapture)</span> : null}
                     {subValue ? (

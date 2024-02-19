@@ -36,17 +36,8 @@ export default meta
 
 const Template: StoryFn<typeof LemonMenuOverlayComponent> = (props: LemonMenuOverlayProps) => {
     return (
-        <div className="Popover">
-            <div
-                className="Popover__box"
-                // eslint-disable-next-line react/forbid-dom-props
-                style={{
-                    opacity: 1,
-                    width: 'fit-content',
-                }}
-            >
-                <LemonMenuOverlayComponent {...props} />
-            </div>
+        <div className="rounded border p-1 bg-bg-light">
+            <LemonMenuOverlayComponent {...props} />
         </div>
     )
 }

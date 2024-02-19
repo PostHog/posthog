@@ -1,7 +1,6 @@
 from typing import Dict
 from django.core.exceptions import ObjectDoesNotExist
 from rest_framework.response import Response
-from rest_framework.permissions import IsAuthenticated
 from rest_framework.decorators import action
 from rest_framework import (
     mixins,
@@ -9,26 +8,24 @@ from rest_framework import (
     status,
 )
 from posthog.api.cohort import CohortSerializer
-from posthog.api.routing import StructuredViewSetMixin
+from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.feature_flag import FeatureFlagSerializer
 from posthog.api.feature_flag import CanEditFeatureFlag
 from posthog.api.shared import UserBasicSerializer
 from posthog.models import FeatureFlag, Team
-from posthog.models.cohort import Cohort
+from posthog.models.cohort import Cohort, CohortOrEmpty
 from posthog.models.filters.filter import Filter
-from posthog.permissions import OrganizationMemberPermissions
 
 
 class OrganizationFeatureFlagView(
+    TeamAndOrgViewSetMixin,
     viewsets.ViewSet,
-    StructuredViewSetMixin,
     mixins.RetrieveModelMixin,
 ):
     """
     Retrieves all feature flags for a given organization and key.
     """
 
-    permission_classes = [IsAuthenticated, OrganizationMemberPermissions]
     lookup_field = "feature_flag_key"
 
     def retrieve(self, request, *args, **kwargs):
@@ -97,7 +94,7 @@ class OrganizationFeatureFlagView(
                 continue
 
             # get all linked cohorts, sorted by creation order
-            seen_cohorts_cache: Dict[int, Cohort] = {}
+            seen_cohorts_cache: Dict[int, CohortOrEmpty] = {}
             sorted_cohort_ids = flag_to_copy.get_cohort_ids(
                 seen_cohorts_cache=seen_cohorts_cache, sort_by_topological_order=True
             )
@@ -108,6 +105,9 @@ class OrganizationFeatureFlagView(
             if len(sorted_cohort_ids):
                 for cohort_id in sorted_cohort_ids:
                     original_cohort = seen_cohorts_cache[cohort_id]
+
+                    if not original_cohort:
+                        continue
 
                     # search in destination project by name
                     destination_cohort = Cohort.objects.filter(
@@ -125,6 +125,9 @@ class OrganizationFeatureFlagView(
                                 try:
                                     original_child_cohort_id = int(prop.value)
                                     original_child_cohort = seen_cohorts_cache[original_child_cohort_id]
+
+                                    if not original_child_cohort:
+                                        continue
                                     prop.value = name_to_dest_cohort_id[original_child_cohort.name]
                                 except (ValueError, TypeError):
                                     continue
@@ -156,7 +159,10 @@ class OrganizationFeatureFlagView(
                     if isinstance(prop, dict) and prop.get("type") == "cohort":
                         try:
                             original_cohort_id = int(prop["value"])
-                            cohort_name = (seen_cohorts_cache[original_cohort_id]).name
+                            original_cohort_ref = seen_cohorts_cache[original_cohort_id]
+                            if not original_cohort_ref:
+                                continue
+                            cohort_name = original_cohort_ref.name
                             prop["value"] = name_to_dest_cohort_id[cohort_name]
                         except (ValueError, TypeError):
                             continue

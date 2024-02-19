@@ -34,6 +34,7 @@ export function AppsManagement(): JSX.Element {
         shouldNotBeGlobalPlugins,
         globalPlugins,
         localPlugins,
+        pluginsLoading,
     } = useValues(appsManagementLogic)
     const { isDev, isCloudOrDev } = useValues(preflightLogic)
 
@@ -43,7 +44,10 @@ export function AppsManagement(): JSX.Element {
 
     return (
         <div className="pipeline-apps-management-scene">
+            {/* When plugins are still loading we don't know yet if any apps are out of sync
+            with the global state, so skip this section for smooter user experience */}
             {isCloudOrDev &&
+                !pluginsLoading &&
                 (missingGlobalPlugins.length > 0 ||
                     shouldBeGlobalPlugins.length > 0 ||
                     shouldNotBeGlobalPlugins.length > 0) && <OutOfSyncApps />}

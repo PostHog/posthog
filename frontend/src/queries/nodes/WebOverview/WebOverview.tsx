@@ -1,34 +1,39 @@
+import { LemonSkeleton } from '@posthog/lemon-ui'
 import { useValues } from 'kea'
 import { getColorVar } from 'lib/colors'
 import { IconTrendingDown, IconTrendingFlat, IconTrendingUp } from 'lib/lemon-ui/icons'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
-import { Spinner } from 'lib/lemon-ui/Spinner/Spinner'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
-import { humanFriendlyDuration, humanFriendlyLargeNumber, isNotNil } from 'lib/utils'
+import { humanFriendlyDuration, humanFriendlyLargeNumber, isNotNil, range } from 'lib/utils'
 import { useState } from 'react'
 
 import { EvenlyDistributedRows } from '~/queries/nodes/WebOverview/EvenlyDistributedRows'
 import { AnyResponseType, WebOverviewItem, WebOverviewQuery, WebOverviewQueryResponse } from '~/queries/schema'
+import { QueryContext } from '~/queries/types'
 
 import { dataNodeLogic } from '../DataNode/dataNodeLogic'
 
+const OVERVIEW_ITEM_CELL_MIN_WIDTH_REMS = 10
+
+const OVERVIEW_ITEM_CELL_CLASSES = `flex-1 border p-2 bg-bg-light rounded min-w-[${OVERVIEW_ITEM_CELL_MIN_WIDTH_REMS}rem] h-30 flex flex-col items-center text-center justify-between`
+
 let uniqueNode = 0
-export function WebOverview(props: { query: WebOverviewQuery; cachedResults?: AnyResponseType }): JSX.Element | null {
+export function WebOverview(props: {
+    query: WebOverviewQuery
+    cachedResults?: AnyResponseType
+    context: QueryContext
+}): JSX.Element | null {
+    const { onData, loadPriority, dataNodeCollectionId } = props.context.insightProps ?? {}
     const [key] = useState(() => `WebOverview.${uniqueNode++}`)
-    const logic = dataNodeLogic({ query: props.query, key, cachedResults: props.cachedResults })
+    const logic = dataNodeLogic({
+        query: props.query,
+        key,
+        cachedResults: props.cachedResults,
+        loadPriority,
+        onData,
+        dataNodeCollectionId: dataNodeCollectionId ?? key,
+    })
     const { response, responseLoading } = useValues(logic)
-
-    if (responseLoading) {
-        return (
-            <div className="w-full flex flex-col items-center text-2xl">
-                <Spinner />
-            </div>
-        )
-    }
-
-    if (!response) {
-        return null
-    }
 
     const webOverviewQueryResponse = response as WebOverviewQueryResponse | undefined
 
@@ -36,9 +41,16 @@ export function WebOverview(props: { query: WebOverviewQuery; cachedResults?: An
 
     return (
         <>
-            <EvenlyDistributedRows className="w-full gap-x-2 gap-y-8" minWidthRems={8}>
-                {webOverviewQueryResponse?.results?.map((item) => <WebOverviewItemCell key={item.key} item={item} />) ||
-                    []}
+            <EvenlyDistributedRows
+                className="flex justify-center items-center flex-wrap w-full gap-2"
+                minWidthRems={OVERVIEW_ITEM_CELL_MIN_WIDTH_REMS + 2}
+            >
+                {responseLoading
+                    ? range(5).map((i) => <WebOverviewItemCellSkeleton key={i} />)
+                    : webOverviewQueryResponse?.results?.map((item) => (
+                          <WebOverviewItemCell key={item.key} item={item} />
+                      )) || []}
+                {}
             </EvenlyDistributedRows>
             {samplingRate && !(samplingRate.numerator === 1 && (samplingRate.denominator ?? 1) === 1) ? (
                 <LemonBanner type="info" className="my-4">
@@ -51,7 +63,17 @@ export function WebOverview(props: { query: WebOverviewQuery; cachedResults?: An
     )
 }
 
-export const WebOverviewItemCell = ({ item }: { item: WebOverviewItem }): JSX.Element => {
+const WebOverviewItemCellSkeleton = (): JSX.Element => {
+    return (
+        <div className={OVERVIEW_ITEM_CELL_CLASSES}>
+            <LemonSkeleton className="h-2 w-10" />
+            <LemonSkeleton className="h-6 w-20" />
+            <LemonSkeleton className="h-2 w-10" />
+        </div>
+    )
+}
+
+const WebOverviewItemCell = ({ item }: { item: WebOverviewItem }): JSX.Element => {
     const label = labelFromKey(item.key)
     const trend = isNotNil(item.changeFromPreviousPct)
         ? item.changeFromPreviousPct === 0
@@ -84,7 +106,7 @@ export const WebOverviewItemCell = ({ item }: { item: WebOverviewItem }): JSX.El
 
     return (
         <Tooltip title={tooltip}>
-            <div className="min-w-[7.5rem] min-h-20 flex flex-col items-center text-center justify-between">
+            <div className={OVERVIEW_ITEM_CELL_CLASSES}>
                 <div className="font-bold uppercase text-xs">{label}</div>
                 <div className="w-full flex-1 flex items-center justify-center">
                     <div className="text-2xl">{formatItem(item.value, item.kind)}</div>

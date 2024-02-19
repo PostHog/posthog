@@ -164,12 +164,13 @@ class ActorsQuery(EventQuery):
         pass
 
     _raw_persons_query = """
-        SELECT distinct_id, argMax(person_id, version) as person_id
+        SELECT distinct_id, argMax(person_id, version) as current_person_id
         {select_person_props}
         FROM person_distinct_id2 as pdi
             {filter_persons_clause}
         WHERE team_id = %(team_id)s
-        {prop_filter_clause}
+            {prop_filter_clause}
+            {all_distinct_ids_that_might_match_a_person}
         GROUP BY distinct_id
         HAVING
             argMax(is_deleted, version) = 0
@@ -195,7 +196,7 @@ class ActorsQuery(EventQuery):
                     g for g in self._filter.property_groups.flat if g.type == "hogql" and "person.properties" in g.key
                 ],
             ),
-            person_id_joined_alias=f"{self.DISTINCT_ID_TABLE_ALIAS}.person_id",
+            person_id_joined_alias=f"{self.DISTINCT_ID_TABLE_ALIAS}.current_person_id",
         )
 
         person_query, person_query_params = self._get_person_query()
@@ -205,7 +206,21 @@ class ActorsQuery(EventQuery):
             return "", {}
         else:
             filter_persons_clause = person_query or ""
-            filter_by_person_uuid_condition = "and person_id = %(person_uuid)s" if self._filter.person_uuid else ""
+            filter_by_person_uuid_condition = (
+                "and current_person_id = %(person_uuid)s" if self._filter.person_uuid else ""
+            )
+            all_distinct_ids_that_might_match_a_person = (
+                """
+                AND distinct_id IN (
+                    SELECT distinct_id
+                    FROM person_distinct_id2
+                    WHERE team_id = %(team_id)s
+                    AND person_id = %(person_uuid)s) as all_distinct_ids_that_might_match_a_person
+            """
+                if self._filter.person_uuid
+                else ""
+            )
+
             return self._raw_persons_query.format(
                 filter_persons_clause=filter_persons_clause,
                 select_person_props=", argMax(person_props, version) as person_props"
@@ -214,6 +229,7 @@ class ActorsQuery(EventQuery):
                 prop_filter_clause=prop_query,
                 prop_having_clause=having_prop_query,
                 filter_by_person_uuid_condition=filter_by_person_uuid_condition,
+                all_distinct_ids_that_might_match_a_person=all_distinct_ids_that_might_match_a_person,
             ), {
                 "team_id": self._team_id,
                 **person_query_params,

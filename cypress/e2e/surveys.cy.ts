@@ -96,7 +96,7 @@ describe('Surveys', () => {
         cy.get('[data-attr=prop-val] .ant-select-selector').click({ force: true })
         cy.get('[data-attr=prop-val-0]').click({ force: true })
 
-        cy.get('[data-attr="rollout-percentage"]').type('{backspace}')
+        cy.get('[data-attr="rollout-percentage"]').type('100')
 
         // save
         cy.get('[data-attr="save-survey"]').click()
@@ -113,7 +113,7 @@ describe('Surveys', () => {
         // refresh, see survey show up on page
         cy.reload()
 
-        cy.contains('Unique users viewed').should('exist')
+        cy.contains('Unique users shown').should('exist')
 
         // stop survey
         cy.contains('Stop').click()

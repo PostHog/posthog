@@ -261,6 +261,12 @@ export const preflightLogic = kea<preflightLogicType>([
                 return preflight?.cloud || preflight?.is_debug
             },
         ],
+        isCloud: [
+            (s) => [s.preflight],
+            (preflight): boolean | undefined => {
+                return preflight?.cloud
+            },
+        ],
         isDev: [
             (s) => [s.preflight],
             (preflight): boolean | undefined => {
@@ -279,10 +285,13 @@ export const preflightLogic = kea<preflightLogicType>([
         registerInstrumentationProps: async (_, breakpoint) => {
             await breakpoint(100)
             if (posthog && values.preflight) {
+                const appContext = getAppContext()
+
                 posthog.register({
                     realm: values.realm,
                     email_service_available: values.preflight.email_service_available,
                     slack_service_available: values.preflight.slack_service?.available,
+                    commit_sha: appContext?.commit_sha,
                 })
 
                 if (values.preflight.site_url) {

@@ -135,6 +135,7 @@ export const PAYLOAD_LIBRARIES: string[] = [
     SDKKey.ANDROID,
     SDKKey.REACT_NATIVE,
     SDKKey.IOS,
+    SDKKey.FLUTTER,
 ]
 
 export const BOOTSTRAPPING_OPTIONS: InstructionOption[] = [

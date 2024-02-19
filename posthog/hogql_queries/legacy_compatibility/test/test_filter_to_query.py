@@ -11,11 +11,11 @@ from posthog.schema import (
     CohortPropertyFilter,
     CountPerActorMathType,
     ElementPropertyFilter,
-    EntityType,
     EventPropertyFilter,
     EventsNode,
     FunnelConversionWindowTimeUnit,
-    FunnelExclusion,
+    FunnelExclusionActionsNode,
+    FunnelExclusionEventsNode,
     FunnelPathType,
     FunnelVizType,
     GroupPropertyFilter,
@@ -1328,7 +1328,15 @@ class TestFilterToQuery(BaseTest):
                     "name": "$pageview",
                     "funnel_from_step": 1,
                     "funnel_to_step": 2,
-                }
+                },
+                {
+                    "id": 3,
+                    "type": "actions",
+                    "order": 1,
+                    "name": "Some action",
+                    "funnel_from_step": 1,
+                    "funnel_to_step": 2,
+                },
             ],
             "bin_count": 15,  # used in time to convert: number of bins to show in histogram
             "funnel_from_step": 1,  # used in time to convert: initial step index to compute time to convert
@@ -1354,26 +1362,30 @@ class TestFilterToQuery(BaseTest):
         self.assertEqual(
             query.funnelsFilter,
             FunnelsFilter(
-                funnel_viz_type=FunnelVizType.steps,
-                funnel_from_step=1,
-                funnel_to_step=2,
-                funnel_window_interval_unit=FunnelConversionWindowTimeUnit.hour,
-                funnel_window_interval=13,
-                breakdown_attribution_type=BreakdownAttributionType.step,
-                breakdown_attribution_value=2,
-                funnel_order_type=StepOrderValue.strict,
+                funnelVizType=FunnelVizType.steps,
+                funnelFromStep=1,
+                funnelToStep=2,
+                funnelWindowIntervalUnit=FunnelConversionWindowTimeUnit.hour,
+                funnelWindowInterval=13,
+                breakdownAttributionType=BreakdownAttributionType.step,
+                breakdownAttributionValue=2,
+                funnelOrderType=StepOrderValue.strict,
                 exclusions=[
-                    FunnelExclusion(
-                        id="$pageview",
-                        type=EntityType.events,
-                        order=0,
+                    FunnelExclusionEventsNode(
+                        event="$pageview",
                         name="$pageview",
-                        funnel_from_step=1,
-                        funnel_to_step=2,
-                    )
+                        funnelFromStep=1,
+                        funnelToStep=2,
+                    ),
+                    FunnelExclusionActionsNode(
+                        id=3,
+                        name="Some action",
+                        funnelFromStep=1,
+                        funnelToStep=2,
+                    ),
                 ],
-                bin_count=15,
-                funnel_aggregate_by_hogql="person_id",
+                binCount=15,
+                funnelAggregateByHogQL="person_id",
                 # funnel_step_reference=FunnelStepReference.previous,
             ),
         )

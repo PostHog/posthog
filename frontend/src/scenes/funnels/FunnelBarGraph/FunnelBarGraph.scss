@@ -115,12 +115,8 @@ $glyph_height: 23px; // Based on .funnel-step-glyph
         flex-direction: row;
         height: 32px;
         margin: 4px 0;
-        background-color: var(--border-light);
+        background-color: var(--border-3000);
         border-radius: var(--radius);
-
-        .posthog-3000 & {
-            background-color: var(--border-3000);
-        }
 
         .funnel-bar {
             position: relative;

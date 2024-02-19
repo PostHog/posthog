@@ -8,6 +8,7 @@ export function use3000Body(): void {
 
     useEffect(() => {
         document.body.setAttribute('theme', isDarkModeOn ? 'dark' : 'light')
-        document.body.classList.add('posthog-3000')
+        // overflow-hidden since each area handles scrolling individually (e.g. navbar, scene, side panel)
+        document.body.classList.add('posthog-3000', 'overflow-hidden')
     }, [isDarkModeOn])
 }

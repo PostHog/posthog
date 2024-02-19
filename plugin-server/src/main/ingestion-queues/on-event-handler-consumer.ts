@@ -70,6 +70,7 @@ export const startAsyncWebhooksHandlerConsumer = async ({
         // NOTE: This should never clash with the group ID specified for the kafka engine posthog/ee/clickhouse/sql/clickhouse.py
         groupId: `${KAFKA_PREFIX}clickhouse-plugin-server-async-webhooks`,
         sessionTimeout: serverConfig.KAFKA_CONSUMPTION_SESSION_TIMEOUT_MS,
+        rebalanceTimeout: serverConfig.KAFKA_CONSUMPTION_REBALANCE_TIMEOUT_MS ?? undefined,
         readUncommitted: false,
     })
     setupEventHandlers(consumer)

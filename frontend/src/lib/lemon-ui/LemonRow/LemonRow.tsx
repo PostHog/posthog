@@ -6,16 +6,6 @@ import React from 'react'
 import { Spinner } from '../Spinner/Spinner'
 import { Tooltip } from '../Tooltip'
 
-// Fix for function type inference in forwardRef, so that function components wrapped with forwardRef can be generic.
-// For some reason the @types/react definitons as React 16 and TS 4.9 don't work, because `P` (the props) is wrapped in
-// `Pick` (inside `React.PropsWithoutRef`), which breaks TypeScript's ability to reason about it as a generic type.
-// `Omit` has the same effect. It's probably fine to just use `P` directly in `ForwardRefExoticComponent`.
-declare module 'react' {
-    function forwardRef<T, P>(
-        render: React.ForwardRefRenderFunction<T, P>
-    ): React.ForwardRefExoticComponent<P & React.RefAttributes<T>>
-}
-
 export interface LemonRowPropsBase<T extends keyof JSX.IntrinsicElements>
     extends Omit<React.HTMLProps<JSX.IntrinsicElements[T]>, 'ref' | 'size'> {
     icon?: React.ReactElement | null

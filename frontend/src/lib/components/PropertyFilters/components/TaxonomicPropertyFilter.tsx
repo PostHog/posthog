@@ -45,6 +45,7 @@ export function TaxonomicPropertyFilter({
     metadataSource,
     propertyAllowList,
     taxonomicFilterOptionsFromProp,
+    allowRelativeDateOptions,
 }: PropertyFilterInternalProps): JSX.Element {
     const pageKey = useMemo(() => pageKeyInput || `filter-${uniqueMemoizedIndex++}`, [pageKeyInput])
     const groupTypes = taxonomicGroupTypes || [
@@ -178,7 +179,12 @@ export function TaxonomicPropertyFilter({
                                 {filter?.type === 'cohort' ? (
                                     selectedCohortName || `Cohort #${filter?.value}`
                                 ) : filter?.key ? (
-                                    <PropertyKeyInfo value={filter.key} disablePopover ellipsis />
+                                    <PropertyKeyInfo
+                                        value={filter.key}
+                                        disablePopover
+                                        ellipsis
+                                        type={activeTaxonomicGroup?.type}
+                                    />
                                 ) : (
                                     addText || 'Add filter'
                                 )}
@@ -197,6 +203,7 @@ export function TaxonomicPropertyFilter({
                                 placeholder="Enter value..."
                                 endpoint={filter?.key && activeTaxonomicGroup?.valuesEndpoint?.(filter.key)}
                                 eventNames={eventNames}
+                                addRelativeDateTimeOptions={allowRelativeDateOptions}
                                 onChange={(newOperator, newValue) => {
                                     if (filter?.key && filter?.type) {
                                         setFilter(index, {
