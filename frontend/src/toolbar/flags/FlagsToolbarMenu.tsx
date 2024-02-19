@@ -17,6 +17,7 @@ export const FlagsToolbarMenu = (): JSX.Element => {
     const { searchTerm, filteredFlags, userFlagsLoading } = useValues(featureFlagsLogic)
     const { setSearchTerm, setOverriddenUserFlag, deleteOverriddenUserFlag } = useActions(featureFlagsLogic)
     const { apiURL } = useValues(toolbarConfigLogic)
+
     return (
         <ToolbarMenu>
             <ToolbarMenu.Header>
@@ -31,11 +32,11 @@ export const FlagsToolbarMenu = (): JSX.Element => {
             </ToolbarMenu.Header>
 
             <ToolbarMenu.Body>
-                <div className="space-y-px">
+                <div className="mt-1">
                     {filteredFlags.length > 0 ? (
                         filteredFlags.map(({ feature_flag, value, hasOverride, hasVariants, currentValue }) => (
-                            <div className={clsx('p-1 rounded', hasOverride && 'bg-mark')} key={feature_flag.key}>
-                                <div className={clsx('flex flex-row items-center')}>
+                            <div className={clsx('-mx-1 py-1 px-2', hasOverride && 'bg-mark')} key={feature_flag.key}>
+                                <div className="flex flex-row items-center">
                                     <div className="flex-1 truncate">
                                         <Link
                                             className="font-medium"
@@ -69,36 +70,34 @@ export const FlagsToolbarMenu = (): JSX.Element => {
                                 </div>
 
                                 <AnimatedCollapsible collapsed={!hasVariants || !currentValue}>
-                                    <div className={clsx('flex flex-col px-2 ml-2', hasOverride && 'overridden')}>
-                                        <LemonRadio
-                                            fullWidth
-                                            value={typeof currentValue === 'string' ? currentValue : undefined}
-                                            options={
-                                                feature_flag.filters?.multivariate?.variants.map((variant) => ({
-                                                    label: `${variant.key} - ${variant.name} (${variant.rollout_percentage}%)`,
-                                                    value: variant.key,
-                                                })) || []
+                                    <LemonRadio
+                                        className={clsx('pt-1 w-full', hasOverride && 'bg-mark')}
+                                        value={typeof currentValue === 'string' ? currentValue : undefined}
+                                        options={
+                                            feature_flag.filters?.multivariate?.variants.map((variant) => ({
+                                                label: `${variant.key} - ${variant.name} (${variant.rollout_percentage}%)`,
+                                                value: variant.key,
+                                            })) || []
+                                        }
+                                        onChange={(newValue) => {
+                                            if (newValue === value && hasOverride) {
+                                                deleteOverriddenUserFlag(feature_flag.key)
+                                            } else {
+                                                setOverriddenUserFlag(feature_flag.key, newValue)
                                             }
-                                            onChange={(newValue) => {
-                                                if (newValue === value && hasOverride) {
-                                                    deleteOverriddenUserFlag(feature_flag.key)
-                                                } else {
-                                                    setOverriddenUserFlag(feature_flag.key, newValue)
-                                                }
-                                            }}
-                                        />
-                                    </div>
+                                        }}
+                                    />
                                 </AnimatedCollapsible>
                             </div>
                         ))
                     ) : (
-                        <div className="flex flex-row items-center px-2 py-1">
+                        <div className="flex flex-row items-center p-1">
                             {userFlagsLoading ? (
                                 <span className="flex-1 flex justify-center items-center p-4">
                                     <Spinner className="text-2xl" />
                                 </span>
                             ) : (
-                                `No ${searchTerm.length ? 'matching ' : ''}feature flags found.`
+                                `No ${searchTerm.length ? 'matching ' : ''}feature flags found in the project.`
                             )}
                         </div>
                     )}
