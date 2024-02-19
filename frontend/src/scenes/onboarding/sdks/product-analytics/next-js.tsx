@@ -1,12 +1,12 @@
 import { LemonDivider } from '@posthog/lemon-ui'
 
-import { SDKInstallJSWebInstructions } from '../sdk-install-instructions'
+import { SDKInstallNextJSInstructions } from '../sdk-install-instructions/next-js'
 import { ProductAnalyticsAllJSFinalSteps } from './AllJSFinalSteps'
 
-export function JSWebInstructions(): JSX.Element {
+export function ProductAnalyticsNextJSInstructions(): JSX.Element {
     return (
         <>
-            <SDKInstallJSWebInstructions />
+            <SDKInstallNextJSInstructions />
             <LemonDivider thick dashed className="my-4" />
             <ProductAnalyticsAllJSFinalSteps />
         </>

@@ -4,6 +4,7 @@ import { StarHog } from 'lib/components/hedgehogs'
 import { IconCheckCircleOutline } from 'lib/lemon-ui/icons'
 import { Spinner } from 'lib/lemon-ui/Spinner'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
+import { useState } from 'react'
 import { getUpgradeProductLink } from 'scenes/billing/billing-utils'
 import { BillingHero } from 'scenes/billing/BillingHero'
 import { billingLogic } from 'scenes/billing/billingLogic'
@@ -17,7 +18,7 @@ import { OnboardingStep } from './OnboardingStep'
 
 export const OnboardingBillingStep = ({
     product,
-    stepKey = OnboardingStepKey.BILLING,
+    stepKey = OnboardingStepKey.PLANS,
 }: {
     product: BillingProductV2Type
     stepKey?: OnboardingStepKey
@@ -29,9 +30,11 @@ export const OnboardingBillingStep = ({
     const plan = currentAndUpgradePlans?.upgradePlan
     const currentPlan = currentAndUpgradePlans?.currentPlan
 
+    const [showPlanComp, setShowPlanComp] = useState(false)
+
     return (
         <OnboardingStep
-            title="Add credit card details"
+            title="Plans"
             showSkip={!product.subscribed}
             stepKey={stepKey}
             continueOverride={
@@ -40,20 +43,21 @@ export const OnboardingBillingStep = ({
                         // TODO: redirect path won't work properly until navigation is properly set up
                         to={getUpgradeProductLink(product, plan.plan_key || '', redirectPath, true)}
                         type="primary"
+                        status="alt"
                         center
                         disableClientSideRouting
                         onClick={() => {
                             reportBillingUpgradeClicked(product.type)
                         }}
                     >
-                        Subscribe
+                        Subscribe to Paid Plan
                     </LemonButton>
                 )
             }
         >
             {billing?.products && productKey && product ? (
                 <div className="mt-6">
-                    {product.subscribed ? (
+                    {product.subscribed && (
                         <div className="mb-8">
                             <div className="bg-success-highlight rounded p-6 flex justify-between items-center">
                                 <div className="flex gap-x-4">
@@ -67,6 +71,9 @@ export const OnboardingBillingStep = ({
                                     <StarHog className="h-full w-full" />
                                 </div>
                             </div>
+                            <LemonButton className="mt-2" onClick={() => setShowPlanComp(!showPlanComp)}>
+                                {showPlanComp ? 'Hide' : 'Show'} plans
+                            </LemonButton>
                             {currentPlan?.initial_billing_limit && (
                                 <div className="mt-2">
                                     <LemonBanner type="info">
@@ -77,7 +84,9 @@ export const OnboardingBillingStep = ({
                                 </div>
                             )}
                         </div>
-                    ) : (
+                    )}
+
+                    {(!product.subscribed || showPlanComp) && (
                         <>
                             <BillingHero />
                             <PlanComparison product={product} includeAddons />
