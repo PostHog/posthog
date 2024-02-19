@@ -40,7 +40,7 @@ export function InsightEmptyState({
                 <div className="illustration-main">
                     <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="" />
                 </div>
-                <h2 className="text-xl">{heading}</h2>
+                <h2 className="text-xl leading-tight">{heading}</h2>
                 <p className="text-sm text-center text-balance">{detail}</p>
             </div>
         </div>
@@ -89,7 +89,7 @@ export function InsightTimeoutState({
                         <div className="illustration-main">
                             <IconErrorOutline />
                         </div>
-                        <h2 className="text-xl mb-6">Your query took too long to complete</h2>
+                        <h2 className="text-xl leading-tight mb-6">Your query took too long to complete</h2>
                     </>
                 ) : (
                     <p className="mx-auto text-center mb-6">Crunching through hogloads of data...</p>
@@ -156,7 +156,7 @@ export function InsightErrorState({ excludeDetail, title, queryId }: InsightErro
                 <div className="illustration-main">
                     <IconErrorOutline />
                 </div>
-                <h2 className="text-xl">{title || 'There was a problem completing this query'}</h2>
+                <h2 className="text-xl leading-tight">{title || 'There was a problem completing this query'}</h2>
                 {/* Note that this default phrasing above signals the issue is intermittent, */}
                 {/* and that perhaps the query will complete on retry */}
                 {!excludeDetail && (
@@ -208,7 +208,7 @@ export function FunnelSingleStepState({ actionable = true }: FunnelSingleStepSta
                 <div className="illustration-main">
                     <PlusCircleOutlined />
                 </div>
-                <h2 className="text-xl funnels-empty-state__title">Add another step!</h2>
+                <h2 className="text-xl leading-tight funnels-empty-state__title">Add another step!</h2>
                 <p className="text-sm text-center text-balance">
                     You’re almost there! Funnels require at least two steps before calculating.
                     {actionable &&
@@ -250,7 +250,7 @@ export function InsightValidationError({ detail }: { detail: string }): JSX.Elem
                 <div className="illustration-main">
                     <IconWarning />
                 </div>
-                <h2 className="text-xl">
+                <h2 className="text-xl leading-tight">
                     There is a problem with this query
                     {/* Note that this phrasing above signals the issue is not intermittent, */}
                     {/* but rather that it's something with the definition of the query itself */}
