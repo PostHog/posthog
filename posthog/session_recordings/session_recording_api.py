@@ -512,7 +512,7 @@ class SessionRecordingViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         cache_key = f'similar_sessions_{self.team.pk}_{self.kwargs["pk"]}'
         # Check if the response is cached
         cached_response = cache.get(cache_key)
-        if cached_response is not None:
+        if cached_response:
             return Response(cached_response)
 
         user = cast(User, request.user)
@@ -526,7 +526,8 @@ class SessionRecordingViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             raise exceptions.NotFound("Recording not found")
 
         recordings = similar_recordings(recording, self.team)
-        cache.set(cache_key, recordings, timeout=30)
+        if recordings:
+            cache.set(cache_key, recordings, timeout=30)
 
         # let the browser cache for half the time we cache on the server
         r = Response(recordings, headers={"Cache-Control": "max-age=15"})
