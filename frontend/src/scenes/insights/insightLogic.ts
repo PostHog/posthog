@@ -177,6 +177,7 @@ export const insightLogic = kea<insightLogicType>([
                     const updatedInsight: InsightModel = {
                         ...response,
                         result: response.result || values.insight.result,
+                        dashboardKey: insight.dashboardKey,
                     }
                     callback?.(updatedInsight)
 
@@ -282,12 +283,9 @@ export const insightLogic = kea<insightLogicType>([
                 }
             },
             setInsightMetadata: (state, { metadata }) => ({ ...state, ...metadata }),
-            [dashboardsModel.actionTypes.updateDashboardInsight]: (state, { item, extraDashboardIds }) => {
-                const targetDashboards = (item?.dashboards || []).concat(extraDashboardIds || [])
+            [dashboardsModel.actionTypes.updateDashboardInsight]: (state, { item }) => {
                 const updateIsForThisDashboard =
-                    item?.short_id === state.short_id &&
-                    props.dashboardId &&
-                    targetDashboards.includes(props.dashboardId)
+                    item?.short_id === state.short_id && props.dashboardId && item?.dashboardKey === props.dashboardId
                 if (updateIsForThisDashboard) {
                     return { ...state, ...item }
                 } else {

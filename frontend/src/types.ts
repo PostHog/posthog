@@ -1516,8 +1516,8 @@ export interface InsightModel extends Cacheable {
     disable_baseline?: boolean
     filters: Partial<FilterType>
     query?: Node | null
-    /** Indicates that this is not the original insight and cannot be relied upon for detail view/edit */
-    transient: boolean
+    /** Indicates that the results are tailored towards this dashboard and the insight is not relevant outside of it */
+    dashboardKey?: number
 }
 
 export interface DashboardBasicType {

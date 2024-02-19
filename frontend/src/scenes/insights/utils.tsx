@@ -132,7 +132,9 @@ export function findInsightFromMountedLogic(
         return (
             savedInsightsLogic
                 .findMounted()
-                ?.values.insights?.results?.find((item) => item.short_id === insightShortId && !item.transient) || null
+                ?.values.insights?.results?.find(
+                    (item) => item.short_id === insightShortId && item.dashboardKey === undefined
+                ) || null
         )
     }
 
