@@ -1,4 +1,5 @@
 from typing import Any, Dict, Optional
+from unittest import mock
 from unittest.mock import MagicMock, Mock, patch, ANY
 
 import pytest
@@ -7,6 +8,7 @@ from botocore.client import Config
 from dateutil.relativedelta import relativedelta
 from django.test import override_settings
 from django.utils.timezone import now
+from requests.exceptions import HTTPError
 
 from posthog.models import ExportedAsset
 from posthog.models.utils import UUIDT
@@ -258,6 +260,21 @@ class TestCSVExporter(APIBaseTest):
 
             with pytest.raises(Exception, match="HTTP 403 Forbidden"):
                 csv_exporter.export_csv(exported_asset)
+
+    @patch("posthog.tasks.exports.csv_exporter.logger")
+    def test_failing_export_api_is_reported_query_size_exceeded(self, _mock_logger: MagicMock) -> None:
+        with patch("posthog.tasks.exports.csv_exporter.make_api_call") as patched_make_api_call:
+            exported_asset = self._create_asset()
+            mock_error = HTTPError("Query size exceeded")
+            mock_error.response = Mock()
+            mock_error.response.text = "Query size exceeded"
+            patched_make_api_call.side_effect = mock_error
+
+            with pytest.raises(HTTPError, match="Query size exceeded"):
+                csv_exporter.export_csv(exported_asset)
+
+            assert patched_make_api_call.call_count == 4
+            patched_make_api_call.assert_called_with(mock.ANY, mock.ANY, 100, mock.ANY, mock.ANY, mock.ANY)
 
     def test_limiting_query_as_expected(self) -> None:
         with self.settings(SITE_URL="https://app.posthog.com"):
