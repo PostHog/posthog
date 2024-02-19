@@ -310,6 +310,14 @@ class FunnelStepReference(str, Enum):
     previous = "previous"
 
 
+class FunnelTimeToConvertResults(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    average_conversion_time: int
+    bins: List[List[int]]
+
+
 class FunnelVizType(str, Enum):
     steps = "steps"
     time_to_convert = "time_to_convert"
@@ -1136,7 +1144,7 @@ class FunnelsQueryResponse(BaseModel):
     is_cached: Optional[bool] = None
     last_refresh: Optional[str] = None
     next_allowed_client_refresh: Optional[str] = None
-    results: Union[List[Dict[str, Any]], List[List[Dict[str, Any]]]]
+    results: Union[FunnelTimeToConvertResults, List[Dict[str, Any]], List[List[Dict[str, Any]]]]
     timings: Optional[List[QueryTiming]] = None
 
 
@@ -1278,7 +1286,7 @@ class QueryResponse(BaseModel):
     is_cached: Optional[bool] = None
     last_refresh: Optional[str] = None
     next_allowed_client_refresh: Optional[str] = None
-    results: List
+    results: Any
     timings: Optional[List[QueryTiming]] = None
 
 
@@ -2165,7 +2173,7 @@ class FunnelsFilter(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
-    binCount: Optional[Union[float, str]] = None
+    binCount: Optional[int] = None
     breakdownAttributionType: Optional[BreakdownAttributionType] = None
     breakdownAttributionValue: Optional[int] = None
     exclusions: Optional[List[Union[FunnelExclusionEventsNode, FunnelExclusionActionsNode]]] = None
