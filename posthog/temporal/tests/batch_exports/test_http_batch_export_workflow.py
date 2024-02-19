@@ -4,9 +4,9 @@ import json
 from random import randint
 from uuid import uuid4
 
-from aioresponses import aioresponses
 import pytest
 import pytest_asyncio
+from aioresponses import aioresponses
 from django.conf import settings
 from django.test import override_settings
 from temporalio import activity
@@ -28,8 +28,8 @@ from posthog.temporal.batch_exports.http_batch_export import (
     HttpInsertInputs,
     NonRetryableResponseError,
     RetryableResponseError,
-    insert_into_http_activity,
     http_default_fields,
+    insert_into_http_activity,
 )
 from posthog.temporal.tests.utils.events import generate_test_events_in_clickhouse
 from posthog.temporal.tests.utils.models import (
@@ -520,8 +520,8 @@ async def test_insert_into_http_activity_heartbeats(
 
         details = HeartbeatDetails.from_activity_details(raw_details)
 
-        last_uploaded_part_dt = dt.datetime.fromisoformat(details.last_uploaded_part_timestamp)
-        assert last_uploaded_part_dt == data_interval_end - http_batch_export.interval_time_delta / heartbeat_count
+        last_uploaded_dt = dt.datetime.fromisoformat(details.last_uploaded_timestamp)
+        assert last_uploaded_dt == data_interval_end - http_batch_export.interval_time_delta / heartbeat_count
 
     activity_environment.on_heartbeat = assert_heartbeat_details
 
