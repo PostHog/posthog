@@ -223,9 +223,9 @@ class ActorsQuery(EventQuery):
 
             return self._raw_persons_query.format(
                 filter_persons_clause=filter_persons_clause,
-                select_person_props=", argMax(person_props, version) as person_props"
-                if "person_props" in filter_persons_clause
-                else "",
+                select_person_props=(
+                    ", argMax(person_props, version) as person_props" if "person_props" in filter_persons_clause else ""
+                ),
                 prop_filter_clause=prop_query,
                 prop_having_clause=having_prop_query,
                 filter_by_person_uuid_condition=filter_by_person_uuid_condition,
@@ -352,10 +352,10 @@ class SessionIdEventsQuery(EventQuery):
                 this_entity_condition_sql,
                 this_entity_filter_params,
             ) = self.format_event_filter(entity, prepend=f"event_matcher_{index}", team_id=self._team_id)
-            joining = "OR" if index > 0 else ""
-            condition_sql += f"{joining} {this_entity_condition_sql}"
+            joining = " AND" if index > 0 else ""
             # wrap in smooths to constrain the scope of the OR
-            condition_sql = f"( {condition_sql} )"
+            condition_sql += f"{joining} ( {this_entity_condition_sql} )"
+            # condition_sql = f"( {condition_sql} )"
             params = {**params, **this_entity_filter_params}
 
         params = {**params, "event_names": list(event_names_to_filter)}
@@ -373,7 +373,7 @@ class SessionIdEventsQuery(EventQuery):
         return SummaryEventFiltersSQL(
             having_conditions=having_conditions,
             having_select=having_select,
-            where_conditions=f"AND {condition_sql}" if condition_sql else "",
+            where_conditions=f"AND ({condition_sql})" if condition_sql else "",
             params=params,
         )
 
