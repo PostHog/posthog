@@ -24,7 +24,6 @@ export const NON_VALUES_ON_SERIES_DISPLAY_TYPES = [
 /** Display types for which a percent stack view is available. */
 export const PERCENT_STACK_VIEW_DISPLAY_TYPE = [
     ChartDisplayType.ActionsBar,
-    ChartDisplayType.ActionsLineGraph,
     ChartDisplayType.ActionsAreaGraph,
     ChartDisplayType.ActionsPie,
 ]
@@ -207,6 +206,7 @@ export const FEATURE_FLAGS = {
     DATANODE_CONCURRENCY_LIMIT: 'datanode-concurrency-limit', // owner: @robbie-c
     SESSION_REPLAY_DOCTOR: 'session-replay-doctor', // owner: #team-replay
     REPLAY_SIMILAR_RECORDINGS: 'session-replay-similar-recordings', // owner: #team-replay
+    SAVED_NOT_PINNED: 'saved-not-pinned', // owner: #team-replay
 } as const
 export type FeatureFlagKey = (typeof FEATURE_FLAGS)[keyof typeof FEATURE_FLAGS]
 

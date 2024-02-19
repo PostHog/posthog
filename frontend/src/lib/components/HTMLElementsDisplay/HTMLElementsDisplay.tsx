@@ -1,5 +1,4 @@
 import { useActions, useValues } from 'kea'
-import { CodeSnippet } from 'lib/components/CodeSnippet'
 import { htmlElementsDisplayLogic } from 'lib/components/HTMLElementsDisplay/htmlElementsDisplayLogic'
 import { ParsedCSSSelector } from 'lib/components/HTMLElementsDisplay/preselectWithCSS'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
@@ -130,8 +129,11 @@ export function HTMLElementsDisplay({
     return (
         <div className="flex flex-col gap-1">
             {editable && !!parsedElements.length && (
-                <div>
-                    Selector: <CodeSnippet thing="chosen selector">{chosenSelector}</CodeSnippet>
+                <div className="flex flex-col gap-2 mb-2">
+                    <div>Selector:</div>
+                    <div className="w-full border rounded bg-bg-3000 px-4 py-2 select-text">
+                        <pre className="m-0">{chosenSelector}</pre>
+                    </div>
                 </div>
             )}
             {checkUniqueness && (

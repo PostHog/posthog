@@ -234,7 +234,7 @@ export const billingProductLogic = kea<billingProductLogicType>([
             if (scrollToProductKey && scrollToProductKey === props.product.type) {
                 const { currentPlan } = values.currentAndUpgradePlans
 
-                if (currentPlan.initial_billing_limit) {
+                if (currentPlan?.initial_billing_limit) {
                     actions.setProductSpecificAlert({
                         status: 'warning',
                         title: 'Billing Limit Automatically Applied',

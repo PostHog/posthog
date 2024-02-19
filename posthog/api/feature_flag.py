@@ -558,7 +558,7 @@ class FeatureFlagViewSet(
                             seen_cohorts_cache[id] = cohort or ""
 
                         if cohort and not cohort.is_static:
-                            cohorts[cohort.pk] = cohort.properties.to_dict()
+                            cohorts[str(cohort.pk)] = cohort.properties.to_dict()
 
         # Add request for analytics
         increment_request_count(self.team.pk, 1, FlagRequestType.LOCAL_EVALUATION)
