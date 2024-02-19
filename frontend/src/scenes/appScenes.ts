@@ -23,7 +23,7 @@ export const appScenes: Record<Scene, () => any> = {
     [Scene.PersonsManagement]: () => import('./persons-management/PersonsManagementScene'),
     [Scene.Person]: () => import('./persons/PersonScene'),
     [Scene.Pipeline]: () => import('./pipeline/Pipeline'),
-    [Scene.PipelineApp]: () => import('./pipeline/PipelineApp'),
+    [Scene.PipelineNode]: () => import('./pipeline/PipelineNode'),
     [Scene.Group]: () => import('./groups/Group'),
     [Scene.Action]: () => import('./actions/Action'),
     [Scene.Experiments]: () => import('./experiments/Experiments'),
@@ -71,4 +71,5 @@ export const appScenes: Record<Scene, () => any> = {
     [Scene.Products]: () => import('./products/Products'),
     [Scene.Onboarding]: () => import('./onboarding/Onboarding'),
     [Scene.Settings]: () => import('./settings/SettingsScene'),
+    [Scene.MoveToPostHogCloud]: () => import('./moveToPostHogCloud/MoveToPostHogCloud'),
 }

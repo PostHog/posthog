@@ -16,11 +16,9 @@ from rest_framework import request, serializers, status, viewsets
 from rest_framework.decorators import action
 from rest_framework.exceptions import ParseError, PermissionDenied, ValidationError
 from rest_framework.parsers import JSONParser
-from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.settings import api_settings
 from rest_framework_csv import renderers as csvrenderers
-from sentry_sdk import capture_exception
 
 from posthog import schema
 from posthog.api.documentation import extend_schema
@@ -32,7 +30,7 @@ from posthog.api.insight_serializers import (
     TrendSerializer,
 )
 from posthog.clickhouse.cancel import cancel_query_on_cluster
-from posthog.api.routing import StructuredViewSetMixin
+from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 from posthog.api.tagged_item import TaggedItemSerializerMixin, TaggedItemViewSetMixin
 from posthog.api.utils import format_paginated_url
@@ -58,6 +56,7 @@ from posthog.helpers.multi_property_breakdown import (
     protect_old_clients_from_multi_property_default,
 )
 from posthog.hogql.errors import HogQLException
+from posthog.hogql.timings import HogQLTimings
 from posthog.hogql_queries.legacy_compatibility.feature_flag import hogql_insights_enabled
 from posthog.hogql_queries.legacy_compatibility.process_insight import is_insight_with_hogql_support, process_insight
 from posthog.kafka_client.topics import KAFKA_METRICS_TIME_TO_SEE_DATA
@@ -77,10 +76,6 @@ from posthog.models.filters.path_filter import PathFilter
 from posthog.models.filters.stickiness_filter import StickinessFilter
 from posthog.models.insight import InsightViewed
 from posthog.models.utils import UUIDT
-from posthog.permissions import (
-    ProjectMembershipNecessaryPermissions,
-    TeamMemberAccessPermission,
-)
 from posthog.queries.funnels import (
     ClickhouseFunnelTimeToConvert,
     ClickhouseFunnelTrends,
@@ -566,16 +561,11 @@ class InsightSerializer(InsightBasicSerializer, UserPermissionsSerializerMixin):
 
 class InsightViewSet(
     TaggedItemViewSetMixin,
-    StructuredViewSetMixin,
+    TeamAndOrgViewSetMixin,
     ForbidDestroyModel,
     viewsets.ModelViewSet,
 ):
     serializer_class = InsightSerializer
-    permission_classes = [
-        IsAuthenticated,
-        ProjectMembershipNecessaryPermissions,
-        TeamMemberAccessPermission,
-    ]
     throttle_classes = [
         ClickHouseBurstRateThrottle,
         ClickHouseSustainedRateThrottle,
@@ -584,6 +574,7 @@ class InsightViewSet(
     filter_backends = [DjangoFilterBackend]
     filterset_fields = ["short_id", "created_by"]
     include_in_docs = True
+    sharing_enabled_actions = ["retrieve", "list"]
 
     retention_query_class = Retention
     stickiness_query_class = Stickiness
@@ -598,22 +589,10 @@ class InsightViewSet(
             return InsightBasicSerializer
         return super().get_serializer_class()
 
-    def get_authenticators(self):
-        return [SharingAccessTokenAuthentication(), *super().get_authenticators()]
-
     def get_serializer_context(self) -> Dict[str, Any]:
         context = super().get_serializer_context()
         context["is_shared"] = isinstance(self.request.successful_authenticator, SharingAccessTokenAuthentication)
         return context
-
-    def get_permissions(self):
-        if isinstance(self.request.successful_authenticator, SharingAccessTokenAuthentication) and self.action in (
-            "retrieve",
-            "list",
-        ):
-            # Anonymous users authenticated via SharingAccessTokenAuthentication get read-only access to insights
-            return []
-        return super().get_permissions()
 
     def get_queryset(self) -> QuerySet:
         queryset: QuerySet
@@ -821,13 +800,10 @@ Using the correct cache and enriching the response with dashboard specific confi
     )
     @action(methods=["GET", "POST"], detail=False)
     def trend(self, request: request.Request, *args: Any, **kwargs: Any):
+        timings = HogQLTimings()
         try:
-            serializer = TrendSerializer(request=request)
-            serializer.is_valid(raise_exception=True)
-        except Exception as e:
-            capture_exception(e)
-        try:
-            result = self.calculate_trends(request)
+            with timings.measure("calculate"):
+                result = self.calculate_trends(request)
         except HogQLException as e:
             raise ValidationError(str(e))
         filter = Filter(request=request, team=self.team)
@@ -865,6 +841,9 @@ Using the correct cache and enriching the response with dashboard specific confi
                 date_to=filter.date_to.strftime("%Y-%m-%d"),
             )
             return response
+
+        result["timings"] = [val.model_dump() for val in timings.to_list()]
+
         return Response({**result, "next": next})
 
     @cached_by_filters
@@ -907,17 +886,15 @@ Using the correct cache and enriching the response with dashboard specific confi
     )
     @action(methods=["GET", "POST"], detail=False)
     def funnel(self, request: request.Request, *args: Any, **kwargs: Any) -> Response:
+        timings = HogQLTimings()
         try:
-            serializer = FunnelSerializer(request=request)
-            serializer.is_valid(raise_exception=True)
-        except Exception as e:
-            capture_exception(e)
-        try:
-            funnel = self.calculate_funnel(request)
+            with timings.measure("calculate"):
+                funnel = self.calculate_funnel(request)
         except HogQLException as e:
             raise ValidationError(str(e))
 
         funnel["result"] = protect_old_clients_from_multi_property_default(request.data, funnel["result"])
+        funnel["timings"] = [val.model_dump() for val in timings.to_list()]
 
         return Response(funnel)
 
@@ -949,19 +926,23 @@ Using the correct cache and enriching the response with dashboard specific confi
     # - start_entity: (dict) specifies id and type of the entity to focus retention on
     # - **shared filter types
     # ******************************************
-    @action(methods=["GET"], detail=False)
+    @action(methods=["GET", "POST"], detail=False)
     def retention(self, request: request.Request, *args: Any, **kwargs: Any) -> Response:
+        timings = HogQLTimings()
         try:
-            result = self.calculate_retention(request)
+            with timings.measure("calculate"):
+                result = self.calculate_retention(request)
         except HogQLException as e:
             raise ValidationError(str(e))
+
+        result["timings"] = [val.model_dump() for val in timings.to_list()]
         return Response(result)
 
     @cached_by_filters
     def calculate_retention(self, request: request.Request) -> Dict[str, Any]:
         team = self.team
         data = {}
-        if not request.GET.get("date_from"):
+        if not request.GET.get("date_from") and not request.data.get("date_from"):
             data.update({"date_from": "-11d"})
         filter = RetentionFilter(data=data, request=request, team=self.team)
         base_uri = request.build_absolute_uri("/")
@@ -977,10 +958,14 @@ Using the correct cache and enriching the response with dashboard specific confi
     # ******************************************
     @action(methods=["GET", "POST"], detail=False)
     def path(self, request: request.Request, *args: Any, **kwargs: Any) -> Response:
+        timings = HogQLTimings()
         try:
-            result = self.calculate_path(request)
+            with timings.measure("calculate"):
+                result = self.calculate_path(request)
         except HogQLException as e:
             raise ValidationError(str(e))
+
+        result["timings"] = [val.model_dump() for val in timings.to_list()]
         return Response(result)
 
     @cached_by_filters
@@ -1072,4 +1057,4 @@ Using the correct cache and enriching the response with dashboard specific confi
 
 
 class LegacyInsightViewSet(InsightViewSet):
-    legacy_team_compatibility = True
+    derive_current_team_from_user_only = True

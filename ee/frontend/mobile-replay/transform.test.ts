@@ -3,10 +3,20 @@ import { EventType } from '@rrweb/types'
 import { ifEeDescribe } from 'lib/ee.test'
 
 import { PostHogEE } from '../../../frontend/@posthog/ee/types'
+import * as incrementalSnapshotJson from './__mocks__/increment-with-child-duplication.json'
 import { validateAgainstWebSchema, validateFromMobile } from './index'
+import { wireframe } from './mobile.types'
+import { stripBarsFromWireframes } from './transformer/transformers'
 
-const heartEyesEmojiURL =
-    'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAABgAAAAYCAYAAADgdz34AAAABHNCSVQICAgIfAhkiAAAAAlwSFlzAAAApgAAAKYB3X3/OAAAABl0RVh0U29mdHdhcmUAd3d3Lmlua3NjYXBlLm9yZ5vuPBoAAANCSURBVEiJtZZPbBtFFMZ/M7ubXdtdb1xSFyeilBapySVU8h8OoFaooFSqiihIVIpQBKci6KEg9Q6H9kovIHoCIVQJJCKE1ENFjnAgcaSGC6rEnxBwA04Tx43t2FnvDAfjkNibxgHxnWb2e/u992bee7tCa00YFsffekFY+nUzFtjW0LrvjRXrCDIAaPLlW0nHL0SsZtVoaF98mLrx3pdhOqLtYPHChahZcYYO7KvPFxvRl5XPp1sN3adWiD1ZAqD6XYK1b/dvE5IWryTt2udLFedwc1+9kLp+vbbpoDh+6TklxBeAi9TL0taeWpdmZzQDry0AcO+jQ12RyohqqoYoo8RDwJrU+qXkjWtfi8Xxt58BdQuwQs9qC/afLwCw8tnQbqYAPsgxE1S6F3EAIXux2oQFKm0ihMsOF71dHYx+f3NND68ghCu1YIoePPQN1pGRABkJ6Bus96CutRZMydTl+TvuiRW1m3n0eDl0vRPcEysqdXn+jsQPsrHMquGeXEaY4Yk4wxWcY5V/9scqOMOVUFthatyTy8QyqwZ+kDURKoMWxNKr2EeqVKcTNOajqKoBgOE28U4tdQl5p5bwCw7BWquaZSzAPlwjlithJtp3pTImSqQRrb2Z8PHGigD4RZuNX6JYj6wj7O4TFLbCO/Mn/m8R+h6rYSUb3ekokRY6f/YukArN979jcW+V/S8g0eT/N3VN3kTqWbQ428m9/8k0P/1aIhF36PccEl6EhOcAUCrXKZXXWS3XKd2vc/TRBG9O5ELC17MmWubD2nKhUKZa26Ba2+D3P+4/MNCFwg59oWVeYhkzgN/JDR8deKBoD7Y+ljEjGZ0sosXVTvbc6RHirr2reNy1OXd6pJsQ+gqjk8VWFYmHrwBzW/n+uMPFiRwHB2I7ih8ciHFxIkd/3Omk5tCDV1t+2nNu5sxxpDFNx+huNhVT3/zMDz8usXC3ddaHBj1GHj/As08fwTS7Kt1HBTmyN29vdwAw+/wbwLVOJ3uAD1wi/dUH7Qei66PfyuRj4Ik9is+hglfbkbfR3cnZm7chlUWLdwmprtCohX4HUtlOcQjLYCu+fzGJH2QRKvP3UNz8bWk1qMxjGTOMThZ3kvgLI5AzFfo379UAAAAASUVORK5CYII='
+const unspecifiedBase64ImageURL =
+    'iVBORw0KGgoAAAANSUhEUgAAABgAAAAYCAYAAADgdz34AAAABHNCSVQICAgIfAhkiAAAAAlwSFlzAAAApgAAAKYB3X3/OAAAABl0RVh0U29mdHdhcmUAd3d3Lmlua3NjYXBlLm9yZ5vuPBoAAANCSURBVEiJtZZPbBtFFMZ/M7ubXdtdb1xSFyeilBapySVU8h8OoFaooFSqiihIVIpQBKci6KEg9Q6H9kovIHoCIVQJJCKE1ENFjnAgcaSGC6rEnxBwA04Tx43t2FnvDAfjkNibxgHxnWb2e/u992bee7tCa00YFsffekFY+nUzFtjW0LrvjRXrCDIAaPLlW0nHL0SsZtVoaF98mLrx3pdhOqLtYPHChahZcYYO7KvPFxvRl5XPp1sN3adWiD1ZAqD6XYK1b/dvE5IWryTt2udLFedwc1+9kLp+vbbpoDh+6TklxBeAi9TL0taeWpdmZzQDry0AcO+jQ12RyohqqoYoo8RDwJrU+qXkjWtfi8Xxt58BdQuwQs9qC/afLwCw8tnQbqYAPsgxE1S6F3EAIXux2oQFKm0ihMsOF71dHYx+f3NND68ghCu1YIoePPQN1pGRABkJ6Bus96CutRZMydTl+TvuiRW1m3n0eDl0vRPcEysqdXn+jsQPsrHMquGeXEaY4Yk4wxWcY5V/9scqOMOVUFthatyTy8QyqwZ+kDURKoMWxNKr2EeqVKcTNOajqKoBgOE28U4tdQl5p5bwCw7BWquaZSzAPlwjlithJtp3pTImSqQRrb2Z8PHGigD4RZuNX6JYj6wj7O4TFLbCO/Mn/m8R+h6rYSUb3ekokRY6f/YukArN979jcW+V/S8g0eT/N3VN3kTqWbQ428m9/8k0P/1aIhF36PccEl6EhOcAUCrXKZXXWS3XKd2vc/TRBG9O5ELC17MmWubD2nKhUKZa26Ba2+D3P+4/MNCFwg59oWVeYhkzgN/JDR8deKBoD7Y+ljEjGZ0sosXVTvbc6RHirr2reNy1OXd6pJsQ+gqjk8VWFYmHrwBzW/n+uMPFiRwHB2I7ih8ciHFxIkd/3Omk5tCDV1t+2nNu5sxxpDFNx+huNhVT3/zMDz8usXC3ddaHBj1GHj/As08fwTS7Kt1HBTmyN29vdwAw+/wbwLVOJ3uAD1wi/dUH7Qei66PfyuRj4Ik9is+hglfbkbfR3cnZm7chlUWLdwmprtCohX4HUtlOcQjLYCu+fzGJH2QRKvP3UNz8bWk1qMxjGTOMThZ3kvgLI5AzFfo379UAAAAASUVORK5CYII='
+
+const heartEyesEmojiURL = 'data:image/png;base64,' + unspecifiedBase64ImageURL
+
+function fakeWireframe(type: string, children?: wireframe[]): wireframe {
+    // this is a fake so we can force the type
+    return { type, childWireframes: children || [] } as Partial<wireframe> as wireframe
+}
 
 describe('replay/transform', () => {
     describe('validation', () => {
@@ -346,6 +356,12 @@ describe('replay/transform', () => {
             ])
             expect(textEvent).toMatchSnapshot()
         })
+
+        test('incremental mutations de-duplicate the tree', () => {
+            const conversion = posthogEEModule.mobileReplay?.transformEventToWeb(incrementalSnapshotJson)
+            expect(conversion).toMatchSnapshot()
+        })
+
         test('omitting x and y is equivalent to setting them to 0', () => {
             expect(
                 posthogEEModule.mobileReplay?.transformToWeb([
@@ -366,6 +382,158 @@ describe('replay/transform', () => {
                 ])
             ).toMatchSnapshot()
         })
+
+        test('can convert status bar', () => {
+            const converted = posthogEEModule.mobileReplay?.transformToWeb([
+                {
+                    data: {
+                        width: 300,
+                        height: 600,
+                    },
+                    timestamp: 1,
+                    type: 4,
+                },
+                {
+                    type: 2,
+                    data: {
+                        wireframes: [
+                            {
+                                id: 12345,
+                                type: 'status_bar',
+                                // _we'll process the x and y, but they should always be 0
+                                x: 0,
+                                y: 0,
+                                // we'll process the width
+                                // width: 100,
+                                height: 30,
+                                style: {
+                                    // we can't expect to receive all of these values,
+                                    // but we'll handle them, because that's easier than not doing
+                                    color: '#ee3ee4',
+                                    borderColor: '#ee3ee4',
+                                    borderWidth: '4',
+                                    borderRadius: '10px',
+                                    backgroundColor: '#000000',
+                                },
+                            },
+                            {
+                                id: 12345,
+                                type: 'status_bar',
+                                x: 13,
+                                y: 17,
+                                width: 100,
+                                // zero height is respected
+                                height: 0,
+                                // as with styling we don't expect to receive these values,
+                                // but we'll respect them if they are present
+                                horizontalAlign: 'right',
+                                verticalAlign: 'top',
+                                fontSize: '12px',
+                                fontFamily: 'sans-serif',
+                            },
+                        ],
+                    },
+                    timestamp: 1,
+                },
+            ])
+            expect(converted).toMatchSnapshot()
+        })
+
+        test('can convert navigation bar', () => {
+            const converted = posthogEEModule.mobileReplay?.transformToWeb([
+                {
+                    data: {
+                        width: 300,
+                        height: 600,
+                    },
+                    timestamp: 1,
+                    type: 4,
+                },
+                {
+                    type: 2,
+                    data: {
+                        wireframes: [
+                            {
+                                id: 12345,
+                                type: 'navigation_bar',
+                                // we respect x and y but expect this to be at the bottom of the screen
+                                x: 11,
+                                y: 12,
+                                // we respect width but expect it to be fullscreen
+                                width: 100,
+                                height: 30,
+                                // as with status bar, we don't expect to receive all of these values,
+                                // but we'll respect them if they are present
+                                style: {
+                                    color: '#ee3ee4',
+                                    borderColor: '#ee3ee4',
+                                    borderWidth: '4',
+                                    borderRadius: '10px',
+                                },
+                            },
+                        ],
+                    },
+                    timestamp: 1,
+                },
+            ])
+            expect(converted).toMatchSnapshot()
+        })
+
+        test('can set background image to base64 png', () => {
+            const converted = posthogEEModule.mobileReplay?.transformToWeb([
+                {
+                    data: {
+                        width: 300,
+                        height: 600,
+                    },
+                    timestamp: 1,
+                    type: 4,
+                },
+                {
+                    type: 2,
+                    data: {
+                        wireframes: [
+                            {
+                                id: 12345,
+                                type: 'div',
+                                x: 0,
+                                y: 0,
+                                height: 30,
+                                style: { backgroundImage: heartEyesEmojiURL },
+                            },
+                            {
+                                id: 12346,
+                                type: 'div',
+                                x: 0,
+                                y: 0,
+                                height: 30,
+                                style: { backgroundImage: unspecifiedBase64ImageURL },
+                            },
+                            {
+                                id: 12346,
+                                type: 'div',
+                                x: 0,
+                                y: 0,
+                                height: 30,
+                                style: { backgroundImage: unspecifiedBase64ImageURL, backgroundSize: 'cover' },
+                            },
+                            {
+                                id: 12346,
+                                type: 'div',
+                                x: 0,
+                                y: 0,
+                                height: 30,
+                                // should be ignored
+                                style: { backgroundImage: null },
+                            },
+                        ],
+                    },
+                    timestamp: 1,
+                },
+            ])
+            expect(converted).toMatchSnapshot()
+        })
+
         describe('inputs', () => {
             test('buttons with nested elements', () => {
                 expect(
@@ -886,6 +1054,42 @@ describe('replay/transform', () => {
                         timestamp: 1,
                     })
                 ).toMatchSnapshot()
+            })
+        })
+    })
+
+    describe('separate status and navbar from other wireframes', () => {
+        it('no-op', () => {
+            expect(stripBarsFromWireframes([])).toEqual({
+                appNodes: [],
+                statusBar: undefined,
+                navigationBar: undefined,
+            })
+        })
+
+        it('top-level status-bar', () => {
+            const statusBar = fakeWireframe('status_bar')
+            expect(stripBarsFromWireframes([statusBar])).toEqual({ appNodes: [], statusBar, navigationBar: undefined })
+        })
+
+        it('top-level nav-bar', () => {
+            const navBar = fakeWireframe('navigation_bar')
+            expect(stripBarsFromWireframes([navBar])).toEqual({
+                appNodes: [],
+                statusBar: undefined,
+                navigationBar: navBar,
+            })
+        })
+
+        it('nested nav-bar', () => {
+            const navBar = fakeWireframe('navigation_bar')
+            const sourceWithNavBar = [
+                fakeWireframe('div', [fakeWireframe('div'), fakeWireframe('div', [navBar, fakeWireframe('div')])]),
+            ]
+            expect(stripBarsFromWireframes(sourceWithNavBar)).toEqual({
+                appNodes: [fakeWireframe('div', [fakeWireframe('div'), fakeWireframe('div', [fakeWireframe('div')])])],
+                statusBar: undefined,
+                navigationBar: navBar,
             })
         })
     })

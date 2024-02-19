@@ -28,11 +28,13 @@ interface PropertyFiltersProps {
     orFiltering?: boolean
     propertyGroupType?: FilterLogicalOperator | null
     addText?: string | null
+    buttonText?: string
     hasRowOperator?: boolean
     sendAllKeyUpdates?: boolean
     allowNew?: boolean
     errorMessages?: JSX.Element[] | null
     propertyAllowList?: { [key in TaxonomicFilterGroupType]?: string[] }
+    allowRelativeDateOptions?: boolean
 }
 
 export function PropertyFilters({
@@ -50,11 +52,13 @@ export function PropertyFilters({
     logicalRowDivider = false,
     propertyGroupType = null,
     addText = null,
+    buttonText = 'Add filter',
     hasRowOperator = true,
     sendAllKeyUpdates = false,
     allowNew = true,
     errorMessages = null,
     propertyAllowList,
+    allowRelativeDateOptions,
 }: PropertyFiltersProps): JSX.Element {
     const logicProps = { propertyFilters, onChange, pageKey, sendAllKeyUpdates }
     const { filters, filtersWithNew } = useValues(propertyFilterLogic(logicProps))
@@ -89,7 +93,7 @@ export function PropertyFilters({
                                     pageKey={pageKey}
                                     showConditionBadge={showConditionBadge}
                                     disablePopover={disablePopover || orFiltering}
-                                    label="Add filter"
+                                    label={buttonText}
                                     onRemove={remove}
                                     orFiltering={orFiltering}
                                     filterComponent={(onComplete) => (
@@ -112,6 +116,7 @@ export function PropertyFilters({
                                             }}
                                             propertyAllowList={propertyAllowList}
                                             taxonomicFilterOptionsFromProp={taxonomicFilterOptionsFromProp}
+                                            allowRelativeDateOptions={allowRelativeDateOptions}
                                         />
                                     )}
                                     errorMessage={errorMessages && errorMessages[index]}

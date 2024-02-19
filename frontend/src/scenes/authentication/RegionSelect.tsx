@@ -2,8 +2,8 @@ import { LemonModal, LemonSelect } from '@posthog/lemon-ui'
 import { useValues } from 'kea'
 import { router } from 'kea-router'
 import { CLOUD_HOSTNAMES, FEATURE_FLAGS } from 'lib/constants'
-import { PureField } from 'lib/forms/Field'
 import { IconCheckmark } from 'lib/lemon-ui/icons'
+import { LemonField } from 'lib/lemon-ui/LemonField'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { useState } from 'react'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
@@ -75,7 +75,7 @@ const RegionSelect = (): JSX.Element | null => {
     }
     return (
         <>
-            <PureField label="Data region" onExplanationClick={() => setRegionModalOpen(true)}>
+            <LemonField.Pure label="Data region" onExplanationClick={() => setRegionModalOpen(true)}>
                 <LemonSelect
                     onChange={(region) => {
                         if (!region) {
@@ -98,7 +98,7 @@ const RegionSelect = (): JSX.Element | null => {
                     ]}
                     fullWidth
                 />
-            </PureField>
+            </LemonField.Pure>
 
             <WhyCloudModal open={regionModalOpen} setOpen={setRegionModalOpen} />
         </>

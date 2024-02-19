@@ -27,7 +27,6 @@ from django.utils import timezone
 from rest_framework import serializers, viewsets
 from rest_framework.decorators import action
 from rest_framework.exceptions import ValidationError
-from rest_framework.permissions import IsAuthenticated
 from rest_framework.request import Request
 from rest_framework.response import Response
 from rest_framework.settings import api_settings
@@ -36,7 +35,7 @@ from sentry_sdk.api import capture_exception
 
 from posthog.api.forbid_destroy_model import ForbidDestroyModel
 from posthog.api.person import get_funnel_actor_class
-from posthog.api.routing import StructuredViewSetMixin
+from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 from posthog.api.utils import get_target_entity
 from posthog.client import sync_execute
@@ -56,6 +55,7 @@ from posthog.hogql.context import HogQLContext
 from posthog.models import Cohort, FeatureFlag, User, Person
 from posthog.models.async_deletion import AsyncDeletion, DeletionType
 from posthog.models.cohort.util import get_dependent_cohorts, print_cohort_hogql_query
+from posthog.models.cohort import CohortOrEmpty
 from posthog.models.filters.filter import Filter
 from posthog.models.filters.path_filter import PathFilter
 from posthog.models.filters.stickiness_filter import StickinessFilter
@@ -63,10 +63,6 @@ from posthog.models.filters.lifecycle_filter import LifecycleFilter
 from posthog.models.person.sql import (
     INSERT_COHORT_ALL_PEOPLE_THROUGH_PERSON_ID,
     PERSON_STATIC_COHORT_TABLE,
-)
-from posthog.permissions import (
-    ProjectMembershipNecessaryPermissions,
-    TeamMemberAccessPermission,
 )
 from posthog.queries.actor_base_query import (
     ActorBaseQuery,
@@ -205,7 +201,7 @@ class CohortSerializer(serializers.ModelSerializer):
                             )
 
                     if prop.type == "cohort":
-                        nested_cohort = Cohort.objects.get(pk=prop.value)
+                        nested_cohort = Cohort.objects.get(pk=prop.value, team_id=self.context["team_id"])
                         dependent_cohorts = get_dependent_cohorts(nested_cohort)
                         for dependent_cohort in [nested_cohort, *dependent_cohorts]:
                             if (
@@ -286,14 +282,9 @@ class CohortSerializer(serializers.ModelSerializer):
         return representation
 
 
-class CohortViewSet(StructuredViewSetMixin, ForbidDestroyModel, viewsets.ModelViewSet):
+class CohortViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.ModelViewSet):
     queryset = Cohort.objects.all()
     serializer_class = CohortSerializer
-    permission_classes = [
-        IsAuthenticated,
-        ProjectMembershipNecessaryPermissions,
-        TeamMemberAccessPermission,
-    ]
 
     def get_queryset(self) -> QuerySet:
         queryset = super().get_queryset()
@@ -442,7 +433,7 @@ class CohortViewSet(StructuredViewSetMixin, ForbidDestroyModel, viewsets.ModelVi
 
 
 class LegacyCohortViewSet(CohortViewSet):
-    legacy_team_compatibility = True
+    derive_current_team_from_user_only = True
 
 
 def will_create_loops(cohort: Cohort) -> bool:
@@ -596,10 +587,10 @@ def get_cohort_actors_for_feature_flag(cohort_id: int, flag: str, team_id: int, 
     if not feature_flag.active or feature_flag.deleted or feature_flag.aggregation_group_type_index is not None:
         return []
 
-    cohort = Cohort.objects.get(pk=cohort_id)
+    cohort = Cohort.objects.get(pk=cohort_id, team_id=team_id)
     matcher_cache = FlagsMatcherCache(team_id)
     uuids_to_add_to_cohort = []
-    cohorts_cache = {}
+    cohorts_cache: Dict[int, CohortOrEmpty] = {}
 
     if feature_flag.uses_cohorts:
         # TODO: Consider disabling flags with cohorts for creating static cohorts
@@ -624,7 +615,7 @@ def get_cohort_actors_for_feature_flag(cohort_id: int, flag: str, team_id: int, 
         # iterate through all persons
         queryset = (
             Person.objects.filter(team_id=team_id)
-            .filter(property_group_to_Q(flag_property_group, cohorts_cache=cohorts_cache))
+            .filter(property_group_to_Q(team_id, flag_property_group, cohorts_cache=cohorts_cache))
             .order_by("id")
         )
         # get batchsize number of people at a time
@@ -708,7 +699,7 @@ def get_cohort_actors_for_feature_flag(cohort_id: int, flag: str, team_id: int, 
         capture_exception(err)
 
 
-def get_default_person_property(prop: Property, cohorts_cache: Dict[int, Cohort]):
+def get_default_person_property(prop: Property, cohorts_cache: Dict[int, CohortOrEmpty]):
     default_person_properties = {}
 
     if prop.operator not in ("is_set", "is_not_set") and prop.type == "person":
@@ -724,7 +715,7 @@ def get_default_person_property(prop: Property, cohorts_cache: Dict[int, Cohort]
     return default_person_properties
 
 
-def get_default_person_properties_for_cohort(cohort: Cohort, cohorts_cache: Dict[int, Cohort]) -> Dict[str, str]:
+def get_default_person_properties_for_cohort(cohort: Cohort, cohorts_cache: Dict[int, CohortOrEmpty]) -> Dict[str, str]:
     """
     Returns a dictionary of default person properties to use when evaluating a feature flag
     """

@@ -17,7 +17,7 @@ export function LemonCalendarRange({ value, onChange, onClose, months }: LemonCa
     // Keep a sanitised and cached copy of the selected range
     const [[rangeStart, rangeEnd], setRange] = useState([
         value?.[0] ? value[0].startOf('day') : null,
-        value?.[1] ? value[1].startOf('day') : null,
+        value?.[1] ? value[1].endOf('day') : null,
     ])
 
     return (

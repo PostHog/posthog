@@ -81,7 +81,6 @@ export function NotebooksTable(): JSX.Element {
                                 },
                             },
                         ]}
-                        actionable
                     >
                         <LemonButton aria-label="more" icon={<IconEllipsis />} size="small" />
                     </LemonMenu>

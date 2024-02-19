@@ -11,8 +11,6 @@ export const humanFriendlyTabName = (tab: PipelineTab): string => {
     switch (tab) {
         case PipelineTab.Overview:
             return 'Overview'
-        case PipelineTab.Filters:
-            return 'Filters'
         case PipelineTab.Transformations:
             return 'Transformations'
         case PipelineTab.Destinations:

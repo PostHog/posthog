@@ -149,9 +149,34 @@
   FROM events
   WHERE equals(events.team_id, 2)
   ORDER BY toTimeZone(events.timestamp, 'UTC') ASC
-  LIMIT 100 SETTINGS readonly=2,
-                     max_execution_time=60,
-                     allow_experimental_object_type=1
+  LIMIT 101
+  OFFSET 0 SETTINGS readonly=2,
+                    max_execution_time=60,
+                    allow_experimental_object_type=1
+  '''
+# ---
+# name: TestQuery.test_full_hogql_query_async
+  '''
+  /* user_id:459 celery:posthog.tasks.tasks.process_query_task */
+  SELECT events.uuid AS uuid,
+         events.event AS event,
+         events.properties AS properties,
+         toTimeZone(events.timestamp, 'UTC') AS timestamp,
+         events.distinct_id AS distinct_id,
+         events.elements_chain AS elements_chain,
+         toTimeZone(events.created_at, 'UTC') AS created_at,
+         events.`$session_id` AS `$session_id`,
+         events.`$group_0` AS `$group_0`,
+         events.`$group_1` AS `$group_1`,
+         events.`$group_2` AS `$group_2`,
+         events.`$group_3` AS `$group_3`,
+         events.`$group_4` AS `$group_4`
+  FROM events
+  WHERE equals(events.team_id, 2)
+  LIMIT 101
+  OFFSET 0 SETTINGS readonly=2,
+                    max_execution_time=600,
+                    allow_experimental_object_type=1
   '''
 # ---
 # name: TestQuery.test_full_hogql_query_materialized
@@ -163,9 +188,10 @@
   FROM events
   WHERE equals(events.team_id, 2)
   ORDER BY toTimeZone(events.timestamp, 'UTC') ASC
-  LIMIT 100 SETTINGS readonly=2,
-                     max_execution_time=60,
-                     allow_experimental_object_type=1
+  LIMIT 101
+  OFFSET 0 SETTINGS readonly=2,
+                    max_execution_time=60,
+                    allow_experimental_object_type=1
   '''
 # ---
 # name: TestQuery.test_full_hogql_query_view
@@ -177,9 +203,10 @@
   FROM events
   WHERE equals(events.team_id, 2)
   ORDER BY toTimeZone(events.timestamp, 'UTC') ASC
-  LIMIT 100 SETTINGS readonly=2,
-                     max_execution_time=60,
-                     allow_experimental_object_type=1
+  LIMIT 101
+  OFFSET 0 SETTINGS readonly=2,
+                    max_execution_time=60,
+                    allow_experimental_object_type=1
   '''
 # ---
 # name: TestQuery.test_full_hogql_query_view.1
@@ -195,9 +222,10 @@
      FROM events
      WHERE equals(events.team_id, 2)
      ORDER BY toTimeZone(events.timestamp, 'UTC') ASC) AS event_view
-  LIMIT 100 SETTINGS readonly=2,
-                     max_execution_time=60,
-                     allow_experimental_object_type=1
+  LIMIT 101
+  OFFSET 0 SETTINGS readonly=2,
+                    max_execution_time=60,
+                    allow_experimental_object_type=1
   '''
 # ---
 # name: TestQuery.test_hogql_property_filter

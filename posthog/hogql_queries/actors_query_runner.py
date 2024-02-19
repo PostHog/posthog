@@ -1,3 +1,4 @@
+import itertools
 from datetime import timedelta
 from typing import List, Generator, Sequence, Iterator, Optional
 from posthog.hogql import ast
@@ -38,13 +39,41 @@ class ActorsQueryRunner(QueryRunner):
             return GroupStrategy(self.group_type_index, team=self.team, query=self.query, paginator=self.paginator)
         return PersonStrategy(team=self.team, query=self.query, paginator=self.paginator)
 
-    def enrich_with_actors(self, results, actor_column_index, actors_lookup) -> Generator[List, None, None]:
+    def get_recordings(self, event_results, recordings_lookup) -> Generator[dict, None, None]:
+        return (
+            {"session_id": session_id, "events": recordings_lookup[session_id]}
+            for session_id in (event[2] for event in event_results)
+            if session_id in recordings_lookup
+        )
+
+    def enrich_with_actors(
+        self,
+        results,
+        actor_column_index,
+        actors_lookup,
+        recordings_column_index: Optional[int],
+        recordings_lookup: Optional[dict[str, list[dict]]],
+    ) -> Generator[List, None, None]:
         for result in results:
             new_row = list(result)
             actor_id = str(result[actor_column_index])
             actor = actors_lookup.get(actor_id)
             new_row[actor_column_index] = actor if actor else {"id": actor_id}
+            if recordings_column_index is not None and recordings_lookup is not None:
+                new_row[recordings_column_index] = (
+                    self.get_recordings(result[recordings_column_index], recordings_lookup) or None
+                )
             yield new_row
+
+    def prepare_recordings(self, column_name, input_columns):
+        if column_name != "person" or "matched_recordings" not in input_columns:
+            return None, None
+
+        column_index_events = input_columns.index("matched_recordings")
+        matching_events_list = itertools.chain.from_iterable(
+            (row[column_index_events] for row in self.paginator.results)
+        )
+        return column_index_events, self.strategy.get_recordings(matching_events_list)
 
     def calculate(self) -> ActorsQueryResponse:
         response = self.paginator.execute_hogql_query(
@@ -60,10 +89,15 @@ class ActorsQueryRunner(QueryRunner):
 
         enrich_columns = filter(lambda column: column in ("person", "group"), input_columns)
         for column_name in enrich_columns:
-            actor_ids = (row[input_columns.index(column_name)] for row in self.paginator.results)
+            actor_column_index = input_columns.index(column_name)
+            actor_ids = (row[actor_column_index] for row in self.paginator.results)
             actors_lookup = self.strategy.get_actors(actor_ids)
+            recordings_column_index, recordings_lookup = self.prepare_recordings(column_name, input_columns)
+
             missing_actors_count = len(self.paginator.results) - len(actors_lookup)
-            results = self.enrich_with_actors(results, input_columns.index(column_name), actors_lookup)
+            results = self.enrich_with_actors(
+                results, actor_column_index, actors_lookup, recordings_column_index, recordings_lookup
+            )
 
         return ActorsQueryResponse(
             results=results,
@@ -125,12 +159,15 @@ class ActorsQueryRunner(QueryRunner):
             group_by = []
             aggregations = []
             for expr in self.input_columns():
+                column: ast.Expr = parse_expr(expr)
+
                 if expr == "person.$delete":
                     column = ast.Constant(value=1)
                 elif expr == self.strategy.field:
                     column = ast.Field(chain=[self.strategy.origin_id])
-                else:
-                    column = parse_expr(expr)
+                elif expr == "matched_recordings":
+                    column = ast.Field(chain=["matching_events"])  # TODO: Hmm?
+
                 columns.append(column)
                 if has_aggregation(column):
                     aggregations.append(column)
@@ -156,13 +193,14 @@ class ActorsQueryRunner(QueryRunner):
             else:
                 having = ast.And(exprs=having_list)
 
+        order_by: list[ast.OrderExpr]
         with self.timings.measure("order"):
             if self.query.orderBy is not None:
                 strategy_order_by = self.strategy.order_by()
                 if strategy_order_by is not None:
                     order_by = strategy_order_by
                 else:
-                    order_by = [parse_order_expr(column, timings=self.timings) for column in self.query.orderBy]
+                    order_by = [parse_order_expr(col, timings=self.timings) for col in self.query.orderBy]
             elif "count()" in self.input_columns():
                 order_by = [ast.OrderExpr(expr=parse_expr("count()"), order="DESC")]
             elif len(aggregations) > 0:

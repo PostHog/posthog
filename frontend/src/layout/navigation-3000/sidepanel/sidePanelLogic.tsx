@@ -1,11 +1,9 @@
-import { afterMount, connect, kea, path, reducers, selectors } from 'kea'
-import { subscriptions } from 'kea-subscriptions'
-import { activationLogic } from 'lib/components/ActivationSidebar/activationLogic'
+import { connect, kea, path, selectors } from 'kea'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import posthog from 'posthog-js'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 
+import { activationLogic } from '~/layout/navigation-3000/sidepanel/panels/activation/activationLogic'
 import { SidePanelTab } from '~/types'
 
 import { sidePanelActivityLogic } from './panels/activity/sidePanelActivityLogic'
@@ -17,7 +15,6 @@ const ALWAYS_EXTRA_TABS = [
     SidePanelTab.Settings,
     SidePanelTab.FeaturePreviews,
     SidePanelTab.Activity,
-    SidePanelTab.Welcome,
     SidePanelTab.Status,
 ]
 
@@ -42,40 +39,7 @@ export const sidePanelLogic = kea<sidePanelLogicType>([
         actions: [sidePanelStateLogic, ['closeSidePanel', 'openSidePanel']],
     }),
 
-    reducers(() => ({
-        welcomeAnnouncementAcknowledged: [
-            false,
-            { persist: true },
-            {
-                closeSidePanel: () => true,
-                openSidePanel: (_, { tab }) => tab !== SidePanelTab.Welcome,
-            },
-        ],
-    })),
-    subscriptions({
-        welcomeAnnouncementAcknowledged: (welcomeAnnouncementAcknowledged) => {
-            if (welcomeAnnouncementAcknowledged) {
-                // Linked to the FF to ensure it isn't shown again
-                posthog.capture('3000 welcome acknowledged', {
-                    $set: {
-                        '3000-welcome-acknowledged': true,
-                    },
-                })
-            }
-        },
-    }),
     selectors({
-        shouldShowWelcomeAnnouncement: [
-            (s) => [s.welcomeAnnouncementAcknowledged, s.featureFlags],
-            (welcomeAnnouncementAcknowledged, featureFlags) => {
-                if (featureFlags[FEATURE_FLAGS.POSTHOG_3000_WELCOME_ANNOUNCEMENT] && !welcomeAnnouncementAcknowledged) {
-                    return true
-                }
-
-                return false
-            },
-        ],
-
         enabledTabs: [
             (s) => [s.isCloudOrDev, s.isReady, s.hasCompletedAllTasks, s.featureFlags],
             (isCloudOrDev, isReady, hasCompletedAllTasks, featureflags) => {
@@ -95,7 +59,6 @@ export const sidePanelLogic = kea<sidePanelLogicType>([
                 }
                 tabs.push(SidePanelTab.FeaturePreviews)
                 tabs.push(SidePanelTab.Settings)
-                tabs.push(SidePanelTab.Welcome)
 
                 if (isCloudOrDev && featureflags[FEATURE_FLAGS.SIDEPANEL_STATUS]) {
                     tabs.push(SidePanelTab.Status)
@@ -137,11 +100,5 @@ export const sidePanelLogic = kea<sidePanelLogicType>([
                 return enabledTabs.filter((tab: any) => !visibleTabs.includes(tab))
             },
         ],
-    }),
-
-    afterMount(({ values }) => {
-        if (!values.sidePanelOpen && values.shouldShowWelcomeAnnouncement) {
-            sidePanelStateLogic.findMounted()?.actions.openSidePanel(SidePanelTab.Welcome)
-        }
     }),
 ])

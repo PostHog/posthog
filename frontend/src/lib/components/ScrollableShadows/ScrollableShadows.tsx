@@ -2,7 +2,7 @@ import './ScrollableShadows.scss'
 
 import { clsx } from 'clsx'
 import { useScrollable } from 'lib/hooks/useScrollable'
-import { MutableRefObject } from 'react'
+import React, { MutableRefObject } from 'react'
 
 export type ScrollableShadowsProps = {
     children: React.ReactNode
@@ -12,14 +12,17 @@ export type ScrollableShadowsProps = {
     scrollRef?: MutableRefObject<HTMLDivElement | null>
 }
 
-export const ScrollableShadows = ({
-    children,
-    direction,
-    className,
-    innerClassName,
-    scrollRef,
-}: ScrollableShadowsProps): JSX.Element => {
-    const { ref, isScrollableLeft, isScrollableRight, isScrollableBottom, isScrollableTop } = useScrollable()
+export const ScrollableShadows = React.forwardRef<HTMLDivElement, ScrollableShadowsProps>(function ScrollableShadows(
+    { children, direction, className, innerClassName, scrollRef },
+    ref
+) {
+    const {
+        ref: scrollRefScrollable,
+        isScrollableLeft,
+        isScrollableRight,
+        isScrollableBottom,
+        isScrollableTop,
+    } = useScrollable()
 
     return (
         <div
@@ -33,13 +36,14 @@ export const ScrollableShadows = ({
                 direction === 'vertical' && isScrollableBottom && 'ScrollableShadows--bottom',
                 className
             )}
+            ref={ref}
         >
             <div
                 className={clsx('ScrollableShadows__inner', innerClassName)}
-                ref={(theRef) => {
-                    ref.current = theRef
+                ref={(refValue) => {
+                    scrollRefScrollable.current = refValue
                     if (scrollRef) {
-                        scrollRef.current = theRef
+                        scrollRef.current = refValue
                     }
                 }}
             >
@@ -47,4 +51,4 @@ export const ScrollableShadows = ({
             </div>
         </div>
     )
-}
+})

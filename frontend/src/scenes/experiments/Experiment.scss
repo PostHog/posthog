@@ -16,20 +16,6 @@
     .experiment-preview {
         margin-bottom: 1rem;
         border-bottom: 1px solid var(--border);
-
-        .mde-slider {
-            .ant-slider-handle {
-                border: none;
-            }
-
-            .ant-slider-rail {
-                background-color: var(--primary-3000-highlight);
-            }
-
-            .ant-slider-handle:focus {
-                box-shadow: 0 0 0 5px var(--primary-3000-highlight);
-            }
-        }
     }
 
     .variants {
@@ -150,14 +136,6 @@
             margin-right: 4px;
             font-weight: 900;
             content: '\2022';
-        }
-
-        .ant-progress-inner {
-            border-radius: var(--radius);
-
-            .ant-progress-bg {
-                border-radius: var(--radius);
-            }
         }
     }
 

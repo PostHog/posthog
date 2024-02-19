@@ -1,6 +1,6 @@
 import api from 'lib/api'
 import { dayjs } from 'lib/dayjs'
-import { KEY_MAPPING } from 'lib/taxonomy'
+import { CORE_FILTER_DEFINITIONS_BY_GROUP } from 'lib/taxonomy'
 import { ensureStringIsNotBlank, humanFriendlyNumber, objectsEqual } from 'lib/utils'
 import { getCurrentTeamId } from 'lib/utils/getAppContext'
 import { ReactNode } from 'react'
@@ -48,8 +48,8 @@ export const getDisplayNameFromEntityFilter = (
     // Make sure names aren't blank strings
     const customName = ensureStringIsNotBlank(filter?.custom_name)
     let name = ensureStringIsNotBlank(filter?.name)
-    if (name && name in KEY_MAPPING.event) {
-        name = KEY_MAPPING.event[name].label
+    if (name && name in CORE_FILTER_DEFINITIONS_BY_GROUP.events) {
+        name = CORE_FILTER_DEFINITIONS_BY_GROUP.events[name].label
     }
     if (isAllEventsEntityFilter(filter)) {
         name = 'All events'
@@ -63,8 +63,8 @@ export const getDisplayNameFromEntityNode = (node: EventsNode | ActionsNode, isC
     // Make sure names aren't blank strings
     const customName = ensureStringIsNotBlank(node?.custom_name)
     let name = ensureStringIsNotBlank(node?.name)
-    if (name && name in KEY_MAPPING.event) {
-        name = KEY_MAPPING.event[name].label
+    if (name && name in CORE_FILTER_DEFINITIONS_BY_GROUP.events) {
+        name = CORE_FILTER_DEFINITIONS_BY_GROUP.events[name].label
     }
     if (isEventsNode(node) && node.event === null) {
         name = 'All events'
@@ -219,7 +219,7 @@ export const BREAKDOWN_OTHER_NUMERIC_LABEL = 9007199254740991 // pow(2, 53) - 1
 export const BREAKDOWN_NULL_STRING_LABEL = '$$_posthog_breakdown_null_$$'
 export const BREAKDOWN_NULL_NUMERIC_LABEL = 9007199254740990 // pow(2, 53) - 2
 
-export function isOtherBreakdown(breakdown_value: string | number | null | undefined): boolean {
+export function isOtherBreakdown(breakdown_value: string | number | null | undefined | ReactNode): boolean {
     return breakdown_value === BREAKDOWN_OTHER_STRING_LABEL || breakdown_value === BREAKDOWN_OTHER_NUMERIC_LABEL
 }
 
@@ -263,7 +263,7 @@ export function formatBreakdownLabel(
         return cohorts?.filter((c) => c.id == breakdown_value)[0]?.name ?? (breakdown_value || '').toString()
     } else if (typeof breakdown_value == 'number') {
         return isOtherBreakdown(breakdown_value)
-            ? 'Other'
+            ? 'Other (Groups all remaining values)'
             : isNullBreakdown(breakdown_value)
             ? 'None'
             : formatPropertyValueForDisplay
@@ -271,7 +271,7 @@ export function formatBreakdownLabel(
             : String(breakdown_value)
     } else if (typeof breakdown_value == 'string') {
         return isOtherBreakdown(breakdown_value) || breakdown_value === 'nan'
-            ? 'Other'
+            ? 'Other (Groups all remaining values)'
             : isNullBreakdown(breakdown_value) || breakdown_value === ''
             ? 'None'
             : breakdown_value
@@ -296,6 +296,10 @@ export function formatBreakdownType(breakdownFilter: BreakdownFilter): string {
 
 export function sortDates(dates: Array<string | null>): Array<string | null> {
     return dates.sort((a, b) => (dayjs(a).isAfter(dayjs(b)) ? 1 : -1))
+}
+
+export function sortDayJsDates(dates: Array<dayjs.Dayjs>): Array<dayjs.Dayjs> {
+    return dates.sort((a, b) => (a.isAfter(b) ? 1 : -1))
 }
 
 // Gets content-length header from a fetch Response

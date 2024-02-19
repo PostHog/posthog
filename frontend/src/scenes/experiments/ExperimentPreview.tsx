@@ -1,5 +1,4 @@
 import { LemonButton, LemonDivider, LemonInput, LemonModal, Tooltip } from '@posthog/lemon-ui'
-import { Slider } from 'antd'
 import { useActions, useValues } from 'kea'
 import { Field, Form } from 'kea-forms'
 import { InsightLabel } from 'lib/components/InsightLabel'
@@ -7,6 +6,7 @@ import { PropertyFilterButton } from 'lib/components/PropertyFilters/components/
 import { TZLabel } from 'lib/components/TZLabel'
 import { dayjs } from 'lib/dayjs'
 import { IconInfo } from 'lib/lemon-ui/icons'
+import { LemonSlider } from 'lib/lemon-ui/LemonSlider'
 import { humanFriendlyNumber } from 'lib/utils'
 import { groupFilters } from 'scenes/feature-flags/FeatureFlags'
 import { urls } from 'scenes/urls'
@@ -112,27 +112,24 @@ export function ExperimentPreview({
                                 <IconInfo className="ml-1 text-muted text-xl" />
                             </Tooltip>
                         </div>
-                        <div className="flex mde-slider">
-                            <div className="w-1/3">
-                                <Slider
-                                    defaultValue={5}
-                                    value={minimumDetectableChange}
-                                    min={1}
-                                    max={sliderMaxValue}
-                                    trackStyle={{ background: 'var(--primary-3000)' }}
-                                    handleStyle={{ background: 'var(--primary-3000)' }}
-                                    onChange={(value) => {
-                                        setExperiment({
-                                            parameters: {
-                                                ...experiment.parameters,
-                                                minimum_detectable_effect: value,
-                                            },
-                                        })
-                                    }}
-                                    tipFormatter={(value) => `${value}%`}
-                                />
-                            </div>
+                        <div className="flex gap-2">
+                            <LemonSlider
+                                value={minimumDetectableChange ?? 5}
+                                min={1}
+                                max={sliderMaxValue}
+                                step={1}
+                                onChange={(value) => {
+                                    setExperiment({
+                                        parameters: {
+                                            ...experiment.parameters,
+                                            minimum_detectable_effect: value,
+                                        },
+                                    })
+                                }}
+                                className="w-1/3"
+                            />
                             <LemonInput
+                                data-attr="min-acceptable-improvement"
                                 type="number"
                                 min={1}
                                 max={sliderMaxValue}

@@ -7,29 +7,32 @@ import typing
 from dataclasses import dataclass
 
 import psycopg
+import pyarrow as pa
 from psycopg import sql
 from temporalio import activity, workflow
 from temporalio.common import RetryPolicy
 
-from posthog.batch_exports.service import RedshiftBatchExportInputs
+from posthog.batch_exports.service import BatchExportField, RedshiftBatchExportInputs
 from posthog.temporal.batch_exports.base import PostHogWorkflow
 from posthog.temporal.batch_exports.batch_exports import (
     CreateBatchExportRunInputs,
     UpdateBatchExportRunStatusInputs,
     create_export_run,
+    default_fields,
     execute_batch_export_insert_activity,
     get_data_interval,
-    get_results_iterator,
     get_rows_count,
+    iter_records,
 )
 from posthog.temporal.batch_exports.clickhouse import get_client
-from posthog.temporal.common.logger import bind_temporal_worker_logger
 from posthog.temporal.batch_exports.metrics import get_rows_exported_metric
 from posthog.temporal.batch_exports.postgres_batch_export import (
     PostgresInsertInputs,
     create_table_in_postgres,
     postgres_connection,
 )
+from posthog.temporal.batch_exports.utils import peek_first_and_rewind
+from posthog.temporal.common.logger import bind_temporal_worker_logger
 
 
 def remove_escaped_whitespace_recursive(value):
@@ -85,6 +88,80 @@ async def redshift_connection(inputs) -> typing.AsyncIterator[psycopg.AsyncConne
     async with postgres_connection(inputs) as connection:
         connection.prepare_threshold = None
         yield connection
+
+
+def redshift_default_fields() -> list[BatchExportField]:
+    batch_export_fields = default_fields()
+    batch_export_fields.append(
+        {
+            "expression": "nullIf(JSONExtractString(properties, '$ip'), '')",
+            "alias": "ip",
+        }
+    )
+    # Fields kept or removed for backwards compatibility with legacy apps schema.
+    batch_export_fields.append({"expression": "''", "alias": "elements"})
+    batch_export_fields.append({"expression": "''", "alias": "site_url"})
+    batch_export_fields.pop(batch_export_fields.index({"expression": "created_at", "alias": "created_at"}))
+    # Team ID is (for historical reasons) an INTEGER (4 bytes) in PostgreSQL, but in ClickHouse is stored as Int64.
+    # We can't encode it as an Int64, as this includes 4 extra bytes, and PostgreSQL will reject the data with a
+    # 'incorrect binary data format' error on the column, so we cast it to Int32.
+    team_id_field = batch_export_fields.pop(
+        batch_export_fields.index(BatchExportField(expression="team_id", alias="team_id"))
+    )
+    team_id_field["expression"] = "toInt32(team_id)"
+    batch_export_fields.append(team_id_field)
+    return batch_export_fields
+
+
+RedshiftField = tuple[str, str]
+
+
+def get_redshift_fields_from_record_schema(
+    record_schema: pa.Schema, known_super_columns: list[str]
+) -> list[RedshiftField]:
+    """Generate a list of supported PostgreSQL fields from PyArrow schema.
+
+    This function is used to map custom schemas to Redshift-supported types. Some loss of precision is
+    expected.
+    """
+    pg_schema: list[RedshiftField] = []
+
+    for name in record_schema.names:
+        pa_field = record_schema.field(name)
+
+        if pa.types.is_string(pa_field.type):
+            if pa_field.name in known_super_columns:
+                pg_type = "SUPER"
+            else:
+                pg_type = "TEXT"
+
+        elif pa.types.is_signed_integer(pa_field.type):
+            if pa.types.is_int64(pa_field.type):
+                pg_type = "BIGINT"
+            else:
+                pg_type = "INTEGER"
+
+        elif pa.types.is_floating(pa_field.type):
+            if pa.types.is_float64(pa_field.type):
+                pg_type = "DOUBLE PRECISION"
+            else:
+                pg_type = "REAL"
+
+        elif pa.types.is_boolean(pa_field.type):
+            pg_type = "BOOLEAN"
+
+        elif pa.types.is_timestamp(pa_field.type):
+            if pa_field.type.tz is not None:
+                pg_type = "TIMESTAMPTZ"
+            else:
+                pg_type = "TIMESTAMP"
+
+        else:
+            raise TypeError(f"Unsupported type: {pa_field.type}")
+
+        pg_schema.append((name, pg_type))
+
+    return pg_schema
 
 
 async def insert_records_to_redshift(
@@ -232,65 +309,84 @@ async def insert_into_redshift_activity(inputs: RedshiftInsertInputs):
 
         logger.info("BatchExporting %s rows", count)
 
-        results_iterator = get_results_iterator(
+        if inputs.batch_export_schema is None:
+            fields = redshift_default_fields()
+            query_parameters = None
+
+        else:
+            fields = inputs.batch_export_schema["fields"]
+            query_parameters = inputs.batch_export_schema["values"]
+
+        record_iterator = iter_records(
             client=client,
             team_id=inputs.team_id,
             interval_start=inputs.data_interval_start,
             interval_end=inputs.data_interval_end,
             exclude_events=inputs.exclude_events,
             include_events=inputs.include_events,
+            fields=fields,
+            extra_query_parameters=query_parameters,
         )
-        properties_type = "VARCHAR(65535)" if inputs.properties_data_type == "varchar" else "SUPER"
+
+        known_super_columns = ["properties", "set", "set_once", "person_properties"]
+
+        if inputs.properties_data_type != "varchar":
+            properties_type = "SUPER"
+        else:
+            properties_type = "VARCHAR(65535)"
+
+        if inputs.batch_export_schema is None:
+            table_fields = [
+                ("uuid", "VARCHAR(200)"),
+                ("event", "VARCHAR(200)"),
+                ("properties", properties_type),
+                ("elements", "VARCHAR(65535)"),
+                ("set", properties_type),
+                ("set_once", properties_type),
+                ("distinct_id", "VARCHAR(200)"),
+                ("team_id", "INTEGER"),
+                ("ip", "VARCHAR(200)"),
+                ("site_url", "VARCHAR(200)"),
+                ("timestamp", "TIMESTAMP WITH TIME ZONE"),
+            ]
+        else:
+            first_record, record_iterator = peek_first_and_rewind(record_iterator)
+
+            column_names = [column for column in first_record.schema.names if column != "_inserted_at"]
+            record_schema = first_record.select(column_names).schema
+            table_fields = get_redshift_fields_from_record_schema(
+                record_schema, known_super_columns=known_super_columns
+            )
 
         async with redshift_connection(inputs) as connection:
             await create_table_in_postgres(
                 connection,
                 schema=inputs.schema,
                 table_name=inputs.table_name,
-                fields=[
-                    ("uuid", "VARCHAR(200)"),
-                    ("event", "VARCHAR(200)"),
-                    ("properties", properties_type),
-                    ("elements", "VARCHAR(65535)"),
-                    ("set", properties_type),
-                    ("set_once", properties_type),
-                    ("distinct_id", "VARCHAR(200)"),
-                    ("team_id", "INTEGER"),
-                    ("ip", "VARCHAR(200)"),
-                    ("site_url", "VARCHAR(200)"),
-                    ("timestamp", "TIMESTAMP WITH TIME ZONE"),
-                ],
+                fields=table_fields,
             )
 
-        schema_columns = [
-            "uuid",
-            "event",
-            "properties",
-            "elements",
-            "set",
-            "set_once",
-            "distinct_id",
-            "team_id",
-            "ip",
-            "site_url",
-            "timestamp",
-        ]
-        json_columns = ("properties", "set", "set_once")
+        schema_columns = set((field[0] for field in table_fields))
 
         def map_to_record(row: dict) -> dict:
             """Map row to a record to insert to Redshift."""
-            record = {
-                key: json.dumps(remove_escaped_whitespace_recursive(row[key]), ensure_ascii=False)
-                if key in json_columns and row[key] is not None
-                else row[key]
-                for key in schema_columns
-            }
-            record["elements"] = ""
+            record = {k: v for k, v in row.items() if k in schema_columns}
+
+            for column in known_super_columns:
+                if record.get(column, None) is not None:
+                    # TODO: We should be able to save a json.loads here.
+                    record[column] = json.dumps(
+                        remove_escaped_whitespace_recursive(json.loads(record[column])), ensure_ascii=False
+                    )
+
             return record
 
         async with postgres_connection(inputs) as connection:
             await insert_records_to_redshift(
-                (map_to_record(result) for result in results_iterator), connection, inputs.schema, inputs.table_name
+                (map_to_record(record) for record_batch in record_iterator for record in record_batch.to_pylist()),
+                connection,
+                inputs.schema,
+                inputs.table_name,
             )
 
 
@@ -354,6 +450,7 @@ class RedshiftBatchExportWorkflow(PostHogWorkflow):
             exclude_events=inputs.exclude_events,
             include_events=inputs.include_events,
             properties_data_type=inputs.properties_data_type,
+            batch_export_schema=inputs.batch_export_schema,
         )
 
         await execute_batch_export_insert_activity(

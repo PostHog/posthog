@@ -8,7 +8,8 @@ import { insightLogic } from 'scenes/insights/insightLogic'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
 
-import { EntityTypes, FilterType, FunnelExclusion } from '~/types'
+import { legacyEntityToNode } from '~/queries/nodes/InsightQuery/utils/filtersToQueryNode'
+import { ActionFilter as ActionFilterType, EntityTypes, FilterType } from '~/types'
 
 import { ExclusionRow } from './ExclusionRow'
 import { ExclusionRowSuffix } from './ExclusionRowSuffix'
@@ -25,11 +26,10 @@ export function FunnelExclusionsFilter(): JSX.Element {
     const isVerticalLayout = !!width && width < 450 // If filter container shrinks below 500px, initiate verticality
 
     const setFilters = (filters: Partial<FilterType>): void => {
-        const exclusions = (filters.events as FunnelExclusion[]).map((e) => ({
-            ...e,
-            funnel_from_step: e.funnel_from_step || exclusionDefaultStepRange.funnel_from_step,
-            funnel_to_step: e.funnel_to_step || exclusionDefaultStepRange.funnel_to_step,
-        }))
+        const exclusions = filters.events?.map((entity) => {
+            const baseEntity = legacyEntityToNode(entity as ActionFilterType, false, MathAvailability.None)
+            return { ...baseEntity, funnelFromStep: entity.funnel_from_step, funnelToStep: entity.funnel_to_step }
+        })
         updateInsightFilter({ exclusions })
     }
 
@@ -43,7 +43,8 @@ export function FunnelExclusionsFilter(): JSX.Element {
                 id: '$pageview',
                 name: '$pageview',
                 type: EntityTypes.EVENTS,
-                ...exclusionDefaultStepRange,
+                funnel_from_step: exclusionDefaultStepRange.funnelFromStep,
+                funnel_to_step: exclusionDefaultStepRange.funnelToStep,
             }}
             disabled={!isFunnelWithEnoughSteps}
             buttonCopy="Add exclusion"

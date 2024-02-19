@@ -46,6 +46,7 @@ export enum NodeKind {
     PersonsNode = 'PersonsNode',
     HogQLQuery = 'HogQLQuery',
     HogQLMetadata = 'HogQLMetadata',
+    HogQLAutocomplete = 'HogQLAutocomplete',
     ActorsQuery = 'ActorsQuery',
     SessionsTimelineQuery = 'SessionsTimelineQuery',
 
@@ -63,6 +64,7 @@ export enum NodeKind {
     StickinessQuery = 'StickinessQuery',
     LifecycleQuery = 'LifecycleQuery',
     InsightActorsQuery = 'InsightActorsQuery',
+    InsightActorsQueryOptions = 'InsightActorsQueryOptions',
 
     // Web analytics queries
     WebOverviewQuery = 'WebOverviewQuery',
@@ -87,9 +89,11 @@ export type AnyDataNode =
     | EventsQuery
     | ActorsQuery
     | InsightActorsQuery
+    | InsightActorsQueryOptions
     | SessionsTimelineQuery
     | HogQLQuery
     | HogQLMetadata
+    | HogQLAutocomplete
     | WebOverviewQuery
     | WebStatsTableQuery
     | WebTopClicksQuery
@@ -106,9 +110,11 @@ export type QuerySchema =
     | EventsQuery
     | ActorsQuery
     | InsightActorsQuery
+    | InsightActorsQueryOptions
     | SessionsTimelineQuery
     | HogQLQuery
     | HogQLMetadata
+    | HogQLAutocomplete
     | WebOverviewQuery
     | WebStatsTableQuery
     | WebTopClicksQuery
@@ -149,6 +155,7 @@ export type AnyResponseType =
     | Record<string, any>
     | HogQLQueryResponse
     | HogQLMetadataResponse
+    | HogQLAutocompleteResponse
     | EventsNode['response']
     | EventsQueryResponse
 
@@ -161,7 +168,7 @@ export interface DataNode extends Node {
 export interface HogQLQueryModifiers {
     personsOnEventsMode?: 'disabled' | 'v1_enabled' | 'v1_mixed' | 'v2_enabled'
     personsArgMaxVersion?: 'auto' | 'v1' | 'v2'
-    inCohortVia?: 'leftjoin' | 'subquery' | 'leftjoin_conjoined'
+    inCohortVia?: 'auto' | 'leftjoin' | 'subquery' | 'leftjoin_conjoined'
     materializationMode?: 'auto' | 'legacy_null_as_string' | 'legacy_null_as_null' | 'disabled'
 }
 
@@ -184,14 +191,22 @@ export interface HogQLQueryResponse {
     timings?: QueryTiming[]
     /** Query explanation output */
     explain?: string[]
+    /** Query metadata output */
+    metadata?: HogQLMetadataResponse
     /** Modifiers used when performing the query */
     modifiers?: HogQLQueryModifiers
+    hasMore?: boolean
+    /** @asType integer */
+    limit?: number
+    /** @asType integer */
+    offset?: number
 }
 
 /** Filters object that will be converted to a HogQL {filters} placeholder */
 export interface HogQLFilters {
     properties?: AnyPropertyFilter[]
     dateRange?: DateRange
+    filterTestAccounts?: boolean
 }
 
 export interface HogQLQuery extends DataNode {
@@ -224,6 +239,70 @@ export interface HogQLMetadataResponse {
     notices: HogQLNotice[]
 }
 
+export interface AutocompleteCompletionItem {
+    /**
+     * The label of this completion item. By default
+     * this is also the text that is inserted when selecting
+     * this completion.
+     */
+    label: string
+    /**
+     * A human-readable string that represents a doc-comment.
+     */
+    documentation?: string
+    /**
+     * A human-readable string with additional information
+     * about this item, like type or symbol information.
+     */
+    detail?: string
+    /**
+     * A string or snippet that should be inserted in a document when selecting
+     * this completion.
+     */
+    insertText: string
+    /**
+     * The kind of this completion item. Based on the kind
+     * an icon is chosen by the editor.
+     */
+    kind:
+        | 'Method'
+        | 'Function'
+        | 'Constructor'
+        | 'Field'
+        | 'Variable'
+        | 'Class'
+        | 'Struct'
+        | 'Interface'
+        | 'Module'
+        | 'Property'
+        | 'Event'
+        | 'Operator'
+        | 'Unit'
+        | 'Value'
+        | 'Constant'
+        | 'Enum'
+        | 'EnumMember'
+        | 'Keyword'
+        | 'Text'
+        | 'Color'
+        | 'File'
+        | 'Reference'
+        | 'Customcolor'
+        | 'Folder'
+        | 'TypeParameter'
+        | 'User'
+        | 'Issue'
+        | 'Snippet'
+}
+
+export interface HogQLAutocompleteResponse {
+    suggestions: AutocompleteCompletionItem[]
+    /** Whether or not the suggestions returned are complete */
+    incomplete_list: boolean
+    /** Measured timings for different parts of the query generation process */
+    timings?: QueryTiming[]
+}
+
 export interface HogQLMetadata extends DataNode {
     kind: NodeKind.HogQLMetadata
     /** Full select query to validate (use `select` or `expr`, but not both) */
@@ -234,8 +313,30 @@ export interface HogQLMetadata extends DataNode {
     exprSource?: AnyDataNode
     /** Table to validate the expression against */
     table?: string
+    /** Extra filters applied to query via {filters} */
     filters?: HogQLFilters
+    /** Enable more verbose output, usually run from the /debug page */
+    debug?: boolean
     response?: HogQLMetadataResponse
+}
+
+export interface HogQLAutocomplete extends DataNode {
+    kind: NodeKind.HogQLAutocomplete
+    /** Full select query to validate */
+    select: string
+    /** Table to validate the expression against */
+    filters?: HogQLFilters
+    /**
+     * Start position of the editor word
+     * @asType integer
+     */
+    startPosition: number
+    /**
+     * End position of the editor word
+     * @asType integer
+     */
+    endPosition: number
+    response?: HogQLAutocompleteResponse
 }
 
 export interface EntityNode extends DataNode {
@@ -271,6 +372,8 @@ export interface ActionsNode extends EntityNode {
     /**  @asType integer */
     id: number
 }
+
+export type AnyEntityNode = EventsNode | ActionsNode
 
 export interface QueryTiming {
     /** Key. Shortened to 'k' to save on data. */
@@ -309,6 +412,8 @@ export interface EventsQuery extends DataNode {
     properties?: AnyPropertyFilter[]
     /** Fixed properties in the query, can't be edited in the interface (e.g. scoping down by person) */
     fixedProperties?: AnyPropertyFilter[]
+    /** Filter test accounts */
+    filterTestAccounts?: boolean
     /** Limit to events matching this string */
     event?: string | null
     /**
@@ -408,6 +513,8 @@ interface DataTableNodeViewProps {
     showSearch?: boolean
     /** Include a property filter above the table */
     showPropertyFilter?: boolean
+    /** Show filter to exclude test accounts */
+    showTestAccountFilters?: boolean
     /** Include a HogQL query editor above HogQL tables */
     showHogQLEditor?: boolean
     /** Show the kebab menu at the end of the row */
@@ -539,7 +646,7 @@ export interface TrendsQuery extends InsightsQueryBase {
     /** Granularity of the response. Can be one of `hour`, `day`, `week` or `month` */
     interval?: IntervalType
     /** Events and actions to include */
-    series: (EventsNode | ActionsNode)[]
+    series: AnyEntityNode[]
     /** Properties specific to the trends insight */
     trendsFilter?: TrendsFilter
     /** Breakdown of the events and actions */
@@ -549,7 +656,7 @@ export interface TrendsQuery extends InsightsQueryBase {
 
 /** `FunnelsFilterType` minus everything inherited from `FilterType` and persons modal related params
  * and `hidden_legend_keys` replaced by `hidden_legend_breakdowns` */
-export type FunnelsFilter = Omit<
+export type FunnelsFilterLegacy = Omit<
     FunnelsFilterType & { hidden_legend_breakdowns?: string[] },
     | keyof FilterType
     | 'hidden_legend_keys'
@@ -561,16 +668,52 @@ export type FunnelsFilter = Omit<
     | 'funnel_step'
     | 'funnel_custom_steps'
 >
+
+export interface FunnelExclusionSteps {
+    /** @asType integer */
+    funnelFromStep: number
+    /** @asType integer */
+    funnelToStep: number
+}
+export interface FunnelExclusionEventsNode extends EventsNode, FunnelExclusionSteps {}
+export interface FunnelExclusionActionsNode extends ActionsNode, FunnelExclusionSteps {}
+export type FunnelExclusion = FunnelExclusionEventsNode | FunnelExclusionActionsNode
+
+export type FunnelsFilter = {
+    exclusions?: FunnelExclusion[]
+    layout?: FunnelsFilterLegacy['layout']
+    binCount?: FunnelsFilterLegacy['bin_count']
+    breakdownAttributionType?: FunnelsFilterLegacy['breakdown_attribution_type']
+    /** @asType integer */
+    breakdownAttributionValue?: FunnelsFilterLegacy['breakdown_attribution_value']
+    funnelAggregateByHogQL?: FunnelsFilterLegacy['funnel_aggregate_by_hogql']
+    /** @asType integer */
+    funnelToStep?: FunnelsFilterLegacy['funnel_to_step']
+    /** @asType integer */
+    funnelFromStep?: FunnelsFilterLegacy['funnel_from_step']
+    funnelOrderType?: FunnelsFilterLegacy['funnel_order_type']
+    funnelVizType?: FunnelsFilterLegacy['funnel_viz_type']
+    /** @asType integer */
+    funnelWindowInterval?: FunnelsFilterLegacy['funnel_window_interval']
+    funnelWindowIntervalUnit?: FunnelsFilterLegacy['funnel_window_interval_unit']
+    hidden_legend_breakdowns?: FunnelsFilterLegacy['hidden_legend_breakdowns']
+    funnelStepReference?: FunnelsFilterLegacy['funnel_step_reference']
+}
+
 export interface FunnelsQuery extends InsightsQueryBase {
     kind: NodeKind.FunnelsQuery
     /** Granularity of the response. Can be one of `hour`, `day`, `week` or `month` */
     interval?: IntervalType
     /** Events and actions to include */
-    series: (EventsNode | ActionsNode)[]
+    series: AnyEntityNode[]
     /** Properties specific to the funnels insight */
     funnelsFilter?: FunnelsFilter
     /** Breakdown of the events and actions */
     breakdownFilter?: BreakdownFilter
+}
+
+export interface FunnelsQueryResponse extends QueryResponse {
+    results: Record<string, any>[] | Record<string, any>[][]
 }
 
 /** `RetentionFilterType` minus everything inherited from `FilterType` */
@@ -631,6 +774,13 @@ export type PathsFilter = {
     maxEdgeWeight?: PathsFilterLegacy['max_edge_weight']
     funnelPaths?: PathsFilterLegacy['funnel_paths']
     funnelFilter?: PathsFilterLegacy['funnel_filter']
+
+    /** Relevant only within actors query */
+    pathStartKey?: string
+    /** Relevant only within actors query */
+    pathEndKey?: string
+    /** Relevant only within actors query */
+    pathDropoffKey?: string
 }
 
 export interface PathsQuery extends InsightsQueryBase {
@@ -664,7 +814,7 @@ export interface StickinessQuery extends Omit<InsightsQueryBase, 'aggregation_gr
     /** Granularity of the response. Can be one of `hour`, `day`, `week` or `month` */
     interval?: IntervalType
     /** Events and actions to include */
-    series: (EventsNode | ActionsNode)[]
+    series: AnyEntityNode[]
     /** Properties specific to the stickiness insight */
     stickinessFilter?: StickinessFilter
 }
@@ -749,7 +899,7 @@ export interface LifecycleQuery extends Omit<InsightsQueryBase, 'aggregation_gro
     /** Granularity of the response. Can be one of `hour`, `day`, `week` or `month` */
     interval?: IntervalType
     /** Events and actions to include */
-    series: (EventsNode | ActionsNode)[]
+    series: AnyEntityNode[]
     /** Properties specific to the lifecycle insight */
     lifecycleFilter?: LifecycleFilter
     response?: LifecycleQueryResponse
@@ -825,6 +975,7 @@ export interface WebAnalyticsQueryBase {
 export interface WebOverviewQuery extends WebAnalyticsQueryBase {
     kind: NodeKind.WebOverviewQuery
     response?: WebOverviewQueryResponse
+    compare?: boolean
 }
 
 export interface WebOverviewItem {
@@ -879,7 +1030,11 @@ export interface WebStatsTableQuery extends WebAnalyticsQueryBase {
     kind: NodeKind.WebStatsTableQuery
     breakdownBy: WebStatsBreakdown
     response?: WebStatsTableQueryResponse
-    includeScrollDepth?: boolean
+    includeScrollDepth?: boolean // automatically sets includeBounceRate to true
+    includeBounceRate?: boolean
+    doPathCleaning?: boolean
+    /** @asType integer */
+    limit?: number
 }
 export interface WebStatsTableQueryResponse extends QueryResponse {
     results: unknown[]
@@ -887,6 +1042,11 @@ export interface WebStatsTableQueryResponse extends QueryResponse {
     columns?: unknown[]
     hogql?: string
     samplingRate?: SamplingRate
+    hasMore?: boolean
+    /** @asType integer */
+    limit?: number
+    /** @asType integer */
+    offset?: number
 }
 
 export type InsightQueryNode =
@@ -920,9 +1080,9 @@ export type InsightFilter =
 /** @asType integer */
 export type Day = number
 
-export interface InsightActorsQuery {
+export interface InsightActorsQuery<T extends InsightsQueryBase = InsightQuerySource> {
     kind: NodeKind.InsightActorsQuery
-    source: InsightQuerySource
+    source: T
     day?: string | Day
     status?: string
     /**
@@ -930,9 +1090,46 @@ export interface InsightActorsQuery {
      * @asType integer
      */
     interval?: number
-    // TODO: add breakdowns
+    /** @asType integer */
+    series?: number
+    breakdown?: string | BreakdownValueInt
+    compare?: 'current' | 'previous'
     // TODO: add fields for other insights (funnels dropdown, compare_previous choice, etc)
     response?: ActorsQueryResponse
+}
+
+/** @asType integer */
+export type BreakdownValueInt = number
+export interface InsightActorsQueryOptionsResponse {
+    day?: { label: string; value: string | Day }[]
+    status?: { label: string; value: string }[]
+    interval?: {
+        label: string
+        /**
+         * An interval selected out of available intervals in source query
+         * @asType integer
+         */
+        value: number
+    }[]
+    breakdown?: {
+        label: string
+        value: string | BreakdownValueInt
+    }[]
+    series?: {
+        label: string
+        /** @asType integer */
+        value: number
+    }[]
+    compare?: {
+        label: string
+        value: string
+    }[]
+}
+
+export interface InsightActorsQueryOptions {
+    kind: NodeKind.InsightActorsQueryOptions
+    source: InsightActorsQuery
+    response?: InsightActorsQueryOptionsResponse
 }
 
 export const dateRangeForFilter = (source: FilterType | undefined): DateRange | undefined => {

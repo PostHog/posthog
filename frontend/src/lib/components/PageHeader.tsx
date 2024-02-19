@@ -1,6 +1,6 @@
 import clsx from 'clsx'
 import { useValues } from 'kea'
-import { Within3000PageHeaderContext } from 'lib/lemon-ui/LemonButton/LemonButton'
+import { WithinPageHeaderContext } from 'lib/lemon-ui/LemonButton/LemonButton'
 import { createPortal } from 'react-dom'
 import { DraggableToNotebookProps } from 'scenes/notebooks/AddToNotebook/DraggableToNotebook'
 
@@ -22,7 +22,7 @@ export function PageHeader({ caption, buttons, tabbedPage }: PageHeaderProps): J
             {buttons &&
                 actionsContainer &&
                 createPortal(
-                    <Within3000PageHeaderContext.Provider value={true}>{buttons}</Within3000PageHeaderContext.Provider>,
+                    <WithinPageHeaderContext.Provider value={true}>{buttons}</WithinPageHeaderContext.Provider>,
                     actionsContainer
                 )}
 

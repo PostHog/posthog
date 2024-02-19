@@ -3,7 +3,7 @@
     gap: 0.25rem;
     align-items: center;
     justify-content: center;
-    height: 2.5rem;
+    height: calc(2.125rem + 3px); // Medium size button height + button shadow height
     padding: 0.25rem 0.5rem;
     font-size: 0.875rem;
     line-height: 1.25rem;
@@ -15,24 +15,12 @@
     border: 1px solid var(--border);
     border-radius: var(--radius);
 
-    .posthog-3000 & {
-        height: calc(2.125rem + 3px); // Medium size button height + button shadow height
-    }
-
     &:hover:not([aria-disabled='true']) {
-        border-color: var(--primary-3000-hover);
-
-        .posthog-3000 & {
-            border-color: var(--border-bold);
-        }
+        border-color: var(--border-bold);
     }
 
     &.LemonInput--focused:not([aria-disabled='true']) {
-        border-color: var(--primary-3000);
-
-        .posthog-3000 & {
-            border-color: var(--border-active);
-        }
+        border-color: var(--border-active);
     }
 
     &.LemonInput--transparent-background {
@@ -85,6 +73,12 @@
     &.LemonInput--type-search {
         // NOTE Design: Search inputs are given a specific small width
         max-width: 240px;
+    }
+
+    &.LemonInput--type-number {
+        .LemonInput__input {
+            text-overflow: clip;
+        }
     }
 
     &.LemonInput--full-width {

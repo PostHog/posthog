@@ -206,9 +206,15 @@ export function ItemPerformanceEvent({
         }
 
         if (
-            ['response_headers', 'request_headers', 'request_body', 'response_body', 'response_status', 'raw'].includes(
-                key
-            )
+            [
+                'response_headers',
+                'request_headers',
+                'request_body',
+                'response_body',
+                'response_status',
+                'raw',
+                'server_timings',
+            ].includes(key)
         ) {
             return acc
         }
@@ -358,6 +364,7 @@ export function ItemPerformanceEvent({
                                                 <HeadersDisplay
                                                     request={item.request_headers}
                                                     response={item.response_headers}
+                                                    isInitial={item.is_initial}
                                                 />
                                             ),
                                         },
@@ -368,7 +375,11 @@ export function ItemPerformanceEvent({
                                                 <BodyDisplay
                                                     content={item.request_body}
                                                     headers={item.request_headers}
-                                                    emptyMessage="No request body captured"
+                                                    emptyMessage={
+                                                        item.is_initial
+                                                            ? 'Request captured before PostHog was initialized'
+                                                            : 'No request body captured'
+                                                    }
                                                 />
                                             ),
                                         },
@@ -380,7 +391,11 @@ export function ItemPerformanceEvent({
                                                       <BodyDisplay
                                                           content={item.response_body}
                                                           headers={item.response_headers}
-                                                          emptyMessage="No response body captured"
+                                                          emptyMessage={
+                                                              item.is_initial
+                                                                  ? 'Response captured before PostHog was initialized'
+                                                                  : 'No response body captured'
+                                                          }
                                                       />
                                                   ),
                                               }
@@ -418,7 +433,7 @@ export function ItemPerformanceEvent({
     )
 }
 
-function BodyDisplay({
+export function BodyDisplay({
     content,
     headers,
     emptyMessage,
@@ -448,23 +463,26 @@ function BodyDisplay({
     )
 }
 
-function HeadersDisplay({
+export function HeadersDisplay({
     request,
     response,
+    isInitial,
 }: {
     request: Record<string, string> | undefined
     response: Record<string, string> | undefined
+    isInitial?: boolean
 }): JSX.Element | null {
+    const emptyMessage = isInitial ? 'captured before PostHog was initialized' : 'No headers captured'
     return (
         <div className="flex flex-col w-full">
             <div>
                 <h4 className="font-semibold">Request Headers</h4>
-                <SimpleKeyValueList item={request || {}} emptyMessage="No headers captured" />
+                <SimpleKeyValueList item={request || {}} emptyMessage={emptyMessage} />
             </div>
             <LemonDivider dashed />
             <div>
                 <h4 className="font-semibold">Response Headers</h4>
-                <SimpleKeyValueList item={response || {}} emptyMessage="No headers captured" />
+                <SimpleKeyValueList item={response || {}} emptyMessage={emptyMessage} />
             </div>
         </div>
     )

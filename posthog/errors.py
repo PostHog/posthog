@@ -46,7 +46,9 @@ def wrap_query_error(err: Exception) -> Exception:
     # Return a 512 error for queries which would time out
     match = re.search(r"Estimated query execution time \(.* seconds\) is too long.", err.message)
     if match:
-        return EstimatedQueryExecutionTimeTooLong(detail=match.group(0))
+        return EstimatedQueryExecutionTimeTooLong(
+            detail=f"{match.group(0)} Try reducing its scope by changing the time range."
+        )
 
     # :TRICKY: Return a custom class for every code by looking up the short name and creating a class dynamically.
     if hasattr(err, "code"):
@@ -321,7 +323,7 @@ CLICKHOUSE_ERROR_CODE_LOOKUP: Dict[int, ErrorCodeMeta] = {
     240: ErrorCodeMeta("CANNOT_MREMAP"),
     241: ErrorCodeMeta(
         "MEMORY_LIMIT_EXCEEDED",
-        user_safe="Query exceeds memory limits. Tip: Specifying a narrower time range helps most of the time.",
+        user_safe="Query exceeds memory limits. Try reducing its scope by changing the time range.",
     ),
     242: ErrorCodeMeta("TABLE_IS_READ_ONLY"),
     243: ErrorCodeMeta("NOT_ENOUGH_SPACE"),
@@ -337,7 +339,7 @@ CLICKHOUSE_ERROR_CODE_LOOKUP: Dict[int, ErrorCodeMeta] = {
     255: ErrorCodeMeta("TOO_MANY_RETRIES_TO_FETCH_PARTS"),
     256: ErrorCodeMeta("PARTITION_ALREADY_EXISTS"),
     257: ErrorCodeMeta("PARTITION_DOESNT_EXIST"),
-    258: ErrorCodeMeta("UNION_ALL_RESULT_STRUCTURES_MISMATCH"),
+    258: ErrorCodeMeta("UNION_ALL_RESULT_STRUCTURES_MISMATCH", user_safe="Mismatched number of columns in UNION ALL."),
     260: ErrorCodeMeta("CLIENT_OUTPUT_FORMAT_SPECIFIED"),
     261: ErrorCodeMeta("UNKNOWN_BLOCK_INFO_FIELD"),
     262: ErrorCodeMeta("BAD_COLLATION"),

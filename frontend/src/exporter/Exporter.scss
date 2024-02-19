@@ -1,9 +1,7 @@
 @import '../styles/mixins';
 
 body.ExporterBody {
-    &.posthog-3000 {
-        overflow: initial;
-    }
+    overflow: initial;
 }
 
 .Exporter {
@@ -15,6 +13,12 @@ body.ExporterBody {
     &--recording {
         height: 100vh;
         max-height: 100vh;
+    }
+
+    &--dashboard {
+        height: 100vh;
+        max-height: 100vh;
+        overflow: auto;
     }
 
     .SharedDashboard-header {

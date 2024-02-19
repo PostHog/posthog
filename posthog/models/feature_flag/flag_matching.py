@@ -22,7 +22,7 @@ from posthog.models.group_type_mapping import GroupTypeMapping
 from posthog.models.person import Person, PersonDistinctId
 from posthog.models.property import GroupTypeIndex, GroupTypeName
 from posthog.models.property.property import Property
-from posthog.models.cohort import Cohort
+from posthog.models.cohort import Cohort, CohortOrEmpty
 from posthog.models.utils import execute_with_timeout
 from posthog.queries.base import match_property, properties_to_Q, sanitize_property_key
 from posthog.database_healthcheck import (
@@ -138,7 +138,7 @@ class FeatureFlagMatcher:
         property_value_overrides: Dict[str, Union[str, int]] = {},
         group_property_value_overrides: Dict[str, Dict[str, Union[str, int]]] = {},
         skip_database_flags: bool = False,
-        cohorts_cache: Optional[Dict[int, Cohort]] = None,
+        cohorts_cache: Optional[Dict[int, CohortOrEmpty]] = None,
     ):
         self.feature_flags = feature_flags
         self.distinct_id = distinct_id
@@ -397,13 +397,14 @@ class FeatureFlagMatcher:
                 person_fields: List[str] = []
 
                 def condition_eval(key, condition):
+                    team_id = self.feature_flags[0].team_id
                     expr = None
                     annotate_query = True
                     nonlocal person_query
 
                     property_list = Filter(data=condition).property_groups.flat
                     properties_with_math_operators = get_all_properties_with_math_operators(
-                        property_list, self.cohorts_cache
+                        property_list, self.cohorts_cache, team_id
                     )
 
                     if len(condition.get("properties", {})) > 0:
@@ -416,6 +417,7 @@ class FeatureFlagMatcher:
                             )
 
                         expr = properties_to_Q(
+                            team_id,
                             property_list,
                             override_property_values=target_properties,
                             cohorts_cache=self.cohorts_cache,
@@ -682,6 +684,9 @@ def get_all_feature_flags(
     property_value_overrides: Dict[str, Union[str, int]] = {},
     group_property_value_overrides: Dict[str, Dict[str, Union[str, int]]] = {},
 ) -> Tuple[Dict[str, Union[str, bool]], Dict[str, dict], Dict[str, object], bool]:
+    property_value_overrides, group_property_value_overrides = add_local_person_and_group_properties(
+        distinct_id, groups, property_value_overrides, group_property_value_overrides
+    )
     all_feature_flags = get_feature_flags_for_team_in_cache(team_id)
     cache_hit = True
     if all_feature_flags is None:
@@ -932,7 +937,7 @@ def key_and_field_for_property(property: Property) -> Tuple[str, str]:
 
 
 def get_all_properties_with_math_operators(
-    properties: List[Property], cohorts_cache: Dict[int, Cohort]
+    properties: List[Property], cohorts_cache: Dict[int, CohortOrEmpty], team_id: int
 ) -> List[Tuple[str, str]]:
     all_keys_and_fields = []
 
@@ -940,17 +945,33 @@ def get_all_properties_with_math_operators(
         if prop.type == "cohort":
             cohort_id = int(cast(Union[str, int], prop.value))
             if cohorts_cache.get(cohort_id) is None:
-                queried_cohort = Cohort.objects.using(DATABASE_FOR_FLAG_MATCHING).filter(pk=cohort_id).first()
-                if queried_cohort:
-                    cohorts_cache[cohort_id] = queried_cohort
-                cohort = queried_cohort
-            else:
-                cohort = cohorts_cache[cohort_id]
+                queried_cohort = (
+                    Cohort.objects.using(DATABASE_FOR_FLAG_MATCHING)
+                    .filter(pk=cohort_id, team_id=team_id, deleted=False)
+                    .first()
+                )
+                cohorts_cache[cohort_id] = queried_cohort or ""
+
+            cohort = cohorts_cache[cohort_id]
             if cohort:
                 all_keys_and_fields.extend(
-                    get_all_properties_with_math_operators(cohort.properties.flat, cohorts_cache)
+                    get_all_properties_with_math_operators(cohort.properties.flat, cohorts_cache, team_id)
                 )
         elif prop.operator in ["gt", "lt", "gte", "lte"] and prop.type in ("person", "group"):
             all_keys_and_fields.append(key_and_field_for_property(prop))
 
     return all_keys_and_fields
+
+
+def add_local_person_and_group_properties(distinct_id, groups, person_properties, group_properties):
+    all_person_properties = {"distinct_id": distinct_id, **(person_properties or {})}
+
+    all_group_properties = {}
+    if groups:
+        for group_name in groups:
+            all_group_properties[group_name] = {
+                "$group_key": groups[group_name],
+                **(group_properties.get(group_name) or {}),
+            }
+
+    return all_person_properties, all_group_properties

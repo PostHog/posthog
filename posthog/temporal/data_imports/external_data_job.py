@@ -11,11 +11,9 @@ from temporalio.common import RetryPolicy
 from posthog.temporal.batch_exports.base import PostHogWorkflow
 
 from posthog.warehouse.data_load.validate_schema import validate_schema_and_update_table
-from posthog.temporal.data_imports.pipelines.schemas import PIPELINE_TYPE_SCHEMA_DEFAULT_MAPPING
 from posthog.temporal.data_imports.pipelines.pipeline import DataImportPipeline, PipelineInputs
 from posthog.warehouse.external_data_source.jobs import (
     create_external_data_job,
-    get_external_data_job,
     update_external_job_status,
 )
 from posthog.warehouse.models import (
@@ -23,10 +21,13 @@ from posthog.warehouse.models import (
     get_active_schemas_for_source_id,
     sync_old_schemas_with_new_schemas,
     ExternalDataSource,
+    get_external_data_job,
 )
+from posthog.warehouse.models.external_data_schema import get_postgres_schemas
 from posthog.temporal.common.logger import bind_temporal_worker_logger
 from typing import Tuple
 import asyncio
+from django.conf import settings
 
 
 @dataclasses.dataclass
@@ -37,26 +38,33 @@ class CreateExternalDataJobInputs:
 
 @activity.defn
 async def create_external_data_job_model(inputs: CreateExternalDataJobInputs) -> Tuple[str, list[str]]:
-    run = await sync_to_async(create_external_data_job)(  # type: ignore
+    run = await sync_to_async(create_external_data_job)(
         team_id=inputs.team_id,
         external_data_source_id=inputs.external_data_source_id,
         workflow_id=activity.info().workflow_id,
     )
 
-    source = await sync_to_async(ExternalDataSource.objects.get)(  # type: ignore
+    source = await sync_to_async(ExternalDataSource.objects.get)(
         team_id=inputs.team_id, id=inputs.external_data_source_id
     )
     source.status = "Running"
-    await sync_to_async(source.save)()  # type: ignore
+    await sync_to_async(source.save)()
 
-    # Sync schemas if they have changed
-    await sync_to_async(sync_old_schemas_with_new_schemas)(  # type: ignore
-        list(PIPELINE_TYPE_SCHEMA_DEFAULT_MAPPING[source.source_type]),  # type: ignore
-        source_id=inputs.external_data_source_id,
-        team_id=inputs.team_id,
-    )
+    if source.source_type == ExternalDataSource.Type.POSTGRES:
+        host = source.job_inputs.get("host")
+        port = source.job_inputs.get("port")
+        user = source.job_inputs.get("user")
+        password = source.job_inputs.get("password")
+        database = source.job_inputs.get("database")
+        schema = source.job_inputs.get("schema")
+        schemas_to_sync = await sync_to_async(get_postgres_schemas)(host, port, database, user, password, schema)
+        await sync_to_async(sync_old_schemas_with_new_schemas)(  # type: ignore
+            schemas_to_sync,
+            source_id=inputs.external_data_source_id,
+            team_id=inputs.team_id,
+        )
 
-    schemas = await sync_to_async(get_active_schemas_for_source_id)(  # type: ignore
+    schemas = await sync_to_async(get_active_schemas_for_source_id)(
         team_id=inputs.team_id, source_id=inputs.external_data_source_id
     )
 
@@ -80,7 +88,7 @@ class UpdateExternalDataJobStatusInputs:
 
 @activity.defn
 async def update_external_data_job_model(inputs: UpdateExternalDataJobStatusInputs) -> None:
-    await sync_to_async(update_external_job_status)(  # type: ignore
+    await sync_to_async(update_external_job_status)(
         run_id=uuid.UUID(inputs.id),
         status=inputs.status,
         latest_error=inputs.latest_error,
@@ -102,7 +110,7 @@ class ValidateSchemaInputs:
 
 @activity.defn
 async def validate_schema_activity(inputs: ValidateSchemaInputs) -> None:
-    await sync_to_async(validate_schema_and_update_table)(  # type: ignore
+    await validate_schema_and_update_table(
         run_id=inputs.run_id,
         team_id=inputs.team_id,
         schemas=inputs.schemas,
@@ -130,9 +138,8 @@ class ExternalDataJobInputs:
 
 @activity.defn
 async def run_external_data_job(inputs: ExternalDataJobInputs) -> None:
-    model: ExternalDataJob = await sync_to_async(get_external_data_job)(  # type: ignore
-        team_id=inputs.team_id,
-        run_id=inputs.run_id,
+    model: ExternalDataJob = await get_external_data_job(
+        job_id=inputs.run_id,
     )
 
     logger = await bind_temporal_worker_logger(team_id=inputs.team_id)
@@ -154,7 +161,10 @@ async def run_external_data_job(inputs: ExternalDataJobInputs) -> None:
         if not stripe_secret_key:
             raise ValueError(f"Stripe secret key not found for job {model.id}")
         source = stripe_source(
-            api_key=stripe_secret_key, endpoints=tuple(inputs.schemas), job_id=str(model.id), team_id=inputs.team_id
+            api_key=stripe_secret_key,
+            endpoints=tuple(inputs.schemas),
+            team_id=inputs.team_id,
+            job_id=inputs.run_id,
         )
     elif model.pipeline.source_type == ExternalDataSource.Type.HUBSPOT:
         from posthog.temporal.data_imports.pipelines.hubspot.auth import refresh_access_token
@@ -171,10 +181,29 @@ async def run_external_data_job(inputs: ExternalDataJobInputs) -> None:
         source = hubspot(
             api_key=hubspot_access_code,
             refresh_token=refresh_token,
-            job_id=str(model.id),
-            team_id=inputs.team_id,
             endpoints=tuple(inputs.schemas),
         )
+    elif model.pipeline.source_type == ExternalDataSource.Type.POSTGRES:
+        from posthog.temporal.data_imports.pipelines.postgres import postgres_source
+
+        host = model.pipeline.job_inputs.get("host")
+        port = model.pipeline.job_inputs.get("port")
+        user = model.pipeline.job_inputs.get("user")
+        password = model.pipeline.job_inputs.get("password")
+        database = model.pipeline.job_inputs.get("database")
+        schema = model.pipeline.job_inputs.get("schema")
+
+        source = postgres_source(
+            host=host,
+            port=port,
+            user=user,
+            password=password,
+            database=database,
+            sslmode="prefer" if settings.TEST or settings.DEBUG else "require",
+            schema=schema,
+            table_names=inputs.schemas,
+        )
+
     else:
         raise ValueError(f"Source type {model.pipeline.source_type} not supported")
 

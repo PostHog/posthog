@@ -1,8 +1,9 @@
 import { TZLabel } from '@posthog/apps-common'
+import { IconGear } from '@posthog/icons'
 import { LemonButton, LemonDivider } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
-import { IconGauge, IconTerminal, IconUnverifiedEvent } from 'lib/lemon-ui/icons'
+import { IconGauge, IconOffline, IconTerminal, IconUnverifiedEvent } from 'lib/lemon-ui/icons'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { ceilMsToClosestSecond, colonDelimitedDuration } from 'lib/utils'
 import { useEffect } from 'react'
@@ -16,6 +17,7 @@ import { playerSettingsLogic } from '../../playerSettingsLogic'
 import { sessionRecordingPlayerLogic } from '../../sessionRecordingPlayerLogic'
 import { InspectorListItem, playerInspectorLogic } from '../playerInspectorLogic'
 import { ItemConsoleLog } from './ItemConsoleLog'
+import { ItemDoctor } from './ItemDoctor'
 import { ItemEvent } from './ItemEvent'
 import { ItemPerformanceEvent } from './ItemPerformanceEvent'
 
@@ -35,6 +37,18 @@ const typeToIconAndDescription = {
     [SessionRecordingPlayerTab.NETWORK]: {
         Icon: IconGauge,
         tooltip: 'Network event',
+    },
+    ['offline-status']: {
+        Icon: IconOffline,
+        tooltip: 'browser went offline or returned online',
+    },
+    ['$session_config']: {
+        Icon: IconGear,
+        tooltip: 'Session recording config',
+    },
+    ['doctor']: {
+        Icon: undefined,
+        tooltip: 'Doctor event',
     },
 }
 const PLAYER_INSPECTOR_LIST_ITEM_MARGIN = 4
@@ -157,6 +171,12 @@ export function PlayerInspectorListItem({
                     <ItemConsoleLog item={item} {...itemProps} />
                 ) : item.type === SessionRecordingPlayerTab.EVENTS ? (
                     <ItemEvent item={item} {...itemProps} />
+                ) : item.type === 'offline-status' ? (
+                    <div className="flex items-start p-2 text-xs">
+                        {item.offline ? 'Browser went offline' : 'Browser returned online'}
+                    </div>
+                ) : item.type === SessionRecordingPlayerTab.DOCTOR ? (
+                    <ItemDoctor item={item} {...itemProps} />
                 ) : null}
 
                 {isExpanded ? (
