@@ -6,11 +6,11 @@ import { TopHeading } from 'lib/components/Cards/InsightCard/TopHeading'
 import { ExportButton } from 'lib/components/ExportButton/ExportButton'
 import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
 import { DashboardPrivilegeLevel } from 'lib/constants'
-import { IconSchedule } from 'lib/lemon-ui/icons'
 import { LemonButton, LemonButtonWithDropdown } from 'lib/lemon-ui/LemonButton'
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
 import { LemonTableLoader } from 'lib/lemon-ui/LemonTable/LemonTableLoader'
 import { Link } from 'lib/lemon-ui/Link'
+import { Spinner } from 'lib/lemon-ui/Spinner'
 import { Splotch, SplotchColor } from 'lib/lemon-ui/Splotch'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { capitalizeFirstLetter } from 'lib/utils'
@@ -107,7 +107,10 @@ export function InsightMeta({
                                     title="This insight is queued to check for newer results. It will be updated soon."
                                     placement="topRight"
                                 >
-                                    <IconSchedule className="ml-1 text-primary" />
+                                    <span className="text-primary text-sm font-medium">
+                                        <Spinner className="mx-1" />
+                                        Refreshing
+                                    </span>
                                 </Tooltip>
                             )}
                         </h4>
