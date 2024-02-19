@@ -5,6 +5,7 @@ from django.core.exceptions import ValidationError
 from django.db import models
 from django.db.models.signals import post_delete, post_save
 from django.dispatch.dispatcher import receiver
+from posthog.models.action.action import Action
 
 from posthog.models.signals import mutable_receiver
 from posthog.models.utils import generate_random_token
@@ -20,6 +21,8 @@ class Hook(models.Model):
     target = models.URLField("Target URL", max_length=255)
     created = models.DateTimeField(auto_now_add=True)
     updated = models.DateTimeField(auto_now=True)
+    # For Action formatting like the legacy `slack_message_format`
+    format_text: models.CharField = models.CharField(max_length=600, null=True)
 
     def clean(self):
         """Validation for events."""

@@ -2,7 +2,7 @@ admin: 0003_logentry_add_action_flag_choices
 auth: 0012_alter_user_first_name_max_length
 axes: 0006_remove_accesslog_trusted
 contenttypes: 0002_remove_content_type_name
-ee: 0015_add_verified_properties
+ee: 0016_hook_format_text
 otp_static: 0002_throttling
 otp_totp: 0002_auto_20190420_0723
 posthog: 0389_alter_batchexportdestination_type

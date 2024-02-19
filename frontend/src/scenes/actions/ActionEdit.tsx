@@ -1,4 +1,4 @@
-import { LemonTextArea } from '@posthog/lemon-ui'
+import { LemonBanner, LemonTable, LemonTextArea } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
 import { combineUrl, router } from 'kea-router'
@@ -30,7 +30,7 @@ export function ActionEdit({ action: loadedAction, id }: ActionEditLogicProps): 
     }
     const logic = actionEditLogic(logicProps)
     const { action, actionLoading, actionCount, actionCountLoading } = useValues(logic)
-    const { submitAction, deleteAction } = useActions(logic)
+    const { submitAction, deleteAction, setActionValue } = useActions(logic)
     const { currentTeam } = useValues(teamLogic)
     const { hasAvailableFeature } = useValues(userLogic)
     const { tags } = useValues(tagsModel)
@@ -169,28 +169,15 @@ export function ActionEdit({ action: loadedAction, id }: ActionEditLogicProps): 
 
                 <div>
                     <h2 className="subtitle">Match groups</h2>
-                    <div>
+                    <p>
                         Your action will be triggered whenever <b>any of your match groups</b> are received.
                         <Link to="https://posthog.com/docs/features/actions" target="_blank">
                             <IconInfo className="ml-1 text-muted text-xl" />
                         </Link>
-                    </div>
-                    <LemonField name="steps">
-                        {({ onChange }) => (
-                            <div className="flex justify-end mb-2">
-                                <LemonButton
-                                    onClick={() => onChange([...(action.steps || []), { isNew: uuid() }])}
-                                    size="small"
-                                    type="secondary"
-                                >
-                                    Add another match group
-                                </LemonButton>
-                            </div>
-                        )}
-                    </LemonField>
+                    </p>
                     <LemonField name="steps">
                         {({ value: stepsValue, onChange }) => (
-                            <div className="grid grid-cols-2 gap-3">
+                            <div className="grid lg:grid-cols-2 gap-3">
                                 {stepsValue.map((step: ActionStepType, index: number) => {
                                     const identifier = String(JSON.stringify(step))
                                     return (
@@ -228,86 +215,66 @@ export function ActionEdit({ action: loadedAction, id }: ActionEditLogicProps): 
                                 })}
 
                                 <div>
-                                    <div
-                                        className="match-group-add-skeleton"
+                                    <LemonButton
+                                        icon={<IconPlus />}
                                         onClick={() => {
                                             onChange([...(action.steps || []), { isNew: uuid() }])
                                         }}
+                                        center
+                                        className="w-full h-full border-dashed border"
                                     >
-                                        <IconPlus style={{ fontSize: 28, color: '#666666' }} />
-                                    </div>
+                                        Add match group
+                                    </LemonButton>
                                 </div>
                             </div>
                         )}
                     </LemonField>
                 </div>
                 <div className="my-8">
-                    <LemonField name="post_to_slack">
-                        {({ value, onChange }) => (
-                            <div>
-                                <LemonCheckbox
-                                    id="webhook-checkbox"
-                                    checked={action.bytecode_error ? false : !!value}
-                                    onChange={onChange}
-                                    disabledReason={
-                                        !slackEnabled
-                                            ? 'Configure webhooks in project settings'
-                                            : action.bytecode_error ?? null
-                                    }
-                                    label={
-                                        <>
-                                            <span>Post to webhook when this action is triggered.</span>
-                                            {action.bytecode_error ? (
-                                                <IconWarning className="text-warning text-xl ml-1" />
-                                            ) : null}
-                                        </>
-                                    }
-                                />
-                                <div className="mt-1 pl-6">
-                                    <Link to={urls.settings('project-integrations', 'integration-webhooks')}>
-                                        {slackEnabled ? 'Configure' : 'Enable'} webhooks in project settings.
-                                    </Link>
-                                </div>
-                            </div>
-                        )}
-                    </LemonField>
-                    {!action.bytecode_error && action.post_to_slack && (
+                    <h2 className="subtitle">Action webhooks</h2>
+                    <p>Trigger webhooks whenever this action is triggered</p>
+
+                    {action.post_to_slack && (
                         <>
-                            <LemonField name="slack_message_format">
-                                {({ value, onChange }) => (
-                                    <>
-                                        <LemonLabel showOptional>Message format</LemonLabel>
-                                        <LemonTextArea
-                                            placeholder="Default: [action.name] triggered by [person]"
-                                            value={value}
-                                            onChange={onChange}
-                                            disabled={!slackEnabled || !action.post_to_slack}
-                                            data-attr="edit-slack-message-format"
-                                        />
-                                        <small>
-                                            <Link
-                                                to="https://posthog.com/docs/integrate/webhooks/message-formatting"
-                                                target="_blank"
-                                            >
-                                                See documentation on how to format webhook messages.
-                                            </Link>
-                                        </small>
-                                    </>
-                                )}
-                            </LemonField>
+                            <LemonBanner
+                                type="warning"
+                                className="my-4"
+                                action={{
+                                    children: 'Remove webhook',
+                                    onClick: () => setActionValue('post_to_slack', false),
+                                }}
+                            >
+                                Your current webhook configuration is deprecated. We recommend removing it and creating
+                                a new Action Webhook above.
+                            </LemonBanner>
+                            {!action.bytecode_error && action.post_to_slack && (
+                                <>
+                                    <LemonField name="slack_message_format">
+                                        {({ value, onChange }) => (
+                                            <>
+                                                <LemonLabel showOptional>Slack message format (deprecated)</LemonLabel>
+                                                <LemonTextArea
+                                                    placeholder="Default: [action.name] triggered by [person]"
+                                                    value={value}
+                                                    onChange={onChange}
+                                                    disabled={!slackEnabled || !action.post_to_slack}
+                                                    data-attr="edit-slack-message-format"
+                                                />
+                                                <small>
+                                                    <Link
+                                                        to="https://posthog.com/docs/integrate/webhooks/message-formatting"
+                                                        target="_blank"
+                                                    >
+                                                        See documentation on how to format webhook messages.
+                                                    </Link>
+                                                </small>
+                                            </>
+                                        )}
+                                    </LemonField>
+                                </>
+                            )}
                         </>
                     )}
-                </div>
-                <div className="flex justify-end gap-2">
-                    {id ? deleteButton() : cancelButton()}
-                    <LemonButton
-                        data-attr="save-action-button"
-                        type="primary"
-                        htmlType="submit"
-                        loading={actionLoading}
-                    >
-                        Save
-                    </LemonButton>
                 </div>
             </Form>
         </div>

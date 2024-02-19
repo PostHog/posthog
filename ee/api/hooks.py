@@ -12,7 +12,7 @@ from posthog.models.user import User
 class HookSerializer(serializers.ModelSerializer):
     class Meta:
         model = Hook
-        fields = ("id", "created", "updated", "event", "target", "resource_id", "team")
+        fields = ("id", "created", "updated", "event", "target", "resource_id", "team", "format_text")
         read_only_fields = ("team",)
 
     def validate_event(self, event):
