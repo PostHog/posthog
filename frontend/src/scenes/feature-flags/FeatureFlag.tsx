@@ -818,7 +818,7 @@ function FeatureFlagRollout({ readOnly }: { readOnly?: boolean }): JSX.Element {
                                     },
                                     {
                                         label: !hasAvailableFeature(AvailableFeature.MULTIVARIATE_FLAGS) ? (
-                                            <Tooltip title="This feature is not available on your current plan.">
+                                            <Tooltip title="This feature is not available on your current plan. Click to upgrade.">
                                                 <Link to={upgradeLink} target="_blank">
                                                     <IconLock className="mr-1 text-warning" />
                                                     Multiple variants with rollout percentages (A/B test)
