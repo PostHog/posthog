@@ -17,7 +17,6 @@ import { tagsModel } from '~/models/tagsModel'
 import { ActionStepType, ActionType } from '~/types'
 
 import type { actionEditLogicType } from './actionEditLogicType'
-import { actionLogic } from './actionLogic'
 
 export type NewActionType = Partial<ActionType> &
     Pick<ActionType, 'name' | 'post_to_slack' | 'slack_message_format' | 'steps'>
@@ -118,7 +117,7 @@ export const actionEditLogic = kea<actionEditLogicType>([
                     if (!props.id) {
                         router.actions.push(urls.action(action.id))
                     }
-                    actionLogic.actions.loadActionSuccess(action)
+
                     // reload actions so they are immediately available throughout the app
                     actions.loadEventDefinitions()
                     actions.loadActions()
