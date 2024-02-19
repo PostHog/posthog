@@ -24,6 +24,7 @@ type PayGateSupportedFeatures =
     | AvailableFeature.SURVEYS_STYLING
     | AvailableFeature.SURVEYS_TEXT_HTML
     | AvailableFeature.DATA_PIPELINES
+    | AvailableFeature.AUDIT_LOGS
 
 export interface PayGateMiniProps {
     feature: PayGateSupportedFeatures
@@ -94,6 +95,10 @@ const FEATURE_SUMMARIES: Record<
     },
     [AvailableFeature.TWOFA_ENFORCEMENT]: {
         description: 'Enforce two-factor authentication for all users in your organization.',
+        umbrella: 'organization-level authentication',
+    },
+    [AvailableFeature.AUDIT_LOGS]: {
+        description: "Track changes to your organization's settings and data.",
         umbrella: 'organization-level authentication',
     },
 }

@@ -240,6 +240,7 @@ export const FEATURE_MINIMUM_PLAN: Partial<Record<AvailableFeature, LicensePlan>
     [AvailableFeature.SURVEYS_MULTIPLE_QUESTIONS]: LicensePlan.Scale,
     [AvailableFeature.SURVEYS_TEXT_HTML]: LicensePlan.Scale,
     [AvailableFeature.DATA_PIPELINES]: LicensePlan.Scale,
+    [AvailableFeature.AUDIT_LOGS]: LicensePlan.Enterprise,
 }
 
 export const ENTITY_MATCH_TYPE = 'entities'
