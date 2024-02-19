@@ -1,9 +1,9 @@
 import './AnnotationsOverlay.scss'
 
+import { IconPencil, IconPlusSmall, IconTrash } from '@posthog/icons'
 import { Chart } from 'chart.js'
 import { BindLogic, useActions, useValues } from 'kea'
 import { dayjs } from 'lib/dayjs'
-import { IconDelete, IconEdit, IconPlusMini } from 'lib/lemon-ui/icons'
 import { LemonBadge } from 'lib/lemon-ui/LemonBadge/LemonBadge'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonModal } from 'lib/lemon-ui/LemonModal'
@@ -165,7 +165,7 @@ const AnnotationsBadge = React.memo(function AnnotationsBadgeRaw({ index, date }
                     active={active && isDateLocked}
                 />
             ) : (
-                <LemonBadge content={<IconPlusMini />} status="data" size="small" active={active && isDateLocked} />
+                <LemonBadge content={<IconPlusSmall />} status="data" size="small" active={active && isDateLocked} />
             )}
         </button>
     )
@@ -248,14 +248,14 @@ function AnnotationCard({ annotation }: { annotation: AnnotationType }): JSX.Ele
                 </h5>
                 <LemonButton
                     size="small"
-                    icon={<IconEdit />}
+                    icon={<IconPencil />}
                     tooltip="Edit this annotation"
                     onClick={() => openModalToEditAnnotation(annotation, insightId)}
                     noPadding
                 />
                 <LemonButton
                     size="small"
-                    icon={<IconDelete />}
+                    icon={<IconTrash />}
                     tooltip="Delete this annotation"
                     onClick={() => deleteAnnotation(annotation)}
                     noPadding

@@ -1,4 +1,4 @@
-import { IconPlus } from 'lib/lemon-ui/icons'
+import { IconPlus } from '@posthog/icons'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { Popover } from 'lib/lemon-ui/Popover/Popover'
 import { useState } from 'react'
