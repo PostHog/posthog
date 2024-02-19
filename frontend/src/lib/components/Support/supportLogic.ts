@@ -170,7 +170,8 @@ export const supportLogic = kea<supportLogicType>([
                 }
             },
             submit: async (formValues) => {
-                formValues.name = values.user?.first_name ?? formValues.name ?? ''
+                // name must be present for zendesk to accept the ticket
+                formValues.name = values.user?.first_name ?? formValues.name ?? 'name not set'
                 formValues.email = values.user?.email ?? formValues.email ?? ''
                 actions.submitZendeskTicket(formValues)
                 actions.closeSupportForm()
@@ -264,15 +265,22 @@ export const supportLogic = kea<supportLogicType>([
             }
 
             try {
+                const zendeskRequestBody = JSON.stringify(payload, undefined, 4)
                 const response = await fetch('https://posthoghelp.zendesk.com/api/v2/requests.json', {
                     method: 'POST',
-                    body: JSON.stringify(payload, undefined, 4),
+                    body: zendeskRequestBody,
                     headers: { 'Content-Type': 'application/json' },
                 })
                 if (!response.ok) {
                     const error = new Error(`There was an error creating the support ticket with zendesk.`)
+                    const extra: Record<string, any> = { zendeskBody: zendeskRequestBody }
+                    Object.entries(payload).forEach(([key, value]) => {
+                        extra[`payload_${key}`] = value
+                    })
+                    extra['response_status'] = response.status
+                    extra['response_body'] = await response.text()
                     captureException(error, {
-                        extra: { response, payload },
+                        extra,
                     })
                     lemonToast.error(`There was an error sending the message.`)
                     return
