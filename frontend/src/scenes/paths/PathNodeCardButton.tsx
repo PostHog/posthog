@@ -1,12 +1,9 @@
 import { LemonButton, LemonButtonWithDropdown } from '@posthog/lemon-ui'
 import { captureException } from '@sentry/react'
-import { useValues } from 'kea'
 import { IconEllipsis } from 'lib/lemon-ui/icons'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
-import { userLogic } from 'scenes/userLogic'
 
 import { PathsFilter } from '~/queries/schema'
-import { AvailableFeature } from '~/types'
 
 import { pathsDataLogicType } from './pathsDataLogicType'
 import { pageUrl, PathNodeData } from './pathUtils'
@@ -30,9 +27,6 @@ export function PathNodeCardButton({
     filter,
     setFilter,
 }: PathNodeCardButton): JSX.Element {
-    const { user } = useValues(userLogic)
-    const hasAdvancedPaths = user?.organization?.available_features?.includes(AvailableFeature.PATHS_ADVANCED)
-
     const setAsPathStart = (): void => setFilter({ startPoint: pageUrl(node) })
     const setAsPathEnd = (): void => setFilter({ endPoint: pageUrl(node) })
     const excludePathItem = (): void => {
@@ -65,19 +59,15 @@ export function PathNodeCardButton({
                                 <LemonButton size="small" fullWidth onClick={setAsPathStart}>
                                     Set as path start
                                 </LemonButton>
-                                {hasAdvancedPaths && (
-                                    <>
-                                        <LemonButton size="small" fullWidth onClick={setAsPathEnd}>
-                                            Set as path end
-                                        </LemonButton>
-                                        <LemonButton size="small" fullWidth onClick={excludePathItem}>
-                                            Exclude path item
-                                        </LemonButton>
-                                        <LemonButton size="small" fullWidth onClick={viewFunnel}>
-                                            View funnel
-                                        </LemonButton>
-                                    </>
-                                )}
+                                <LemonButton size="small" fullWidth onClick={setAsPathEnd}>
+                                    Set as path end
+                                </LemonButton>
+                                <LemonButton size="small" fullWidth onClick={excludePathItem}>
+                                    Exclude path item
+                                </LemonButton>
+                                <LemonButton size="small" fullWidth onClick={viewFunnel}>
+                                    View funnel
+                                </LemonButton>
                                 <LemonButton size="small" fullWidth onClick={copyName}>
                                     Copy path item name
                                 </LemonButton>

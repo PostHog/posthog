@@ -217,7 +217,6 @@ export const FEATURE_MINIMUM_PLAN: Partial<Record<AvailableFeature, LicensePlan>
     [AvailableFeature.SOCIAL_SSO]: LicensePlan.Scale,
     [AvailableFeature.DASHBOARD_COLLABORATION]: LicensePlan.Scale,
     [AvailableFeature.INGESTION_TAXONOMY]: LicensePlan.Scale,
-    [AvailableFeature.PATHS_ADVANCED]: LicensePlan.Scale,
     [AvailableFeature.CORRELATION_ANALYSIS]: LicensePlan.Scale,
     [AvailableFeature.GROUP_ANALYTICS]: LicensePlan.Scale,
     [AvailableFeature.MULTIVARIATE_FLAGS]: LicensePlan.Scale,

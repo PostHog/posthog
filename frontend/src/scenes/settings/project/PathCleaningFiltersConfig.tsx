@@ -3,22 +3,15 @@ import { useActions, useValues } from 'kea'
 import { PathCleanFilters } from 'lib/components/PathCleanFilters/PathCleanFilters'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
-import { userLogic } from 'scenes/userLogic'
 
-import { AvailableFeature, InsightType } from '~/types'
+import { InsightType } from '~/types'
 
 export function PathCleaningFiltersConfig(): JSX.Element | null {
     const { updateCurrentTeam } = useActions(teamLogic)
     const { currentTeam } = useValues(teamLogic)
-    const { user } = useValues(userLogic)
-    const hasAdvancedPaths = user?.organization?.available_features?.includes(AvailableFeature.PATHS_ADVANCED)
 
     if (!currentTeam) {
         return null
-    }
-
-    if (!hasAdvancedPaths) {
-        return <p>Advanced path cleaning is a premium feature.</p>
     }
 
     return (

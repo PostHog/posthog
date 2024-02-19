@@ -8,9 +8,8 @@ import { capitalizeFirstLetter, humanFriendlyDuration, percentage, pluralize } f
 import { funnelDataLogic } from 'scenes/funnels/funnelDataLogic'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { getActionFilterFromFunnelStep } from 'scenes/insights/views/Funnels/funnelStepTableUtils'
-import { userLogic } from 'scenes/userLogic'
 
-import { AvailableFeature, ChartParams, FunnelStepWithConversionMetrics } from '~/types'
+import { ChartParams, FunnelStepWithConversionMetrics } from '~/types'
 
 import { funnelPersonsModalLogic } from '../funnelPersonsModalLogic'
 import { FunnelStepMore } from '../FunnelStepMore'
@@ -27,7 +26,6 @@ export function StepLegend({ step, stepIndex, showTime, showPersonsModal }: Step
     const { aggregationTargetLabel } = useValues(funnelDataLogic(insightProps))
     const { canOpenPersonModal, isInExperimentContext } = useValues(funnelPersonsModalLogic(insightProps))
     const { openPersonsModalForStep } = useActions(funnelPersonsModalLogic(insightProps))
-    const { hasAvailableFeature } = useValues(userLogic)
 
     const convertedCountPresentation = pluralize(
         step.count ?? 0,
@@ -57,9 +55,7 @@ export function StepLegend({ step, stepIndex, showTime, showPersonsModal }: Step
         <div className="StepLegend">
             <LemonRow
                 icon={<Lettermark name={stepIndex + 1} color={LettermarkColor.Gray} />}
-                sideIcon={
-                    hasAvailableFeature(AvailableFeature.PATHS_ADVANCED) && <FunnelStepMore stepIndex={stepIndex} />
-                }
+                sideIcon={<FunnelStepMore stepIndex={stepIndex} />}
             >
                 <EntityFilterInfo filter={getActionFilterFromFunnelStep(step)} />
             </LemonRow>

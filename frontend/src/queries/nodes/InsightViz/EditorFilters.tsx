@@ -19,17 +19,9 @@ import { RetentionSummary } from 'scenes/insights/EditorFilters/RetentionSummary
 import { SamplingFilter } from 'scenes/insights/EditorFilters/SamplingFilter'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
-import { userLogic } from 'scenes/userLogic'
 
 import { InsightQueryNode } from '~/queries/schema'
-import {
-    AvailableFeature,
-    ChartDisplayType,
-    EditorFilterProps,
-    InsightEditorFilter,
-    InsightEditorFilterGroup,
-    PathType,
-} from '~/types'
+import { ChartDisplayType, EditorFilterProps, InsightEditorFilter, InsightEditorFilterGroup, PathType } from '~/types'
 
 import { Breakdown } from './Breakdown'
 import { EditorFilterGroup } from './EditorFilterGroup'
@@ -46,9 +38,6 @@ export interface EditorFiltersProps {
 }
 
 export function EditorFilters({ query, showing, embedded }: EditorFiltersProps): JSX.Element | null {
-    const { user } = useValues(userLogic)
-    const availableFeatures = user?.organization?.available_features || []
-
     const { insight, insightProps } = useValues(insightLogic)
     const {
         isTrends,
@@ -74,7 +63,6 @@ export function EditorFilters({ query, showing, embedded }: EditorFiltersProps):
         (isTrends && !NON_BREAKDOWN_DISPLAY_TYPES.includes(display || ChartDisplayType.ActionsLineGraph)) ||
         isStepsFunnel ||
         isTrendsFunnel
-    const hasPathsAdvanced = availableFeatures.includes(AvailableFeature.PATHS_ADVANCED)
     const hasAttribution = isStepsFunnel
     const hasPathsHogQL = isPaths && pathsFilter?.includeEventTypes?.includes(PathType.HogQL)
 
@@ -99,7 +87,7 @@ export function EditorFilters({ query, showing, embedded }: EditorFiltersProps):
                               label: 'HogQL Expression',
                               component: PathsHogQL,
                           },
-                          hasPathsAdvanced && {
+                          {
                               key: 'wildcard-groups',
                               label: 'Wildcard Groups',
                               showOptional: true,
@@ -118,7 +106,7 @@ export function EditorFilters({ query, showing, embedded }: EditorFiltersProps):
                               label: 'Starts at',
                               component: PathsTargetStart,
                           },
-                          hasPathsAdvanced && {
+                          {
                               key: 'ends-target',
                               label: 'Ends at',
                               component: PathsTargetEnd,

@@ -139,15 +139,6 @@ export const billingJson: BillingV2Type = {
                             note: null,
                         },
                         {
-                            key: 'paths_advanced',
-                            name: 'Advanced paths',
-                            description:
-                                'Customize your path insights by setting the maximum number of paths, number of people on each path, and how path names should appear.',
-                            unit: null,
-                            limit: null,
-                            note: null,
-                        },
-                        {
                             key: 'dashboard_permissioning',
                             name: 'Dashboard permissions',
                             description:
@@ -801,15 +792,6 @@ export const billingJson: BillingV2Type = {
                     key: 'ingestion_taxonomy',
                     name: 'Ingestion taxonomy',
                     description: 'Ingestion taxonomy',
-                    images: null,
-                    icon_key: null,
-                    type: null,
-                },
-                {
-                    key: 'paths_advanced',
-                    name: 'Advanced paths',
-                    description:
-                        'Customize your path insights by setting the maximum number of paths, number of people on each path, and how path names should appear.',
                     images: null,
                     icon_key: null,
                     type: null,
