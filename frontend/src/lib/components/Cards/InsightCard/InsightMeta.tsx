@@ -6,6 +6,7 @@ import { TopHeading } from 'lib/components/Cards/InsightCard/TopHeading'
 import { ExportButton } from 'lib/components/ExportButton/ExportButton'
 import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
 import { DashboardPrivilegeLevel } from 'lib/constants'
+import { IconSchedule } from 'lib/lemon-ui/icons'
 import { LemonButton, LemonButtonWithDropdown } from 'lib/lemon-ui/LemonButton'
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
 import { LemonTableLoader } from 'lib/lemon-ui/LemonTable/LemonTableLoader'
@@ -101,6 +102,14 @@ export function InsightMeta({
                     <Link to={urls.insightView(short_id)}>
                         <h4 title={name} data-attr="insight-card-title">
                             {name || <i>{summary}</i>}
+                            {loading && (
+                                <Tooltip
+                                    title="This insight is queued to check for newer results. It will be updated soon."
+                                    placement="topRight"
+                                >
+                                    <IconSchedule className="ml-1 text-primary" />
+                                </Tooltip>
+                            )}
                         </h4>
                     </Link>
 

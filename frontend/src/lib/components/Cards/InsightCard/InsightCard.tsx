@@ -309,7 +309,7 @@ function InsightCardInternal(
                     removeFromDashboard={removeFromDashboard}
                     deleteWithUndo={deleteWithUndo}
                     refresh={refresh}
-                    loading={loadingQueued}
+                    loading={loadingQueued || loading}
                     rename={rename}
                     duplicate={duplicate}
                     moveToDashboard={moveToDashboard}
