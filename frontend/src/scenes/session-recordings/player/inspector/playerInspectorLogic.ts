@@ -575,6 +575,12 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
                             include = true
                         }
                         if (
+                            (miniFiltersByKey['events-all']?.enabled || miniFiltersByKey['all-automatic']?.enabled) &&
+                            isPostHogEvent(item)
+                        ) {
+                            include = true
+                        }
+                        if (
                             (miniFiltersByKey['events-custom']?.enabled ||
                                 miniFiltersByKey['all-automatic']?.enabled) &&
                             !isPostHogEvent(item)
