@@ -1,7 +1,8 @@
-import { actions, afterMount, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
+import { actions, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { forms } from 'kea-forms'
 import { loaders } from 'kea-loaders'
 import api from 'lib/api'
+import { lemonToast } from 'lib/lemon-ui/LemonToast'
 import { toParams } from 'lib/utils'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import {
@@ -50,6 +51,7 @@ export const playlistPopoverLogic = kea<playlistPopoverLogicType>([
             __default: [] as SessionRecordingPlaylistType[],
             loadPlaylistsForRecording: async (_, breakpoint) => {
                 await breakpoint(300)
+
                 const response = await api.recordings.listPlaylists(
                     toParams({ session_recording_id: props.sessionRecordingId })
                 )
@@ -57,12 +59,16 @@ export const playlistPopoverLogic = kea<playlistPopoverLogicType>([
                 return response.results
             },
 
-            addToPlaylist: async ({ playlist }, breakpoint) => {
-                await addRecordingToPlaylist(playlist.short_id, props.sessionRecordingId, true)
-                actions.reportRecordingPinnedToList(true)
-                const newVar = [playlist, ...values.currentPlaylists]
-                breakpoint()
-                return newVar
+            addToPlaylist: async ({ playlist }) => {
+                try {
+                    await addRecordingToPlaylist(playlist.short_id, props.sessionRecordingId, true)
+                    actions.reportRecordingPinnedToList(true)
+                    return [playlist, ...values.currentPlaylists]
+                } catch (e) {
+                    lemonToast.error('Failed to add recording to playlist')
+                    console.error(e)
+                    return values.currentPlaylists
+                }
             },
 
             removeFromPlaylist: async ({ playlist }) => {
@@ -124,6 +130,9 @@ export const playlistPopoverLogic = kea<playlistPopoverLogicType>([
         },
     })),
     listeners(({ actions, values }) => ({
+        setSearchQuery: () => {
+            actions.loadPlaylists()
+        },
         setNewFormShowing: ({ show }) => {
             if (show) {
                 actions.setNewPlaylistValue('name', values.searchQuery)
@@ -139,26 +148,26 @@ export const playlistPopoverLogic = kea<playlistPopoverLogicType>([
         },
     })),
     selectors(() => ({
+        unselectedPlaylists: [
+            (s) => [s.playlists, s.currentPlaylists],
+            (playlists, currentPlaylists) => {
+                return playlists.filter((x) => currentPlaylists.find((y) => x.short_id !== y.short_id))
+            },
+        ],
         allPlaylists: [
-            (s) => [s.playlists, s.currentPlaylists, s.searchQuery],
-            (playlists, currentPlaylists, searchQuery) => {
-                const otherPlaylists = searchQuery
-                    ? playlists
-                    : playlists.filter((x) => !currentPlaylists.find((y) => x.short_id === y.short_id))
-
-                const selectedPlaylists = !searchQuery ? currentPlaylists : []
-
+            (s) => [s.unselectedPlaylists, s.currentPlaylists],
+            (unselectedPlaylists, currentPlaylists) => {
                 const results: {
                     selected: boolean
                     playlist: SessionRecordingPlaylistType
                 }[] = [
-                    ...selectedPlaylists.map((x) => ({
+                    ...currentPlaylists.map((playlist) => ({
                         selected: true,
-                        playlist: x,
+                        playlist,
                     })),
-                    ...otherPlaylists.map((x) => ({
-                        selected: !!currentPlaylists.find((y) => x.short_id === y.short_id),
-                        playlist: x,
+                    ...unselectedPlaylists.map((playlist) => ({
+                        selected: false,
+                        playlist,
                     })),
                 ]
 
@@ -167,8 +176,4 @@ export const playlistPopoverLogic = kea<playlistPopoverLogicType>([
         ],
         pinnedCount: [(s) => [s.currentPlaylists], (currentPlaylists) => currentPlaylists.length],
     })),
-
-    afterMount(({ actions }) => {
-        actions.loadPlaylistsForRecording()
-    }),
 ])
