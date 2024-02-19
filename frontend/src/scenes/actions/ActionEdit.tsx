@@ -231,8 +231,14 @@ export function ActionEdit({ action: loadedAction, id }: ActionEditLogicProps): 
                     </LemonField>
                 </div>
                 <div className="my-8">
-                    <h2 className="subtitle">Action webhooks</h2>
-                    <p>Trigger webhooks whenever this action is triggered</p>
+                    <div className="flex gap-2 items-start justify-between">
+                        <div className="flex-1">
+                            <h2 className="subtitle flex items-start justify-between">Action webhooks</h2>
+                            <p>Send webhooks whenever this action is triggered. </p>
+                        </div>
+
+                        <LemonButton type="secondary">Add webhook</LemonButton>
+                    </div>
 
                     {id ? (
                         <ActionWebhooks actionId={id} />

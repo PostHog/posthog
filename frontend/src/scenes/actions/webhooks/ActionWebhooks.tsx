@@ -1,5 +1,7 @@
-import { LemonTable, LemonTableColumns } from '@posthog/lemon-ui'
-import { useValues } from 'kea'
+import { IconPencil, IconTrash } from '@posthog/icons'
+import { LemonButton, LemonMenu, LemonTable, LemonTableColumns } from '@posthog/lemon-ui'
+import { useActions, useValues } from 'kea'
+import { IconEllipsis } from 'lib/lemon-ui/icons'
 
 import { HookConfigType } from '~/types'
 
@@ -7,6 +9,7 @@ import { actionWebhooksLogic } from './actionWebhooksLogic'
 
 export function ActionWebhooks({ actionId }: { actionId: number }): JSX.Element {
     const { actionWebhooks } = useValues(actionWebhooksLogic({ id: actionId }))
+    const { deleteActionWebhook } = useActions(actionWebhooksLogic({ id: actionId }))
 
     const columns: LemonTableColumns<HookConfigType> = [
         {
@@ -32,8 +35,31 @@ export function ActionWebhooks({ actionId }: { actionId: number }): JSX.Element 
         {
             key: 'actions',
             title: '',
+            width: 0,
             render: function Render(_, item): JSX.Element {
-                return <></>
+                return (
+                    <LemonMenu
+                        items={[
+                            {
+                                label: 'Edit',
+                                icon: <IconPencil />,
+                                onClick: () => {
+                                    alert('TODO!')
+                                },
+                            },
+                            {
+                                label: 'Delete',
+                                icon: <IconTrash />,
+                                status: 'danger',
+                                onClick: () => {
+                                    deleteActionWebhook(item)
+                                },
+                            },
+                        ]}
+                    >
+                        <LemonButton aria-label="more" icon={<IconEllipsis />} size="small" />
+                    </LemonMenu>
+                )
             },
         },
     ]
