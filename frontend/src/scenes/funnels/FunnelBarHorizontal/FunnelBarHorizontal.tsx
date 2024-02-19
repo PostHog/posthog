@@ -3,7 +3,6 @@ import './FunnelBarHorizontal.scss'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { EntityFilterInfo } from 'lib/components/EntityFilterInfo'
-import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
 import { SeriesGlyph } from 'lib/components/SeriesGlyph'
 import { useResizeObserver } from 'lib/hooks/useResizeObserver'
 import { IconInfinity, IconTrendingFlat, IconTrendingFlatDown } from 'lib/lemon-ui/icons'
@@ -26,7 +25,7 @@ export function FunnelBarHorizontal({
     showPersonsModal: showPersonsModalProp = true,
 }: ChartParams): JSX.Element {
     const { insightProps } = useValues(insightLogic)
-    const { visibleStepsWithConversionMetrics, aggregationTargetLabel, funnelsFilter } = useValues(
+    const { visibleStepsWithConversionMetrics, aggregationTargetLabel, funnelsFilter, breakdownFilter } = useValues(
         funnelDataLogic(insightProps)
     )
 
@@ -45,7 +44,6 @@ export function FunnelBarHorizontal({
         <div data-attr="funnel-bar-horizontal" className={clsx('FunnelBarHorizontal')} ref={graphRef}>
             {steps.map((step, stepIndex) => {
                 const basisStep = getReferenceStep(steps, stepReference, stepIndex)
-                const previousStep = getReferenceStep(steps, FunnelStepReference.previous, stepIndex)
                 const showLineBefore = stepIndex > 0
                 const showLineAfter = stepIndex < steps.length - 1
                 const breakdownMaxIndex = getBreakdownMaxIndex(
@@ -101,9 +99,10 @@ export function FunnelBarHorizontal({
                             {!width ? null : isBreakdown ? (
                                 <>
                                     {step?.nested_breakdown?.map((breakdown, index) => {
-                                        const barSizePercentage = breakdown.count / basisStep.count
                                         return (
                                             <Bar
+                                                name={breakdown.name}
+                                                percentage={breakdown.count / basisStep.count}
                                                 key={`${breakdown.action_id}-${step.breakdown_value}-${index}`}
                                                 isBreakdown={true}
                                                 breakdownIndex={index}
@@ -113,8 +112,6 @@ export function FunnelBarHorizontal({
                                                         ? breakdownSum / basisStep.count
                                                         : undefined
                                                 }
-                                                percentage={barSizePercentage}
-                                                name={breakdown.name}
                                                 onBarClick={() =>
                                                     openPersonsModalForSeries({
                                                         step,
@@ -122,65 +119,10 @@ export function FunnelBarHorizontal({
                                                         converted: true,
                                                     })
                                                 }
+                                                step={breakdown}
+                                                stepIndex={stepIndex}
+                                                breakdownFilter={breakdownFilter}
                                                 disabled={!showPersonsModal}
-                                                popoverTitle={
-                                                    // eslint-disable-next-line react/forbid-dom-props
-                                                    <div style={{ wordWrap: 'break-word' }}>
-                                                        <PropertyKeyInfo value={step.name} />
-                                                        {' • '}
-                                                        {(Array.isArray(breakdown.breakdown)
-                                                            ? breakdown.breakdown.join(', ')
-                                                            : breakdown.breakdown) || 'Other'}
-                                                    </div>
-                                                }
-                                                popoverMetrics={[
-                                                    {
-                                                        title: 'Completed step',
-                                                        value: pluralize(
-                                                            breakdown.count,
-                                                            aggregationTargetLabel.singular,
-                                                            aggregationTargetLabel.plural
-                                                        ),
-                                                    },
-                                                    {
-                                                        title: 'Conversion rate (total)',
-                                                        value: percentage(breakdown.conversionRates.total, 2, true),
-                                                    },
-                                                    {
-                                                        title: `Conversion rate (from step ${previousStep.order + 1})`,
-                                                        value: percentage(
-                                                            breakdown.conversionRates.fromPrevious,
-                                                            2,
-                                                            true
-                                                        ),
-                                                        visible: step.order !== 0,
-                                                    },
-                                                    {
-                                                        title: 'Dropped off',
-                                                        value: pluralize(
-                                                            breakdown.droppedOffFromPrevious,
-                                                            aggregationTargetLabel.singular,
-                                                            aggregationTargetLabel.plural
-                                                        ),
-                                                        visible:
-                                                            step.order !== 0 && breakdown.droppedOffFromPrevious > 0,
-                                                    },
-                                                    {
-                                                        title: `Drop-off rate (from step ${previousStep.order + 1})`,
-                                                        value: percentage(
-                                                            1 - breakdown.conversionRates.fromPrevious,
-                                                            2,
-                                                            true
-                                                        ),
-                                                        visible:
-                                                            step.order !== 0 && breakdown.droppedOffFromPrevious > 0,
-                                                    },
-                                                    {
-                                                        title: 'Average time on step',
-                                                        value: humanFriendlyDuration(breakdown.average_conversion_time),
-                                                        visible: !!breakdown.average_conversion_time,
-                                                    },
-                                                ]}
                                                 aggregationTargetLabel={aggregationTargetLabel}
                                                 wrapperWidth={width}
                                             />
@@ -199,49 +141,13 @@ export function FunnelBarHorizontal({
                             ) : (
                                 <>
                                     <Bar
-                                        percentage={step.conversionRates.fromBasisStep}
                                         name={step.name}
+                                        percentage={step.conversionRates.fromBasisStep}
                                         onBarClick={() => openPersonsModalForStep({ step, converted: true })}
+                                        step={step.nested_breakdown![0]}
+                                        stepIndex={stepIndex}
+                                        breakdownFilter={breakdownFilter}
                                         disabled={!showPersonsModal}
-                                        popoverTitle={<PropertyKeyInfo value={step.name} />}
-                                        popoverMetrics={[
-                                            {
-                                                title: 'Completed step',
-                                                value: pluralize(
-                                                    step.count,
-                                                    aggregationTargetLabel.singular,
-                                                    aggregationTargetLabel.plural
-                                                ),
-                                            },
-                                            {
-                                                title: 'Conversion rate (total)',
-                                                value: percentage(step.conversionRates.total, 2, true),
-                                            },
-                                            {
-                                                title: `Conversion rate (from step ${previousStep.order + 1})`,
-                                                value: percentage(step.conversionRates.fromPrevious, 2, true),
-                                                visible: step.order !== 0,
-                                            },
-                                            {
-                                                title: 'Dropped off',
-                                                value: pluralize(
-                                                    step.droppedOffFromPrevious,
-                                                    aggregationTargetLabel.singular,
-                                                    aggregationTargetLabel.plural
-                                                ),
-                                                visible: step.order !== 0 && step.droppedOffFromPrevious > 0,
-                                            },
-                                            {
-                                                title: `Drop-off rate (from step ${previousStep.order + 1})`,
-                                                value: percentage(1 - step.conversionRates.fromPrevious, 2, true),
-                                                visible: step.order !== 0 && step.droppedOffFromPrevious > 0,
-                                            },
-                                            {
-                                                title: 'Average time on step',
-                                                value: humanFriendlyDuration(step.average_conversion_time),
-                                                visible: !!step.average_conversion_time,
-                                            },
-                                        ]}
                                         aggregationTargetLabel={aggregationTargetLabel}
                                         wrapperWidth={width}
                                     />

@@ -2,12 +2,13 @@ import { LemonDropdown } from '@posthog/lemon-ui'
 import { getSeriesColor } from 'lib/colors'
 import { capitalizeFirstLetter, percentage } from 'lib/utils'
 import { useEffect, useRef, useState } from 'react'
-import { LEGACY_InsightTooltip } from 'scenes/insights/InsightTooltip/LEGACY_InsightTooltip'
 
 import { Noun } from '~/models/groupsModel'
+import { BreakdownFilter } from '~/queries/schema'
+import { FunnelStepWithConversionMetrics } from '~/types'
 
 import { getSeriesPositionName } from '../funnelUtils'
-import { MetricRow } from './MetricRow'
+import { FunnelTooltip } from '../useFunnelTooltip'
 
 interface BarProps {
     percentage: number
@@ -18,8 +19,9 @@ interface BarProps {
     breakdownIndex?: number
     breakdownMaxIndex?: number
     breakdownSumPercentage?: number
-    popoverTitle?: string | JSX.Element | null
-    popoverMetrics?: { title: string; value: number | string; visible?: boolean }[]
+    step: FunnelStepWithConversionMetrics
+    stepIndex: number
+    breakdownFilter: BreakdownFilter | null | undefined
     aggregationTargetLabel: Noun
     /** Bar wrapper width in px. */
     wrapperWidth: number
@@ -35,8 +37,9 @@ export function Bar({
     breakdownIndex,
     breakdownMaxIndex,
     breakdownSumPercentage,
-    popoverTitle = null,
-    popoverMetrics = [],
+    step,
+    stepIndex,
+    breakdownFilter,
     aggregationTargetLabel,
     wrapperWidth,
 }: BarProps): JSX.Element {
@@ -87,11 +90,14 @@ export function Bar({
             placement="right"
             showArrow
             overlay={
-                <LEGACY_InsightTooltip altTitle={popoverTitle}>
-                    {popoverMetrics.map(({ title, value, visible }, index) =>
-                        visible !== false ? <MetricRow key={index} title={title} value={value} /> : null
-                    )}
-                </LEGACY_InsightTooltip>
+                <FunnelTooltip
+                    showPersonsModal={!disabled}
+                    stepIndex={stepIndex}
+                    series={step}
+                    groupTypeLabel={aggregationTargetLabel.plural}
+                    breakdownFilter={breakdownFilter}
+                    embedded
+                />
             }
         >
             <div
