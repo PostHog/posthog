@@ -1,5 +1,6 @@
+import { IconCode } from '@posthog/icons'
 import { Tooltip } from '@posthog/lemon-ui'
-import { IconAdsClick, IconCode, IconExclamation, IconEyeHidden, IconEyeVisible } from 'lib/lemon-ui/icons'
+import { IconAdsClick, IconExclamation, IconEyeHidden, IconEyeVisible } from 'lib/lemon-ui/icons'
 import { CORE_FILTER_DEFINITIONS_BY_GROUP } from 'lib/taxonomy'
 
 import { EventType } from '~/types'

@@ -1,4 +1,5 @@
-import { IconCohort, IconPerson, IconUnverifiedEvent } from 'lib/lemon-ui/icons'
+import { IconPerson } from '@posthog/icons'
+import { IconCohort, IconUnverifiedEvent } from 'lib/lemon-ui/icons'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 
 import { PropertyFilterType } from '~/types'

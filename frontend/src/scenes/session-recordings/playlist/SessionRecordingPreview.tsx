@@ -1,10 +1,11 @@
+import { IconClock, IconPinFilled } from '@posthog/icons'
 import clsx from 'clsx'
 import { useValues } from 'kea'
 import { FlaggedFeature } from 'lib/components/FlaggedFeature'
 import { PropertyIcon } from 'lib/components/PropertyIcon'
 import { TZLabel } from 'lib/components/TZLabel'
 import { FEATURE_FLAGS } from 'lib/constants'
-import { IconAutoAwesome, IconAutocapture, IconKeyboard, IconPinFilled, IconSchedule } from 'lib/lemon-ui/icons'
+import { IconAutoAwesome, IconAutocapture, IconKeyboard } from 'lib/lemon-ui/icons'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
 import { Popover } from 'lib/lemon-ui/Popover'
@@ -48,7 +49,7 @@ function RecordingDuration({
 
     return (
         <div className="flex items-center flex-1 justify-end font-semibold">
-            <IconSchedule className={iconClassNames} />
+            <IconClock className={iconClassNames} />
             <span>
                 <span className={clsx(hours === '00' && 'opacity-50 font-normal')}>{hours}:</span>
                 <span
