@@ -1,4 +1,4 @@
-import './FunnelBarGraph.scss'
+import './FunnelBarHorizontal.scss'
 
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
@@ -21,7 +21,7 @@ import { ValueInspectorButton } from '../ValueInspectorButton'
 import { Bar } from './Bar'
 import { DuplicateStepIndicator } from './DuplicateStepIndicator'
 
-export function FunnelBarGraph({
+export function FunnelBarHorizontal({
     inCardView,
     showPersonsModal: showPersonsModalProp = true,
 }: ChartParams): JSX.Element {
@@ -42,7 +42,7 @@ export function FunnelBarGraph({
 
     // Everything rendered after is a funnel in top-to-bottom mode.
     return (
-        <div data-attr="funnel-bar-graph" className={clsx('FunnelBarGraph')} ref={graphRef}>
+        <div data-attr="funnel-bar-horizontal" className={clsx('FunnelBarHorizontal')} ref={graphRef}>
             {steps.map((step, stepIndex) => {
                 const basisStep = getReferenceStep(steps, stepReference, stepIndex)
                 const previousStep = getReferenceStep(steps, FunnelStepReference.previous, stepIndex)
