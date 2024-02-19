@@ -817,6 +817,7 @@ export interface Hook {
     team_id: number
     user_id: number
     resource_id: number | null
+    format_text: string | null
     event: string
     target: string
     created: string

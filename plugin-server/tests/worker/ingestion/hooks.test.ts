@@ -34,10 +34,10 @@ describe('hooks', () => {
             expect(webhookType).toBe(WebhookType.Discord)
         })
 
-        test('Teams', () => {
+        test('Other', () => {
             const webhookType = determineWebhookType('https://outlook.office.com/webhook/')
 
-            expect(webhookType).toBe(WebhookType.Teams)
+            expect(webhookType).toBe(WebhookType.Other)
         })
     })
 
@@ -64,7 +64,7 @@ describe('hooks', () => {
             const [userDetails, userDetailsMarkdown] = getPersonDetails(
                 event,
                 'http://localhost:8000',
-                WebhookType.Teams,
+                WebhookType.Other,
                 team
             )
 
@@ -91,7 +91,7 @@ describe('hooks', () => {
             const [actionDetails, actionDetailsMarkdown] = getActionDetails(
                 action,
                 'http://localhost:8000',
-                WebhookType.Teams
+                WebhookType.Other
             )
 
             expect(actionDetails).toBe('action1')
@@ -139,7 +139,7 @@ describe('hooks', () => {
                 event,
                 team,
                 'http://localhost:8000',
-                WebhookType.Teams,
+                WebhookType.Other,
                 tokenUserName
             )
 
@@ -155,7 +155,7 @@ describe('hooks', () => {
                 event,
                 team,
                 'http://localhost:8000',
-                WebhookType.Teams,
+                WebhookType.Other,
                 tokenUserName
             )
 
@@ -171,7 +171,7 @@ describe('hooks', () => {
                 event,
                 team,
                 'http://localhost:8000',
-                WebhookType.Teams,
+                WebhookType.Other,
                 tokenUserName
             )
 
@@ -187,7 +187,7 @@ describe('hooks', () => {
                 event,
                 team,
                 'http://localhost:8000',
-                WebhookType.Teams,
+                WebhookType.Other,
                 tokenUserName
             )
 
@@ -203,7 +203,7 @@ describe('hooks', () => {
                 event,
                 team,
                 'http://localhost:8000',
-                WebhookType.Teams,
+                WebhookType.Other,
                 tokenUserName
             )
 
@@ -219,7 +219,7 @@ describe('hooks', () => {
                 event,
                 team,
                 'http://localhost:8000',
-                WebhookType.Teams,
+                WebhookType.Other,
                 tokenUserName
             )
 
@@ -235,7 +235,7 @@ describe('hooks', () => {
                 { ...event, person_properties: { ...event.person_properties, email: 'wall-e@buynlarge.com' } },
                 team,
                 'http://localhost:8000',
-                WebhookType.Teams,
+                WebhookType.Other,
                 tokenUserName
             )
 
@@ -259,7 +259,7 @@ describe('hooks', () => {
                 },
                 { ...team, person_display_name_properties: ['nazwisko'] },
                 'http://localhost:8000',
-                WebhookType.Teams,
+                WebhookType.Other,
                 tokenUserName
             )
 
@@ -275,7 +275,7 @@ describe('hooks', () => {
                 event,
                 team,
                 'http://localhost:8000',
-                WebhookType.Teams,
+                WebhookType.Other,
                 tokenUserPropString
             )
 
@@ -297,7 +297,7 @@ describe('hooks', () => {
                 },
                 team,
                 'http://localhost:8000',
-                WebhookType.Teams,
+                WebhookType.Other,
                 tokenUserPropString
             )
 
@@ -335,7 +335,7 @@ describe('hooks', () => {
                 event,
                 team,
                 'http://localhost:8000',
-                WebhookType.Teams,
+                WebhookType.Other,
                 tokenUserName
             )
 
@@ -351,7 +351,7 @@ describe('hooks', () => {
                 event,
                 team,
                 'http://localhost:8000',
-                WebhookType.Teams,
+                WebhookType.Other,
                 tokenUserPropString
             )
 
@@ -367,7 +367,7 @@ describe('hooks', () => {
                 event,
                 team,
                 'http://localhost:8000',
-                WebhookType.Teams,
+                WebhookType.Other,
                 tokenUserPropMissing
             )
 
@@ -397,7 +397,7 @@ describe('hooks', () => {
                 { ...event, eventUuid: '**)', event: 'text](yes!), [new link' },
                 team,
                 'http://localhost:8000',
-                WebhookType.Teams,
+                WebhookType.Other,
                 ['event']
             )
 

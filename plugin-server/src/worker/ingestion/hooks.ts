@@ -32,7 +32,7 @@ export async function instrumentWebhookStep<T>(tag: string, run: () => Promise<T
 export enum WebhookType {
     Slack = 'slack',
     Discord = 'discord',
-    Teams = 'teams',
+    Other = 'other',
 }
 
 export function determineWebhookType(url: string): WebhookType {
@@ -43,7 +43,7 @@ export function determineWebhookType(url: string): WebhookType {
     if (url.includes('discord.com')) {
         return WebhookType.Discord
     }
-    return WebhookType.Teams
+    return WebhookType.Other
 }
 
 // https://api.slack.com/reference/surfaces/formatting#escaping
@@ -218,13 +218,13 @@ export function getValueOfToken(
 }
 
 export function getFormattedMessage(
+    messageFormat: string,
     action: Action,
     event: PostIngestionEvent,
     team: Team,
     siteUrl: string,
     webhookType: WebhookType
 ): [string, string] {
-    const messageFormat = action.slack_message_format || '[action.name] was triggered by [person]'
     let messageText: string
     let messageMarkdown: string
 
@@ -328,21 +328,33 @@ export class HookCommander {
 
     private formatMessage(
         webhookUrl: string,
+        messageFormat: string,
         action: Action,
         event: PostIngestionEvent,
         team: Team
     ): Record<string, any> {
-        const webhookType = determineWebhookType(webhookUrl)
-        const [messageText, messageMarkdown] = getFormattedMessage(action, event, team, this.siteUrl, webhookType)
-        if (webhookType === WebhookType.Slack) {
-            return {
-                text: messageText,
-                blocks: [{ type: 'section', text: { type: 'mrkdwn', text: messageMarkdown } }],
+        const endTimer = webhookProcessStepDuration.labels('messageFormatting').startTimer()
+        try {
+            const webhookType = determineWebhookType(webhookUrl)
+            const [messageText, messageMarkdown] = getFormattedMessage(
+                messageFormat,
+                action,
+                event,
+                team,
+                this.siteUrl,
+                webhookType
+            )
+            if (webhookType === WebhookType.Slack) {
+                return {
+                    text: messageText,
+                    blocks: [{ type: 'section', text: { type: 'mrkdwn', text: messageMarkdown } }],
+                }
             }
-        } else {
             return {
                 text: messageMarkdown,
             }
+        } finally {
+            endTimer()
         }
     }
 
@@ -366,7 +378,12 @@ export class HookCommander {
             return
         }
 
-        if (hook) {
+        if (!hook) {
+            const messageFormat = action.slack_message_format || '[action.name] was triggered by [person]'
+            body = this.formatMessage(url, messageFormat, action, event, team)
+        } else if (hook.format_text) {
+            body = this.formatMessage(url, hook.format_text, action, event, team)
+        } else {
             let sendablePerson: Record<string, any> = {}
             const { person_id, person_created_at, person_properties, ...data } = event
             if (person_id) {
@@ -381,10 +398,6 @@ export class HookCommander {
                 hook: { id: hook.id, event: hook.event, target: hook.target },
                 data: { ...data, person: sendablePerson },
             }
-        } else {
-            const end = webhookProcessStepDuration.labels('messageFormatting').startTimer()
-            body = this.formatMessage(url, action, event, team)
-            end()
         }
 
         const enqueuedInRustyHook = await this.rustyHook.enqueueIfEnabledForTeam({
