@@ -1,6 +1,5 @@
 import './FunnelBarVertical.scss'
 
-import clsx from 'clsx'
 import { useValues } from 'kea'
 import { ScrollableShadows } from 'lib/components/ScrollableShadows/ScrollableShadows'
 import { useResizeObserver } from 'lib/hooks/useResizeObserver'
@@ -77,7 +76,7 @@ export function FunnelBarVertical({ showPersonsModal: showPersonsModalProp = tru
     const barRowHeight = `calc(${availableHeight}px - ${borderHeightPx}px - ${stepLegendHeightRem}rem  - ${scrollbarHeightPx}px)`
 
     return (
-        <div className={clsx('FunnelBarVertical')} ref={vizRef} data-attr="funnel-bar-vertical">
+        <div className="FunnelBarVertical" ref={vizRef} data-attr="funnel-bar-vertical">
             <ScrollableShadows scrollRef={scrollRef} direction="horizontal">
                 <table
                     /* eslint-disable-next-line react/forbid-dom-props */
