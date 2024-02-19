@@ -15,12 +15,14 @@ from posthog.hogql.printer import to_printed_hogql
 from posthog.hogql.query import execute_hogql_query
 from posthog.hogql.timings import HogQLTimings
 from posthog.hogql_queries.insights.funnels.funnel_query_context import FunnelQueryContext
+from posthog.hogql_queries.insights.funnels.funnel_time_to_convert import FunnelTimeToConvert
 from posthog.hogql_queries.insights.funnels.utils import get_funnel_order_class
 from posthog.hogql_queries.query_runner import QueryRunner
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 from posthog.models import Team
 from posthog.models.filters.mixins.utils import cached_property
 from posthog.schema import (
+    FunnelVizType,
     FunnelsQuery,
     FunnelsQueryResponse,
     HogQLQueryModifiers,
@@ -69,7 +71,7 @@ class FunnelsQueryRunner(QueryRunner):
         return refresh_frequency
 
     def to_query(self) -> ast.SelectQuery:
-        return self.funnel_order_class.get_query()
+        return self.funnel_class.get_query()
 
     def calculate(self):
         query = self.to_query()
@@ -86,7 +88,7 @@ class FunnelsQueryRunner(QueryRunner):
             modifiers=self.modifiers,
         )
 
-        results = self.funnel_order_class._format_results(response.results)
+        results = self.funnel_class._format_results(response.results)
 
         if response.timings is not None:
             timings.extend(response.timings)
@@ -96,6 +98,18 @@ class FunnelsQueryRunner(QueryRunner):
     @cached_property
     def funnel_order_class(self):
         return get_funnel_order_class(self.context.funnelsFilter)(context=self.context)
+
+    @cached_property
+    def funnel_class(self):
+        funnelVizType = self.context.funnelsFilter.funnelVizType
+
+        if funnelVizType == FunnelVizType.trends:
+            # return FunnelTrends(context=self.context)
+            return self.funnel_order_class
+        elif funnelVizType == FunnelVizType.time_to_convert:
+            return FunnelTimeToConvert(context=self.context)
+        else:
+            return self.funnel_order_class
 
     @cached_property
     def query_date_range(self):
