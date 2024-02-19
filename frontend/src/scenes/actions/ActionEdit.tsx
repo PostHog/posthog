@@ -22,6 +22,7 @@ import { ActionStepType, AvailableFeature } from '~/types'
 import { actionEditLogic, ActionEditLogicProps } from './actionEditLogic'
 import { ActionStep } from './ActionStep'
 import { ActionWebhooks } from './webhooks/ActionWebhooks'
+import { actionWebhooksLogic } from './webhooks/actionWebhooksLogic'
 
 export function ActionEdit({ action: loadedAction, id }: ActionEditLogicProps): JSX.Element {
     const logicProps: ActionEditLogicProps = {
@@ -34,6 +35,7 @@ export function ActionEdit({ action: loadedAction, id }: ActionEditLogicProps): 
     const { currentTeam } = useValues(teamLogic)
     const { hasAvailableFeature } = useValues(userLogic)
     const { tags } = useValues(tagsModel)
+    const { setEditingWebhookId } = useActions(actionWebhooksLogic({ id }))
 
     const slackEnabled = currentTeam?.slack_incoming_webhook
 
@@ -237,7 +239,9 @@ export function ActionEdit({ action: loadedAction, id }: ActionEditLogicProps): 
                             <p>Send webhooks whenever this action is triggered. </p>
                         </div>
 
-                        <LemonButton type="secondary">Add webhook</LemonButton>
+                        <LemonButton type="secondary" onClick={() => setEditingWebhookId('new')}>
+                            Add webhook
+                        </LemonButton>
                     </div>
 
                     {id ? (
