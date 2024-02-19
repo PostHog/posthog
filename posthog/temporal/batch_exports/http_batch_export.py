@@ -1,9 +1,9 @@
-import aiohttp
 import asyncio
 import datetime as dt
 import json
 from dataclasses import dataclass
 
+import aiohttp
 from django.conf import settings
 from temporalio import activity, workflow
 from temporalio.common import RetryPolicy
@@ -130,13 +130,13 @@ async def maybe_resume_from_heartbeat(inputs: HttpInsertInputs) -> str:
     return interval_start
 
 
-async def post_json_file_to_url(url, batch_file):
+async def post_json_file_to_url(url, batch_file, session: aiohttp.ClientSession):
     batch_file.seek(0)
-    async with aiohttp.ClientSession() as session:
-        headers = {"Content-Type": "application/json"}
-        async with session.post(url, data=batch_file, headers=headers) as response:
-            raise_for_status(response)
-            return response
+
+    headers = {"Content-Type": "application/json"}
+    async with session.post(url, data=batch_file, headers=headers) as response:
+        raise_for_status(response)
+        return response
 
 
 @activity.defn
@@ -239,7 +239,7 @@ async def insert_into_http_activity(inputs: HttpInsertInputs):
 
                 batch_file.write_record_as_bytes(json_dumps_bytes(event))
 
-            async def flush_batch_to_http_endpoint(last_uploaded_part_timestamp: str):
+            async def flush_batch_to_http_endpoint(last_uploaded_part_timestamp: str, session: aiohttp.ClientSession):
                 logger.debug(
                     "Sending %s records of size %s bytes",
                     batch_file.records_since_last_reset,
@@ -248,47 +248,48 @@ async def insert_into_http_activity(inputs: HttpInsertInputs):
 
                 batch_file.write(posthog_batch_footer)
 
-                await post_json_file_to_url(inputs.url, batch_file)
+                await post_json_file_to_url(inputs.url, batch_file, session)
 
                 rows_exported.add(batch_file.records_since_last_reset)
                 bytes_exported.add(batch_file.bytes_since_last_reset)
 
                 activity.heartbeat(last_uploaded_part_timestamp)
 
-            for record_batch in record_iterator:
-                for row in record_batch.select(columns).to_pylist():
-                    # Format result row as PostHog event, write JSON to the batch file.
+            async with aiohttp.ClientSession() as session:
+                for record_batch in record_iterator:
+                    for row in record_batch.select(columns).to_pylist():
+                        # Format result row as PostHog event, write JSON to the batch file.
 
-                    properties = row["properties"]
-                    properties = json.loads(properties) if properties else {}
-                    properties["$geoip_disable"] = True
+                        properties = row["properties"]
+                        properties = json.loads(properties) if properties else {}
+                        properties["$geoip_disable"] = True
 
-                    if row["event"] == "$autocapture" and row["elements_chain"] is not None:
-                        properties["$elements_chain"] = row["elements_chain"]
+                        if row["event"] == "$autocapture" and row["elements_chain"] is not None:
+                            properties["$elements_chain"] = row["elements_chain"]
 
-                    capture_event = {
-                        "uuid": row["uuid"],
-                        "distinct_id": row["distinct_id"],
-                        "timestamp": row["timestamp"],
-                        "event": row["event"],
-                        "properties": properties,
-                    }
+                        capture_event = {
+                            "uuid": row["uuid"],
+                            "distinct_id": row["distinct_id"],
+                            "timestamp": row["timestamp"],
+                            "event": row["event"],
+                            "properties": properties,
+                        }
 
-                    inserted_at = row.pop("_inserted_at")
+                        inserted_at = row.pop("_inserted_at")
 
-                    write_event_to_batch(capture_event)
+                        write_event_to_batch(capture_event)
 
-                    if (
-                        batch_file.tell() > settings.BATCH_EXPORT_HTTP_UPLOAD_CHUNK_SIZE_BYTES
-                        or batch_file.records_since_last_reset >= settings.BATCH_EXPORT_HTTP_BATCH_SIZE
-                    ):
-                        last_uploaded_part_timestamp = str(inserted_at)
-                        await flush_batch_to_http_endpoint(last_uploaded_part_timestamp)
-                        batch_file.reset()
+                        if (
+                            batch_file.tell() > settings.BATCH_EXPORT_HTTP_UPLOAD_CHUNK_SIZE_BYTES
+                            or batch_file.records_since_last_reset >= settings.BATCH_EXPORT_HTTP_BATCH_SIZE
+                        ):
+                            last_uploaded_part_timestamp = str(inserted_at)
+                            await flush_batch_to_http_endpoint(last_uploaded_part_timestamp, session)
+                            batch_file.reset()
 
-            if batch_file.tell() > 0:
-                last_uploaded_part_timestamp = str(inserted_at)
-                await flush_batch_to_http_endpoint(last_uploaded_part_timestamp)
+                if batch_file.tell() > 0:
+                    last_uploaded_part_timestamp = str(inserted_at)
+                    await flush_batch_to_http_endpoint(last_uploaded_part_timestamp, session)
 
 
 @workflow.defn(name="http-export")
