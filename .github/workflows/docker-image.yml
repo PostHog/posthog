@@ -6,7 +6,7 @@ on:
     pull_request:
         branches: ['self_host']
 env:
-    REGISTRY: ghcr.io
+    REGISTRY: ghcr.io/mano233
     IMAGE_NAME: posthog
 jobs:
     build:
