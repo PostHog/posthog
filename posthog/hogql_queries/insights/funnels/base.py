@@ -1,6 +1,6 @@
 from abc import ABC
 from functools import cached_property
-from typing import Any, Dict, List, Optional, Tuple, cast
+from typing import Any, Dict, List, Optional, Tuple, Union, cast
 import uuid
 from posthog.clickhouse.materialized_columns.column import ColumnName
 from posthog.constants import BREAKDOWN_VALUES_LIMIT
@@ -26,6 +26,7 @@ from posthog.schema import (
     BreakdownType,
     EventsNode,
     FunnelExclusionActionsNode,
+    FunnelTimeToConvertResults,
     StepOrderValue,
 )
 from posthog.types import EntityNode, ExclusionEntityNode
@@ -265,7 +266,9 @@ class FunnelBase(ABC):
         else:
             raise ValidationError(detail=f"Unsupported breakdown type: {breakdownType}")
 
-    def _format_results(self, results) -> List[Dict[str, Any]] | List[List[Dict[str, Any]]]:
+    def _format_results(
+        self, results
+    ) -> Union[FunnelTimeToConvertResults, List[Dict[str, Any]], List[List[Dict[str, Any]]]]:
         breakdown = self.context.breakdown
 
         if not results or len(results) == 0:

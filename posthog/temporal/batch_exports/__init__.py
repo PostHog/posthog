@@ -32,6 +32,10 @@ from posthog.temporal.batch_exports.snowflake_batch_export import (
     SnowflakeBatchExportWorkflow,
     insert_into_snowflake_activity,
 )
+from posthog.temporal.batch_exports.http_batch_export import (
+    HttpBatchExportWorkflow,
+    insert_into_http_activity,
+)
 from posthog.temporal.batch_exports.squash_person_overrides import *
 
 WORKFLOWS = [
@@ -42,6 +46,7 @@ WORKFLOWS = [
     RedshiftBatchExportWorkflow,
     S3BatchExportWorkflow,
     SnowflakeBatchExportWorkflow,
+    HttpBatchExportWorkflow,
     SquashPersonOverridesWorkflow,
 ]
 
@@ -58,6 +63,7 @@ ACTIVITIES = [
     insert_into_redshift_activity,
     insert_into_s3_activity,
     insert_into_snowflake_activity,
+    insert_into_http_activity,
     noop_activity,
     prepare_dictionary,
     prepare_person_overrides,
