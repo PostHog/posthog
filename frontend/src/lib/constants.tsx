@@ -233,6 +233,7 @@ export const FEATURE_MINIMUM_PLAN: Partial<Record<AvailableFeature, LicensePlan>
     [AvailableFeature.APP_METRICS]: LicensePlan.Scale,
     [AvailableFeature.RECORDINGS_PLAYLISTS]: LicensePlan.Scale,
     [AvailableFeature.ROLE_BASED_ACCESS]: LicensePlan.Enterprise,
+    [AvailableFeature.TWOFA_ENFORCEMENT]: LicensePlan.Enterprise,
     [AvailableFeature.RECORDINGS_FILE_EXPORT]: LicensePlan.Scale,
     [AvailableFeature.RECORDINGS_PERFORMANCE]: LicensePlan.Scale,
     [AvailableFeature.SURVEYS_STYLING]: LicensePlan.Scale,

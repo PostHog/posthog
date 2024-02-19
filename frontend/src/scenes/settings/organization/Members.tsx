@@ -1,5 +1,6 @@
 import { LemonInput, LemonModal, LemonSwitch } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
+import { PayGateMini } from 'lib/components/PayGateMini/PayGateMini'
 import { TZLabel } from 'lib/components/TZLabel'
 import { OrganizationMembershipLevel } from 'lib/constants'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
@@ -23,7 +24,7 @@ import { organizationLogic } from 'scenes/organizationLogic'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { userLogic } from 'scenes/userLogic'
 
-import { OrganizationMemberType } from '~/types'
+import { AvailableFeature, OrganizationMemberType } from '~/types'
 
 function ActionsComponent(_: any, member: OrganizationMemberType): JSX.Element | null {
     const { user } = useValues(userLogic)
@@ -262,15 +263,7 @@ export function Members(): JSX.Element | null {
 
     return (
         <>
-            <div className="flex items-center justify-between">
-                <LemonInput type="search" placeholder="Search for members" value={search} onChange={setSearch} />
-                <LemonSwitch
-                    label="Enforce 2FA"
-                    bordered
-                    checked={currentOrganization?.enforce_2fa ? true : false}
-                    onChange={(enforce_2fa) => updateOrganization({ enforce_2fa })}
-                />
-            </div>
+            <LemonInput type="search" placeholder="Search for members" value={search} onChange={setSearch} />
 
             <LemonTable
                 dataSource={filteredMembers}
@@ -282,6 +275,16 @@ export function Members(): JSX.Element | null {
                 defaultSorting={{ columnKey: 'level', order: -1 }}
                 pagination={{ pageSize: 50 }}
             />
+            <h3 className="mt-4">Two-factor authentication</h3>
+            <PayGateMini feature={AvailableFeature.TWOFA_ENFORCEMENT}>
+                <p>Require all organization members to use two-factor authentication.</p>
+                <LemonSwitch
+                    label="Enforce 2FA"
+                    bordered
+                    checked={currentOrganization?.enforce_2fa ? true : false}
+                    onChange={(enforce_2fa) => updateOrganization({ enforce_2fa })}
+                />
+            </PayGateMini>
         </>
     )
 }

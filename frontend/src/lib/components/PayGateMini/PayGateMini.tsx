@@ -16,6 +16,7 @@ import { AvailableFeature } from '~/types'
 type PayGateSupportedFeatures =
     | AvailableFeature.DASHBOARD_PERMISSIONING
     | AvailableFeature.SSO_ENFORCEMENT
+    | AvailableFeature.TWOFA_ENFORCEMENT
     | AvailableFeature.DASHBOARD_COLLABORATION
     | AvailableFeature.ROLE_BASED_ACCESS
     | AvailableFeature.CORRELATION_ANALYSIS
@@ -90,6 +91,10 @@ const FEATURE_SUMMARIES: Record<
         description: 'Create export workflows to send your data to a destination of your choice.',
         umbrella: 'data pipelines',
         docsHref: 'https://posthog.com/docs/cdp',
+    },
+    [AvailableFeature.TWOFA_ENFORCEMENT]: {
+        description: 'Enforce two-factor authentication for all users in your organization.',
+        umbrella: 'organization-level authentication',
     },
 }
 
