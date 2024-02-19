@@ -6,7 +6,6 @@ import zoneinfo
 from rest_framework import request
 
 from posthog.caching.calculate_results import (
-    CLICKHOUSE_MAX_EXECUTION_TIME,
     calculate_cache_key,
 )
 from posthog.caching.insight_caching_state import InsightCachingState
@@ -18,6 +17,11 @@ from posthog.utils import refresh_requested_by_client
 Utilities used by the insights API to determine whether
 or not to refresh an insight upon a client request to do so
 """
+
+# ClickHouse query timeout in seconds
+# From https://github.com/PostHog/posthog-cloud-infra/blob/master/ansible/config/clickhouse-users.xml#L11
+# Keep in sync with the above! And note that this doesn't hold for async queries (which are flagged as of Feb 2023)
+CLICKHOUSE_MAX_EXECUTION_TIME = timedelta(seconds=180)
 
 # Default minimum wait time for refreshing an insight
 BASE_MINIMUM_INSIGHT_REFRESH_INTERVAL = timedelta(minutes=15)
@@ -108,7 +112,7 @@ def _is_refresh_currently_running_somewhere_else(caching_state: Optional[Insight
         # A refresh must have been queued at some point in the past
         and caching_state.last_refresh_queued_at is not None
         # That point was recent enough that the query might still be running
-        and caching_state.last_refresh_queued_at > now - timedelta(seconds=CLICKHOUSE_MAX_EXECUTION_TIME)
+        and caching_state.last_refresh_queued_at > now - CLICKHOUSE_MAX_EXECUTION_TIME
         # And refreshing must have either never finished or last finished before it was queued now
         and (caching_state.last_refresh is None or caching_state.last_refresh < caching_state.last_refresh_queued_at)
     ):

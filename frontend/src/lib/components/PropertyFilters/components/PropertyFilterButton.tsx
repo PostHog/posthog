@@ -1,10 +1,10 @@
 import './PropertyFilterButton.scss'
 
+import { IconX } from '@posthog/icons'
 import { LemonButton } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { useValues } from 'kea'
 import { PropertyFilterIcon } from 'lib/components/PropertyFilters/components/PropertyFilterIcon'
-import { IconClose } from 'lib/lemon-ui/icons'
 import { midEllipsis } from 'lib/utils'
 import React from 'react'
 
@@ -51,7 +51,7 @@ export const PropertyFilterButton = React.forwardRef<HTMLElement, PropertyFilter
                 {closable && (
                     <LemonButton
                         size="xsmall"
-                        icon={<IconClose />}
+                        icon={<IconX />}
                         onClick={(e) => {
                             e.stopPropagation()
                             onClose()

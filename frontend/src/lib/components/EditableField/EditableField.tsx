@@ -1,9 +1,10 @@
 import './EditableField.scss'
 
 import { useMergeRefs } from '@floating-ui/react'
+import { IconPencil } from '@posthog/icons'
 import clsx from 'clsx'
 import { useResizeObserver } from 'lib/hooks/useResizeObserver'
-import { IconEdit, IconMarkdown } from 'lib/lemon-ui/icons'
+import { IconMarkdown } from 'lib/lemon-ui/icons'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
@@ -256,7 +257,7 @@ export function EditableField({
                                 <div className="EditableField__actions">
                                     <LemonButton
                                         title="Edit"
-                                        icon={<IconEdit />}
+                                        icon={<IconPencil />}
                                         size={compactButtons ? 'small' : undefined}
                                         onClick={() => {
                                             setLocalIsEditing(true)

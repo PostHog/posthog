@@ -9,8 +9,9 @@ aioboto3==12.0.0
 aiobotocore[boto3]==2.7.0
     # via
     #   aioboto3
+    #   aiobotocore
     #   s3fs
-aiohttp==3.9.0
+aiohttp==3.9.2
     # via
     #   -r requirements.in
     #   aiobotocore
@@ -252,6 +253,7 @@ giturlparse==0.12.0
     # via dlt
 google-api-core[grpc]==2.11.1
     # via
+    #   google-api-core
     #   google-cloud-bigquery
     #   google-cloud-core
 google-auth==2.22.0
@@ -273,7 +275,9 @@ googleapis-common-protos==1.60.0
     #   google-api-core
     #   grpcio-status
 greenlet==3.0.3
-    # via gevent
+    # via
+    #   gevent
+    #   sqlalchemy
 grpcio==1.57.0
     # via
     #   google-api-core
@@ -346,7 +350,7 @@ kombu==5.3.2
     #   celery
 lazy-object-proxy==1.10.0
     # via openapi-spec-validator
-lxml==4.6.5
+lxml==4.9.1
     # via
     #   python3-saml
     #   toronado
@@ -385,8 +389,10 @@ openapi-schema-validator==0.6.2
     # via openapi-spec-validator
 openapi-spec-validator==0.7.1
     # via -r requirements.in
-orjson==3.9.10
-    # via dlt
+orjson==3.9.13
+    # via
+    #   -r requirements.in
+    #   dlt
 oscrypto==1.3.0
     # via snowflake-connector-python
 outcome==1.1.0
@@ -681,6 +687,7 @@ urllib3[secure,socks]==1.26.18
     #   selenium
     #   sentry-sdk
     #   snowflake-connector-python
+    #   urllib3
 urllib3-secure-extra==0.1.0
     # via urllib3
 vine==5.0.0

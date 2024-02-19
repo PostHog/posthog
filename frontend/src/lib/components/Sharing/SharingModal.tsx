@@ -1,13 +1,13 @@
 import './SharingModal.scss'
 
-import { IconInfo, IconLock } from '@posthog/icons'
+import { IconCollapse, IconExpand, IconInfo, IconLock } from '@posthog/icons'
 import { LemonButton, LemonSwitch } from '@posthog/lemon-ui'
 import { captureException } from '@sentry/react'
 import { useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
 import { CodeSnippet, Language } from 'lib/components/CodeSnippet'
 import { TitleWithIcon } from 'lib/components/TitleWithIcon'
-import { IconGlobeLock, IconLink, IconUnfoldLess, IconUnfoldMore } from 'lib/lemon-ui/icons'
+import { IconGlobeLock, IconLink } from 'lib/lemon-ui/icons'
 import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { LemonModal } from 'lib/lemon-ui/LemonModal'
@@ -204,7 +204,7 @@ export function SharingModalContent({
                                     <div className="rounded border">
                                         <LemonButton
                                             fullWidth
-                                            sideIcon={showPreview ? <IconUnfoldLess /> : <IconUnfoldMore />}
+                                            sideIcon={showPreview ? <IconCollapse /> : <IconExpand />}
                                             onClick={togglePreview}
                                         >
                                             Preview

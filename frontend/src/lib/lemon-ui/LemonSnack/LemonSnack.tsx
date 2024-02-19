@@ -1,6 +1,6 @@
+import { IconX } from '@posthog/icons'
 import { LemonButton } from '@posthog/lemon-ui'
 import clsx from 'clsx'
-import { IconClose } from 'lib/lemon-ui/icons'
 import { forwardRef } from 'react'
 
 export interface LemonSnackProps {
@@ -45,7 +45,7 @@ export const LemonSnack: React.FunctionComponent<LemonSnackProps & React.RefAttr
                         <LemonButton
                             size="small"
                             noPadding
-                            icon={<IconClose />}
+                            icon={<IconX />}
                             onClick={(event) => {
                                 event.stopPropagation()
                                 onClose()

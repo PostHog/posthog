@@ -1,8 +1,8 @@
+import { IconLock, IconTrash, IconUnlock } from '@posthog/icons'
 import { useActions, useValues } from 'kea'
 import { PayGateMini } from 'lib/components/PayGateMini/PayGateMini'
 import { usersLemonSelectOptions } from 'lib/components/UserSelectItem'
 import { DashboardPrivilegeLevel, DashboardRestrictionLevel, privilegeLevelToName } from 'lib/constants'
-import { IconDelete, IconLock, IconLockOpen } from 'lib/lemon-ui/icons'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonSelect, LemonSelectOptions } from 'lib/lemon-ui/LemonSelect'
@@ -19,7 +19,7 @@ export const DASHBOARD_RESTRICTION_OPTIONS: LemonSelectOptions<DashboardRestrict
     {
         value: DashboardRestrictionLevel.EveryoneInProjectCanEdit,
         label: 'Everyone in the project can edit',
-        icon: <IconLockOpen />,
+        icon: <IconUnlock />,
     },
     {
         value: DashboardRestrictionLevel.OnlyCollaboratorsCanEdit,
@@ -138,7 +138,7 @@ function CollaboratorRow({
                     <span className="rounded bg-primary-alt-highlight p-1">{privilegeLevelName}</span>
                     {deleteCollaborator && wasInvited && (
                         <LemonButton
-                            icon={<IconDelete />}
+                            icon={<IconTrash />}
                             onClick={() => deleteCollaborator(user.uuid)}
                             tooltip={wasInvited ? 'Remove invited collaborator' : null}
                             size="small"

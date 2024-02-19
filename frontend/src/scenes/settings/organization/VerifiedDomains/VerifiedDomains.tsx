@@ -1,6 +1,6 @@
-import { IconInfo } from '@posthog/icons'
+import { IconInfo, IconLock, IconTrash, IconWarning } from '@posthog/icons'
 import { useActions, useValues } from 'kea'
-import { IconCheckmark, IconDelete, IconExclamation, IconLock, IconOffline, IconWarning } from 'lib/lemon-ui/icons'
+import { IconCheckmark, IconExclamation, IconOffline } from 'lib/lemon-ui/icons'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { More } from 'lib/lemon-ui/LemonButton/More'
 import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
@@ -232,7 +232,7 @@ function VerifiedDomainsTable(): JSX.Element {
                                     }
                                     fullWidth
                                 >
-                                    <IconDelete /> Remove domain
+                                    <IconTrash /> Remove domain
                                 </LemonButton>
                             </>
                         }

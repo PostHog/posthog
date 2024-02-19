@@ -1,7 +1,8 @@
 import './LemonTag.scss'
 
+import { IconX } from '@posthog/icons'
 import clsx from 'clsx'
-import { IconClose, IconEllipsis } from 'lib/lemon-ui/icons'
+import { IconEllipsis } from 'lib/lemon-ui/icons'
 import { LemonButton, LemonButtonWithDropdown } from 'lib/lemon-ui/LemonButton'
 import { LemonButtonDropdown } from 'lib/lemon-ui/LemonButton'
 import { forwardRef } from 'react'
@@ -64,7 +65,7 @@ export const LemonTag: React.FunctionComponent<LemonTagProps & React.RefAttribut
                 )}
                 {closable && (
                     <LemonButton
-                        icon={<IconClose className="h-3.5 w-3.5" />}
+                        icon={<IconX className="h-3.5 w-3.5" />}
                         onClick={onClose}
                         size="xsmall"
                         className="LemonTag__right-button"
