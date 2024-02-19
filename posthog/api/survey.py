@@ -219,14 +219,15 @@ class SurveySerializerCreateUpdateOnly(SurveySerializer):
             validated_data.pop("targeting_flag_filters")
 
         end_date = validated_data.get("end_date")
-        if instance.targeting_flag:
-            # turn off feature flag if survey is ended
+        start_date = validated_data.get("start_date")
+        if (start_date or end_date) and instance.targeting_flag:
+            # turn off feature flag if survey is completed
             if end_date is None:
                 instance.targeting_flag.active = True
             else:
                 instance.targeting_flag.active = False
             instance.targeting_flag.save()
-        # it's important to do this last because even after deleting the targeting flag, instance.targeting_flag will still return the feature flag and we don't want it to override with a saveq
+        # best to do this last so that removing the flag is the final state and won't get re-saved accidentally
         if validated_data.get("remove_targeting_flag"):
             if instance.targeting_flag:
                 instance.targeting_flag.delete()
