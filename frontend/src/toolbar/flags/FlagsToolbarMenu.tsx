@@ -71,7 +71,7 @@ export const FlagsToolbarMenu = (): JSX.Element => {
 
                                 <AnimatedCollapsible collapsed={!hasVariants || !currentValue}>
                                     <LemonRadio
-                                        className={clsx('pt-1 w-full', hasOverride && 'bg-mark')}
+                                        className={clsx('pt-1 pl-4 w-full', hasOverride && 'bg-mark')}
                                         value={typeof currentValue === 'string' ? currentValue : undefined}
                                         options={
                                             feature_flag.filters?.multivariate?.variants.map((variant) => ({
