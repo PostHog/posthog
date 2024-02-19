@@ -799,6 +799,7 @@ export interface SessionPlayerData {
     start?: Dayjs
     end?: Dayjs
     fullyLoaded: boolean
+    sessionRecordingId: SessionRecordingId
 }
 
 export enum SessionRecordingUsageType {
@@ -2312,6 +2313,9 @@ export interface InsightLogicProps {
     /** query when used as ad-hoc insight */
     query?: InsightVizNode
     setQuery?: (node: InsightVizNode) => void
+
+    /** Used to group DataNodes into a collection for group operations like refreshAll **/
+    dataNodeCollectionId?: string
 }
 
 export interface SetInsightOptions {
@@ -2924,6 +2928,7 @@ export interface AppContext {
     persisted_feature_flags?: string[]
     anonymous: boolean
     frontend_apps?: Record<number, FrontendAppConfig>
+    commit_sha?: string
     /** Whether the user was autoswitched to the current item's team. */
     switched_team: TeamType['id'] | null
     year_in_hog_url?: string

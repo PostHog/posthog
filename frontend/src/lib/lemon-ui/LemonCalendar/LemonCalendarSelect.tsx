@@ -1,5 +1,5 @@
+import { IconX } from '@posthog/icons'
 import { dayjs } from 'lib/dayjs'
-import { IconClose } from 'lib/lemon-ui/icons'
 import { LemonButton, LemonButtonWithSideActionProps, SideAction } from 'lib/lemon-ui/LemonButton'
 import { LemonCalendar } from 'lib/lemon-ui/LemonCalendar/LemonCalendar'
 import { useState } from 'react'
@@ -21,7 +21,7 @@ export function LemonCalendarSelect({ value, onChange, months, onClose }: LemonC
             <div className="flex justify-between border-b p-2 pb-4">
                 <h3 className="text-base mb-0">Select a date</h3>
                 {onClose && (
-                    <LemonButton icon={<IconClose />} size="small" onClick={onClose} aria-label="close" noPadding />
+                    <LemonButton icon={<IconX />} size="small" onClick={onClose} aria-label="close" noPadding />
                 )}
             </div>
             <div className="p-2">
@@ -93,7 +93,7 @@ export function LemonCalendarSelectInput(
                 sideAction={
                     showClear
                         ? {
-                              icon: <IconClose />,
+                              icon: <IconX />,
                               onClick: () => props.onChange(null),
                           }
                         : (undefined as unknown as SideAction) // We know it will be a normal button if not clearable

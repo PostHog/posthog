@@ -1,5 +1,5 @@
 import { TZLabel } from '@posthog/apps-common'
-import { IconLock } from 'lib/lemon-ui/icons'
+import { IconLock } from '@posthog/icons'
 import { LemonTag } from 'lib/lemon-ui/LemonTag/LemonTag'
 
 import { InstanceSetting, SystemStatusRow } from '~/types'

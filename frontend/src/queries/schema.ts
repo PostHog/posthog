@@ -206,6 +206,7 @@ export interface HogQLQueryResponse {
 export interface HogQLFilters {
     properties?: AnyPropertyFilter[]
     dateRange?: DateRange
+    filterTestAccounts?: boolean
 }
 
 export interface HogQLQuery extends DataNode {
@@ -298,6 +299,8 @@ export interface HogQLAutocompleteResponse {
     suggestions: AutocompleteCompletionItem[]
     /** Whether or not the suggestions returned are complete */
     incomplete_list: boolean
+    /** Measured timings for different parts of the query generation process */
+    timings?: QueryTiming[]
 }
 
 export interface HogQLMetadata extends DataNode {
@@ -409,6 +412,8 @@ export interface EventsQuery extends DataNode {
     properties?: AnyPropertyFilter[]
     /** Fixed properties in the query, can't be edited in the interface (e.g. scoping down by person) */
     fixedProperties?: AnyPropertyFilter[]
+    /** Filter test accounts */
+    filterTestAccounts?: boolean
     /** Limit to events matching this string */
     event?: string | null
     /**
@@ -508,6 +513,8 @@ interface DataTableNodeViewProps {
     showSearch?: boolean
     /** Include a property filter above the table */
     showPropertyFilter?: boolean
+    /** Show filter to exclude test accounts */
+    showTestAccountFilters?: boolean
     /** Include a HogQL query editor above HogQL tables */
     showHogQLEditor?: boolean
     /** Show the kebab menu at the end of the row */
@@ -675,6 +682,7 @@ export type FunnelExclusion = FunnelExclusionEventsNode | FunnelExclusionActions
 export type FunnelsFilter = {
     exclusions?: FunnelExclusion[]
     layout?: FunnelsFilterLegacy['layout']
+    /** @asType integer */
     binCount?: FunnelsFilterLegacy['bin_count']
     breakdownAttributionType?: FunnelsFilterLegacy['breakdown_attribution_type']
     /** @asType integer */
@@ -705,8 +713,18 @@ export interface FunnelsQuery extends InsightsQueryBase {
     breakdownFilter?: BreakdownFilter
 }
 
+/** @asType integer */
+type BinNumber = number
+export type FunnelStepsResults = Record<string, any>[]
+export type FunnelStepsBreakdownResults = Record<string, any>[][]
+export type FunnelTimeToConvertResults = {
+    /** @asType integer */
+    average_conversion_time: number
+    bins: [BinNumber, BinNumber][]
+}
+export type FunnelTrendsResults = Record<string, any>[]
 export interface FunnelsQueryResponse extends QueryResponse {
-    results: Record<string, any>[] | Record<string, any>[][]
+    results: FunnelStepsResults | FunnelStepsBreakdownResults | FunnelTimeToConvertResults | FunnelTrendsResults
 }
 
 /** `RetentionFilterType` minus everything inherited from `FilterType` */
@@ -853,7 +871,7 @@ export interface QueryRequest {
 }
 
 export interface QueryResponse {
-    results: unknown[]
+    results: unknown
     timings?: QueryTiming[]
     hogql?: string
     is_cached?: boolean

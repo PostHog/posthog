@@ -663,6 +663,10 @@
                     "description": "Include a free text search field (PersonsNode only)",
                     "type": "boolean"
                 },
+                "showTestAccountFilters": {
+                    "description": "Show filter to exclude test accounts",
+                    "type": "boolean"
+                },
                 "showTimings": {
                     "description": "Show a detailed query timing breakdown",
                     "type": "boolean"
@@ -1131,6 +1135,10 @@
                 "event": {
                     "description": "Limit to events matching this string",
                     "type": ["string", "null"]
+                },
+                "filterTestAccounts": {
+                    "description": "Filter test accounts",
+                    "type": "boolean"
                 },
                 "fixedProperties": {
                     "description": "Fixed properties in the query, can't be edited in the interface (e.g. scoping down by person)",
@@ -1631,6 +1639,48 @@
             "enum": ["total", "previous"],
             "type": "string"
         },
+        "FunnelStepsBreakdownResults": {
+            "items": {
+                "items": {
+                    "type": "object"
+                },
+                "type": "array"
+            },
+            "type": "array"
+        },
+        "FunnelStepsResults": {
+            "items": {
+                "type": "object"
+            },
+            "type": "array"
+        },
+        "FunnelTimeToConvertResults": {
+            "additionalProperties": false,
+            "properties": {
+                "average_conversion_time": {
+                    "type": "integer"
+                },
+                "bins": {
+                    "items": {
+                        "items": {
+                            "type": "integer"
+                        },
+                        "maxItems": 2,
+                        "minItems": 2,
+                        "type": "array"
+                    },
+                    "type": "array"
+                }
+            },
+            "required": ["average_conversion_time", "bins"],
+            "type": "object"
+        },
+        "FunnelTrendsResults": {
+            "items": {
+                "type": "object"
+            },
+            "type": "array"
+        },
         "FunnelVizType": {
             "enum": ["steps", "time_to_convert", "trends"],
             "type": "string"
@@ -1639,7 +1689,7 @@
             "additionalProperties": false,
             "properties": {
                 "binCount": {
-                    "$ref": "#/definitions/BinCountValue"
+                    "type": "integer"
                 },
                 "breakdownAttributionType": {
                     "$ref": "#/definitions/BreakdownAttributionType"
@@ -1822,19 +1872,16 @@
                 "results": {
                     "anyOf": [
                         {
-                            "items": {
-                                "type": "object"
-                            },
-                            "type": "array"
+                            "$ref": "#/definitions/FunnelStepsResults"
                         },
                         {
-                            "items": {
-                                "items": {
-                                    "type": "object"
-                                },
-                                "type": "array"
-                            },
-                            "type": "array"
+                            "$ref": "#/definitions/FunnelStepsBreakdownResults"
+                        },
+                        {
+                            "$ref": "#/definitions/FunnelTimeToConvertResults"
+                        },
+                        {
+                            "$ref": "#/definitions/FunnelTrendsResults"
                         }
                     ]
                 },
@@ -1947,6 +1994,13 @@
                         "$ref": "#/definitions/AutocompleteCompletionItem"
                     },
                     "type": "array"
+                },
+                "timings": {
+                    "description": "Measured timings for different parts of the query generation process",
+                    "items": {
+                        "$ref": "#/definitions/QueryTiming"
+                    },
+                    "type": "array"
                 }
             },
             "required": ["suggestions", "incomplete_list"],
@@ -1961,6 +2015,9 @@
             "properties": {
                 "dateRange": {
                     "$ref": "#/definitions/DateRange"
+                },
+                "filterTestAccounts": {
+                    "type": "boolean"
                 },
                 "properties": {
                     "items": {
@@ -3191,10 +3248,7 @@
                 "next_allowed_client_refresh": {
                     "type": "string"
                 },
-                "results": {
-                    "items": {},
-                    "type": "array"
-                },
+                "results": {},
                 "timings": {
                     "items": {
                         "$ref": "#/definitions/QueryTiming"
@@ -3583,6 +3637,13 @@
                         "suggestions": {
                             "items": {
                                 "$ref": "#/definitions/AutocompleteCompletionItem"
+                            },
+                            "type": "array"
+                        },
+                        "timings": {
+                            "description": "Measured timings for different parts of the query generation process",
+                            "items": {
+                                "$ref": "#/definitions/QueryTiming"
                             },
                             "type": "array"
                         }
@@ -4339,6 +4400,10 @@
                     "type": "boolean"
                 },
                 "showTable": {
+                    "type": "boolean"
+                },
+                "showTestAccountFilters": {
+                    "description": "Show filter to exclude test accounts",
                     "type": "boolean"
                 },
                 "showTimings": {

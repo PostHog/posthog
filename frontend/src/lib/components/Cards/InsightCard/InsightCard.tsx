@@ -30,7 +30,7 @@ import { ActionsHorizontalBar, ActionsLineGraph, ActionsPie } from 'scenes/trend
 
 import { dataNodeLogic, DataNodeLogicProps } from '~/queries/nodes/DataNode/dataNodeLogic'
 import { filtersToQueryNode } from '~/queries/nodes/InsightQuery/utils/filtersToQueryNode'
-import { insightVizDataNodeKey } from '~/queries/nodes/InsightViz/InsightViz'
+import { insightVizDataCollectionId, insightVizDataNodeKey } from '~/queries/nodes/InsightViz/InsightViz'
 import { getCachedResults } from '~/queries/nodes/InsightViz/utils'
 import { Query } from '~/queries/Query/Query'
 import { InsightQueryNode } from '~/queries/schema'
@@ -190,11 +190,14 @@ export function FilterBasedCardContent({
     const displayedType = getDisplayedType(insight.filters)
     const VizComponent = displayMap[displayedType]?.element || VizComponentFallback
     const query: InsightQueryNode = filtersToQueryNode(insight.filters)
+    const key = insightVizDataNodeKey(insightProps)
     const dataNodeLogicProps: DataNodeLogicProps = {
         query,
-        key: insightVizDataNodeKey(insightProps),
+        key,
         cachedResults: getCachedResults(insightProps.cachedInsight, query),
         doNotLoad: insightProps.doNotLoad,
+        loadPriority: insightProps.loadPriority,
+        dataNodeCollectionId: insightVizDataCollectionId(insightProps, key),
     }
     return (
         <BindLogic logic={dataNodeLogic} props={dataNodeLogicProps}>
