@@ -25,6 +25,7 @@ import { LemonTag } from 'lib/lemon-ui/LemonTag/LemonTag'
 import { LemonTextArea } from 'lib/lemon-ui/LemonTextArea/LemonTextArea'
 import { Lettermark, LettermarkColor } from 'lib/lemon-ui/Lettermark'
 import { Link } from 'lib/lemon-ui/Link'
+import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { featureFlagLogic as enabledFeaturesLogic } from 'lib/logic/featureFlagLogic'
 import { alphabet, capitalizeFirstLetter } from 'lib/utils'
 import { PostHogFeature } from 'posthog-js/react'
@@ -817,17 +818,16 @@ function FeatureFlagRollout({ readOnly }: { readOnly?: boolean }): JSX.Element {
                                     },
                                     {
                                         label: !hasAvailableFeature(AvailableFeature.MULTIVARIATE_FLAGS) ? (
-                                            <Link to={upgradeLink} target="_blank">
-                                                <IconLock className="mr-1 text-warning" />
-                                                Multiple variants with rollout percentages (A/B test)
-                                            </Link>
+                                            <Tooltip title="This feature is not available on your current plan.">
+                                                <Link to={upgradeLink} target="_blank">
+                                                    <IconLock className="mr-1 text-warning" />
+                                                    Multiple variants with rollout percentages (A/B test)
+                                                </Link>
+                                            </Tooltip>
                                         ) : (
                                             <span>Multiple variants with rollout percentages (A/B test)</span>
                                         ),
                                         value: 'multivariate',
-                                        disabledReason: !hasAvailableFeature(AvailableFeature.MULTIVARIATE_FLAGS)
-                                            ? 'This feature is not available on your current plan.'
-                                            : undefined,
                                     },
                                 ]}
                                 onChange={(value) => {
