@@ -22,6 +22,9 @@ from ..exporter import (
 from ...constants import CSV_EXPORT_LIMIT
 from ...hogql.query import LimitContext
 
+CSV_EXPORT_BREAKDOWN_LIMIT_INITIAL = 500
+CSV_EXPORT_BREAKDOWN_LIMIT_LOW = 50  # The lowest limit we want to go to
+
 logger = structlog.get_logger(__name__)
 
 
@@ -216,7 +219,7 @@ def _export_to_csv(exported_asset: ExportedAsset, limit: int) -> None:
                 response = make_api_call(access_token, body, limit, method, next_url, path)
             except HTTPError as e:
                 # If error message contains "Query size exceeded", we try again with a lower limit
-                if "Query size exceeded" in e.response.text and limit > 100:
+                if "Query size exceeded" in e.response.text and limit > CSV_EXPORT_BREAKDOWN_LIMIT_LOW:
                     limit = int(limit / 2)
                     logger.warning(
                         "csv_exporter.query_size_exceeded",
@@ -305,7 +308,7 @@ def make_api_call(
 
 def export_csv(exported_asset: ExportedAsset, limit: Optional[int] = None) -> None:
     if not limit:
-        limit = 800  # Too high limit makes e.g. queries with long breakdown values too long and fail
+        limit = CSV_EXPORT_BREAKDOWN_LIMIT_INITIAL
 
     try:
         if exported_asset.export_format != "text/csv":
