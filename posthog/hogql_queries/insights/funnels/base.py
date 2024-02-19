@@ -1,6 +1,6 @@
 from abc import ABC
 from functools import cached_property
-from typing import Any, Dict, List, Optional, Tuple, cast
+from typing import Any, Dict, List, Optional, Tuple, Union, cast
 import uuid
 from posthog.clickhouse.materialized_columns.column import ColumnName
 from posthog.constants import BREAKDOWN_VALUES_LIMIT
@@ -26,6 +26,7 @@ from posthog.schema import (
     BreakdownType,
     EventsNode,
     FunnelExclusionActionsNode,
+    FunnelTimeToConvertResults,
     StepOrderValue,
 )
 from posthog.types import EntityNode, ExclusionEntityNode
@@ -38,10 +39,7 @@ class FunnelBase(ABC):
     _extra_event_fields: List[ColumnName]
     _extra_event_properties: List[PropertyName]
 
-    def __init__(
-        self,
-        context: FunnelQueryContext,
-    ):
+    def __init__(self, context: FunnelQueryContext):
         self.context = context
 
         self._extra_event_fields: List[ColumnName] = []
@@ -55,10 +53,10 @@ class FunnelBase(ABC):
     def get_query(self) -> ast.SelectQuery:
         raise NotImplementedError()
 
-    def get_step_counts_query(self) -> str:
+    def get_step_counts_query(self) -> ast.SelectQuery:
         raise NotImplementedError()
 
-    def get_step_counts_without_aggregation_query(self) -> str:
+    def get_step_counts_without_aggregation_query(self) -> ast.SelectQuery:
         raise NotImplementedError()
 
     @cached_property
@@ -265,7 +263,9 @@ class FunnelBase(ABC):
         else:
             raise ValidationError(detail=f"Unsupported breakdown type: {breakdownType}")
 
-    def _format_results(self, results) -> List[Dict[str, Any]] | List[List[Dict[str, Any]]]:
+    def _format_results(
+        self, results
+    ) -> Union[FunnelTimeToConvertResults, List[Dict[str, Any]], List[List[Dict[str, Any]]]]:
         breakdown = self.context.breakdown
 
         if not results or len(results) == 0:
@@ -400,7 +400,7 @@ class FunnelBase(ABC):
         # for prop in self._include_properties:
         #     extra_fields.append(prop)
 
-        funnel_events_query = FunnelEventQuery(context=self.context).to_query()
+        funnel_events_query = FunnelEventQuery(context=self.context).to_query(skip_entity_filter=skip_entity_filter)
         # funnel_events_query, params = FunnelEventQuery(
         #     extra_fields=[*self._extra_event_fields, *extra_fields],
         #     extra_event_properties=self._extra_event_properties,

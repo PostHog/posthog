@@ -32,8 +32,9 @@ from posthog.hogql_queries.insights.funnels.test.conversion_time_cases import (
     funnel_conversion_time_test_factory,
 )
 from posthog.hogql_queries.insights.funnels.test.breakdown_cases import (
-    assert_funnel_results_equal,
     funnel_breakdown_test_factory,
+    funnel_breakdown_group_test_factory,
+    assert_funnel_results_equal,
 )
 from posthog.hogql_queries.insights.funnels import Funnel
 from posthog.test.test_journeys import journeys_for
@@ -58,6 +59,15 @@ class TestFunnelBreakdown(
     ),
 ):
     maxDiff = None
+    pass
+
+
+class TestFunnelGroupBreakdown(
+    ClickhouseTestMixin,
+    funnel_breakdown_group_test_factory(  # type: ignore
+        ClickhouseFunnelActors,
+    ),
+):
     pass
 
 
