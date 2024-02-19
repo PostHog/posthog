@@ -173,7 +173,7 @@ describe('Dashboard', () => {
         cy.get('[data-attr=dashboard-name]').contains('App Analytics').click()
         cy.get('.InsightCard [data-attr=insight-card-title]').first().click()
         cy.location('pathname').should('include', '/insights')
-        cy.get('[data-attr=funnel-bar-graph]', { timeout: 30000 }).should('exist')
+        cy.get('[data-attr=funnel-bar-horizontal]', { timeout: 30000 }).should('exist')
     })
 
     it('Add insight from empty dashboard', () => {
