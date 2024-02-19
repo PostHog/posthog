@@ -1,13 +1,12 @@
-import { LemonBanner, LemonTable, LemonTextArea } from '@posthog/lemon-ui'
+import { LemonBanner, LemonTextArea } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
 import { combineUrl, router } from 'kea-router'
 import { EditableField } from 'lib/components/EditableField/EditableField'
 import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
 import { PageHeader } from 'lib/components/PageHeader'
-import { IconInfo, IconPlayCircle, IconPlus, IconWarning } from 'lib/lemon-ui/icons'
+import { IconInfo, IconPlayCircle, IconPlus } from 'lib/lemon-ui/icons'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
-import { LemonCheckbox } from 'lib/lemon-ui/LemonCheckbox'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { LemonLabel } from 'lib/lemon-ui/LemonLabel/LemonLabel'
 import { Link } from 'lib/lemon-ui/Link'
@@ -22,6 +21,7 @@ import { ActionStepType, AvailableFeature } from '~/types'
 
 import { actionEditLogic, ActionEditLogicProps } from './actionEditLogic'
 import { ActionStep } from './ActionStep'
+import { ActionWebhooks } from './ActionWebhooks'
 
 export function ActionEdit({ action: loadedAction, id }: ActionEditLogicProps): JSX.Element {
     const logicProps: ActionEditLogicProps = {
@@ -233,6 +233,14 @@ export function ActionEdit({ action: loadedAction, id }: ActionEditLogicProps): 
                 <div className="my-8">
                     <h2 className="subtitle">Action webhooks</h2>
                     <p>Trigger webhooks whenever this action is triggered</p>
+
+                    {id ? (
+                        <ActionWebhooks actionId={id} />
+                    ) : (
+                        <LemonBanner type="info">
+                            Please save your Action first and then you can configure webhooks for it.
+                        </LemonBanner>
+                    )}
 
                     {action.post_to_slack && (
                         <>
