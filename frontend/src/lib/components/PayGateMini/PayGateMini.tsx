@@ -14,10 +14,10 @@ import { userLogic } from 'scenes/userLogic'
 import { AvailableFeature } from '~/types'
 
 type PayGateSupportedFeatures =
-    | AvailableFeature.DASHBOARD_PERMISSIONING
+    | AvailableFeature.ADVANCED_PERMISSIONS
     | AvailableFeature.SSO_ENFORCEMENT
     | AvailableFeature.TWOFA_ENFORCEMENT
-    | AvailableFeature.DASHBOARD_COLLABORATION
+    | AvailableFeature.TEAM_COLLABORATION
     | AvailableFeature.ROLE_BASED_ACCESS
     | AvailableFeature.CORRELATION_ANALYSIS
     | AvailableFeature.PATHS_ADVANCED
@@ -42,9 +42,9 @@ const FEATURE_SUMMARIES: Record<
         docsHref?: string
     }
 > = {
-    [AvailableFeature.DASHBOARD_PERMISSIONING]: {
+    [AvailableFeature.ADVANCED_PERMISSIONS]: {
         icon: <IconEmojiPeople />,
-        description: 'Control access to this dashboard with dashboard permissions.',
+        description: 'Control access to this dashboard with advanced permissions.',
         umbrella: 'team-oriented permissioning',
     },
     [AvailableFeature.SSO_ENFORCEMENT]: {
@@ -53,7 +53,7 @@ const FEATURE_SUMMARIES: Record<
         umbrella: 'organization-level authentication',
         docsHref: 'https://posthog.com/manual/sso',
     },
-    [AvailableFeature.DASHBOARD_COLLABORATION]: {
+    [AvailableFeature.TEAM_COLLABORATION]: {
         description:
             'Make sense of insights your team has learned with the help of tags, descriptions, and text cards.',
         umbrella: 'collaboration features',
