@@ -6,7 +6,7 @@ import type { apiStatusLogicType } from './apiStatusLogicType'
 export const apiStatusLogic = kea<apiStatusLogicType>([
     path(['lib', 'apiStatusLogic']),
     actions({
-        onApiResponse: (response?: Response, error?: unknown) => ({ response, error }),
+        onApiResponse: (response?: Response, error?: any) => ({ response, error }),
         setInternetConnectionIssue: (issue: boolean) => ({ issue }),
     }),
     reducers({
@@ -20,8 +20,9 @@ export const apiStatusLogic = kea<apiStatusLogicType>([
     listeners(({ cache, actions, values }) => ({
         onApiResponse: async ({ response, error }, breakpoint) => {
             if (error || !response?.status) {
+                await breakpoint(50)
                 // Likely CORS headers errors (i.e. request failing without reaching Django))
-                if ((error as any)?.message === 'Failed to fetch') {
+                if (error?.message === 'Failed to fetch') {
                     actions.setInternetConnectionIssue(true)
                 }
             }

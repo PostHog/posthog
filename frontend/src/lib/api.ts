@@ -115,6 +115,13 @@ export interface ApiMethodOptions {
     headers?: Record<string, any>
 }
 
+export class ApiError extends Error {
+    constructor(message?: string, public status?: number, public data?: any) {
+        message = message || `API request failed with status: ${status ?? 'unknown'}`
+        super(message)
+    }
+}
+
 const CSRF_COOKIE_NAME = 'posthog_csrftoken'
 
 export function getCookie(name: string): string | null {
@@ -136,7 +143,7 @@ export async function getJSONOrThrow(response: Response): Promise<any> {
     try {
         return await response.json()
     } catch (e) {
-        return { statusText: response.statusText, status: response.status }
+        throw new ApiError('Failed to parse response JSON', response.status, response.statusText)
     }
 }
 
@@ -2128,7 +2135,7 @@ async function handleFetch(url: string, method: string, fetcher: () => Promise<R
     apiStatusLogic.findMounted()?.actions.onApiResponse(response, error)
 
     if (error || !response) {
-        throw { status: 0, message: error ?? 'Unknown error' }
+        throw new ApiError(error as any, response?.status)
     }
 
     if (!response.ok) {
@@ -2137,10 +2144,7 @@ async function handleFetch(url: string, method: string, fetcher: () => Promise<R
         posthog.capture('client_request_failure', { pathname, method, duration, status: response.status })
 
         const data = await getJSONOrThrow(response)
-        if (Array.isArray(data)) {
-            throw data
-        }
-        throw { status: response.status, ...data }
+        throw new ApiError('Non ok response', response.status, data)
     }
 
     return response
