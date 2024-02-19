@@ -76,15 +76,7 @@ function SkeletonCardTwo({ active }: { active: boolean }): JSX.Element {
     )
 }
 
-export function EmptyDashboardComponent({
-    loading,
-    canEdit,
-    setAddInsightsToDashboardModalOpen: setAddInsightsToDashboardModalOpen,
-}: {
-    loading: boolean
-    canEdit: boolean
-    setAddInsightsToDashboardModalOpen: (open: boolean) => void
-}): JSX.Element {
+export function EmptyDashboardComponent({ loading, canEdit }: { loading: boolean; canEdit: boolean }): JSX.Element {
     const { dashboard } = useValues(dashboardLogic)
 
     return (
@@ -95,11 +87,7 @@ export function EmptyDashboardComponent({
                     <p>This dashboard sure would look better with some graphs!</p>
                     {dashboard && (
                         <div className="mt-4 text-center">
-                            <AddInsightsToDashboard
-                                dashboardId={dashboard.id}
-                                setAddInsightsToDashboardModalOpen={setAddInsightsToDashboardModalOpen}
-                                disabledReason={canEdit ? null : DASHBOARD_CANNOT_EDIT_MESSAGE}
-                            />
+                            <AddInsightsToDashboard disabledReason={canEdit ? null : DASHBOARD_CANNOT_EDIT_MESSAGE} />
                         </div>
                     )}
                 </div>

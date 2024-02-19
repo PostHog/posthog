@@ -183,6 +183,7 @@ export const dashboard = {
         cy.intercept('POST', /api\/projects\/\d+\/insights\//).as('postInsight')
 
         cy.get('[data-attr=dashboard-add-graph-header]').contains('Add insight').click()
+        cy.get('[data-attr=dashboard-add-graph-footer]').contains('Create a new insight').click()
         cy.get('[data-attr=toast-close-button]').click({ multiple: true })
 
         if (insightName) {
@@ -194,6 +195,7 @@ export const dashboard = {
 
         cy.get('[data-attr=insight-save-button]').contains('Save & add to dashboard').click()
         cy.wait('@postInsight')
+        cy.get('[data-attr=dashboard-add-graph-footer]').contains('Close').click()
     },
     addAnyFilter(): void {
         cy.get('.PropertyFilterButton').should('have.length', 0)

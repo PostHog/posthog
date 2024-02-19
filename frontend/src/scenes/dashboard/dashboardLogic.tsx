@@ -152,11 +152,8 @@ export const dashboardLogic = kea<dashboardLogicType>([
         updateLayouts: (layouts: Layouts) => ({ layouts }),
         updateContainerWidth: (containerWidth: number, columns: number) => ({ containerWidth, columns }),
         updateTileColor: (tileId: number, color: string | null) => ({ tileId, color }),
-        addInsight: (insight: InsightModel, callback?: (insight: InsightModel) => void) => ({
-            insight,
-            callback,
-        }),
-        removeTile: (tile: DashboardTile, callback?: (tile: DashboardTile) => void) => ({ tile, callback }),
+        addInsight: (insight: InsightModel) => ({ insight }),
+        removeTile: (tile: DashboardTile) => ({ tile }),
         refreshAllDashboardItems: (payload: {
             tiles?: DashboardTile[]
             action: string
@@ -201,6 +198,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
         setInitialLoadResponseBytes: (responseBytes: number) => ({ responseBytes }),
         abortQuery: (payload: { dashboardQueryId: string; queryId: string; queryStartTime: number }) => payload,
         abortAnyRunningQuery: true,
+        addInsightsModalOpen: (open: boolean) => ({ open }),
     }),
 
     loaders(({ actions, props, values }) => ({
@@ -264,7 +262,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
                     }
                     return values.dashboard
                 },
-                addInsight: async ({ insight, callback }) => {
+                addInsight: async ({ insight }) => {
                     try {
                         if (!props.id) {
                             throw new Error('Dashboard id not provided')
@@ -285,7 +283,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
 
                         dashboardsModel.actions.tileAddedToDashboard(props.id)
 
-                        callback?.(refreshedInsight)
+                        eventUsageLogic.actions.reportSavedInsightToDashboard()
 
                         return updatedDashboard
                     } catch (e) {
@@ -293,7 +291,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
                         return values.dashboard
                     }
                 },
-                removeTile: async ({ tile, callback }) => {
+                removeTile: async ({ tile }) => {
                     try {
                         if (!props.id) {
                             throw new Error('Dashboard ID not provided')
@@ -311,7 +309,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
                             dashboardId: props.id,
                         })
 
-                        callback?.(tile)
+                        eventUsageLogic.actions.reportRemovedInsightFromDashboard()
 
                         return updatedDashboard
                     } catch (e) {
@@ -644,6 +642,12 @@ export const dashboardLogic = kea<dashboardLogicType>([
             null as number | 'new' | null,
             {
                 setTextTileId: (_, { textTileId }) => textTileId,
+            },
+        ],
+        insightsModalOpen: [
+            false,
+            {
+                addInsightsModalOpen: (_, { open }) => open,
             },
         ],
     })),

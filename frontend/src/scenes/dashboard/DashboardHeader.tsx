@@ -35,16 +35,10 @@ import { dashboardLogic } from './dashboardLogic'
 import { DashboardTemplateEditor } from './DashboardTemplateEditor'
 import { dashboardTemplateEditorLogic } from './dashboardTemplateEditorLogic'
 
-interface DashboardHeaderProps {
-    setAddInsightsToDashboardModalOpen: (open: boolean) => void
-}
-
 export const DASHBOARD_CANNOT_EDIT_MESSAGE =
     "You don't have edit permissions for this dashboard. Ask a dashboard collaborator with edit access to add you."
 
-export function DashboardHeader({
-    setAddInsightsToDashboardModalOpen: setAddInsightsToDashboardModalOpen,
-}: DashboardHeaderProps): JSX.Element | null {
+export function DashboardHeader(): JSX.Element | null {
     const {
         dashboard,
         dashboardLoading,
@@ -275,14 +269,10 @@ export function DashboardHeader({
                                     >
                                         Share
                                     </LemonButton>
+                                    <AddInsightsToDashboard
+                                        disabledReason={canEditDashboard ? null : DASHBOARD_CANNOT_EDIT_MESSAGE}
+                                    />
                                 </>
-                            )}
-                            {dashboard && (
-                                <AddInsightsToDashboard
-                                    dashboardId={dashboard.id}
-                                    setAddInsightsToDashboardModalOpen={setAddInsightsToDashboardModalOpen}
-                                    disabledReason={canEditDashboard ? null : DASHBOARD_CANNOT_EDIT_MESSAGE}
-                                />
                             )}
                         </>
                     )

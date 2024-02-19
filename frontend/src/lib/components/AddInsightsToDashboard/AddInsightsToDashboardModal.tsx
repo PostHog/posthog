@@ -4,21 +4,15 @@ import { useActions, useValues } from 'kea'
 import { CSSProperties } from 'react'
 import { AutoSizer } from 'react-virtualized/dist/es/AutoSizer'
 import { List, ListRowProps, ListRowRenderer } from 'react-virtualized/dist/es/List'
+import { dashboardLogic } from 'scenes/dashboard/dashboardLogic'
 import { urls } from 'scenes/urls'
 
 import { InsightModel } from '~/types'
 
 import { addInsightsToDashboardModalLogic } from './addInsightsToDashboardModalLogic'
 
-interface AddInsightsToDashboardModalProps {
-    isOpen: boolean
-    closeModal: () => void
-    dashboardId: number
-    canEditDashboard: boolean
-}
-
 interface InsightRelationRowProps {
-    dashboardId: number
+    dashboardId?: number
     insight: InsightModel
     canEditDashboard: boolean
     isHighlighted: boolean
@@ -44,7 +38,7 @@ const InsightRelationRow = ({
 
     return (
         <div
-            data-attr="dashboard-list-item"
+            data-attr="insight-list-item"
             /* eslint-disable-next-line react/forbid-dom-props */
             style={style}
             className={clsx('flex items-center space-x-2', isHighlighted && 'highlighted')}
@@ -80,32 +74,29 @@ const InsightRelationRow = ({
     )
 }
 
-export function AddInsightsToDashboardModal({
-    isOpen,
-    closeModal,
-    dashboardId,
-    canEditDashboard,
-}: AddInsightsToDashboardModalProps): JSX.Element {
-    const logic = addInsightsToDashboardModalLogic({
-        dashboardId: dashboardId,
-    })
+export function AddInsightsToDashboardModal(): JSX.Element {
+    const { insightsModalOpen, dashboard, canEditDashboard } = useValues(dashboardLogic)
 
-    const { searchQuery, filteredInsights, pagination, tiles, scrollIndex } = useValues(logic)
+    const { addInsightsModalOpen } = useActions(dashboardLogic)
+
+    const logic = addInsightsToDashboardModalLogic({ dashboardId: dashboard?.id })
+
+    const { searchQuery, insights, pagination, tiles, scrollIndex } = useValues(logic)
 
     const { setSearchQuery } = useActions(logic)
 
-    const paginationState = usePagination(filteredInsights || [], pagination)
+    const paginationState = usePagination(insights.results || [], pagination)
 
     const renderItem: ListRowRenderer = ({ index: rowIndex, style }: ListRowProps): JSX.Element | null => {
         return (
             <InsightRelationRow
-                key={filteredInsights[rowIndex].short_id}
-                dashboardId={dashboardId}
-                insight={filteredInsights[rowIndex]}
+                key={insights.results[rowIndex].short_id}
+                dashboardId={dashboard?.id}
+                insight={insights.results[rowIndex]}
                 canEditDashboard={canEditDashboard}
                 isHighlighted={rowIndex === scrollIndex}
                 isAlreadyOnDashboard={
-                    tiles?.some((t) => t.insight?.short_id === filteredInsights[rowIndex].short_id) || false
+                    tiles?.some((t) => t.insight?.short_id === insights.results[rowIndex].short_id) || false
                 }
                 style={style}
             />
@@ -114,15 +105,15 @@ export function AddInsightsToDashboardModal({
 
     return (
         <LemonModal
-            onClose={closeModal}
-            isOpen={isOpen}
+            onClose={() => addInsightsModalOpen(false)}
+            isOpen={insightsModalOpen}
             title="Add insight to dashboard"
             footer={
-                <div className="w-full flex justify-between">
-                    <LemonButton to={urls.insightNew(undefined, dashboardId)} type="secondary">
+                <div className="w-full flex justify-between" data-attr="dashboard-add-graph-footer">
+                    <LemonButton to={urls.insightNew(undefined, dashboard?.id)} type="secondary">
                         Create a new insight
                     </LemonButton>
-                    <LemonButton type="secondary" onClick={closeModal}>
+                    <LemonButton type="secondary" onClick={() => addInsightsModalOpen(false)}>
                         Close
                     </LemonButton>
                 </div>
@@ -145,7 +136,7 @@ export function AddInsightsToDashboardModal({
                                 style={{ paddingLeft: 10, paddingRight: 10 }}
                                 width={width}
                                 height={height}
-                                rowCount={filteredInsights.length}
+                                rowCount={insights.results.length}
                                 overscanRowCount={100}
                                 rowHeight={40}
                                 rowRenderer={renderItem}

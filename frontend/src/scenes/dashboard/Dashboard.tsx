@@ -8,7 +8,7 @@ import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { useKeyboardHotkeys } from 'lib/hooks/useKeyboardHotkeys'
 import { DashboardEventSource } from 'lib/utils/eventUsageLogic'
-import { useEffect, useState } from 'react'
+import { useEffect } from 'react'
 import { DashboardItems } from 'scenes/dashboard/DashboardItems'
 import { dashboardLogic, DashboardLogicProps } from 'scenes/dashboard/dashboardLogic'
 import { DashboardReloadAction, LastRefreshText } from 'scenes/dashboard/DashboardReloadAction'
@@ -60,8 +60,6 @@ function DashboardScene(): JSX.Element {
         useActions(dashboardLogic)
     const { groupsTaxonomicTypes } = useValues(groupsModel)
 
-    const [addInsightsToDashboardModalOpen, setAddInsightsToDashboardModalOpen] = useState<boolean>(false)
-
     useEffect(() => {
         reportDashboardViewed()
         return () => {
@@ -105,18 +103,12 @@ function DashboardScene(): JSX.Element {
 
     return (
         <div className="dashboard">
-            {placement == DashboardPlacement.Dashboard && (
-                <DashboardHeader setAddInsightsToDashboardModalOpen={setAddInsightsToDashboardModalOpen} />
-            )}
+            {placement == DashboardPlacement.Dashboard && <DashboardHeader />}
 
             {receivedErrorsFromAPI ? (
                 <InsightErrorState title="There was an error loading this dashboard" />
             ) : !tiles || tiles.length === 0 ? (
-                <EmptyDashboardComponent
-                    loading={itemsLoading}
-                    canEdit={canEditDashboard}
-                    setAddInsightsToDashboardModalOpen={setAddInsightsToDashboardModalOpen}
-                />
+                <EmptyDashboardComponent loading={itemsLoading} canEdit={canEditDashboard} />
             ) : (
                 <div>
                     <div className="flex gap-2 items-center justify-between flex-wrap">
@@ -179,14 +171,7 @@ function DashboardScene(): JSX.Element {
                     <DashboardItems />
                 </div>
             )}
-            {dashboard && (
-                <AddInsightsToDashboardModal
-                    isOpen={addInsightsToDashboardModalOpen}
-                    closeModal={() => setAddInsightsToDashboardModalOpen(false)}
-                    dashboardId={dashboard.id}
-                    canEditDashboard={canEditDashboard}
-                />
-            )}
+            <AddInsightsToDashboardModal />
         </div>
     )
 }

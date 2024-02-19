@@ -6,6 +6,7 @@ import api from 'lib/api'
 import { toParams } from 'lib/utils'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { dashboardLogic } from 'scenes/dashboard/dashboardLogic'
+import { InsightsResult } from 'scenes/saved-insights/savedInsightsLogic'
 import { teamLogic } from 'scenes/teamLogic'
 
 import { dashboardsModel } from '~/models/dashboardsModel'
@@ -14,27 +15,17 @@ import { InsightModel, InsightShortId } from '~/types'
 import type { addInsightsToDashboardModalLogicType } from './addInsightsToDashboardModalLogicType'
 
 export interface AddInsightsToDashboardModalLogicProps {
-    dashboardId: number
+    dashboardId?: number
 }
 
 const INSIGHTS_PER_PAGE = 10
-
-interface InsightsResult {
-    results: InsightModel[]
-    count: number
-    previous?: string
-    next?: string
-}
 
 export interface Fuse extends FuseClass<any> {}
 
 export const addInsightsToDashboardModalLogic = kea<addInsightsToDashboardModalLogicType>([
     props({} as AddInsightsToDashboardModalLogicProps),
     key(({ dashboardId }) => {
-        if (!dashboardId) {
-            throw Error('must provide a dashboard id')
-        }
-        return dashboardId
+        return dashboardId || 'new'
     }),
     path((key) => ['lib', 'components', 'AddInsightsToDashboard', 'addInsightsToDashboardModalLogic', key]),
     connect((props: AddInsightsToDashboardModalLogicProps) => ({
@@ -50,13 +41,16 @@ export const addInsightsToDashboardModalLogic = kea<addInsightsToDashboardModalL
     })),
     loaders(({ values }) => ({
         insights: {
-            __default: { results: [], count: 0 } as InsightsResult,
+            __default: { results: [], count: 0, filters: null, offset: 0 } as InsightsResult,
             loadInsights: async () => {
                 const params = {
                     order: '-last_modified_at',
                     limit: INSIGHTS_PER_PAGE,
-                    offset: Math.max(0, (values.page - 1) * INSIGHTS_PER_PAGE),
+                    ...((values.searchQuery == '' || values.page > 1) && {
+                        offset: Math.max(0, (values.page - 1) * INSIGHTS_PER_PAGE),
+                    }),
                     saved: true,
+                    ...(values.searchQuery != '' && { search: values.searchQuery }),
                     basic: true,
                     include_query_insights: true,
                 }
@@ -87,22 +81,6 @@ export const addInsightsToDashboardModalLogic = kea<addInsightsToDashboardModalL
         ],
     })),
     selectors(({ actions }) => ({
-        _insightsFuse: [
-            (s) => [s.insights],
-            (insights): Fuse => {
-                return new FuseClass(insights.results || [], {
-                    keys: ['name', 'derived_name', 'description', 'tags'],
-                    threshold: 0.3,
-                })
-            },
-        ],
-        filteredInsights: [
-            (s) => [s.searchQuery, s._insightsFuse, s.insights],
-            (searchQuery, _insightsFuse, insights): InsightModel[] =>
-                searchQuery.length
-                    ? _insightsFuse.search(searchQuery).map((r: FuseClass.FuseResult<InsightModel>) => r.item)
-                    : insights.results,
-        ],
         pagination: [
             (s) => [s.page, s.insights],
             (page, insights): PaginationManual => {
@@ -119,26 +97,29 @@ export const addInsightsToDashboardModalLogic = kea<addInsightsToDashboardModalL
     })),
     listeners(({ props, actions, values }) => ({
         addToDashboard: async ({ insight }) => {
+            if (!props.dashboardId) {
+                return
+            }
+
             if (insight.dashboards) {
                 insight.dashboards = [...insight.dashboards, props.dashboardId]
             } else {
                 insight.dashboards = [props.dashboardId]
             }
 
-            actions.addInsight(insight, () => {
-                actions.reportSavedInsightToDashboard()
-            })
+            actions.addInsight(insight)
         },
         removeFromDashboard: async ({ insight }) => {
             const tile = values.tiles.find((tile) => tile?.insight?.short_id === insight.short_id)
             if (!tile) {
                 return
             }
-            actions.removeTile(tile, () => {
-                actions.reportRemovedInsightFromDashboard()
-            })
+            actions.removeTile(tile)
         },
         setPage: async () => {
+            actions.loadInsights()
+        },
+        setSearchQuery: async () => {
             actions.loadInsights()
         },
     })),
