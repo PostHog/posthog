@@ -220,7 +220,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
 
                         dashboard.tiles.forEach((tile) => {
                             if (tile.insight) {
-                                tile.insight.transient = true
+                                tile.insight.dashboardKey = dashboard.id
                             }
                         })
 
@@ -368,84 +368,78 @@ export const dashboardLogic = kea<dashboardLogicType>([
                         }
                     }
                     return state
-                } /*
-                [dashboardsModel.actionTypes.updateDashboardInsight]: (
-                    state,
-                    { insight, extraDashboardIds, updateTileOnDashboards }
-                ) => {
-                    const targetDashboards = (insight.dashboards || []).concat(extraDashboardIds || [])
+                },
+                [dashboardsModel.actionTypes.updateDashboardInsight]: (state, { insight, updateTileOnDashboards }) => {
                     if (!props.id) {
                         // what are we even updating?
                         return state
                     }
-                    if (!targetDashboards.includes(props.id)) {
+                    if (insight.dashboardKey !== props.id) {
                         // this update is not for this dashboard
                         return state
                     }
-
-                    if (state) {
-                        const tileIndex = state.tiles.findIndex(
-                            (t) => !!t.insight && t.insight.short_id === insight.short_id
-                        )
-
-                        const newTiles = state.tiles.slice(0)
-
-                        if (tileIndex >= 0) {
-                            if (insight.dashboards?.includes(props.id)) {
-                                newTiles[tileIndex] = { ...newTiles[tileIndex], insight: insight }
-                                if (updateTileOnDashboards?.includes(props.id)) {
-                                    newTiles[tileIndex].last_refresh = insight.last_refresh
-                                }
-                            } else {
-                                newTiles.splice(tileIndex, 1)
-                            }
-                        } else {
-                            // we can't create tiles in this reducer
-                            // will reload all items in a listener to pick up the new tile
-                        }
-
-                        console.log("We are changing state for the insight", insight.short_id)
-
-                        return {
-                            ...state,
-                            tiles: newTiles.filter((t) => !t.deleted || !t.insight?.deleted),
-                        } as DashboardType
+                    if (!state) {
+                        return null
                     }
 
-                    return null
-                },*/,
-                [dashboardsModel.actionTypes.updateDashboardTile]: (state, { tile, extraDashboardIds }) => {
-                    const targetDashboards = (tile.insight?.dashboards || []).concat(extraDashboardIds || [])
+                    const tileIndex = state.tiles.findIndex(
+                        (t) =>
+                            !!t.insight &&
+                            t.insight.short_id === insight.short_id &&
+                            t.insight.dashboardKey === insight.dashboardKey
+                    )
+                    const newTiles = state.tiles.slice(0)
 
+                    if (tileIndex >= 0) {
+                        if (insight.dashboards?.includes(props.id)) {
+                            newTiles[tileIndex] = { ...newTiles[tileIndex], insight: insight }
+                            if (updateTileOnDashboards?.includes(props.id)) {
+                                newTiles[tileIndex].last_refresh = insight.last_refresh
+                            }
+                        } else {
+                            newTiles.splice(tileIndex, 1)
+                        }
+                    } else {
+                        // we can't create tiles in this reducer
+                        // will reload all items in a listener to pick up the new tile
+                    }
+
+                    return {
+                        ...state,
+                        tiles: newTiles.filter((t) => !t.deleted || !t.insight?.deleted),
+                    } as DashboardType
+                },
+                [dashboardsModel.actionTypes.updateDashboardTile]: (state, { tile }) => {
                     if (!props.id) {
                         // what are we even updating?
                         return state
                     }
-                    if (!targetDashboards.includes(props.id)) {
+                    if (tile.insight?.dashboardKey !== props.id) {
                         // this update is not for this dashboard
                         return state
                     }
-
-                    if (state) {
-                        const tileIndex = state.tiles.findIndex((t) => t.id === tile.id)
-                        const newTiles = state.tiles.slice(0)
-                        if (tileIndex >= 0) {
-                            if (!!tile.text || tile.insight?.dashboards?.includes(props.id)) {
-                                newTiles[tileIndex] = { ...newTiles[tileIndex], ...tile }
-                            } else {
-                                newTiles.splice(tileIndex, 1)
-                            }
-                        } else {
-                            newTiles.push(tile)
-                        }
-
-                        return {
-                            ...state,
-                            tiles: newTiles.filter((t) => !t.deleted || !t.insight?.deleted),
-                        } as DashboardType
+                    if (!state) {
+                        return null
                     }
 
-                    return null
+                    const tileIndex = state.tiles.findIndex(
+                        (t) => t.id === tile.id && t.insight?.dashboardKey === props.id
+                    )
+                    const newTiles = state.tiles.slice(0)
+                    if (tileIndex >= 0) {
+                        if (!!tile.text || tile.insight?.dashboards?.includes(props.id)) {
+                            newTiles[tileIndex] = { ...newTiles[tileIndex], ...tile }
+                        } else {
+                            newTiles.splice(tileIndex, 1)
+                        }
+                    } else {
+                        newTiles.push(tile)
+                    }
+
+                    return {
+                        ...state,
+                        tiles: newTiles.filter((t) => !t.deleted || !t.insight?.deleted),
+                    } as DashboardType
                 },
                 [dashboardsModel.actionTypes.updateDashboardSuccess]: (state, { dashboard }) => {
                     return state && dashboard && state.id === dashboard.id ? dashboard : state
@@ -461,7 +455,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
                     return {
                         ...state,
                         items: state?.tiles.map((t) =>
-                            !t.insight || t.insight.short_id === shortId
+                            !t.insight || (t.insight.short_id === shortId && t.insight.dashboardKey === state?.id)
                                 ? {
                                       ...t,
                                       ...(refreshing != null ? { refreshing } : {}),
@@ -472,7 +466,12 @@ export const dashboardLogic = kea<dashboardLogicType>([
                     } as DashboardType
                 },
                 [insightsModel.actionTypes.renameInsightSuccess]: (state, { item }): DashboardType | null => {
-                    const tileIndex = state?.tiles.findIndex((t) => !!t.insight && t.insight.short_id === item.short_id)
+                    const tileIndex = state?.tiles.findIndex(
+                        (t) =>
+                            !!t.insight &&
+                            t.insight.short_id === item.short_id &&
+                            t.insight.dashboardKey === item.dashboardKey
+                    )
                     const tiles = state?.tiles.slice(0)
 
                     if (tileIndex === undefined || tileIndex === -1 || !tiles) {
@@ -857,18 +856,22 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 actions.loadDashboardItems({ action: 'update' })
             }
         },
-        [dashboardsModel.actionTypes.updateDashboardInsight]: ({ insight, extraDashboardIds }) => {
-            const targetDashboards = (insight.dashboards || []).concat(extraDashboardIds || [])
+        [dashboardsModel.actionTypes.updateDashboardInsight]: ({ insight }) => {
             if (!props.id) {
                 // what are we even updating?
                 return
             }
-            if (!targetDashboards.includes(props.id)) {
+            if (insight.dashboardKey !== props.id) {
                 // this update is not for this dashboard
                 return
             }
 
-            const tileIndex = values.tiles.findIndex((t) => !!t.insight && t.insight.short_id === insight.short_id)
+            const tileIndex = values.tiles.findIndex(
+                (t) =>
+                    !!t.insight &&
+                    t.insight.short_id === insight.short_id &&
+                    t.insight.dashboardKey === insight.dashboardKey
+            )
 
             if (tileIndex === -1) {
                 // this is a new tile created from an insight context we need to reload the dashboard
@@ -991,7 +994,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
 
                     const refreshedInsightResponse: Response = await api.getResponse(apiUrl, methodOptions)
                     const refreshedInsight: InsightModel = await getJSONOrThrow(refreshedInsightResponse)
-                    refreshedInsight.transient = true
+                    refreshedInsight.dashboardKey = dashboardId
                     breakpoint()
                     updateExistingInsightState({ cachedInsight: insight, dashboardId, refreshedInsight })
                     dashboardsModel.actions.updateDashboardInsight(
