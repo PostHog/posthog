@@ -115,7 +115,7 @@ jobs:
 
             - name: Install pnpm
               if: needs.changes.outputs.shouldTriggerCypress == 'true'
-              uses: pnpm/action-setup@v2
+              uses: pnpm/action-setup@v3
               with:
                   version: 8.x.x
 

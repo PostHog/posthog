@@ -28,7 +28,7 @@ jobs:
                   fetch-depth: 0 # 👈 Required to retrieve git history (https://www.chromatic.com/docs/github-actions)
 
             - name: Install pnpm
-              uses: pnpm/action-setup@v2
+              uses: pnpm/action-setup@v3
               with:
                   version: 8.x.x
 
@@ -107,7 +107,7 @@ jobs:
                   token: ${{ secrets.POSTHOG_BOT_GITHUB_TOKEN || github.token }}
 
             - name: Install pnpm
-              uses: pnpm/action-setup@v2
+              uses: pnpm/action-setup@v3
               with:
                   version: 8.x.x
 
