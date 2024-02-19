@@ -38,7 +38,11 @@ export function ActionWebhookEdit({ actionId }: { actionId: ActionType['id'] }):
                         <>
                             <p>
                                 By default webhooks will receive a JSON payload containing the entire event. You can
-                                override this to instead send
+                                override this to send an event with one property `text` containing your formatted
+                                string.
+                                <br />
+                                Slack and Discord webhooks are automatically detected and formatted as a markdown
+                                message.
                             </p>
                             <Link to="https://posthog.com/docs/integrate/webhooks/message-formatting" target="_blank">
                                 See documentation on how to format webhook messages.
