@@ -72,7 +72,9 @@ class UsageCounters(TypedDict):
     rows_synced: int
 
 
-def org_quota_limited_until(organization: Organization, resource: QuotaResource) -> Optional[int]:
+def org_quota_limited_until(
+    organization: Organization, resource: QuotaResource, previously_quota_limited_team_tokens: List[str]
+) -> Optional[int]:
     if not organization.usage:
         return None
 
@@ -92,11 +94,17 @@ def org_quota_limited_until(organization: Organization, resource: QuotaResource)
     if is_quota_limited and organization.never_drop_data:
         return None
 
-    if is_quota_limited and posthoganalytics.feature_enabled(
-        QUOTA_LIMIT_DATA_RETENTION_FLAG,
-        organization.id,
-        groups={"organization": str(organization.id)},
-        group_properties={"organization": {"id": str(organization.id)}},
+    team_tokens = [x for x in list(organization.teams.values_list("api_token", flat=True))]
+    team_being_limited = any(x in previously_quota_limited_team_tokens for x in team_tokens)
+    if (
+        is_quota_limited
+        and posthoganalytics.feature_enabled(
+            QUOTA_LIMIT_DATA_RETENTION_FLAG,
+            organization.id,
+            groups={"organization": str(organization.id)},
+            group_properties={"organization": {"id": str(organization.id)}},
+        )
+        and not team_being_limited  # We only suspend quota limiting for teams that are not already being limited.
     ):
         # Don't drop data for this org but record that they __would have__ been
         # limited.
@@ -235,6 +243,17 @@ def update_all_org_billing_quotas(dry_run: bool = False) -> Dict[str, Dict[str, 
 
     quota_limited_orgs: Dict[str, Dict[str, int]] = {"events": {}, "recordings": {}, "rows_synced": {}}
 
+    # Get the current quota limits so we can track to poshog if it changes
+    orgs_with_changes = set()
+    previously_quota_limited_team_tokens: Dict[str, Dict[str, int]] = {
+        "events": {},
+        "recordings": {},
+        "rows_synced": {},
+    }
+
+    for field in quota_limited_orgs:
+        previously_quota_limited_team_tokens[field] = list_limited_team_attributes(QuotaResource(field))
+
     # We find all orgs that should be rate limited
     for org_id, todays_report in todays_usage_report.items():
         org = orgs_by_id[org_id]
@@ -246,22 +265,13 @@ def update_all_org_billing_quotas(dry_run: bool = False) -> Dict[str, Dict[str, 
                 org.save(update_fields=["usage"])
 
             for field in ["events", "recordings", "rows_synced"]:
-                quota_limited_until = org_quota_limited_until(org, QuotaResource(field))
+                quota_limited_until = org_quota_limited_until(
+                    org, QuotaResource(field), previously_quota_limited_team_tokens[field]
+                )
 
                 if quota_limited_until:
                     # TODO: Set this rate limit to the end of the billing period
                     quota_limited_orgs[field][org_id] = quota_limited_until
-
-    # Get the current quota limits so we can track to poshog if it changes
-    orgs_with_changes = set()
-    previously_quota_limited_team_tokens: Dict[str, Dict[str, int]] = {
-        "events": {},
-        "recordings": {},
-        "rows_synced": {},
-    }
-
-    for field in quota_limited_orgs:
-        previously_quota_limited_team_tokens[field] = list_limited_team_attributes(QuotaResource(field))
 
     quota_limited_teams: Dict[str, Dict[str, int]] = {"events": {}, "recordings": {}, "rows_synced": {}}
 

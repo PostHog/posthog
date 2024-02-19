@@ -578,8 +578,12 @@ class OrganizationAdmin(admin.ModelAdmin):
         "billing_link_v2",
         "usage_posthog",
         "usage",
+<<<<<<< HEAD
         "trusted_customer_scores",
         "trusted_customer_score_overrides",
+=======
+        "is_hipaa",
+>>>>>>> 69b7469663 (add model fields, fix ff implementation)
     ]
     inlines = [OrganizationTeamInline, OrganizationMemberInline]
     readonly_fields = [
