@@ -133,17 +133,21 @@ async def maybe_resume_from_heartbeat(inputs: HttpInsertInputs) -> str:
 
 
 async def post_json_file_to_url(url, batch_file, session: aiohttp.ClientSession):
-    batch_file.seek(0)
+    batch_file.rewind()
 
     headers = {"Content-Type": "application/json"}
     data_reader = io.BufferedReader(batch_file)
+    # aiohttp claims file as their own and closes it.
+    # Doesn't appear this is going to change, so we don't let them close us.
+    # It may be worth it to explore other libraries.
+    # See: https://github.com/aio-libs/aiohttp/issues/1907
+    data_reader.close = lambda: None  # type: ignore
 
     async with session.post(url, data=data_reader, headers=headers) as response:
         raise_for_status(response)
 
-        data_reader.detach()  # BufferedReader closes the file otherwise.
-
-        return response
+    data_reader.detach()
+    return response
 
 
 @activity.defn
