@@ -53,7 +53,15 @@ describe('playlistPopoverLogic', () => {
             logic.actions.resetNewPlaylist()
             logic.actions.setSearchQuery('')
         })
-            .toDispatchActions(['loadPlaylistsForRecording', 'loadPlaylistsForRecordingSuccess'])
+            // NB this is a surprising to me order of seeing these actions
+            .toDispatchActions([
+                'loadPlaylistsForRecording',
+                'addToPlaylist',
+                'loadPlaylists',
+                'addToPlaylistSuccess',
+                'loadPlaylistsForRecordingSuccess',
+                'loadPlaylistsSuccess',
+            ])
             .toMatchValues({
                 currentPlaylists: [{ id: 12345, count: 1 }],
                 allPlaylists: [
