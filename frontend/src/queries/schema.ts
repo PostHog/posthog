@@ -722,8 +722,9 @@ export type FunnelTimeToConvertResults = {
     average_conversion_time: number
     bins: [BinNumber, BinNumber][]
 }
+export type FunnelTrendsResults = Record<string, any>[]
 export interface FunnelsQueryResponse extends QueryResponse {
-    results: FunnelStepsResults | FunnelStepsBreakdownResults | FunnelTimeToConvertResults
+    results: FunnelStepsResults | FunnelStepsBreakdownResults | FunnelTimeToConvertResults | FunnelTrendsResults
 }
 
 /** `RetentionFilterType` minus everything inherited from `FilterType` */

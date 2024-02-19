@@ -39,10 +39,7 @@ class FunnelBase(ABC):
     _extra_event_fields: List[ColumnName]
     _extra_event_properties: List[PropertyName]
 
-    def __init__(
-        self,
-        context: FunnelQueryContext,
-    ):
+    def __init__(self, context: FunnelQueryContext):
         self.context = context
 
         self._extra_event_fields: List[ColumnName] = []
@@ -56,10 +53,10 @@ class FunnelBase(ABC):
     def get_query(self) -> ast.SelectQuery:
         raise NotImplementedError()
 
-    def get_step_counts_query(self) -> str:
+    def get_step_counts_query(self) -> ast.SelectQuery:
         raise NotImplementedError()
 
-    def get_step_counts_without_aggregation_query(self) -> str:
+    def get_step_counts_without_aggregation_query(self) -> ast.SelectQuery:
         raise NotImplementedError()
 
     @cached_property
