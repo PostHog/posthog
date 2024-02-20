@@ -490,6 +490,8 @@ posthog/tasks/exports/test/test_csv_exporter.py:0: error: Function is missing a 
 posthog/tasks/exports/test/test_csv_exporter.py:0: error: Function is missing a type annotation for one or more arguments  [no-untyped-def]
 posthog/tasks/exports/test/test_csv_exporter.py:0: error: Function is missing a type annotation for one or more arguments  [no-untyped-def]
 posthog/tasks/exports/test/test_csv_exporter.py:0: error: Function is missing a type annotation for one or more arguments  [no-untyped-def]
+posthog/tasks/exports/test/test_csv_exporter.py:0: error: Function is missing a type annotation for one or more arguments  [no-untyped-def]
+posthog/tasks/exports/test/test_csv_exporter.py:0: error: Function is missing a type annotation for one or more arguments  [no-untyped-def]
 posthog/session_recordings/queries/session_recording_list_from_replay_summary.py:0: error: Missing return statement  [empty-body]
 posthog/session_recordings/queries/session_recording_list_from_replay_summary.py:0: note: If the method is meant to be abstract, use @abc.abstractmethod
 posthog/session_recordings/queries/session_recording_list_from_replay_summary.py:0: error: Missing return statement  [empty-body]
