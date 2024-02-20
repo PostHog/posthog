@@ -310,6 +310,14 @@ class FunnelStepReference(str, Enum):
     previous = "previous"
 
 
+class FunnelTimeToConvertResults(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    average_conversion_time: int
+    bins: List[List[int]]
+
+
 class FunnelVizType(str, Enum):
     steps = "steps"
     time_to_convert = "time_to_convert"
@@ -322,14 +330,6 @@ class GoalLine(BaseModel):
     )
     label: str
     value: float
-
-
-class HogQLAutocompleteResponse(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    incomplete_list: bool = Field(..., description="Whether or not the suggestions returned are complete")
-    suggestions: List[AutocompleteCompletionItem]
 
 
 class HogQLNotice(BaseModel):
@@ -662,14 +662,6 @@ class QueryResponseAlternative8(BaseModel):
     isValidView: Optional[bool] = None
     notices: List[HogQLNotice]
     warnings: List[HogQLNotice]
-
-
-class QueryResponseAlternative9(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    incomplete_list: bool = Field(..., description="Whether or not the suggestions returned are complete")
-    suggestions: List[AutocompleteCompletionItem]
 
 
 class QueryStatus(BaseModel):
@@ -1152,7 +1144,7 @@ class FunnelsQueryResponse(BaseModel):
     is_cached: Optional[bool] = None
     last_refresh: Optional[str] = None
     next_allowed_client_refresh: Optional[str] = None
-    results: Union[List[Dict[str, Any]], List[List[Dict[str, Any]]]]
+    results: Union[FunnelTimeToConvertResults, List[Dict[str, Any]], List[List[Dict[str, Any]]]]
     timings: Optional[List[QueryTiming]] = None
 
 
@@ -1166,6 +1158,17 @@ class GroupPropertyFilter(BaseModel):
     operator: PropertyOperator
     type: Literal["group"] = "group"
     value: Optional[Union[str, float, List[Union[str, float]]]] = None
+
+
+class HogQLAutocompleteResponse(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    incomplete_list: bool = Field(..., description="Whether or not the suggestions returned are complete")
+    suggestions: List[AutocompleteCompletionItem]
+    timings: Optional[List[QueryTiming]] = Field(
+        default=None, description="Measured timings for different parts of the query generation process"
+    )
 
 
 class HogQLMetadataResponse(BaseModel):
@@ -1283,7 +1286,7 @@ class QueryResponse(BaseModel):
     is_cached: Optional[bool] = None
     last_refresh: Optional[str] = None
     next_allowed_client_refresh: Optional[str] = None
-    results: List
+    results: Any
     timings: Optional[List[QueryTiming]] = None
 
 
@@ -1350,6 +1353,17 @@ class QueryResponseAlternative7(BaseModel):
         default=None, description="Measured timings for different parts of the query generation process"
     )
     types: Optional[List] = Field(default=None, description="Types of returned columns")
+
+
+class QueryResponseAlternative9(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    incomplete_list: bool = Field(..., description="Whether or not the suggestions returned are complete")
+    suggestions: List[AutocompleteCompletionItem]
+    timings: Optional[List[QueryTiming]] = Field(
+        default=None, description="Measured timings for different parts of the query generation process"
+    )
 
 
 class QueryResponseAlternative10(BaseModel):
@@ -2159,7 +2173,7 @@ class FunnelsFilter(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
-    binCount: Optional[Union[float, str]] = None
+    binCount: Optional[int] = None
     breakdownAttributionType: Optional[BreakdownAttributionType] = None
     breakdownAttributionValue: Optional[int] = None
     exclusions: Optional[List[Union[FunnelExclusionEventsNode, FunnelExclusionActionsNode]]] = None

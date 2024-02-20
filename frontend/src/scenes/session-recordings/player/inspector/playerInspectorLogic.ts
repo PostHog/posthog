@@ -102,8 +102,12 @@ const PostHogMobileEvents = [
     'Application Became Active',
 ]
 
+function isMobileEvent(item: InspectorListItemEvent): boolean {
+    return PostHogMobileEvents.includes(item.data.event)
+}
+
 function isPostHogEvent(item: InspectorListItemEvent): boolean {
-    return item.data.event.startsWith('$') || PostHogMobileEvents.includes(item.data.event)
+    return item.data.event.startsWith('$') || isMobileEvent(item)
 }
 
 function _isCustomSnapshot(x: unknown): x is customEvent {
@@ -572,6 +576,10 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
                             include = true
                         }
                         if (miniFiltersByKey['events-posthog']?.enabled && isPostHogEvent(item)) {
+                            include = true
+                        }
+                        // include Mobile events as part of the Auto-Summary
+                        if (miniFiltersByKey['all-automatic']?.enabled && isMobileEvent(item)) {
                             include = true
                         }
                         if (

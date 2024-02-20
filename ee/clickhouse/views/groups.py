@@ -26,6 +26,7 @@ class GroupTypeSerializer(serializers.ModelSerializer):
 
 
 class ClickhouseGroupsTypesView(TeamAndOrgViewSetMixin, mixins.ListModelMixin, viewsets.GenericViewSet):
+    scope_object = "group"
     serializer_class = GroupTypeSerializer
     queryset = GroupTypeMapping.objects.all().order_by("group_type_index")
     pagination_class = None
@@ -54,6 +55,7 @@ class GroupSerializer(serializers.HyperlinkedModelSerializer):
 
 
 class ClickhouseGroupsView(TeamAndOrgViewSetMixin, mixins.ListModelMixin, viewsets.GenericViewSet):
+    scope_object = "group"
     serializer_class = GroupSerializer
     queryset = Group.objects.all()
     pagination_class = GroupCursorPagination
@@ -175,7 +177,7 @@ class ClickhouseGroupsView(TeamAndOrgViewSetMixin, mixins.ListModelMixin, viewse
 
         group_type_index_to_properties = defaultdict(list)
         for group_type_index, key, count in rows:
-            group_type_index_to_properties[group_type_index].append({"name": key, "count": count})
+            group_type_index_to_properties[str(group_type_index)].append({"name": key, "count": count})
 
         return response.Response(group_type_index_to_properties)
 

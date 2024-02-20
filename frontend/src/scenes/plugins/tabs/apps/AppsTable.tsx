@@ -1,6 +1,6 @@
+import { IconCollapse, IconExpand } from '@posthog/icons'
 import { LemonButton, LemonTable } from '@posthog/lemon-ui'
 import { useValues } from 'kea'
-import { IconUnfoldLess, IconUnfoldMore } from 'lib/lemon-ui/icons'
 import { useState } from 'react'
 import { pluginsLogic } from 'scenes/plugins/pluginsLogic'
 import { PluginRepositoryEntry, PluginTypeWithConfig } from 'scenes/plugins/types'
@@ -31,7 +31,7 @@ export function AppsTable({
                         <>
                             <LemonButton
                                 size="small"
-                                sideIcon={!expanded ? <IconUnfoldLess /> : <IconUnfoldMore />}
+                                sideIcon={!expanded ? <IconCollapse /> : <IconExpand />}
                                 onClick={() => setExpanded(!expanded)}
                                 className="-ml-2 mr-2"
                             />

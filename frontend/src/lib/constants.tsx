@@ -1,6 +1,6 @@
 import { LemonSelectOptions } from '@posthog/lemon-ui'
 
-import { AvailableFeature, ChartDisplayType, LicensePlan, Region, SSOProvider } from '../types'
+import { ChartDisplayType, Region, SSOProvider } from '../types'
 
 /** Display types which don't allow grouping by unit of time. Sync with backend NON_TIME_SERIES_DISPLAY_TYPES. */
 export const NON_TIME_SERIES_DISPLAY_TYPES = [
@@ -24,7 +24,6 @@ export const NON_VALUES_ON_SERIES_DISPLAY_TYPES = [
 /** Display types for which a percent stack view is available. */
 export const PERCENT_STACK_VIEW_DISPLAY_TYPE = [
     ChartDisplayType.ActionsBar,
-    ChartDisplayType.ActionsLineGraph,
     ChartDisplayType.ActionsAreaGraph,
     ChartDisplayType.ActionsPie,
 ]
@@ -206,40 +205,9 @@ export const FEATURE_FLAGS = {
     PRODUCT_INTRO_PAGES: 'product-intro-pages', // owner: @raquelmsmith
     DATANODE_CONCURRENCY_LIMIT: 'datanode-concurrency-limit', // owner: @robbie-c
     SESSION_REPLAY_DOCTOR: 'session-replay-doctor', // owner: #team-replay
+    SAVED_NOT_PINNED: 'saved-not-pinned', // owner: #team-replay
 } as const
 export type FeatureFlagKey = (typeof FEATURE_FLAGS)[keyof typeof FEATURE_FLAGS]
-
-/** Which self-hosted plan's features are available with Cloud's "Standard" plan (aka card attached). */
-export const POSTHOG_CLOUD_STANDARD_PLAN = LicensePlan.Scale
-export const FEATURE_MINIMUM_PLAN: Partial<Record<AvailableFeature, LicensePlan>> = {
-    [AvailableFeature.ZAPIER]: LicensePlan.Scale,
-    [AvailableFeature.ORGANIZATIONS_PROJECTS]: LicensePlan.Scale,
-    [AvailableFeature.SOCIAL_SSO]: LicensePlan.Scale,
-    [AvailableFeature.DASHBOARD_COLLABORATION]: LicensePlan.Scale,
-    [AvailableFeature.INGESTION_TAXONOMY]: LicensePlan.Scale,
-    [AvailableFeature.PATHS_ADVANCED]: LicensePlan.Scale,
-    [AvailableFeature.CORRELATION_ANALYSIS]: LicensePlan.Scale,
-    [AvailableFeature.GROUP_ANALYTICS]: LicensePlan.Scale,
-    [AvailableFeature.MULTIVARIATE_FLAGS]: LicensePlan.Scale,
-    [AvailableFeature.EXPERIMENTATION]: LicensePlan.Scale,
-    [AvailableFeature.TAGGING]: LicensePlan.Scale,
-    [AvailableFeature.BEHAVIORAL_COHORT_FILTERING]: LicensePlan.Scale,
-    [AvailableFeature.WHITE_LABELLING]: LicensePlan.Scale,
-    [AvailableFeature.DASHBOARD_PERMISSIONING]: LicensePlan.Enterprise,
-    [AvailableFeature.PROJECT_BASED_PERMISSIONING]: LicensePlan.Enterprise,
-    [AvailableFeature.SAML]: LicensePlan.Enterprise,
-    [AvailableFeature.SSO_ENFORCEMENT]: LicensePlan.Enterprise,
-    [AvailableFeature.SUBSCRIPTIONS]: LicensePlan.Scale,
-    [AvailableFeature.APP_METRICS]: LicensePlan.Scale,
-    [AvailableFeature.RECORDINGS_PLAYLISTS]: LicensePlan.Scale,
-    [AvailableFeature.ROLE_BASED_ACCESS]: LicensePlan.Enterprise,
-    [AvailableFeature.RECORDINGS_FILE_EXPORT]: LicensePlan.Scale,
-    [AvailableFeature.RECORDINGS_PERFORMANCE]: LicensePlan.Scale,
-    [AvailableFeature.SURVEYS_STYLING]: LicensePlan.Scale,
-    [AvailableFeature.SURVEYS_MULTIPLE_QUESTIONS]: LicensePlan.Scale,
-    [AvailableFeature.SURVEYS_TEXT_HTML]: LicensePlan.Scale,
-    [AvailableFeature.DATA_PIPELINES]: LicensePlan.Scale,
-}
 
 export const ENTITY_MATCH_TYPE = 'entities'
 export const PROPERTY_MATCH_TYPE = 'properties'

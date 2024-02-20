@@ -1,8 +1,8 @@
+import { IconTrash } from '@posthog/icons'
 import { LemonButton, LemonInput, LemonModal } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { RestrictionScope, useRestrictedArea } from 'lib/components/RestrictedArea'
 import { OrganizationMembershipLevel } from 'lib/constants'
-import { IconDelete } from 'lib/lemon-ui/icons'
 import { Dispatch, SetStateAction, useState } from 'react'
 import { teamLogic } from 'scenes/teamLogic'
 
@@ -88,7 +88,7 @@ export function ProjectDangerZone(): JSX.Element {
                         type="secondary"
                         onClick={() => setIsModalVisible(true)}
                         data-attr="delete-project-button"
-                        icon={<IconDelete />}
+                        icon={<IconTrash />}
                         disabledReason={restrictedReason}
                     >
                         Delete {currentTeam?.name || 'the current project'}

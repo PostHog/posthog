@@ -30,7 +30,7 @@ import { ActionsHorizontalBar, ActionsLineGraph, ActionsPie } from 'scenes/trend
 
 import { dataNodeLogic, DataNodeLogicProps } from '~/queries/nodes/DataNode/dataNodeLogic'
 import { filtersToQueryNode } from '~/queries/nodes/InsightQuery/utils/filtersToQueryNode'
-import { insightVizDataNodeKey } from '~/queries/nodes/InsightViz/InsightViz'
+import { insightVizDataCollectionId, insightVizDataNodeKey } from '~/queries/nodes/InsightViz/InsightViz'
 import { getCachedResults } from '~/queries/nodes/InsightViz/utils'
 import { Query } from '~/queries/Query/Query'
 import { InsightQueryNode } from '~/queries/schema'
@@ -164,7 +164,7 @@ function VizComponentFallback(): JSX.Element {
 }
 
 export interface FilterBasedCardContentProps
-    extends Pick<InsightCardProps, 'insight' | 'loadingQueued' | 'loading' | 'apiErrored' | 'timedOut' | 'style'> {
+    extends Pick<InsightCardProps, 'insight' | 'loading' | 'apiErrored' | 'timedOut' | 'style'> {
     insightProps: InsightLogicProps
     tooFewFunnelSteps?: boolean
     validationError?: string | null
@@ -177,7 +177,6 @@ export interface FilterBasedCardContentProps
 export function FilterBasedCardContent({
     insight,
     insightProps,
-    loadingQueued,
     loading,
     setAreDetailsShown,
     apiErrored,
@@ -190,11 +189,14 @@ export function FilterBasedCardContent({
     const displayedType = getDisplayedType(insight.filters)
     const VizComponent = displayMap[displayedType]?.element || VizComponentFallback
     const query: InsightQueryNode = filtersToQueryNode(insight.filters)
+    const key = insightVizDataNodeKey(insightProps)
     const dataNodeLogicProps: DataNodeLogicProps = {
         query,
-        key: insightVizDataNodeKey(insightProps),
+        key,
         cachedResults: getCachedResults(insightProps.cachedInsight, query),
         doNotLoad: insightProps.doNotLoad,
+        loadPriority: insightProps.loadPriority,
+        dataNodeCollectionId: insightVizDataCollectionId(insightProps, key),
     }
     return (
         <BindLogic logic={dataNodeLogic} props={dataNodeLogicProps}>
@@ -209,7 +211,6 @@ export function FilterBasedCardContent({
                 }
             >
                 {loading && <SpinnerOverlay />}
-                {loadingQueued && !loading && <SpinnerOverlay mode="waiting" />}
                 {tooFewFunnelSteps ? (
                     <FunnelSingleStepState actionable={false} />
                 ) : validationError ? (
@@ -308,6 +309,7 @@ function InsightCardInternal(
                     removeFromDashboard={removeFromDashboard}
                     deleteWithUndo={deleteWithUndo}
                     refresh={refresh}
+                    loading={loadingQueued || loading}
                     rename={rename}
                     duplicate={duplicate}
                     moveToDashboard={moveToDashboard}
@@ -331,7 +333,6 @@ function InsightCardInternal(
                     <FilterBasedCardContent
                         insight={insight}
                         insightProps={insightLogicProps}
-                        loadingQueued={loadingQueued}
                         loading={loading}
                         apiErrored={apiErrored}
                         timedOut={timedOut}

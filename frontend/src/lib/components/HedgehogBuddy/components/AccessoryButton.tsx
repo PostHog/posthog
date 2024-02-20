@@ -1,5 +1,5 @@
+import { IconLock } from '@posthog/icons'
 import { useActions, useValues } from 'kea'
-import { IconLock } from 'lib/lemon-ui/icons'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { capitalizeFirstLetter } from 'lib/utils'
 

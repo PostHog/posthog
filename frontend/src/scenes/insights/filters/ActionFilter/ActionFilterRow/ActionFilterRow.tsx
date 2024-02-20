@@ -3,6 +3,7 @@ import './ActionFilterRow.scss'
 import { DraggableSyntheticListeners } from '@dnd-kit/core'
 import { useSortable } from '@dnd-kit/sortable'
 import { CSS } from '@dnd-kit/utilities'
+import { IconCopy, IconPencil, IconTrash } from '@posthog/icons'
 import { LemonSelect, LemonSelectOption, LemonSelectOptions } from '@posthog/lemon-ui'
 import { BuiltLogic, useActions, useValues } from 'kea'
 import { EntityFilterInfo } from 'lib/components/EntityFilterInfo'
@@ -12,7 +13,7 @@ import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
 import { SeriesGlyph, SeriesLetter } from 'lib/components/SeriesGlyph'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { TaxonomicPopover, TaxonomicStringPopover } from 'lib/components/TaxonomicPopover/TaxonomicPopover'
-import { IconCopy, IconDelete, IconEdit, IconFilter, IconWithCount } from 'lib/lemon-ui/icons'
+import { IconFilter, IconWithCount } from 'lib/lemon-ui/icons'
 import { SortableDragIcon } from 'lib/lemon-ui/icons'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonDropdown } from 'lib/lemon-ui/LemonDropdown'
@@ -267,7 +268,7 @@ export function ActionFilterRow({
     const renameRowButton = (
         <LemonButton
             key="rename"
-            icon={<IconEdit />}
+            icon={<IconPencil />}
             title="Rename graph series"
             data-attr={`show-prop-rename-${index}`}
             noPadding
@@ -294,7 +295,7 @@ export function ActionFilterRow({
     const deleteButton = (
         <LemonButton
             key="delete"
-            icon={<IconDelete />}
+            icon={<IconTrash />}
             title="Delete graph series"
             data-attr={`delete-prop-filter-${index}`}
             noPadding
@@ -399,13 +400,11 @@ export function ActionFilterRow({
                                                         }
                                                         placement="right"
                                                     >
-                                                        <div /* <div> needed for <Tooltip /> to work */>
-                                                            <PropertyKeyInfo
-                                                                value={currentValue}
-                                                                disablePopover
-                                                                type={filter.type as TaxonomicFilterGroupType}
-                                                            />
-                                                        </div>
+                                                        <PropertyKeyInfo
+                                                            value={currentValue}
+                                                            disablePopover
+                                                            type={TaxonomicFilterGroupType.EventProperties}
+                                                        />
                                                     </Tooltip>
                                                 )}
                                             />
@@ -535,7 +534,8 @@ function useMathSelectorOptions({
     if (mathAvailability !== MathAvailability.ActorsOnly) {
         options.splice(1, 0, {
             value: countPerActorMathTypeShown,
-            label: (
+            label: `Count per user ${COUNT_PER_ACTOR_MATH_DEFINITIONS[countPerActorMathTypeShown].shortName}`,
+            labelInMenu: (
                 <div className="flex items-center gap-2">
                     <span>Count per user</span>
                     <LemonSelect
@@ -562,7 +562,8 @@ function useMathSelectorOptions({
         })
         options.push({
             value: propertyMathTypeShown,
-            label: (
+            label: `Property value ${PROPERTY_MATH_DEFINITIONS[propertyMathTypeShown].shortName}`,
+            labelInMenu: (
                 <div className="flex items-center gap-2">
                     <span>Property value</span>
                     <LemonSelect

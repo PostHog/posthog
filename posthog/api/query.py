@@ -10,6 +10,7 @@ from rest_framework.exceptions import ValidationError, NotAuthenticated
 from rest_framework.request import Request
 from rest_framework.response import Response
 from sentry_sdk import capture_exception
+from rest_framework import status
 
 from posthog.api.documentation import extend_schema
 from posthog.api.mixins import PydanticModelMixin
@@ -38,7 +39,13 @@ class QueryThrottle(TeamRateThrottle):
     rate = "120/hour"
 
 
-class QueryViewSet(PydanticModelMixin, TeamAndOrgViewSetMixin, viewsets.ViewSet):
+class QueryViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet):
+    # NOTE: Do we need to override the scopes for the "create"
+    scope_object = "query"
+    # Special case for query - these are all essentially read actions
+    scope_object_read_actions = ["retrieve", "create", "list", "destroy"]
+    scope_object_write_actions: list[str] = []
+
     def get_throttles(self):
         if self.action == "draft_sql":
             return [AIBurstRateThrottle(), AISustainedRateThrottle()]
@@ -64,7 +71,7 @@ class QueryViewSet(PydanticModelMixin, TeamAndOrgViewSetMixin, viewsets.ViewSet)
                 query_id=client_query_id,
                 refresh_requested=data.refresh,
             )
-            return Response(query_status.model_dump())
+            return Response(query_status.model_dump(), status=status.HTTP_202_ACCEPTED)
 
         tag_queries(query=request.data["query"])
         try:

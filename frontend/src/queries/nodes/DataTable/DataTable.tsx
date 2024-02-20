@@ -102,6 +102,7 @@ export function DataTable({
         query: query.source,
         key: dataNodeLogicKey ?? dataKey,
         cachedResults: cachedResults,
+        dataNodeCollectionId: context?.insightProps?.dataNodeCollectionId || dataKey,
     }
     const builtDataNodeLogic = dataNodeLogic(dataNodeLogicProps)
 
@@ -207,7 +208,7 @@ export function DataTable({
                                     // Typecasting to a query type with select and order_by fields.
                                     // The actual query may or may not be an events query.
                                     const source = query.source as EventsQuery
-                                    const columns = getDataNodeDefaultColumns(source)
+                                    const columns = columnsInLemonTable ?? getDataNodeDefaultColumns(source)
                                     const isAggregation = isHogQlAggregation(hogQl)
                                     const isOrderBy = source.orderBy?.[0] === key
                                     const isDescOrderBy = source.orderBy?.[0] === `${key} DESC`
@@ -281,7 +282,7 @@ export function DataTable({
                                 if (setQuery && hogQl && sourceFeatures.has(QueryFeature.selectAndOrderByColumns)) {
                                     const isAggregation = isHogQlAggregation(hogQl)
                                     const source = query.source as EventsQuery
-                                    const columns = getDataNodeDefaultColumns(source)
+                                    const columns = columnsInLemonTable ?? getDataNodeDefaultColumns(source)
                                     setQuery({
                                         ...query,
                                         source: {
@@ -310,7 +311,7 @@ export function DataTable({
                                 if (setQuery && hogQl && sourceFeatures.has(QueryFeature.selectAndOrderByColumns)) {
                                     const isAggregation = isHogQlAggregation(hogQl)
                                     const source = query.source as EventsQuery
-                                    const columns = getDataNodeDefaultColumns(source)
+                                    const columns = columnsInLemonTable ?? getDataNodeDefaultColumns(source)
                                     setQuery?.({
                                         ...query,
                                         source: {

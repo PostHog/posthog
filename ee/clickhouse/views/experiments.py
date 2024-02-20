@@ -282,6 +282,7 @@ class ExperimentSerializer(serializers.ModelSerializer):
 
 
 class ClickhouseExperimentsViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
+    scope_object = "experiment"
     serializer_class = ExperimentSerializer
     queryset = Experiment.objects.all()
     permission_classes = [PremiumFeaturePermission]

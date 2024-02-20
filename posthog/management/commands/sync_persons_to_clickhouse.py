@@ -7,6 +7,7 @@ from django.core.management.base import BaseCommand
 from django.utils.timezone import now
 
 from posthog.client import sync_execute
+from posthog.kafka_client.client import KafkaProducer
 from posthog.models.group.group import Group
 from posthog.models.group.util import raw_create_group_ch
 from posthog.models.person import PersonDistinctId
@@ -68,6 +69,10 @@ def run(options, sync: bool = False):  # sync used for unittests
 
     if options["group"]:
         run_group_sync(team_id, live_run, sync)
+
+    logger.info("Waiting on Kafka producer flush, for up to 5 minutes")
+    KafkaProducer().flush(5 * 60)
+    logger.info("Kafka producer queue flushed.")
 
 
 def run_person_sync(team_id: int, live_run: bool, deletes: bool, sync: bool):

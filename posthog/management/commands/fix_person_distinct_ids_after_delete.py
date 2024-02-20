@@ -6,6 +6,7 @@ from django.core.management.base import BaseCommand
 from django.db import transaction
 
 from posthog.client import sync_execute
+from posthog.kafka_client.client import KafkaProducer
 from posthog.models.person import PersonDistinctId
 from posthog.models.person.util import DELETED_PERSON_UUID_PLACEHOLDER, create_person_distinct_id
 
@@ -43,6 +44,10 @@ def run(options, sync: bool = False):
         # since they no longer belong to deleted persons
         # it's safer to throw and exit if anything went wrong
         update_distinct_id(distinct_id, version, team_id, live_run, sync)
+
+    logger.info("Waiting on Kafka producer flush, for up to 5 minutes")
+    KafkaProducer().flush(5 * 60)
+    logger.info("Kafka producer queue flushed.")
 
 
 def get_distinct_ids_tied_to_deleted_persons(team_id: int) -> List[str]:

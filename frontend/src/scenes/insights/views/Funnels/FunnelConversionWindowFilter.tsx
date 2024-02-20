@@ -19,13 +19,17 @@ const TIME_INTERVAL_BOUNDS: Record<FunnelConversionWindowTimeUnit, number[]> = {
     [FunnelConversionWindowTimeUnit.Month]: [1, 12],
 }
 
+const DEFAULT_FUNNEL_WINDOW_INTERVAL = 14
+
 export function FunnelConversionWindowFilter({ insightProps }: Pick<EditorFilterProps, 'insightProps'>): JSX.Element {
     const { aggregationTargetLabel } = useValues(funnelDataLogic(insightProps))
     const { insightFilter, querySource } = useValues(funnelDataLogic(insightProps))
     const { updateInsightFilter } = useActions(funnelDataLogic(insightProps))
 
-    const { funnelWindowInterval = 14, funnelWindowIntervalUnit = FunnelConversionWindowTimeUnit.Day } =
-        (insightFilter || {}) as FunnelsFilter
+    const {
+        funnelWindowInterval = DEFAULT_FUNNEL_WINDOW_INTERVAL,
+        funnelWindowIntervalUnit = FunnelConversionWindowTimeUnit.Day,
+    } = (insightFilter || {}) as FunnelsFilter
 
     const [localConversionWindow, setLocalConversionWindow] = useState<FunnelConversionWindow>({
         funnelWindowInterval,
@@ -41,6 +45,10 @@ export function FunnelConversionWindowFilter({ insightProps }: Pick<EditorFilter
     const intervalBounds = TIME_INTERVAL_BOUNDS[funnelWindowIntervalUnit ?? FunnelConversionWindowTimeUnit.Day]
 
     const setConversionWindow = useDebouncedCallback((): void => {
+        if (Number.isNaN(localConversionWindow.funnelWindowInterval)) {
+            return
+        }
+
         if (
             localConversionWindow.funnelWindowInterval !== funnelWindowInterval ||
             localConversionWindow.funnelWindowIntervalUnit !== funnelWindowIntervalUnit

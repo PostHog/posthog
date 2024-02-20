@@ -26,6 +26,10 @@ import {
     TrendsFilterType,
 } from '~/types'
 
+// Type alias for number to be reflected as integer in json-schema.
+/** @asType integer */
+type integer = number
+
 /**
  * PostHog Query Schema definition.
  *
@@ -196,10 +200,8 @@ export interface HogQLQueryResponse {
     /** Modifiers used when performing the query */
     modifiers?: HogQLQueryModifiers
     hasMore?: boolean
-    /** @asType integer */
-    limit?: number
-    /** @asType integer */
-    offset?: number
+    limit?: integer
+    offset?: integer
 }
 
 /** Filters object that will be converted to a HogQL {filters} placeholder */
@@ -221,10 +223,8 @@ export interface HogQLQuery extends DataNode {
 }
 
 export interface HogQLNotice {
-    /**  @asType integer */
-    start?: number
-    /**  @asType integer */
-    end?: number
+    start?: integer
+    end?: integer
     message: string
     fix?: string
 }
@@ -299,6 +299,8 @@ export interface HogQLAutocompleteResponse {
     suggestions: AutocompleteCompletionItem[]
     /** Whether or not the suggestions returned are complete */
     incomplete_list: boolean
+    /** Measured timings for different parts of the query generation process */
+    timings?: QueryTiming[]
 }
 
 export interface HogQLMetadata extends DataNode {
@@ -326,14 +328,12 @@ export interface HogQLAutocomplete extends DataNode {
     filters?: HogQLFilters
     /**
      * Start position of the editor word
-     * @asType integer
      */
-    startPosition: number
+    startPosition: integer
     /**
      * End position of the editor word
-     * @asType integer
      */
-    endPosition: number
+    endPosition: integer
     response?: HogQLAutocompleteResponse
 }
 
@@ -354,8 +354,7 @@ export interface EventsNode extends EntityNode {
     kind: NodeKind.EventsNode
     /** The event or `null` for all events. */
     event?: string | null
-    /**  @asType integer */
-    limit?: number
+    limit?: integer
     /** Columns to order by */
     orderBy?: string[]
     /** Return a limited set of data */
@@ -367,8 +366,7 @@ export interface EventsNode extends EntityNode {
 
 export interface ActionsNode extends EntityNode {
     kind: NodeKind.ActionsNode
-    /**  @asType integer */
-    id: number
+    id: integer
 }
 
 export type AnyEntityNode = EventsNode | ActionsNode
@@ -386,10 +384,8 @@ export interface EventsQueryResponse {
     hogql: string
     hasMore?: boolean
     timings?: QueryTiming[]
-    /** @asType integer */
-    limit?: number
-    /** @asType integer */
-    offset?: number
+    limit?: integer
+    offset?: integer
 }
 export interface EventsQueryPersonColumn {
     uuid: string
@@ -416,19 +412,16 @@ export interface EventsQuery extends DataNode {
     event?: string | null
     /**
      * Number of rows to return
-     * @asType integer
      */
-    limit?: number
+    limit?: integer
     /**
      * Number of rows to skip before returning rows
-     * @asType integer
      */
-    offset?: number
+    offset?: integer
     /**
      * Show events matching a given action
-     * @asType integer
      */
-    actionId?: number
+    actionId?: integer
     /** Show events for a given person */
     personId?: string
     /** Only fetch events that happened before this timestamp */
@@ -444,17 +437,14 @@ export interface EventsQuery extends DataNode {
 export interface PersonsNode extends DataNode {
     kind: NodeKind.PersonsNode
     search?: string
-    /**  @asType integer */
-    cohort?: number
+    cohort?: integer
     distinctId?: string
     /** Properties configurable in the interface */
     properties?: AnyPropertyFilter[]
     /** Fixed properties in the query, can't be edited in the interface (e.g. scoping down by person) */
     fixedProperties?: AnyPropertyFilter[]
-    /**  @asType integer */
-    limit?: number
-    /**  @asType integer */
-    offset?: number
+    limit?: integer
+    offset?: integer
 }
 
 // Data table node
@@ -604,9 +594,8 @@ export interface InsightsQueryBase extends Node {
     properties?: AnyPropertyFilter[] | PropertyGroupFilter
     /**
      * Groups aggregation
-     * @asType integer
      **/
-    aggregation_group_type_index?: number
+    aggregation_group_type_index?: integer
     /** Sampling rate */
     samplingFactor?: number | null
 }
@@ -668,10 +657,8 @@ export type FunnelsFilterLegacy = Omit<
 >
 
 export interface FunnelExclusionSteps {
-    /** @asType integer */
-    funnelFromStep: number
-    /** @asType integer */
-    funnelToStep: number
+    funnelFromStep: integer
+    funnelToStep: integer
 }
 export interface FunnelExclusionEventsNode extends EventsNode, FunnelExclusionSteps {}
 export interface FunnelExclusionActionsNode extends ActionsNode, FunnelExclusionSteps {}
@@ -680,19 +667,16 @@ export type FunnelExclusion = FunnelExclusionEventsNode | FunnelExclusionActions
 export type FunnelsFilter = {
     exclusions?: FunnelExclusion[]
     layout?: FunnelsFilterLegacy['layout']
+    /** @asType integer */
     binCount?: FunnelsFilterLegacy['bin_count']
     breakdownAttributionType?: FunnelsFilterLegacy['breakdown_attribution_type']
-    /** @asType integer */
-    breakdownAttributionValue?: FunnelsFilterLegacy['breakdown_attribution_value']
+    breakdownAttributionValue?: integer
     funnelAggregateByHogQL?: FunnelsFilterLegacy['funnel_aggregate_by_hogql']
-    /** @asType integer */
-    funnelToStep?: FunnelsFilterLegacy['funnel_to_step']
-    /** @asType integer */
-    funnelFromStep?: FunnelsFilterLegacy['funnel_from_step']
+    funnelToStep?: integer
+    funnelFromStep?: integer
     funnelOrderType?: FunnelsFilterLegacy['funnel_order_type']
     funnelVizType?: FunnelsFilterLegacy['funnel_viz_type']
-    /** @asType integer */
-    funnelWindowInterval?: FunnelsFilterLegacy['funnel_window_interval']
+    funnelWindowInterval?: integer
     funnelWindowIntervalUnit?: FunnelsFilterLegacy['funnel_window_interval_unit']
     hidden_legend_breakdowns?: FunnelsFilterLegacy['hidden_legend_breakdowns']
     funnelStepReference?: FunnelsFilterLegacy['funnel_step_reference']
@@ -710,8 +694,18 @@ export interface FunnelsQuery extends InsightsQueryBase {
     breakdownFilter?: BreakdownFilter
 }
 
+/** @asType integer */
+type BinNumber = number
+export type FunnelStepsResults = Record<string, any>[]
+export type FunnelStepsBreakdownResults = Record<string, any>[][]
+export type FunnelTimeToConvertResults = {
+    /** @asType integer */
+    average_conversion_time: number
+    bins: [BinNumber, BinNumber][]
+}
+export type FunnelTrendsResults = Record<string, any>[]
 export interface FunnelsQueryResponse extends QueryResponse {
-    results: Record<string, any>[] | Record<string, any>[][]
+    results: FunnelStepsResults | FunnelStepsBreakdownResults | FunnelTimeToConvertResults | FunnelTrendsResults
 }
 
 /** `RetentionFilterType` minus everything inherited from `FilterType` */
@@ -727,8 +721,7 @@ export type RetentionFilter = {
 }
 
 export interface RetentionValue {
-    /** @asType integer */
-    count: number
+    count: integer
 }
 
 export interface RetentionResult {
@@ -858,7 +851,7 @@ export interface QueryRequest {
 }
 
 export interface QueryResponse {
-    results: unknown[]
+    results: unknown
     timings?: QueryTiming[]
     hogql?: string
     is_cached?: boolean
@@ -870,8 +863,7 @@ export type QueryStatus = {
     id: string
     /**  @default true */
     query_async: boolean
-    /**  @asType integer */
-    team_id: number
+    team_id: integer
     /**  @default false */
     error: boolean
     /**  @default false */
@@ -910,12 +902,9 @@ export interface ActorsQueryResponse {
     hogql: string
     timings?: QueryTiming[]
     hasMore?: boolean
-    /** @asType integer */
-    limit: number
-    /** @asType integer */
-    offset: number
-    /** @asType integer */
-    missing_actors_count?: number
+    limit: integer
+    offset: integer
+    missing_actors_count?: integer
 }
 
 export interface ActorsQuery extends DataNode {
@@ -926,10 +915,8 @@ export interface ActorsQuery extends DataNode {
     properties?: AnyPropertyFilter[]
     fixedProperties?: AnyPropertyFilter[]
     orderBy?: string[]
-    /** @asType integer */
-    limit?: number
-    /** @asType integer */
-    offset?: number
+    limit?: integer
+    offset?: integer
     response?: ActorsQueryResponse
 }
 
@@ -1031,8 +1018,7 @@ export interface WebStatsTableQuery extends WebAnalyticsQueryBase {
     includeScrollDepth?: boolean // automatically sets includeBounceRate to true
     includeBounceRate?: boolean
     doPathCleaning?: boolean
-    /** @asType integer */
-    limit?: number
+    limit?: integer
 }
 export interface WebStatsTableQueryResponse extends QueryResponse {
     results: unknown[]
@@ -1041,10 +1027,8 @@ export interface WebStatsTableQueryResponse extends QueryResponse {
     hogql?: string
     samplingRate?: SamplingRate
     hasMore?: boolean
-    /** @asType integer */
-    limit?: number
-    /** @asType integer */
-    offset?: number
+    limit?: integer
+    offset?: integer
 }
 
 export type InsightQueryNode =
@@ -1075,8 +1059,7 @@ export type InsightFilter =
     | StickinessFilter
     | LifecycleFilter
 
-/** @asType integer */
-export type Day = number
+export type Day = integer
 
 export interface InsightActorsQuery<T extends InsightsQueryBase = InsightQuerySource> {
     kind: NodeKind.InsightActorsQuery
@@ -1085,19 +1068,16 @@ export interface InsightActorsQuery<T extends InsightsQueryBase = InsightQuerySo
     status?: string
     /**
      * An interval selected out of available intervals in source query
-     * @asType integer
      */
-    interval?: number
-    /** @asType integer */
-    series?: number
+    interval?: integer
+    series?: integer
     breakdown?: string | BreakdownValueInt
     compare?: 'current' | 'previous'
     // TODO: add fields for other insights (funnels dropdown, compare_previous choice, etc)
     response?: ActorsQueryResponse
 }
 
-/** @asType integer */
-export type BreakdownValueInt = number
+export type BreakdownValueInt = integer
 export interface InsightActorsQueryOptionsResponse {
     day?: { label: string; value: string | Day }[]
     status?: { label: string; value: string }[]
@@ -1105,9 +1085,9 @@ export interface InsightActorsQueryOptionsResponse {
         label: string
         /**
          * An interval selected out of available intervals in source query
-         * @asType integer
+
          */
-        value: number
+        value: integer
     }[]
     breakdown?: {
         label: string
@@ -1115,8 +1095,7 @@ export interface InsightActorsQueryOptionsResponse {
     }[]
     series?: {
         label: string
-        /** @asType integer */
-        value: number
+        value: integer
     }[]
     compare?: {
         label: string
@@ -1149,9 +1128,8 @@ export interface TimeToSeeDataSessionsQuery extends DataNode {
 
     /**
      * Project to filter on. Defaults to current project
-     *  @asType integer
      */
-    teamId?: number
+    teamId?: integer
 
     response?: TimeToSeeDataSessionsQueryResponse
 }
@@ -1175,9 +1153,8 @@ export interface TimeToSeeDataQuery extends DataNode {
 
     /**
      * Project to filter on. Defaults to current project
-     * @asType integer
      */
-    teamId?: number
+    teamId?: integer
 
     /** Project to filter on. Defaults to current session */
     sessionId?: string
@@ -1211,15 +1188,12 @@ export interface DateRange {
 export interface BreakdownFilter {
     // TODO: unclutter
     breakdown_type?: BreakdownType | null
-    /** @asType integer */
-    breakdown_limit?: number
+    breakdown_limit?: integer
     breakdown?: BreakdownKeyType
     breakdown_normalize_url?: boolean
     breakdowns?: Breakdown[]
-    /** @asType integer */
-    breakdown_group_type_index?: number | null
-    /** @asType integer */
-    breakdown_histogram_bin_count?: number // trends breakdown histogram bin count
+    breakdown_group_type_index?: integer | null
+    breakdown_histogram_bin_count?: integer // trends breakdown histogram bin
     breakdown_hide_other_aggregation?: boolean | null // hides the "other" field for trends
 }
 

@@ -1,6 +1,6 @@
 import './EditorFilterGroup.scss'
 
-import { IconUnfoldLess, IconUnfoldMore } from 'lib/lemon-ui/icons'
+import { IconCollapse, IconExpand } from '@posthog/icons'
 import { LemonBadge } from 'lib/lemon-ui/LemonBadge/LemonBadge'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonField } from 'lib/lemon-ui/LemonField'
@@ -28,7 +28,7 @@ export function EditorFilterGroup({ insightProps, editorFilterGroup }: EditorFil
                     <LemonButton
                         fullWidth
                         onClick={() => setIsRowExpanded(!isRowExpanded)}
-                        sideIcon={isRowExpanded ? <IconUnfoldLess /> : <IconUnfoldMore />}
+                        sideIcon={isRowExpanded ? <IconCollapse /> : <IconExpand />}
                         title={isRowExpanded ? 'Show less' : 'Show more'}
                         data-attr={'editor-filter-group-collapse-' + slugify(title)}
                     >

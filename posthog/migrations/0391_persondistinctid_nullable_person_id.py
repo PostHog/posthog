@@ -6,7 +6,7 @@ from posthog.models.utils import WARN_ON_CASCADE
 
 class Migration(migrations.Migration):
     dependencies = [
-        ("posthog", "0388_add_schema_to_batch_exports"),
+        ("posthog", "0390_personalapikey_scopes"),
     ]
 
     operations = [
