@@ -1,6 +1,6 @@
 @import '../../../styles/mixins';
 
-.FunnelBarChart {
+.FunnelBarVertical {
     position: relative;
     flex: 1;
     width: 100%;
@@ -35,33 +35,6 @@
             }
         }
     }
-}
-
-.FunnelBarChart__content {
-    min-width: fit-content;
-}
-
-.StepBarLabels {
-    display: flex;
-    flex-direction: column-reverse;
-    align-items: flex-end;
-    height: calc(var(--bar-row-height) - var(--bar-padding-top) - var(--bar-padding-bottom));
-}
-
-.StepBarLabels__segment {
-    flex-grow: 1;
-    padding: 0 0.5rem;
-
-    &:first-child {
-        flex-grow: 0;
-        height: 0;
-    }
-}
-
-.StepBarLabels__label {
-    font-size: 0.75rem;
-    font-weight: 500;
-    transform: translateY(-50%);
 }
 
 .StepBars {
@@ -171,6 +144,29 @@
     &:active {
         filter: brightness(0.85);
     }
+}
+
+.StepBarLabels {
+    display: flex;
+    flex-direction: column-reverse;
+    align-items: flex-end;
+    height: calc(var(--bar-row-height) - var(--bar-padding-top) - var(--bar-padding-bottom));
+}
+
+.StepBarLabels__segment {
+    flex-grow: 1;
+    padding: 0 0.5rem;
+
+    &:first-child {
+        flex-grow: 0;
+        height: 0;
+    }
+}
+
+.StepBarLabels__label {
+    font-size: 0.75rem;
+    font-weight: 500;
+    transform: translateY(-50%);
 }
 
 .StepLegend {
