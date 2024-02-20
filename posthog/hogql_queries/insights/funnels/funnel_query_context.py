@@ -9,6 +9,7 @@ from posthog.schema import (
     BreakdownAttributionType,
     BreakdownFilter,
     BreakdownType,
+    FunnelActorsFilter,
     FunnelConversionWindowTimeUnit,
     FunnelsFilter,
     FunnelsQuery,
@@ -30,6 +31,8 @@ class FunnelQueryContext(QueryContext):
 
     funnelWindowInterval: int
     funnelWindowIntervalUnit: FunnelConversionWindowTimeUnit
+
+    funnelActorsFilter: FunnelActorsFilter | None
 
     def __init__(
         self,

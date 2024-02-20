@@ -575,6 +575,68 @@ class FunnelBase(ABC):
         else:
             return event_expr
 
+    def _get_timestamp_outer_select(self) -> List[ast.Expr]:
+        return []
+        # if self._include_preceding_timestamp:
+        #     return ", max_timestamp, min_timestamp"
+        # elif self._include_timestamp:
+        #     return ", timestamp"
+        # else:
+        #     return ""
+
+    def _get_funnel_person_step_condition(self) -> ast.Expr:
+        funnelActorsFilter, breakdownType, max_steps = (
+            self.context.funnelActorsFilter,
+            self.context.breakdownType,
+            self.context.max_steps,
+        )
+        assert funnelActorsFilter is not None
+
+        funnelStep = funnelActorsFilter.funnelStep
+        funnelCustomSteps = funnelActorsFilter.funnelCustomSteps
+        funnelStepBreakdown = funnelActorsFilter.funnelStepBreakdown
+
+        conditions: List[ast.Expr] = []
+
+        if funnelCustomSteps:
+            conditions.append(parse_expr(f"steps IN {funnelCustomSteps}"))
+        elif funnelStep is not None:
+            if funnelStep >= 0:
+                step_num = [i for i in range(funnelStep, max_steps + 1)]
+                conditions.append(parse_expr(f"steps IN {step_num}"))
+            else:
+                step_num = abs(funnelStep) - 1
+                conditions.append(parse_expr(f"steps = {step_num}"))
+        else:
+            raise ValueError("Missing both funnelStep and funnelCustomSteps")
+
+        if funnelStepBreakdown is not None:
+            breakdown_prop_value = funnelStepBreakdown
+            if isinstance(breakdown_prop_value, int) and breakdownType != "cohort":
+                breakdown_prop_value = str(breakdown_prop_value)
+
+            conditions.append(parse_expr(f"arrayFlatten(array(prop)) = arrayFlatten(array({breakdown_prop_value}))"))
+
+        return ast.And(exprs=conditions)
+
+    def _get_funnel_person_step_events(self) -> List[ast.Expr]:
+        return []
+        # if self._filter.include_recordings:
+        #     step_num = self._filter.funnel_step
+        #     if self._filter.include_final_matching_events:
+        #         # Always returns the user's final step of the funnel
+        #         return ", final_matching_events as matching_events"
+        #     elif step_num is None:
+        #         raise ValueError("Missing funnel_step filter property")
+        #     if step_num >= 0:
+        #         # None drop off case
+        #         self.params.update({"matching_events_step_num": step_num - 1})
+        #     else:
+        #         # Drop off case if negative number
+        #         self.params.update({"matching_events_step_num": abs(step_num) - 2})
+        #     return ", step_%(matching_events_step_num)s_matching_events as matching_events"
+        # return ""
+
     def _get_count_columns(self, max_steps: int) -> List[ast.Expr]:
         exprs: List[ast.Expr] = []
 
