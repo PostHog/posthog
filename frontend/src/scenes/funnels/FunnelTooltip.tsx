@@ -24,7 +24,7 @@ import { funnelTooltipLogic } from './funnelTooltipLogic'
 /** The tooltip is offset horizontally by a few pixels from the bar to give it some breathing room. */
 const FUNNEL_TOOLTIP_OFFSET_PX = 4
 
-interface FunnelTooltipProps {
+export interface FunnelTooltipProps {
     showPersonsModal: boolean
     stepIndex: number
     series: FunnelStepWithConversionMetrics
@@ -53,11 +53,8 @@ export function FunnelTooltip({
         >
             <LemonRow icon={<Lettermark name={stepIndex + 1} color={LettermarkColor.Gray} />} fullWidth>
                 <strong>
-                    <EntityFilterInfo
-                        filter={getActionFilterFromFunnelStep(series)}
-                        style={{ display: 'inline-block' }}
-                    />{' '}
-                    •{' '}
+                    <EntityFilterInfo filter={getActionFilterFromFunnelStep(series)} allowWrap />
+                    <span className="mx-1">•</span>
                     {formatBreakdownLabel(
                         cohorts,
                         formatPropertyValueForDisplay,
