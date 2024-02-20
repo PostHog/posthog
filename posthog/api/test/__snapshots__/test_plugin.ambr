@@ -206,7 +206,7 @@
 # ---
 # name: TestPluginAPI.test_listing_plugins_is_not_nplus1.15
   '''
-  SELECT 1 AS "a"
+  SELECT (1) AS "a"
   FROM "posthog_organizationmembership"
   WHERE ("posthog_organizationmembership"."organization_id" = '00000000-0000-0000-0000-000000000000'::uuid
          AND "posthog_organizationmembership"."user_id" = 2)
@@ -389,7 +389,7 @@
 # ---
 # name: TestPluginAPI.test_listing_plugins_is_not_nplus1.21
   '''
-  SELECT 1 AS "a"
+  SELECT (1) AS "a"
   FROM "posthog_organizationmembership"
   WHERE ("posthog_organizationmembership"."organization_id" = '00000000-0000-0000-0000-000000000000'::uuid
          AND "posthog_organizationmembership"."user_id" = 2)
@@ -469,7 +469,7 @@
 # ---
 # name: TestPluginAPI.test_listing_plugins_is_not_nplus1.3
   '''
-  SELECT 1 AS "a"
+  SELECT (1) AS "a"
   FROM "posthog_organizationmembership"
   WHERE ("posthog_organizationmembership"."organization_id" = '00000000-0000-0000-0000-000000000000'::uuid
          AND "posthog_organizationmembership"."user_id" = 2)
@@ -582,7 +582,7 @@
 # ---
 # name: TestPluginAPI.test_listing_plugins_is_not_nplus1.9
   '''
-  SELECT 1 AS "a"
+  SELECT (1) AS "a"
   FROM "posthog_organizationmembership"
   WHERE ("posthog_organizationmembership"."organization_id" = '00000000-0000-0000-0000-000000000000'::uuid
          AND "posthog_organizationmembership"."user_id" = 2)

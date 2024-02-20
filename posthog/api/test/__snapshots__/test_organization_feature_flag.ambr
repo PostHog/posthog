@@ -352,7 +352,7 @@
 # ---
 # name: TestOrganizationFeatureFlagCopy.test_copy_feature_flag_create_new.2
   '''
-  SELECT 1 AS "a"
+  SELECT (1) AS "a"
   FROM "posthog_organizationmembership"
   WHERE ("posthog_organizationmembership"."organization_id" = '00000000-0000-0000-0000-000000000000'::uuid
          AND "posthog_organizationmembership"."user_id" = 2)
@@ -1552,7 +1552,7 @@
 # ---
 # name: TestOrganizationFeatureFlagCopy.test_copy_feature_flag_create_new.8
   '''
-  SELECT 1 AS "a"
+  SELECT (1) AS "a"
   FROM "posthog_featureflag"
   WHERE (NOT "posthog_featureflag"."deleted"
          AND "posthog_featureflag"."key" = 'copied-flag-key'
@@ -1640,7 +1640,7 @@
 # ---
 # name: TestOrganizationFeatureFlagGet.test_get_feature_flag_success.2
   '''
-  SELECT 1 AS "a"
+  SELECT (1) AS "a"
   FROM "posthog_organizationmembership"
   WHERE ("posthog_organizationmembership"."organization_id" = '00000000-0000-0000-0000-000000000000'::uuid
          AND "posthog_organizationmembership"."user_id" = 2)
