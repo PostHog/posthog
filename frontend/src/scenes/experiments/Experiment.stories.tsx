@@ -1280,20 +1280,6 @@ RunningTrendExperimentManyVariants.parameters = {
     },
 }
 
-export const ExperimentsListPayGate: StoryFn = () => {
-    useEffect(() => {
-        router.actions.push(urls.experiments())
-    }, [])
-    return <App />
-}
-
-export const ViewExperimentPayGate: StoryFn = () => {
-    useEffect(() => {
-        router.actions.push(urls.experiment(MOCK_FUNNEL_EXPERIMENT.id))
-    }, [])
-    return <App />
-}
-
 export const ExperimentNotFound: StoryFn = () => {
     useEffect(() => {
         router.actions.push(urls.experiment('1200000'))
