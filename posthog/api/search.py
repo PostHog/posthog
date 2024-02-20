@@ -77,6 +77,8 @@ class QuerySerializer(serializers.Serializer):
 
 
 class SearchViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
+    scope_object = "INTERNAL"
+
     def list(self, request: Request, **kw) -> HttpResponse:
         # parse query params
         query_serializer = QuerySerializer(data=self.request.query_params)
