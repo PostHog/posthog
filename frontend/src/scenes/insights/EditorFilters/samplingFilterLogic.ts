@@ -24,9 +24,7 @@ export const samplingFilterLogic = kea<samplingFilterLogicType>([
         samplingPercentage: [
             null as number | null,
             {
-                // clicking on the active button untoggles it and disables sampling
-                setSamplingPercentage: (oldSamplingPercentage, { samplingPercentage }) =>
-                    samplingPercentage === oldSamplingPercentage ? null : samplingPercentage,
+                setSamplingPercentage: (_, { samplingPercentage }) => samplingPercentage,
             },
         ],
     }),

@@ -50,7 +50,7 @@ def wrap_query_error(err: Exception) -> Exception:
             detail=f"{match.group(0)} Try reducing its scope by changing the time range."
         )
     # Handle syntax error when "max query size exceeded" in the message
-    if "max query size exceeded" in err.message:
+    if "query size exceeded" in err.message:
         return QuerySizeExceeded()
 
     # :TRICKY: Return a custom class for every code by looking up the short name and creating a class dynamically.
