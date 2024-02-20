@@ -290,14 +290,13 @@ def make_api_call(
     path: str,
 ) -> requests.models.Response:
     request_url: str = absolute_uri(next_url or path)
-    params: dict[str, str | int] = {
-        get_limit_param_key(request_url): limit,
-        "is_csv_export": "1",
-    }
+    url = add_query_params(
+        request_url,
+        {get_limit_param_key(request_url): str(limit), "is_csv_export": "1"},
+    )
     response = requests.request(
         method=method.lower(),
-        url=request_url,
-        params=params,
+        url=url,
         json=body,
         headers={"Authorization": f"Bearer {access_token}"},
         timeout=60,

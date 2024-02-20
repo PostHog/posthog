@@ -1,11 +1,11 @@
-lockfileVersion: '6.0'
+lockfileVersion: '6.1'
 
 settings:
   autoInstallPeers: true
   excludeLinksFromLockfile: false
 
 overrides:
-  playwright: 1.32.2
+  playwright: 1.41.2
 
 patchedDependencies:
   rrweb@2.0.0-alpha.11:
@@ -347,7 +347,7 @@ dependencies:
 optionalDependencies:
   fsevents:
     specifier: ^2.3.2
-    version: 2.3.3
+    version: 2.3.2
 
 devDependencies:
   '@babel/core':
@@ -384,8 +384,8 @@ devDependencies:
     specifier: ^5.17.1
     version: 5.17.1(@babel/core@7.22.10)(@babel/preset-env@7.22.10)(babel-loader@8.3.0)(webpack@5.88.2)
   '@playwright/test':
-    specifier: 1.32.2
-    version: 1.32.2
+    specifier: 1.41.2
+    version: 1.41.2
   '@sentry/types':
     specifier: 7.22.0
     version: 7.22.0
@@ -5038,15 +5038,12 @@ packages:
       tslib: 2.6.2
     dev: true
 
-  /@playwright/test@1.32.2:
-    resolution: {integrity: sha512-nhaTSDpEdTTttdkDE8Z6K3icuG1DVRxrl98Qq0Lfc63SS9a2sjc9+x8ezysh7MzCKz6Y+nArml3/mmt+gqRmQQ==}
-    engines: {node: '>=14'}
+  /@playwright/test@1.41.2:
+    resolution: {integrity: sha512-qQB9h7KbibJzrDpkXkYvsmiDJK14FULCCZgEcoe2AvFAS64oCirWTwzTlAYEbKaRxWs5TFesE1Na6izMv3HfGg==}
+    engines: {node: '>=16'}
     hasBin: true
     dependencies:
-      '@types/node': 18.18.4
-      playwright-core: 1.32.2
-    optionalDependencies:
-      fsevents: 2.3.2
+      playwright: 1.41.2
     dev: true
 
   /@pmmmwh/react-refresh-webpack-plugin@0.5.11(react-refresh@0.14.0)(webpack@5.88.2):
@@ -6929,7 +6926,7 @@ packages:
       jest-serializer-html: 7.1.0
       jest-watch-typeahead: 2.2.2(jest@29.7.0)
       node-fetch: 2.6.7
-      playwright: 1.32.2
+      playwright: 1.41.2
       read-pkg-up: 7.0.1
       tempy: 1.0.1
       ts-dedent: 2.2.0
@@ -12707,7 +12704,6 @@ packages:
     engines: {node: ^8.16.0 || ^10.6.0 || >=11.0.0}
     os: [darwin]
     requiresBuild: true
-    dev: true
     optional: true
 
   /fsevents@2.3.3:
@@ -16456,13 +16452,20 @@ packages:
     hasBin: true
     dev: true
 
-  /playwright@1.32.2:
-    resolution: {integrity: sha512-jHVnXJke0PXpuPszKtk9y1zZSlzO5+2a+aockT/AND0oeXx46FiJEFrafthurglLygVZA+1gEbtUM1C7qtTV+Q==}
-    engines: {node: '>=14'}
+  /playwright-core@1.41.2:
+    resolution: {integrity: sha512-VaTvwCA4Y8kxEe+kfm2+uUUw5Lubf38RxF7FpBxLPmGe5sdNkSg5e3ChEigaGrX7qdqT3pt2m/98LiyvU2x6CA==}
+    engines: {node: '>=16'}
     hasBin: true
-    requiresBuild: true
+    dev: true
+
+  /playwright@1.41.2:
+    resolution: {integrity: sha512-v0bOa6H2GJChDL8pAeLa/LZC4feoAMbSQm1/jF/ySsWWoaNItvrMP7GEkvEEFyCTUYKMxjQKaTSg5up7nR6/8A==}
+    engines: {node: '>=16'}
+    hasBin: true
     dependencies:
-      playwright-core: 1.32.2
+      playwright-core: 1.41.2
+    optionalDependencies:
+      fsevents: 2.3.2
     dev: true
 
   /please-upgrade-node@3.2.0:
