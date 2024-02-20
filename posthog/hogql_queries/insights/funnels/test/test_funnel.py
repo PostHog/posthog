@@ -9,6 +9,7 @@ from posthog.constants import INSIGHT_FUNNELS, FunnelOrderType
 from posthog.hogql.query import execute_hogql_query
 from posthog.hogql_queries.insights.funnels.funnel_query_context import FunnelQueryContext
 from posthog.hogql_queries.insights.funnels.funnels_query_runner import FunnelsQueryRunner
+from posthog.hogql_queries.insights.insight_actors_query_runner import InsightActorsQueryRunner
 from posthog.hogql_queries.legacy_compatibility.filter_to_query import filter_to_query
 from posthog.models import Action, ActionStep, Element
 from posthog.models.cohort.cohort import Cohort
@@ -17,7 +18,7 @@ from posthog.models.group.util import create_group
 from posthog.models.group_type_mapping import GroupTypeMapping
 from posthog.models.property_definition import PropertyDefinition
 from posthog.queries.funnels import ClickhouseFunnelActors
-from posthog.schema import EventsNode, FunnelsQuery
+from posthog.schema import EventsNode, FunnelActorsFilter, FunnelsQuery, InsightActorsQuery
 from posthog.test.base import (
     APIBaseTest,
     BaseTest,
@@ -81,12 +82,13 @@ class TestFunnelConversionTime(
 
 def funnel_test_factory(Funnel, event_factory, person_factory):
     class TestGetFunnel(ClickhouseTestMixin, APIBaseTest):
-        def _get_actor_ids_at_step(self, filter, funnel_step, breakdown_value=None):
-            filter = Filter(data=filter, team=self.team)
-            person_filter = filter.shallow_clone({"funnel_step": funnel_step, "funnel_step_breakdown": breakdown_value})
-            _, serialized_result, _ = ClickhouseFunnelActors(person_filter, self.team).get_actors()
-
-            return [val["id"] for val in serialized_result]
+        def _get_actor_ids_at_step(self, filters, funnelStep, funnelStepBreakdown=None):
+            source = cast(FunnelsQuery, filter_to_query(filters))  # TODO: just pass query in
+            actors = FunnelActorsFilter(funnelStep=funnelStep)
+            query = InsightActorsQuery(source=source, funnelActorsFilter=actors)
+            results = InsightActorsQueryRunner(query=query, team=self.team).calculate().results
+            # return [val["id"] for val in results] # TODO: serialize result (?)
+            return [val[0] for val in results]
 
         def _signup_event(self, **kwargs):
             event_factory(team=self.team, event="user signed up", **kwargs)
