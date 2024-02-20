@@ -2,7 +2,6 @@ import { lemonToast } from '@posthog/lemon-ui'
 import { actions, afterMount, connect, kea, listeners, path, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import api from 'lib/api'
-import { canConfigurePlugins } from 'scenes/plugins/access'
 import { teamLogic } from 'scenes/teamLogic'
 import { userLogic } from 'scenes/userLogic'
 
@@ -16,13 +15,14 @@ import {
 } from '~/types'
 
 import type { pipelineDestinationsLogicType } from './destinationsLogicType'
+import { pipelineLogic } from './pipelineLogic'
 import { convertToPipelineNode, Destination } from './types'
 import { captureBatchExportEvent, capturePluginEvent } from './utils'
 
 export const pipelineDestinationsLogic = kea<pipelineDestinationsLogicType>([
     path(['scenes', 'pipeline', 'destinationsLogic']),
     connect({
-        values: [teamLogic, ['currentTeamId'], userLogic, ['user']],
+        values: [teamLogic, ['currentTeamId'], userLogic, ['user'], pipelineLogic, ['canConfigurePlugins']],
     }),
     actions({
         toggleEnabled: (destination: Destination, enabled: boolean) => ({ destination, enabled }),
@@ -127,9 +127,6 @@ export const pipelineDestinationsLogic = kea<pipelineDestinationsLogicType>([
                 return enabledFirst
             },
         ],
-        // This is currently an organization level setting but might in the future be user level
-        // it's better to add the permission checks everywhere now
-        canConfigurePlugins: [(s) => [s.user], (user) => canConfigurePlugins(user?.organization)],
         shouldShowProductIntroduction: [
             (s) => [s.user],
             (user): boolean => {

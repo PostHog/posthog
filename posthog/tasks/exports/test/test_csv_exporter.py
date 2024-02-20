@@ -1,4 +1,5 @@
 from typing import Any, Dict, Optional
+from unittest import mock
 from unittest.mock import MagicMock, Mock, patch, ANY
 
 import pytest
@@ -7,6 +8,7 @@ from botocore.client import Config
 from dateutil.relativedelta import relativedelta
 from django.test import override_settings
 from django.utils.timezone import now
+from requests.exceptions import HTTPError
 
 from posthog.models import ExportedAsset
 from posthog.models.utils import UUIDT
@@ -22,6 +24,7 @@ from posthog.tasks.exports import csv_exporter
 from posthog.tasks.exports.csv_exporter import (
     UnexpectedEmptyJsonResponse,
     add_query_params,
+    CSV_EXPORT_BREAKDOWN_LIMIT_INITIAL,
 )
 from posthog.test.base import APIBaseTest, _create_event, flush_persons_and_events
 from posthog.utils import absolute_uri
@@ -239,8 +242,7 @@ class TestCSVExporter(APIBaseTest):
 
         mocked_request.assert_called_with(
             method="get",
-            url="http://testserver/" + path,
-            params={"breakdown_limit": 200, "is_csv_export": "1"},
+            url="http://testserver/" + path + f"&breakdown_limit={CSV_EXPORT_BREAKDOWN_LIMIT_INITIAL}&is_csv_export=1",
             timeout=60,
             json=None,
             headers=ANY,
@@ -258,6 +260,20 @@ class TestCSVExporter(APIBaseTest):
 
             with pytest.raises(Exception, match="HTTP 403 Forbidden"):
                 csv_exporter.export_csv(exported_asset)
+
+    @patch("posthog.tasks.exports.csv_exporter.logger")
+    def test_failing_export_api_is_reported_query_size_exceeded(self, _mock_logger: MagicMock) -> None:
+        with patch("posthog.tasks.exports.csv_exporter.make_api_call") as patched_make_api_call:
+            exported_asset = self._create_asset()
+            mock_error = HTTPError("Query size exceeded")
+            mock_error.response = Mock()
+            mock_error.response.text = "Query size exceeded"
+            patched_make_api_call.side_effect = mock_error
+
+            csv_exporter.export_csv(exported_asset)
+
+            assert patched_make_api_call.call_count == 4
+            patched_make_api_call.assert_called_with(mock.ANY, mock.ANY, 64, mock.ANY, mock.ANY, mock.ANY)
 
     def test_limiting_query_as_expected(self) -> None:
         with self.settings(SITE_URL="https://app.posthog.com"):

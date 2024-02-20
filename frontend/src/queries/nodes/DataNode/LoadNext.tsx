@@ -3,7 +3,7 @@ import { LemonButton } from 'lib/lemon-ui/LemonButton'
 
 import { dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
 import { DataNode } from '~/queries/schema'
-import { isActorsQuery, isHogQLQuery, isPersonsNode } from '~/queries/utils'
+import { isHogQLQuery } from '~/queries/utils'
 
 interface LoadNextProps {
     query: DataNode
@@ -23,14 +23,7 @@ export function LoadNext({ query }: LoadNextProps): JSX.Element {
                 ) : (
                     <>
                         Showing {canLoadNextData || numberOfRows === 1 ? '' : 'all '}
-                        {numberOfRows === 1 ? 'one' : numberOfRows}{' '}
-                        {isPersonsNode(query) || isActorsQuery(query)
-                            ? numberOfRows === 1
-                                ? 'person'
-                                : 'people'
-                            : numberOfRows === 1
-                            ? 'entry'
-                            : 'entries'}
+                        {numberOfRows === 1 ? 'one' : numberOfRows} {numberOfRows === 1 ? 'entry' : 'entries'}
                         {canLoadNextData ? '. Click to load more.' : '. Reached the end of results.'}
                     </>
                 )}

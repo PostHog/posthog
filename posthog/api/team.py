@@ -32,16 +32,19 @@ from posthog.models.activity_logging.activity_page import activity_page_response
 from posthog.models.async_deletion import AsyncDeletion, DeletionType
 from posthog.models.group_type_mapping import GroupTypeMapping
 from posthog.models.organization import OrganizationMembership
+from posthog.models.personal_api_key import APIScopeObjectOrNotSupported
 from posthog.models.signals import mute_selected_signals
 from posthog.models.team.team import groups_on_events_querying_enabled, set_team_in_cache
 from posthog.models.team.util import delete_batch_exports, delete_bulky_postgres_data
 from posthog.models.utils import generate_random_token_project, UUIDT
 from posthog.permissions import (
     CREATE_METHODS,
+    APIScopePermission,
     OrganizationAdminWritePermissions,
     OrganizationMemberPermissions,
     TeamMemberLightManagementPermission,
     TeamMemberStrictManagementPermission,
+    get_organization_from_view,
 )
 from posthog.tasks.demo_create_data import create_data_for_demo_team
 from posthog.user_permissions import UserPermissions, UserPermissionsSerializerMixin
@@ -54,9 +57,10 @@ class PremiumMultiProjectPermissions(BasePermission):
     message = "You must upgrade your PostHog plan to be able to create and manage multiple projects."
 
     def has_permission(self, request: request.Request, view) -> bool:
-        user = cast(User, request.user)
         if request.method in CREATE_METHODS:
-            if user.organization is None:
+            try:
+                organization = get_organization_from_view(view)
+            except ValueError:
                 return False
 
             # if we're not requesting to make a demo project
@@ -64,8 +68,8 @@ class PremiumMultiProjectPermissions(BasePermission):
             # and the org isn't allowed to make multiple projects
             if (
                 ("is_demo" not in request.data or not request.data["is_demo"])
-                and user.organization.teams.exclude(is_demo=True).count() >= 1
-                and not user.organization.is_feature_available(AvailableFeature.ORGANIZATIONS_PROJECTS)
+                and organization.teams.exclude(is_demo=True).count() >= 1
+                and not organization.is_feature_available(AvailableFeature.ORGANIZATIONS_PROJECTS)
             ):
                 return False
 
@@ -74,7 +78,7 @@ class PremiumMultiProjectPermissions(BasePermission):
             if (
                 "is_demo" in request.data
                 and request.data["is_demo"]
-                and user.organization.teams.exclude(is_demo=False).count() > 0
+                and organization.teams.exclude(is_demo=False).count() > 0
             ):
                 return False
 
@@ -337,12 +341,11 @@ class TeamViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     Projects for the current organization.
     """
 
+    scope_object: APIScopeObjectOrNotSupported = "project"
     serializer_class = TeamSerializer
     queryset = Team.objects.all().select_related("organization")
-    permission_classes = [IsAuthenticated, PremiumMultiProjectPermissions]
     lookup_field = "id"
     ordering = "-created_by"
-    include_in_docs = True
 
     def get_queryset(self):
         # IMPORTANT: This is actually what ensures that a user cannot read/update a project for which they don't have permission
@@ -354,34 +357,31 @@ class TeamViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             return TeamBasicSerializer
         return super().get_serializer_class()
 
+    # NOTE: Team permissions are somewhat complex so we override the underlying viewset's get_permissions method
     def get_permissions(self) -> List:
         """
         Special permissions handling for create requests as the organization is inferred from the current user.
         """
 
-        base_permissions = [permission() for permission in self.permission_classes]
+        common_permissions: list = [
+            IsAuthenticated,
+            APIScopePermission,
+            PremiumMultiProjectPermissions,
+        ] + self.permission_classes
+
+        base_permissions = [permission() for permission in common_permissions]
 
         # Return early for non-actions (e.g. OPTIONS)
         if self.action:
             if self.action == "create":
                 if "is_demo" not in self.request.data or not self.request.data["is_demo"]:
                     base_permissions.append(OrganizationAdminWritePermissions())
-                elif "is_demo" in self.request.data:
+                else:
                     base_permissions.append(OrganizationMemberPermissions())
             elif self.action != "list":
                 # Skip TeamMemberAccessPermission for list action, as list is serialized with limited TeamBasicSerializer
                 base_permissions.append(TeamMemberLightManagementPermission())
         return base_permissions
-
-    def check_permissions(self, request):
-        if self.action and self.action == "create":
-            organization = getattr(self.request.user, "organization", None)
-            if not organization:
-                raise exceptions.ValidationError("You need to belong to an organization.")
-            # To be used later by OrganizationAdminWritePermissions and TeamSerializer
-            self.organization = organization
-
-        return super().check_permissions(request)
 
     def get_object(self):
         lookup_value = self.kwargs[self.lookup_field]
@@ -447,10 +447,7 @@ class TeamViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         methods=["PATCH"],
         detail=True,
         # Only ADMIN or higher users are allowed to access this project
-        permission_classes=[
-            IsAuthenticated,
-            TeamMemberStrictManagementPermission,
-        ],
+        permission_classes=[TeamMemberStrictManagementPermission],
     )
     def reset_token(self, request: request.Request, id: str, **kwargs) -> response.Response:
         team = self.get_object()
@@ -511,3 +508,8 @@ class TeamViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     def user_permissions(self):
         team = self.get_object() if self.action == "reset_token" else None
         return UserPermissions(cast(User, self.request.user), team)
+
+
+# NOTE: We don't want people managing projects via the "current_organization" concept. Rather specifying the org ID at the top level
+class RootTeamViewSet(TeamViewSet):
+    scope_object = "INTERNAL"
