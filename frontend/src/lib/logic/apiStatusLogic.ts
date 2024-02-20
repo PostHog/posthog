@@ -39,8 +39,6 @@ export const apiStatusLogic = kea<apiStatusLogicType>([
                 if (now - 10000 > (cache.lastUnauthorizedCheck ?? 0)) {
                     cache.lastUnauthorizedCheck = Date.now()
 
-                    await breakpoint(100)
-
                     await api.get('api/users/@me/').catch((error: any) => {
                         if (error.status === 401) {
                             window.location.href = '/logout'
