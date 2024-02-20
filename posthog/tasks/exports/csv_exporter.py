@@ -218,18 +218,22 @@ def _export_to_csv(exported_asset: ExportedAsset, limit: int) -> None:
             try:
                 response = make_api_call(access_token, body, limit, method, next_url, path)
             except HTTPError as e:
+                if "Query size exceeded" not in e.response.text:
+                    raise e
+
+                if limit <= CSV_EXPORT_BREAKDOWN_LIMIT_LOW:
+                    break  # Already tried with the lowest limit, so return what we have
+
                 # If error message contains "Query size exceeded", we try again with a lower limit
-                if "Query size exceeded" in e.response.text and limit > CSV_EXPORT_BREAKDOWN_LIMIT_LOW:
-                    limit = int(limit / 2)
-                    logger.warning(
-                        "csv_exporter.query_size_exceeded",
-                        exc=e,
-                        exc_info=True,
-                        response_text=e.response.text,
-                        limit=limit,
-                    )
-                    continue
-                raise e
+                limit = int(limit / 2)
+                logger.warning(
+                    "csv_exporter.query_size_exceeded",
+                    exc=e,
+                    exc_info=True,
+                    response_text=e.response.text,
+                    limit=limit,
+                )
+                continue
 
             # Figure out how to handle funnel polling....
             data = response.json()

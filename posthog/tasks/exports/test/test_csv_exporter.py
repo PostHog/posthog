@@ -270,8 +270,7 @@ class TestCSVExporter(APIBaseTest):
             mock_error.response.text = "Query size exceeded"
             patched_make_api_call.side_effect = mock_error
 
-            with pytest.raises(HTTPError, match="Query size exceeded"):
-                csv_exporter.export_csv(exported_asset)
+            csv_exporter.export_csv(exported_asset)
 
             assert patched_make_api_call.call_count == 4
             patched_make_api_call.assert_called_with(mock.ANY, mock.ANY, 64, mock.ANY, mock.ANY, mock.ANY)

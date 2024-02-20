@@ -1,6 +1,5 @@
-import './FunnelBarChart.scss'
+import './FunnelBarVertical.scss'
 
-import clsx from 'clsx'
 import { useValues } from 'kea'
 import { ScrollableShadows } from 'lib/components/ScrollableShadows/ScrollableShadows'
 import { useResizeObserver } from 'lib/hooks/useResizeObserver'
@@ -11,17 +10,17 @@ import { ChartParams } from '~/types'
 
 import { funnelDataLogic } from '../funnelDataLogic'
 import { funnelPersonsModalLogic } from '../funnelPersonsModalLogic'
-import { useFunnelTooltip } from '../useFunnelTooltip'
+import { useFunnelTooltip } from '../FunnelTooltip'
 import { StepBarLabels } from './StepBarLabels'
 import { StepBars } from './StepBars'
 import { StepLegend } from './StepLegend'
 
-interface FunnelBarChartCSSProperties extends React.CSSProperties {
+interface FunnelBarVerticalCSSProperties extends React.CSSProperties {
     '--bar-width': string
     '--bar-row-height': string
 }
 
-export function FunnelBarChart({ showPersonsModal: showPersonsModalProp = true }: ChartParams): JSX.Element {
+export function FunnelBarVertical({ showPersonsModal: showPersonsModalProp = true }: ChartParams): JSX.Element {
     const { insightProps } = useValues(insightLogic)
     const { visibleStepsWithConversionMetrics } = useValues(funnelDataLogic(insightProps))
     const { canOpenPersonModal } = useValues(funnelPersonsModalLogic(insightProps))
@@ -77,7 +76,7 @@ export function FunnelBarChart({ showPersonsModal: showPersonsModalProp = true }
     const barRowHeight = `calc(${availableHeight}px - ${borderHeightPx}px - ${stepLegendHeightRem}rem  - ${scrollbarHeightPx}px)`
 
     return (
-        <div className={clsx('FunnelBarChart')} ref={vizRef} data-attr="funnel-bar-graph">
+        <div className="FunnelBarVertical" ref={vizRef} data-attr="funnel-bar-vertical">
             <ScrollableShadows scrollRef={scrollRef} direction="horizontal">
                 <table
                     /* eslint-disable-next-line react/forbid-dom-props */
@@ -85,7 +84,7 @@ export function FunnelBarChart({ showPersonsModal: showPersonsModalProp = true }
                         {
                             '--bar-width': `${barWidthPx}px`,
                             '--bar-row-height': barRowHeight,
-                        } as FunnelBarChartCSSProperties
+                        } as FunnelBarVerticalCSSProperties
                     }
                 >
                     <colgroup>
