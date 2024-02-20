@@ -120,7 +120,7 @@ class TestDataWarehouseQueryBuilder(ClickhouseTestMixin, BaseTest):
         # TODO: use env vars
         DataWarehouseTable.objects.create(
             name=table_name,
-            url_pattern=f"http://localhost:19000/{OBJECT_STORAGE_BUCKET}/{TEST_BUCKET}/*.parquet",
+            url_pattern=f"http://host.docker.internal:19000/{OBJECT_STORAGE_BUCKET}/{TEST_BUCKET}/*.parquet",
             format=DataWarehouseTable.TableFormat.Parquet,
             team=self.team,
             columns={
