@@ -11,7 +11,7 @@ import { ChartParams } from '~/types'
 
 import { funnelDataLogic } from '../funnelDataLogic'
 import { funnelPersonsModalLogic } from '../funnelPersonsModalLogic'
-import { useFunnelTooltip } from '../useFunnelTooltip'
+import { useFunnelTooltip } from '../FunnelTooltip'
 import { StepBarLabels } from './StepBarLabels'
 import { StepBars } from './StepBars'
 import { StepLegend } from './StepLegend'
