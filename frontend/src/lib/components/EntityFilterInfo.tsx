@@ -23,7 +23,10 @@ export function EntityFilterInfo({
 }: EntityFilterInfoProps): JSX.Element {
     if (isAllEventsEntityFilter(filter) && !filter?.custom_name) {
         return (
-            <div className="EntityFilterInfo whitespace-nowrap max-w-100" title="All events">
+            <div
+                className={clsx('EntityFilterInfo max-w-100', !allowWrap && 'whitespace-nowrap truncate')}
+                title="All events"
+            >
                 All events
             </div>
         )
@@ -39,7 +42,7 @@ export function EntityFilterInfo({
             // eslint-disable-next-line react/forbid-dom-props
             <span className="flex items-center" style={style}>
                 <div
-                    className={clsx('EntityFilterInfo whitespace-nowrap max-w-100', !allowWrap && 'truncate')}
+                    className={clsx('EntityFilterInfo max-w-100', !allowWrap && 'whitespace-nowrap truncate')}
                     title={titleToDisplay}
                 >
                     {titleToDisplay}
@@ -55,14 +58,14 @@ export function EntityFilterInfo({
         // eslint-disable-next-line react/forbid-dom-props
         <span className="flex items-center" style={style}>
             <div
-                className={clsx('EntityFilterInfo whitespace-nowrap max-w-100', !allowWrap && 'truncate')}
+                className={clsx('EntityFilterInfo max-w-100', !allowWrap && 'whitespace-nowrap truncate')}
                 title={customTitle ?? undefined}
             >
                 {customTitle}
             </div>
             {!showSingleName && (
                 <div
-                    className={clsx('EntityFilterInfo whitespace-nowrap max-w-100 ml-1', !allowWrap && 'truncate')}
+                    className={clsx('EntityFilterInfo max-w-100 ml-1', !allowWrap && 'whitespace-nowrap truncate')}
                     title={titleToDisplay}
                 >
                     ({titleToDisplay})
