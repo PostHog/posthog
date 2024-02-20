@@ -42,20 +42,18 @@ class OrderedCsvRenderer(
             else:
                 ordered_fields[field] = [item]
 
+        flat_ordered_fields = list(itertools.chain(*ordered_fields.values()))
         if not header:
-            field_headers = []
-            for key, fields in ordered_fields.items():
-                for field in fields:
-                    if key in header or field in header:
-                        field_headers.append(field)
+            field_headers = flat_ordered_fields
         else:
             field_headers = header
-            flat_ordered_fields = itertools.chain(*ordered_fields.values())
             for single_header in field_headers:
-                if single_header not in flat_ordered_fields and single_header in ordered_fields:
-                    pos_single_header = field_headers.index(single_header)
-                    field_headers.remove(single_header)
-                    field_headers[pos_single_header:pos_single_header] = ordered_fields[single_header]
+                if single_header in flat_ordered_fields or single_header not in ordered_fields:
+                    continue
+
+                pos_single_header = field_headers.index(single_header)
+                field_headers.remove(single_header)
+                field_headers[pos_single_header:pos_single_header] = ordered_fields[single_header]
 
         # Return your "table", with the headers as the first row.
         if labels:
