@@ -1,5 +1,6 @@
 import './FeatureFlag.scss'
 
+import { IconCollapse, IconExpand, IconLock, IconPlus, IconTrash } from '@posthog/icons'
 import { LemonSegmentedButton, LemonSkeleton } from '@posthog/lemon-ui'
 import { Popconfirm } from 'antd'
 import { useActions, useValues } from 'kea'
@@ -12,7 +13,6 @@ import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
 import { PageHeader } from 'lib/components/PageHeader'
 import { PayGateMini } from 'lib/components/PayGateMini/PayGateMini'
 import { FEATURE_FLAGS } from 'lib/constants'
-import { IconDelete, IconLock, IconPlus, IconUnfoldLess, IconUnfoldMore } from 'lib/lemon-ui/icons'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { More } from 'lib/lemon-ui/LemonButton/More'
@@ -25,6 +25,7 @@ import { LemonTag } from 'lib/lemon-ui/LemonTag/LemonTag'
 import { LemonTextArea } from 'lib/lemon-ui/LemonTextArea/LemonTextArea'
 import { Lettermark, LettermarkColor } from 'lib/lemon-ui/Lettermark'
 import { Link } from 'lib/lemon-ui/Link'
+import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { featureFlagLogic as enabledFeaturesLogic } from 'lib/logic/featureFlagLogic'
 import { alphabet, capitalizeFirstLetter } from 'lib/utils'
 import { PostHogFeature } from 'posthog-js/react'
@@ -405,7 +406,7 @@ export function FeatureFlag({ id }: { id?: string } = {}): JSX.Element {
                                     <LemonButton
                                         fullWidth
                                         onClick={() => setAdvancedSettingsExpanded(!advancedSettingsExpanded)}
-                                        sideIcon={advancedSettingsExpanded ? <IconUnfoldLess /> : <IconUnfoldMore />}
+                                        sideIcon={advancedSettingsExpanded ? <IconCollapse /> : <IconExpand />}
                                     >
                                         <div>
                                             <h3 className="l4 mt-2">Advanced settings</h3>
@@ -817,17 +818,16 @@ function FeatureFlagRollout({ readOnly }: { readOnly?: boolean }): JSX.Element {
                                     },
                                     {
                                         label: !hasAvailableFeature(AvailableFeature.MULTIVARIATE_FLAGS) ? (
-                                            <Link to={upgradeLink} target="_blank">
-                                                <IconLock className="mr-1 text-warning" />
-                                                Multiple variants with rollout percentages (A/B test)
-                                            </Link>
+                                            <Tooltip title="This feature is not available on your current plan. Click to upgrade.">
+                                                <Link to={upgradeLink} target="_blank">
+                                                    <IconLock className="mr-1 text-warning" />
+                                                    Multiple variants with rollout percentages (A/B test)
+                                                </Link>
+                                            </Tooltip>
                                         ) : (
                                             <span>Multiple variants with rollout percentages (A/B test)</span>
                                         ),
                                         value: 'multivariate',
-                                        disabledReason: !hasAvailableFeature(AvailableFeature.MULTIVARIATE_FLAGS)
-                                            ? 'This feature is not available on your current plan.'
-                                            : undefined,
                                     },
                                 ]}
                                 onChange={(value) => {
@@ -1008,7 +1008,7 @@ function FeatureFlagRollout({ readOnly }: { readOnly?: boolean }): JSX.Element {
                                     <div className="flex items-center justify-center">
                                         {variants.length > 1 && (
                                             <LemonButton
-                                                icon={<IconDelete />}
+                                                icon={<IconTrash />}
                                                 data-attr={`delete-prop-filter-${index}`}
                                                 noPadding
                                                 onClick={() => removeVariant(index)}

@@ -3,10 +3,11 @@ import './EditSurvey.scss'
 import { DraggableSyntheticListeners } from '@dnd-kit/core'
 import { useSortable } from '@dnd-kit/sortable'
 import { CSS } from '@dnd-kit/utilities'
+import { IconPlusSmall, IconTrash } from '@posthog/icons'
 import { LemonButton, LemonCheckbox, LemonInput, LemonSelect } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { Group } from 'kea-forms'
-import { IconDelete, IconPlusMini, SortableDragIcon } from 'lib/lemon-ui/icons'
+import { SortableDragIcon } from 'lib/lemon-ui/icons'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 
 import { Survey, SurveyQuestionType } from '~/types'
@@ -65,7 +66,7 @@ export function SurveyEditQuestionHeader({
             </div>
             {survey.questions.length > 1 && (
                 <LemonButton
-                    icon={<IconDelete />}
+                    icon={<IconTrash />}
                     data-attr={`delete-survey-question-${index}`}
                     onClick={(e) => {
                         e.stopPropagation()
@@ -307,7 +308,7 @@ export function SurveyEditQuestionGroup({ index, question }: { index: number; qu
                                                             </span>
                                                         )}
                                                         <LemonButton
-                                                            icon={<IconDelete />}
+                                                            icon={<IconTrash />}
                                                             size="small"
                                                             noPadding
                                                             onClick={() => {
@@ -326,7 +327,7 @@ export function SurveyEditQuestionGroup({ index, question }: { index: number; qu
                                                 {(value || []).length < 6 && (
                                                     <>
                                                         <LemonButton
-                                                            icon={<IconPlusMini />}
+                                                            icon={<IconPlusSmall />}
                                                             type="secondary"
                                                             fullWidth={false}
                                                             onClick={() => {
@@ -346,7 +347,7 @@ export function SurveyEditQuestionGroup({ index, question }: { index: number; qu
                                                         </LemonButton>
                                                         {!hasOpenChoice && (
                                                             <LemonButton
-                                                                icon={<IconPlusMini />}
+                                                                icon={<IconPlusSmall />}
                                                                 type="secondary"
                                                                 fullWidth={false}
                                                                 onClick={() => {

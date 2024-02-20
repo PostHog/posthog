@@ -1,8 +1,8 @@
+import { IconTrash } from '@posthog/icons'
 import { LemonButton, LemonDivider, LemonInput, LemonSelect, LemonTag, Link } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { Group } from 'kea-forms'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
-import { IconDelete } from 'lib/lemon-ui/icons'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { Spinner } from 'lib/lemon-ui/Spinner/Spinner'
 import { capitalizeFirstLetter, genericOperatorMap, humanFriendlyNumber } from 'lib/utils'
@@ -101,7 +101,7 @@ export function FeatureFlagAutoRollback({ readOnly }: FeatureFlagAutoRollbackPro
                                         </LemonField>
                                     </div>
                                     <LemonButton
-                                        icon={<IconDelete />}
+                                        icon={<IconTrash />}
                                         noPadding
                                         onClick={() => {
                                             removeRollbackCondition(index)

@@ -67,7 +67,7 @@ export function PersonDisplay({
     const notebookNode = useNotebookNode()
 
     let content = (
-        <span className={clsx('flex', 'items-center', isCentered && 'justify-center')}>
+        <span className={clsx('inline-flex items-center', isCentered && 'justify-center')}>
             {withIcon && <PersonIcon person={person} size={typeof withIcon === 'string' ? withIcon : 'md'} />}
             <span className={clsx('ph-no-capture', !noEllipsis && 'truncate')}>{display}</span>
         </span>

@@ -1,7 +1,8 @@
 import './LemonInput.scss'
 
+import { IconX } from '@posthog/icons'
 import clsx from 'clsx'
-import { IconClose, IconEyeHidden, IconEyeVisible, IconMagnifier } from 'lib/lemon-ui/icons'
+import { IconEyeHidden, IconEyeVisible, IconMagnifier } from 'lib/lemon-ui/icons'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import React, { useRef, useState } from 'react'
 
@@ -124,7 +125,7 @@ export const LemonInput = React.forwardRef<HTMLInputElement, LemonInputProps>(fu
             <LemonButton
                 size="small"
                 noPadding
-                icon={<IconClose />}
+                icon={<IconX />}
                 tooltip="Clear input"
                 onClick={(e) => {
                     e.stopPropagation()

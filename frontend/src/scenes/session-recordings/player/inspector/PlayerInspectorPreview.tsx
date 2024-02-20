@@ -1,6 +1,7 @@
+import { IconTerminal } from '@posthog/icons'
 import clsx from 'clsx'
 import { useValues } from 'kea'
-import { IconGauge, IconMagnifier, IconTerminal, IconUnverifiedEvent } from 'lib/lemon-ui/icons'
+import { IconGauge, IconMagnifier, IconUnverifiedEvent } from 'lib/lemon-ui/icons'
 
 import { SessionRecordingPlayerTab } from '~/types'
 

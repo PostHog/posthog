@@ -245,8 +245,8 @@ dependencies:
     specifier: ^9.3.0
     version: 9.3.0(postcss@8.4.31)
   posthog-js:
-    specifier: 1.106.1
-    version: 1.106.1
+    specifier: 1.106.3
+    version: 1.106.3
   posthog-js-lite:
     specifier: 2.5.0
     version: 2.5.0
@@ -545,6 +545,9 @@ devDependencies:
   cypress-terminal-report:
     specifier: ^5.3.7
     version: 5.3.7(cypress@13.3.0)
+  esbuild-visualizer:
+    specifier: ^0.6.0
+    version: 0.6.0
   eslint:
     specifier: ^8.52.0
     version: 8.52.0
@@ -11627,6 +11630,16 @@ packages:
       sass-embedded: 1.70.0
     dev: false
 
+  /esbuild-visualizer@0.6.0:
+    resolution: {integrity: sha512-oNK3JAhC7+re93VTtUdWJKTDVnA2qXPAjCAoaw9OxEFUXztszw3kcaK46u1U790T8FdUBAWv6F9Xt59P8nJCVA==}
+    engines: {node: '>=18'}
+    hasBin: true
+    dependencies:
+      open: 8.4.2
+      picomatch: 2.3.1
+      yargs: 17.6.2
+    dev: true
+
   /esbuild@0.18.20:
     resolution: {integrity: sha512-ceqxoedUrcayh7Y7ZX6NdbbDzGROiyVBgC4PriJThBKSVPWnnFHZAkfI1lJT8QFkOwH4qOS2SJkS4wvpGl8BpA==}
     engines: {node: '>=12'}
@@ -17299,8 +17312,8 @@ packages:
     resolution: {integrity: sha512-Urvlp0Vu9h3td0BVFWt0QXFJDoOZcaAD83XM9d91NKMKTVPZtfU0ysoxstIf5mw/ce9ZfuMgpWPaagrZI4rmSg==}
     dev: false
 
-  /posthog-js@1.106.1:
-    resolution: {integrity: sha512-+Ei83la12wV+cQhZ8SEP9VmFGaE1jYnPj/h6snNryaq4xRKUXx8WmxKGUvcYyCSxGs6aYHeshIEgNwUwUNWc+A==}
+  /posthog-js@1.106.3:
+    resolution: {integrity: sha512-1i/6XSYVYFktXKG7G5Y8xviyl+7w8/pfHv6clLKlvnXuR4BNd9x+sGSK5rJemWiXT8df5gpkeWKg+HZ/Jj9w1w==}
     dependencies:
       fflate: 0.4.8
       preact: 10.19.5

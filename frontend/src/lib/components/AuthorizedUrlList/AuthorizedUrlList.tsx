@@ -1,7 +1,8 @@
+import { IconPencil, IconPlus, IconTrash } from '@posthog/icons'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
-import { IconDelete, IconEdit, IconOpenInApp, IconPlus } from 'lib/lemon-ui/icons'
+import { IconOpenInApp } from 'lib/lemon-ui/icons'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
 import { LemonField } from 'lib/lemon-ui/LemonField'
@@ -169,14 +170,14 @@ export function AuthorizedUrlList({
                                             </LemonButton>
 
                                             <LemonButton
-                                                icon={<IconEdit />}
+                                                icon={<IconPencil />}
                                                 onClick={() => setEditUrlIndex(keyedURL.originalIndex)}
                                                 tooltip="Edit"
                                                 center
                                             />
 
                                             <LemonButton
-                                                icon={<IconDelete />}
+                                                icon={<IconTrash />}
                                                 tooltip={`Remove ${onlyAllowDomains ? 'domain' : 'URL'}`}
                                                 center
                                                 onClick={() => {
