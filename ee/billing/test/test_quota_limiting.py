@@ -11,6 +11,8 @@ from ee.billing.quota_limiting import (
     QUOTA_LIMIT_DATA_RETENTION_FLAG,
     QuotaLimitingCaches,
     QuotaResource,
+    add_limited_team_tokens,
+    get_team_attribute_by_quota_resource,
     list_limited_team_attributes,
     org_quota_limited_until,
     replace_limited_team_tokens,
@@ -29,13 +31,16 @@ class TestQuotaLimiting(BaseTest):
     def setUp(self) -> None:
         super().setUp()
         self.redis_client = get_client()
-        pipeline = self.redis_client.pipeline()
-        pipeline.delete(f"{QuotaLimitingCaches.QUOTA_LIMITER_CACHE_KEY}.{QuotaResource.EVENTS}")
-        pipeline.delete(f"{QuotaLimitingCaches.QUOTA_LIMITER_CACHE_KEY}.{QuotaResource.RECORDINGS}")
-        pipeline.delete(f"{QuotaLimitingCaches.QUOTA_LIMITER_CACHE_KEY}.{QuotaResource.ROWS_SYNCED}")
+        self.redis_client.delete(f"{QuotaLimitingCaches.QUOTA_LIMITER_CACHE_KEY}.{QuotaResource.EVENTS}")
+        self.redis_client.delete(f"{QuotaLimitingCaches.QUOTA_LIMITER_CACHE_KEY}.{QuotaResource.RECORDINGS}")
+        self.redis_client.delete(f"{QuotaLimitingCaches.QUOTA_LIMITER_CACHE_KEY}.{QuotaResource.ROWS_SYNCED}")
+        self.redis_client.delete(f"{QuotaLimitingCaches.QUOTA_LIMITING_SUSPENDED_KEY}.{QuotaResource.EVENTS}")
+        self.redis_client.delete(f"{QuotaLimitingCaches.QUOTA_LIMITING_SUSPENDED_KEY}.{QuotaResource.RECORDINGS}")
+        self.redis_client.delete(f"{QuotaLimitingCaches.QUOTA_LIMITING_SUSPENDED_KEY}.{QuotaResource.ROWS_SYNCED}")
 
     @patch("posthoganalytics.capture")
     @patch("posthoganalytics.feature_enabled", return_value=True)
+    @freeze_time("2021-01-25T23:59:59Z")
     def test_dont_quota_limit_feature_flag_enabled(self, patch_feature_enabled, patch_capture) -> None:
         with self.settings(USE_TZ=False):
             self.organization.usage = {
@@ -49,7 +54,6 @@ class TestQuotaLimiting(BaseTest):
             distinct_id = str(uuid4())
 
             # add a bunch of events so that the organization is over the limit
-            # Because the feature flag is enabled
             for _ in range(0, 10):
                 _create_event(
                     distinct_id=distinct_id,
@@ -58,21 +62,24 @@ class TestQuotaLimiting(BaseTest):
                     timestamp=now() - relativedelta(hours=1),
                     team=self.team,
                 )
+
+        org_id = str(self.organization.id)
         time.sleep(1)
 
         result = update_all_org_billing_quotas()
         patch_feature_enabled.assert_called_with(
             QUOTA_LIMIT_DATA_RETENTION_FLAG,
             self.organization.id,
-            groups={"organization": str(self.organization.id)},
-            group_properties={"organization": {"id": str(self.organization.id)}},
+            groups={"organization": org_id},
+            group_properties={"organization": {"id": org_id}},
         )
         patch_capture.assert_called_once_with(
-            str(self.organization.id),
+            org_id,
             "quota limiting suspended",
             properties={"current_usage": 109},
-            groups={"instance": "http://localhost:8000", "organization": str(self.organization.id)},
+            groups={"instance": "http://localhost:8000", "organization": org_id},
         )
+        # Feature flag is enabled so they won't be limited.
         assert result["events"] == {}
         assert result["recordings"] == {}
         assert result["rows_synced"] == {}
@@ -80,6 +87,33 @@ class TestQuotaLimiting(BaseTest):
         assert self.redis_client.zrange(f"{QuotaLimitingCaches.QUOTA_LIMITER_CACHE_KEY}events", 0, -1) == []
         assert self.redis_client.zrange(f"{QuotaLimitingCaches.QUOTA_LIMITER_CACHE_KEY}recordings", 0, -1) == []
         assert self.redis_client.zrange(f"{QuotaLimitingCaches.QUOTA_LIMITER_CACHE_KEY}rows_synced", 0, -1) == []
+
+        with patch_capture.assert_not_called:
+            # Add this org to the redis cache.
+            team_tokens = get_team_attribute_by_quota_resource(self.organization, QuotaResource.EVENTS)
+            add_limited_team_tokens(
+                QuotaResource.EVENTS,
+                {x: 1612137599 for x in team_tokens},
+                QuotaLimitingCaches.QUOTA_LIMITER_CACHE_KEY,
+            )
+            result = update_all_org_billing_quotas()
+            patch_feature_enabled.assert_called_with(
+                QUOTA_LIMIT_DATA_RETENTION_FLAG,
+                self.organization.id,
+                groups={"organization": org_id},
+                group_properties={"organization": {"id": org_id}},
+            )
+
+            # Feature flag is on but we only suspend limiting for orgs that were not previously limited, so it should still be in the set.
+            assert result["events"] == {org_id: 1612137599}
+            assert result["recordings"] == {}
+            assert result["rows_synced"] == {}
+
+            assert self.redis_client.zrange(f"{QuotaLimitingCaches.QUOTA_LIMITER_CACHE_KEY}events", 0, -1) == [
+                self.team.api_token.encode("UTF-8")
+            ]
+            assert self.redis_client.zrange(f"{QuotaLimitingCaches.QUOTA_LIMITER_CACHE_KEY}recordings", 0, -1) == []
+            assert self.redis_client.zrange(f"{QuotaLimitingCaches.QUOTA_LIMITER_CACHE_KEY}rows_synced", 0, -1) == []
 
     @patch("posthoganalytics.capture")
     @patch("posthoganalytics.feature_enabled", return_value=True)
