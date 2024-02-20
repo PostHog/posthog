@@ -101,7 +101,13 @@ class TrendsQueryRunner(QueryRunner):
         return refresh_frequency
 
     def to_query(self) -> ast.SelectUnionQuery:
-        return ast.SelectUnionQuery(select_queries=self.to_queries())
+        queries = []
+        for query in self.to_queries():
+            if isinstance(query, ast.SelectQuery):
+                queries.append(query)
+            else:
+                queries.extend(query.select_queries)
+        return ast.SelectUnionQuery(select_queries=queries)
 
     def to_queries(self) -> List[ast.SelectQuery | ast.SelectUnionQuery]:
         queries = []
