@@ -14,6 +14,12 @@ declare global {
              * @example cy.clickNavMenu('dashboards')
              */
             clickNavMenu(name: string): Chainable<Element>
+
+            /**
+             * Custom command to set subscription status
+             * @example cy.useSubscriptionStatus('unsubscribed')
+             */
+            useSubscriptionStatus(name: 'unsubscribed' | 'subscribed' | 'teams' | 'enterprise'): Chainable<Element>
         }
     }
 }
