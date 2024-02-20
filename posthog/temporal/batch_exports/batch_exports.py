@@ -662,6 +662,7 @@ async def execute_batch_export_insert_activity(
         maximum_attempts=maximum_attempts,
         non_retryable_error_types=non_retryable_error_types,
     )
+
     try:
         await workflow.execute_activity(
             activity,
@@ -674,6 +675,8 @@ async def execute_batch_export_insert_activity(
     except exceptions.ActivityError as e:
         if isinstance(e.cause, exceptions.CancelledError):
             update_inputs.status = BatchExportRun.Status.CANCELLED
+        elif isinstance(e.cause, exceptions.ApplicationError) and e.cause.type not in non_retryable_error_types:
+            update_inputs.status = BatchExportRun.Status.FAILED_RETRYABLE
         else:
             update_inputs.status = BatchExportRun.Status.FAILED
 
