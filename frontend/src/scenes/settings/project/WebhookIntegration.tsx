@@ -1,10 +1,12 @@
-import { LemonButton, LemonInput, Link } from '@posthog/lemon-ui'
+import { LemonBanner, LemonButton, LemonInput, Link } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
+import { FlaggedFeature } from 'lib/components/FlaggedFeature'
 import { supportLogic } from 'lib/components/Support/supportLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { useEffect, useState } from 'react'
 import { teamLogic } from 'scenes/teamLogic'
+import { urls } from 'scenes/urls'
 
 import { webhookIntegrationLogic } from './webhookIntegrationLogic'
 
@@ -22,8 +24,7 @@ export function WebhookIntegration(): JSX.Element {
         }
     }, [currentTeam])
 
-    const webhooks_disallowed = featureFlags[FEATURE_FLAGS.WEBHOOKS_DENYLIST]
-    if (webhooks_disallowed) {
+    if (featureFlags[FEATURE_FLAGS.WEBHOOKS_DENYLIST]) {
         return (
             <div>
                 <p>
@@ -36,8 +37,26 @@ export function WebhookIntegration(): JSX.Element {
         )
     }
 
+    const deprecationNotice = (
+        <LemonBanner
+            type="warning"
+            action={{
+                children: 'Go to Actions',
+                to: urls.actions(),
+            }}
+        >
+            Webhooks have upgraded and can now be configured per action, allowing multiple webhook destinations.
+        </LemonBanner>
+    )
+
+    // Show nothing if they didn't have a webhook enabled
+    if (featureFlags[FEATURE_FLAGS.MULTIPLE_ACTION_WEBHOOKS] && !currentTeam?.slack_incoming_webhook) {
+        return <div>{deprecationNotice}</div>
+    }
+
     return (
-        <div>
+        <div className="space-y-2">
+            <FlaggedFeature flag="multiple-action-webhooks">{deprecationNotice}</FlaggedFeature>
             <p>
                 Send notifications when selected actions are performed by users.
                 <br />
