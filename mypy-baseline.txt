@@ -183,6 +183,7 @@ posthog/permissions.py:0: error: Metaclass conflict: the metaclass of a derived 
 posthog/permissions.py:0: error: Metaclass conflict: the metaclass of a derived class must be a (non-strict) subclass of the metaclasses of all its bases  [misc]
 posthog/permissions.py:0: error: Metaclass conflict: the metaclass of a derived class must be a (non-strict) subclass of the metaclasses of all its bases  [misc]
 posthog/permissions.py:0: error: Metaclass conflict: the metaclass of a derived class must be a (non-strict) subclass of the metaclasses of all its bases  [misc]
+posthog/permissions.py:0: error: Metaclass conflict: the metaclass of a derived class must be a (non-strict) subclass of the metaclasses of all its bases  [misc]
 posthog/hogql_queries/insights/trends/aggregation_operations.py:0: error: List item 1 has incompatible type "str | None"; expected "str"  [list-item]
 posthog/hogql_queries/insights/trends/aggregation_operations.py:0: error: Argument "chain" to "Field" has incompatible type "list[str]"; expected "list[str | int]"  [arg-type]
 posthog/hogql_queries/insights/trends/aggregation_operations.py:0: note: "List" is invariant -- see https://mypy.readthedocs.io/en/stable/common_issues.html#variance

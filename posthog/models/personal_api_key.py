@@ -1,7 +1,8 @@
+from typing import Optional, Literal, Tuple, get_args
 import hashlib
-from typing import Optional, Literal
 
 from django.contrib.auth.hashers import PBKDF2PasswordHasher
+from django.contrib.postgres.fields import ArrayField
 from django.db import models
 from django.utils import timezone
 
@@ -47,6 +48,9 @@ class PersonalAPIKey(models.Model):
     )
     created_at: models.DateTimeField = models.DateTimeField(default=timezone.now)
     last_used_at: models.DateTimeField = models.DateTimeField(null=True, blank=True)
+    scopes: ArrayField = ArrayField(models.CharField(max_length=100), null=True)
+    scoped_teams: ArrayField = ArrayField(models.IntegerField(), null=True)
+    scoped_organizations: ArrayField = ArrayField(models.CharField(max_length=100), null=True)
 
     # DEPRECATED: personal API keys are now specifically personal, without team affiliation
     team = models.ForeignKey(
@@ -56,3 +60,56 @@ class PersonalAPIKey(models.Model):
         null=True,
         blank=True,
     )
+
+
+## API Scopes
+# These are the scopes that are used to define the permissions of the API tokens.
+# Not every model needs a scope - it should more be for top-level things
+# Typically each object should have `read` and `write` scopes, but some objects may have more specific scopes
+
+# WARNING: Make sure to keep in sync with the frontend!
+APIScopeObject = Literal[
+    "action",
+    "activity_log",
+    "annotation",
+    "batch_export",
+    "cohort",
+    "dashboard",
+    "dashboard_template",
+    "early_access_feature",
+    "event_definition",
+    "experiment",
+    "export",
+    "feature_flag",
+    "group",
+    "insight",
+    "query",  # Covers query and events endpoints
+    "notebook",
+    "organization",
+    "organization_member",
+    "person",
+    "plugin",
+    "project",
+    "property_definition",
+    "session_recording",
+    "session_recording_playlist",
+    "sharing_configuration",
+    "subscription",
+    "survey",
+    "user",
+    "webhook",
+]
+
+APIScopeActions = Literal[
+    "read",
+    "write",
+]
+
+APIScopeObjectOrNotSupported = Literal[
+    APIScopeObject,
+    "INTERNAL",
+]
+
+
+API_SCOPE_OBJECTS: Tuple[APIScopeObject, ...] = get_args(APIScopeObject)
+API_SCOPE_ACTIONS: Tuple[APIScopeActions, ...] = get_args(APIScopeActions)
