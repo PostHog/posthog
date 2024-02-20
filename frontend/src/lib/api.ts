@@ -116,7 +116,9 @@ export interface ApiMethodOptions {
 }
 
 export class ApiError extends Error {
+    /** Django REST Framework `detail` - used in downstream error handling. */
     detail: string | null
+    /** Django REST Framework `code` - used in downstream error handling. */
     code: string | null
 
     constructor(message?: string, public status?: number, public data?: any) {
