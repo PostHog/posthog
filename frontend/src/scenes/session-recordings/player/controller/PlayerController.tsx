@@ -1,3 +1,4 @@
+import { IconMagic } from '@posthog/icons'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { FlaggedFeature } from 'lib/components/FlaggedFeature'
@@ -16,6 +17,7 @@ import { KeyboardShortcut } from '~/layout/navigation-3000/components/KeyboardSh
 import { SessionPlayerState } from '~/types'
 
 import { playerSettingsLogic } from '../playerSettingsLogic'
+import { sessionRecordingDataLogic } from '../sessionRecordingDataLogic'
 import { SeekSkip } from './PlayerControllerTime'
 import { Seekbar } from './Seekbar'
 
@@ -23,6 +25,7 @@ export function PlayerController(): JSX.Element {
     const { playingState, logicProps, isFullScreen } = useValues(sessionRecordingPlayerLogic)
     const { togglePlayPause, exportRecordingToFile, openExplorer, setIsFullScreen } =
         useActions(sessionRecordingPlayerLogic)
+    const { fetchSimilarRecordings } = useActions(sessionRecordingDataLogic(logicProps))
 
     const { speed, skipInactivitySetting } = useValues(playerSettingsLogic)
     const { setSpeed, setSkipInactivitySetting } = useActions(playerSettingsLogic)
@@ -130,6 +133,17 @@ export function PlayerController(): JSX.Element {
                                             tooltip="DEBUG ONLY - Export untransformed recording to a file. This can be loaded later into PostHog for playback."
                                         >
                                             DEBUG Export mobile replay to file DEBUG
+                                        </LemonButton>
+                                    </FlaggedFeature>
+
+                                    <FlaggedFeature flag={FEATURE_FLAGS.REPLAY_SIMILAR_RECORDINGS} match={true}>
+                                        <LemonButton
+                                            onClick={() => fetchSimilarRecordings()}
+                                            fullWidth
+                                            sideIcon={<IconMagic />}
+                                            tooltip="DEBUG ONLY - Find similar recordings based on distance calculations via embeddings."
+                                        >
+                                            Find similar recordings
                                         </LemonButton>
                                     </FlaggedFeature>
 

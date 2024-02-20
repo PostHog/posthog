@@ -11,9 +11,9 @@ FIND_RECORDING_NEIGHBOURS_TIMING = Histogram(
     "Time spent finding the most similar recording embeddings for a single session",
 )
 
-SIMILAR_RECORDING_SKIPPED_WHEN_FINDING_NEIGHBOURS = Counter(
-    "posthog_session_recordings_skipped_when_finding_neighbours",
-    "Number of sessions skipped when finding neighbours",
+CANNOT_FIND_NEIGHBORS_WITHOUT_EMBEDDINGS = Counter(
+    "posthog_session_recordings_cannot_find_neighbours_without_embeddings",
+    "Number of sessions skipped because recording didn't have embeddings",
 )
 
 
@@ -21,7 +21,7 @@ def similar_recordings(recording: SessionRecording, team: Team):
     target_embeddings = find_target_embeddings(session_id=recording.session_id, team_id=team.pk)
 
     if target_embeddings is None:
-        SIMILAR_RECORDING_SKIPPED_WHEN_FINDING_NEIGHBOURS.inc()
+        CANNOT_FIND_NEIGHBORS_WITHOUT_EMBEDDINGS.inc()
         return []
 
     with FIND_RECORDING_NEIGHBOURS_TIMING.time():
