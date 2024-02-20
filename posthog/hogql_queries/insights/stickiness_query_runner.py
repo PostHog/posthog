@@ -170,7 +170,12 @@ class StickinessQueryRunner(QueryRunner):
 
         for series in self.series:
             events_query = self._events_query(series)
-            events_query.select = [ast.Alias(alias="person_id", expr=ast.Field(chain=["aggregation_target"]))]
+            aggregation_alias = "person_id"
+            if series.series.math == "hogql" and series.series.math_hogql is not None:
+                aggregation_alias = "actor_id"
+            elif series.series.math == "unique_group" and series.series.math_group_type_index is not None:
+                aggregation_alias = "group_key"
+            events_query.select = [ast.Alias(alias=aggregation_alias, expr=ast.Field(chain=["aggregation_target"]))]
             events_query.group_by = None
             events_query.order_by = None
 

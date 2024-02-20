@@ -87,7 +87,7 @@ class ActorsQueryRunner(QueryRunner):
         missing_actors_count = None
         results: Sequence[List] | Iterator[List] = self.paginator.results
 
-        enrich_columns = filter(lambda column: column in ("person", "group"), input_columns)
+        enrich_columns = filter(lambda column: column in ("person", "group", "actor"), input_columns)
         for column_name in enrich_columns:
             actor_column_index = input_columns.index(column_name)
             actor_ids = (row[actor_column_index] for row in self.paginator.results)
@@ -122,6 +122,10 @@ class ActorsQueryRunner(QueryRunner):
             select = source_query.select
         else:
             select = source_query.select_queries[0].select
+
+        for column in select:
+            if isinstance(column, ast.Alias) and (column.alias == "group_key" or column.alias == "actor_id"):
+                return [column.alias]
 
         for column in select:
             if isinstance(column, ast.Alias) and "id" in column.alias:
@@ -163,7 +167,7 @@ class ActorsQueryRunner(QueryRunner):
 
                 if expr == "person.$delete":
                     column = ast.Constant(value=1)
-                elif expr == self.strategy.field:
+                elif expr == self.strategy.field or expr == "actor":
                     column = ast.Field(chain=[self.strategy.origin_id])
                 elif expr == "matched_recordings":
                     column = ast.Field(chain=["matching_events"])  # TODO: Hmm?

@@ -54,10 +54,15 @@ class InsightActorsQueryRunner(QueryRunner):
 
     @property
     def group_type_index(self) -> int | None:
-        if not self.source_runner or not isinstance(self.source_runner, RetentionQueryRunner):
-            return None
+        if isinstance(self.source_runner, RetentionQueryRunner):
+            return cast(RetentionQueryRunner, self.source_runner).group_type_index
+        if isinstance(self.source_runner, StickinessQueryRunner):
+            series_index = self.query.series or 0
+            if self.query.source.series and series_index < len(self.query.source.series):
+                series = self.query.source.series[series_index]
+                return series.math_group_type_index
 
-        return cast(RetentionQueryRunner, self.source_runner).group_type_index
+        return None
 
     def calculate(self) -> HogQLQueryResponse:
         return execute_hogql_query(
