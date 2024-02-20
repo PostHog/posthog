@@ -53,11 +53,7 @@ export function SamplingFilter({ insightProps, infoTooltipContent }: SamplingFil
                             onChange={(newValue) => {
                                 setSamplingPercentage(newValue)
 
-                                if (samplingPercentage === newValue) {
-                                    posthog.capture('sampling_disabled_on_insight')
-                                } else {
-                                    posthog.capture('sampling_percentage_updated', { samplingPercentage })
-                                }
+                                posthog.capture('sampling_percentage_updated', { samplingPercentage })
                             }}
                         />
                     </div>
