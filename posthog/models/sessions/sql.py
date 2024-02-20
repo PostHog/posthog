@@ -23,18 +23,19 @@ CREATE TABLE IF NOT EXISTS {table_name} ON CLUSTER '{cluster}'
     distinct_id VARCHAR,
     first_timestamp DateTime64(6, 'UTC'),
     last_timestamp DateTime64(6, 'UTC'),
-    first_url Nullable(VARCHAR),
-    click_count Int64,
-    keypress_count Int64,
-    mouse_activity_count Int64,
-    active_milliseconds Int64,
-    console_log_count Int64,
-    console_warn_count Int64,
-    console_error_count Int64,
-    size Int64,
+
+    urls Array(VARCHAR),
+    entry_url Nullable(VARCHAR),
+    exit_url Nullable(VARCHAR),
+    initial_utm_source Nullable(VARCHAR),
+    initial_utm_campaign Nullable(VARCHAR),
+    initial_utm_medium Nullable(VARCHAR),
+    initial_utm_term Nullable(VARCHAR),
+    initial_utm_content Nullable(VARCHAR),
+    initial_referring_domain Nullable(VARCHAR),
+
     event_count Int64,
-    message_count Int64,
-    snapshot_source LowCardinality(Nullable(String))
+    pageview_count Int64
 ) ENGINE = {engine}
 """
 
@@ -50,28 +51,22 @@ CREATE TABLE IF NOT EXISTS {table_name} ON CLUSTER '{cluster}'
     -- ClickHouse will pick any value of distinct_id for the session
     -- this is fine since even if the distinct_id changes during a session
     -- it will still (or should still) map to the same person
-    distinct_id VARCHAR,
+    distinct_id SimpleAggregateFunction(max, DateTime64(6, 'UTC')),
     min_first_timestamp SimpleAggregateFunction(min, DateTime64(6, 'UTC')),
     max_last_timestamp SimpleAggregateFunction(max, DateTime64(6, 'UTC')),
-    first_url AggregateFunction(argMin, Nullable(VARCHAR), DateTime64(6, 'UTC')),
-    click_count SimpleAggregateFunction(sum, Int64),
-    keypress_count SimpleAggregateFunction(sum, Int64),
-    mouse_activity_count SimpleAggregateFunction(sum, Int64),
-    active_milliseconds SimpleAggregateFunction(sum, Int64),
-    console_log_count SimpleAggregateFunction(sum, Int64),
-    console_warn_count SimpleAggregateFunction(sum, Int64),
-    console_error_count SimpleAggregateFunction(sum, Int64),
-    -- this column allows us to estimate the amount of data that is being ingested
-    size SimpleAggregateFunction(sum, Int64),
-    -- this allows us to count the number of messages received in a session
-    -- often very useful in incidents or debugging
-    message_count SimpleAggregateFunction(sum, Int64),
-    -- this allows us to count the number of snapshot events received in a session
-    -- often very useful in incidents or debugging
-    -- because we batch events we expect message_count to be lower than event_count
+
+    urls AggregateFunction(groupArrayIf(1000), Nullable(String), UInt8),
+    entry_url AggregateFunction(argMin, Nullable(VARCHAR), DateTime64(6, 'UTC')),
+    exit_url AggregateFunction(argMax, Nullable(VARCHAR), DateTime64(6, 'UTC')),
+    initial_utm_source AggregateFunction(argMin, Nullable(VARCHAR), DateTime64(6, 'UTC')),
+    initial_utm_campaign AggregateFunction(argMin, Nullable(VARCHAR), DateTime64(6, 'UTC')),
+    initial_utm_medium AggregateFunction(argMin, Nullable(VARCHAR), DateTime64(6, 'UTC')),
+    initial_utm_term AggregateFunction(argMin, Nullable(VARCHAR), DateTime64(6, 'UTC')),
+    initial_utm_content AggregateFunction(argMin, Nullable(VARCHAR), DateTime64(6, 'UTC')),
+    initial_referring_domain AggregateFunction(argMin, Nullable(VARCHAR), DateTime64(6, 'UTC')),
+
     event_count SimpleAggregateFunction(sum, Int64),
-    -- which source the snapshots came from Android, iOS, Mobile, Web. Web if absent
-    snapshot_source AggregateFunction(argMin, LowCardinality(Nullable(String)), DateTime64(6, 'UTC')),
+    pageview_count SimpleAggregateFunction(sum, Int64),
     _timestamp SimpleAggregateFunction(max, DateTime)
 ) ENGINE = {engine}
 """
@@ -126,20 +121,19 @@ max(last_timestamp) AS max_last_timestamp,
 -- by min of first_timestamp in the batch
 -- this is an aggregate function, not a simple aggregate function
 -- so we have to write to argMinState, and query with argMinMerge
-argMinState(first_url, first_timestamp) as first_url,
-sum(click_count) as click_count,
-sum(keypress_count) as keypress_count,
-sum(mouse_activity_count) as mouse_activity_count,
-sum(active_milliseconds) as active_milliseconds,
-sum(console_log_count) as console_log_count,
-sum(console_warn_count) as console_warn_count,
-sum(console_error_count) as console_error_count,
-sum(size) as size,
--- we can count the number of kafka messages instead of sending it explicitly
-sum(message_count) as message_count,
+
+groupArray(urls) AS urls
+argMinState(entry_url, first_timestamp) as entry_url,
+argMaxState(exit_url, last_timstamp) as exit_url,
+argMinState(initial_utm_source, first_timestamp) as initial_utm_source,
+argMinState(initial_utm_campaign, first_timestamp) as initial_utm_campaign,
+argMinState(initial_utm_medium, first_timestamp) as initial_utm_medium,
+argMinState(initial_utm_term, first_timestamp) as initial_utm_term,
+argMinState(initial_utm_content, first_timestamp) as initial_utm_content,
+argMinState(initial_referring_domain, first_timestamp) as initial_referring_domain,
 sum(event_count) as event_count,
-argMinState(snapshot_source, first_timestamp) as snapshot_source,
-max(_timestamp) as _timestamp
+sum(pageview_count) as pageview_count,
+
 FROM {database}.kafka_sessions
 group by session_id, team_id
 """.format(
@@ -150,17 +144,6 @@ group by session_id, team_id
         # Despite it being a LowCardinality(Nullable(String)) in writable_sessions
         # The column expansion picks only Nullable(String) and so we can't select it
         explictly_specify_columns="""(
-`session_id` String, `team_id` Int64, `distinct_id` String,
-`min_first_timestamp` DateTime64(6, 'UTC'),
-`max_last_timestamp` DateTime64(6, 'UTC'),
-`first_url` AggregateFunction(argMin, Nullable(String), DateTime64(6, 'UTC')),
-`click_count` Int64, `keypress_count` Int64,
-`mouse_activity_count` Int64, `active_milliseconds` Int64,
-`console_log_count` Int64, `console_warn_count` Int64,
-`console_error_count` Int64, `size` Int64, `message_count` Int64,
-`event_count` Int64,
-`snapshot_source` AggregateFunction(argMin, LowCardinality(Nullable(String)), DateTime64(6, 'UTC')),
-`_timestamp` Nullable(DateTime)
 )""",
     )
 )
