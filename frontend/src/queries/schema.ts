@@ -1079,7 +1079,8 @@ export interface InsightActorsQuery<T extends InsightsQueryBase = InsightQuerySo
 }
 
 export type FunnelActorsFilter = {
-    /** Index of the step for which we want to get the timestamp for, per person. */
+    /** Index of the step for which we want to get the timestamp for, per person.
+     * Positive for converted persons, negative for dropped of persons. */
     funnelStep?: integer
     /** Custom step numbers to get persons for. This overrides `funnelStep`. */
     funnelCustomSteps?: integer[]

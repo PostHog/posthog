@@ -271,7 +271,8 @@ class FunnelActorsFilter(BaseModel):
         default=None, description="Custom step numbers to get persons for. This overrides `funnelStep`."
     )
     funnelStep: Optional[int] = Field(
-        default=None, description="Index of the step for which we want to get the timestamp for, per person."
+        default=None,
+        description="Index of the step for which we want to get the timestamp for, per person. Positive for converted persons, negative for dropped of persons.",
     )
     funnelStepBreakdown: Optional[Union[str, float, List[Union[str, float]]]] = Field(
         default=None,
