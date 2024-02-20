@@ -2101,7 +2101,7 @@ const api = {
         return response
     },
 
-    async loadPaginatedResults<T>(
+    async loadPaginatedResults<T extends Record<string, any>>(
         url: string | null,
         maxIterations: number = PAGINATION_DEFAULT_MAX_PAGES
     ): Promise<T[]> {
