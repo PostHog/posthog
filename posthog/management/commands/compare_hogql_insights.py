@@ -63,7 +63,7 @@ class Command(BaseCommand):
                 all_ok = True
                 sorted_legacy_results = sorted(
                     legacy_results,
-                    key=lambda x: "$$_posthog_breakdown_other_$$" if x.get("label") == "Other" else x.get("label"),
+                    key=lambda x: "$$_posthog_breakdown_other_$$" if x.get("label") == "Other" else x.get("label"),  # type: ignore
                 )
                 sorted_hogql_results = sorted(hogql_results, key=lambda x: x.get("label"))
                 for legacy_result, hogql_result in zip(sorted_legacy_results, sorted_hogql_results):
@@ -72,10 +72,10 @@ class Command(BaseCommand):
                         legacy_value = legacy_result.get(field)
                         hogql_value = hogql_result.get(field)
                         if field == "count":
-                            legacy_value = int(legacy_value)
+                            legacy_value = int(legacy_value or 0)
                             hogql_value = int(hogql_value)
                         if field == "data":
-                            legacy_value = [int(x) for x in legacy_value]
+                            legacy_value = [int(x) for x in legacy_value or []]
                             hogql_value = [int(x) for x in hogql_value]
                         if legacy_value != hogql_value:
                             if (
