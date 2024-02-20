@@ -43,6 +43,10 @@ class EstimatedQueryExecutionTimeTooLong(APIException):
     default_detail = "Estimated query execution time is too long. Try reducing its scope by changing the time range."
 
 
+class QuerySizeExceeded(APIException):
+    default_detail = "Query size exceeded."
+
+
 class ExceptionContext(TypedDict):
     request: HttpRequest
 
