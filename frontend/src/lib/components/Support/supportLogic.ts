@@ -233,7 +233,7 @@ export const supportLogic = kea<supportLogicType>([
 
             const payload = {
                 request: {
-                    requester: { name: name, email: email },
+                    requester: { name: name || 'No Name', email: email },
                     subject: subject,
                     custom_fields: [
                         {
