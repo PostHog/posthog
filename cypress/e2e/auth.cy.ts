@@ -84,4 +84,15 @@ describe('Auth', () => {
         cy.visit('/signup')
         cy.location('pathname').should('eq', '/project/1')
     })
+    
+    it('Logout in another tab results in logout in the current tab too', () => {
+        cy.window().then(async (win) => {
+            // Hit /logout *in the background* by using fetch()
+            await win.fetch('/logout')
+        })
+
+        cy.clickNavMenu('dashboards') // This should cause logout bacause of new data fetching being initiated
+
+        cy.location('pathname').should('eq', '/login') // We should be quickly redirected to the login page
+    })
 })
