@@ -22,10 +22,12 @@
                 "--without-heartbeat",
                 "--without-gossip",
                 "--without-mingle",
+                "--pool=solo",
                 "-Ofair",
                 "-n",
                 "node@%h"
             ],
+            "envFile": "${workspaceFolder}/bin/celery-queues.env",
             "env": {
                 "SKIP_ASYNC_MIGRATIONS_SETUP": "0",
                 "DEBUG": "1",
