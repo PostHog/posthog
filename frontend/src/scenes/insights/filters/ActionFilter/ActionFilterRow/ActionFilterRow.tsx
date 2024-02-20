@@ -400,13 +400,11 @@ export function ActionFilterRow({
                                                         }
                                                         placement="right"
                                                     >
-                                                        <div /* <div> needed for <Tooltip /> to work */>
-                                                            <PropertyKeyInfo
-                                                                value={currentValue}
-                                                                disablePopover
-                                                                type={filter.type as TaxonomicFilterGroupType}
-                                                            />
-                                                        </div>
+                                                        <PropertyKeyInfo
+                                                            value={currentValue}
+                                                            disablePopover
+                                                            type={TaxonomicFilterGroupType.EventProperties}
+                                                        />
                                                     </Tooltip>
                                                 )}
                                             />
