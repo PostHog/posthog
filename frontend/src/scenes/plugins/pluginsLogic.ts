@@ -11,7 +11,7 @@ import { createDefaultPluginSource } from 'scenes/plugins/source/createDefaultPl
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
-import { PersonalAPIKeyType, PluginConfigType, PluginConfigTypeNew, PluginInstallationType, PluginType } from '~/types'
+import { PersonalAPIKeyType, PluginConfigType, PluginInstallationType, PluginType } from '~/types'
 
 import { teamLogic } from '../teamLogic'
 import { canGloballyManagePlugins, canInstallPlugins } from './access'
