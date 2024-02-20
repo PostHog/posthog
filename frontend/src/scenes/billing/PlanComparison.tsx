@@ -111,9 +111,9 @@ export const PlanComparison = ({
         return null
     }
     const fullyFeaturedPlan = plans[plans.length - 1]
-    const { reportBillingUpgradeClicked } = useActions(eventUsageLogic)
-    const { redirectPath, billing } = useValues(billingLogic)
+    const { billing, redirectPath } = useValues(billingLogic)
     const { width, ref: planComparisonRef } = useResizeObserver()
+    const { reportBillingUpgradeClicked } = useActions(eventUsageLogic)
 
     const upgradeButtons = plans?.map((plan) => {
         return (
@@ -132,16 +132,16 @@ export const PlanComparison = ({
                         }
                     }}
                 >
-                    {plan.current_plan ? 'Current plan' : 'Upgrade'}
+                    {plan.current_plan ? 'Current plan' : 'Subscribe'}
                 </LemonButton>
-                {!plan.current_plan && includeAddons && product.addons?.length > 0 && (
+                {!plan.current_plan && !plan.free_allocation && includeAddons && product.addons?.length > 0 && (
                     <p className="text-center ml-0 mt-2 mb-0">
                         <Link
                             to={`/api/billing-v2/activation?products=${product.type}:${plan.plan_key}&redirect_path=${redirectPath}`}
                             className="text-muted text-xs"
                             disableClientSideRouting
                         >
-                            or upgrade without addons
+                            or subscribe without addons
                         </Link>
                     </p>
                 )}
@@ -168,7 +168,7 @@ export const PlanComparison = ({
 
                     <div className="col-span-4 bg-accent/50 dark:bg-black/75 px-3 py-2 text-sm">
                         {/* {row.tooltip ? ( */}
-                        <Tooltip title="Title goes here">
+                        <Tooltip title="The starting price for this plan, plus usage-based pricing">
                             <strong className="border-b border-dashed border-light dark:border-dark cursor-help text-opacity-75">
                                 Monthly base price
                             </strong>
@@ -264,7 +264,11 @@ export const PlanComparison = ({
                                 i == fullyFeaturedPlan?.features?.length - 1 && 'PlanTable__th__last-feature'
                             )}
                         >
-                            <Tooltip title={feature.description}>{feature.name}</Tooltip>
+                            <Tooltip title={feature.description}>
+                                <strong className="font-medium border-b border-dashed border-light dark:border-dark cursor-help text-opacity-75">
+                                    {feature.name}
+                                </strong>
+                            </Tooltip>
                             {/* not sure what below is for */}
                             <span
                                 className={
@@ -334,7 +338,11 @@ export const PlanComparison = ({
                                                             : ''
                                                     )}
                                                 >
-                                                    <Tooltip title={feature.description}>{feature.name}</Tooltip>
+                                                    <Tooltip title={feature.description}>
+                                                        <strong className="font-medium border-b border-dashed border-light dark:border-dark cursor-help text-opacity-75">
+                                                            {feature.name}
+                                                        </strong>
+                                                    </Tooltip>
                                                 </div>
                                                 {includedProduct.plans?.map((plan) => (
                                                     <React.Fragment key={`${plan.plan_key}-${feature.key}`}>

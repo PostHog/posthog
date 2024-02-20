@@ -1,6 +1,6 @@
 import { HandleUnitChange } from 'lib/components/UnitPicker/UnitPicker'
-import { PureField } from 'lib/forms/Field'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
+import { LemonField } from 'lib/lemon-ui/LemonField'
 import { LemonInput } from 'lib/lemon-ui/LemonInput/LemonInput'
 import { LemonModal } from 'lib/lemon-ui/LemonModal'
 import { capitalizeFirstLetter } from 'lib/utils'
@@ -72,7 +72,7 @@ export function CustomUnitModal({
                 </>
             }
         >
-            <PureField
+            <LemonField.Pure
                 label={`${capitalizeFirstLetter(formativeElement)}:`}
                 help={
                     <>
@@ -87,7 +87,7 @@ export function CustomUnitModal({
                 }
             >
                 <LemonInput value={localFormativeElementValue} onChange={setLocalFormativeElementValue} autoFocus />
-            </PureField>
+            </LemonField.Pure>
         </LemonModal>
     )
 }

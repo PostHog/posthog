@@ -105,7 +105,9 @@ class StickinessQueryRunner(QueryRunner):
 
         select_query = parse_select(
             """
-                SELECT count(DISTINCT aggregation_target), num_intervals
+                SELECT
+                    count(DISTINCT aggregation_target),
+                    num_intervals
                 FROM (
                     SELECT {aggregation}, {num_intervals_column_expr}
                     FROM events e
@@ -128,7 +130,10 @@ class StickinessQueryRunner(QueryRunner):
 
         return cast(ast.SelectQuery, select_query)
 
-    def to_query(self) -> List[ast.SelectQuery]:  # type: ignore
+    def to_query(self) -> ast.SelectUnionQuery:
+        return ast.SelectUnionQuery(select_queries=self.to_queries())
+
+    def to_queries(self) -> List[ast.SelectQuery]:
         queries = []
 
         for series in self.series:
@@ -136,17 +141,19 @@ class StickinessQueryRunner(QueryRunner):
 
             interval_addition = ast.Call(
                 name=f"toInterval{date_range.interval_name.capitalize()}",
-                args=[ast.Constant(value=0 if date_range.interval_name == "week" else 1)],
+                args=[ast.Constant(value=1)],
             )
 
             select_query = parse_select(
                 """
-                    SELECT groupArray(aggregation_target), groupArray(num_intervals)
+                    SELECT
+                        groupArray(aggregation_target) as counts,
+                        groupArray(num_intervals) as intervals
                     FROM (
                         SELECT sum(aggregation_target) as aggregation_target, num_intervals
                         FROM (
                             SELECT 0 as aggregation_target, (number + 1) as num_intervals
-                            FROM numbers(dateDiff({interval}, {date_from}, {date_to} + {interval_addition}))
+                            FROM numbers(dateDiff({interval}, {date_from_start_of_interval}, {date_to_start_of_interval} + {interval_addition}))
                             UNION ALL
                             {events_query}
                         )
@@ -170,7 +177,12 @@ class StickinessQueryRunner(QueryRunner):
 
         for series in self.series:
             events_query = self._events_query(series)
-            events_query.select = [ast.Alias(alias="person_id", expr=ast.Field(chain=["aggregation_target"]))]
+            aggregation_alias = "person_id"
+            if series.series.math == "hogql" and series.series.math_hogql is not None:
+                aggregation_alias = "actor_id"
+            elif series.series.math == "unique_group" and series.series.math_group_type_index is not None:
+                aggregation_alias = "group_key"
+            events_query.select = [ast.Alias(alias=aggregation_alias, expr=ast.Field(chain=["aggregation_target"]))]
             events_query.group_by = None
             events_query.order_by = None
 
@@ -187,7 +199,7 @@ class StickinessQueryRunner(QueryRunner):
         return ast.SelectUnionQuery(select_queries=queries)
 
     def calculate(self):
-        queries = self.to_query()
+        queries = self.to_queries()
 
         res = []
         timings = []

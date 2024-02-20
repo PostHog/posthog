@@ -241,7 +241,7 @@ function makeTextElement(
             type: NodeType.Element,
             tagName: 'div',
             attributes: {
-                style: asStyleString([makeStylesString(wireframe), 'overflow:hidden', 'white-space:nowrap']),
+                style: asStyleString([makeStylesString(wireframe), 'overflow:hidden', 'white-space:normal']),
                 'data-rrweb-id': wireframe.id,
             },
             id: wireframe.id,

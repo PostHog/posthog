@@ -9,6 +9,7 @@ from rest_framework.exceptions import NotFound
 from posthog import celery, redis
 from posthog.clickhouse.query_tagging import tag_queries
 from posthog.hogql.constants import LimitContext
+from posthog.renderers import SafeJSONRenderer
 from posthog.schema import QueryStatus
 from posthog.tasks.tasks import process_query_task
 
@@ -40,7 +41,8 @@ class QueryStatusManager:
         return f"{self.KEY_PREFIX_ASYNC_RESULTS}:{self.team_id}:{self.query_id}"
 
     def store_query_status(self, query_status: QueryStatus):
-        self.redis_client.set(self.results_key, query_status.model_dump_json(), ex=self.STATUS_TTL_SECONDS)
+        value = SafeJSONRenderer().render(query_status.model_dump())
+        self.redis_client.set(self.results_key, value, ex=self.STATUS_TTL_SECONDS)
 
     def _get_results(self):
         try:

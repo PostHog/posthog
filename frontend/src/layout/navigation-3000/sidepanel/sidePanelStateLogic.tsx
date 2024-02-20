@@ -1,5 +1,6 @@
 import { actions, kea, listeners, path, reducers } from 'kea'
 import { actionToUrl, router, urlToAction } from 'kea-router'
+import { windowValues } from 'kea-window-values'
 
 import { SidePanelTab } from '~/types'
 
@@ -47,6 +48,9 @@ export const sidePanelStateLogic = kea<sidePanelStateLogicType>([
                 setSidePanelOpen: (_, { open }) => open,
             },
         ],
+    })),
+    windowValues(() => ({
+        modalMode: (window: Window) => window.innerWidth < 992, // Sync width threshold with Sass variable $lg!
     })),
     listeners(({ actions, values }) => ({
         // NOTE: We explicitly reference the actions instead of connecting so that people don't accidentally

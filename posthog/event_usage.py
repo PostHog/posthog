@@ -217,12 +217,12 @@ def report_user_organization_membership_level_changed(
     )
 
 
-def report_user_action(user: User, event: str, properties: Dict = {}):
+def report_user_action(user: User, event: str, properties: Dict = {}, team: Optional[Team] = None):
     posthoganalytics.capture(
         user.distinct_id,
         event,
         properties=properties,
-        groups=groups(user.current_organization, user.current_team),
+        groups=groups(user.current_organization, team or user.current_team),
     )
 
 

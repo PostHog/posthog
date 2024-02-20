@@ -1,16 +1,18 @@
 import * as Icons from '@posthog/icons'
 import { LemonButton } from '@posthog/lemon-ui'
 import clsx from 'clsx'
-import { useValues } from 'kea'
+import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 import { LemonCard } from 'lib/lemon-ui/LemonCard/LemonCard'
 import { Spinner } from 'lib/lemon-ui/Spinner'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { billingLogic } from 'scenes/billing/billingLogic'
 import { getProductUri, onboardingLogic } from 'scenes/onboarding/onboardingLogic'
 import { SceneExport } from 'scenes/sceneTypes'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
+import { userLogic } from 'scenes/userLogic'
 
 import { BillingProductV2Type, ProductKey } from '~/types'
 
@@ -21,11 +23,15 @@ export const scene: SceneExport = {
 function OnboardingCompletedButton({
     productUrl,
     onboardingUrl,
+    productKey,
+    getStartedActionOverride,
 }: {
     productUrl: string
     onboardingUrl: string
     productKey: ProductKey
+    getStartedActionOverride?: () => void
 }): JSX.Element {
+    const { setTeamPropertiesForProduct } = useActions(onboardingLogic)
     return (
         <>
             <LemonButton type="secondary" to={productUrl}>
@@ -34,6 +40,10 @@ function OnboardingCompletedButton({
             <LemonButton
                 type="tertiary"
                 onClick={() => {
+                    setTeamPropertiesForProduct(productKey as ProductKey)
+                    if (getStartedActionOverride) {
+                        getStartedActionOverride()
+                    }
                     router.actions.push(onboardingUrl)
                 }}
             >
@@ -45,21 +55,23 @@ function OnboardingCompletedButton({
 
 function OnboardingNotCompletedButton({
     url,
+    productKey,
     getStartedActionOverride,
 }: {
     url: string
     productKey: ProductKey
     getStartedActionOverride?: () => void
 }): JSX.Element {
+    const { setTeamPropertiesForProduct } = useActions(onboardingLogic)
     return (
         <LemonButton
             type="primary"
             onClick={() => {
+                setTeamPropertiesForProduct(productKey as ProductKey)
                 if (getStartedActionOverride) {
                     getStartedActionOverride()
-                } else {
-                    router.actions.push(url)
                 }
+                router.actions.push(url)
             }}
         >
             Get started
@@ -84,6 +96,9 @@ export function ProductCard({
 }): JSX.Element {
     const { currentTeam } = useValues(teamLogic)
     const { featureFlags } = useValues(featureFlagLogic)
+    const { setIncludeIntro } = useActions(onboardingLogic)
+    const { user } = useValues(userLogic)
+    const { reportOnboardingProductSelected } = useActions(eventUsageLogic)
     const onboardingCompleted = currentTeam?.has_completed_onboarding_for?.[product.type]
     const vertical = orientation === 'vertical'
 
@@ -107,13 +122,26 @@ export function ProductCard({
                         productUrl={getProductUri(product.type as ProductKey, featureFlags)}
                         onboardingUrl={urls.onboarding(product.type)}
                         productKey={product.type as ProductKey}
+                        getStartedActionOverride={() => {
+                            setIncludeIntro(false)
+                        }}
                     />
                 ) : (
                     <div>
                         <OnboardingNotCompletedButton
                             url={urls.onboarding(product.type)}
                             productKey={product.type as ProductKey}
-                            getStartedActionOverride={getStartedActionOverride}
+                            getStartedActionOverride={() => {
+                                setIncludeIntro(false)
+                                const includeFirstOnboardingProductOnUserProperties = user?.date_joined
+                                    ? new Date(user?.date_joined) > new Date('2024-01-10T00:00:00Z')
+                                    : false
+                                reportOnboardingProductSelected(
+                                    product.type,
+                                    includeFirstOnboardingProductOnUserProperties
+                                )
+                                getStartedActionOverride && getStartedActionOverride()
+                            }}
                         />
                     </div>
                 )}

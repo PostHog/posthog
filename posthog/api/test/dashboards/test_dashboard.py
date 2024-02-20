@@ -863,33 +863,49 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
 
     def test_dashboard_duplication_can_duplicate_tiles_without_editing_name_if_there_is_none(self) -> None:
         existing_dashboard = Dashboard.objects.create(team=self.team, name="existing dashboard", created_by=self.user)
-        insight_one_id, _ = self.dashboard_api.create_insight({"dashboards": [existing_dashboard.pk], "name": None})
-        _, dashboard_with_tiles = self.dashboard_api.create_text_tile(existing_dashboard.id)
+        self.dashboard_api.create_insight({"dashboards": [existing_dashboard.pk], "name": None})
+        self.dashboard_api.create_text_tile(existing_dashboard.pk)
 
         _, duplicate_response = self.dashboard_api.create_dashboard(
             {
                 "name": "another",
-                "use_dashboard": existing_dashboard.id,
+                "use_dashboard": existing_dashboard.pk,
                 "duplicate_tiles": True,
             }
         )
 
-        assert duplicate_response["tiles"][0]["insight"]["name"] is None
+        assert duplicate_response is not None
+        assert len(duplicate_response.get("tiles", [])) == 2
+
+        insight_tile = next(tile for tile in duplicate_response["tiles"] if "insight" in tile)
+        text_tile = next(tile for tile in duplicate_response["tiles"] if "text" in tile)
+
+        # this test only needs to check that insight name is still None,
+        # but it flaps in CI.
+        # my guess was that the order of the response is not guaranteed
+        # but even after lifting insight tile out specifically, it still flaps
+        # it isn't clear from the error if insight_tile or insight_tile["insight"] is None
+        with self.retry_assertion():
+            assert insight_tile is not None
+            assert insight_tile["insight"] is not None
+            assert insight_tile["insight"]["name"] is None
+            assert text_tile is not None
 
     def test_dashboard_duplication(self):
         existing_dashboard = Dashboard.objects.create(team=self.team, name="existing dashboard", created_by=self.user)
         insight1 = Insight.objects.create(filters={"name": "test1"}, team=self.team, last_refresh=now())
-        DashboardTile.objects.create(dashboard=existing_dashboard, insight=insight1)
+        tile1 = DashboardTile.objects.create(dashboard=existing_dashboard, insight=insight1)
         insight2 = Insight.objects.create(filters={"name": "test2"}, team=self.team, last_refresh=now())
-        DashboardTile.objects.create(dashboard=existing_dashboard, insight=insight2)
-        _, response = self.dashboard_api.create_dashboard({"name": "another", "use_dashboard": existing_dashboard.id})
+        tile2 = DashboardTile.objects.create(dashboard=existing_dashboard, insight=insight2)
+        _, response = self.dashboard_api.create_dashboard({"name": "another", "use_dashboard": existing_dashboard.pk})
         self.assertEqual(response["creation_mode"], "duplicate")
 
         self.assertEqual(len(response["tiles"]), len(existing_dashboard.insights.all()))
 
-        existing_dashboard_item_id_set = set(map(lambda x: x.id, existing_dashboard.insights.all()))
+        existing_dashboard_item_id_set = {tile1.pk, tile2.pk}
         response_item_id_set = set(map(lambda x: x.get("id", None), response["tiles"]))
         # check both sets are disjoint to verify that the new items' ids are different than the existing items
+
         self.assertTrue(existing_dashboard_item_id_set.isdisjoint(response_item_id_set))
 
         for item in response["tiles"]:

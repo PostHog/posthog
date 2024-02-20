@@ -1,10 +1,8 @@
 from rest_framework import serializers
 from posthog.warehouse.models import ExternalDataSchema
 from typing import Optional
-from posthog.api.routing import StructuredViewSetMixin
+from posthog.api.routing import TeamAndOrgViewSetMixin
 from rest_framework import viewsets, filters
-from rest_framework.permissions import IsAuthenticated
-from posthog.permissions import OrganizationMemberPermissions
 from rest_framework.exceptions import NotAuthenticated
 from posthog.models import User
 
@@ -29,10 +27,10 @@ class SimpleExternalDataSchemaSerializer(serializers.ModelSerializer):
         fields = ["id", "name", "should_sync", "last_synced_at"]
 
 
-class ExternalDataSchemaViewset(StructuredViewSetMixin, viewsets.ModelViewSet):
+class ExternalDataSchemaViewset(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
+    scope_object = "INTERNAL"
     queryset = ExternalDataSchema.objects.all()
     serializer_class = ExternalDataSchemaSerializer
-    permission_classes = [IsAuthenticated, OrganizationMemberPermissions]
     filter_backends = [filters.SearchFilter]
     search_fields = ["name"]
     ordering = "-created_at"

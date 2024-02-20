@@ -4,9 +4,9 @@ import { VerifiedDefinitionCheckbox } from 'lib/components/DefinitionPopover/Def
 import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
 import { PageHeader } from 'lib/components/PageHeader'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
-import { Field } from 'lib/forms/Field'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
+import { LemonField } from 'lib/lemon-ui/LemonField'
 import { LemonSelect } from 'lib/lemon-ui/LemonSelect'
 import { LemonTextArea } from 'lib/lemon-ui/LemonTextArea/LemonTextArea'
 import { getFilterLabel, isCoreFilter } from 'lib/taxonomy'
@@ -64,14 +64,14 @@ export function DefinitionEdit(props: DefinitionEditLogicProps): JSX.Element {
                 </div>
                 {hasTaxonomyFeatures && (
                     <div className="mt-4 ph-ignore-input">
-                        <Field name="description" label="Description" data-attr="definition-description">
+                        <LemonField name="description" label="Description" data-attr="definition-description">
                             <LemonTextArea value={definition.description} />
-                        </Field>
+                        </LemonField>
                     </div>
                 )}
                 {showVerifiedCheckbox && (
                     <div className="mt-4 ph-ignore-input">
-                        <Field name="verified" data-attr="definition-verified">
+                        <LemonField name="verified" data-attr="definition-verified">
                             {({ value, onChange }) => (
                                 <VerifiedDefinitionCheckbox
                                     isProperty={isProperty}
@@ -81,12 +81,12 @@ export function DefinitionEdit(props: DefinitionEditLogicProps): JSX.Element {
                                     }}
                                 />
                             )}
-                        </Field>
+                        </LemonField>
                     </div>
                 )}
                 {hasTaxonomyFeatures && 'tags' in definition && (
                     <div className="mt-4 ph-ignore-input">
-                        <Field name="tags" label="Tags" data-attr="definition-tags">
+                        <LemonField name="tags" label="Tags" data-attr="definition-tags">
                             {({ value, onChange }) => (
                                 <ObjectTags
                                     className="definition-tags"
@@ -97,12 +97,12 @@ export function DefinitionEdit(props: DefinitionEditLogicProps): JSX.Element {
                                     tagsAvailable={tags}
                                 />
                             )}
-                        </Field>
+                        </LemonField>
                     </div>
                 )}
                 {isProperty && (
                     <div className="mt-4 ph-ignore-input">
-                        <Field name="property_type" label="Property Type" data-attr="property-type">
+                        <LemonField name="property_type" label="Property Type" data-attr="property-type">
                             {({ value, onChange }) => (
                                 <LemonSelect
                                     onChange={(val) => onChange(val)}
@@ -115,7 +115,7 @@ export function DefinitionEdit(props: DefinitionEditLogicProps): JSX.Element {
                                     ]}
                                 />
                             )}
-                        </Field>
+                        </LemonField>
                     </div>
                 )}
             </div>

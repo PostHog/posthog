@@ -1,3 +1,4 @@
+from functools import cached_property
 from typing import Any, Dict, List, Optional, Union, cast
 
 from django.db.models import Model, QuerySet
@@ -6,6 +7,7 @@ from rest_framework import exceptions, permissions, serializers, viewsets
 from rest_framework.request import Request
 
 from posthog import settings
+from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import TeamBasicSerializer
 from posthog.cloud_utils import is_cloud
 from posthog.constants import AvailableFeature
@@ -17,8 +19,8 @@ from posthog.models.signals import mute_selected_signals
 from posthog.models.team.util import delete_bulky_postgres_data
 from posthog.permissions import (
     CREATE_METHODS,
+    APIScopePermission,
     OrganizationAdminWritePermissions,
-    OrganizationMemberPermissions,
     extract_organization,
 )
 from posthog.user_permissions import UserPermissions, UserPermissionsSerializerMixin
@@ -123,26 +125,28 @@ class OrganizationSerializer(serializers.ModelSerializer, UserPermissionsSeriali
         }
 
 
-class OrganizationViewSet(viewsets.ModelViewSet):
+class OrganizationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
+    scope_object = "organization"
     serializer_class = OrganizationSerializer
-    permission_classes = [
-        permissions.IsAuthenticated,
-        OrganizationMemberPermissions,
-        OrganizationPermissionsWithDelete,
-    ]
+    permission_classes = [OrganizationPermissionsWithDelete]
     queryset = Organization.objects.none()
     lookup_field = "id"
     ordering = "-created_by"
 
     def get_permissions(self):
-        if self.request.method == "POST":
+        # When listing there is no individual object to check for
+        if self.action == "list":
+            return [permission() for permission in [permissions.IsAuthenticated, APIScopePermission]]
+
+        if self.action == "create":
             # Cannot use `OrganizationMemberPermissions` or `OrganizationAdminWritePermissions`
-            # because they require an existing org, unneded anyways because permissions are organization-based
+            # because they require an existing org, unneeded anyways because permissions are organization-based
             return [
                 permission()
                 for permission in [
                     permissions.IsAuthenticated,
                     PremiumMultiorganizationPermissions,
+                    APIScopePermission,
                 ]
             ]
         return super().get_permissions()
@@ -151,17 +155,25 @@ class OrganizationViewSet(viewsets.ModelViewSet):
         return cast(User, self.request.user).organizations.all()
 
     def get_object(self):
+        organization = self.organization
+        self.check_object_permissions(self.request, organization)
+        return organization
+
+    # Override base view as the "parent_query_dict" for an organization is the same as the organization itself
+    @cached_property
+    def organization(self) -> Organization:
+        if not self.detail:
+            raise AttributeError("Not valid for non-detail routes.")
         queryset = self.filter_queryset(self.get_queryset())
         lookup_value = self.kwargs[self.lookup_field]
         if lookup_value == "@current":
             organization = cast(User, self.request.user).organization
             if organization is None:
                 raise exceptions.NotFound("Current organization not found.")
-        else:
-            filter_kwargs = {self.lookup_field: lookup_value}
-            organization = get_object_or_404(queryset, **filter_kwargs)
-        self.check_object_permissions(self.request, organization)
-        return organization
+            return organization
+
+        filter_kwargs = {self.lookup_field: lookup_value}
+        return get_object_or_404(queryset, **filter_kwargs)
 
     def perform_destroy(self, organization: Organization):
         user = cast(User, self.request.user)

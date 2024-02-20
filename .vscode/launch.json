@@ -22,10 +22,12 @@
                 "--without-heartbeat",
                 "--without-gossip",
                 "--without-mingle",
+                "--pool=solo",
                 "-Ofair",
                 "-n",
                 "node@%h"
             ],
+            "envFile": "${workspaceFolder}/bin/celery-queues.env",
             "env": {
                 "SKIP_ASYNC_MIGRATIONS_SETUP": "0",
                 "DEBUG": "1",
@@ -71,7 +73,6 @@
                 "SKIP_SERVICE_VERSION_REQUIREMENTS": "1",
                 "PRINT_SQL": "1",
                 "REPLAY_EVENTS_NEW_CONSUMER_RATIO": "1.0",
-                "AUTO_LOGIN": "True",
                 "BILLING_SERVICE_URL": "https://billing.dev.posthog.dev"
             },
             "console": "integratedTerminal",

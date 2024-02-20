@@ -4,7 +4,7 @@ import { textCardModalLogic } from 'lib/components/Cards/TextCard/textCardModalL
 import { PayGateMini } from 'lib/components/PayGateMini/PayGateMini'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonModal } from 'lib/lemon-ui/LemonModal'
-import { LemonTextAreaMarkdown } from 'lib/lemon-ui/LemonTextArea/LemonTextArea'
+import { LemonTextAreaMarkdown } from 'lib/lemon-ui/LemonTextArea'
 import { userLogic } from 'scenes/userLogic'
 
 import { AvailableFeature, DashboardType } from '~/types'

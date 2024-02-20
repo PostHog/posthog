@@ -1,8 +1,8 @@
+import { IconLock } from '@posthog/icons'
 import { LemonButton, LemonSkeleton, Tooltip } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
-import { Field } from 'lib/forms/Field'
-import { IconLock } from 'lib/lemon-ui/icons'
+import { LemonField } from 'lib/lemon-ui/LemonField'
 import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
 import React from 'react'
 import { BatchExportsEditFields } from 'scenes/batch_exports/BatchExportEditForm'
@@ -32,7 +32,7 @@ export function PipelineNodeConfiguration(): JSX.Element {
             ) : isConfigurable ? (
                 <>
                     <Form logic={pipelineNodeLogic} formKey="configuration" className="space-y-3">
-                        {node.backend === 'plugin' ? (
+                        {node.backend === PipelineBackend.Plugin ? (
                             <PluginConfigurationFields node={node} formValues={configuration} />
                         ) : (
                             <BatchExportConfigurationFields node={node} formValues={configuration} />
@@ -79,7 +79,7 @@ function PluginConfigurationFields({
             fieldConfig.type &&
             isValidField(fieldConfig) &&
             !hiddenFields.includes(fieldConfig.key) ? (
-                <Field
+                <LemonField
                     name={fieldConfig.key}
                     label={
                         <>
@@ -99,7 +99,7 @@ function PluginConfigurationFields({
                     showOptional={!requiredFields.includes(fieldConfig.key)}
                 >
                     <PluginField fieldConfig={fieldConfig} />
-                </Field>
+                </LemonField>
             ) : (
                 <>
                     {fieldConfig.type ? (

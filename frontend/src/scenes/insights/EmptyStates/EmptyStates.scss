@@ -8,23 +8,17 @@
     font-size: 1.1em;
     color: var(--muted);
 
-    &.error {
-        .illustration-main,
-        .spinner {
-            color: #fb8c6a; // var(--danger) with increased lightness
-        }
+    .ant-empty {
+        margin: 1rem 0;
+    }
 
+    &.error {
         h2 {
             color: var(--danger);
         }
     }
 
     &.warning {
-        .illustration-main,
-        .spinner {
-            color: #fec34d; // var(--warning) with increased lightness
-        }
-
         h2 {
             color: var(--warning);
         }
@@ -43,29 +37,6 @@
 
     .empty-state-inner {
         max-width: 600px;
-
-        .illustration-main {
-            display: flex;
-            justify-content: center;
-            height: auto;
-            margin-bottom: 0.75rem;
-            font-size: 4rem;
-            line-height: 1em;
-            text-align: center;
-
-            .ant-empty {
-                height: 6rem;
-                margin: 0;
-
-                .ant-empty-image {
-                    height: 100%;
-
-                    svg {
-                        width: 4rem;
-                    }
-                }
-            }
-        }
 
         h2 {
             text-align: center;

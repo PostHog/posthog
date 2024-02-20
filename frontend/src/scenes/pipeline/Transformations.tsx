@@ -2,34 +2,23 @@ import { DndContext, DragEndEvent } from '@dnd-kit/core'
 import { restrictToParentElement, restrictToVerticalAxis } from '@dnd-kit/modifiers'
 import { arrayMove, SortableContext, useSortable, verticalListSortingStrategy } from '@dnd-kit/sortable'
 import { CSS } from '@dnd-kit/utilities'
-import {
-    LemonBadge,
-    LemonButton,
-    LemonDivider,
-    LemonModal,
-    LemonTable,
-    LemonTableColumn,
-    LemonTag,
-    Link,
-    Tooltip,
-} from '@posthog/lemon-ui'
+import { LemonBadge, LemonButton, LemonModal, LemonTable, LemonTableColumn } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductIntroduction'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { More } from 'lib/lemon-ui/LemonButton/More'
-import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown/LemonMarkdown'
-import { updatedAtColumn } from 'lib/lemon-ui/LemonTable/columnUtils'
+import { LemonMenuOverlay } from 'lib/lemon-ui/LemonMenu/LemonMenu'
+import { statusColumn, updatedAtColumn } from 'lib/lemon-ui/LemonTable/columnUtils'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { deleteWithUndo } from 'lib/utils/deleteWithUndo'
 import { PluginImage } from 'scenes/plugins/plugin/PluginImage'
-import { urls } from 'scenes/urls'
 
-import { PipelineNodeTab, PipelineStage, ProductKey } from '~/types'
+import { PipelineStage, ProductKey } from '~/types'
 
 import { NewButton } from './NewButton'
+import { pipelineLogic } from './pipelineLogic'
 import { pipelineTransformationsLogic } from './transformationsLogic'
 import { Transformation } from './types'
-import { RenderApp } from './utils'
+import { appColumn, nameColumn, pipelinePluginBackedNodeMenuCommonItems } from './utils'
 
 export function Transformations(): JSX.Element {
     const { featureFlags } = useValues(featureFlagLogic)
@@ -38,7 +27,7 @@ export function Transformations(): JSX.Element {
     }
     const {
         loading,
-        transformations,
+        sortedTransformations,
         sortedEnabledTransformations,
         canConfigurePlugins,
         shouldShowProductIntroduction,
@@ -83,8 +72,8 @@ export function Transformations(): JSX.Element {
                         </>
                     )}
                     <LemonTable
-                        dataSource={transformations}
-                        size="xs"
+                        dataSource={sortedTransformations}
+                        size="small"
                         loading={loading}
                         columns={[
                             {
@@ -100,57 +89,10 @@ export function Transformations(): JSX.Element {
                                     return sortedEnabledTransformations.findIndex((t) => t.id === transformation.id) + 1
                                 },
                             },
-                            {
-                                title: 'Name',
-                                sticky: true,
-                                render: function RenderPluginName(_, transformation) {
-                                    return (
-                                        <>
-                                            <Tooltip title="Click to update configuration, view metrics, and more">
-                                                <Link
-                                                    to={urls.pipelineNode(
-                                                        PipelineStage.Transformation,
-                                                        transformation.id,
-                                                        PipelineNodeTab.Configuration
-                                                    )}
-                                                >
-                                                    <span className="row-name">{transformation.name}</span>
-                                                </Link>
-                                            </Tooltip>
-                                            {transformation.description && (
-                                                <LemonMarkdown className="row-description" lowKeyHeadings>
-                                                    {transformation.description}
-                                                </LemonMarkdown>
-                                            )}
-                                        </>
-                                    )
-                                },
-                            },
-                            {
-                                title: 'App',
-                                render: function RenderAppInfo(_, transformation) {
-                                    return <RenderApp plugin={transformation.plugin} />
-                                },
-                            },
+                            nameColumn() as LemonTableColumn<Transformation, any>,
+                            appColumn() as LemonTableColumn<Transformation, any>,
                             updatedAtColumn() as LemonTableColumn<Transformation, any>,
-                            {
-                                title: 'Status',
-                                render: function RenderStatus(_, pluginConfig) {
-                                    return (
-                                        <>
-                                            {pluginConfig.enabled ? (
-                                                <LemonTag type="success" className="uppercase">
-                                                    Enabled
-                                                </LemonTag>
-                                            ) : (
-                                                <LemonTag type="default" className="uppercase">
-                                                    Disabled
-                                                </LemonTag>
-                                            )}
-                                        </>
-                                    )
-                                },
-                            },
+                            statusColumn() as LemonTableColumn<Transformation, any>,
                             {
                                 width: 0,
                                 render: function Render(_, transformation) {
@@ -176,92 +118,32 @@ export const TransformationsMoreOverlay = ({
     transformation: Transformation
     inOverview?: boolean
 }): JSX.Element => {
-    const { canConfigurePlugins } = useValues(pipelineTransformationsLogic)
-    const { openReorderModal, toggleEnabled, loadPluginConfigs } = useActions(pipelineTransformationsLogic)
+    const { canConfigurePlugins } = useValues(pipelineLogic)
+    const { toggleEnabled, loadPluginConfigs, openReorderModal } = useActions(pipelineTransformationsLogic)
+    const { sortedEnabledTransformations } = useValues(pipelineTransformationsLogic)
 
     return (
-        <>
-            {!inOverview && (
-                <LemonButton
-                    onClick={() => {
-                        toggleEnabled({
-                            enabled: !transformation.enabled,
-                            id: transformation.id,
-                        })
-                    }}
-                    id={`app-${transformation.id}-enable-switch`}
-                    disabledReason={
-                        canConfigurePlugins ? undefined : 'You do not have permission to enable/disable apps.'
-                    }
-                    fullWidth
-                >
-                    {transformation.enabled ? 'Disable' : 'Enable'} app
-                </LemonButton>
-            )}
-            {!inOverview && transformation.enabled && (
-                <LemonButton
-                    onClick={openReorderModal}
-                    id="app-reorder"
-                    disabledReason={canConfigurePlugins ? undefined : 'You do not have permission to reorder apps.'}
-                    fullWidth
-                >
-                    Reorder apps
-                </LemonButton>
-            )}
-            <LemonButton
-                to={urls.pipelineNode(PipelineStage.Transformation, transformation.id, PipelineNodeTab.Configuration)}
-                id={`app-${transformation.id}-configuration`}
-                fullWidth
-            >
-                {canConfigurePlugins ? 'Edit' : 'View'} app configuration
-            </LemonButton>
-            <LemonButton
-                to={urls.pipelineNode(PipelineStage.Transformation, transformation.id, PipelineNodeTab.Metrics)}
-                id={`app-${transformation.id}-metrics`}
-                fullWidth
-            >
-                View app metrics
-            </LemonButton>
-            <LemonButton
-                to={urls.pipelineNode(PipelineStage.Transformation, transformation.id, PipelineNodeTab.Logs)}
-                id={`app-${transformation.id}-logs`}
-                fullWidth
-            >
-                View app logs
-            </LemonButton>
-            <LemonButton
-                to={transformation.plugin?.url}
-                targetBlank={true}
-                loading={!transformation.plugin?.url}
-                id={`app-${transformation.id}-source-code`}
-                fullWidth
-            >
-                View app source code
-            </LemonButton>
-            {!inOverview && (
-                <>
-                    <LemonDivider />
-                    <LemonButton
-                        status="danger"
-                        onClick={() => {
-                            void deleteWithUndo({
-                                endpoint: `plugin_config`,
-                                object: {
-                                    id: transformation.id,
-                                    name: transformation.name,
-                                },
-                                callback: loadPluginConfigs,
-                            })
-                        }}
-                        id="app-delete"
-                        disabledReason={canConfigurePlugins ? undefined : 'You do not have permission to delete apps.'}
-                        fullWidth
-                    >
-                        Delete app
-                    </LemonButton>
-                </>
-            )}
-        </>
+        <LemonMenuOverlay
+            items={[
+                ...(!inOverview && transformation.enabled && sortedEnabledTransformations.length > 1
+                    ? [
+                          {
+                              label: 'Reorder apps',
+                              onClick: openReorderModal,
+                              disabledReason: canConfigurePlugins
+                                  ? undefined
+                                  : 'You do not have permission to reorder apps.',
+                          },
+                      ]
+                    : []),
+                ...pipelinePluginBackedNodeMenuCommonItems(
+                    transformation,
+                    toggleEnabled,
+                    loadPluginConfigs,
+                    inOverview
+                ),
+            ]}
+        />
     )
 }
 

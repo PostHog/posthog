@@ -111,8 +111,5 @@ export const defaultMocks: Mocks = {
         'https://app.posthog.com/engage/': (): MockSignature => [200, 'ok'],
         '/api/projects/:team_id/insights/:insight_id/viewed/': (): MockSignature => [201, null],
     },
-    patch: {
-        '/api/prompts/my_prompts': (): MockSignature => [200, {}],
-    },
 }
 export const handlers = mocksToHandlers(defaultMocks)

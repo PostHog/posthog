@@ -191,7 +191,10 @@ function NetworkCaptureSettings(): JSX.Element {
                 </div>
                 <p>
                     When network capture is enabled, we always captured network timings. Use these switches to choose
-                    whether to capture headers and payloads of requests
+                    whether to capture headers and payloads of requests.{' '}
+                    <Link to="https://posthog.com/docs/session-replay/network-recording" target="blank">
+                        Learn how to mask header and payload values in our docs
+                    </Link>
                 </p>
             </FlaggedFeature>
         </>
