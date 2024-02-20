@@ -669,6 +669,7 @@ export type FunnelExclusion = FunnelExclusionEventsNode | FunnelExclusionActions
 export type FunnelsFilter = {
     exclusions?: FunnelExclusion[]
     layout?: FunnelsFilterLegacy['layout']
+    /** @asType integer */
     binCount?: FunnelsFilterLegacy['bin_count']
     breakdownAttributionType?: FunnelsFilterLegacy['breakdown_attribution_type']
     breakdownAttributionValue?: integer
@@ -695,8 +696,18 @@ export interface FunnelsQuery extends InsightsQueryBase {
     breakdownFilter?: BreakdownFilter
 }
 
+/** @asType integer */
+type BinNumber = number
+export type FunnelStepsResults = Record<string, any>[]
+export type FunnelStepsBreakdownResults = Record<string, any>[][]
+export type FunnelTimeToConvertResults = {
+    /** @asType integer */
+    average_conversion_time: number
+    bins: [BinNumber, BinNumber][]
+}
+export type FunnelTrendsResults = Record<string, any>[]
 export interface FunnelsQueryResponse extends QueryResponse {
-    results: Record<string, any>[] | Record<string, any>[][]
+    results: FunnelStepsResults | FunnelStepsBreakdownResults | FunnelTimeToConvertResults | FunnelTrendsResults
 }
 
 /** `RetentionFilterType` minus everything inherited from `FilterType` */
@@ -842,7 +853,7 @@ export interface QueryRequest {
 }
 
 export interface QueryResponse {
-    results: unknown[]
+    results: unknown
     timings?: QueryTiming[]
     hogql?: string
     is_cached?: boolean

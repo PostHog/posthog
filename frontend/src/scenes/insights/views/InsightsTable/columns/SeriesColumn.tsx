@@ -1,7 +1,7 @@
+import { IconPencil } from '@posthog/icons'
 import clsx from 'clsx'
 import { getSeriesColor } from 'lib/colors'
 import { InsightLabel } from 'lib/components/InsightLabel'
-import { IconEdit } from 'lib/lemon-ui/icons'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { capitalizeFirstLetter } from 'lib/utils'
 import { IndexedTrendResult } from 'scenes/trends/types'
@@ -50,7 +50,7 @@ export function SeriesColumnItem({
                 <LemonButton
                     onClick={() => handleEditClick(item)}
                     title="Rename graph series"
-                    icon={<IconEdit className="edit-icon" />}
+                    icon={<IconPencil className="edit-icon" />}
                 />
             )}
         </div>

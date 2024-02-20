@@ -77,7 +77,7 @@ export const OnboardingStep = ({
                     </div>
                 </div>
             </div>
-            <div className={`${stepKey !== 'product_intro' && 'p-2 max-w-screen-lg mx-auto'}`}>
+            <div className={`${stepKey !== 'product_intro' && 'p-2 max-w-screen-md mx-auto'}`}>
                 {subtitle && <p>{subtitle}</p>}
                 {children}
                 <div className="mt-8 flex justify-end gap-x-2">

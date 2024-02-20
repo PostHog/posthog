@@ -1,8 +1,8 @@
+import { IconTrash } from '@posthog/icons'
 import { LemonButton, LemonInput, LemonModal } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { useRestrictedArea } from 'lib/components/RestrictedArea'
 import { OrganizationMembershipLevel } from 'lib/constants'
-import { IconDelete } from 'lib/lemon-ui/icons'
 import { Dispatch, SetStateAction, useState } from 'react'
 import { organizationLogic } from 'scenes/organizationLogic'
 
@@ -81,7 +81,7 @@ export function OrganizationDangerZone(): JSX.Element {
                     type="secondary"
                     onClick={() => setIsModalVisible(true)}
                     data-attr="delete-organization-button"
-                    icon={<IconDelete />}
+                    icon={<IconTrash />}
                     disabledReason={isRestricted && 'Restricted action'}
                 >
                     Delete {currentOrganization?.name || 'the current organization'}

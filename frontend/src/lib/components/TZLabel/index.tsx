@@ -2,11 +2,12 @@ import './index.scss'
 
 // eslint-disable-next-line no-restricted-imports
 import { LaptopOutlined, ProjectOutlined } from '@ant-design/icons'
+import { IconGear } from '@posthog/icons'
 import { LemonButton, LemonDivider, LemonDropdown, LemonDropdownProps } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { dayjs } from 'lib/dayjs'
-import { IconSettings, IconWeb } from 'lib/lemon-ui/icons'
+import { IconWeb } from 'lib/lemon-ui/icons'
 import { humanFriendlyDetailedTime, shortTimeZone } from 'lib/utils'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import React, { useCallback, useEffect, useMemo, useState } from 'react'
@@ -45,7 +46,7 @@ const TZLabelPopoverContent = React.memo(function TZLabelPopoverContent({
             <div className="flex justify-between items-center">
                 <h3 className="mb-0">Timezone conversion</h3>
                 <span>
-                    <LemonButton icon={<IconSettings />} size="small" to={urls.settings('project', 'date-and-time')} />
+                    <LemonButton icon={<IconGear />} size="small" to={urls.settings('project', 'date-and-time')} />
                 </span>
             </div>
 

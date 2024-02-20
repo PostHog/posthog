@@ -1,6 +1,7 @@
+import { IconGear } from '@posthog/icons'
 import { LemonBadge, LemonButton, Link } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
-import { IconEllipsis, IconErrorOutline, IconLegend, IconLink, IconSettings } from 'lib/lemon-ui/icons'
+import { IconEllipsis, IconErrorOutline, IconLegend, IconLink } from 'lib/lemon-ui/icons'
 import { LemonMenu, LemonMenuItem } from 'lib/lemon-ui/LemonMenu'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { PLUGINS_ALLOWED_WITHOUT_DATA_PIPELINES } from 'scenes/pipeline/utils'
@@ -163,7 +164,7 @@ export function AppView({
                         <LemonButton
                             type="primary"
                             size="small"
-                            icon={<IconSettings />}
+                            icon={<IconGear />}
                             onClick={() => editPlugin(plugin.id)}
                         >
                             Configure

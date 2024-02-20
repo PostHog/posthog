@@ -10,6 +10,7 @@ import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
 import { Popover } from 'lib/lemon-ui/Popover'
 import { Spinner } from 'lib/lemon-ui/Spinner'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { colonDelimitedDuration } from 'lib/utils'
 import { Fragment, useState } from 'react'
 import { DraggableToNotebook } from 'scenes/notebooks/AddToNotebook/DraggableToNotebook'
@@ -206,8 +207,11 @@ function FirstURL(props: { startUrl: string | undefined }): JSX.Element {
 }
 
 function PinnedIndicator(): JSX.Element | null {
+    const { featureFlags } = useValues(featureFlagLogic)
+    const isTestingSaved = featureFlags[FEATURE_FLAGS.SAVED_NOT_PINNED] === 'test'
+    const description = isTestingSaved ? 'saved' : 'pinned'
     return (
-        <Tooltip placement="topRight" title="This recording is pinned to this list.">
+        <Tooltip placement="topRight" title={<>This recording is {description} to this list.</>}>
             <IconPinFilled className="text-sm text-orange shrink-0" />
         </Tooltip>
     )

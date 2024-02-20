@@ -1,3 +1,4 @@
+import { IconGear } from '@posthog/icons'
 import {
     LemonButton,
     LemonDivider,
@@ -16,7 +17,6 @@ import { PageHeader } from 'lib/components/PageHeader'
 import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductIntroduction'
 import { VersionCheckerBanner } from 'lib/components/VersionChecker/VersionCheckerBanner'
 import { dayjs } from 'lib/dayjs'
-import { IconSettings } from 'lib/lemon-ui/icons'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { More } from 'lib/lemon-ui/LemonButton/More'
 import { LemonTableColumn } from 'lib/lemon-ui/LemonTable'
@@ -125,7 +125,7 @@ export function Surveys(): JSX.Element {
                         type="warning"
                         action={{
                             type: 'secondary',
-                            icon: <IconSettings />,
+                            icon: <IconGear />,
                             onClick: () => openSurveysSettingsDialog(),
                             children: 'Configure',
                         }}
