@@ -142,7 +142,7 @@
         "pmtiles": "^2.11.0",
         "postcss": "^8.4.31",
         "postcss-preset-env": "^9.3.0",
-        "posthog-js": "1.106.1",
+        "posthog-js": "1.106.3",
         "posthog-js-lite": "2.5.0",
         "prettier": "^2.8.8",
         "prop-types": "^15.7.2",
@@ -188,7 +188,7 @@
         "@babel/preset-typescript": "^7.22.5",
         "@babel/runtime": "^7.22.10",
         "@cypress/webpack-preprocessor": "^5.17.1",
-        "@playwright/test": "1.32.2",
+        "@playwright/test": "1.41.2",
         "@sentry/types": "7.22.0",
         "@storybook/addon-a11y": "^7.6.4",
         "@storybook/addon-actions": "^7.6.4",
@@ -305,7 +305,7 @@
     },
     "pnpm": {
         "overrides": {
-            "playwright": "1.32.2"
+            "playwright": "1.41.2"
         },
         "patchedDependencies": {
             "rrweb@2.0.0-alpha.11": "patches/rrweb@2.0.0-alpha.11.patch"

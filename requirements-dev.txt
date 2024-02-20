@@ -4,7 +4,7 @@
 #
 #    pip-compile requirements-dev.in
 #
-aiohttp==3.9.0
+aiohttp==3.9.2
     # via
     #   -c requirements.txt
     #   aioresponses
@@ -122,13 +122,13 @@ isort==5.2.2
     # via datamodel-code-generator
 itypes==1.2.0
     # via coreapi
-jinja2==2.11.3
+jinja2==3.1.3
     # via
     #   coreschema
     #   datamodel-code-generator
 lupa==1.14.1
     # via fakeredis
-markupsafe==1.1.1
+markupsafe==2.1.5
     # via jinja2
 multidict==6.0.2
     # via

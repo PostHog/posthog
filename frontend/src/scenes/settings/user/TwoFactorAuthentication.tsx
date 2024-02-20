@@ -1,6 +1,7 @@
+import { IconWarning } from '@posthog/icons'
 import { LemonButton, LemonModal } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
-import { IconCheckmark, IconWarning } from 'lib/lemon-ui/icons'
+import { IconCheckmark } from 'lib/lemon-ui/icons'
 import { useState } from 'react'
 import { Setup2FA } from 'scenes/authentication/Setup2FA'
 import { membersLogic } from 'scenes/organization/membersLogic'

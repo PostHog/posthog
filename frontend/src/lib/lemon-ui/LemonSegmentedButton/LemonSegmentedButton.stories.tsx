@@ -1,7 +1,8 @@
+import { IconGear } from '@posthog/icons'
 import { Meta, StoryFn, StoryObj } from '@storybook/react'
 import { useState } from 'react'
 
-import { IconCalculate, IconCalendar, IconLightBulb, IconSettings } from '../icons'
+import { IconCalculate, IconCalendar, IconLightBulb } from '../icons'
 import { LemonSegmentedButton, LemonSegmentedButtonOption, LemonSegmentedButtonProps } from './LemonSegmentedButton'
 
 type Story = StoryObj<typeof LemonSegmentedButton>
@@ -28,7 +29,7 @@ const meta: Meta<typeof LemonSegmentedButton> = {
                 icon: <IconLightBulb />,
                 disabledReason: 'Bananas are not allowed on these premises.',
             },
-            { value: 'settings', label: 'Settings', icon: <IconSettings /> },
+            { value: 'settings', label: 'Settings', icon: <IconGear /> },
         ] as LemonSegmentedButtonOption<string>[],
     },
     tags: ['autodocs'],

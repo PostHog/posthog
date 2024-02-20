@@ -1,7 +1,7 @@
+import { IconTrash } from '@posthog/icons'
 import { LemonInput } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { usersLemonSelectOptions } from 'lib/components/UserSelectItem'
-import { IconDelete } from 'lib/lemon-ui/icons'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonModal } from 'lib/lemon-ui/LemonModal'
 import { LemonSelectMultiple } from 'lib/lemon-ui/LemonSelectMultiple/LemonSelectMultiple'
@@ -157,7 +157,7 @@ function MemberRow({
             <ProfilePicture user={user} size="md" showName />
             {isAdminOrOwner && deleteMember && (
                 <LemonButton
-                    icon={<IconDelete />}
+                    icon={<IconTrash />}
                     onClick={() => deleteMember(member.id)}
                     tooltip="Remove user from role"
                     type="tertiary"

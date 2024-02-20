@@ -1,7 +1,7 @@
+import { IconPlusSmall } from '@posthog/icons'
 import { LemonButton } from '@posthog/lemon-ui'
 import { useValues } from 'kea'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
-import { IconPlusMini } from 'lib/lemon-ui/icons'
 import { useState } from 'react'
 
 import { taxonomicBreakdownFilterLogic } from './taxonomicBreakdownFilterLogic'
@@ -16,7 +16,7 @@ export function TaxonomicBreakdownButton(): JSX.Element {
         <TaxonomicBreakdownPopover open={open} setOpen={setOpen}>
             <LemonButton
                 type="secondary"
-                icon={<IconPlusMini color="var(--primary)" />}
+                icon={<IconPlusSmall color="var(--primary)" />}
                 data-attr="add-breakdown-button"
                 onClick={() => setOpen(!open)}
                 sideIcon={null}

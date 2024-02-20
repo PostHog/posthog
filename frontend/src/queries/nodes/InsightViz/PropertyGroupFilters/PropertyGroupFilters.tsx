@@ -1,11 +1,11 @@
 import './PropertyGroupFilters.scss'
 
+import { IconCopy, IconPlusSmall, IconTrash } from '@posthog/icons'
 import { LemonButton, LemonDivider } from '@posthog/lemon-ui'
 import { BindLogic, useActions, useValues } from 'kea'
 import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
 import { isPropertyGroupFilterLike } from 'lib/components/PropertyFilters/utils'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
-import { IconCopy, IconDelete, IconPlusMini } from 'lib/lemon-ui/icons'
 import React from 'react'
 import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
 
@@ -88,7 +88,7 @@ export function PropertyGroupFilters({
                                                             size="small"
                                                         />
                                                         <LemonButton
-                                                            icon={<IconDelete />}
+                                                            icon={<IconTrash />}
                                                             onClick={() => removeFilterGroup(propertyGroupIndex)}
                                                             size="small"
                                                         />
@@ -130,7 +130,7 @@ export function PropertyGroupFilters({
                 data-attr={`${pageKey}-add-filter-group`}
                 type="secondary"
                 onClick={addFilterGroup}
-                icon={<IconPlusMini color="var(--primary)" />}
+                icon={<IconPlusSmall color="var(--primary)" />}
                 sideIcon={null}
             >
                 Add filter group

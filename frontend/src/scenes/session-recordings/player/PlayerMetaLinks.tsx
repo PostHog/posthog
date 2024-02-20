@@ -1,7 +1,7 @@
-import { IconNotebook } from '@posthog/icons'
+import { IconNotebook, IconTrash } from '@posthog/icons'
 import { useActions, useValues } from 'kea'
 import { FEATURE_FLAGS } from 'lib/constants'
-import { IconComment, IconDelete, IconLink, IconPinFilled, IconPinOutline } from 'lib/lemon-ui/icons'
+import { IconComment, IconLink, IconPinFilled, IconPinOutline } from 'lib/lemon-ui/icons'
 import { LemonButton, LemonButtonProps } from 'lib/lemon-ui/LemonButton'
 import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
@@ -57,7 +57,7 @@ function PinToPlaylistButton(): JSX.Element {
 
 export function PlayerMetaLinks(): JSX.Element {
     const { sessionRecordingId, logicProps } = useValues(sessionRecordingPlayerLogic)
-    const { setPause, deleteRecording } = useActions(sessionRecordingPlayerLogic)
+    const { setPause, deleteRecording, setIsFullScreen } = useActions(sessionRecordingPlayerLogic)
     const nodeLogic = useNotebookNode()
     const { closeSessionPlayer } = useActions(sessionPlayerModalLogic())
 
@@ -69,6 +69,7 @@ export function PlayerMetaLinks(): JSX.Element {
 
     const onShare = (): void => {
         setPause()
+        setIsFullScreen(false)
         openPlayerShareDialog({
             seconds: getCurrentPlayerTime(),
             id: sessionRecordingId,
@@ -76,6 +77,7 @@ export function PlayerMetaLinks(): JSX.Element {
     }
 
     const onDelete = (): void => {
+        setIsFullScreen(false)
         LemonDialog.open({
             title: 'Delete recording',
             description: 'Are you sure you want to delete this recording? This cannot be undone.',
@@ -151,7 +153,7 @@ export function PlayerMetaLinks(): JSX.Element {
                     {logicProps.playerKey !== 'modal' && (
                         <LemonButton
                             tooltip="Delete"
-                            icon={<IconDelete />}
+                            icon={<IconTrash />}
                             onClick={onDelete}
                             {...commonProps}
                             status="danger"

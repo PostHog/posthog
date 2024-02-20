@@ -402,11 +402,12 @@ class DashboardSerializer(DashboardBasicSerializer):
 
 
 class DashboardsViewSet(
-    TaggedItemViewSetMixin,
     TeamAndOrgViewSetMixin,
+    TaggedItemViewSetMixin,
     ForbidDestroyModel,
     viewsets.ModelViewSet,
 ):
+    scope_object = "dashboard"
     queryset = Dashboard.objects.order_by("name")
     permission_classes = [CanEditDashboard]
 
