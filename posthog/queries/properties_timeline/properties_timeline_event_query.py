@@ -80,7 +80,7 @@ class PropertiesTimelineEventQuery(EventQuery):
         # We need to explicitly replace tzinfo in those datetimes with the team's timezone, because QueryDateRange
         # does not reliably make those datetimes timezone-aware. That's annoying, but it'd be a significant effort
         # to refactor QueryDateRange fo full timezone awareness - before that happens, it's simpler to override here.
-        self.effective_date_from = query_date_range.date_from_param().replace(tzinfo=effective_timezone)
+        self.effective_date_from = query_date_range.date_from_param.replace(tzinfo=effective_timezone)
         self.effective_date_to = query_date_range.date_to_param.replace(tzinfo=effective_timezone)
         parsed_date_from, date_from_params = query_date_range.date_from
         parsed_date_to, date_to_params = query_date_range.date_to
