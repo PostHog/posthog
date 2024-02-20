@@ -37,6 +37,8 @@ def test_csv_rendering(mock_settings, mock_request, filename):
         export_format=ExportedAsset.ExportFormat.CSV,
         export_context={"path": "/api/literally/anything"},
     )
+    if fixture["response"].get("columns"):
+        asset.export_context["columns"] = fixture["response"]["columns"]
     asset.save()
 
     mock = Mock()
