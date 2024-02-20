@@ -55,9 +55,9 @@ SESSIONS_TABLE_SQL = lambda: (
     -- we want the fewest rows possible but also the fastest queries
     -- since we query by date and not by time
     -- and order by must be in order of increasing cardinality
-    -- so we order by date first, then team_id, then session_id
+    -- so we order by date first, then team_id, then distinct_id, then session_id
     -- hopefully, this is a good balance between the two
-    ORDER BY (toDate(min_first_timestamp), team_id, session_id)
+    ORDER BY (toDate(min_first_timestamp), team_id, distinct_id, session_id)
 SETTINGS index_granularity=512
 """
 ).format(
@@ -98,11 +98,11 @@ argMinState(JSONExtractString(properties, '$initial_referring_domain'), timestam
 count(*) as event_count,
 sumIf(1, event='$pageview') as pageview_count
 
-FROM {database}.events
+FROM {database}.sharded_events
 group by session_id, team_id
 """.format(
         table_name=f"{TABLE_BASE_NAME}_mv",
-        target_table=f"writable_{TABLE_BASE_NAME}",
+        target_table=f"writeable_{TABLE_BASE_NAME}",
         cluster=settings.CLICKHOUSE_CLUSTER,
         database=settings.CLICKHOUSE_DATABASE,
     )
@@ -112,7 +112,7 @@ group by session_id, team_id
 
 # This table is responsible for writing to sharded_sessions based on a sharding key.
 WRITABLE_SESSIONS_TABLE_SQL = lambda: SESSIONS_TABLE_BASE_SQL.format(
-    table_name=f"writable_{TABLE_BASE_NAME}",
+    table_name=f"writeable_{TABLE_BASE_NAME}",
     cluster=settings.CLICKHOUSE_CLUSTER,
     engine=Distributed(
         data_table=SESSIONS_DATA_TABLE(),
