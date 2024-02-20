@@ -100,7 +100,10 @@ class TrendsQueryRunner(QueryRunner):
 
         return refresh_frequency
 
-    def to_query(self) -> List[ast.SelectQuery | ast.SelectUnionQuery]:
+    def to_query(self) -> ast.SelectUnionQuery:
+        return ast.SelectUnionQuery(select_queries=self.to_queries())
+
+    def to_queries(self) -> List[ast.SelectQuery | ast.SelectUnionQuery]:
         queries = []
         with self.timings.measure("trends_to_query"):
             for series in self.series:
@@ -235,7 +238,7 @@ class TrendsQueryRunner(QueryRunner):
         )
 
     def calculate(self):
-        queries = self.to_query()
+        queries = self.to_queries()
 
         if len(queries) == 1:
             resonse_hogql_query = queries[0]

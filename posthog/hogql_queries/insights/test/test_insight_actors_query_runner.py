@@ -166,7 +166,7 @@ class TestInsightActorsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         response = self.select(
             """
             select * from (
-                <ActorsQuery select={['properties.name as n']}>
+                <ActorsQuery select={['properties.name']}>
                     <InsightActorsQuery day={2}>
                         <StickinessQuery
                             dateRange={<DateRange date_from='2020-01-09' date_to='2020-01-19' />}
@@ -189,9 +189,54 @@ class TestInsightActorsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         response = self.select(
             """
             select * from (
-                <ActorsQuery select={['properties.name as n']}>
+                <ActorsQuery select={['properties.name']}>
                     <InsightActorsQuery day={7}>
                         <StickinessQuery
+                            dateRange={<DateRange date_from='2020-01-01' date_to='2020-01-19' />}
+                            series={[<EventsNode event='$pageview' math='unique_group' math_group_type_index={0} />]}
+                        />
+                    </InsightActorsQuery>
+                </ActorsQuery>
+            )
+            """
+        )
+
+        self.assertEqual([("org1",)], response.results)
+
+    def test_insight_persons_trends_query(self):
+        self._create_test_events()
+        self.team.timezone = "US/Pacific"
+        self.team.save()
+
+        response = self.select(
+            """
+            select * from (
+                <ActorsQuery select={['properties.name']}>
+                    <InsightActorsQuery day='2020-01-09'>
+                        <TrendsQuery
+                            dateRange={<DateRange date_from='2020-01-09' date_to='2020-01-19' />}
+                            series={[<EventsNode event='$pageview' />]}
+                        />
+                    </InsightActorsQuery>
+                </ActorsQuery>
+            )
+            """
+        )
+
+        self.assertEqual([("p2",)], response.results)
+
+    def test_insight_persons_trends_groups_query(self):
+        self._create_test_groups()
+        self._create_test_events()
+        self.team.timezone = "US/Pacific"
+        self.team.save()
+
+        response = self.select(
+            """
+            select * from (
+                <ActorsQuery select={['properties.name']}>
+                    <InsightActorsQuery day='2020-01-09'>
+                        <TrendsQuery
                             dateRange={<DateRange date_from='2020-01-01' date_to='2020-01-19' />}
                             series={[<EventsNode event='$pageview' math='unique_group' math_group_type_index={0} />]}
                         />
