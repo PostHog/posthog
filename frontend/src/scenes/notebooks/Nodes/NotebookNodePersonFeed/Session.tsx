@@ -1,8 +1,7 @@
-import { IconRewindPlay } from '@posthog/icons'
+import { IconCollapse, IconExpand, IconRewindPlay } from '@posthog/icons'
 import { LemonButton } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { dayjs } from 'lib/dayjs'
-import { IconUnfoldLess, IconUnfoldMore } from 'lib/lemon-ui/icons'
 import { humanFriendlyDetailedTime, humanFriendlyDuration } from 'lib/utils'
 import { useState } from 'react'
 
@@ -58,7 +57,7 @@ export const Session = ({ session }: SessionProps): JSX.Element => {
                 <div className="flex items-center">
                     <LemonButton
                         size="small"
-                        icon={isFolded ? <IconUnfoldMore /> : <IconUnfoldLess />}
+                        icon={isFolded ? <IconExpand /> : <IconCollapse />}
                         onClick={() => setIsFolded((state) => !state)}
                     />
                     <span className="font-bold ml-2">{humanFriendlyDetailedTime(startTime)}</span>

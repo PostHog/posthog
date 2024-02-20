@@ -1,7 +1,7 @@
+import { IconTrash } from '@posthog/icons'
 import { LemonButton, LemonSelect } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
-import { IconDelete } from 'lib/lemon-ui/icons'
 import { getClampedExclusionStepRange } from 'scenes/funnels/funnelUtils'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
@@ -70,7 +70,7 @@ export function ExclusionRowSuffix({
             />
             <LemonButton
                 size="small"
-                icon={<IconDelete />}
+                icon={<IconTrash />}
                 onClick={onClose}
                 data-attr="delete-prop-exclusion-filter"
                 title="Delete event exclusion series"

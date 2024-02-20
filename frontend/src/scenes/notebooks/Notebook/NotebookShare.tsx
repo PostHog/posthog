@@ -1,7 +1,7 @@
+import { IconCopy } from '@posthog/icons'
 import { LemonBanner, LemonButton, LemonDivider } from '@posthog/lemon-ui'
 import { useValues } from 'kea'
 import { combineUrl } from 'kea-router'
-import { IconCopy } from 'lib/lemon-ui/icons'
 import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
 import { base64Encode } from 'lib/utils'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
