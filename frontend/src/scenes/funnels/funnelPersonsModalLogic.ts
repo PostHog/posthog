@@ -112,7 +112,9 @@ export const funnelPersonsModalLogic = kea<funnelPersonsModalLogicType>([
                     query: {
                         kind: NodeKind.InsightActorsQuery,
                         source: values.querySource,
-                        // funnelActorsFilter: {}
+                        funnelActorsFilter: {
+                            funnelStep: converted ? stepIndex + 1 : -(stepIndex + 1),
+                        },
                     },
                 })
             } else {
@@ -144,7 +146,10 @@ export const funnelPersonsModalLogic = kea<funnelPersonsModalLogicType>([
                     query: {
                         kind: NodeKind.InsightActorsQuery,
                         source: values.querySource,
-                        // funnelActorsFilter: {}
+                        funnelActorsFilter: {
+                            funnelStep: converted ? stepIndex + 1 : -(stepIndex + 1),
+                            // funnelStepBreakdown // TODO
+                        },
                     },
                 })
             } else {
