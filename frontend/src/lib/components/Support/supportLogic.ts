@@ -277,10 +277,17 @@ export const supportLogic = kea<supportLogicType>([
                     Object.entries(payload).forEach(([key, value]) => {
                         extra[`payload_${key}`] = value
                     })
-                    extra['response_status'] = response.status
-                    extra['response_body'] = await response.text()
+                    const body = await response.text()
+                    const contexts = {
+                        response: {
+                            status_code: response.status,
+                            data: body,
+                            body_size: body?.length,
+                        },
+                    }
                     captureException(error, {
                         extra,
+                        contexts,
                     })
                     lemonToast.error(`There was an error sending the message.`)
                     return
