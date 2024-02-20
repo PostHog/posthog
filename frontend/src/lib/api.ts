@@ -2135,6 +2135,9 @@ async function handleFetch(url: string, method: string, fetcher: () => Promise<R
     apiStatusLogic.findMounted()?.actions.onApiResponse(response, error)
 
     if (error || !response) {
+        if (error && (error as any).name === 'AbortError') {
+            throw error
+        }
         throw new ApiError(error as any, response?.status)
     }
 

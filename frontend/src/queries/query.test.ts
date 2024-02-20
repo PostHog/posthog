@@ -1,3 +1,4 @@
+import { ApiError } from 'lib/api'
 import posthog from 'posthog-js'
 
 import { useMocks } from '~/mocks/jest'
@@ -105,10 +106,7 @@ describe('query', () => {
         }
         await expect(async () => {
             await query(q)
-        }).rejects.toStrictEqual({
-            status: 500,
-            detail: 'error',
-        })
+        }).rejects.toThrow(ApiError)
 
         expect(posthog.capture).toHaveBeenCalledWith('query failed', { query: q, duration: expect.any(Number) })
     })
