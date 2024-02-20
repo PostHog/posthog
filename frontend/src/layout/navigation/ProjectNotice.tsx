@@ -109,7 +109,7 @@ export function ProjectNotice(): JSX.Element | null {
             },
         },
         internet_connection_issue: {
-            message: 'PostHog is having trouble connecting to the internet. Please check your connection.',
+            message: 'PostHog is having trouble connecting to the server. Please check your connection.',
             type: 'warning',
             action: {
                 'data-attr': 'reload-page',
