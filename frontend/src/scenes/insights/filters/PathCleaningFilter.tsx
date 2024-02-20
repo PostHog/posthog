@@ -1,7 +1,7 @@
+import { IconGear } from '@posthog/icons'
 import { LemonButton, LemonSwitch } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { PathCleanFilters } from 'lib/components/PathCleanFilters/PathCleanFilters'
-import { IconSettings } from 'lib/lemon-ui/icons'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { pathsDataLogic } from 'scenes/paths/pathsDataLogic'
 import { teamLogic } from 'scenes/teamLogic'
@@ -43,7 +43,7 @@ export function PathCleaningFilter({ insightProps }: EditorFilterProps): JSX.Ele
                             <div className="flex items-center">
                                 <span>Apply global path URL cleaning</span>
                                 <LemonButton
-                                    icon={<IconSettings />}
+                                    icon={<IconGear />}
                                     to={urls.settings('project-product-analytics', 'path-cleaning')}
                                     size="small"
                                     noPadding

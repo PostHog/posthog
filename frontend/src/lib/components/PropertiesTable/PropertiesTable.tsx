@@ -1,12 +1,11 @@
 import './PropertiesTable.scss'
 
-import { IconPencil, IconWarning } from '@posthog/icons'
+import { IconPencil, IconTrash, IconWarning } from '@posthog/icons'
 import { LemonCheckbox, LemonInput, LemonTag, Link, Tooltip } from '@posthog/lemon-ui'
 import { Dropdown, Input, Menu, Popconfirm } from 'antd'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { combineUrl } from 'kea-router'
-import { IconDeleteForever } from 'lib/lemon-ui/icons'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonTable, LemonTableColumns, LemonTableProps } from 'lib/lemon-ui/LemonTable'
 import { userPreferencesLogic } from 'lib/logic/userPreferencesLogic'
@@ -363,7 +362,7 @@ export function PropertiesTable({
                                 }
                                 placement="left"
                             >
-                                <LemonButton icon={<IconDeleteForever />} status="danger" size="small" />
+                                <LemonButton icon={<IconTrash />} status="danger" size="small" />
                             </Popconfirm>
                         )
                     )
