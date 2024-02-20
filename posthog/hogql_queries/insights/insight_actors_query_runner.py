@@ -62,7 +62,7 @@ class InsightActorsQueryRunner(QueryRunner):
             if self.query.source.series and series_index < len(self.query.source.series):
                 series = self.query.source.series[series_index]
                 if series.math_group_type_index is not None:
-                    int(series.math_group_type_index or 0)
+                    return int(series.math_group_type_index or 0)
 
         return None
 

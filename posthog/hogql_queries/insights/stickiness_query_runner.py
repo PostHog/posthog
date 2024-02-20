@@ -105,7 +105,9 @@ class StickinessQueryRunner(QueryRunner):
 
         select_query = parse_select(
             """
-                SELECT count(DISTINCT aggregation_target), num_intervals
+                SELECT
+                    count(DISTINCT aggregation_target),
+                    num_intervals
                 FROM (
                     SELECT {aggregation}, {num_intervals_column_expr}
                     FROM events e
@@ -128,7 +130,10 @@ class StickinessQueryRunner(QueryRunner):
 
         return cast(ast.SelectQuery, select_query)
 
-    def to_query(self) -> List[ast.SelectQuery]:  # type: ignore
+    def to_query(self) -> ast.SelectUnionQuery:
+        return ast.SelectUnionQuery(select_queries=self.to_queries())
+
+    def to_queries(self) -> List[ast.SelectQuery]:
         queries = []
 
         for series in self.series:
@@ -141,7 +146,9 @@ class StickinessQueryRunner(QueryRunner):
 
             select_query = parse_select(
                 """
-                    SELECT groupArray(aggregation_target), groupArray(num_intervals)
+                    SELECT
+                        groupArray(aggregation_target) as counts,
+                        groupArray(num_intervals) as intervals
                     FROM (
                         SELECT sum(aggregation_target) as aggregation_target, num_intervals
                         FROM (
@@ -192,7 +199,7 @@ class StickinessQueryRunner(QueryRunner):
         return ast.SelectUnionQuery(select_queries=queries)
 
     def calculate(self):
-        queries = self.to_query()
+        queries = self.to_queries()
 
         res = []
         timings = []
