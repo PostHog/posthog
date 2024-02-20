@@ -124,7 +124,7 @@ max(last_timestamp) AS max_last_timestamp,
 
 groupArray(urls) AS urls
 argMinState(entry_url, first_timestamp) as entry_url,
-argMaxState(exit_url, last_timstamp) as exit_url,
+argMaxState(exit_url, last_timestamp) as exit_url,
 argMinState(initial_utm_source, first_timestamp) as initial_utm_source,
 argMinState(initial_utm_campaign, first_timestamp) as initial_utm_campaign,
 argMinState(initial_utm_medium, first_timestamp) as initial_utm_medium,
