@@ -1,5 +1,5 @@
+import { IconCollapse, IconExpand } from '@posthog/icons'
 import clsx from 'clsx'
-import { IconUnfoldLess, IconUnfoldMore } from 'lib/lemon-ui/icons'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import React, { HTMLProps, useState } from 'react'
 
@@ -78,7 +78,7 @@ function TableRowRaw<T extends Record<string, any>>({
                                         expandable?.onRowExpand?.(record, recordIndex)
                                     }
                                 }}
-                                icon={isRowExpanded ? <IconUnfoldLess /> : <IconUnfoldMore />}
+                                icon={isRowExpanded ? <IconCollapse /> : <IconExpand />}
                                 title={isRowExpanded ? 'Show less' : 'Show more'}
                             />
                         )}

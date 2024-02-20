@@ -1,7 +1,8 @@
+import { IconCollapse, IconExpand } from '@posthog/icons'
 import { useActions, useValues } from 'kea'
 import { CodeSnippet, Language } from 'lib/components/CodeSnippet'
 import { TZLabel } from 'lib/components/TZLabel'
-import { IconChevronLeft, IconChevronRight, IconUnfoldLess, IconUnfoldMore } from 'lib/lemon-ui/icons'
+import { IconChevronLeft, IconChevronRight } from 'lib/lemon-ui/icons'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonLabel } from 'lib/lemon-ui/LemonLabel/LemonLabel'
 import { LemonModal } from 'lib/lemon-ui/LemonModal'
@@ -105,7 +106,7 @@ function CollapsibleSection(props: {
             <LemonButton
                 fullWidth
                 onClick={() => setIsExpanded(!isExpanded)}
-                sideIcon={isExpanded ? <IconUnfoldLess /> : <IconUnfoldMore />}
+                sideIcon={isExpanded ? <IconCollapse /> : <IconExpand />}
                 title={isExpanded ? 'Show less' : 'Show more'}
                 className="bg-mid"
             >

@@ -252,7 +252,7 @@ export function CohortEdit({ id }: CohortLogicProps): JSX.Element {
                                     minutes.
                                 </div>
                             ) : (
-                                <Query query={query} setQuery={setQuery} />
+                                <Query query={query} setQuery={setQuery} readOnly={true} />
                             )}
                         </div>
                     </>
