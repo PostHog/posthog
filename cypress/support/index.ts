@@ -19,7 +19,7 @@ declare global {
              * Custom command to set subscription status
              * @example cy.useSubscriptionStatus('unsubscribed')
              */
-            useSubscriptionStatus(name: 'unsubscribed' | 'subscribed' | 'teams' | 'enterprise'): Chainable<Element>
+            useSubscriptionStatus(name: 'unsubscribed' | 'subscribed'): Chainable<Element>
         }
     }
 }

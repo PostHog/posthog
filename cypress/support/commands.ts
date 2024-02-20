@@ -22,5 +22,4 @@ Cypress.Commands.add('useSubscriptionStatus', (condition) => {
         cy.intercept('/api/billing-v2/', { fixture: 'api/billing-v2/billing-v2-subscribed-all.json' })
         cy.reload()
     }
-    // Add more conditions as needed
 })
