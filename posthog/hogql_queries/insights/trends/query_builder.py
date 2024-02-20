@@ -65,7 +65,7 @@ class TrendsQueryBuilder:
 
         return parse_select(
             """
-                SELECT DISTINCT person_id
+                SELECT DISTINCT actor_id
                 FROM {subquery}
             """,
             placeholders={
@@ -199,7 +199,7 @@ class TrendsQueryBuilder:
 
         # TODO: Move this logic into the below branches when working on adding breakdown support for the person modal
         if is_actors_query:
-            default_query.select = [ast.Alias(alias="person_id", expr=ast.Field(chain=["e", "person", "id"]))]
+            default_query.select = [ast.Alias(alias="actor_id", expr=self._aggregation_operation.actor_id())]
             default_query.distinct = True
             default_query.group_by = []
 
@@ -219,10 +219,10 @@ class TrendsQueryBuilder:
 
             if is_actors_query:
                 orchestrator.events_query_builder.append_select(
-                    ast.Alias(alias="person_id", expr=ast.Field(chain=["e", "person", "id"]))
+                    ast.Alias(alias="actor_id", expr=self._aggregation_operation.actor_id())
                 )
-                orchestrator.inner_select_query_builder.append_select(ast.Field(chain=["person_id"]))
-                orchestrator.parent_select_query_builder.append_select(ast.Field(chain=["person_id"]))
+                orchestrator.inner_select_query_builder.append_select(ast.Field(chain=["actor_id"]))
+                orchestrator.parent_select_query_builder.append_select(ast.Field(chain=["actor_id"]))
             else:
                 orchestrator.events_query_builder.append_select(breakdown.column_expr())
                 orchestrator.events_query_builder.append_group_by(ast.Field(chain=["breakdown_value"]))
@@ -262,8 +262,8 @@ class TrendsQueryBuilder:
                 wrapper.group_by.append(ast.Field(chain=["day_start"]))
 
             if is_actors_query:
-                default_query.select.append(ast.Alias(alias="person_id", expr=ast.Field(chain=["e", "person", "id"])))
-                wrapper.select.append(ast.Field(chain=["person_id"]))
+                default_query.select.append(ast.Alias(alias="actor_id", expr=self._aggregation_operation.actor_id()))
+                wrapper.select.append(ast.Field(chain=["actor_id"]))
             else:
                 wrapper.select.append(ast.Field(chain=["breakdown_value"]))
                 wrapper.group_by.append(ast.Field(chain=["breakdown_value"]))
@@ -295,8 +295,8 @@ class TrendsQueryBuilder:
                 wrapper.group_by.append(ast.Field(chain=["day_start"]))
 
             if is_actors_query:
-                default_query.select.append(ast.Alias(alias="person_id", expr=ast.Field(chain=["e", "person", "id"])))
-                wrapper.select.append(ast.Field(chain=["person_id"]))
+                default_query.select.append(ast.Alias(alias="actor_id", expr=self._aggregation_operation.actor_id()))
+                wrapper.select.append(ast.Field(chain=["actor_id"]))
 
             return wrapper
         # Just complex series aggregation
@@ -308,10 +308,10 @@ class TrendsQueryBuilder:
 
             if is_actors_query:
                 orchestrator.events_query_builder.append_select(
-                    ast.Alias(alias="person_id", expr=ast.Field(chain=["e", "person", "id"]))
+                    ast.Alias(alias="actor_id", expr=self._aggregation_operation.actor_id())
                 )
-                orchestrator.inner_select_query_builder.append_select(ast.Field(chain=["person_id"]))
-                orchestrator.parent_select_query_builder.append_select(ast.Field(chain=["person_id"]))
+                orchestrator.inner_select_query_builder.append_select(ast.Field(chain=["actor_id"]))
+                orchestrator.parent_select_query_builder.append_select(ast.Field(chain=["actor_id"]))
 
             return orchestrator.build()
 

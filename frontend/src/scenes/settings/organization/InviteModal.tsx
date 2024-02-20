@@ -1,9 +1,9 @@
 import './InviteModal.scss'
 
+import { IconPlus, IconTrash } from '@posthog/icons'
 import { LemonInput, LemonTextArea, Link } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { CopyToClipboardInline } from 'lib/components/CopyToClipboard'
-import { IconDelete, IconPlus } from 'lib/lemon-ui/icons'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
@@ -98,7 +98,7 @@ export function InviteRow({ index, isDeletable }: { index: number; isDeletable: 
                     />
                 )}
                 {isDeletable && (
-                    <LemonButton icon={<IconDelete />} status="danger" onClick={() => deleteInviteAtIndex(index)} />
+                    <LemonButton icon={<IconTrash />} status="danger" onClick={() => deleteInviteAtIndex(index)} />
                 )}
             </div>
         </div>
@@ -164,7 +164,7 @@ export function InviteTeamMatesComponent(): JSX.Element {
                                 <LemonButton
                                     title="Cancel the invite"
                                     data-attr="invite-delete"
-                                    icon={<IconDelete />}
+                                    icon={<IconTrash />}
                                     status="danger"
                                     onClick={() => {
                                         invite.is_expired

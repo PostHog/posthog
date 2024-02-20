@@ -1,7 +1,7 @@
+import { IconPencil } from '@posthog/icons'
 import { LemonButton, LemonInput, LemonSelect } from '@posthog/lemon-ui'
 import { PluginConfigSchema } from '@posthog/plugin-scaffold/src/types'
 import { CodeEditor } from 'lib/components/CodeEditors'
-import { IconEdit } from 'lib/lemon-ui/icons'
 import { useState } from 'react'
 import { AutoSizer } from 'react-virtualized/dist/es/AutoSizer'
 import { SECRET_FIELD_VALUE } from 'scenes/pipeline/configUtils'
@@ -52,7 +52,7 @@ export function PluginField({
         return (
             <LemonButton
                 type="secondary"
-                icon={<IconEdit />}
+                icon={<IconPencil />}
                 onClick={() => {
                     onChange?.(fieldConfig.default || '')
                     setEditingSecret(true)

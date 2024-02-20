@@ -1,4 +1,4 @@
-import { ConsumerTopicConfig, GlobalConfig, KafkaConsumer, Message } from 'node-rdkafka'
+import { GlobalConfig, KafkaConsumer, Message } from 'node-rdkafka'
 import { exponentialBuckets, Gauge, Histogram } from 'prom-client'
 
 import { retryIfRetriable } from '../utils/retries'
@@ -39,7 +39,6 @@ export const startBatchConsumer = async ({
     topicCreationTimeoutMs,
     eachBatch,
     queuedMinMessages = 100000,
-    topicConfig,
 }: {
     connectionConfig: GlobalConfig
     groupId: string
@@ -56,7 +55,6 @@ export const startBatchConsumer = async ({
     topicCreationTimeoutMs: number
     eachBatch: (messages: Message[]) => Promise<void>
     queuedMinMessages?: number
-    topicConfig?: ConsumerTopicConfig
 }): Promise<BatchConsumer> => {
     // Starts consuming from `topic` in batches of `fetchBatchSize` messages,
     // with consumer group id `groupId`. We use `connectionConfig` to connect
@@ -126,7 +124,13 @@ export const startBatchConsumer = async ({
             rebalance_cb: true,
             offset_commit_cb: true,
         },
-        topicConfig
+        {
+            // It is typically safest to roll back to the earliest offset if we
+            // find ourselves in a situation where there is no stored offset or
+            // the stored offset is invalid, compared to the default behavior of
+            // potentially jumping ahead to the latest offset.
+            'auto.offset.reset': 'earliest',
+        }
     )
 
     instrumentConsumerMetrics(consumer, groupId)

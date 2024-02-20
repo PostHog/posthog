@@ -1,4 +1,4 @@
-import { IconX } from '@posthog/icons'
+import { IconTerminal, IconX } from '@posthog/icons'
 import { LemonButton, LemonCheckbox, LemonInput, LemonSelect, Tooltip } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { FEATURE_FLAGS } from 'lib/constants'
@@ -9,7 +9,6 @@ import {
     IconPause,
     IconPlayCircle,
     IconSchedule,
-    IconTerminal,
     IconUnverifiedEvent,
 } from 'lib/lemon-ui/icons'
 import { Spinner } from 'lib/lemon-ui/Spinner/Spinner'

@@ -1,6 +1,6 @@
+import { IconGear } from '@posthog/icons'
 import { LemonButton, LemonSwitch } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
-import { IconSettings } from 'lib/lemon-ui/icons'
 import { filterTestAccountsDefaultsLogic } from 'scenes/settings/project/filterTestAccountDefaultsLogic'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
@@ -29,7 +29,7 @@ export function TestAccountFilter({ query, setQuery }: TestAccountFilterProps): 
                 <div className="flex items-center">
                     <span>Filter out internal and test users</span>
                     <LemonButton
-                        icon={<IconSettings />}
+                        icon={<IconGear />}
                         to={urls.settings('project', 'internal-user-filtering')}
                         size="small"
                         noPadding

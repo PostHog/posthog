@@ -62,9 +62,19 @@ export interface BatchExportDestination extends BatchExportBasedStep {
 }
 export type Destination = BatchExportDestination | WebhookDestination
 
+// Legacy: Site apps
+export interface SiteApp extends PluginBasedStepBase {
+    stage: PipelineStage.SiteApp
+}
+
+// Legacy: Import apps
+export interface ImportApp extends PluginBasedStepBase {
+    stage: PipelineStage.ImportApp
+}
+
 // Final
 
-export type PipelineNode = Filter | Transformation | Destination
+export type PipelineNode = Filter | Transformation | Destination | SiteApp | ImportApp
 
 // Utils
 
@@ -83,10 +93,17 @@ export function convertToPipelineNode<S extends PipelineStage>(
     ? Transformation
     : S extends PipelineStage.Destination
     ? Destination
+    : S extends PipelineStage.SiteApp
+    ? SiteApp
+    : S extends PipelineStage.ImportApp
+    ? ImportApp
     : never {
     let node: PipelineNode
     if (isPluginConfig(candidate)) {
-        const almostNode: Omit<Filter | Transformation | WebhookDestination, 'frequency' | 'order'> = {
+        const almostNode: Omit<
+            Filter | Transformation | WebhookDestination | SiteApp | ImportApp,
+            'frequency' | 'order'
+        > = {
             stage: stage,
             backend: PipelineBackend.Plugin,
             id: candidate.id,
@@ -109,6 +126,11 @@ export function convertToPipelineNode<S extends PipelineStage>(
                 ...almostNode,
                 stage,
                 interval: 'realtime',
+            }
+        } else if (stage === PipelineStage.SiteApp || stage === PipelineStage.ImportApp) {
+            node = {
+                ...almostNode,
+                stage,
             }
         } else {
             node = almostNode as Filter
