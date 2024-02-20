@@ -162,6 +162,7 @@ export enum ProductKey {
     PRODUCT_ANALYTICS = 'product_analytics',
     PIPELINE_TRANSFORMATIONS = 'pipeline_transformations',
     PIPELINE_DESTINATIONS = 'pipeline_destinations',
+    SITE_APPS = 'site_apps',
     DATA_PIPELINES = 'data_pipelines',
     GROUP_ANALYTICS = 'group_analytics',
     INTEGRATIONS = 'integrations',
@@ -587,6 +588,8 @@ export enum PipelineTab {
     Overview = 'overview',
     Transformations = 'transformations',
     Destinations = 'destinations',
+    SiteApps = 'site-apps',
+    ImportApps = 'legacy-sources',
     AppsManagement = 'apps-management',
 }
 
@@ -594,6 +597,8 @@ export enum PipelineStage {
     Filter = 'filter',
     Transformation = 'transformation',
     Destination = 'destination',
+    SiteApp = 'site-app',
+    ImportApp = 'import-app',
 }
 
 export enum PipelineNodeTab {
