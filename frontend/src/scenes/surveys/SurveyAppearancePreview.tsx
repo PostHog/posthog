@@ -1,4 +1,4 @@
-import { renderFeedbackWidgetPreview, renderSurveysPreview } from 'posthog-js/dist/surveys.esm'
+import { renderFeedbackWidgetPreview, renderSurveysPreview } from 'posthog-js/dist/surveys-module-previews'
 import { useEffect, useRef } from 'react'
 
 import { Survey, SurveyType } from '~/types'
@@ -38,16 +38,4 @@ export function SurveyAppearancePreview({
             <div ref={feedbackWidgetPreviewRef} />
         </>
     )
-}
-
-export function FeedbackWidgetAppearancePreview({ survey }: { survey: Survey }): JSX.Element {
-    const feedbackWidgetPreviewRef = useRef<HTMLDivElement>(null)
-    useEffect(() => {
-        if (feedbackWidgetPreviewRef.current) {
-            // remove any existing feedback widget preview
-            feedbackWidgetPreviewRef.current.innerHTML = ''
-            renderFeedbackWidgetPreview(survey, feedbackWidgetPreviewRef.current)
-        }
-    }, [survey.type, survey.appearance])
-    return <div ref={feedbackWidgetPreviewRef}>FeedbackWidgetAppearancePreview</div>
 }
