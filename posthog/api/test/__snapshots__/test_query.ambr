@@ -157,7 +157,7 @@
 # ---
 # name: TestQuery.test_full_hogql_query_async
   '''
-  /* user_id:462 celery:posthog.tasks.tasks.process_query_task */
+  /* user_id:463 celery:posthog.tasks.tasks.process_query_task */
   SELECT events.uuid AS uuid,
          events.event AS event,
          events.properties AS properties,
