@@ -107,7 +107,6 @@ INSERT INTO sharded_app_metrics (
     category,
     job_id,
     successes,
-    successes_on_retry,
     failures,
     error_uuid,
     error_type,
@@ -123,7 +122,6 @@ SELECT
     %(category)s,
     %(job_id)s,
     %(successes)s,
-    %(successes_on_retry)s,
     %(failures)s,
     %(error_uuid)s,
     %(error_type)s,
@@ -135,7 +133,7 @@ SELECT
 
 QUERY_APP_METRICS_DELIVERY_RATE = """
 SELECT plugin_config_id, if(total > 0, success/total, 1) as rate FROM (
-    SELECT plugin_config_id, sum(successes) + sum(successes_on_retry) AS success, sum(successes) + sum(successes_on_retry) + sum(failures) AS total
+    SELECT plugin_config_id, sum(successes) AS success, sum(successes) + sum(failures) AS total
     FROM app_metrics
     WHERE team_id = %(team_id)s
         AND timestamp > %(from_date)s
@@ -144,18 +142,16 @@ SELECT plugin_config_id, if(total > 0, success/total, 1) as rate FROM (
 """
 
 QUERY_APP_METRICS_TIME_SERIES = """
-SELECT groupArray(date), groupArray(successes), groupArray(successes_on_retry), groupArray(failures)
+SELECT groupArray(date), groupArray(successes), groupArray(failures)
 FROM (
     SELECT
         date,
         sum(successes) AS successes,
-        sum(successes_on_retry) AS successes_on_retry,
         sum(failures) AS failures
     FROM (
         SELECT
             dateTrunc(%(interval)s, timestamp, %(timezone)s) AS date,
             sum(successes) AS successes,
-            sum(successes_on_retry) AS successes_on_retry,
             sum(failures) AS failures
         FROM app_metrics
         WHERE team_id = %(team_id)s

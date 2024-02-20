@@ -98,19 +98,6 @@ export function MetricsOverview({
                     </div>
                     <div className="text-4xl">{renderNumber(metrics?.totals?.successes)}</div>
                 </div>
-                {DescriptionColumns[tab].successes_on_retry && (
-                    <div>
-                        <div className="text-muted font-semibold mb-2">
-                            {DescriptionColumns[tab].successes_on_retry}{' '}
-                            {DescriptionColumns[tab].successes_on_retry_tooltip && (
-                                <Tooltip title={DescriptionColumns[tab].successes_on_retry_tooltip}>
-                                    <IconInfo />
-                                </Tooltip>
-                            )}
-                        </div>
-                        <div className="text-4xl">{renderNumber(metrics?.totals?.successes_on_retry)}</div>
-                    </div>
-                )}
                 <div>
                     <div className="text-muted font-semibold mb-2">
                         {DescriptionColumns[tab].failures}{' '}

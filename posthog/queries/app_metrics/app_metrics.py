@@ -48,18 +48,16 @@ class AppMetricsQuery:
 
     def run(self):
         query, params = self.query()
-        dates, successes, successes_on_retry, failures = sync_execute(query, params)[0]
+        dates, successes, failures = sync_execute(query, params)[0]
         return {
             "dates": [
                 timestamp.strftime("%Y-%m-%d{}".format(" %H:%M:%S" if self.interval == "hour" else ""))
                 for timestamp in dates
             ],
             "successes": successes,
-            "successes_on_retry": successes_on_retry,
             "failures": failures,
             "totals": {
                 "successes": sum(successes),
-                "successes_on_retry": sum(successes_on_retry),
                 "failures": sum(failures),
             },
         }

@@ -20,7 +20,6 @@ export interface AppMetricIdentifier {
 
 export interface AppMetric extends AppMetricIdentifier {
     successes?: number
-    successesOnRetry?: number
     failures?: number
 
     errorUuid?: string
@@ -42,7 +41,6 @@ interface QueuedMetric {
     queuedAt: number
 
     successes: number
-    successesOnRetry: number
     failures: number
 
     errorUuid?: string
@@ -61,7 +59,6 @@ export interface RawAppMetric {
     job_id?: string
     category: string
     successes: number
-    successes_on_retry: number
     failures: number
     error_uuid?: string
     error_type?: string
@@ -107,13 +104,12 @@ export class AppMetrics {
         timestamp = timestamp || now
         const key = this._key(metric)
 
-        const { successes, successesOnRetry, failures, errorUuid, errorType, errorDetails, ...metricInfo } = metric
+        const { successes, failures, errorUuid, errorType, errorDetails, ...metricInfo } = metric
 
         if (!this.queuedData[key]) {
             this.queueSize += 1
             this.queuedData[key] = {
                 successes: 0,
-                successesOnRetry: 0,
                 failures: 0,
                 errorUuid,
                 errorType,
@@ -127,9 +123,6 @@ export class AppMetrics {
 
         if (successes) {
             this.queuedData[key].successes += successes
-        }
-        if (successesOnRetry) {
-            this.queuedData[key].successesOnRetry += successesOnRetry
         }
         if (failures) {
             this.queuedData[key].failures += failures
@@ -173,7 +166,6 @@ export class AppMetrics {
                 category: value.metric.category,
 
                 successes: value.successes,
-                successes_on_retry: value.successesOnRetry,
                 failures: value.failures,
 
                 error_uuid: value.errorUuid,

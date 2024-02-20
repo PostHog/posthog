@@ -44,11 +44,9 @@ export interface HistoricalExportInfo {
 export interface AppMetrics {
     dates: Array<string>
     successes: Array<number>
-    successes_on_retry: Array<number>
     failures: Array<number>
     totals: {
         successes: number
-        successes_on_retry: number
         failures: number
     }
 }

@@ -4,9 +4,6 @@ interface Description {
     successes: string
     successes_tooltip?: React.ReactNode | string
 
-    successes_on_retry?: string
-    successes_on_retry_tooltip?: React.ReactNode | string
-
     failures: string
     failures_tooltip?: React.ReactNode | string
 }
@@ -34,12 +31,6 @@ export const DescriptionColumns: Record<string, Description> = {
                 These events were successfully processed by the <i>onEvent</i> app method on the first try.
             </>
         ),
-        successes_on_retry: 'Events processed on retry',
-        successes_on_retry_tooltip: (
-            <>
-                These events were successfully processed by the <i>onEvent</i> app method after being retried.
-            </>
-        ),
         failures: 'Failed events',
         failures_tooltip: (
             <>
@@ -54,12 +45,6 @@ export const DescriptionColumns: Record<string, Description> = {
                 These events were successfully processed by the <i>composeWebhook</i> app method on the first try.
             </>
         ),
-        successes_on_retry: 'Events processed on retry',
-        successes_on_retry_tooltip: (
-            <>
-                These events were successfully processed by the <i>composeWebhook</i> app method after being retried.
-            </>
-        ),
         failures: 'Failed events',
         failures_tooltip: (
             <>
@@ -72,10 +57,6 @@ export const DescriptionColumns: Record<string, Description> = {
         successes_tooltip: (
             <>These events were successfully delivered to the configured destination on the first try.</>
         ),
-        successes_on_retry: 'Events delivered on retry',
-        successes_on_retry_tooltip: (
-            <>These events were successfully delivered to the configured destination after being retried.</>
-        ),
         failures: 'Failed events',
         failures_tooltip: <>These events failed to be delivered to the configured destination due to errors.</>,
     },
@@ -83,10 +64,6 @@ export const DescriptionColumns: Record<string, Description> = {
         successes: 'Events delivered',
         successes_tooltip: (
             <>These events were successfully delivered to the configured destination on the first try.</>
-        ),
-        successes_on_retry: 'Events delivered on retry',
-        successes_on_retry_tooltip: (
-            <>These events were successfully delivered to the configured destination after being retried.</>
         ),
         failures: 'Failed events',
         failures_tooltip: <>These events failed to be delivered to the configured destination due to errors.</>,

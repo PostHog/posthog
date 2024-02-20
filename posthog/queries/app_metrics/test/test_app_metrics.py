@@ -30,7 +30,6 @@ def create_app_metric(
     category: str,
     job_id: Optional[str] = None,
     successes=0,
-    successes_on_retry=0,
     failures=0,
     error_uuid: Optional[str] = None,
     error_type: Optional[str] = None,
@@ -44,7 +43,6 @@ def create_app_metric(
         "category": category,
         "job_id": job_id or "",
         "successes": successes,
-        "successes_on_retry": successes_on_retry,
         "failures": failures,
         "error_uuid": error_uuid or "00000000-0000-0000-0000-000000000000",
         "error_type": error_type or "",
@@ -85,7 +83,6 @@ class TestTeamPluginsDeliveryRateQuery(ClickhouseTestMixin, BaseTest):
             plugin_config_id=3,
             timestamp="2021-12-05T00:10:00Z",
             successes=5,
-            successes_on_retry=15,
         )
         create_app_metric(
             team_id=self.team.pk,
@@ -93,7 +90,6 @@ class TestTeamPluginsDeliveryRateQuery(ClickhouseTestMixin, BaseTest):
             plugin_config_id=4,
             timestamp="2021-12-05T00:10:00Z",
             successes=0,  # handles all zero rows
-            successes_on_retry=0,
             failures=0,
         )
 
@@ -151,7 +147,6 @@ class TestAppMetricsQuery(ClickhouseTestMixin, BaseTest):
             plugin_config_id=3,
             timestamp="2021-12-05T00:20:00Z",
             successes=10,
-            successes_on_retry=5,
         )
         filter = make_filter(category="processEvent", date_from="-7d")
 
@@ -171,9 +166,8 @@ class TestAppMetricsQuery(ClickhouseTestMixin, BaseTest):
             ],
         )
         self.assertEqual(results["successes"], [0, 0, 0, 0, 0, 3, 0, 10])
-        self.assertEqual(results["successes_on_retry"], [0, 0, 0, 0, 0, 0, 0, 5])
         self.assertEqual(results["failures"], [1, 0, 0, 0, 0, 2, 0, 0])
-        self.assertEqual(results["totals"], {"successes": 13, "successes_on_retry": 5, "failures": 3})
+        self.assertEqual(results["totals"], {"successes": 13, "failures": 3})
 
     @freeze_time("2021-12-05T13:23:00Z")
     @snapshot_clickhouse_queries
@@ -184,7 +178,6 @@ class TestAppMetricsQuery(ClickhouseTestMixin, BaseTest):
             plugin_config_id=3,
             job_id="12345",
             timestamp="2021-12-05T00:10:00Z",
-            successes_on_retry=2,
         )
         create_app_metric(
             team_id=self.team.pk,
@@ -205,8 +198,7 @@ class TestAppMetricsQuery(ClickhouseTestMixin, BaseTest):
 
         results = AppMetricsQuery(self.team, 3, filter).run()
 
-        self.assertEqual(results["successes_on_retry"], [0, 0, 0, 0, 0, 0, 0, 2])
-        self.assertEqual(results["totals"], {"successes": 0, "successes_on_retry": 2, "failures": 0})
+        self.assertEqual(results["totals"], {"successes": 0, "failures": 0})
 
     @freeze_time("2021-12-05T13:23:00Z")
     @snapshot_clickhouse_queries
@@ -252,7 +244,7 @@ class TestAppMetricsQuery(ClickhouseTestMixin, BaseTest):
             ],
         )
         self.assertEqual(results["successes"], [2, 1, 3, 0, 0, 0, 0, 0, 0])
-        self.assertEqual(results["totals"], {"successes": 6, "successes_on_retry": 0, "failures": 0})
+        self.assertEqual(results["totals"], {"successes": 6, "failures": 0})
 
     @freeze_time("2021-12-05T13:23:00Z")
     @snapshot_clickhouse_queries
@@ -318,7 +310,7 @@ class TestAppMetricsQuery(ClickhouseTestMixin, BaseTest):
 
         results = AppMetricsQuery(self.team, 3, filter).run()
 
-        self.assertEqual(results["totals"], {"successes": 3, "successes_on_retry": 0, "failures": 0})
+        self.assertEqual(results["totals"], {"successes": 3, "failures": 0})
 
 
 class TestAppMetricsErrorsQuery(ClickhouseTestMixin, BaseTest):

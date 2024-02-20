@@ -14,11 +14,9 @@ const DEFAULT_DATE_FROM = '-7d'
 export interface AppMetricsData {
     dates: Array<string>
     successes: Array<number>
-    successes_on_retry: Array<number>
     failures: Array<number>
     totals: {
         successes: number
-        successes_on_retry: number
         failures: number
     }
 }

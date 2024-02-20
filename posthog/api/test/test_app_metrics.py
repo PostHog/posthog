@@ -58,9 +58,8 @@ class TestAppMetricsAPI(ClickhouseTestMixin, APIBaseTest):
                         "2021-12-05",
                     ],
                     "successes": [0, 0, 0, 0, 0, 3, 0, 0],
-                    "successes_on_retry": [0, 0, 0, 0, 0, 0, 0, 0],
                     "failures": [0, 0, 0, 0, 0, 0, 1, 0],
-                    "totals": {"successes": 3, "successes_on_retry": 0, "failures": 1},
+                    "totals": {"successes": 3, "failures": 1},
                 },
                 "errors": [
                     {
@@ -171,11 +170,9 @@ class TestAppMetricsAPI(ClickhouseTestMixin, APIBaseTest):
                         "2021-08-25 06:00:00",
                     ],
                     "successes": [0, 102, 0, 10, 0, 0, 0],
-                    "successes_on_retry": [0, 0, 0, 0, 0, 0, 0],
                     "failures": [0, 0, 1, 0, 0, 0, 0],
                     "totals": {
                         "successes": 112,
-                        "successes_on_retry": 0,
                         "failures": 1,
                     },
                 },

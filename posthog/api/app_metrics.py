@@ -44,9 +44,8 @@ class AppMetricsViewSet(TeamAndOrgViewSetMixin, mixins.RetrieveModelMixin, views
                                 "2024-01-11",
                             ],
                             "successes": [0, 0, 0, 0, 0, 0, 9379, 6237],
-                            "successes_on_retry": [0, 0, 0, 0, 0, 0, 0, 0],
                             "failures": [0, 0, 0, 0, 0, 0, 665, 0],
-                            "totals": {"successes": 15616, "successes_on_retry": 0, "failures": 665},
+                            "totals": {"successes": 15616, "failures": 665},
                         }
                     ],
                     "errors": None,

@@ -316,11 +316,9 @@ class TestHistoricalExports(ClickhouseTestMixin, BaseTest):
                         "2021-08-25 06:00:00",
                     ],
                     "successes": [0, 102, 0, 10, 0, 0, 0],
-                    "successes_on_retry": [0, 0, 0, 0, 0, 0, 0],
                     "failures": [0, 0, 2, 0, 0, 0, 0],
                     "totals": {
                         "successes": 112,
-                        "successes_on_retry": 0,
                         "failures": 2,
                     },
                 },
