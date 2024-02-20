@@ -1,5 +1,6 @@
 import './FeatureFlag.scss'
 
+import { IconCollapse, IconExpand, IconLock, IconPlus, IconTrash } from '@posthog/icons'
 import { LemonSegmentedButton, LemonSkeleton } from '@posthog/lemon-ui'
 import { Popconfirm } from 'antd'
 import { useActions, useValues } from 'kea'
@@ -12,7 +13,6 @@ import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
 import { PageHeader } from 'lib/components/PageHeader'
 import { PayGateMini } from 'lib/components/PayGateMini/PayGateMini'
 import { FEATURE_FLAGS } from 'lib/constants'
-import { IconDelete, IconLock, IconPlus, IconUnfoldLess, IconUnfoldMore } from 'lib/lemon-ui/icons'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { More } from 'lib/lemon-ui/LemonButton/More'
@@ -405,7 +405,7 @@ export function FeatureFlag({ id }: { id?: string } = {}): JSX.Element {
                                     <LemonButton
                                         fullWidth
                                         onClick={() => setAdvancedSettingsExpanded(!advancedSettingsExpanded)}
-                                        sideIcon={advancedSettingsExpanded ? <IconUnfoldLess /> : <IconUnfoldMore />}
+                                        sideIcon={advancedSettingsExpanded ? <IconCollapse /> : <IconExpand />}
                                     >
                                         <div>
                                             <h3 className="l4 mt-2">Advanced settings</h3>
@@ -1008,7 +1008,7 @@ function FeatureFlagRollout({ readOnly }: { readOnly?: boolean }): JSX.Element {
                                     <div className="flex items-center justify-center">
                                         {variants.length > 1 && (
                                             <LemonButton
-                                                icon={<IconDelete />}
+                                                icon={<IconTrash />}
                                                 data-attr={`delete-prop-filter-${index}`}
                                                 noPadding
                                                 onClick={() => removeVariant(index)}

@@ -1,7 +1,8 @@
 import { Meta, StoryFn, StoryObj } from '@storybook/react'
+import { LemonTextAreaMarkdown as _LemonTextMarkdown } from 'lib/lemon-ui/LemonTextArea/LemonTextAreaMarkdown'
 import { useState } from 'react'
 
-import { LemonTextArea, LemonTextAreaMarkdown as _LemonTextMarkdown, LemonTextAreaProps } from './LemonTextArea'
+import { LemonTextArea, LemonTextAreaProps } from './LemonTextArea'
 
 type Story = StoryObj<typeof LemonTextArea>
 const meta: Meta<typeof LemonTextArea> = {

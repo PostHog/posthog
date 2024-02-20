@@ -60,4 +60,6 @@ upgrade/
 hogvm/typescript/dist
 .wokeignore
 plugin-transpiler/dist
+*-esbuild-meta.json
+*-esbuild-bundle-visualization.html
 .dlt

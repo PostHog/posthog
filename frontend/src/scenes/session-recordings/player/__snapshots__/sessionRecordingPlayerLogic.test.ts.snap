@@ -27,6 +27,7 @@ exports[`sessionRecordingPlayerLogic loading session core loads metadata and sna
       "startTimestamp": 1682952380877,
     },
   ],
+  "sessionRecordingId": "2",
   "snapshotsByWindowId": {},
   "start": "2023-05-01T14:46:20.877Z",
 }
@@ -76,6 +77,7 @@ exports[`sessionRecordingPlayerLogic loading session core loads metadata and sna
       "windowId": "187d7c77dfe1d45-08bdcaf91135a2-1d525634-384000-187d7c77dff39a6",
     },
   ],
+  "sessionRecordingId": "2",
   "snapshotsByWindowId": {
     "187d7c761a0525d-05f175487d4b65-1d525634-384000-187d7c761a149d0": [
       {
@@ -2138,6 +2140,7 @@ exports[`sessionRecordingPlayerLogic loading session core loads metadata only by
       "startTimestamp": 1682952380877,
     },
   ],
+  "sessionRecordingId": "2",
   "snapshotsByWindowId": {},
   "start": "2023-05-01T14:46:20.877Z",
 }

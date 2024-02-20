@@ -50,7 +50,7 @@ exports[`replay/transform transform can convert images 1`] = `
                   {
                     "attributes": {
                       "data-rrweb-id": 12345,
-                      "style": "color: #ffffff;width: 100px;height: 30px;position: fixed;left: 11px;top: 12px;overflow:hidden;white-space:nowrap;",
+                      "style": "color: #ffffff;width: 100px;height: 30px;position: fixed;left: 11px;top: 12px;overflow:hidden;white-space:normal;",
                     },
                     "childNodes": [
                       {
@@ -332,7 +332,7 @@ exports[`replay/transform transform can convert rect with text 1`] = `
                   {
                     "attributes": {
                       "data-rrweb-id": 12345,
-                      "style": "width: 100px;height: 30px;position: fixed;left: 13px;top: 17px;overflow:hidden;white-space:nowrap;",
+                      "style": "width: 100px;height: 30px;position: fixed;left: 13px;top: 17px;overflow:hidden;white-space:normal;",
                     },
                     "childNodes": [
                       {
@@ -968,7 +968,7 @@ exports[`replay/transform transform child wireframes are processed 1`] = `
                           {
                             "attributes": {
                               "data-rrweb-id": 12345,
-                              "style": "background-color: #000000;border-width: 4px;border-radius: 10px;border-color: #000ddd;border-style: solid;color: #ffffff;width: 100px;height: 30px;position: fixed;left: 11px;top: 12px;overflow:hidden;white-space:nowrap;",
+                              "style": "background-color: #000000;border-width: 4px;border-radius: 10px;border-color: #000ddd;border-style: solid;color: #ffffff;width: 100px;height: 30px;position: fixed;left: 11px;top: 12px;overflow:hidden;white-space:normal;",
                             },
                             "childNodes": [
                               {
@@ -984,7 +984,7 @@ exports[`replay/transform transform child wireframes are processed 1`] = `
                           {
                             "attributes": {
                               "data-rrweb-id": 12345,
-                              "style": "background-color: #000000;border-width: 4px;border-radius: 10px;border-color: #000ddd;border-style: solid;color: #ffffff;width: 100px;height: 30px;position: fixed;left: 11px;top: 12px;overflow:hidden;white-space:nowrap;",
+                              "style": "background-color: #000000;border-width: 4px;border-radius: 10px;border-color: #000ddd;border-style: solid;color: #ffffff;width: 100px;height: 30px;position: fixed;left: 11px;top: 12px;overflow:hidden;white-space:normal;",
                             },
                             "childNodes": [
                               {
@@ -1005,7 +1005,7 @@ exports[`replay/transform transform child wireframes are processed 1`] = `
                       {
                         "attributes": {
                           "data-rrweb-id": 12345,
-                          "style": "background-color: #000000;border-width: 4px;border-radius: 10px;border-color: #000ddd;border-style: solid;color: #ffffff;width: 100px;height: 30px;position: fixed;left: 11px;top: 12px;overflow:hidden;white-space:nowrap;",
+                          "style": "background-color: #000000;border-width: 4px;border-radius: 10px;border-color: #000ddd;border-style: solid;color: #ffffff;width: 100px;height: 30px;position: fixed;left: 11px;top: 12px;overflow:hidden;white-space:normal;",
                         },
                         "childNodes": [
                           {
@@ -1109,7 +1109,7 @@ exports[`replay/transform transform incremental mutations de-duplicate the tree 
         "node": {
           "attributes": {
             "data-rrweb-id": 99571736,
-            "style": "color: #000000;width: 150px;height: 19px;position: fixed;left: 10px;top: 584px;align-items: flex-start;justify-content: flex-start;display: flex;font-size: 14px;font-family: sans-serif;overflow:hidden;white-space:nowrap;",
+            "style": "color: #000000;width: 150px;height: 19px;position: fixed;left: 10px;top: 584px;align-items: flex-start;justify-content: flex-start;display: flex;font-size: 14px;font-family: sans-serif;overflow:hidden;white-space:normal;",
           },
           "childNodes": [],
           "id": 99571736,
@@ -1132,7 +1132,7 @@ exports[`replay/transform transform incremental mutations de-duplicate the tree 
         "node": {
           "attributes": {
             "data-rrweb-id": 240124529,
-            "style": "color: #000000;width: 48px;height: 32px;position: fixed;left: 10px;top: 548px;align-items: center;justify-content: center;display: flex;font-size: 14px;font-family: sans-serif;overflow:hidden;white-space:nowrap;",
+            "style": "color: #000000;width: 48px;height: 32px;position: fixed;left: 10px;top: 548px;align-items: center;justify-content: center;display: flex;font-size: 14px;font-family: sans-serif;overflow:hidden;white-space:normal;",
           },
           "childNodes": [],
           "id": 240124529,
@@ -1155,7 +1155,7 @@ exports[`replay/transform transform incremental mutations de-duplicate the tree 
         "node": {
           "attributes": {
             "data-rrweb-id": 52129787,
-            "style": "color: #000000;width: 368px;height: 19px;position: fixed;left: 66px;top: 556px;align-items: flex-start;justify-content: flex-start;display: flex;font-size: 14px;font-family: sans-serif;overflow:hidden;white-space:nowrap;",
+            "style": "color: #000000;width: 368px;height: 19px;position: fixed;left: 66px;top: 556px;align-items: flex-start;justify-content: flex-start;display: flex;font-size: 14px;font-family: sans-serif;overflow:hidden;white-space:normal;",
           },
           "childNodes": [],
           "id": 52129787,
