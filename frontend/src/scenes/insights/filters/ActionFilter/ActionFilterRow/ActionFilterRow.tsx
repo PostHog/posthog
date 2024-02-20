@@ -400,13 +400,11 @@ export function ActionFilterRow({
                                                         }
                                                         placement="right"
                                                     >
-                                                        <div /* <div> needed for <Tooltip /> to work */>
-                                                            <PropertyKeyInfo
-                                                                value={currentValue}
-                                                                disablePopover
-                                                                type={filter.type as TaxonomicFilterGroupType}
-                                                            />
-                                                        </div>
+                                                        <PropertyKeyInfo
+                                                            value={currentValue}
+                                                            disablePopover
+                                                            type={TaxonomicFilterGroupType.EventProperties}
+                                                        />
                                                     </Tooltip>
                                                 )}
                                             />
@@ -536,7 +534,8 @@ function useMathSelectorOptions({
     if (mathAvailability !== MathAvailability.ActorsOnly) {
         options.splice(1, 0, {
             value: countPerActorMathTypeShown,
-            label: (
+            label: `Count per user ${COUNT_PER_ACTOR_MATH_DEFINITIONS[countPerActorMathTypeShown].shortName}`,
+            labelInMenu: (
                 <div className="flex items-center gap-2">
                     <span>Count per user</span>
                     <LemonSelect
@@ -563,7 +562,8 @@ function useMathSelectorOptions({
         })
         options.push({
             value: propertyMathTypeShown,
-            label: (
+            label: `Property value ${PROPERTY_MATH_DEFINITIONS[propertyMathTypeShown].shortName}`,
+            labelInMenu: (
                 <div className="flex items-center gap-2">
                     <span>Property value</span>
                     <LemonSelect
