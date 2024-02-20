@@ -38,6 +38,7 @@ import {
     IconTrends,
     IconUnlock,
     IconUserPaths,
+    IconX,
 } from '@posthog/icons'
 import { Parser } from 'expr-eval'
 import Fuse from 'fuse.js'
@@ -45,7 +46,7 @@ import { actions, connect, events, kea, listeners, path, reducers, selectors } f
 import { router } from 'kea-router'
 import api from 'lib/api'
 import { FEATURE_FLAGS } from 'lib/constants'
-import { IconClose, IconFlare } from 'lib/lemon-ui/icons'
+import { IconFlare } from 'lib/lemon-ui/icons'
 import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { isMobile, isURL, uniqueBy } from 'lib/utils'
@@ -923,7 +924,7 @@ export const commandPaletteLogic = kea<commandPaletteLogicType>([
                     ...(values.sidePanelOpen
                         ? [
                               {
-                                  icon: IconClose,
+                                  icon: IconX,
                                   display: 'Close side panel',
                                   executor: () => {
                                       actions.closeSidePanel()

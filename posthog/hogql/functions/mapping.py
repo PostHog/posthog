@@ -539,6 +539,8 @@ HOGQL_CLICKHOUSE_FUNCTIONS: Dict[str, HogQLFunctionMeta] = {
     "formatReadableSize": HogQLFunctionMeta("formatReadableSize", 1, 1),
     "formatReadableQuantity": HogQLFunctionMeta("formatReadableQuantity", 1, 1),
     "formatReadableTimeDelta": HogQLFunctionMeta("formatReadableTimeDelta", 1, 2),
+    "least": HogQLFunctionMeta("least", 2, 2),
+    "greatest": HogQLFunctionMeta("greatest", 2, 2),
     # time window
     "tumble": HogQLFunctionMeta("tumble", 2, 2),
     "hop": HogQLFunctionMeta("hop", 3, 3),

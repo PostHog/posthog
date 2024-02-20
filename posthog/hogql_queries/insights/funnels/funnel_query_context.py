@@ -13,6 +13,7 @@ from posthog.schema import (
     FunnelsFilter,
     FunnelsQuery,
     HogQLQueryModifiers,
+    IntervalType,
 )
 
 
@@ -20,6 +21,8 @@ class FunnelQueryContext(QueryContext):
     query: FunnelsQuery
     funnelsFilter: FunnelsFilter
     breakdownFilter: BreakdownFilter
+
+    interval: IntervalType
 
     breakdown: List[Union[str, int]] | None
     breakdownType: BreakdownType
@@ -42,6 +45,8 @@ class FunnelQueryContext(QueryContext):
         self.breakdownFilter = self.query.breakdownFilter or BreakdownFilter()
 
         # defaults
+        self.interval = self.query.interval or IntervalType.day
+
         self.breakdownType = self.breakdownFilter.breakdown_type or BreakdownType.event
         self.breakdownAttributionType = (
             self.funnelsFilter.breakdownAttributionType or BreakdownAttributionType.first_touch

@@ -1,10 +1,10 @@
 import './CohortCriteriaGroups.scss'
 
+import { IconCopy, IconPlusSmall, IconTrash } from '@posthog/icons'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { Group } from 'kea-forms'
 import { Field as KeaField } from 'kea-forms/lib/components'
-import { IconCopy, IconDelete, IconPlusMini } from 'lib/lemon-ui/icons'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
@@ -56,7 +56,7 @@ export function CohortCriteriaGroups(logicProps: CohortLogicProps): JSX.Element 
                                             />
                                             {cohort.filters.properties.values.length > 1 && (
                                                 <LemonButton
-                                                    icon={<IconDelete />}
+                                                    icon={<IconTrash />}
                                                     onClick={() => removeFilter(groupIndex)}
                                                 />
                                             )}
@@ -91,7 +91,7 @@ export function CohortCriteriaGroups(logicProps: CohortLogicProps): JSX.Element 
                                                         data-attr="cohort-add-filter-group-criteria"
                                                         type="secondary"
                                                         onClick={() => addFilter(groupIndex)}
-                                                        icon={<IconPlusMini color="var(--primary)" />}
+                                                        icon={<IconPlusSmall color="var(--primary)" />}
                                                     >
                                                         Add criteria
                                                     </LemonButton>
@@ -110,7 +110,7 @@ export function CohortCriteriaGroups(logicProps: CohortLogicProps): JSX.Element 
                 className="mb-4 mt-4"
                 type="secondary"
                 onClick={() => addFilter()}
-                icon={<IconPlusMini color="var(--primary)" />}
+                icon={<IconPlusSmall color="var(--primary)" />}
                 fullWidth
             >
                 Add criteria group

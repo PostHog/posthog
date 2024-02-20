@@ -158,6 +158,21 @@ class BigQueryBatchExportInputs:
 
 
 @dataclass
+class HttpBatchExportInputs:
+    """Inputs for Http export workflow."""
+
+    batch_export_id: str
+    team_id: int
+    url: str
+    token: str
+    interval: str = "hour"
+    data_interval_end: str | None = None
+    exclude_events: list[str] | None = None
+    include_events: list[str] | None = None
+    batch_export_schema: BatchExportSchema | None = None
+
+
+@dataclass
 class NoOpInputs:
     """NoOp Workflow is used for testing, it takes a single argument to echo back."""
 
@@ -174,6 +189,7 @@ DESTINATION_WORKFLOWS = {
     "Postgres": ("postgres-export", PostgresBatchExportInputs),
     "Redshift": ("redshift-export", RedshiftBatchExportInputs),
     "BigQuery": ("bigquery-export", BigQueryBatchExportInputs),
+    "HTTP": ("http-export", HttpBatchExportInputs),
     "NoOp": ("no-op", NoOpInputs),
 }
 

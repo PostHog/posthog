@@ -1,4 +1,5 @@
 import { IconWarning } from '@posthog/icons'
+import { IconEllipsis, IconInfo, IconPlus } from '@posthog/icons'
 import {
     LemonBanner,
     LemonDialog,
@@ -17,7 +18,7 @@ import {
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
-import { IconEllipsis, IconErrorOutline, IconInfo, IconPlus } from 'lib/lemon-ui/icons'
+import { IconErrorOutline } from 'lib/lemon-ui/icons'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { capitalizeFirstLetter, humanFriendlyDetailedTime } from 'lib/utils'

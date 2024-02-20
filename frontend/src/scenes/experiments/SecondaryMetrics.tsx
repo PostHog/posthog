@@ -1,11 +1,11 @@
 import './Experiment.scss'
 
+import { IconPencil, IconTrash } from '@posthog/icons'
 import { LemonInput, LemonModal, LemonTable } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
 import { getSeriesColor } from 'lib/colors'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
-import { IconDelete, IconEdit } from 'lib/lemon-ui/icons'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { LemonTableColumns } from 'lib/lemon-ui/LemonTable'
@@ -81,7 +81,7 @@ export function SecondaryMetrics({
                     </div>
                     <div className="flex" onClick={(event) => event.stopPropagation()}>
                         <LemonButton
-                            icon={<IconEdit />}
+                            icon={<IconPencil />}
                             size="small"
                             onClick={() => openModalToEditSecondaryMetric(metric, idx)}
                         />
@@ -175,12 +175,12 @@ export function SecondaryMetrics({
                                     </div>
                                     <div className="flex">
                                         <LemonButton
-                                            icon={<IconEdit />}
+                                            icon={<IconPencil />}
                                             size="small"
                                             onClick={() => openModalToEditSecondaryMetric(metric, idx)}
                                         />
                                         <LemonButton
-                                            icon={<IconDelete />}
+                                            icon={<IconTrash />}
                                             size="small"
                                             onClick={() => deleteMetric(idx)}
                                         />

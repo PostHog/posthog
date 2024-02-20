@@ -802,6 +802,7 @@ export interface SessionPlayerData {
     start?: Dayjs
     end?: Dayjs
     fullyLoaded: boolean
+    sessionRecordingId: SessionRecordingId
 }
 
 export enum SessionRecordingUsageType {
