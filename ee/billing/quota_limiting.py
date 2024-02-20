@@ -105,13 +105,14 @@ def org_quota_limited_until(
     billing_period_end = round(dateutil.parser.isoparse(organization.usage["period"][1]).timestamp())
     quota_limiting_suspended_until = summary.get("quota_limiting_suspended_until", None)
     needs_save = False
-    trust_score = organization.trusted_customer_scores.get(resource)
+    trust_score = organization.trusted_customer_scores.get(resource.value)
 
     if not is_quota_limited:
         if quota_limiting_suspended_until:
             quota_limiting_suspended_until = None
             del summary["quota_limiting_suspended_until"]
             needs_save = True
+
             return {"quota_limited_until": None, "quota_limiting_suspended_until": None, "needs_save": needs_save}
         return None
 
@@ -120,15 +121,22 @@ def org_quota_limited_until(
 
     team_tokens = get_team_attribute_by_quota_resource(organization, resource)
     team_being_limited = any(x in previously_quota_limited_team_tokens for x in team_tokens)
-    if (
-        posthoganalytics.feature_enabled(
-            QUOTA_LIMIT_DATA_RETENTION_FLAG,
-            organization.id,
-            groups={"organization": str(organization.id)},
-            group_properties={"organization": {"id": str(organization.id)}},
-        )
-        and not team_being_limited  # Only suspend quota limiting for teams that are not already being limited.
+
+    if team_being_limited:
+        # They are already being limited, do not update their status.
+        return {
+            "quota_limited_until": billing_period_end,
+            "quota_limiting_suspended_until": None,
+            "needs_save": needs_save,
+        }
+
+    if posthoganalytics.feature_enabled(
+        QUOTA_LIMIT_DATA_RETENTION_FLAG,
+        organization.id,
+        groups={"organization": str(organization.id)},
+        group_properties={"organization": {"id": str(organization.id)}},
     ):
+        # Only suspend quota limiting for teams that are not already being limited.
         # Don't drop data for this org but record that they would have been limited.
         report_organization_action(
             organization, "quota limiting suspended", properties={"current_usage": usage + todays_usage}
@@ -146,14 +154,14 @@ def org_quota_limited_until(
             needs_save = True
         return {
             "quota_limited_until": billing_period_end,
-            "quota_limiing_suspended_until": None,
+            "quota_limiting_suspended_until": None,
             "needs_save": needs_save,
         }
     elif trust_score == 3:
         # Low trust, immediately limit
         return {
             "quota_limited_until": billing_period_end,
-            "quota_limiing_suspended_until": None,
+            "quota_limiting_suspended_until": None,
             "needs_save": needs_save,
         }
     elif trust_score == 7:
@@ -174,7 +182,15 @@ def org_quota_limited_until(
                 (today_end + timedelta(days=QUOTA_LIMIT_MEDIUM_TRUST_GRACE_PERIOD_DAYS)).timestamp()
             )
             needs_save = True
+
             summary["quota_limiting_suspended_until"] = quota_limiting_suspended_until
+            return {
+                "quota_limited_until": None,
+                "quota_limiting_suspended_until": quota_limiting_suspended_until,
+                "needs_save": needs_save,
+            }
+        elif today_end.timestamp() <= quota_limiting_suspended_until:
+            # Return existing quota limiting date
             return {
                 "quota_limited_until": None,
                 "quota_limiting_suspended_until": quota_limiting_suspended_until,
@@ -197,7 +213,6 @@ def org_quota_limited_until(
             quota_limiting_suspended_until = round(
                 (today_end + timedelta(days=QUOTA_LIMIT_MEDIUM_HIGH_TRUST_GRACE_PERIOD_DAYS)).timestamp()
             )
-
             needs_save = True
             summary["quota_limiting_suspended_until"] = quota_limiting_suspended_until
             return {
@@ -205,7 +220,13 @@ def org_quota_limited_until(
                 "quota_limiting_suspended_until": quota_limiting_suspended_until,
                 "needs_save": needs_save,
             }
-
+        elif today_end.timestamp() <= quota_limiting_suspended_until:
+            # Return existing quota limiting date
+            return {
+                "quota_limited_until": None,
+                "quota_limiting_suspended_until": quota_limiting_suspended_until,
+                "needs_save": needs_save,
+            }
     return {
         "quota_limited_until": billing_period_end,
         "quota_limiting_suspended_until": None,
@@ -227,7 +248,7 @@ def sync_org_quota_limits(organization: Organization):
 
         if result:
             quota_limited_until = result.get("quota_limited_until")
-            limiting_suspended_until = result.get("limiting_suspended_until")
+            limiting_suspended_until = result.get("quota_limiting_suspended_until")
             needs_save = result.get("needs_save")
             if needs_save:
                 organization.save(update_fields=["usage"])
@@ -238,10 +259,10 @@ def sync_org_quota_limits(organization: Organization):
                     {x: quota_limited_until for x in team_attributes},
                     QuotaLimitingCaches.QUOTA_LIMITER_CACHE_KEY,
                 )
-            elif limiting_suspended_until and limiting_suspended_until >= today_end:
+            elif limiting_suspended_until and limiting_suspended_until >= today_end.timestamp():
                 add_limited_team_tokens(
                     resource,
-                    {x: quota_limited_until for x in team_attributes},
+                    {x: limiting_suspended_until for x in team_attributes},
                     QuotaLimitingCaches.QUOTA_LIMITING_SUSPENDED_KEY,
                 )
             else:
@@ -386,7 +407,7 @@ def update_all_org_billing_quotas(dry_run: bool = False) -> Dict[str, Dict[str, 
                 result = org_quota_limited_until(org, QuotaResource(field), previously_quota_limited_team_tokens[field])
                 if result:
                     quota_limited_until = result.get("quota_limited_until")
-                    limiting_suspended_until = result.get("limiting_suspended_until")
+                    limiting_suspended_until = result.get("quota_limiting_suspended_until")
                     needs_save = result.get("needs_save")
                     if needs_save:
                         org.save(update_fields=["usage"])
@@ -436,7 +457,9 @@ def update_all_org_billing_quotas(dry_run: bool = False) -> Dict[str, Dict[str, 
             )
         for field in quota_limiting_suspended_teams:
             replace_limited_team_tokens(
-                QuotaResource(field), quota_limited_teams[field], QuotaLimitingCaches.QUOTA_LIMITING_SUSPENDED_KEY
+                QuotaResource(field),
+                quota_limiting_suspended_teams[field],
+                QuotaLimitingCaches.QUOTA_LIMITING_SUSPENDED_KEY,
             )
 
-    return quota_limited_orgs
+    return quota_limited_orgs, quota_limiting_suspended_orgs
