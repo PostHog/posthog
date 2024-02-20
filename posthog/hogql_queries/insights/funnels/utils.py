@@ -2,7 +2,6 @@ from typing import List
 from posthog.constants import FUNNEL_WINDOW_INTERVAL_TYPES
 from posthog.hogql import ast
 from posthog.hogql.parser import parse_expr
-from posthog.hogql_queries.insights.funnels.funnel_persons import FunnelActors
 from posthog.schema import FunnelConversionWindowTimeUnit, FunnelVizType, FunnelsFilter, StepOrderValue
 from rest_framework.exceptions import ValidationError
 
@@ -24,6 +23,8 @@ def get_funnel_order_class(funnelsFilter: FunnelsFilter):
 
 
 def get_funnel_actor_class(funnelsFilter: FunnelsFilter):
+    from posthog.hogql_queries.insights.funnels.funnel_persons import FunnelActors
+
     # if filter.correlation_person_entity and EE_AVAILABLE:
     if False:
         if EE_AVAILABLE:
