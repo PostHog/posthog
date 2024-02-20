@@ -1311,6 +1311,7 @@ export type BillingV2FeatureType = {
     key: AvailableFeatureUnion
     name: string
     description?: string | null
+    docsUrl?: string | null
     limit?: number | null
     note?: string | null
     unit?: string | null
@@ -1434,6 +1435,7 @@ export interface BillingV2PlanType {
     tiers?: BillingV2TierType[] | null
     included_if?: 'no_active_subscription' | 'has_subscription' | null
     initial_billing_limit?: number
+    contact_support?: boolean
 }
 
 export interface PlanInterface {
