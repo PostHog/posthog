@@ -43,8 +43,8 @@ export function FunnelTooltip({
     return (
         <div className="FunnelTooltip InsightTooltip p-2">
             <LemonRow icon={<Lettermark name={stepIndex + 1} color={LettermarkColor.Gray} />} fullWidth>
-                <strong className="flex items-center flex-wrap">
-                    <EntityFilterInfo filter={getActionFilterFromFunnelStep(series)} />
+                <strong>
+                    <EntityFilterInfo filter={getActionFilterFromFunnelStep(series)} allowWrap />
                     <span className="mx-1">•</span>
                     {formatBreakdownLabel(
                         cohorts,

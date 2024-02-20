@@ -48,5 +48,8 @@ Default.args = {}
 
 export const WithLongName: Story = BasicTemplate.bind({})
 WithLongName.args = {
-    series: { ...step, custom_name: 'with a very very very long custom name' },
+    series: {
+        ...step,
+        custom_name: 'with a very very very very very very very very very very very very long custom name',
+    },
 }
