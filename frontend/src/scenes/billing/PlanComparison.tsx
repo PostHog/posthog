@@ -167,19 +167,11 @@ export const PlanComparison = ({
                     </div>
 
                     <div className="col-span-4 bg-accent/50 dark:bg-black/75 px-3 py-2 text-sm">
-                        {/* {row.tooltip ? ( */}
                         <Tooltip title="The starting price for this plan, plus usage-based pricing">
                             <strong className="border-b border-dashed border-light dark:border-dark cursor-help text-opacity-75">
                                 Monthly base price
                             </strong>
                         </Tooltip>
-                        {/*
-                        ) : (
-                            <strong className="text-primary/75 dark:text-primary-dark/75">
-                                {row.key}
-                            </strong>
-                        )}
-                        */}
                     </div>
 
                     {plans?.map((plan) => (
