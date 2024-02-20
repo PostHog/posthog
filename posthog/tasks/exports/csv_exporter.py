@@ -23,7 +23,7 @@ from ...constants import CSV_EXPORT_LIMIT
 from ...hogql.query import LimitContext
 
 CSV_EXPORT_BREAKDOWN_LIMIT_INITIAL = 512
-CSV_EXPORT_BREAKDOWN_LIMIT_LOW = 32  # The lowest limit we want to go to
+CSV_EXPORT_BREAKDOWN_LIMIT_LOW = 64  # The lowest limit we want to go to
 
 logger = structlog.get_logger(__name__)
 

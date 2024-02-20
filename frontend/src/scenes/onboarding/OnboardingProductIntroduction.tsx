@@ -118,6 +118,9 @@ const PricingSection = ({ product }: { product: BillingProductV2Type }): JSX.Ele
     const { currentAndUpgradePlans, isPricingModalOpen } = useValues(billingProductLogic({ product: product }))
     const { toggleIsPricingModalOpen } = useActions(billingProductLogic({ product: product }))
     const planForStats = currentAndUpgradePlans.upgradePlan || currentAndUpgradePlans.currentPlan
+    if (!planForStats) {
+        return <></>
+    }
     const pricingListItems = [
         planForStats.tiers?.[0].up_to && (
             <>

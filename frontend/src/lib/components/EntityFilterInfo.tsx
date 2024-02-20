@@ -23,9 +23,12 @@ export function EntityFilterInfo({
 }: EntityFilterInfoProps): JSX.Element {
     if (isAllEventsEntityFilter(filter) && !filter?.custom_name) {
         return (
-            <div className="EntityFilterInfo whitespace-nowrap max-w-100" title="All events">
+            <span
+                className={clsx('EntityFilterInfo max-w-100', !allowWrap && 'whitespace-nowrap truncate')}
+                title="All events"
+            >
                 All events
-            </div>
+            </span>
         )
     }
 
@@ -37,13 +40,13 @@ export function EntityFilterInfo({
     if (!filter?.custom_name) {
         return (
             // eslint-disable-next-line react/forbid-dom-props
-            <span className="flex items-center" style={style}>
-                <div
-                    className={clsx('EntityFilterInfo whitespace-nowrap max-w-100', !allowWrap && 'truncate')}
+            <span className={!allowWrap ? 'flex items-center' : ''} style={style}>
+                <span
+                    className={clsx('EntityFilterInfo max-w-100', !allowWrap && 'whitespace-nowrap truncate')}
                     title={titleToDisplay}
                 >
                     {titleToDisplay}
-                </div>
+                </span>
             </span>
         )
     }
@@ -53,20 +56,20 @@ export function EntityFilterInfo({
 
     return (
         // eslint-disable-next-line react/forbid-dom-props
-        <span className="flex items-center" style={style}>
-            <div
-                className={clsx('EntityFilterInfo whitespace-nowrap max-w-100', !allowWrap && 'truncate')}
+        <span className={!allowWrap ? 'flex items-center' : ''} style={style}>
+            <span
+                className={clsx('EntityFilterInfo max-w-100', !allowWrap && 'whitespace-nowrap truncate')}
                 title={customTitle ?? undefined}
             >
                 {customTitle}
-            </div>
+            </span>
             {!showSingleName && (
-                <div
-                    className={clsx('EntityFilterInfo whitespace-nowrap max-w-100 ml-1', !allowWrap && 'truncate')}
+                <span
+                    className={clsx('EntityFilterInfo max-w-100 ml-1', !allowWrap && 'whitespace-nowrap truncate')}
                     title={titleToDisplay}
                 >
                     ({titleToDisplay})
-                </div>
+                </span>
             )}
         </span>
     )
