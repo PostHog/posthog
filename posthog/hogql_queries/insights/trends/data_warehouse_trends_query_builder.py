@@ -189,63 +189,14 @@ class DataWarehouseTrendsQueryBuilder:
             return default_query
         # Both breakdowns and complex series aggregation
         elif breakdown.enabled and self._aggregation_operation.requires_query_orchestration():
-            orchestrator = self._aggregation_operation.get_query_orchestrator(
-                events_where_clause=events_filter,
-                sample_value=self._sample_value(),
+            raise NotImplementedError(
+                "Breakdowns and complex series aggregation are not supported for Data Warehouse queries"
             )
-
-            if is_actors_query:
-                orchestrator.events_query_builder.append_select(
-                    ast.Alias(alias="person_id", expr=ast.Field(chain=["e", "person", "id"]))
-                )
-                orchestrator.inner_select_query_builder.append_select(ast.Field(chain=["person_id"]))
-                orchestrator.parent_select_query_builder.append_select(ast.Field(chain=["person_id"]))
-            else:
-                orchestrator.events_query_builder.append_select(breakdown.column_expr())
-                orchestrator.events_query_builder.append_group_by(ast.Field(chain=["breakdown_value"]))
-
-                orchestrator.inner_select_query_builder.append_select(ast.Field(chain=["breakdown_value"]))
-                orchestrator.inner_select_query_builder.append_group_by(ast.Field(chain=["breakdown_value"]))
-
-                orchestrator.parent_select_query_builder.append_select(ast.Field(chain=["breakdown_value"]))
-
-            if (
-                self._aggregation_operation.should_aggregate_values
-                and not self._aggregation_operation.is_count_per_actor_variant()
-                and not is_actors_query
-            ):
-                orchestrator.parent_select_query_builder.append_group_by(ast.Field(chain=["breakdown_value"]))
-
-            return orchestrator.build()
         # Breakdowns and session duration math property
         elif breakdown.enabled and self._aggregation_operation.aggregating_on_session_duration():
-            default_query.select = [
-                ast.Alias(
-                    alias="session_duration", expr=ast.Call(name="any", args=[ast.Field(chain=["session", "duration"])])
-                ),
-                breakdown.column_expr(),
-            ]
-
-            default_query.group_by.extend([ast.Field(chain=["session", "id"]), ast.Field(chain=["breakdown_value"])])
-
-            wrapper = self.session_duration_math_property_wrapper(default_query)
-            assert wrapper.group_by is not None
-
-            if not self._trends_display.should_aggregate_values() and not is_actors_query:
-                default_query.select.append(day_start)
-                default_query.group_by.append(ast.Field(chain=["day_start"]))
-
-                wrapper.select.append(ast.Field(chain=["day_start"]))
-                wrapper.group_by.append(ast.Field(chain=["day_start"]))
-
-            if is_actors_query:
-                default_query.select.append(ast.Alias(alias="person_id", expr=ast.Field(chain=["e", "person", "id"])))
-                wrapper.select.append(ast.Field(chain=["person_id"]))
-            else:
-                wrapper.select.append(ast.Field(chain=["breakdown_value"]))
-                wrapper.group_by.append(ast.Field(chain=["breakdown_value"]))
-
-            return wrapper
+            raise NotImplementedError(
+                "Breakdowns and session duration math property are not supported for Data Warehouse queries"
+            )
         # Just breakdowns
         elif breakdown.enabled:
             if not is_actors_query:
@@ -253,44 +204,10 @@ class DataWarehouseTrendsQueryBuilder:
                 default_query.group_by.append(ast.Field(chain=["breakdown_value"]))
         # Just session duration math property
         elif self._aggregation_operation.aggregating_on_session_duration():
-            default_query.select = [
-                ast.Alias(
-                    alias="session_duration", expr=ast.Call(name="any", args=[ast.Field(chain=["session", "duration"])])
-                )
-            ]
-            default_query.group_by.append(ast.Field(chain=["session", "id"]))
-
-            wrapper = self.session_duration_math_property_wrapper(default_query)
-
-            if not self._trends_display.should_aggregate_values() and not is_actors_query:
-                assert wrapper.group_by is not None
-
-                default_query.select.append(day_start)
-                default_query.group_by.append(ast.Field(chain=["day_start"]))
-
-                wrapper.select.append(ast.Field(chain=["day_start"]))
-                wrapper.group_by.append(ast.Field(chain=["day_start"]))
-
-            if is_actors_query:
-                default_query.select.append(ast.Alias(alias="person_id", expr=ast.Field(chain=["e", "person", "id"])))
-                wrapper.select.append(ast.Field(chain=["person_id"]))
-
-            return wrapper
+            raise NotImplementedError("Session duration math property is not supported for Data Warehouse queries")
         # Just complex series aggregation
         elif self._aggregation_operation.requires_query_orchestration():
-            orchestrator = self._aggregation_operation.get_query_orchestrator(
-                events_where_clause=events_filter,
-                sample_value=self._sample_value(),
-            )
-
-            if is_actors_query:
-                orchestrator.events_query_builder.append_select(
-                    ast.Alias(alias="person_id", expr=ast.Field(chain=["e", "person", "id"]))
-                )
-                orchestrator.inner_select_query_builder.append_select(ast.Field(chain=["person_id"]))
-                orchestrator.parent_select_query_builder.append_select(ast.Field(chain=["person_id"]))
-
-            return orchestrator.build()
+            raise NotImplementedError("Complex series aggregation is not supported for Data Warehouse queries")
 
         return default_query
 
@@ -464,31 +381,6 @@ class DataWarehouseTrendsQueryBuilder:
 
         return ast.And(exprs=filters)
 
-    # TODO: remove this
-    def _sample_value(self) -> ast.RatioExpr:
-        if self.query.samplingFactor is None:
-            return ast.RatioExpr(left=ast.Constant(value=1))
-
-        return ast.RatioExpr(left=ast.Constant(value=self.query.samplingFactor))
-
-    def session_duration_math_property_wrapper(self, default_query: ast.SelectQuery) -> ast.SelectQuery:
-        query = cast(
-            ast.SelectQuery,
-            parse_select(
-                """
-                    SELECT {aggregation_operation} AS total
-                    FROM {default_query}
-                """,
-                placeholders={
-                    "aggregation_operation": self._aggregation_operation.select_aggregation(),
-                    "default_query": default_query,
-                },
-            ),
-        )
-
-        query.group_by = []
-        return query
-
     def _breakdown(self, is_actors_query: bool, breakdown_values_override: Optional[str | int] = None):
         return Breakdown(
             team=self.team,
@@ -508,6 +400,9 @@ class DataWarehouseTrendsQueryBuilder:
 
     @cached_property
     def _aggregation_operation(self) -> AggregationOperations:
+        if self.series.math is not None and self.series.math != "total":
+            raise NotImplementedError("Math types other than total are not supported for Data Warehouse queries")
+
         return AggregationOperations(
             self.team, self.series, self.query_date_range, self._trends_display.should_aggregate_values()
         )
