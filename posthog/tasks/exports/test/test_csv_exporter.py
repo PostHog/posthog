@@ -24,6 +24,7 @@ from posthog.tasks.exports import csv_exporter
 from posthog.tasks.exports.csv_exporter import (
     UnexpectedEmptyJsonResponse,
     add_query_params,
+    CSV_EXPORT_BREAKDOWN_LIMIT_INITIAL,
 )
 from posthog.test.base import APIBaseTest, _create_event, flush_persons_and_events
 from posthog.utils import absolute_uri
@@ -242,7 +243,7 @@ class TestCSVExporter(APIBaseTest):
         mocked_request.assert_called_with(
             method="get",
             url="http://testserver/" + path,
-            params={"breakdown_limit": 200, "is_csv_export": "1"},
+            params={"breakdown_limit": CSV_EXPORT_BREAKDOWN_LIMIT_INITIAL, "is_csv_export": "1"},
             timeout=60,
             json=None,
             headers=ANY,
@@ -274,7 +275,7 @@ class TestCSVExporter(APIBaseTest):
                 csv_exporter.export_csv(exported_asset)
 
             assert patched_make_api_call.call_count == 4
-            patched_make_api_call.assert_called_with(mock.ANY, mock.ANY, 100, mock.ANY, mock.ANY, mock.ANY)
+            patched_make_api_call.assert_called_with(mock.ANY, mock.ANY, 64, mock.ANY, mock.ANY, mock.ANY)
 
     def test_limiting_query_as_expected(self) -> None:
         with self.settings(SITE_URL="https://app.posthog.com"):
