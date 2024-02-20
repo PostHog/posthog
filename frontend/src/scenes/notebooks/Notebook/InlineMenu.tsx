@@ -1,9 +1,10 @@
+import { IconTrash } from '@posthog/icons'
 import { LemonButton, LemonDivider, LemonInput } from '@posthog/lemon-ui'
 import { Editor, isTextSelection } from '@tiptap/core'
 import { BubbleMenu } from '@tiptap/react'
 import { useActions } from 'kea'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
-import { IconBold, IconComment, IconDelete, IconItalic, IconLink, IconOpenInNew } from 'lib/lemon-ui/icons'
+import { IconBold, IconComment, IconItalic, IconLink, IconOpenInNew } from 'lib/lemon-ui/icons'
 import { isURL, uuid } from 'lib/utils'
 import { useRef } from 'react'
 
@@ -62,7 +63,7 @@ export const InlineMenu = ({ editor }: { editor: Editor }): JSX.Element => {
                         />
                         <LemonButton
                             onClick={() => editor.chain().focus().unsetMark('link').run()}
-                            icon={<IconDelete />}
+                            icon={<IconTrash />}
                             status="danger"
                             size="small"
                         />

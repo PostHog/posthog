@@ -499,6 +499,16 @@ class TrendsQueryBuilder:
                 if breakdown_filter is not None:
                     filters.append(breakdown_filter)
 
+        # Ignore empty groups
+        if series.math == "unique_group" and series.math_group_type_index is not None:
+            filters.append(
+                ast.CompareOperation(
+                    op=ast.CompareOperationOp.NotEq,
+                    left=ast.Field(chain=["e", f"$group_{int(series.math_group_type_index)}"]),
+                    right=ast.Constant(value=""),
+                )
+            )
+
         if len(filters) == 0:
             return ast.Constant(value=True)
 

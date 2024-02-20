@@ -1,14 +1,19 @@
 from typing import cast
 
 from django.db.models import Model
+from django.core.exceptions import ImproperlyConfigured
+
+from rest_framework.exceptions import PermissionDenied
+from rest_framework.exceptions import NotFound
 from rest_framework.permissions import SAFE_METHODS, BasePermission, IsAdminUser
 from rest_framework.request import Request
 from rest_framework.views import APIView
-from posthog.auth import SharingAccessTokenAuthentication
+from posthog.auth import PersonalAPIKeyAuthentication, SharingAccessTokenAuthentication
 
 from posthog.cloud_utils import is_cloud
 from posthog.exceptions import EnterpriseFeatureException
 from posthog.models import Organization, OrganizationMembership, Team, User
+from posthog.models.personal_api_key import APIScopeObjectOrNotSupported
 from posthog.utils import get_can_create_org
 
 CREATE_METHODS = ["POST", "PUT"]
@@ -137,6 +142,9 @@ class TeamMemberAccessPermission(BasePermission):
             view.team  # noqa: B018
         except Team.DoesNotExist:
             return True  # This will be handled as a 404 in the viewset
+
+        # NOTE: The naming here is confusing - "current_team" refers to the team that the user_permissions was initialized with
+        # - not the "current_team" property of the user
         requesting_level = view.user_permissions.current_team.effective_membership_level
         return requesting_level is not None
 
@@ -228,6 +236,116 @@ class SharingTokenPermission(BasePermission):
         ), "SharingTokenPermission requires the `sharing_enabled_actions` attribute to be set in the view"
 
         if isinstance(request.successful_authenticator, SharingAccessTokenAuthentication):
+            try:
+                view.team  # noqa: B018
+                if request.successful_authenticator.sharing_configuration.team != view.team:
+                    return False
+            except NotFound:
+                return False
+
             return view.action in view.sharing_enabled_actions
 
         return False
+
+
+class APIScopePermission(BasePermission):
+    """
+    The request is via an API key and the user has the appropriate scopes.
+
+    This permission requires that the view has a "scope" attribute which is the base scope required for the action.
+    E.g. scope="insight" for a view that requires "insight:read" or "insight:write" for the relevant actions.
+
+    Actions can override this default scope by setting the `required_scopes` attribute on the view method.
+
+    """
+
+    write_actions: list[str] = ["create", "update", "partial_update", "destroy"]
+    read_actions: list[str] = ["list", "retrieve"]
+    scope_object_read_actions: list[str] = []
+    scope_object_write_actions: list[str] = []
+
+    def has_permission(self, request, view) -> bool:
+        # NOTE: We do this first to error out quickly if the view is missing the required attribute
+        # Helps devs remember to add it.
+        self.get_scope_object(request, view)
+
+        # API Scopes currently only apply to PersonalAPIKeyAuthentication
+        if not isinstance(request.successful_authenticator, PersonalAPIKeyAuthentication):
+            return True
+
+        key_scopes = request.successful_authenticator.personal_api_key.scopes
+
+        # TRICKY: Legacy API keys have no scopes and are allowed to do anything, even if the view is unsupported.
+        if not key_scopes:
+            return True
+
+        required_scopes = self.get_required_scopes(request, view)
+        self.check_team_and_org_permissions(request, view)
+
+        if "*" in key_scopes:
+            return True
+
+        for required_scope in required_scopes:
+            valid_scopes = [required_scope]
+
+            # For all valid scopes with :read we also add :write
+            if required_scope.endswith(":read"):
+                valid_scopes.append(required_scope.replace(":read", ":write"))
+
+            if not any(scope in key_scopes for scope in valid_scopes):
+                self.message = f"API key missing required scope '{required_scope}'"
+                return False
+
+        return True
+
+    def check_team_and_org_permissions(self, request, view) -> None:
+        scoped_organizations = request.successful_authenticator.personal_api_key.scoped_organizations
+        scoped_teams = request.successful_authenticator.personal_api_key.scoped_teams
+
+        if scoped_teams:
+            try:
+                team = view.team
+                if team.id not in scoped_teams:
+                    raise PermissionDenied(f"API key does not have access to the requested project '{team.id}'")
+            except (ValueError, KeyError):
+                raise PermissionDenied(f"API key with scoped projects are only supported on project-based views.")
+
+        if scoped_organizations:
+            try:
+                organization = get_organization_from_view(view)
+                if str(organization.id) not in scoped_organizations:
+                    raise PermissionDenied(
+                        f"API key does not have access to the requested organization '{organization.id}'"
+                    )
+            except ValueError:
+                # Indicates this is not an organization scoped view
+                pass
+
+    def get_required_scopes(self, request, view) -> list[str]:
+        # If required_scopes is set on the view method then use that
+        # Otherwise use the scope_object and derive the required scope from the action
+        if getattr(view, "required_scopes", None):
+            return view.required_scopes
+
+        scope_object = self.get_scope_object(request, view)
+
+        if scope_object == "INTERNAL":
+            raise PermissionDenied(f"This action does not support Personal API Key access")
+
+        read_actions = getattr(view, "scope_object_read_actions", self.read_actions)
+        write_actions = getattr(view, "scope_object_write_actions", self.write_actions)
+
+        if view.action in write_actions:
+            return [f"{scope_object}:write"]
+        elif view.action in read_actions or request.method == "OPTIONS":
+            return [f"{scope_object}:read"]
+
+        # If we get here this typically means an action was called without a required scope
+        # It is essentially "INTERNAL"
+        raise PermissionDenied(f"This action does not support Personal API Key access")
+
+    def get_scope_object(self, request, view) -> APIScopeObjectOrNotSupported:
+        if not getattr(view, "scope_object", None):
+            raise ImproperlyConfigured("APIScopePermission requires the view to define the scope_object attribute.")
+
+        return view.scope_object

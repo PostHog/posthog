@@ -4,21 +4,15 @@ import jwt
 from django.db.models import QuerySet
 from django.http import HttpRequest, JsonResponse
 from rest_framework import serializers, viewsets
-from rest_framework.authentication import BasicAuthentication, SessionAuthentication
 from rest_framework.exceptions import ValidationError
-from rest_framework.permissions import IsAuthenticated
 
 from ee.tasks import subscriptions
 from posthog.api.forbid_destroy_model import ForbidDestroyModel
-from posthog.api.routing import StructuredViewSetMixin
+from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
-from posthog.auth import PersonalAPIKeyAuthentication
 from posthog.constants import AvailableFeature
 from posthog.models.subscription import Subscription, unsubscribe_using_token
-from posthog.permissions import (
-    PremiumFeaturePermission,
-    TeamMemberAccessPermission,
-)
+from posthog.permissions import PremiumFeaturePermission
 from posthog.utils import str_to_bool
 
 
@@ -95,20 +89,11 @@ class SubscriptionSerializer(serializers.ModelSerializer):
         return instance
 
 
-class SubscriptionViewSet(StructuredViewSetMixin, ForbidDestroyModel, viewsets.ModelViewSet):
+class SubscriptionViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.ModelViewSet):
+    scope_object = "subscription"
     queryset = Subscription.objects.all()
     serializer_class = SubscriptionSerializer
-
-    authentication_classes = [
-        PersonalAPIKeyAuthentication,
-        SessionAuthentication,
-        BasicAuthentication,
-    ]
-    permission_classes = [
-        IsAuthenticated,
-        PremiumFeaturePermission,
-        TeamMemberAccessPermission,
-    ]
+    permission_classes = [PremiumFeaturePermission]
     premium_feature = AvailableFeature.SUBSCRIPTIONS
 
     def get_queryset(self) -> QuerySet:

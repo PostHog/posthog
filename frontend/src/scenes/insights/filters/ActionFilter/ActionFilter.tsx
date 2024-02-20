@@ -3,10 +3,10 @@ import './ActionFilter.scss'
 import { DndContext } from '@dnd-kit/core'
 import { restrictToParentElement, restrictToVerticalAxis } from '@dnd-kit/modifiers'
 import { SortableContext, verticalListSortingStrategy } from '@dnd-kit/sortable'
+import { IconPlusSmall } from '@posthog/icons'
 import clsx from 'clsx'
 import { BindLogic, useActions, useValues } from 'kea'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
-import { IconPlusMini } from 'lib/lemon-ui/icons'
 import { LemonButton, LemonButtonProps } from 'lib/lemon-ui/LemonButton'
 import { verticalSortableListCollisionDetection } from 'lib/sortable'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
@@ -218,7 +218,7 @@ export const ActionFilter = React.forwardRef<HTMLDivElement, ActionFilterProps>(
                             type={buttonType}
                             onClick={() => addFilter()}
                             data-attr="add-action-event-button"
-                            icon={<IconPlusMini />}
+                            icon={<IconPlusSmall />}
                             disabled={reachedLimit || disabled || readOnly}
                             {...buttonProps}
                         >

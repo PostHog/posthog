@@ -24,7 +24,6 @@ export const NON_VALUES_ON_SERIES_DISPLAY_TYPES = [
 /** Display types for which a percent stack view is available. */
 export const PERCENT_STACK_VIEW_DISPLAY_TYPE = [
     ChartDisplayType.ActionsBar,
-    ChartDisplayType.ActionsLineGraph,
     ChartDisplayType.ActionsAreaGraph,
     ChartDisplayType.ActionsPie,
 ]
@@ -147,7 +146,6 @@ export const FEATURE_FLAGS = {
     QUERY_TIMINGS: 'query-timings', // owner: @mariusandra
     QUERY_ASYNC: 'query-async', // owner: @webjunkie
     POSTHOG_3000_NAV: 'posthog-3000-nav', // owner: @Twixes
-    POSTHOG_3000_WELCOME_ANNOUNCEMENT: 'posthog-3000-welcome-announcement', // owner: #posthog-3000
     ENABLE_PROMPTS: 'enable-prompts', // owner: @lharries
     HEDGEHOG_MODE: 'hedgehog-mode', // owner: @benjackwhite
     HEDGEHOG_MODE_DEBUG: 'hedgehog-mode-debug', // owner: @benjackwhite
@@ -207,6 +205,7 @@ export const FEATURE_FLAGS = {
     PRODUCT_INTRO_PAGES: 'product-intro-pages', // owner: @raquelmsmith
     DATANODE_CONCURRENCY_LIMIT: 'datanode-concurrency-limit', // owner: @robbie-c
     SESSION_REPLAY_DOCTOR: 'session-replay-doctor', // owner: #team-replay
+    SAVED_NOT_PINNED: 'saved-not-pinned', // owner: #team-replay
 } as const
 export type FeatureFlagKey = (typeof FEATURE_FLAGS)[keyof typeof FEATURE_FLAGS]
 

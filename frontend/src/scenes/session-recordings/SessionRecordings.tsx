@@ -1,3 +1,4 @@
+import { IconGear } from '@posthog/icons'
 import { LemonButton } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
@@ -5,7 +6,6 @@ import { authorizedUrlListLogic, AuthorizedUrlListType } from 'lib/components/Au
 import { PageHeader } from 'lib/components/PageHeader'
 import { VersionCheckerBanner } from 'lib/components/VersionChecker/VersionCheckerBanner'
 import { useAsyncHandler } from 'lib/hooks/useAsyncHandler'
-import { IconSettings } from 'lib/lemon-ui/icons'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
 import { Spinner } from 'lib/lemon-ui/Spinner/Spinner'
@@ -96,7 +96,7 @@ export function SessionsRecordings(): JSX.Element {
                                 </LemonButton>
                                 <LemonButton
                                     type="secondary"
-                                    icon={<IconSettings />}
+                                    icon={<IconGear />}
                                     onClick={() => openSettingsPanel({ sectionId: 'project-replay' })}
                                 >
                                     Configure
@@ -143,7 +143,7 @@ export function SessionsRecordings(): JSX.Element {
                         type="info"
                         action={{
                             type: 'secondary',
-                            icon: <IconSettings />,
+                            icon: <IconGear />,
                             onClick: () => openSettingsPanel({ sectionId: 'project-replay' }),
                             children: 'Configure',
                         }}
@@ -157,7 +157,7 @@ export function SessionsRecordings(): JSX.Element {
                         type="warning"
                         action={{
                             type: 'secondary',
-                            icon: <IconSettings />,
+                            icon: <IconGear />,
                             onClick: () => openSettingsPanel({ sectionId: 'project-replay' }),
                             children: 'Configure',
                         }}

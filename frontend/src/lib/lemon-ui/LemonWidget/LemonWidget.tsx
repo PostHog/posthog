@@ -1,8 +1,8 @@
 import './LemonWidget.scss'
 
+import { IconX } from '@posthog/icons'
 import clsx from 'clsx'
 
-import { IconClose } from '../icons'
 import { LemonButton } from '../LemonButton'
 
 export interface LemonWidgetProps {
@@ -20,7 +20,7 @@ export function LemonWidget({ title, onClose, actions, children, className }: Le
                 <span className="flex-1 text-primary-alt px-2 truncate">{title}</span>
                 {actions}
 
-                {onClose && <LemonButton status="danger" onClick={onClose} size="small" icon={<IconClose />} />}
+                {onClose && <LemonButton status="danger" onClick={onClose} size="small" icon={<IconX />} />}
             </Header>
             <Content>{children}</Content>
         </Widget>

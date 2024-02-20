@@ -4,52 +4,63 @@ from typing import Any, Dict, List, Optional, Type, cast
 
 from django.core.cache import cache
 from django.shortcuts import get_object_or_404
+from loginas.utils import is_impersonated_session
 from rest_framework import (
     exceptions,
-    permissions,
     request,
     response,
     serializers,
     viewsets,
 )
+from rest_framework.permissions import BasePermission, IsAuthenticated
 from rest_framework.decorators import action
 from posthog.api.geoip import get_geoip_properties
+from posthog.api.routing import TeamAndOrgViewSetMixin
 
 from posthog.api.shared import TeamBasicSerializer
 from posthog.constants import AvailableFeature
 from posthog.event_usage import report_user_action
-from posthog.models import InsightCachingState, Organization, Team, User
+from posthog.models import InsightCachingState, Team, User
+from posthog.models.activity_logging.activity_log import (
+    log_activity,
+    Detail,
+    Change,
+    load_activity,
+    dict_changes_between,
+)
+from posthog.models.activity_logging.activity_page import activity_page_response
 from posthog.models.async_deletion import AsyncDeletion, DeletionType
 from posthog.models.group_type_mapping import GroupTypeMapping
 from posthog.models.organization import OrganizationMembership
+from posthog.models.personal_api_key import APIScopeObjectOrNotSupported
 from posthog.models.signals import mute_selected_signals
-from posthog.models.team.team import (
-    groups_on_events_querying_enabled,
-    set_team_in_cache,
-)
+from posthog.models.team.team import groups_on_events_querying_enabled, set_team_in_cache
 from posthog.models.team.util import delete_batch_exports, delete_bulky_postgres_data
-from posthog.models.utils import generate_random_token_project
+from posthog.models.utils import generate_random_token_project, UUIDT
 from posthog.permissions import (
     CREATE_METHODS,
+    APIScopePermission,
     OrganizationAdminWritePermissions,
     OrganizationMemberPermissions,
     TeamMemberLightManagementPermission,
     TeamMemberStrictManagementPermission,
+    get_organization_from_view,
 )
 from posthog.tasks.demo_create_data import create_data_for_demo_team
 from posthog.user_permissions import UserPermissions, UserPermissionsSerializerMixin
 from posthog.utils import get_ip_address, get_week_start_for_country_code
 
 
-class PremiumMultiProjectPermissions(permissions.BasePermission):
+class PremiumMultiProjectPermissions(BasePermission):
     """Require user to have all necessary premium features on their plan for create access to the endpoint."""
 
     message = "You must upgrade your PostHog plan to be able to create and manage multiple projects."
 
     def has_permission(self, request: request.Request, view) -> bool:
-        user = cast(User, request.user)
         if request.method in CREATE_METHODS:
-            if user.organization is None:
+            try:
+                organization = get_organization_from_view(view)
+            except ValueError:
                 return False
 
             # if we're not requesting to make a demo project
@@ -57,8 +68,8 @@ class PremiumMultiProjectPermissions(permissions.BasePermission):
             # and the org isn't allowed to make multiple projects
             if (
                 ("is_demo" not in request.data or not request.data["is_demo"])
-                and user.organization.teams.exclude(is_demo=True).count() >= 1
-                and not user.organization.is_feature_available(AvailableFeature.ORGANIZATIONS_PROJECTS)
+                and organization.teams.exclude(is_demo=True).count() >= 1
+                and not organization.is_feature_available(AvailableFeature.ORGANIZATIONS_PROJECTS)
             ):
                 return False
 
@@ -67,7 +78,7 @@ class PremiumMultiProjectPermissions(permissions.BasePermission):
             if (
                 "is_demo" in request.data
                 and request.data["is_demo"]
-                and user.organization.teams.exclude(is_demo=False).count() > 0
+                and organization.teams.exclude(is_demo=False).count() > 0
             ):
                 return False
 
@@ -280,6 +291,18 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
         request.user.current_team = team
         request.user.team = request.user.current_team  # Update cached property
         request.user.save()
+
+        log_activity(
+            organization_id=organization.id,
+            team_id=team.pk,
+            user=request.user,
+            was_impersonated=is_impersonated_session(request),
+            scope="Team",
+            item_id=team.pk,
+            activity="created",
+            detail=Detail(name=str(team.name)),
+        )
+
         return team
 
     def _handle_timezone_update(self, team: Team) -> None:
@@ -288,25 +311,41 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
         cache.delete_many(hashes)
 
     def update(self, instance: Team, validated_data: Dict[str, Any]) -> Team:
+        before_update = instance.__dict__.copy()
+
         if "timezone" in validated_data and validated_data["timezone"] != instance.timezone:
             self._handle_timezone_update(instance)
 
         updated_team = super().update(instance, validated_data)
+        changes = dict_changes_between("Team", before_update, updated_team.__dict__, use_field_exclusions=True)
+
+        log_activity(
+            organization_id=cast(UUIDT, instance.organization_id),
+            team_id=instance.pk,
+            user=cast(User, self.context["request"].user),
+            was_impersonated=is_impersonated_session(request),
+            scope="Team",
+            item_id=instance.pk,
+            activity="updated",
+            detail=Detail(
+                name=str(instance.name),
+                changes=changes,
+            ),
+        )
+
         return updated_team
 
 
-class TeamViewSet(viewsets.ModelViewSet):
+class TeamViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     """
     Projects for the current organization.
     """
 
+    scope_object: APIScopeObjectOrNotSupported = "project"
     serializer_class = TeamSerializer
     queryset = Team.objects.all().select_related("organization")
-    permission_classes = [permissions.IsAuthenticated, PremiumMultiProjectPermissions]
     lookup_field = "id"
     ordering = "-created_by"
-    organization: Optional[Organization] = None
-    include_in_docs = True
 
     def get_queryset(self):
         # IMPORTANT: This is actually what ensures that a user cannot read/update a project for which they don't have permission
@@ -318,29 +357,26 @@ class TeamViewSet(viewsets.ModelViewSet):
             return TeamBasicSerializer
         return super().get_serializer_class()
 
-    def check_permissions(self, request):
-        if self.action and self.action == "create":
-            organization = getattr(self.request.user, "organization", None)
-            if not organization:
-                raise exceptions.ValidationError("You need to belong to an organization.")
-            # To be used later by OrganizationAdminWritePermissions and TeamSerializer
-            self.organization = organization
-
-        return super().check_permissions(request)
-
+    # NOTE: Team permissions are somewhat complex so we override the underlying viewset's get_permissions method
     def get_permissions(self) -> List:
         """
         Special permissions handling for create requests as the organization is inferred from the current user.
         """
 
-        base_permissions = [permission() for permission in self.permission_classes]
+        common_permissions: list = [
+            IsAuthenticated,
+            APIScopePermission,
+            PremiumMultiProjectPermissions,
+        ] + self.permission_classes
+
+        base_permissions = [permission() for permission in common_permissions]
 
         # Return early for non-actions (e.g. OPTIONS)
         if self.action:
             if self.action == "create":
                 if "is_demo" not in self.request.data or not self.request.data["is_demo"]:
                     base_permissions.append(OrganizationAdminWritePermissions())
-                elif "is_demo" in self.request.data:
+                else:
                     base_permissions.append(OrganizationMemberPermissions())
             elif self.action != "list":
                 # Skip TeamMemberAccessPermission for list action, as list is serialized with limited TeamBasicSerializer
@@ -370,6 +406,8 @@ class TeamViewSet(viewsets.ModelViewSet):
 
     def perform_destroy(self, team: Team):
         team_id = team.pk
+        organization_id = team.organization_id
+        team_name = team.name
 
         user = cast(User, self.request.user)
 
@@ -392,6 +430,16 @@ class TeamViewSet(viewsets.ModelViewSet):
             ignore_conflicts=True,
         )
 
+        log_activity(
+            organization_id=cast(UUIDT, organization_id),
+            team_id=team_id,
+            user=user,
+            was_impersonated=is_impersonated_session(self.request),
+            scope="Team",
+            item_id=team_id,
+            activity="deleted",
+            detail=Detail(name=str(team_name)),
+        )
         # TRICKY: We pass in Team here as otherwise the access to "current_team" can fail if it was deleted
         report_user_action(user, f"team deleted", team=team)
 
@@ -399,30 +447,69 @@ class TeamViewSet(viewsets.ModelViewSet):
         methods=["PATCH"],
         detail=True,
         # Only ADMIN or higher users are allowed to access this project
-        permission_classes=[
-            permissions.IsAuthenticated,
-            TeamMemberStrictManagementPermission,
-        ],
+        permission_classes=[TeamMemberStrictManagementPermission],
     )
     def reset_token(self, request: request.Request, id: str, **kwargs) -> response.Response:
         team = self.get_object()
         old_token = team.api_token
         team.api_token = generate_random_token_project()
         team.save()
+
+        log_activity(
+            organization_id=team.organization_id,
+            team_id=team.pk,
+            user=cast(User, request.user),
+            was_impersonated=is_impersonated_session(request),
+            scope="Team",
+            item_id=team.pk,
+            activity="updated",
+            detail=Detail(
+                name=str(team.name),
+                changes=[
+                    Change(
+                        type="Team",
+                        action="changed",
+                        field="api_token",
+                    )
+                ],
+            ),
+        )
+
         set_team_in_cache(old_token, None)
         return response.Response(TeamSerializer(team, context=self.get_serializer_context()).data)
 
     @action(
         methods=["GET"],
         detail=True,
-        permission_classes=[permissions.IsAuthenticated],
+        permission_classes=[IsAuthenticated],
     )
     def is_generating_demo_data(self, request: request.Request, id: str, **kwargs) -> response.Response:
         team = self.get_object()
         cache_key = f"is_generating_demo_data_{team.pk}"
         return response.Response({"is_generating_demo_data": cache.get(cache_key) == "True"})
 
+    @action(methods=["GET"], detail=True)
+    def activity(self, request: request.Request, **kwargs):
+        limit = int(request.query_params.get("limit", "10"))
+        page = int(request.query_params.get("page", "1"))
+
+        team = self.get_object()
+
+        activity_page = load_activity(
+            scope="Team",
+            team_id=team.pk,
+            item_ids=[str(team.pk)],
+            limit=limit,
+            page=page,
+        )
+        return activity_page_response(activity_page, limit, page, request)
+
     @cached_property
     def user_permissions(self):
         team = self.get_object() if self.action == "reset_token" else None
         return UserPermissions(cast(User, self.request.user), team)
+
+
+# NOTE: We don't want people managing projects via the "current_organization" concept. Rather specifying the org ID at the top level
+class RootTeamViewSet(TeamViewSet):
+    scope_object = "INTERNAL"

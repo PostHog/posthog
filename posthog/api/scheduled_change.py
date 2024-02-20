@@ -1,16 +1,12 @@
 from typing import Any, Dict
 from rest_framework import (
-    authentication,
     serializers,
     viewsets,
 )
 
-from rest_framework.permissions import IsAuthenticated
-from posthog.api.routing import StructuredViewSetMixin
+from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
-from posthog.auth import PersonalAPIKeyAuthentication
 from posthog.models import ScheduledChange
-from posthog.permissions import TeamMemberAccessPermission
 
 
 class ScheduledChangeSerializer(serializers.ModelSerializer):
@@ -41,11 +37,13 @@ class ScheduledChangeSerializer(serializers.ModelSerializer):
         return super().create(validated_data)
 
 
-class ScheduledChangeViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
+class ScheduledChangeViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     """
     Create, read, update and delete scheduled changes.
     """
 
+    scope_object = "INTERNAL"
+    serializer_class = ScheduledChangeSerializer
     queryset = ScheduledChange.objects.all()
 
     def get_queryset(self):
@@ -60,14 +58,3 @@ class ScheduledChangeViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
             queryset = queryset.filter(record_id=record_id)
 
         return queryset
-
-    serializer_class = ScheduledChangeSerializer
-    permission_classes = [
-        IsAuthenticated,
-        TeamMemberAccessPermission,
-    ]
-    authentication_classes = [
-        PersonalAPIKeyAuthentication,
-        authentication.SessionAuthentication,
-        authentication.BasicAuthentication,
-    ]

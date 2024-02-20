@@ -5,10 +5,10 @@ import { router } from 'kea-router'
 import { NotFound } from 'lib/components/NotFound'
 import { PageHeader } from 'lib/components/PageHeader'
 import { CohortTypeEnum } from 'lib/constants'
-import { Field } from 'lib/forms/Field'
 import { IconUploadFile } from 'lib/lemon-ui/icons'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { More } from 'lib/lemon-ui/LemonButton/More'
+import { LemonField } from 'lib/lemon-ui/LemonField'
 import { LemonInput } from 'lib/lemon-ui/LemonInput/LemonInput'
 import { LemonLabel } from 'lib/lemon-ui/LemonLabel/LemonLabel'
 import { LemonSelect } from 'lib/lemon-ui/LemonSelect'
@@ -120,16 +120,15 @@ export function CohortEdit({ id }: CohortLogicProps): JSX.Element {
                         </div>
                     }
                 />
-                <LemonDivider className="my-2 non-3000" />
                 <div className="space-y-2 max-w-160">
                     <div className="flex gap-4 flex-wrap">
                         <div className="flex-1">
-                            <Field name="name" label="Name">
+                            <LemonField name="name" label="Name">
                                 <LemonInput data-attr="cohort-name" />
-                            </Field>
+                            </LemonField>
                         </div>
                         <div className="flex-1">
-                            <Field name="is_static" label="Type">
+                            <LemonField name="is_static" label="Type">
                                 {({ value, onChange }) => (
                                     <LemonSelect
                                         disabledReason={
@@ -146,20 +145,24 @@ export function CohortEdit({ id }: CohortLogicProps): JSX.Element {
                                         data-attr="cohort-type"
                                     />
                                 )}
-                            </Field>
+                            </LemonField>
                         </div>
                     </div>
                     {hasAvailableFeature(AvailableFeature.DASHBOARD_COLLABORATION) && (
                         <div className="ph-ignore-input">
-                            <Field name="description" label="Description" data-attr="cohort-description">
+                            <LemonField name="description" label="Description" data-attr="cohort-description">
                                 <LemonTextArea />
-                            </Field>
+                            </LemonField>
                         </div>
                     )}
                 </div>
                 {cohort.is_static ? (
                     <div className="mt-4 ph-ignore-input">
-                        <Field name="csv" label={isNewCohort ? 'Upload users' : 'Add users'} data-attr="cohort-csv">
+                        <LemonField
+                            name="csv"
+                            label={isNewCohort ? 'Upload users' : 'Add users'}
+                            data-attr="cohort-csv"
+                        >
                             {({ onChange }) => (
                                 <>
                                     <span>
@@ -199,7 +202,7 @@ export function CohortEdit({ id }: CohortLogicProps): JSX.Element {
                                     />
                                 </>
                             )}
-                        </Field>
+                        </LemonField>
                     </div>
                 ) : (
                     <>
@@ -249,7 +252,7 @@ export function CohortEdit({ id }: CohortLogicProps): JSX.Element {
                                     minutes.
                                 </div>
                             ) : (
-                                <Query query={query} setQuery={setQuery} />
+                                <Query query={query} setQuery={setQuery} readOnly={true} />
                             )}
                         </div>
                     </>

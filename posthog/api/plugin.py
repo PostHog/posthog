@@ -17,10 +17,10 @@ from loginas.utils import is_impersonated_session
 from rest_framework import renderers, request, serializers, status, viewsets
 from rest_framework.decorators import action, renderer_classes
 from rest_framework.exceptions import NotFound, PermissionDenied, ValidationError
-from rest_framework.permissions import SAFE_METHODS, BasePermission, IsAuthenticated
+from rest_framework.permissions import SAFE_METHODS, BasePermission
 from rest_framework.response import Response
 
-from posthog.api.routing import StructuredViewSetMixin
+from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.models import Plugin, PluginAttachment, PluginConfig, User
 from posthog.models.activity_logging.activity_log import (
     ActivityPage,
@@ -40,10 +40,6 @@ from posthog.models.plugin import (
     validate_plugin_job_payload,
 )
 from posthog.models.utils import UUIDT, generate_random_token
-from posthog.permissions import (
-    OrganizationMemberPermissions,
-    TeamMemberAccessPermission,
-)
 from posthog.plugins import can_configure_plugins, can_install_plugins, parse_url
 from posthog.plugins.access import can_globally_manage_plugins
 from posthog.queries.app_metrics.app_metrics import TeamPluginsDeliveryRateQuery
@@ -300,12 +296,11 @@ class PluginSerializer(serializers.ModelSerializer):
         return super().update(plugin, validated_data)
 
 
-class PluginViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
+class PluginViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
+    scope_object = "plugin"
     queryset = Plugin.objects.all()
     serializer_class = PluginSerializer
     permission_classes = [
-        IsAuthenticated,
-        OrganizationMemberPermissions,
         PluginsAccessLevelPermission,
         PluginOwnershipPermission,
     ]
@@ -713,14 +708,10 @@ class PluginConfigSerializer(serializers.ModelSerializer):
         return response
 
 
-class PluginConfigViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
+class PluginConfigViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
+    scope_object = "plugin"
     queryset = PluginConfig.objects.all()
     serializer_class = PluginConfigSerializer
-    permission_classes = [
-        IsAuthenticated,
-        OrganizationMemberPermissions,
-        TeamMemberAccessPermission,
-    ]
 
     def get_queryset(self):
         if not can_configure_plugins(self.team.organization_id):
@@ -874,7 +865,7 @@ def _get_secret_fields_for_plugin(plugin: Plugin) -> Set[str]:
 
 
 class LegacyPluginConfigViewSet(PluginConfigViewSet):
-    legacy_team_compatibility = True
+    derive_current_team_from_user_only = True
 
 
 class PipelineTransformationsViewSet(PluginViewSet):

@@ -1,9 +1,9 @@
+import { IconWarning } from '@posthog/icons'
 import { LemonButton, LemonModal, LemonModalProps, LemonSelect, LemonTextArea, Link } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
 import { DatePicker } from 'lib/components/DatePicker'
-import { Field } from 'lib/forms/Field'
-import { IconWarning } from 'lib/lemon-ui/icons'
+import { LemonField } from 'lib/lemon-ui/LemonField'
 import { shortTimeZone } from 'lib/utils'
 import { urls } from 'scenes/urls'
 
@@ -81,7 +81,7 @@ export function AnnotationModal({
                 className="space-y-4"
             >
                 <div className="flex gap-2">
-                    <Field
+                    <LemonField
                         name="dateMarker"
                         label={
                             <span>
@@ -101,8 +101,8 @@ export function AnnotationModal({
                             showSecond={false}
                             format={ANNOTATION_DAYJS_FORMAT}
                         />
-                    </Field>
-                    <Field name="scope" label="Scope" className="flex-1">
+                    </LemonField>
+                    <LemonField name="scope" label="Scope" className="flex-1">
                         <LemonSelect
                             options={[
                                 ...(existingModalAnnotation?.scope === AnnotationScope.Insight || onSavedInsight
@@ -132,16 +132,16 @@ export function AnnotationModal({
                             ]}
                             fullWidth
                         />
-                    </Field>
+                    </LemonField>
                 </div>
-                <Field name="content" label="Content">
+                <LemonField name="content" label="Content">
                     <LemonTextArea
                         placeholder="What's this annotation about?"
                         onPressCmdEnter={submitAnnotationModal}
                         data-attr="create-annotation-input"
                         maxLength={400}
                     />
-                </Field>
+                </LemonField>
             </Form>
         </LemonModal>
     )

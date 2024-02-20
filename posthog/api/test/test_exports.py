@@ -145,7 +145,7 @@ class TestExports(APIBaseTest):
     def test_can_create_new_valid_export_insight(self, mock_exporter_task) -> None:
         response = self.client.post(
             f"/api/projects/{self.team.id}/exports",
-            {"export_format": "application/pdf", "insight": self.insight.id},
+            {"export_format": "image/png", "insight": self.insight.id},
         )
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
         data = response.json()
@@ -155,8 +155,8 @@ class TestExports(APIBaseTest):
                 "id": data["id"],
                 "created_at": data["created_at"],
                 "insight": self.insight.id,
-                "export_format": "application/pdf",
-                "filename": "export-example-insight.pdf",
+                "export_format": "image/png",
+                "filename": "export-example-insight.png",
                 "has_content": False,
                 "dashboard": None,
                 "export_context": None,
@@ -183,7 +183,7 @@ class TestExports(APIBaseTest):
                         "changes": [
                             {
                                 "action": "exported",
-                                "after": "application/pdf",
+                                "after": "image/png",
                                 "before": None,
                                 "field": "export_format",
                                 "type": "Insight",
@@ -231,7 +231,7 @@ class TestExports(APIBaseTest):
         mock_exporter_task.export_asset.delay.return_value.get.side_effect = celery.exceptions.TimeoutError("timed out")
         response = self.client.post(
             f"/api/projects/{self.team.id}/exports",
-            {"export_format": "application/pdf", "insight": self.insight.id},
+            {"export_format": "image/png", "insight": self.insight.id},
         )
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
 
@@ -248,7 +248,7 @@ class TestExports(APIBaseTest):
             {
                 "attr": "export_format",
                 "code": "invalid_input",
-                "detail": "This type of export is not supported for this resource.",
+                "detail": "Export format application/pdf is not supported.",
                 "type": "validation_error",
             },
         )
@@ -367,7 +367,14 @@ class TestExports(APIBaseTest):
             after = (datetime.now() - timedelta(minutes=10)).isoformat()
 
             def requests_side_effect(*args, **kwargs):
-                return self.client.get(kwargs["url"], kwargs["json"], **kwargs["headers"])
+                response = self.client.get(kwargs["url"], kwargs["json"], **kwargs["headers"])
+
+                def raise_for_status():
+                    if 400 <= response.status_code < 600:
+                        raise requests.exceptions.HTTPError(response=response)
+
+                response.raise_for_status = raise_for_status  # type: ignore[attr-defined]
+                return response
 
             patched_request.side_effect = requests_side_effect
 
@@ -446,7 +453,14 @@ class TestExportMixin(APIBaseTest):
             with patch("posthog.tasks.exports.csv_exporter.requests.request") as patched_request:
 
                 def requests_side_effect(*args, **kwargs):
-                    return self.client.get(kwargs["url"], kwargs["json"], **kwargs["headers"])
+                    response = self.client.get(kwargs["url"], kwargs["json"], **kwargs["headers"])
+
+                    def raise_for_status():
+                        if 400 <= response.status_code < 600:
+                            raise requests.exceptions.HTTPError(response=response)
+
+                    response.raise_for_status = raise_for_status  # type: ignore[attr-defined]
+                    return response
 
                 patched_request.side_effect = requests_side_effect
 

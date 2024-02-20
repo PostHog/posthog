@@ -16,11 +16,10 @@ from rest_framework import serializers, viewsets
 from rest_framework.request import Request
 from rest_framework.response import Response
 from rest_framework.decorators import action
-from rest_framework.permissions import IsAuthenticated
 from rest_framework.serializers import BaseSerializer
 
 from posthog.api.forbid_destroy_model import ForbidDestroyModel
-from posthog.api.routing import StructuredViewSetMixin
+from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 from posthog.exceptions import Conflict
 from posthog.models import User
@@ -34,8 +33,6 @@ from posthog.models.activity_logging.activity_log import (
 from posthog.models.activity_logging.activity_page import activity_page_response
 from posthog.models.notebook.notebook import Notebook
 from posthog.models.utils import UUIDT
-from posthog.permissions import TeamMemberAccessPermission
-from posthog.settings import DEBUG
 from posthog.utils import relative_date_parse
 from loginas.utils import is_impersonated_session
 
@@ -236,13 +233,11 @@ class NotebookSerializer(NotebookMinimalSerializer):
         ],
     )
 )
-class NotebookViewSet(StructuredViewSetMixin, ForbidDestroyModel, viewsets.ModelViewSet):
+class NotebookViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.ModelViewSet):
+    scope_object = "notebook"
     queryset = Notebook.objects.all()
-    permission_classes = [IsAuthenticated, TeamMemberAccessPermission]
     filter_backends = [DjangoFilterBackend]
     filterset_fields = ["short_id"]
-    # TODO: Remove this once we have released notebooks
-    include_in_docs = DEBUG
     lookup_field = "short_id"
 
     def get_serializer_class(self) -> Type[BaseSerializer]:
@@ -360,7 +355,7 @@ class NotebookViewSet(StructuredViewSetMixin, ForbidDestroyModel, viewsets.Model
         activity_page = load_activity(scope="Notebook", team_id=self.team_id, limit=limit, page=page)
         return activity_page_response(activity_page, limit, page, request)
 
-    @action(methods=["GET"], url_path="activity", detail=True)
+    @action(methods=["GET"], url_path="activity", detail=True, required_scopes=["activity_log:read"])
     def activity(self, request: Request, **kwargs):
         notebook = self.get_object()
         limit = int(request.query_params.get("limit", "10"))

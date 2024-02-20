@@ -237,7 +237,10 @@ def get_decide(request: HttpRequest):
                     if random() < settings.NEW_ANALYTICS_CAPTURE_SAMPLING_RATE:
                         response["analytics"] = {"endpoint": settings.NEW_ANALYTICS_CAPTURE_ENDPOINT}
 
-            if str(team.id) in settings.NEW_CAPTURE_ENDPOINTS_INCLUDED_TEAM_IDS:
+            if (
+                "*" in settings.NEW_CAPTURE_ENDPOINTS_INCLUDED_TEAM_IDS
+                or str(team.id) in settings.NEW_CAPTURE_ENDPOINTS_INCLUDED_TEAM_IDS
+            ):
                 if random() < settings.NEW_CAPTURE_ENDPOINTS_SAMPLING_RATE:
                     response["__preview_ingestion_endpoints"] = True
 

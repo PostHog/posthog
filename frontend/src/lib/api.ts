@@ -50,6 +50,7 @@ import {
     OrganizationFeatureFlagsCopyBody,
     OrganizationResourcePermissionType,
     OrganizationType,
+    PersonalAPIKeyType,
     PersonListParams,
     PersonType,
     PluginConfigTypeNew,
@@ -717,6 +718,15 @@ class ApiRequest {
         return this.projectsDetail(teamId).addPathComponent('activity_log')
     }
 
+    // Personal API keys
+    public personalApiKeys(): ApiRequest {
+        return this.addPathComponent('personal_api_keys')
+    }
+
+    public personalApiKey(id: PersonalAPIKeyType['id']): ApiRequest {
+        return this.personalApiKeys().addPathComponent(id)
+    }
+
     // Request finalization
     public async get(options?: ApiMethodOptions): Promise<any> {
         return await api.get(this.assembleFullUrl(), options)
@@ -926,6 +936,9 @@ const api = {
                     return activityLogProps.id
                         ? new ApiRequest().notebook(`${activityLogProps.id}`).withAction('activity')
                         : new ApiRequest().notebooks().withAction('activity')
+                },
+                [ActivityScope.TEAM]: () => {
+                    return new ApiRequest().projectsDetail().withAction('activity')
                 },
             }
 
@@ -1960,6 +1973,21 @@ const api = {
     queryStatus: {
         async get(queryId: string): Promise<QueryStatus> {
             return await new ApiRequest().queryStatus(queryId).get()
+        },
+    },
+
+    personalApiKeys: {
+        async list(): Promise<PersonalAPIKeyType[]> {
+            return await new ApiRequest().personalApiKeys().get()
+        },
+        async create(data: Partial<PersonalAPIKeyType>): Promise<PersonalAPIKeyType> {
+            return await new ApiRequest().personalApiKeys().create({ data })
+        },
+        async update(id: PersonalAPIKeyType['id'], data: Partial<PersonalAPIKeyType>): Promise<PersonalAPIKeyType> {
+            return await new ApiRequest().personalApiKey(id).update({ data })
+        },
+        async delete(id: PersonalAPIKeyType['id']): Promise<void> {
+            await new ApiRequest().personalApiKey(id).delete()
         },
     },
 

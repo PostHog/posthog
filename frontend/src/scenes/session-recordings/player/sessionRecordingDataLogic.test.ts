@@ -117,7 +117,11 @@ describe('sessionRecordingDataLogic', () => {
                 logic.actions.loadRecordingMeta()
                 logic.actions.loadRecordingSnapshots()
             })
-                .toDispatchActions(['loadRecordingMetaSuccess', 'loadRecordingSnapshotsSuccess'])
+                .toDispatchActions([
+                    'loadRecordingMetaSuccess',
+                    'loadRecordingSnapshotsSuccess',
+                    'reportUsageIfFullyLoaded',
+                ])
                 .toFinishAllListeners()
 
             const actual = logic.values.sessionPlayerData
@@ -150,6 +154,7 @@ describe('sessionRecordingDataLogic', () => {
                         end: undefined,
                         durationMs: 0,
                         segments: [],
+                        sessionRecordingId: '2',
                         person: null,
                         snapshotsByWindowId: {},
                         fullyLoaded: false,
@@ -248,7 +253,7 @@ describe('sessionRecordingDataLogic', () => {
     })
 
     describe('report usage', () => {
-        it('send `recording loaded` event only when entire recording has loaded', async () => {
+        it('sends `recording loaded` event only when entire recording has loaded', async () => {
             await expectLogic(logic, () => {
                 logic.actions.loadRecordingSnapshots()
             })
@@ -260,7 +265,7 @@ describe('sessionRecordingDataLogic', () => {
                 ])
                 .toDispatchActions([eventUsageLogic.actionTypes.reportRecording])
         })
-        it('send `recording viewed` and `recording analyzed` event on first contentful paint', async () => {
+        it('sends `recording viewed` and `recording analyzed` event on first contentful paint', async () => {
             await expectLogic(logic, () => {
                 logic.actions.loadRecordingSnapshots()
             })
@@ -270,6 +275,20 @@ describe('sessionRecordingDataLogic', () => {
                     eventUsageLogic.actionTypes.reportRecording, // viewed
                     eventUsageLogic.actionTypes.reportRecording, // analyzed
                 ])
+        })
+        it('clears the cache after unmounting', async () => {
+            await expectLogic(logic, () => {
+                logic.actions.loadRecordingSnapshots()
+            })
+            expect(Object.keys(logic.cache)).toEqual(
+                expect.arrayContaining(['metaStartTime', 'snapshotsStartTime', 'eventsStartTime'])
+            )
+            expect(typeof logic.cache.metaStartTime).toBe('number')
+
+            logic.unmount()
+            expect(logic.cache.metaStartTime).toBeNull()
+            expect(logic.cache.snapshotsStartTime).toBeNull()
+            expect(logic.cache.eventsStartTime).toBeNull()
         })
     })
 
@@ -345,13 +364,13 @@ describe('sessionRecordingDataLogic', () => {
                     action.type === logic.actionTypes.loadRecordingSnapshots &&
                     action.payload.source?.source === 'blob',
                 'loadRecordingSnapshotsSuccess',
-                // the response to that triggers loading of the second item which is the realtime source
+                // and then we report having viewed the recording
+                'reportViewed',
+                // the response to the success action triggers loading of the second item which is the realtime source
                 (action) =>
                     action.type === logic.actionTypes.loadRecordingSnapshots &&
                     action.payload.source?.source === 'realtime',
                 'loadRecordingSnapshotsSuccess',
-                // and then we report having viewed the recording
-                'reportViewed',
                 // having loaded any real time data we start polling to check for more
                 'startRealTimePolling',
             ])

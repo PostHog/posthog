@@ -1,6 +1,6 @@
 import { IconExpand45 } from '@posthog/icons'
 import clsx from 'clsx'
-import { useActions, useValues } from 'kea'
+import { BindLogic, useActions, useValues } from 'kea'
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
 import { IconOpenInNew } from 'lib/lemon-ui/icons'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
@@ -9,13 +9,21 @@ import { LemonSelect } from 'lib/lemon-ui/LemonSelect'
 import { isNotNil } from 'lib/utils'
 import React from 'react'
 import { WebAnalyticsHealthCheck } from 'scenes/web-analytics/WebAnalyticsHealthCheck'
-import { QueryTile, TabsTile, TileId, webAnalyticsLogic } from 'scenes/web-analytics/webAnalyticsLogic'
+import {
+    QueryTile,
+    TabsTile,
+    TileId,
+    WEB_ANALYTICS_DATA_COLLECTION_NODE_ID,
+    webAnalyticsLogic,
+} from 'scenes/web-analytics/webAnalyticsLogic'
 import { WebAnalyticsModal } from 'scenes/web-analytics/WebAnalyticsModal'
 import { WebAnalyticsNotice } from 'scenes/web-analytics/WebAnalyticsNotice'
 import { WebQuery } from 'scenes/web-analytics/WebAnalyticsTile'
 import { WebPropertyFilters } from 'scenes/web-analytics/WebPropertyFilters'
 
 import { navigationLogic } from '~/layout/navigation/navigationLogic'
+import { dataNodeCollectionLogic } from '~/queries/nodes/DataNode/dataNodeCollectionLogic'
+import { ReloadAll } from '~/queries/nodes/DataNode/Reload'
 import { QuerySchema } from '~/queries/schema'
 
 const Filters = (): JSX.Element => {
@@ -36,11 +44,12 @@ const Filters = (): JSX.Element => {
             }}
         >
             <div className="flex flex-row flex-wrap gap-2">
+                <DateFilter dateFrom={dateFrom} dateTo={dateTo} onChange={setDates} />
                 <WebPropertyFilters
                     setWebAnalyticsFilters={setWebAnalyticsFilters}
                     webAnalyticsFilters={webAnalyticsFilters}
                 />
-                <DateFilter dateFrom={dateFrom} dateTo={dateTo} onChange={setDates} />
+                <ReloadAll />
             </div>
             <div className="bg-border h-px w-full mt-2" />
         </div>
@@ -51,7 +60,7 @@ const Tiles = (): JSX.Element => {
     const { tiles } = useValues(webAnalyticsLogic)
 
     return (
-        <div className="mt-8 grid grid-cols-1 md:grid-cols-2 xxl:grid-cols-3 gap-x-4 gap-y-12">
+        <div className="mt-2 grid grid-cols-1 md:grid-cols-2 xxl:grid-cols-3 gap-x-4 gap-y-12">
             {tiles.map((tile, i) => {
                 if ('query' in tile) {
                     return <QueryTileItem key={i} tile={tile} />
@@ -66,7 +75,7 @@ const Tiles = (): JSX.Element => {
 }
 
 const QueryTileItem = ({ tile }: { tile: QueryTile }): JSX.Element => {
-    const { query, title, layout, insightProps } = tile
+    const { query, title, layout, insightProps, showPathCleaningControls, showIntervalSelect } = tile
 
     const { openModal } = useActions(webAnalyticsLogic)
     const { getNewInsightUrl } = useValues(webAnalyticsLogic)
@@ -107,7 +116,12 @@ const QueryTileItem = ({ tile }: { tile: QueryTile }): JSX.Element => {
             )}
         >
             {title && <h2 className="m-0 mb-3">{title}</h2>}
-            <WebQuery query={query} insightProps={insightProps} />
+            <WebQuery
+                query={query}
+                insightProps={insightProps}
+                showPathCleaningControls={showPathCleaningControls}
+                showIntervalSelect={showIntervalSelect}
+            />
             {buttonsRow.length > 0 ? <div className="flex justify-end my-2 space-x-2">{buttonsRow}</div> : null}
         </div>
     )
@@ -137,6 +151,7 @@ const TabsTileItem = ({ tile }: { tile: TabsTile }): JSX.Element => {
                         key={tab.id}
                         query={tab.query}
                         showIntervalSelect={tab.showIntervalSelect}
+                        showPathCleaningControls={tab.showPathCleaningControls}
                         insightProps={tab.insightProps}
                     />
                 ),
@@ -236,14 +251,16 @@ export const WebTabs = ({
 
 export const WebAnalyticsDashboard = (): JSX.Element => {
     return (
-        <>
-            <WebAnalyticsModal />
-            <WebAnalyticsNotice />
-            <div className="WebAnalyticsDashboard w-full flex flex-col">
-                <Filters />
-                <WebAnalyticsHealthCheck />
-                <Tiles />
-            </div>
-        </>
+        <BindLogic logic={webAnalyticsLogic} props={{}}>
+            <BindLogic logic={dataNodeCollectionLogic} props={{ key: WEB_ANALYTICS_DATA_COLLECTION_NODE_ID }}>
+                <WebAnalyticsModal />
+                <WebAnalyticsNotice />
+                <div className="WebAnalyticsDashboard w-full flex flex-col">
+                    <Filters />
+                    <WebAnalyticsHealthCheck />
+                    <Tiles />
+                </div>
+            </BindLogic>
+        </BindLogic>
     )
 }

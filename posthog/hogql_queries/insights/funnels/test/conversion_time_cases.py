@@ -1,7 +1,7 @@
 from datetime import datetime
 from typing import cast
 
-from posthog.constants import INSIGHT_FUNNELS
+from posthog.constants import INSIGHT_FUNNELS, FunnelOrderType
 from posthog.hogql_queries.insights.funnels.funnels_query_runner import FunnelsQueryRunner
 from posthog.hogql_queries.legacy_compatibility.filter_to_query import filter_to_query
 from posthog.models.filters import Filter
@@ -10,7 +10,7 @@ from posthog.test.base import APIBaseTest
 from posthog.test.test_journeys import journeys_for
 
 
-def funnel_conversion_time_test_factory(Funnel, FunnelPerson, _create_event, _create_person):
+def funnel_conversion_time_test_factory(funnel_order_type: FunnelOrderType, FunnelPerson):
     class TestFunnelConversionTime(APIBaseTest):
         def _get_actor_ids_at_step(self, filter, funnel_step, breakdown_value=None):
             filter = Filter(data=filter, team=self.team)
@@ -21,15 +21,16 @@ def funnel_conversion_time_test_factory(Funnel, FunnelPerson, _create_event, _cr
 
         def test_funnel_with_multiple_incomplete_tries(self):
             filters = {
+                "insight": INSIGHT_FUNNELS,
+                "funnel_order_type": funnel_order_type,
                 "events": [
                     {"id": "user signed up", "type": "events", "order": 0},
                     {"id": "$pageview", "type": "events", "order": 1},
                     {"id": "something else", "type": "events", "order": 2},
                 ],
-                "funnel_window_days": 1,
+                "funnel_window_interval": 1,
                 "date_from": "2021-05-01 00:00:00",
                 "date_to": "2021-05-14 00:00:00",
-                "insight": INSIGHT_FUNNELS,
             }
 
             people = journeys_for(
@@ -76,12 +77,13 @@ def funnel_conversion_time_test_factory(Funnel, FunnelPerson, _create_event, _cr
 
         def test_funnel_step_conversion_times(self):
             filters = {
+                "insight": INSIGHT_FUNNELS,
+                "funnel_order_type": funnel_order_type,
                 "events": [
                     {"id": "sign up", "order": 0},
                     {"id": "play movie", "order": 1},
                     {"id": "buy", "order": 2},
                 ],
-                "insight": INSIGHT_FUNNELS,
                 "date_from": "2020-01-01",
                 "date_to": "2020-01-08",
                 "funnel_window_days": 7,
@@ -120,11 +122,12 @@ def funnel_conversion_time_test_factory(Funnel, FunnelPerson, _create_event, _cr
 
         def test_funnel_times_with_different_conversion_windows(self):
             filters = {
+                "insight": INSIGHT_FUNNELS,
+                "funnel_order_type": funnel_order_type,
                 "events": [
                     {"id": "user signed up", "type": "events", "order": 0},
                     {"id": "pageview", "type": "events", "order": 1},
                 ],
-                "insight": INSIGHT_FUNNELS,
                 "funnel_window_interval": 14,
                 "funnel_window_interval_unit": "day",
                 "date_from": "2020-01-01",

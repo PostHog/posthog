@@ -1,7 +1,8 @@
+import { IconPencil } from '@posthog/icons'
 import { LemonInput } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { CommandFlow } from 'lib/components/CommandPalette/commandPaletteLogic'
-import { IconChevronRight, IconEdit } from 'lib/lemon-ui/icons'
+import { IconChevronRight } from 'lib/lemon-ui/icons'
 import React from 'react'
 
 import { KeyboardShortcut } from '~/layout/navigation-3000/components/KeyboardShortcut'
@@ -14,7 +15,7 @@ type PrefixIconProps = {
 
 const PrefixIcon = ({ activeFlow }: PrefixIconProps): React.ReactElement | null => {
     if (activeFlow) {
-        return <activeFlow.icon className="palette__icon" /> ?? <IconEdit className="palette__icon" />
+        return <activeFlow.icon className="palette__icon" /> ?? <IconPencil className="palette__icon" />
     } else {
         return <IconChevronRight className="palette__icon" />
     }
