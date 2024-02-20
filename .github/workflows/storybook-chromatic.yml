@@ -54,7 +54,7 @@ jobs:
         runs-on: ubuntu-latest
         timeout-minutes: 30
         container:
-            image: mcr.microsoft.com/playwright:v1.41.2 # Same as @storybook/test-runner@0.15.2's dependency
+            image: mcr.microsoft.com/playwright:v1.41.2
         strategy:
             fail-fast: false
             matrix:
