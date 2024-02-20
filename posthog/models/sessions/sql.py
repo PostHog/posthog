@@ -6,7 +6,7 @@ from posthog.clickhouse.table_engines import (
     AggregatingMergeTree,
 )
 
-TABLE_BASE_NAME = "sessions_test"
+TABLE_BASE_NAME = "sessions"
 SESSIONS_DATA_TABLE = lambda: f"sharded_{TABLE_BASE_NAME}"
 
 # if updating these column definitions
@@ -25,15 +25,15 @@ CREATE TABLE IF NOT EXISTS {table_name} ON CLUSTER '{cluster}'
     min_first_timestamp SimpleAggregateFunction(min, DateTime64(6, 'UTC')),
     max_last_timestamp SimpleAggregateFunction(max, DateTime64(6, 'UTC')),
 
-    urls SimpleAggregateFunction(groupUniqArrayArray, Array(VARCHAR)),
-    entry_url AggregateFunction(argMin, Nullable(VARCHAR), DateTime64(6, 'UTC')),
-    exit_url AggregateFunction(argMax, Nullable(VARCHAR), DateTime64(6, 'UTC')),
-    initial_utm_source AggregateFunction(argMin, Nullable(VARCHAR), DateTime64(6, 'UTC')),
-    initial_utm_campaign AggregateFunction(argMin, Nullable(VARCHAR), DateTime64(6, 'UTC')),
-    initial_utm_medium AggregateFunction(argMin, Nullable(VARCHAR), DateTime64(6, 'UTC')),
-    initial_utm_term AggregateFunction(argMin, Nullable(VARCHAR), DateTime64(6, 'UTC')),
-    initial_utm_content AggregateFunction(argMin, Nullable(VARCHAR), DateTime64(6, 'UTC')),
-    initial_referring_domain AggregateFunction(argMin, Nullable(VARCHAR), DateTime64(6, 'UTC')),
+    urls SimpleAggregateFunction(groupUniqArrayArray, Array(String)),
+    entry_url AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
+    exit_url AggregateFunction(argMax, String, DateTime64(6, 'UTC')),
+    initial_utm_source AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
+    initial_utm_campaign AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
+    initial_utm_medium AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
+    initial_utm_term AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
+    initial_utm_content AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
+    initial_referring_domain AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
 
     event_count SimpleAggregateFunction(sum, Int64),
     pageview_count SimpleAggregateFunction(sum, Int64),
