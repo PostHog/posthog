@@ -37,6 +37,8 @@ class BillingViewset(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     serializer_class = BillingSerializer
     derive_current_team_from_user_only = True
 
+    scope_object = "INTERNAL"
+
     def list(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         license = get_cached_instance_license()
         if license and not license.is_v2_license:

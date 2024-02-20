@@ -65,6 +65,7 @@ class AnnotationsViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.Mo
     Create, Read, Update and Delete annotations. [See docs](https://posthog.com/docs/user-guides/annotations) for more information on annotations.
     """
 
+    scope_object = "annotation"
     queryset = Annotation.objects.select_related("dashboard_item")
     serializer_class = AnnotationSerializer
     filter_backends = [filters.SearchFilter]
