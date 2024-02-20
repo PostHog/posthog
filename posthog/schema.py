@@ -105,6 +105,7 @@ class BreakdownType(str, Enum):
     group = "group"
     session = "session"
     hogql = "hogql"
+    data_warehouse = "data_warehouse"
 
 
 class BreakdownValueInt(RootModel[int]):

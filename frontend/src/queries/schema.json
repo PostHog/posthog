@@ -476,7 +476,7 @@
             ]
         },
         "BreakdownType": {
-            "enum": ["cohort", "person", "event", "group", "session", "hogql"],
+            "enum": ["cohort", "person", "event", "group", "session", "hogql", "data_warehouse"],
             "type": "string"
         },
         "BreakdownValueInt": {
