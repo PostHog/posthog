@@ -433,7 +433,7 @@ export class HookCommander {
             await instrumentWebhookStep('fetch', async () => {
                 const request = await trackedFetch(url, {
                     method: 'POST',
-                    body: JSON.stringify(body, null, 2),
+                    body: JSON.stringify(body, null, 4),
                     headers: { 'Content-Type': 'application/json' },
                     timeout: this.EXTERNAL_REQUEST_TIMEOUT,
                 })

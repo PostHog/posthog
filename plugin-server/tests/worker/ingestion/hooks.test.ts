@@ -419,11 +419,10 @@ describe('hooks', () => {
             const action = {
                 id: 1,
                 name: 'action1',
-                slack_message_format:
-                    '[user.name] from [user.browser] on [event.properties.page_title] page with [event.properties.fruit], [event.properties.with space]',
             } as Action
 
             const [text, markdown] = getFormattedMessage(
+                '[user.name] from [user.browser] on [event.properties.page_title] page with [event.properties.fruit], [event.properties.with space]',
                 action,
                 event,
                 team,
@@ -436,30 +435,14 @@ describe('hooks', () => {
             )
         })
 
-        test('default format', () => {
-            const action = { id: 1, name: 'action1', slack_message_format: '' } as Action
-
-            const [text, markdown] = getFormattedMessage(
-                action,
-                event,
-                team,
-                'https://localhost:8000',
-                WebhookType.Slack
-            )
-            expect(text).toBe('action1 was triggered by 2')
-            expect(markdown).toBe(
-                '<https://localhost:8000/action/1|action1> was triggered by <https://localhost:8000/person/2|2>'
-            )
-        })
-
         test('not quite correct format', () => {
             const action = {
                 id: 1,
                 name: 'action1',
-                slack_message_format: '[user.name] did thing from browser [user.brauzer]',
             } as Action
 
             const [text, markdown] = getFormattedMessage(
+                '[user.name] did thing from browser [user.brauzer]',
                 action,
                 event,
                 team,
@@ -491,6 +474,7 @@ describe('hooks', () => {
                 target: 'https://example.com/',
                 created: new Date().toISOString(),
                 updated: new Date().toISOString(),
+                format_text: null,
             }
             hookCommander = new HookCommander(
                 {} as any,
