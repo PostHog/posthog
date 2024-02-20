@@ -117,7 +117,7 @@ export const PlanComparison = ({
 
     const upgradeButtons = plans?.map((plan) => {
         return (
-            <td key={`${plan.plan_key}-cta`} className="PlanTable__td__upgradeButton">
+            <div key={`${plan.plan_key}-cta`} className="col-span-4 px-3 py-2 text-sm">
                 <LemonButton
                     to={getUpgradeProductLink(product, plan.plan_key || '', redirectPath, includeAddons)}
                     type={plan.current_plan ? 'secondary' : 'primary'}
@@ -145,16 +145,13 @@ export const PlanComparison = ({
                         </Link>
                     </p>
                 )}
-            </td>
+            </div>
         )
     })
 
     return (
         <>
-            <div
-                className="overflow-x-auto -mx-4 px-4 md:mx-0 md:px-0 text-primary dark:text-primary-dark"
-                ref={planComparisonRef}
-            >
+            <div className="overflow-x-auto -mx-4 px-4 md:mx-0 md:px-0" ref={planComparisonRef}>
                 <div className="grid grid-cols-12 mb-1">
                     <div className="col-span-4 px-3 py-1">&nbsp;</div>
                     {plans?.map((plan) => (
@@ -164,25 +161,25 @@ export const PlanComparison = ({
                     ))}
                 </div>
 
-                <div className="grid grid-cols-12 mb-1">
-                    <div className="col-span-full bg-accent dark:bg-accent-dark font-bold px-3 py-1 text-sm">
+                <div className="grid grid-cols-12 mb-1 border-x border-b [&>div]:border-t">
+                    <div className="col-span-full bg-accent -dark:bg-accent-dark font-bold px-3 py-1 text-sm -dark:text-white">
                         Pricing
                     </div>
 
                     <div className="col-span-4 bg-accent/50 dark:bg-black/75 px-3 py-2 text-sm">
                         {/* {row.tooltip ? ( */}
                         <Tooltip title="Title goes here">
-                            <strong className="border-b border-dashed border-light dark:border-dark cursor-help text-primary/75 dark:text-primary-dark/75">
+                            <strong className="border-b border-dashed border-light dark:border-dark cursor-help text-opacity-75">
                                 Monthly base price
                             </strong>
                         </Tooltip>
                         {/*
-                  ) : (
-                      <strong className="text-primary/75 dark:text-primary-dark/75">
-                          {row.key}
-                      </strong>
-                  )}
-                  */}
+                        ) : (
+                            <strong className="text-primary/75 dark:text-primary-dark/75">
+                                {row.key}
+                            </strong>
+                        )}
+                        */}
                     </div>
 
                     {plans?.map((plan) => (
@@ -190,6 +187,60 @@ export const PlanComparison = ({
                             {plan.free_allocation && !plan.tiers ? 'Free forever' : '$0 per month'}
                         </div>
                     ))}
+
+                    <div className="col-span-4 bg-accent/50 dark:bg-black/75 px-3 py-2 text-sm">
+                        {includeAddons && product.addons?.length > 0 && (
+                            <p className="m-0">
+                                <span className="font-bold">{product.name}</span>
+                            </p>
+                        )}
+                        <p className="text-xs">Priced per {product.unit}</p>
+                    </div>
+                    {plans?.map((plan) => (
+                        <div className="col-span-4 px-3 py-2 text-sm" key={`${plan.plan_key}-tiers-td`}>
+                            <span>{getProductTiers(plan, product)}</span>
+                        </div>
+                    ))}
+
+                    {includeAddons &&
+                        product.addons?.map((addon) => {
+                            return addon.tiered ? (
+                                <React.Fragment key={addon.name + 'pricing-row'}>
+                                    <div className="col-span-4 bg-accent/50 dark:bg-black/75 px-3 py-2 text-sm">
+                                        <p className="m-0">
+                                            <span className="font-bold">{addon.name}</span>
+                                            <LemonTag type="completion" className="ml-2">
+                                                addon
+                                            </LemonTag>
+                                        </p>
+                                        <p className="text-xs text-muted">Priced per {addon.unit}</p>
+                                    </div>
+                                    {plans?.map((plan) =>
+                                        // If the plan is free, the addon isn't available
+                                        plan.free_allocation && !plan.tiers ? (
+                                            <div
+                                                className="col-span-4 px-3 py-2 text-sm"
+                                                key={`${addon.name}-free-tiers-td`}
+                                            >
+                                                <p className="text-muted text-xs">Not available on this plan.</p>
+                                            </div>
+                                        ) : (
+                                            <div
+                                                className="col-span-4 px-3 py-2 text-sm"
+                                                key={`${addon.type}-tiers-td`}
+                                            >
+                                                {getProductTiers(addon.plans?.[0], addon)}
+                                            </div>
+                                        )
+                                    )}
+                                </React.Fragment>
+                            ) : null
+                        })}
+                </div>
+
+                <div className="grid grid-cols-12">
+                    <div className="col-span-4 px-3 py-2 text-sm">&nbsp;</div>
+                    {upgradeButtons}
                 </div>
             </div>
 
@@ -201,61 +252,10 @@ export const PlanComparison = ({
             <table className="PlanComparison w-full table-fixed" ref={planComparisonRef}>
                 <tbody>
                     {/* Pricing section */}
-                    <tr className="PlanTable__tr__border">
-                        <td className="font-bold">Monthly base price</td>
-                        {plans?.map((plan) => (
-                            <td key={`${plan.plan_key}-basePrice`} className="text-sm font-bold">
-                                {plan.free_allocation && !plan.tiers ? 'Free forever' : '$0 per month'}
-                            </td>
-                        ))}
-                    </tr>
-
-                    <tr className="PlanTable__tr__border">
-                        <th scope="row">
-                            {includeAddons && product.addons?.length > 0 && (
-                                <p className="ml-0">
-                                    <span className="font-bold">{product.name}</span>
-                                </p>
-                            )}
-                            <p className="ml-0 text-xs mt-1">Priced per {product.unit}</p>
-                        </th>
-                        {plans?.map((plan) => (
-                            <td key={`${plan.plan_key}-tiers-td`}>{getProductTiers(plan, product)}</td>
-                        ))}
-                    </tr>
-
-                    {includeAddons &&
-                        product.addons?.map((addon) => {
-                            return addon.tiered ? (
-                                <tr key={addon.name + 'pricing-row'} className="PlanTable__tr__border">
-                                    <th scope="row">
-                                        <p className="ml-0">
-                                            <span className="font-bold">{addon.name}</span>
-                                            <LemonTag type="completion" className="ml-2">
-                                                addon
-                                            </LemonTag>
-                                        </p>
-                                        <p className="ml-0 text-xs text-muted mt-1">Priced per {addon.unit}</p>
-                                    </th>
-                                    {plans?.map((plan) =>
-                                        // If the plan is free, the addon isn't available
-                                        plan.free_allocation && !plan.tiers ? (
-                                            <td key={`${addon.name}-free-tiers-td`}>
-                                                <p className="text-muted text-xs">Not available on this plan.</p>
-                                            </td>
-                                        ) : (
-                                            <td key={`${addon.type}-tiers-td`}>
-                                                {getProductTiers(addon.plans?.[0], addon)}
-                                            </td>
-                                        )
-                                    )}
-                                </tr>
-                            ) : null
-                        })}
 
                     <tr>
                         <td />
-                        {upgradeButtons}
+                        !!!
                     </tr>
                     <tr>
                         <th colSpan={3} className="PlanTable__th__section bg-side justify-left rounded text-left mb-2">
