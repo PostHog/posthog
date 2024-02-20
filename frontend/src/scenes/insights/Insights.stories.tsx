@@ -244,27 +244,27 @@ TrendsWorldMapEdit.parameters = { testOptions: { waitForSelector: '.WorldMap' } 
 export const FunnelLeftToRight: Story = createInsightStory(
     require('../../mocks/fixtures/api/projects/team_id/insights/funnelLeftToRight.json')
 )
-FunnelLeftToRight.parameters = { testOptions: { waitForSelector: '[data-attr=funnel-bar-horizontal] .StepBar' } }
+FunnelLeftToRight.parameters = { testOptions: { waitForSelector: '[data-attr=funnel-bar-vertical] .StepBar' } }
 export const FunnelLeftToRightEdit: Story = createInsightStory(
     require('../../mocks/fixtures/api/projects/team_id/insights/funnelLeftToRight.json'),
     'edit'
 )
 FunnelLeftToRightEdit.parameters = {
-    testOptions: { waitForSelector: '[data-attr=funnel-bar-horizontal] .StepBar' },
+    testOptions: { waitForSelector: '[data-attr=funnel-bar-vertical] .StepBar' },
 }
 
 export const FunnelLeftToRightBreakdown: Story = createInsightStory(
     require('../../mocks/fixtures/api/projects/team_id/insights/funnelLeftToRightBreakdown.json')
 )
 FunnelLeftToRightBreakdown.parameters = {
-    testOptions: { waitForSelector: '[data-attr=funnel-bar-horizontal] .StepBar' },
+    testOptions: { waitForSelector: '[data-attr=funnel-bar-vertical] .StepBar' },
 }
 export const FunnelLeftToRightBreakdownEdit: Story = createInsightStory(
     require('../../mocks/fixtures/api/projects/team_id/insights/funnelLeftToRightBreakdown.json'),
     'edit'
 )
 FunnelLeftToRightBreakdownEdit.parameters = {
-    testOptions: { waitForSelector: '[data-attr=funnel-bar-horizontal] .StepBar' },
+    testOptions: { waitForSelector: '[data-attr=funnel-bar-vertical] .StepBar' },
 }
 
 export const FunnelTopToBottom: Story = createInsightStory(
