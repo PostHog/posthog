@@ -121,7 +121,7 @@
 # ---
 # name: TestDecide.test_decide_doesnt_error_out_when_database_is_down.3
   '''
-  SELECT (1) AS "a"
+  SELECT 1 AS "a"
   FROM "posthog_grouptypemapping"
   WHERE "posthog_grouptypemapping"."team_id" = 2
   LIMIT 1 /*controller='team-detail',route='api/projects/%28%3FP%3Cid%3E%5B%5E/.%5D%2B%29/%3F%24'*/
