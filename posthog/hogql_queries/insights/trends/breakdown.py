@@ -1,4 +1,4 @@
-from typing import Dict, List, Optional, Tuple
+from typing import Dict, List, Optional, Tuple, Union
 from posthog.hogql import ast
 from posthog.hogql.parser import parse_expr
 from posthog.hogql.timings import HogQLTimings
@@ -16,13 +16,13 @@ from posthog.hogql_queries.insights.trends.utils import (
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 from posthog.models.filters.mixins.utils import cached_property
 from posthog.models.team.team import Team
-from posthog.schema import SeriesType, HogQLQueryModifiers, InCohortVia, TrendsQuery
+from posthog.schema import ActionsNode, EventsNode, DataWarehouseNode, HogQLQueryModifiers, InCohortVia, TrendsQuery
 
 
 class Breakdown:
     query: TrendsQuery
     team: Team
-    series: SeriesType
+    series: Union[EventsNode, ActionsNode, DataWarehouseNode]
     query_date_range: QueryDateRange
     timings: HogQLTimings
     modifiers: HogQLQueryModifiers
@@ -33,7 +33,7 @@ class Breakdown:
         self,
         team: Team,
         query: TrendsQuery,
-        series: SeriesType,
+        series: Union[EventsNode, ActionsNode, DataWarehouseNode],
         query_date_range: QueryDateRange,
         timings: HogQLTimings,
         modifiers: HogQLQueryModifiers,

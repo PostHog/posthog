@@ -1,8 +1,8 @@
-from typing import List, Optional
-from posthog.schema import SeriesType, EventsNode, BreakdownType
+from typing import List, Optional, Union
+from posthog.schema import ActionsNode, DataWarehouseNode, EventsNode, BreakdownType
 
 
-def series_event_name(series: SeriesType) -> str | None:
+def series_event_name(series: Union[EventsNode, ActionsNode, DataWarehouseNode]) -> str | None:
     if isinstance(series, EventsNode):
         return series.event
     return None

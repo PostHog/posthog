@@ -47,8 +47,8 @@ from posthog.schema import (
     BreakdownFilter,
     DateRange,
     EventsNode,
+    DataWarehouseNode,
     PropertyGroupFilter,
-    SeriesType,
     TrendsFilter,
     TrendsQuery,
 )
@@ -171,7 +171,7 @@ def convert_filter_to_trends_query(filter: Filter) -> TrendsQuery:
             )
         )
 
-    series: List[SeriesType] = [*events, *actions]
+    series: List[Union[EventsNode, ActionsNode, DataWarehouseNode]] = [*events, *actions]
 
     tq = TrendsQuery(
         series=series,

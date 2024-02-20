@@ -1,9 +1,9 @@
-from typing import List, Optional, cast
+from typing import List, Optional, cast, Union
 from posthog.hogql import ast
 from posthog.hogql.parser import parse_expr, parse_select
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 from posthog.models.team.team import Team
-from posthog.schema import SeriesType, DataWarehouseNode
+from posthog.schema import EventsNode, ActionsNode, DataWarehouseNode
 from posthog.models.filters.mixins.utils import cached_property
 
 
@@ -50,14 +50,14 @@ class QueryAlternator:
 
 class AggregationOperations:
     team: Team
-    series: SeriesType
+    series: Union[EventsNode, ActionsNode, DataWarehouseNode]
     query_date_range: QueryDateRange
     should_aggregate_values: bool
 
     def __init__(
         self,
         team: Team,
-        series: SeriesType,
+        series: Union[EventsNode, ActionsNode, DataWarehouseNode],
         query_date_range: QueryDateRange,
         should_aggregate_values: bool,
     ) -> None:

@@ -1,3 +1,4 @@
+from typing import Union
 from copy import deepcopy
 from datetime import timedelta
 from itertools import groupby
@@ -50,7 +51,6 @@ from posthog.schema import (
     CompareItem,
     DayItem,
     EventsNode,
-    SeriesType,
     DataWarehouseNode,
     HogQLQueryResponse,
     InCohortVia,
@@ -535,7 +535,7 @@ class TrendsQueryRunner(QueryRunner):
             now=datetime.now(),
         )
 
-    def series_event(self, series: SeriesType) -> str | None:
+    def series_event(self, series: Union[EventsNode, ActionsNode, DataWarehouseNode]) -> str | None:
         if isinstance(series, EventsNode):
             return series.event
         if isinstance(series, ActionsNode):

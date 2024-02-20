@@ -5,7 +5,7 @@ from posthog.hogql.parser import parse_expr, parse_select
 from posthog.hogql.query import execute_hogql_query
 from posthog.hogql_queries.insights.trends.utils import get_properties_chain
 from posthog.models.team.team import Team
-from posthog.schema import BreakdownFilter, BreakdownType, ChartDisplayType, SeriesType, DataWarehouseNode
+from posthog.schema import BreakdownFilter, BreakdownType, ChartDisplayType, ActionsNode, EventsNode, DataWarehouseNode
 from functools import cached_property
 
 BREAKDOWN_OTHER_STRING_LABEL = "$$_posthog_breakdown_other_$$"
@@ -16,7 +16,7 @@ BREAKDOWN_NULL_NUMERIC_LABEL = 9007199254740990  # pow(2, 53) - 2, for JS compat
 
 class BreakdownValues:
     team: Team
-    series: SeriesType
+    series: Union[EventsNode, ActionsNode, DataWarehouseNode]
     breakdown_field: Union[str, float, List[Union[str, float]]]
     breakdown_type: BreakdownType
     events_filter: ast.Expr
@@ -29,7 +29,7 @@ class BreakdownValues:
     def __init__(
         self,
         team: Team,
-        series: SeriesType,
+        series: Union[EventsNode, ActionsNode, DataWarehouseNode],
         events_filter: ast.Expr,
         chart_display_type: ChartDisplayType,
         breakdown_filter: BreakdownFilter,
