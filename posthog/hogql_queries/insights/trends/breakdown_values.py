@@ -73,7 +73,7 @@ class BreakdownValues:
                 alias="value",
                 expr=ast.Field(
                     chain=get_properties_chain(
-                        breakdown_type=self.breakdown_type,  # type: ignore
+                        breakdown_type=self.breakdown_type,
                         breakdown_field=str(self.breakdown_field),
                         group_type_index=self.group_type_index,
                     )

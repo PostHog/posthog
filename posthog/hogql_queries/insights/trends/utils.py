@@ -1,5 +1,5 @@
-from typing import List, Optional, Union, Literal
-from posthog.schema import SeriesType, EventsNode
+from typing import List, Optional
+from posthog.schema import SeriesType, EventsNode, BreakdownType
 
 
 def series_event_name(series: SeriesType) -> str | None:
@@ -9,9 +9,7 @@ def series_event_name(series: SeriesType) -> str | None:
 
 
 def get_properties_chain(
-    breakdown_type: Union[
-        Literal["person"], Literal["session"], Literal["group"], Literal["event"], Literal["data_warehouse"]
-    ],
+    breakdown_type: BreakdownType,
     breakdown_field: str,
     group_type_index: Optional[float | int],
 ) -> List[str | int]:
