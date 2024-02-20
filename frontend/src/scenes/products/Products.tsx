@@ -23,6 +23,7 @@ export const scene: SceneExport = {
 function OnboardingCompletedButton({
     productUrl,
     onboardingUrl,
+    productKey,
     getStartedActionOverride,
 }: {
     productUrl: string
@@ -30,6 +31,7 @@ function OnboardingCompletedButton({
     productKey: ProductKey
     getStartedActionOverride?: () => void
 }): JSX.Element {
+    const { setTeamPropertiesForProduct } = useActions(onboardingLogic)
     return (
         <>
             <LemonButton type="secondary" to={productUrl}>
@@ -38,6 +40,7 @@ function OnboardingCompletedButton({
             <LemonButton
                 type="tertiary"
                 onClick={() => {
+                    setTeamPropertiesForProduct(productKey as ProductKey)
                     if (getStartedActionOverride) {
                         getStartedActionOverride()
                     }
@@ -52,16 +55,19 @@ function OnboardingCompletedButton({
 
 function OnboardingNotCompletedButton({
     url,
+    productKey,
     getStartedActionOverride,
 }: {
     url: string
     productKey: ProductKey
     getStartedActionOverride?: () => void
 }): JSX.Element {
+    const { setTeamPropertiesForProduct } = useActions(onboardingLogic)
     return (
         <LemonButton
             type="primary"
             onClick={() => {
+                setTeamPropertiesForProduct(productKey as ProductKey)
                 if (getStartedActionOverride) {
                     getStartedActionOverride()
                 }

@@ -1,5 +1,6 @@
 import clsx from 'clsx'
 import { IconFlag } from 'lib/lemon-ui/icons'
+import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
 import { LemonTag } from 'lib/lemon-ui/LemonTag/LemonTag'
 import { Link } from 'lib/lemon-ui/Link'
 import posthog from 'posthog-js'
@@ -12,6 +13,7 @@ interface StackFrame {
     colno: number
     function: string
 }
+
 function parseToFrames(rawTrace: string): StackFrame[] {
     return JSON.parse(rawTrace)
 }
@@ -108,15 +110,10 @@ function ActiveFlags({ flags }: { flags: string[] }): JSX.Element {
     )
 }
 
-export function ErrorDisplay({ event }: { event: EventType | RecordingEventType }): JSX.Element {
-    if (event.event !== '$exception') {
-        return <>Unknown type of error</>
-    }
-
+export function getExceptionPropertiesFrom(eventProperties: Record<string, any>): Record<string, any> {
     const {
         $exception_type,
         $exception_message,
-        $exception_stack_trace_raw,
         $exception_synthetic,
         $lib,
         $lib_version,
@@ -126,12 +123,62 @@ export function ErrorDisplay({ event }: { event: EventType | RecordingEventType 
         $os_version,
         $active_feature_flags,
         $sentry_url,
-    } = event.properties
+        $sentry_exception,
+    } = eventProperties
+
+    let $exception_stack_trace_raw = eventProperties.$exception_stack_trace_raw
+    // exception autocapture sets $exception_stack_trace_raw as a string
+    // if it isn't present then this is probably a sentry exception.
+    // try and grab the frames from that
+    if (!$exception_stack_trace_raw?.length && $sentry_exception) {
+        if (Array.isArray($sentry_exception.values)) {
+            const firstException = $sentry_exception.values[0]
+            if (firstException.stacktrace) {
+                $exception_stack_trace_raw = JSON.stringify(firstException.stacktrace.frames)
+            }
+        }
+    }
+    return {
+        $exception_type,
+        $exception_message,
+        $exception_synthetic,
+        $lib,
+        $lib_version,
+        $browser,
+        $browser_version,
+        $os,
+        $os_version,
+        $active_feature_flags,
+        $sentry_url,
+        $exception_stack_trace_raw,
+    }
+}
+
+export function ErrorDisplay({ event }: { event: EventType | RecordingEventType }): JSX.Element {
+    if (event.event !== '$exception') {
+        return <>Unknown type of error</>
+    }
+
+    const {
+        $exception_type,
+        $exception_message,
+        $exception_synthetic,
+        $lib,
+        $lib_version,
+        $browser,
+        $browser_version,
+        $os,
+        $os_version,
+        $active_feature_flags,
+        $sentry_url,
+        $exception_stack_trace_raw,
+    } = getExceptionPropertiesFrom(event.properties)
+
     return (
         <div className="flex flex-col space-y-2 pr-4 pb-2">
-            <h1 className="mb-0 text-xl">{$exception_message}</h1>
+            <h1 className="mb-0">{$exception_message}</h1>
             <div className="flex flex-row gap-2 flex-wrap">
-                <LemonTag type="caution">{$exception_type}</LemonTag>
+                <LemonTag type="danger">{$exception_type}</LemonTag>
                 <TitledSnack
                     type="success"
                     title="captured by"
@@ -157,13 +204,17 @@ export function ErrorDisplay({ event }: { event: EventType | RecordingEventType 
                 <TitledSnack title="os" value={`${$os} ${$os_version}`} />
             </div>
             {!!$exception_stack_trace_raw?.length && (
-                <div className="flex flex-col gap-1 mt-6">
-                    <h2>Stack Trace</h2>
-                    <StackTrace rawTrace={$exception_stack_trace_raw} />
-                </div>
+                <>
+                    <LemonDivider dashed={true} />
+                    <div className="flex flex-col gap-1 mt-6">
+                        <h2 className="mb-0">Stack Trace</h2>
+                        <StackTrace rawTrace={$exception_stack_trace_raw} />
+                    </div>
+                </>
             )}
+            <LemonDivider dashed={true} />
             <div className="flex flex-col gap-1 mt-6">
-                <h2 className="text-sm">Active Feature Flags</h2>
+                <h2 className="mb-0">Active Feature Flags</h2>
                 <ActiveFlags flags={$active_feature_flags} />
             </div>
         </div>
