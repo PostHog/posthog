@@ -209,7 +209,7 @@ class TrendsQueryRunner(QueryRunner):
         for series in self.query.series:
             # TODO: Add support for DataWarehouseNode
             if isinstance(series, DataWarehouseNode):
-                pass
+                continue
 
             # TODO: Work out if we will have issues only getting breakdown values for
             # the "current" period and not "previous" period for when "compare" is turned on
