@@ -90,7 +90,12 @@ class QueryDateRange:
             date_from = date_from.replace(hour=0, minute=0, second=0, microsecond=0)
 
         # For legacy insights, if filtering by days (e.g. -7d), clamp to the start of the day
-        elif self._filter.interval == "hour" and self._filter._date_from and "d" in self._filter._date_from:
+        elif (
+            hasattr(self._filter, "interval")
+            and self._filter.interval == "hour"
+            and isinstance(self._filter._date_from, str)
+            and "d" in self._filter._date_from
+        ):
             date_from = date_from.replace(hour=0, minute=0, second=0, microsecond=0)
 
         return date_from
