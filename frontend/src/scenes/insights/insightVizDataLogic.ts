@@ -278,7 +278,7 @@ export const insightVizDataLogic = kea<insightVizDataLogicType>([
             (insightDataError): string | null => {
                 // We use 512 for query timeouts
                 return insightDataError?.status === 400 || insightDataError?.status === 512
-                    ? insightDataError.detail.replace('Try ', 'Try ') // Add unbreakable space for better line breaking
+                    ? insightDataError.detail?.replace('Try ', 'Try ') // Add unbreakable space for better line breaking
                     : null
             },
         ],

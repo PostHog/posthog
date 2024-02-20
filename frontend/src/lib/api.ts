@@ -116,9 +116,14 @@ export interface ApiMethodOptions {
 }
 
 export class ApiError extends Error {
+    detail: string | null
+    code: string | null
+
     constructor(message?: string, public status?: number, public data?: any) {
         message = message || `API request failed with status: ${status ?? 'unknown'}`
         super(message)
+        this.detail = data?.detail || null
+        this.code = data?.code || null
     }
 }
 
@@ -2147,7 +2152,7 @@ async function handleFetch(url: string, method: string, fetcher: () => Promise<R
         posthog.capture('client_request_failure', { pathname, method, duration, status: response.status })
 
         const data = await getJSONOrThrow(response)
-        throw new ApiError('Non ok response', response.status, data)
+        throw new ApiError('Non-OK response', response.status, data)
     }
 
     return response
