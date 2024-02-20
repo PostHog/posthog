@@ -121,6 +121,8 @@ class TrendsQueryRunner(QueryRunner):
                 else:
                     query_date_range = self.query_previous_date_range
 
+                query_builder: TrendsQueryBuilder | DataWarehouseTrendsQueryBuilder
+
                 if isinstance(series.series, DataWarehouseNode):
                     query_builder = DataWarehouseTrendsQueryBuilder(
                         trends_query=series.overriden_query or self.query,
@@ -153,6 +155,10 @@ class TrendsQueryRunner(QueryRunner):
     ) -> ast.SelectQuery | ast.SelectUnionQuery:
         with self.timings.measure("trends_to_actors_query"):
             series = self.query.series[series_index]
+
+            # TODO: Add support for DataWarehouseNode
+            if isinstance(series, DataWarehouseNode):
+                raise Exception("DataWarehouseNode is not supported for actors query")
 
             if compare == Compare.previous:
                 query_date_range = self.query_previous_date_range
@@ -201,6 +207,10 @@ class TrendsQueryRunner(QueryRunner):
 
         # Breakdowns
         for series in self.query.series:
+            # TODO: Add support for DataWarehouseNode
+            if isinstance(series, DataWarehouseNode):
+                pass
+
             # TODO: Work out if we will have issues only getting breakdown values for
             # the "current" period and not "previous" period for when "compare" is turned on
             query_date_range = self.query_date_range

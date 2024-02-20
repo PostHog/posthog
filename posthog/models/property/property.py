@@ -30,6 +30,7 @@ class BehavioralPropertyType(str, Enum):
 ValueT = Union[str, int, List[str]]
 PropertyType = Literal[
     "event",
+    "feature",
     "person",
     "cohort",
     "element",

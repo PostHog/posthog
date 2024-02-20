@@ -63,14 +63,17 @@ class TestDataWarehouseQueryBuilder(ClickhouseTestMixin, BaseTest):
         timings = HogQLTimings()
         modifiers = create_default_modifiers_for_team(self.team)
 
-        query_builder = DataWarehouseTrendsQueryBuilder(
-            trends_query=trends_query,
-            team=self.team,
-            query_date_range=query_date_range,
-            series=trends_query.series[0],
-            timings=timings,
-            modifiers=modifiers,
-        )
+        if isinstance(trends_query.series[0], DataWarehouseNode):
+            query_builder = DataWarehouseTrendsQueryBuilder(
+                trends_query=trends_query,
+                team=self.team,
+                query_date_range=query_date_range,
+                series=trends_query.series[0],
+                timings=timings,
+                modifiers=modifiers,
+            )
+        else:
+            raise Exception("Unsupported series type")
 
         query = query_builder.build_query()
 
