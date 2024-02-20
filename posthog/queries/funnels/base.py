@@ -499,14 +499,14 @@ class ClickhouseFunnelBase(ABC):
             if self._query_has_array_breakdown():
                 default_breakdown_value = f"""[{','.join(["''" for _ in range(len(self._filter.breakdown or []))])}]"""
                 # default is [''] when dealing with a single breakdown array, otherwise ['', '', ...., '']
-                breakdown_selelector = (
+                breakdown_selector = (
                     f"if(notEmpty(arrayFilter(x -> notEmpty(x), prop_vals)), prop_vals, {default_breakdown_value})"
                 )
             else:
-                breakdown_selelector = "prop_vals"
+                breakdown_selector = "prop_vals"
 
             return f"""
-                SELECT *, {breakdown_selelector} as prop
+                SELECT *, {breakdown_selector} as prop
                 FROM ({inner_query})
             """
 

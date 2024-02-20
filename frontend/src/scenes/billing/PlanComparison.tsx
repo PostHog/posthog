@@ -1,9 +1,10 @@
 import './PlanComparison.scss'
 
+import { IconWarning, IconX } from '@posthog/icons'
 import { LemonButton, LemonModal, LemonTag, Link } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
-import { IconCheckmark, IconClose, IconWarning } from 'lib/lemon-ui/icons'
+import { IconCheckmark } from 'lib/lemon-ui/icons'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import React from 'react'
@@ -28,7 +29,7 @@ export function PlanIcon({
         <div className="flex items-center text-xs text-muted">
             {!feature ? (
                 <>
-                    <IconClose className={clsx('text-danger mx-4', className)} />
+                    <IconX className={clsx('text-danger mx-4', className)} />
                 </>
             ) : feature.limit ? (
                 <>
@@ -109,9 +110,9 @@ export const PlanComparison = ({
         return null
     }
     const fullyFeaturedPlan = plans[plans.length - 1]
-    const { reportBillingUpgradeClicked } = useActions(eventUsageLogic)
-    const { redirectPath, billing } = useValues(billingLogic)
+    const { billing, redirectPath } = useValues(billingLogic)
     const { width, ref: planComparisonRef } = useResizeObserver()
+    const { reportBillingUpgradeClicked } = useActions(eventUsageLogic)
 
     const upgradeButtons = plans?.map((plan) => {
         return (
@@ -130,16 +131,16 @@ export const PlanComparison = ({
                         }
                     }}
                 >
-                    {plan.current_plan ? 'Current plan' : 'Upgrade'}
+                    {plan.current_plan ? 'Current plan' : 'Subscribe'}
                 </LemonButton>
-                {!plan.current_plan && includeAddons && product.addons?.length > 0 && (
+                {!plan.current_plan && !plan.free_allocation && includeAddons && product.addons?.length > 0 && (
                     <p className="text-center ml-0 mt-2 mb-0">
                         <Link
                             to={`/api/billing-v2/activation?products=${product.type}:${plan.plan_key}&redirect_path=${redirectPath}`}
                             className="text-muted text-xs"
                             disableClientSideRouting
                         >
-                            or upgrade without addons
+                            or subscribe without addons
                         </Link>
                     </p>
                 )}
@@ -160,15 +161,6 @@ export const PlanComparison = ({
                 </tr>
             </thead>
             <tbody>
-                {/* Pricing section */}
-                <tr>
-                    <th
-                        colSpan={3}
-                        className="PlanTable__th__section bg-side text-muted justify-left rounded text-left mb-2"
-                    >
-                        <span>Pricing</span>
-                    </th>
-                </tr>
                 <tr className="PlanTable__tr__border">
                     <td className="font-bold">Monthly base price</td>
                     {plans?.map((plan) => (
@@ -177,7 +169,6 @@ export const PlanComparison = ({
                         </td>
                     ))}
                 </tr>
-
                 <tr className="PlanTable__tr__border">
                     <th scope="row">
                         {includeAddons && product.addons?.length > 0 && (
@@ -191,7 +182,6 @@ export const PlanComparison = ({
                         <td key={`${plan.plan_key}-tiers-td`}>{getProductTiers(plan, product)}</td>
                     ))}
                 </tr>
-
                 {includeAddons &&
                     product.addons?.map((addon) => {
                         return addon.tiered ? (
@@ -220,22 +210,15 @@ export const PlanComparison = ({
                             </tr>
                         ) : null
                     })}
-
                 <tr>
                     <td />
                     {upgradeButtons}
                 </tr>
                 <tr>
-                    <th colSpan={3} className="PlanTable__th__section bg-side justify-left rounded text-left mb-2">
-                        <div className="flex items-center gap-x-2 my-2">
-                            {getProductIcon(product.icon_key, 'text-2xl')}
-                            <Tooltip title={product.description}>
-                                <span className="font-bold">{product.name}</span>
-                            </Tooltip>
-                        </div>
+                    <th colSpan={1} className="PlanTable__th__section rounded text-left">
+                        <h3 className="mt-6 mb-2">Product Features:</h3>
                     </th>
                 </tr>
-
                 {fullyFeaturedPlan?.features?.map((feature, i) => (
                     <tr
                         key={`tr-${feature.key}`}
@@ -266,16 +249,15 @@ export const PlanComparison = ({
                         ))}
                     </tr>
                 ))}
-
                 {!billing?.has_active_subscription && (
                     <>
                         <tr>
-                            <th colSpan={3} className="PlanTable__th__section rounded text-left">
-                                <p className="mt-6 mb-2 italic text-center text-muted">
+                            <th colSpan={1} className="PlanTable__th__section rounded text-left">
+                                <h3 className="mt-6 mb-2">
                                     <Tooltip title="Organizations with any paid subscription get access to additional features.">
                                         Included platform features:
                                     </Tooltip>
-                                </p>
+                                </h3>
                             </th>
                         </tr>
                         {billing?.products

@@ -1,5 +1,6 @@
 import './SessionRecordingsPlaylist.scss'
 
+import { IconGear } from '@posthog/icons'
 import { LemonButton, Link } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { range } from 'd3'
@@ -9,11 +10,12 @@ import { FlaggedFeature } from 'lib/components/FlaggedFeature'
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { useResizeBreakpoints } from 'lib/hooks/useResizeObserver'
-import { IconFilter, IconSettings, IconWithCount } from 'lib/lemon-ui/icons'
+import { IconFilter, IconWithCount } from 'lib/lemon-ui/icons'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { LemonTableLoader } from 'lib/lemon-ui/LemonTable/LemonTableLoader'
 import { Spinner } from 'lib/lemon-ui/Spinner'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import React, { useEffect, useRef } from 'react'
 import { DraggableToNotebook } from 'scenes/notebooks/AddToNotebook/DraggableToNotebook'
 import { useNotebookNode } from 'scenes/notebooks/Nodes/NotebookNodeContext'
@@ -71,6 +73,41 @@ function UnusableEventsWarning(props: { unusableEventsInFilter: string[] }): JSX
                 </FlaggedFeature>
             </p>
         </LemonBanner>
+    )
+}
+
+function PinnedRecordingsList(): JSX.Element | null {
+    const { setSelectedRecordingId, setFilters } = useActions(sessionRecordingsPlaylistLogic)
+    const { activeSessionRecordingId, filters, pinnedRecordings } = useValues(sessionRecordingsPlaylistLogic)
+
+    const { featureFlags } = useValues(featureFlagLogic)
+    const isTestingSaved = featureFlags[FEATURE_FLAGS.SAVED_NOT_PINNED] === 'test'
+
+    const description = isTestingSaved ? 'Saved' : 'Pinned'
+
+    if (!pinnedRecordings.length) {
+        return null
+    }
+
+    return (
+        <>
+            <div className="flex justify-between items-center pl-3 pr-1 py-2 text-muted-alt border-b uppercase font-semibold text-xs">
+                {description} recordings
+            </div>
+            {pinnedRecordings.map((rec) => (
+                <div key={rec.id} className="border-b">
+                    <SessionRecordingPreview
+                        recording={rec}
+                        onClick={() => setSelectedRecordingId(rec.id)}
+                        onPropertyClick={(property, value) =>
+                            setFilters(defaultPageviewPropertyEntityFilter(filters, property, value))
+                        }
+                        isActive={activeSessionRecordingId === rec.id}
+                        pinned={true}
+                    />
+                </div>
+            ))}
+        </>
     )
 }
 
@@ -198,7 +235,7 @@ function RecordingsLists(): JSX.Element {
                         tooltip="Playlist settings"
                         size="small"
                         active={showSettings}
-                        icon={<IconSettings />}
+                        icon={<IconGear />}
                         onClick={() => setShowSettings(!showSettings)}
                     />
                     <LemonTableLoader loading={sessionRecordingsResponseLoading} />
@@ -224,17 +261,7 @@ function RecordingsLists(): JSX.Element {
 
                 {pinnedRecordings.length || otherRecordings.length ? (
                     <ul>
-                        {pinnedRecordings.map((rec) => (
-                            <div key={rec.id} className="border-b">
-                                <SessionRecordingPreview
-                                    recording={rec}
-                                    onClick={() => onRecordingClick(rec)}
-                                    onPropertyClick={onPropertyClick}
-                                    isActive={activeSessionRecordingId === rec.id}
-                                    pinned={true}
-                                />
-                            </div>
-                        ))}
+                        <PinnedRecordingsList />
 
                         {pinnedRecordings.length ? (
                             <div className="flex justify-between items-center pl-3 pr-1 py-2 text-muted-alt border-b uppercase font-semibold text-xs">

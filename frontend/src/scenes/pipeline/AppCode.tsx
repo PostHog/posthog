@@ -1,9 +1,9 @@
+import { IconPencil } from '@posthog/icons'
 import { LemonBanner, LemonButton, LemonModal, LemonTabs, Link, Spinner } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { Field, Form } from 'kea-forms'
 import { CodeEditor } from 'lib/components/CodeEditors'
 import { CodeSnippet, Language } from 'lib/components/CodeSnippet'
-import { IconEdit } from 'lib/lemon-ui/icons'
 
 import { PluginInstallationType } from '~/types'
 
@@ -140,7 +140,7 @@ export function AppCode({
                                     canEdit
                                         ? [
                                               {
-                                                  icon: <IconEdit />,
+                                                  icon: <IconPencil />,
                                                   title: 'Edit the code',
                                                   callback: editAppCode,
                                               },

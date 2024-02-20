@@ -1,4 +1,4 @@
-import { IconTerminal } from 'lib/lemon-ui/icons'
+import { IconTerminal } from '@posthog/icons'
 import { parseGithubRepoURL } from 'lib/utils'
 import imgPluginDefault from 'public/plugin-default.svg'
 import { useEffect, useState } from 'react'

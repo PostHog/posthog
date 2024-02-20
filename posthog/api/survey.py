@@ -10,15 +10,13 @@ from posthog.models.feedback.survey import Survey
 from rest_framework.response import Response
 from rest_framework.decorators import action
 from posthog.api.feature_flag import FeatureFlagSerializer, MinimalFeatureFlagSerializer
-from posthog.api.routing import StructuredViewSetMixin
+from posthog.api.routing import TeamAndOrgViewSetMixin
 from rest_framework import serializers, viewsets, request
-from rest_framework.permissions import IsAuthenticated
 from rest_framework.request import Request
 from rest_framework import status
 
 from posthog.models.feature_flag.feature_flag import FeatureFlag
 from posthog.models.team.team import Team
-from posthog.permissions import TeamMemberAccessPermission
 from django.utils.text import slugify
 from django.views.decorators.csrf import csrf_exempt
 
@@ -254,12 +252,9 @@ class SurveySerializerCreateUpdateOnly(SurveySerializer):
         return targeting_feature_flag
 
 
-class SurveyViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
+class SurveyViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
+    scope_object = "survey"
     queryset = Survey.objects.select_related("linked_flag", "targeting_flag").all()
-    permission_classes = [
-        IsAuthenticated,
-        TeamMemberAccessPermission,
-    ]
 
     def get_serializer_class(self) -> Type[serializers.Serializer]:
         if self.request.method == "POST" or self.request.method == "PATCH":

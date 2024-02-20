@@ -115,7 +115,7 @@ export function PropertyValue({
 
     const commonInputProps = {
         onSearch: (newInput: string) => {
-            setInput(newInput.trim())
+            setInput(newInput)
             if (!Object.keys(options).includes(newInput) && !(operator && isOperatorFlag(operator))) {
                 load(newInput.trim())
             }
@@ -260,7 +260,7 @@ export function PropertyValue({
             }}
             onSelect={(val, option) => {
                 setInput(option.title)
-                setValue(toString(val))
+                setValue(toString(val).trim())
             }}
             ref={autoCompleteRef}
         >

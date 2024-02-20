@@ -3,7 +3,7 @@ import { useValues } from 'kea'
 import { Form } from 'kea-forms'
 import PasswordStrength from 'lib/components/PasswordStrength'
 import { SocialLoginButtons } from 'lib/components/SocialLoginButton/SocialLoginButton'
-import { Field } from 'lib/forms/Field'
+import { LemonField } from 'lib/lemon-ui/LemonField'
 import { Link } from 'lib/lemon-ui/Link'
 import { useEffect, useRef } from 'react'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
@@ -31,7 +31,7 @@ export function SignupPanel1(): JSX.Element | null {
                 </>
             )}
             <Form logic={signupLogic} formKey="signupPanel1" className="space-y-4" enableFormOnSubmit>
-                <Field name="email" label="Email">
+                <LemonField name="email" label="Email">
                     <LemonInput
                         className="ph-ignore-input"
                         autoFocus
@@ -41,9 +41,9 @@ export function SignupPanel1(): JSX.Element | null {
                         ref={emailInputRef}
                         disabled={isSignupPanel1Submitting}
                     />
-                </Field>
+                </LemonField>
                 {!preflight?.demo && (
-                    <Field
+                    <LemonField
                         name="password"
                         label={
                             <div className="flex flex-1 items-center justify-between">
@@ -62,7 +62,7 @@ export function SignupPanel1(): JSX.Element | null {
                             placeholder="••••••••••"
                             disabled={isSignupPanel1Submitting}
                         />
-                    </Field>
+                    </LemonField>
                 )}
                 <LemonButton
                     fullWidth

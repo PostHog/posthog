@@ -1,5 +1,5 @@
+import { IconTrash } from '@posthog/icons'
 import { useActions } from 'kea'
-import { IconDelete } from 'lib/lemon-ui/icons'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { personDeleteModalLogic } from 'scenes/persons/personDeleteModalLogic'
 
@@ -15,7 +15,7 @@ export function DeletePersonButton({ person }: DeletePersonButtonProps): JSX.Ele
     return (
         <LemonButton
             onClick={() => showPersonDeleteModal(person, () => loadData())}
-            icon={<IconDelete />}
+            icon={<IconTrash />}
             status="danger"
             size="small"
         />

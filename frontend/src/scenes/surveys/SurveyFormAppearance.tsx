@@ -19,7 +19,7 @@ export function SurveyFormAppearance({
     setActivePreview,
     isEditingSurvey,
 }: SurveyFormAppearanceProps): JSX.Element {
-    const showThankYou = survey.appearance.displayThankYouMessage && activePreview >= survey.questions.length
+    const showThankYou = survey.appearance?.displayThankYouMessage && activePreview >= survey.questions.length
 
     return survey.type !== SurveyType.API ? (
         <>
@@ -48,7 +48,7 @@ export function SurveyFormAppearance({
                         label: `${index + 1}. ${question.question ?? ''}`,
                         value: index,
                     })),
-                    ...(survey.appearance.displayThankYouMessage
+                    ...(survey.appearance?.displayThankYouMessage
                         ? [
                               {
                                   label: `${survey.questions.length + 1}. Confirmation message`,

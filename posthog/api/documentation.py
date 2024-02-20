@@ -6,10 +6,15 @@ from drf_spectacular.utils import (
     extend_schema,  # noqa: F401
     extend_schema_field,
 )  # # noqa: F401 for easy import
+from drf_spectacular.extensions import OpenApiAuthenticationExtension
 from rest_framework import fields, serializers
+from rest_framework.exceptions import PermissionDenied
+from django.core.exceptions import ImproperlyConfigured
+
 
 from posthog.models.entity import MathType
 from posthog.models.property import OperatorType, PropertyType
+from posthog.permissions import APIScopePermission
 
 
 @extend_schema_field(OpenApiTypes.STR)
@@ -19,6 +24,27 @@ class ValueField(serializers.Field):
 
     def to_internal_value(self, data):
         return data
+
+
+class PersonalAPIKeyScheme(OpenApiAuthenticationExtension):
+    target_class = "posthog.auth.PersonalAPIKeyAuthentication"
+    name = "PersonalAPIKeyAuth"
+
+    def get_security_requirement(self, auto_schema):
+        view = auto_schema.view
+        request = view.request
+
+        for permission in auto_schema.view.get_permissions():
+            if isinstance(permission, APIScopePermission):
+                try:
+                    scopes = permission.get_required_scopes(request, view)
+                    return [{self.name: scopes}]
+                except (PermissionDenied, ImproperlyConfigured):
+                    # NOTE: This should never happen - it indicates that we shouldn't be including it in the docs
+                    pass
+
+    def get_security_definition(self, auto_schema):
+        return {"type": "http", "scheme": "bearer"}
 
 
 class PropertyItemSerializer(serializers.Serializer):
@@ -170,10 +196,19 @@ def preprocess_exclude_path_format(endpoints, **kwargs):
     """
     result = []
     for path, path_regex, method, callback in endpoints:
-        if hasattr(callback.cls, "legacy_team_compatibility") and callback.cls.legacy_team_compatibility:
+        if (
+            hasattr(callback.cls, "derive_current_team_from_user_only")
+            and callback.cls.derive_current_team_from_user_only
+        ):
             pass
-        elif hasattr(callback.cls, "include_in_docs") and callback.cls.include_in_docs:
+        elif (
+            hasattr(callback.cls, "scope_object")
+            and callback.cls.scope_object != "INTERNAL"
+            and not getattr(callback.cls, "hide_api_docs", False)
+        ):
+            # If there is an API Scope set then we implictly support it and should have it in the documentation
             path = path.replace("{parent_lookup_team_id}", "{project_id}")
+            path = path.replace("{parent_lookup_", "{")
             result.append((path, path_regex, method, callback))
     return result
 
@@ -181,6 +216,7 @@ def preprocess_exclude_path_format(endpoints, **kwargs):
 def custom_postprocessing_hook(result, generator, request, public):
     all_tags = []
     paths: Dict[str, Dict] = {}
+
     for path, methods in result["paths"].items():
         paths[path] = {}
         for method, definition in methods.items():

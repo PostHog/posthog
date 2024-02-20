@@ -1,12 +1,11 @@
 import './PropertiesTable.scss'
 
-import { IconPencil, IconWarning } from '@posthog/icons'
+import { IconPencil, IconTrash, IconWarning } from '@posthog/icons'
 import { LemonCheckbox, LemonInput, LemonTag, Link, Tooltip } from '@posthog/lemon-ui'
 import { Dropdown, Input, Menu, Popconfirm } from 'antd'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { combineUrl } from 'kea-router'
-import { IconDeleteForever } from 'lib/lemon-ui/icons'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonTable, LemonTableColumns, LemonTableProps } from 'lib/lemon-ui/LemonTable'
 import { userPreferencesLogic } from 'lib/logic/userPreferencesLogic'
@@ -22,6 +21,7 @@ import { PropertyDefinitionType, PropertyType } from '~/types'
 import { CopyToClipboardInline } from '../CopyToClipboard'
 import { PROPERTY_FILTER_TYPE_TO_TAXONOMIC_FILTER_GROUP_TYPE } from '../PropertyFilters/utils'
 import { PropertyKeyInfo } from '../PropertyKeyInfo'
+import { TaxonomicFilterGroupType } from '../TaxonomicFilter/types'
 
 type HandledType = 'string' | 'number' | 'bigint' | 'boolean' | 'undefined' | 'null'
 type Type = HandledType | 'symbol' | 'object' | 'function'
@@ -293,7 +293,11 @@ export function PropertiesTable({
                         <div className="properties-table-key">
                             <PropertyKeyInfo
                                 value={item[0]}
-                                type={PROPERTY_FILTER_TYPE_TO_TAXONOMIC_FILTER_GROUP_TYPE[type]}
+                                type={
+                                    rootKey && type === 'event' && ['$set', '$set_once'].includes(rootKey)
+                                        ? TaxonomicFilterGroupType.PersonProperties
+                                        : PROPERTY_FILTER_TYPE_TO_TAXONOMIC_FILTER_GROUP_TYPE[type]
+                                }
                             />
                         </div>
                     )
@@ -358,7 +362,7 @@ export function PropertiesTable({
                                 }
                                 placement="left"
                             >
-                                <LemonButton icon={<IconDeleteForever />} status="danger" size="small" />
+                                <LemonButton icon={<IconTrash />} status="danger" size="small" />
                             </Popconfirm>
                         )
                     )
@@ -397,7 +401,6 @@ export function PropertiesTable({
                 <LemonTable
                     columns={columns}
                     showHeader={!embedded}
-                    size="small"
                     rowKey="0"
                     embedded={embedded}
                     dataSource={objectProperties}

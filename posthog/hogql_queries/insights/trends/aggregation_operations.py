@@ -111,6 +111,11 @@ class AggregationOperations:
             "count({id_field})", placeholders={"id_field": self._id_field}
         )  # All "count per actor" get replaced during query orchestration
 
+    def actor_id(self) -> ast.Expr:
+        if self.series.math == "unique_group" and self.series.math_group_type_index is not None:
+            return parse_expr(f'e."$group_{int(self.series.math_group_type_index)}"')
+        return parse_expr("e.person.id")
+
     def requires_query_orchestration(self) -> bool:
         math_to_return_true = [
             "weekly_active",

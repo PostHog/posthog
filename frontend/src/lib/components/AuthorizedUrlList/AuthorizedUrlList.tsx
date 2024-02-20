@@ -1,10 +1,11 @@
+import { IconPencil, IconPlus, IconTrash } from '@posthog/icons'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
-import { Field } from 'lib/forms/Field'
-import { IconDelete, IconEdit, IconOpenInApp, IconPlus } from 'lib/lemon-ui/icons'
+import { IconOpenInApp } from 'lib/lemon-ui/icons'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
+import { LemonField } from 'lib/lemon-ui/LemonField'
 import { LemonInput } from 'lib/lemon-ui/LemonInput/LemonInput'
 import { LemonTag } from 'lib/lemon-ui/LemonTag/LemonTag'
 import { Spinner } from 'lib/lemon-ui/Spinner/Spinner'
@@ -56,13 +57,13 @@ function AuthorizedUrlForm({ actionId, type }: AuthorizedUrlListProps): JSX.Elem
             enableFormOnSubmit
             className="w-full space-y-2"
         >
-            <Field name="url">
+            <LemonField name="url">
                 <LemonInput
                     autoFocus
                     placeholder="Enter a URL or wildcard subdomain (e.g. https://*.posthog.com)"
                     data-attr="url-input"
                 />
-            </Field>
+            </LemonField>
             <div className="flex justify-end gap-2">
                 <LemonButton type="secondary" onClick={cancelProposingUrl}>
                     Cancel
@@ -169,14 +170,14 @@ export function AuthorizedUrlList({
                                             </LemonButton>
 
                                             <LemonButton
-                                                icon={<IconEdit />}
+                                                icon={<IconPencil />}
                                                 onClick={() => setEditUrlIndex(keyedURL.originalIndex)}
                                                 tooltip="Edit"
                                                 center
                                             />
 
                                             <LemonButton
-                                                icon={<IconDelete />}
+                                                icon={<IconTrash />}
                                                 tooltip={`Remove ${onlyAllowDomains ? 'domain' : 'URL'}`}
                                                 center
                                                 onClick={() => {

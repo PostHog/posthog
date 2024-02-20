@@ -8,13 +8,13 @@ from django.utils.timezone import now
 from django.views.decorators.clickjacking import xframe_options_exempt
 from rest_framework import mixins, response, serializers, viewsets
 from rest_framework.exceptions import NotFound, PermissionDenied, ValidationError
-from rest_framework.permissions import SAFE_METHODS, IsAuthenticated
+from rest_framework.permissions import SAFE_METHODS
 from rest_framework.request import Request
 
 from posthog.api.dashboards.dashboard import DashboardSerializer
 from posthog.api.exports import ExportedAssetSerializer
 from posthog.api.insight import InsightSerializer
-from posthog.api.routing import StructuredViewSetMixin
+from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.models import SharingConfiguration, Team
 from posthog.models.activity_logging.activity_log import log_activity, Detail, Change
 from posthog.models.dashboard import Dashboard
@@ -26,7 +26,6 @@ from posthog.models.exported_asset import (
 from posthog.models.insight import Insight
 from posthog.models import SessionRecording
 from posthog.models.user import User
-from posthog.permissions import TeamMemberAccessPermission
 from posthog.session_recordings.session_recording_api import SessionRecordingSerializer
 from posthog.user_permissions import UserPermissions
 from posthog.utils import render_template
@@ -80,15 +79,11 @@ class SharingConfigurationSerializer(serializers.ModelSerializer):
         read_only_fields = ["created_at", "access_token"]
 
 
-class SharingConfigurationViewSet(StructuredViewSetMixin, mixins.ListModelMixin, viewsets.GenericViewSet):
-    permission_classes = [
-        IsAuthenticated,
-        TeamMemberAccessPermission,
-    ]
+class SharingConfigurationViewSet(TeamAndOrgViewSetMixin, mixins.ListModelMixin, viewsets.GenericViewSet):
+    scope_object = "sharing_configuration"
     pagination_class = None
     queryset = SharingConfiguration.objects.select_related("dashboard", "insight", "recording")
     serializer_class = SharingConfigurationSerializer
-    include_in_docs = False
 
     def get_serializer_context(
         self,
@@ -202,7 +197,7 @@ class SharingConfigurationViewSet(StructuredViewSetMixin, mixins.ListModelMixin,
         return response.Response(serializer.data)
 
 
-class SharingViewerPageViewSet(mixins.RetrieveModelMixin, StructuredViewSetMixin, viewsets.GenericViewSet):
+class SharingViewerPageViewSet(mixins.RetrieveModelMixin, viewsets.GenericViewSet):
     """
     NOTE: This ViewSet takes care of multiple rendering cases:
     1. Shared Resources like Shared Dashboard or Insight
@@ -213,7 +208,6 @@ class SharingViewerPageViewSet(mixins.RetrieveModelMixin, StructuredViewSetMixin
 
     authentication_classes = []
     permission_classes = []
-    include_in_docs = False
 
     def get_object(self) -> Optional[SharingConfiguration | ExportedAsset]:
         # JWT based access (ExportedAsset)

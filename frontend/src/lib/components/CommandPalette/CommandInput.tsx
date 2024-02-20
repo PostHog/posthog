@@ -1,5 +1,6 @@
+import { IconPencil } from '@posthog/icons'
 import { useActions, useValues } from 'kea'
-import { IconEdit, IconExclamation, IconMagnifier } from 'lib/lemon-ui/icons'
+import { IconExclamation, IconMagnifier } from 'lib/lemon-ui/icons'
 
 import { commandPaletteLogic } from './commandPaletteLogic'
 
@@ -12,7 +13,7 @@ export function CommandInput(): JSX.Element {
             {isSqueak ? (
                 <IconExclamation className="palette__icon" />
             ) : activeFlow ? (
-                <activeFlow.icon className="palette__icon" /> ?? <IconEdit className="palette__icon" />
+                <activeFlow.icon className="palette__icon" /> ?? <IconPencil className="palette__icon" />
             ) : (
                 <IconMagnifier className="palette__icon" />
             )}

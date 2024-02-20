@@ -1,5 +1,6 @@
 import './PersonsModal.scss'
 
+import { IconCollapse, IconExpand } from '@posthog/icons'
 import {
     LemonBadge,
     LemonButton,
@@ -16,7 +17,7 @@ import { CopyToClipboardInline } from 'lib/components/CopyToClipboard'
 import { triggerExport } from 'lib/components/ExportButton/exporter'
 import { PropertiesTable } from 'lib/components/PropertiesTable'
 import { PropertiesTimeline } from 'lib/components/PropertiesTimeline'
-import { IconPlayCircle, IconUnfoldLess, IconUnfoldMore } from 'lib/lemon-ui/icons'
+import { IconPlayCircle } from 'lib/lemon-ui/icons'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
 import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
@@ -126,7 +127,7 @@ export function PersonsModal({
                 <LemonModal.Header>
                     <h3>{getTitle()}</h3>
                 </LemonModal.Header>
-                <div className="px-6 py-2">
+                <div className="px-4 py-2">
                     {actorsResponse && !!missingActorsCount && (
                         <MissingPersonsAlert actorLabel={actorLabel} missingActorsCount={missingActorsCount} />
                     )}
@@ -194,7 +195,7 @@ export function PersonsModal({
                         )}
                     </div>
                 </div>
-                <div className="px-6 overflow-hidden flex flex-col">
+                <div className="px-4 overflow-hidden flex flex-col">
                     <div className="relative min-h-20 p-2 space-y-2 rounded bg-border-light overflow-y-auto mb-2">
                         {errorObject ? (
                             validationError ? (
@@ -329,7 +330,7 @@ export function ActorRow({ actor, onOpenRecording, propertiesTimelineFilter }: A
                     noPadding
                     active={expanded}
                     onClick={() => setExpanded(!expanded)}
-                    icon={expanded ? <IconUnfoldLess /> : <IconUnfoldMore />}
+                    icon={expanded ? <IconCollapse /> : <IconExpand />}
                     title={expanded ? 'Show less' : 'Show more'}
                     data-attr={`persons-modal-expand-${actor.id}`}
                 />

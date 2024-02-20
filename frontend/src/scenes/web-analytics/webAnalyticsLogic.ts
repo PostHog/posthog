@@ -152,6 +152,8 @@ export const GEOIP_PLUGIN_URLS = [
     'https://www.npmjs.com/package/@posthog/geoip-plugin',
 ]
 
+export const WEB_ANALYTICS_DATA_COLLECTION_NODE_ID = 'web-analytics'
+
 export const initialWebAnalyticsFilter = [] as WebAnalyticsPropertyFilters
 const initialDateFrom = '-7d' as string | null
 const initialDateTo = null as string | null
@@ -402,7 +404,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                     date_from: dateFrom,
                     date_to: dateTo,
                 }
-                const compare = !!(dateRange.date_from && dateRange.date_to)
+                const compare = !!dateRange.date_from && dateRange.date_from !== 'all'
 
                 const sampling = {
                     enabled: !!values.featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_SAMPLING],
@@ -413,6 +415,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                     return {
                         dashboardItemId: getDashboardItemId(tile, tab, false),
                         loadPriority: loadPriorityMap[tile],
+                        dataNodeCollectionId: WEB_ANALYTICS_DATA_COLLECTION_NODE_ID,
                     }
                 }
 
@@ -428,6 +431,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                             properties: webAnalyticsFilters,
                             dateRange,
                             sampling,
+                            compare,
                         },
                         insightProps: createInsightProps(TileId.OVERVIEW),
                         canOpenModal: false,
@@ -1013,6 +1017,8 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                         insightProps: {
                             dashboardItemId: getDashboardItemId(tileId, tabId, true),
                             loadPriority: 0,
+                            doNotLoad: false,
+                            dataNodeCollectionId: WEB_ANALYTICS_DATA_COLLECTION_NODE_ID,
                         },
                         query: extendQuery(tab.query),
                         canOpenInsight: tab.canOpenInsight,
@@ -1029,6 +1035,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                         insightProps: {
                             dashboardItemId: getDashboardItemId(tileId, undefined, true),
                             loadPriority: 0,
+                            dataNodeCollectionId: WEB_ANALYTICS_DATA_COLLECTION_NODE_ID,
                         },
                         query: extendQuery(tile.query),
                     }

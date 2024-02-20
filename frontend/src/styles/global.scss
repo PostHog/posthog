@@ -53,14 +53,10 @@ input[type='radio'] {
     gap: 0.5rem 1rem;
     align-items: center;
     min-height: 2.5rem;
-    margin: 1.25rem 0 0.25rem;
+    margin: 1rem 0 0.25rem;
 
     .ant-form-item {
         margin-bottom: 0 !important;
-    }
-
-    .posthog-3000 & {
-        margin-top: 1rem;
     }
 
     @include screen($md) {
@@ -177,14 +173,10 @@ input::-ms-clear {
     font-family: var(--font-sans);
     font-size: 1rem;
     cursor: unset;
-    border: 1px solid var(--border);
+    border: 1px solid var(--secondary-3000-button-border);
     border-radius: var(--radius);
     box-shadow: var(--shadow-elevation);
     opacity: 1 !important;
-
-    .posthog-3000 & {
-        border-color: var(--secondary-3000-button-border);
-    }
 }
 
 .Toastify__toast-container {
@@ -481,6 +473,9 @@ body {
     --link: var(--primary-3000);
     --tooltip-bg: var(--bg-charcoal);
     --data-color-1-hover: #1d4affe5;
+    --shadow-elevation: var(--shadow-elevation-3000);
+    --primary: var(--primary-3000);
+    --primary-highlight: var(--primary-3000-highlight);
 
     // Remove below once we're using Tailwind's base
     --tw-ring-offset-width: 0px;
@@ -496,69 +491,50 @@ body {
     --tw-scale-y: 1;
 
     touch-action: manipulation; // Disable double-tap-to-zoom on mobile, making taps slightly snappier
+    background: var(--bg-3000);
 
     &.posthog-3000[theme='light'] {
         @include light-mode-3000-variables;
     }
 
     &.posthog-3000[theme='dark'] {
+        .ant-empty-img-simple-path {
+            fill: var(--border-3000);
+        }
+
+        .ant-empty-img-simple-ellipse {
+            fill: var(--border-3000);
+        }
+
         @include dark-mode-3000-variables;
     }
 
-    &.posthog-3000 {
-        --shadow-elevation: var(--shadow-elevation-3000);
-        --primary: var(--primary-3000);
-        --primary-highlight: var(--primary-3000-highlight);
-
-        background: var(--bg-3000);
-
-        .non-3000 {
-            // Helper to hide non-3000 elements without JS
-            display: none;
+    * > {
+        ::-webkit-scrollbar {
+            width: 0.5rem;
+            height: 0.5rem;
         }
 
-        .LemonButton,
-        .Link {
-            .text-link {
-                color: var(--text-3000);
-            }
+        ::-webkit-scrollbar-track {
+            background: var(--accent-3000);
+        }
+
+        ::-webkit-scrollbar-thumb {
+            background: var(--trace-3000);
+            border-radius: var(--radius);
 
             &:hover {
-                .text-link {
-                    color: var(--primary-3000);
-                }
+                background: var(--muted-3000);
             }
         }
+    }
 
-        * > {
-            ::-webkit-scrollbar {
-                width: 0.5rem;
-                height: 0.5rem;
-            }
-
-            ::-webkit-scrollbar-track {
-                background: var(--accent-3000);
-            }
-
-            ::-webkit-scrollbar-thumb {
-                background: var(--trace-3000);
-                border-radius: var(--radius);
-
-                &:hover {
-                    background: var(--muted-3000);
-                }
-            }
-        }
-
-        h1,
-        h2,
-        h3,
-        h4,
-        h5 {
-            font-family: var(--font-title);
-        }
-
-        @include posthog-3000-variables;
+    h1,
+    h2,
+    h3,
+    h4,
+    h5 {
+        font-family: var(--font-title);
     }
 
     h1,
@@ -587,6 +563,19 @@ body {
 
     a {
         color: var(--link);
+    }
+
+    .LemonButton,
+    .Link {
+        .text-link {
+            color: var(--text-3000);
+        }
+
+        &:hover {
+            .text-link {
+                color: var(--primary-3000);
+            }
+        }
     }
 
     // AntD uses its own border color for the bottom of tab lists, but we want to use `var(--border)`
@@ -707,6 +696,8 @@ body {
     .ant-table-tbody > tr.ant-table-placeholder:hover > td {
         background: inherit;
     }
+
+    @include posthog-3000-variables;
 }
 
 .storybook-test-runner {
@@ -721,7 +712,7 @@ body {
     }
 
     // Hide some parts of the UI that were causing flakiness
-    ::-webkit-scrollbar, // Scrollbar in WebKit/Blink browsers
+    ::-webkit-scrollbar, * > ::-webkit-scrollbar, // Scrollbar in WebKit/Blink browsers
     .LemonTabs__bar::after, // Active tab slider
     .scrollable::after, // Scrollability indicators
     .scrollable::before {
@@ -729,21 +720,9 @@ body {
     }
 }
 
-.posthog-3000 {
-    .ant-radio-button-wrapper {
-        background: var(--secondary-3000);
-        border-color: transparent;
-    }
-}
-
-.posthog-3000[theme='dark'] {
-    .ant-empty-img-simple-path {
-        fill: var(--border-3000);
-    }
-
-    .ant-empty-img-simple-ellipse {
-        fill: var(--border-3000);
-    }
+.ant-radio-button-wrapper {
+    background: var(--secondary-3000);
+    border-color: transparent;
 }
 
 .ligatures-none {

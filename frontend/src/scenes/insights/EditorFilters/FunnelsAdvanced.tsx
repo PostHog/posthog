@@ -1,6 +1,6 @@
 import { useActions, useValues } from 'kea'
-import { PureField } from 'lib/forms/Field'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
+import { LemonField } from 'lib/lemon-ui/LemonField'
 import { funnelDataLogic } from 'scenes/funnels/funnelDataLogic'
 
 import { Noun } from '~/models/groupsModel'
@@ -16,14 +16,14 @@ export function FunnelsAdvanced({ insightProps }: EditorFilterProps): JSX.Elemen
 
     return (
         <div className="space-y-4">
-            <PureField label="Step order" info={<StepOrderInfo />}>
+            <LemonField.Pure label="Step order" info={<StepOrderInfo />}>
                 <FunnelStepOrderPicker />
-            </PureField>
-            <PureField label="Conversion rate calculation">
+            </LemonField.Pure>
+            <LemonField.Pure label="Conversion rate calculation">
                 <FunnelStepReferencePicker />
-            </PureField>
+            </LemonField.Pure>
 
-            <PureField
+            <LemonField.Pure
                 label="Exclusion steps"
                 info={
                     <ExclusionStepsInfo
@@ -33,7 +33,7 @@ export function FunnelsAdvanced({ insightProps }: EditorFilterProps): JSX.Elemen
                 }
             >
                 <FunnelExclusionsFilter />
-            </PureField>
+            </LemonField.Pure>
 
             {!!advancedOptionsUsedCount && (
                 <div className="mt-4">

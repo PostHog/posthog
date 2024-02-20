@@ -2,7 +2,7 @@ import './Elements.scss'
 
 import { useActions, useValues } from 'kea'
 import { compactNumber } from 'lib/utils'
-import React from 'react'
+import { Fragment } from 'react'
 
 import { ElementInfoWindow } from '~/toolbar/elements/ElementInfoWindow'
 import { elementsLogic } from '~/toolbar/elements/elementsLogic'
@@ -75,7 +75,7 @@ export function Elements(): JSX.Element {
 
                 {heatmapElements.map(({ rect, count, clickCount, rageclickCount, element }, index) => {
                     return (
-                        <React.Fragment key={`heatmap-${index}`}>
+                        <Fragment key={`heatmap-${index}`}>
                             <HeatmapElement
                                 rect={rect}
                                 style={{
@@ -155,7 +155,7 @@ export function Elements(): JSX.Element {
                                     {compactNumber(rageclickCount)}&#128545;
                                 </HeatmapLabel>
                             )}
-                        </React.Fragment>
+                        </Fragment>
                     )
                 })}
 

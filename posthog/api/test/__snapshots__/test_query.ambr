@@ -155,6 +155,30 @@
                     allow_experimental_object_type=1
   '''
 # ---
+# name: TestQuery.test_full_hogql_query_async
+  '''
+  /* user_id:462 celery:posthog.tasks.tasks.process_query_task */
+  SELECT events.uuid AS uuid,
+         events.event AS event,
+         events.properties AS properties,
+         toTimeZone(events.timestamp, 'UTC') AS timestamp,
+         events.distinct_id AS distinct_id,
+         events.elements_chain AS elements_chain,
+         toTimeZone(events.created_at, 'UTC') AS created_at,
+         events.`$session_id` AS `$session_id`,
+         events.`$group_0` AS `$group_0`,
+         events.`$group_1` AS `$group_1`,
+         events.`$group_2` AS `$group_2`,
+         events.`$group_3` AS `$group_3`,
+         events.`$group_4` AS `$group_4`
+  FROM events
+  WHERE equals(events.team_id, 2)
+  LIMIT 101
+  OFFSET 0 SETTINGS readonly=2,
+                    max_execution_time=600,
+                    allow_experimental_object_type=1
+  '''
+# ---
 # name: TestQuery.test_full_hogql_query_materialized
   '''
   /* user_id:0 request:_snapshot_ */
