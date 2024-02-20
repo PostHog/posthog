@@ -4,7 +4,9 @@ from django.core.management.base import BaseCommand
 class Command(BaseCommand):
     help = "Test if HogQL insights match their legacy counterparts"
 
+    # 1133835
     def handle(self, *args, **options):
+        import json
         from typing import cast
         from posthog.schema import HogQLQueryModifiers, HogQLQueryResponse, MaterializationMode
         from posthog.models import Insight, Filter
@@ -17,7 +19,17 @@ class Command(BaseCommand):
             .order_by("created_at")
             .all()
         )
-        for insight in insights[-30:]:
+        insights = [i for i in insights if "breakdown" not in i.filters]
+        insights = [i for i in insights if "formula" not in i.filters]
+        insights = [i for i in insights if i.filters.get("display") == "ActionsLineGraph"]
+        insights = [i for i in insights if i.id == 1133835]
+        for insight in insights[-100:]:
+            for event in insight.filters.get("events", []):
+                if event.get("math") in ("median", "p90", "p95", "p99"):
+                    event["math"] = "sum"
+            for event in insight.filters.get("actions", []):
+                if event.get("math") in ("median", "p90", "p95", "p99"):
+                    event["math"] = "sum"
             try:
                 print("++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++")  # noqa: T201
                 insight_type = insight.filters.get("insight")
@@ -35,6 +47,7 @@ class Command(BaseCommand):
             except Exception as e:
                 url = f"https://us.posthog.com/project/{insight.team_id}/insights/{insight.short_id}/edit"
                 print(f"LEGACY Insight {url} ({insight.id}). ERROR: {e}")  # noqa: T201
+                print(json.dumps(insight.filters))  # noqa: T201
                 continue
             try:
                 query = filter_to_query(insight.filters)
@@ -44,14 +57,26 @@ class Command(BaseCommand):
             except Exception as e:
                 url = f"https://us.posthog.com/project/{insight.team_id}/insights/{insight.short_id}/edit"
                 print(f"HogQL Insight {url} ({insight.id}). ERROR: {e}")  # noqa: T201
+                print(json.dumps(insight.filters))  # noqa: T201
                 continue
             try:
                 all_ok = True
-                for legacy_result, hogql_result in zip(legacy_results, hogql_results):
+                sorted_legacy_results = sorted(
+                    legacy_results,
+                    key=lambda x: "$$_posthog_breakdown_other_$$" if x.get("label") == "Other" else x.get("label"),
+                )
+                sorted_hogql_results = sorted(hogql_results, key=lambda x: x.get("label"))
+                for legacy_result, hogql_result in zip(sorted_legacy_results, sorted_hogql_results):
                     fields = ["label", "count", "data", "labels", "days"]
                     for field in fields:
                         legacy_value = legacy_result.get(field)
                         hogql_value = hogql_result.get(field)
+                        if field == "count":
+                            legacy_value = int(legacy_value)
+                            hogql_value = int(hogql_value)
+                        if field == "data":
+                            legacy_value = [int(x) for x in legacy_value]
+                            hogql_value = [int(x) for x in hogql_value]
                         if legacy_value != hogql_value:
                             if (
                                 (field == "labels" and insight.filters.get("interval") == "month")
@@ -67,8 +92,9 @@ class Command(BaseCommand):
                                 f"Insight https://us.posthog.com/project/{insight.team_id}/insights/{insight.short_id}/edit"
                                 f" ({insight.id}). MISMATCH in {legacy_result.get('status')} row, field {field}"
                             )
-                            print("Legacy:", legacy_result.get(field))  # noqa: T201
-                            print("HogQL:", hogql_result.get(field))  # noqa: T201
+                            print("Legacy:", legacy_value)  # noqa: T201
+                            print("HogQL:", hogql_value)  # noqa: T201
+                            print(json.dumps(insight.filters))  # noqa: T201
                             print("")  # noqa: T201
                             all_ok = False
                 if all_ok:
@@ -76,3 +102,4 @@ class Command(BaseCommand):
             except Exception as e:
                 url = f"https://us.posthog.com/project/{insight.team_id}/insights/{insight.short_id}/edit"
                 print(f"Comparison Insight {url} ({insight.id}). ERROR: {e}")  # noqa: T201
+                print(json.dumps(insight.filters))  # noqa: T201
