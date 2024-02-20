@@ -19,7 +19,7 @@ BASE_APP_METRICS_COLUMNS = """
     category LowCardinality(String),
     job_id String,
     successes SimpleAggregateFunction(sum, Int64),
-    successes_on_retry SimpleAggregateFunction(sum, Int64),
+    skips SimpleAggregateFunction(sum, Int64),
     failures SimpleAggregateFunction(sum, Int64),
     error_uuid UUID,
     error_type String,
