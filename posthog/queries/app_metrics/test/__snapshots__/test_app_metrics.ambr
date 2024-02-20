@@ -102,16 +102,13 @@
   
   SELECT groupArray(date),
          groupArray(successes),
-         groupArray(successes_on_retry),
          groupArray(failures)
   FROM
     (SELECT date, sum(successes) AS successes,
-                  sum(successes_on_retry) AS successes_on_retry,
                   sum(failures) AS failures
      FROM
        (SELECT dateTrunc('day', timestamp, 'UTC') AS date,
                sum(successes) AS successes,
-               sum(successes_on_retry) AS successes_on_retry,
                sum(failures) AS failures
         FROM app_metrics
         WHERE team_id = 2
@@ -130,16 +127,13 @@
   
   SELECT groupArray(date),
          groupArray(successes),
-         groupArray(successes_on_retry),
          groupArray(failures)
   FROM
     (SELECT date, sum(successes) AS successes,
-                  sum(successes_on_retry) AS successes_on_retry,
                   sum(failures) AS failures
      FROM
        (SELECT dateTrunc('hour', timestamp, 'UTC') AS date,
                sum(successes) AS successes,
-               sum(successes_on_retry) AS successes_on_retry,
                sum(failures) AS failures
         FROM app_metrics
         WHERE team_id = 2
@@ -158,16 +152,13 @@
   
   SELECT groupArray(date),
          groupArray(successes),
-         groupArray(successes_on_retry),
          groupArray(failures)
   FROM
     (SELECT date, sum(successes) AS successes,
-                  sum(successes_on_retry) AS successes_on_retry,
                   sum(failures) AS failures
      FROM
        (SELECT dateTrunc('day', timestamp, 'UTC') AS date,
                sum(successes) AS successes,
-               sum(successes_on_retry) AS successes_on_retry,
                sum(failures) AS failures
         FROM app_metrics
         WHERE team_id = 2
@@ -187,16 +178,13 @@
   
   SELECT groupArray(date),
          groupArray(successes),
-         groupArray(successes_on_retry),
          groupArray(failures)
   FROM
     (SELECT date, sum(successes) AS successes,
-                  sum(successes_on_retry) AS successes_on_retry,
                   sum(failures) AS failures
      FROM
        (SELECT dateTrunc('day', timestamp, 'UTC') AS date,
                sum(successes) AS successes,
-               sum(successes_on_retry) AS successes_on_retry,
                sum(failures) AS failures
         FROM app_metrics
         WHERE team_id = 2
@@ -217,8 +205,8 @@
          if(total > 0, success/total, 1) as rate
   FROM
     (SELECT plugin_config_id,
-            sum(successes) + sum(successes_on_retry) AS success,
-            sum(successes) + sum(successes_on_retry) + sum(failures) AS total
+            sum(successes) AS success,
+            sum(successes) + sum(failures) AS total
      FROM app_metrics
      WHERE team_id = 2
        AND timestamp > '2021-12-04 13:23:00.000000'

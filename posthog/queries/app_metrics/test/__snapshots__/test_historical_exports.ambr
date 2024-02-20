@@ -4,16 +4,13 @@
   
   SELECT groupArray(date),
          groupArray(successes),
-         groupArray(successes_on_retry),
          groupArray(failures)
   FROM
     (SELECT date, sum(successes) AS successes,
-                  sum(successes_on_retry) AS successes_on_retry,
                   sum(failures) AS failures
      FROM
        (SELECT dateTrunc('hour', timestamp, 'UTC') AS date,
                sum(successes) AS successes,
-               sum(successes_on_retry) AS successes_on_retry,
                sum(failures) AS failures
         FROM app_metrics
         WHERE team_id = 2
