@@ -112,11 +112,11 @@ team_id,
 any(distinct_id) as distinct_id,
 min(first_timestamp) AS min_first_timestamp,
 max(last_timestamp) AS max_last_timestamp,
--- TRICKY: ClickHouse will pick a relatively random first_url
+-- TRICKY: ClickHouse will pick a relatively random "entry"
 -- when it collapses the aggregating merge tree
 -- unless we teach it what we want...
 -- argMin ignores null values
--- so this will get the first non-null value of first_url
+-- so this will get the first non-null value of "entry"
 -- for each group of session_id and team_id
 -- by min of first_timestamp in the batch
 -- this is an aggregate function, not a simple aggregate function
