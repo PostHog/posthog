@@ -3632,7 +3632,16 @@ export type BatchExportConfiguration = {
 
 export type BatchExportRun = {
     id: string
-    status: 'Cancelled' | 'Completed' | 'ContinuedAsNew' | 'Failed' | 'Terminated' | 'TimedOut' | 'Running' | 'Starting'
+    status:
+        | 'Cancelled'
+        | 'Completed'
+        | 'ContinuedAsNew'
+        | 'Failed'
+        | 'FailedRetryable'
+        | 'Terminated'
+        | 'TimedOut'
+        | 'Running'
+        | 'Starting'
     created_at: Dayjs
     data_interval_start: Dayjs
     data_interval_end: Dayjs
