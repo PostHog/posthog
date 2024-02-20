@@ -26,10 +26,8 @@ import {
     TrendsFilterType,
 } from '~/types'
 
-/**
- * Type alias for number to be reflected as integer in json-schema.
- * @asType integer
- */
+// Type alias for number to be reflected as integer in json-schema.
+/** @asType integer */
 type integer = number
 
 /**
