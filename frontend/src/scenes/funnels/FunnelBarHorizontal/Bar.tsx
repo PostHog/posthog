@@ -7,8 +7,8 @@ import { Noun } from '~/models/groupsModel'
 import { BreakdownFilter } from '~/queries/schema'
 import { FunnelStepWithConversionMetrics } from '~/types'
 
+import { FunnelTooltip } from '../FunnelTooltip'
 import { getSeriesPositionName } from '../funnelUtils'
-import { FunnelTooltip } from '../useFunnelTooltip'
 
 interface BarProps {
     percentage: number
