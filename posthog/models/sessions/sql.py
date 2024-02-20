@@ -37,7 +37,6 @@ CREATE TABLE IF NOT EXISTS {table_name} ON CLUSTER '{cluster}'
 
     event_count SimpleAggregateFunction(sum, Int64),
     pageview_count SimpleAggregateFunction(sum, Int64),
-    _timestamp SimpleAggregateFunction(max, DateTime)
 ) ENGINE = {engine}
 """
 
