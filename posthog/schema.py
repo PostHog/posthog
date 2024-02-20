@@ -263,6 +263,22 @@ class FilterLogicalOperator(str, Enum):
     OR = "OR"
 
 
+class FunnelActorsFilter(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    funnelCustomSteps: Optional[List[int]] = Field(
+        default=None, description="Custom step numbers to get persons for. This overrides `funnelStep`."
+    )
+    funnelStep: Optional[int] = Field(
+        default=None, description="Index of the step for which we want to get the timestamp for, per person."
+    )
+    funnelStepBreakdown: Optional[Union[str, float, List[Union[str, float]]]] = Field(
+        default=None,
+        description="The breakdown value for which to get persons for. This is an array for person and event properties, a string for groups and an integer for cohorts.",
+    )
+
+
 class FunnelConversionWindowTimeUnit(str, Enum):
     second = "second"
     minute = "minute"
@@ -2562,6 +2578,7 @@ class InsightActorsQuery(BaseModel):
     breakdown: Optional[Union[str, int]] = None
     compare: Optional[Compare] = None
     day: Optional[Union[str, int]] = None
+    funnelActorsFilter: Optional[FunnelActorsFilter] = None
     interval: Optional[int] = Field(
         default=None, description="An interval selected out of available intervals in source query"
     )

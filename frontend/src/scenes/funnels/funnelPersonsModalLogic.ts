@@ -1,9 +1,12 @@
 import { actions, connect, kea, key, listeners, path, props, selectors } from 'kea'
+import { FEATURE_FLAGS } from 'lib/constants'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
 import { funnelTitle } from 'scenes/trends/persons-modal/persons-modal-utils'
 import { openPersonsModal } from 'scenes/trends/persons-modal/PersonsModal'
 
+import { NodeKind } from '~/queries/schema'
 import {
     FunnelCorrelation,
     FunnelCorrelationResultsType,
@@ -33,7 +36,9 @@ export const funnelPersonsModalLogic = kea<funnelPersonsModalLogicType>([
             insightLogic(props),
             ['isInDashboardContext', 'isInExperimentContext'],
             funnelDataLogic(props),
-            ['steps', 'funnelsFilter'],
+            ['steps', 'querySource', 'funnelsFilter'],
+            featureFlagLogic,
+            ['featureFlags'],
         ],
     })),
 
@@ -77,6 +82,12 @@ export const funnelPersonsModalLogic = kea<funnelPersonsModalLogicType>([
                 return !isInDashboardContext && !funnelsFilter?.funnelAggregateByHogQL
             },
         ],
+        hogQLInsightsFunnelsFlagEnabled: [
+            (s) => [s.featureFlags],
+            (featureFlags): boolean => {
+                return !!featureFlags[FEATURE_FLAGS.HOGQL_INSIGHTS_FUNNELS]
+            },
+        ],
     }),
 
     listeners(({ values }) => ({
@@ -85,36 +96,63 @@ export const funnelPersonsModalLogic = kea<funnelPersonsModalLogicType>([
                 return
             }
 
-            openPersonsModal({
-                // openPersonsModalForStep is for the baseline - for breakdown series use openPersonsModalForSeries
-                url: generateBaselineConversionUrl(converted ? step.converted_people_url : step.dropped_people_url),
-                title: funnelTitle({
-                    converted,
-                    // Note - when in a legend the step.order is always 0 so we use stepIndex instead
-                    step: typeof stepIndex === 'number' ? stepIndex + 1 : step.order + 1,
-                    label: step.name,
-                    seriesId: step.order,
-                    order_type: values.funnelsFilter?.funnelOrderType,
-                }),
+            const title = funnelTitle({
+                converted,
+                // Note - when in a legend the step.order is always 0 so we use stepIndex instead
+                step: typeof stepIndex === 'number' ? stepIndex + 1 : step.order + 1,
+                label: step.name,
+                seriesId: step.order,
+                order_type: values.funnelsFilter?.funnelOrderType,
             })
+
+            // openPersonsModalForStep is for the baseline - for breakdown series use openPersonsModalForSeries
+            if (values.hogQLInsightsFunnelsFlagEnabled) {
+                openPersonsModal({
+                    title,
+                    query: {
+                        kind: NodeKind.InsightActorsQuery,
+                        source: values.querySource,
+                        // funnelActorsFilter: {}
+                    },
+                })
+            } else {
+                openPersonsModal({
+                    url: generateBaselineConversionUrl(converted ? step.converted_people_url : step.dropped_people_url),
+                    title,
+                })
+            }
         },
         openPersonsModalForSeries: ({ step, series, converted }) => {
             if (values.isInDashboardContext) {
                 return
             }
-            // Version of openPersonsModalForStep that accurately handles breakdown series
+
             const breakdownValues = getBreakdownStepValues(series, series.order)
-            openPersonsModal({
-                url: converted ? series.converted_people_url : series.dropped_people_url,
-                title: funnelTitle({
-                    converted,
-                    step: step.order + 1,
-                    breakdown_value: breakdownValues.isEmpty ? undefined : breakdownValues.breakdown_value.join(', '),
-                    label: step.name,
-                    seriesId: step.order,
-                    order_type: values.funnelsFilter?.funnelOrderType,
-                }),
+            const title = funnelTitle({
+                converted,
+                step: step.order + 1,
+                breakdown_value: breakdownValues.isEmpty ? undefined : breakdownValues.breakdown_value.join(', '),
+                label: step.name,
+                seriesId: step.order,
+                order_type: values.funnelsFilter?.funnelOrderType,
             })
+
+            // Version of openPersonsModalForStep that accurately handles breakdown series
+            if (values.hogQLInsightsFunnelsFlagEnabled) {
+                openPersonsModal({
+                    title,
+                    query: {
+                        kind: NodeKind.InsightActorsQuery,
+                        source: values.querySource,
+                        // funnelActorsFilter: {}
+                    },
+                })
+            } else {
+                openPersonsModal({
+                    url: converted ? series.converted_people_url : series.dropped_people_url,
+                    title,
+                })
+            }
         },
         openCorrelationPersonsModal: ({ correlation, success }) => {
             if (values.isInDashboardContext) {

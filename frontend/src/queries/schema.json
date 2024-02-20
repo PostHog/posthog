@@ -1406,6 +1406,27 @@
             },
             "type": "object"
         },
+        "FunnelActorsFilter": {
+            "additionalProperties": false,
+            "properties": {
+                "funnelCustomSteps": {
+                    "description": "Custom step numbers to get persons for. This overrides `funnelStep`.",
+                    "items": {
+                        "type": "integer"
+                    },
+                    "type": "array"
+                },
+                "funnelStep": {
+                    "description": "Index of the step for which we want to get the timestamp for, per person.",
+                    "type": "integer"
+                },
+                "funnelStepBreakdown": {
+                    "$ref": "#/definitions/BreakdownKeyType",
+                    "description": "The breakdown value for which to get persons for. This is an array for person and event properties, a string for groups and an integer for cohorts."
+                }
+            },
+            "type": "object"
+        },
         "FunnelConversionWindowTimeUnit": {
             "enum": ["second", "minute", "hour", "day", "week", "month"],
             "type": "string"
@@ -2302,6 +2323,9 @@
                             "$ref": "#/definitions/Day"
                         }
                     ]
+                },
+                "funnelActorsFilter": {
+                    "$ref": "#/definitions/FunnelActorsFilter"
                 },
                 "interval": {
                     "description": "An interval selected out of available intervals in source query",

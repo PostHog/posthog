@@ -1064,6 +1064,7 @@ export type Day = integer
 export interface InsightActorsQuery<T extends InsightsQueryBase = InsightQuerySource> {
     kind: NodeKind.InsightActorsQuery
     source: T
+    funnelActorsFilter?: FunnelActorsFilter
     day?: string | Day
     status?: string
     /**
@@ -1075,6 +1076,16 @@ export interface InsightActorsQuery<T extends InsightsQueryBase = InsightQuerySo
     compare?: 'current' | 'previous'
     // TODO: add fields for other insights (funnels dropdown, compare_previous choice, etc)
     response?: ActorsQueryResponse
+}
+
+export type FunnelActorsFilter = {
+    /** Index of the step for which we want to get the timestamp for, per person. */
+    funnelStep?: integer
+    /** Custom step numbers to get persons for. This overrides `funnelStep`. */
+    funnelCustomSteps?: integer[]
+    /** The breakdown value for which to get persons for. This is an array for
+     * person and event properties, a string for groups and an integer for cohorts. */
+    funnelStepBreakdown?: BreakdownKeyType
 }
 
 export type BreakdownValueInt = integer
