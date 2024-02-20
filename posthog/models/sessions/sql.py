@@ -101,7 +101,7 @@ FROM {database}.sharded_events
 group by session_id, team_id
 """.format(
         table_name=f"{TABLE_BASE_NAME}_mv",
-        target_table=f"writeable_{TABLE_BASE_NAME}",
+        target_table=f"writable_{TABLE_BASE_NAME}",
         cluster=settings.CLICKHOUSE_CLUSTER,
         database=settings.CLICKHOUSE_DATABASE,
     )
@@ -111,7 +111,7 @@ group by session_id, team_id
 
 # This table is responsible for writing to sharded_sessions based on a sharding key.
 WRITABLE_SESSIONS_TABLE_SQL = lambda: SESSIONS_TABLE_BASE_SQL.format(
-    table_name=f"writeable_{TABLE_BASE_NAME}",
+    table_name=f"writable_{TABLE_BASE_NAME}",
     cluster=settings.CLICKHOUSE_CLUSTER,
     engine=Distributed(
         data_table=SESSIONS_DATA_TABLE(),
