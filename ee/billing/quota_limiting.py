@@ -1,5 +1,5 @@
 import copy
-from datetime import timedelta
+from datetime import datetime, timedelta
 from enum import Enum
 from typing import Dict, List, Mapping, Optional, Sequence, TypedDict, cast
 
@@ -22,15 +22,27 @@ from posthog.tasks.usage_report import (
 )
 from posthog.utils import get_current_day
 
-QUOTA_LIMITER_CACHE_KEY = "@posthog/quota-limits/"
-
 QUOTA_LIMIT_DATA_RETENTION_FLAG = "retain-data-past-quota-limit"
+
+QUOTA_LIMIT_MEDIUM_TRUST_GRACE_PERIOD_DAYS = 1
+QUOTA_LIMIT_MEDIUM_HIGH_TRUST_GRACE_PERIOD_DAYS = 3
+
+
+class OrgQuotaLimitingInformation(TypedDict):
+    quota_limited_until = int
+    quota_limiting_suspended_until = int
+    needs_save = bool
 
 
 class QuotaResource(Enum):
     EVENTS = "events"
     RECORDINGS = "recordings"
     ROWS_SYNCED = "rows_synced"
+
+
+class QuotaLimitingCaches(Enum):
+    QUOTA_LIMITER_CACHE_KEY = "@posthog/quota-limits/"
+    QUOTA_LIMITING_SUSPENDED_KEY = "@posthog/quota-limiting-suspended/"
 
 
 OVERAGE_BUFFER = {
@@ -40,29 +52,29 @@ OVERAGE_BUFFER = {
 }
 
 
-def replace_limited_team_tokens(resource: QuotaResource, tokens: Mapping[str, int]) -> None:
+def replace_limited_team_tokens(resource: QuotaResource, tokens: Mapping[str, int], cache_key: str) -> None:
     pipe = get_client().pipeline()
-    pipe.delete(f"{QUOTA_LIMITER_CACHE_KEY}{resource.value}")
+    pipe.delete(f"{cache_key}{resource.value}")
     if tokens:
-        pipe.zadd(f"{QUOTA_LIMITER_CACHE_KEY}{resource.value}", tokens)  # type: ignore # (zadd takes a Mapping[str, int] but the derived Union type is wrong)
+        pipe.zadd(f"{cache_key}{resource.value}", tokens)  # type: ignore # (zadd takes a Mapping[str, int] but the derived Union type is wrong)
     pipe.execute()
 
 
-def add_limited_team_tokens(resource: QuotaResource, tokens: Mapping[str, int]) -> None:
+def add_limited_team_tokens(resource: QuotaResource, tokens: Mapping[str, int], cache_key: str) -> None:
     redis_client = get_client()
-    redis_client.zadd(f"{QUOTA_LIMITER_CACHE_KEY}{resource.value}", tokens)  # type: ignore # (zadd takes a Mapping[str, int] but the derived Union type is wrong)
+    redis_client.zadd(f"{cache_key}{resource.value}", tokens)  # type: ignore # (zadd takes a Mapping[str, int] but the derived Union type is wrong)
 
 
-def remove_limited_team_tokens(resource: QuotaResource, tokens: List[str]) -> None:
+def remove_limited_team_tokens(resource: QuotaResource, tokens: List[str], cache_key: str) -> None:
     redis_client = get_client()
-    redis_client.zrem(f"{QUOTA_LIMITER_CACHE_KEY}{resource.value}", *tokens)
+    redis_client.zrem(f"{cache_key}{resource.value}", *tokens)
 
 
 @cache_for(timedelta(seconds=30), background_refresh=True)
-def list_limited_team_attributes(resource: QuotaResource) -> List[str]:
+def list_limited_team_attributes(resource: QuotaResource, cache_key: str) -> List[str]:
     now = timezone.now()
     redis_client = get_client()
-    results = redis_client.zrangebyscore(f"{QUOTA_LIMITER_CACHE_KEY}{resource.value}", min=now.timestamp(), max="+inf")
+    results = redis_client.zrangebyscore(f"{cache_key}{resource.value}", min=now.timestamp(), max="+inf")
     return [x.decode("utf-8") for x in results]
 
 
@@ -74,7 +86,7 @@ class UsageCounters(TypedDict):
 
 def org_quota_limited_until(
     organization: Organization, resource: QuotaResource, previously_quota_limited_team_tokens: List[str]
-) -> Optional[int]:
+) -> Optional[OrgQuotaLimitingInformation]:
     if not organization.usage:
         return None
 
@@ -89,48 +101,155 @@ def org_quota_limited_until(
         return None
 
     is_quota_limited = usage + todays_usage >= limit + OVERAGE_BUFFER[resource]
+    billing_period_start = round(dateutil.parser.isoparse(organization.usage["period"][0]).timestamp())
     billing_period_end = round(dateutil.parser.isoparse(organization.usage["period"][1]).timestamp())
+    quota_limiting_suspended_until = summary.get("quota_limiting_suspended_until", None)
+    needs_save = False
+    trust_score = organization.trusted_customer_scores.get(resource)
 
-    if is_quota_limited and organization.never_drop_data:
+    if not is_quota_limited:
+        if quota_limiting_suspended_until:
+            quota_limiting_suspended_until = None
+            del summary["quota_limiting_suspended_until"]
+            needs_save = True
+            return {"quota_limited_until": None, "quota_limiting_suspended_until": None, "needs_save": needs_save}
         return None
 
-    team_tokens = [x for x in list(organization.teams.values_list("api_token", flat=True))]
+    if organization.never_drop_data or trust_score == 15:
+        return None
+
+    team_tokens = get_team_attribute_by_quota_resource(organization, resource)
     team_being_limited = any(x in previously_quota_limited_team_tokens for x in team_tokens)
     if (
-        is_quota_limited
-        and posthoganalytics.feature_enabled(
+        posthoganalytics.feature_enabled(
             QUOTA_LIMIT_DATA_RETENTION_FLAG,
             organization.id,
             groups={"organization": str(organization.id)},
             group_properties={"organization": {"id": str(organization.id)}},
         )
-        and not team_being_limited  # We only suspend quota limiting for teams that are not already being limited.
+        and not team_being_limited  # Only suspend quota limiting for teams that are not already being limited.
     ):
-        # Don't drop data for this org but record that they __would have__ been
-        # limited.
+        # Don't drop data for this org but record that they would have been limited.
         report_organization_action(
             organization, "quota limiting suspended", properties={"current_usage": usage + todays_usage}
         )
         return None
 
-    if is_quota_limited and billing_period_end:
-        return billing_period_end
+    _, today_end = get_current_day()
 
-    return None
+    # Determine quota limiting end using the trusted customer score.
+    if not trust_score:
+        # Set them to the default trust score and immediately limit
+        # TODO actually compute their trust socre
+        if trust_score is None:
+            organization.trusted_customer_scores[resource] = 0
+            needs_save = True
+        return {
+            "quota_limited_until": billing_period_end,
+            "quota_limiing_suspended_until": None,
+            "needs_save": needs_save,
+        }
+    elif trust_score == 3:
+        # Low trust, immediately limit
+        return {
+            "quota_limited_until": billing_period_end,
+            "quota_limiing_suspended_until": None,
+            "needs_save": needs_save,
+        }
+    elif trust_score == 7:
+        # If limitng suspended was set in the previous period or was never set, update it.
+        if (
+            not quota_limiting_suspended_until
+            or (
+                datetime.fromtimestamp(quota_limiting_suspended_until)
+                - timedelta(QUOTA_LIMIT_MEDIUM_TRUST_GRACE_PERIOD_DAYS)
+            ).timestamp()
+            < billing_period_start
+        ):
+            # Medium trust, retain data for one day
+            report_organization_action(
+                organization, "quota limiting suspended", properties={"current_usage": usage + todays_usage}
+            )
+            quota_limiting_suspended_until = round(
+                (today_end + timedelta(days=QUOTA_LIMIT_MEDIUM_TRUST_GRACE_PERIOD_DAYS)).timestamp()
+            )
+            needs_save = True
+            summary["quota_limiting_suspended_until"] = quota_limiting_suspended_until
+            return {
+                "quota_limited_until": None,
+                "quota_limiting_suspended_until": quota_limiting_suspended_until,
+                "needs_save": needs_save,
+            }
+    elif trust_score == 10:
+        # If limitng suspended was set in the previous period or was never set, update it.
+        if (
+            not quota_limiting_suspended_until
+            or (
+                datetime.fromtimestamp(quota_limiting_suspended_until)
+                - timedelta(QUOTA_LIMIT_MEDIUM_HIGH_TRUST_GRACE_PERIOD_DAYS)
+            ).timestamp()
+            < billing_period_start
+        ):
+            # Medium high trust, retain data for three days
+            report_organization_action(
+                organization, "quota limiting suspended", properties={"current_usage": usage + todays_usage}
+            )
+            quota_limiting_suspended_until = round(
+                (today_end + timedelta(days=QUOTA_LIMIT_MEDIUM_HIGH_TRUST_GRACE_PERIOD_DAYS)).timestamp()
+            )
+
+            needs_save = True
+            summary["quota_limiting_suspended_until"] = quota_limiting_suspended_until
+            return {
+                "quota_limited_until": None,
+                "quota_limiting_suspended_until": quota_limiting_suspended_until,
+                "needs_save": needs_save,
+            }
+
+    return {
+        "quota_limited_until": billing_period_end,
+        "quota_limiting_suspended_until": None,
+        "needs_save": needs_save,
+    }
 
 
 def sync_org_quota_limits(organization: Organization):
+    _, today_end = get_current_day()
     if not organization.usage:
         return None
 
     for resource in [QuotaResource.EVENTS, QuotaResource.RECORDINGS, QuotaResource.ROWS_SYNCED]:
+        previously_quota_limited_team_tokens = list_limited_team_attributes(
+            resource, QuotaLimitingCaches.QUOTA_LIMITER_CACHE_KEY
+        )
         team_attributes = get_team_attribute_by_quota_resource(organization, resource)
-        quota_limited_until = org_quota_limited_until(organization, resource)
+        result = org_quota_limited_until(organization, resource, previously_quota_limited_team_tokens)
 
-        if quota_limited_until:
-            add_limited_team_tokens(resource, {x: quota_limited_until for x in team_attributes})
+        if result:
+            quota_limited_until = result.get("quota_limited_until")
+            limiting_suspended_until = result.get("limiting_suspended_until")
+            needs_save = result.get("needs_save")
+            if needs_save:
+                organization.save(update_fields=["usage"])
+
+            if quota_limited_until:
+                add_limited_team_tokens(
+                    resource,
+                    {x: quota_limited_until for x in team_attributes},
+                    QuotaLimitingCaches.QUOTA_LIMITER_CACHE_KEY,
+                )
+            elif limiting_suspended_until and limiting_suspended_until >= today_end:
+                add_limited_team_tokens(
+                    resource,
+                    {x: quota_limited_until for x in team_attributes},
+                    QuotaLimitingCaches.QUOTA_LIMITING_SUSPENDED_KEY,
+                )
+            else:
+                remove_limited_team_tokens(resource, team_attributes, QuotaLimitingCaches.QUOTA_LIMITER_CACHE_KEY)
+                remove_limited_team_tokens(resource, team_attributes, QuotaLimitingCaches.QUOTA_LIMITING_SUSPENDED_KEY)
         else:
-            remove_limited_team_tokens(resource, team_attributes)
+            remove_limited_team_tokens(resource, team_attributes, QuotaLimitingCaches.QUOTA_LIMITER_CACHE_KEY)
+            remove_limited_team_tokens(resource, team_attributes, QuotaLimitingCaches.QUOTA_LIMITING_SUSPENDED_KEY)
 
 
 def get_team_attribute_by_quota_resource(organization: Organization, resource: QuotaResource):
@@ -241,39 +360,43 @@ def update_all_org_billing_quotas(dry_run: bool = False) -> Dict[str, Dict[str, 
             for field in team_report:
                 org_report[field] += team_report[field]  # type: ignore
 
-    quota_limited_orgs: Dict[str, Dict[str, int]] = {"events": {}, "recordings": {}, "rows_synced": {}}
+    quota_limited_orgs: Dict[str, Dict[str, int]] = {x.value: {} for x in QuotaResource}
+    quota_limiting_suspended_orgs: Dict[str, Dict[str, int]] = {x.value: {} for x in QuotaResource}
 
     # Get the current quota limits so we can track to poshog if it changes
     orgs_with_changes = set()
-    previously_quota_limited_team_tokens: Dict[str, Dict[str, int]] = {
-        "events": {},
-        "recordings": {},
-        "rows_synced": {},
-    }
+    previously_quota_limited_team_tokens: Dict[str, Dict[str, int]] = {x.value: {} for x in QuotaResource}
 
     for field in quota_limited_orgs:
-        previously_quota_limited_team_tokens[field] = list_limited_team_attributes(QuotaResource(field))
+        previously_quota_limited_team_tokens[field] = list_limited_team_attributes(
+            QuotaResource(field), QuotaLimitingCaches.QUOTA_LIMITER_CACHE_KEY
+        )
 
-    # We find all orgs that should be rate limited
+    # Find all orgs that should be rate limited
     for org_id, todays_report in todays_usage_report.items():
         org = orgs_by_id[org_id]
 
         # if we don't have limits set from the billing service, we can't risk rate limiting existing customers
         if org.usage and org.usage.get("period"):
-            # for each organization, we check if the current usage + today's unreported usage is over the limit
             if set_org_usage_summary(org, todays_usage=todays_report):
                 org.save(update_fields=["usage"])
 
             for field in ["events", "recordings", "rows_synced"]:
-                quota_limited_until = org_quota_limited_until(
-                    org, QuotaResource(field), previously_quota_limited_team_tokens[field]
-                )
+                # for each organization, we check if the current usage + today's unreported usage is over the limit
+                result = org_quota_limited_until(org, QuotaResource(field), previously_quota_limited_team_tokens[field])
+                if result:
+                    quota_limited_until = result.get("quota_limited_until")
+                    limiting_suspended_until = result.get("limiting_suspended_until")
+                    needs_save = result.get("needs_save")
+                    if needs_save:
+                        org.save(update_fields=["usage"])
+                    if limiting_suspended_until:
+                        quota_limiting_suspended_orgs[field][org_id] = limiting_suspended_until
+                    elif quota_limited_until:
+                        quota_limited_orgs[field][org_id] = quota_limited_until
 
-                if quota_limited_until:
-                    # TODO: Set this rate limit to the end of the billing period
-                    quota_limited_orgs[field][org_id] = quota_limited_until
-
-    quota_limited_teams: Dict[str, Dict[str, int]] = {"events": {}, "recordings": {}, "rows_synced": {}}
+    quota_limited_teams: Dict[str, Dict[str, int]] = {x.value: {} for x in QuotaResource}
+    quota_limiting_suspended_teams: Dict[str, Dict[str, int]] = {x.value: {} for x in QuotaResource}
 
     # Convert the org ids to team tokens
     for team in teams:
@@ -285,6 +408,8 @@ def update_all_org_billing_quotas(dry_run: bool = False) -> Dict[str, Dict[str, 
                 # If the team was not previously quota limited, we add it to the list of orgs that were added
                 if team.api_token not in previously_quota_limited_team_tokens[field]:
                     orgs_with_changes.add(org_id)
+            elif org_id in quota_limiting_suspended_orgs[field]:
+                quota_limiting_suspended_teams[field][team.api_token] = quota_limiting_suspended_orgs[field][org_id]
             else:
                 # If the team was previously quota limited, we add it to the list of orgs that were removed
                 if team.api_token in previously_quota_limited_team_tokens[field]:
@@ -306,6 +431,12 @@ def update_all_org_billing_quotas(dry_run: bool = False) -> Dict[str, Dict[str, 
 
     if not dry_run:
         for field in quota_limited_teams:
-            replace_limited_team_tokens(QuotaResource(field), quota_limited_teams[field])
+            replace_limited_team_tokens(
+                QuotaResource(field), quota_limited_teams[field], QuotaLimitingCaches.QUOTA_LIMITER_CACHE_KEY
+            )
+        for field in quota_limiting_suspended_teams:
+            replace_limited_team_tokens(
+                QuotaResource(field), quota_limited_teams[field], QuotaLimitingCaches.QUOTA_LIMITING_SUSPENDED_KEY
+            )
 
     return quota_limited_orgs

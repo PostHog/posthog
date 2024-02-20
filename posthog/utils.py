@@ -136,13 +136,13 @@ def get_previous_day(at: Optional[datetime.datetime] = None) -> Tuple[datetime.d
         at - datetime.timedelta(days=1),
         datetime.time.max,
         tzinfo=ZoneInfo("UTC"),
-    )  # very end of the previous day
+    )  # end of the previous day
 
     period_start: datetime.datetime = datetime.datetime.combine(
         period_end,
         datetime.time.min,
         tzinfo=ZoneInfo("UTC"),
-    )  # very start of the previous day
+    )  # start of the previous day
 
     return (period_start, period_end)
 
@@ -160,13 +160,13 @@ def get_current_day(at: Optional[datetime.datetime] = None) -> Tuple[datetime.da
         at,
         datetime.time.max,
         tzinfo=ZoneInfo("UTC"),
-    )  # very end of the reference day
+    )  # end of the reference day
 
     period_start: datetime.datetime = datetime.datetime.combine(
         period_end,
         datetime.time.min,
         tzinfo=ZoneInfo("UTC"),
-    )  # very start of the reference day
+    )  # start of the reference day
 
     return (period_start, period_end)
 
