@@ -1,10 +1,10 @@
 from typing import List
 
 from posthog.hogql import ast
-from posthog.hogql_queries.insights.funnels.base import FunnelBase
+from posthog.hogql_queries.insights.funnels.funnel import Funnel
 
 
-class FunnelActors(FunnelBase):
+class FunnelActors(Funnel):
     def actor_query(
         self,
         # limit_actors: Optional[bool] = True,
