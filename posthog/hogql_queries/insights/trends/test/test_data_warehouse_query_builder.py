@@ -86,8 +86,6 @@ class TestDataWarehouseQueryBuilder(ClickhouseTestMixin, BaseTest):
 
     def create_parquet_file(self):
         fs = s3fs.S3FileSystem(
-            anon=False,
-            use_ssl=False,
             client_kwargs={
                 "region_name": "us-east-1",
                 "endpoint_url": OBJECT_STORAGE_ENDPOINT,
