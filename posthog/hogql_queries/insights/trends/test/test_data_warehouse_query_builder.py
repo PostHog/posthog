@@ -91,7 +91,6 @@ class TestDataWarehouseQueryBuilder(ClickhouseTestMixin, BaseTest):
                 "endpoint_url": OBJECT_STORAGE_ENDPOINT,
                 "aws_access_key_id": OBJECT_STORAGE_ACCESS_KEY_ID,
                 "aws_secret_access_key": OBJECT_STORAGE_SECRET_ACCESS_KEY,
-                "verify": False,
             },
         )
 
