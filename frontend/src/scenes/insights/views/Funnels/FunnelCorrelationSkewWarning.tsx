@@ -1,6 +1,7 @@
+import { IconX } from '@posthog/icons'
 import { LemonButton } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
-import { IconClose, IconFeedback } from 'lib/lemon-ui/icons'
+import { IconFeedback } from 'lib/lemon-ui/icons'
 import { funnelDataLogic } from 'scenes/funnels/funnelDataLogic'
 import { insightLogic } from 'scenes/insights/insightLogic'
 
@@ -20,7 +21,7 @@ export const FunnelCorrelationSkewWarning = (): JSX.Element | null => {
                     <IconFeedback style={{ fontSize: 24, marginRight: 4, color: 'var(--warning)' }} />
                     <span>Adjust your funnel definition to improve correlation analysis</span>
                 </div>
-                <LemonButton icon={<IconClose />} onClick={hideSkewWarning} />
+                <LemonButton icon={<IconX />} onClick={hideSkewWarning} />
             </h4>
             <div className="px-2">
                 <b className="font-medium">Tips for adjusting your funnel:</b>

@@ -1,7 +1,7 @@
+import { IconPlusSmall, IconTrash } from '@posthog/icons'
 import { LemonButton, LemonInput, LemonLabel } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { SeriesLetter } from 'lib/components/SeriesGlyph'
-import { IconDelete, IconPlusMini } from 'lib/lemon-ui/icons'
 
 import { displayLogic } from '../displayLogic'
 
@@ -31,7 +31,7 @@ export const DisplayTab = (): JSX.Element => {
                         />
                         <LemonButton
                             key="delete"
-                            icon={<IconDelete />}
+                            icon={<IconTrash />}
                             status="danger"
                             title="Delete Y-series"
                             noPadding
@@ -40,7 +40,7 @@ export const DisplayTab = (): JSX.Element => {
                     </div>
                 ))}
             </div>
-            <LemonButton className="mt-1" onClick={() => addGoalLine()} icon={<IconPlusMini />} fullWidth>
+            <LemonButton className="mt-1" onClick={() => addGoalLine()} icon={<IconPlusSmall />} fullWidth>
                 Add goal line
             </LemonButton>
         </div>

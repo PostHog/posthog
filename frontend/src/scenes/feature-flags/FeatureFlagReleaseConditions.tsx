@@ -1,5 +1,6 @@
 import './FeatureFlag.scss'
 
+import { IconCopy, IconPlus, IconTrash } from '@posthog/icons'
 import { LemonInput, LemonSelect, Link } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { Group } from 'kea-forms'
@@ -10,7 +11,7 @@ import { isPropertyFilterWithOperator } from 'lib/components/PropertyFilters/uti
 import { FEATURE_FLAGS, INSTANTLY_AVAILABLE_PROPERTIES } from 'lib/constants'
 import { groupsAccessLogic, GroupsAccessStatus } from 'lib/introductions/groupsAccessLogic'
 import { GroupsIntroductionOption } from 'lib/introductions/GroupsIntroductionOption'
-import { IconCopy, IconDelete, IconErrorOutline, IconOpenInNew, IconPlus, IconSubArrowRight } from 'lib/lemon-ui/icons'
+import { IconErrorOutline, IconOpenInNew, IconSubArrowRight } from 'lib/lemon-ui/icons'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
@@ -127,7 +128,7 @@ export function FeatureFlagReleaseConditions({
                                 />
                                 {!isEarlyAccessFeatureCondition(group) && filterGroups.length > 1 && (
                                     <LemonButton
-                                        icon={<IconDelete />}
+                                        icon={<IconTrash />}
                                         noPadding
                                         onClick={() => removeConditionSet(index)}
                                     />

@@ -1,4 +1,5 @@
 import { urls } from '@posthog/apps-common'
+import { IconPlus } from '@posthog/icons'
 import { LemonButton, Link } from '@posthog/lemon-ui'
 import { BindLogic, useActions, useValues } from 'kea'
 import { TaxonomicPropertyFilter } from 'lib/components/PropertyFilters/components/TaxonomicPropertyFilter'
@@ -6,7 +7,6 @@ import { propertyFilterLogic } from 'lib/components/PropertyFilters/propertyFilt
 import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
 import { PropertyFilterLogicProps } from 'lib/components/PropertyFilters/types'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
-import { IconPlus } from 'lib/lemon-ui/icons'
 import { Popover } from 'lib/lemon-ui/Popover/Popover'
 import { useMemo, useState } from 'react'
 import { teamLogic } from 'scenes/teamLogic'

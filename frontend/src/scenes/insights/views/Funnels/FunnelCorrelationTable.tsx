@@ -1,13 +1,13 @@
 import './FunnelCorrelationTable.scss'
 
-import { IconInfo } from '@posthog/icons'
+import { IconCollapse, IconExpand, IconInfo, IconTrending } from '@posthog/icons'
 import { LemonCheckbox } from '@posthog/lemon-ui'
 import { ConfigProvider, Empty, Table } from 'antd'
 import Column from 'antd/lib/table/Column'
 import { useActions, useValues } from 'kea'
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
 import { VisibilitySensor } from 'lib/components/VisibilitySensor/VisibilitySensor'
-import { IconSelectEvents, IconTrendingDown, IconTrendUp, IconUnfoldLess, IconUnfoldMore } from 'lib/lemon-ui/icons'
+import { IconSelectEvents, IconTrendingDown } from 'lib/lemon-ui/icons'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { Link } from 'lib/lemon-ui/Link'
 import { Spinner } from 'lib/lemon-ui/Spinner/Spinner'
@@ -88,7 +88,7 @@ export function FunnelCorrelationTable(): JSX.Element | null {
             <>
                 <h4>
                     {is_success ? (
-                        <IconTrendUp className="text-success" />
+                        <IconTrending className="text-success" />
                     ) : (
                         <IconTrendingDown className="text-danger" />
                     )}{' '}
@@ -281,7 +281,7 @@ export function FunnelCorrelationTable(): JSX.Element | null {
                                 return expanded ? (
                                     <Tooltip title="Collapse">
                                         <LemonButton
-                                            icon={<IconUnfoldLess />}
+                                            icon={<IconCollapse />}
                                             active
                                             noPadding
                                             onClick={(e) => {
@@ -293,7 +293,7 @@ export function FunnelCorrelationTable(): JSX.Element | null {
                                 ) : (
                                     <Tooltip title="Expand to see correlated properties for this event">
                                         <LemonButton
-                                            icon={<IconUnfoldMore />}
+                                            icon={<IconExpand />}
                                             noPadding
                                             onClick={(e) => {
                                                 !eventHasPropertyCorrelations(record.event.event) &&
