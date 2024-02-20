@@ -124,7 +124,7 @@ class ActorsQueryRunner(QueryRunner):
             select = source_query.select_queries[0].select
 
         for column in select:
-            if isinstance(column, ast.Alias) and (column.alias == "group_key" or column.alias == "actor_id"):
+            if isinstance(column, ast.Alias) and (column.alias in ("group_key", "actor_id", "person_id")):
                 return [column.alias]
 
         for column in select:

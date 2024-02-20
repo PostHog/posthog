@@ -19,10 +19,10 @@ class Command(BaseCommand):
             .order_by("created_at")
             .all()
         )
-        insights = [i for i in insights if "breakdown" not in i.filters]
-        insights = [i for i in insights if "formula" not in i.filters]
-        insights = [i for i in insights if i.filters.get("display") == "ActionsLineGraph"]
-        insights = [i for i in insights if i.id == 1133835]
+        # insights = [i for i in insights if "breakdown" not in i.filters]
+        # insights = [i for i in insights if "formula" not in i.filters]
+        # insights = [i for i in insights if i.filters.get("display") == "ActionsLineGraph"]
+        # insights = [i for i in insights if i.id == 1133835]
         for insight in insights[-100:]:
             for event in insight.filters.get("events", []):
                 if event.get("math") in ("median", "p90", "p95", "p99"):
