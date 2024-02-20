@@ -272,8 +272,8 @@ class TestCSVExporter(APIBaseTest):
 
             csv_exporter.export_csv(exported_asset)
 
-            assert patched_make_api_call.call_count == 5
-            patched_make_api_call.assert_called_with(mock.ANY, mock.ANY, 32, mock.ANY, mock.ANY, mock.ANY)
+            assert patched_make_api_call.call_count == 4
+            patched_make_api_call.assert_called_with(mock.ANY, mock.ANY, 64, mock.ANY, mock.ANY, mock.ANY)
 
     def test_limiting_query_as_expected(self) -> None:
         with self.settings(SITE_URL="https://app.posthog.com"):
