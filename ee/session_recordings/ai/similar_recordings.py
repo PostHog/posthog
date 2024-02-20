@@ -1,6 +1,5 @@
 from prometheus_client import Histogram
 
-
 from posthog.clickhouse.client import sync_execute
 from posthog.models.team import Team
 from posthog.session_recordings.models.session_recording import SessionRecording
@@ -22,8 +21,7 @@ def similar_recordings(recording: SessionRecording, team: Team):
 
 def closest_embeddings(session_id: str, team_id: int):
     query = """
-            WITH target_embeddings as
-            (
+            WITH (
                 SELECT
                     embeddings
                 FROM
@@ -32,10 +30,9 @@ def closest_embeddings(session_id: str, team_id: int):
                     team_id = %(team_id)s
                     -- don't load all data for all time
                     AND generation_timestamp > now() - INTERVAL 7 DAY
-                    -- don't load all data for all time
                     AND session_id = %(session_id)s
                 LIMIT 1
-            )
+            ) as target_embeddings
             SELECT
                 session_id,
                 -- distance function choice based on https://help.openai.com/en/articles/6824809-embeddings-frequently-asked-questions
