@@ -251,9 +251,8 @@ class BillingManager:
 
         # Update trusted customer scores.
         for resource in QuotaResource:
-            # Compute their trust score
             score = 0
-            if data.get("billing_period").get("interval") == "year":
+            if data["billing_period"]["interval"] == "year":
                 # annual plan
                 score = 15
             elif data["has_active_subscription"] and data["highest_paid_bill"][resource.value] >= 1000:
