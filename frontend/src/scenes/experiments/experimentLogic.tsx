@@ -821,10 +821,7 @@ export const experimentLogic = kea<experimentLogicType>([
                     // Ensures we get the right index from results, so the UI can
                     // display the right colour for the variant
                     if (!experimentResults || !experimentResults.insight) {
-                        // TODO: Check ramifications of this
-
                         return null
-                        // result = 0
                     } else {
                         let index = -1
                         if (insightType === InsightType.FUNNELS) {
