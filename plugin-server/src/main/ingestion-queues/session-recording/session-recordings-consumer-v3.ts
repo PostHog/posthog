@@ -410,17 +410,28 @@ export class SessionRecordingIngesterV3 {
 
     private setupHttpRoutes() {
         expressApp.get('/api/projects/:projectId/session_recordings/:sessionId', async (req, res) => {
-            const { projectId, sessionId } = req.params
+            // TODO: Sanitize the projectId and sessionId as we are checking the filesystem
+
+            // validate that projectId is a number and sessionId is UUID like
+            const projectId = parseInt(req.params.projectId)
+            if (isNaN(projectId)) {
+                res.sendStatus(404)
+                return
+            }
+
+            const sessionId = req.params.sessionId
+            if (!/^[0-9a-f-]+$/.test(sessionId)) {
+                res.sendStatus(404)
+                return
+            }
 
             status.info('🔁', 'session-replay-ingestion - fetching session', { projectId, sessionId })
-
-            // TODO: Sanitize the projectId and sessionId as we are checking the filesystem
 
             // We don't know the partition upfront so we have to recursively check all partitions
             const partitions = await readdir(this.rootDir).catch(() => [])
 
             for (const partition of partitions) {
-                const sessionDir = this.dirForSession(parseInt(partition), parseInt(projectId), sessionId)
+                const sessionDir = this.dirForSession(parseInt(partition), projectId, sessionId)
                 const exists = await stat(sessionDir).catch(() => null)
 
                 if (!exists) {
