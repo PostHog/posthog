@@ -1,15 +1,6 @@
 import json
 import sys
-from typing import (
-    TYPE_CHECKING,
-    Any,
-    Dict,
-    List,
-    Optional,
-    Tuple,
-    TypedDict,
-    Union,
-)
+from typing import TYPE_CHECKING, Any, Dict, List, Optional, Tuple, TypedDict, Union
 
 import structlog
 from django.conf import settings
@@ -24,7 +15,12 @@ from rest_framework import exceptions
 from posthog.cloud_utils import is_cloud
 from posthog.constants import MAX_SLUG_LENGTH, AvailableFeature
 from posthog.email import is_email_available
-from posthog.models.utils import LowercaseSlugField, UUIDModel, create_with_slug, sane_repr
+from posthog.models.utils import (
+    LowercaseSlugField,
+    UUIDModel,
+    create_with_slug,
+    sane_repr,
+)
 from posthog.redis import get_client
 from posthog.utils import absolute_uri
 
@@ -125,6 +121,8 @@ class Organization(UUIDModel):
     for_internal_metrics: models.BooleanField = models.BooleanField(default=False)
     is_member_join_email_enabled: models.BooleanField = models.BooleanField(default=True)
     enforce_2fa: models.BooleanField = models.BooleanField(null=True, blank=True)
+    # Scoring mechanism defined here: https://github.com/PostHog/product-internal/pull/564
+    trusted_customer_scores: models.JSONField = models.JSONField(default=dict, null=True, blank=True)
 
     ## Managed by Billing
     customer_id: models.CharField = models.CharField(max_length=200, null=True, blank=True)
