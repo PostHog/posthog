@@ -38,7 +38,6 @@ from posthog.schema import (
     SamplingRate,
     InsightActorsQueryOptions,
 )
-from posthog.types import InsightActorsQueryNode
 from posthog.utils import generate_cache_key, get_safe_cache
 
 QUERY_CACHE_WRITE_COUNTER = Counter(
@@ -92,7 +91,8 @@ RunnableQueryNode = Union[
     ActorsQuery,
     EventsQuery,
     HogQLQuery,
-    InsightActorsQueryNode,
+    InsightActorsQuery,
+    FunnelsActorsQuery,
     InsightActorsQueryOptions,
     SessionsTimelineQuery,
     WebOverviewQuery,

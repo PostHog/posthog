@@ -17,7 +17,7 @@ from posthog.types import InsightActorsQueryNode
 
 class InsightActorsQueryRunner(QueryRunner):
     query: InsightActorsQueryNode
-    query_type = InsightActorsQueryNode
+    query_type = InsightActorsQueryNode  # type: ignore
 
     @cached_property
     def source_runner(self) -> QueryRunner:

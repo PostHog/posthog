@@ -27,7 +27,7 @@ def get_funnel_actor_class(funnelsFilter: FunnelsFilter):
 
     # if filter.correlation_person_entity and EE_AVAILABLE:
     if False:
-        if EE_AVAILABLE:
+        if EE_AVAILABLE:  # type: ignore
             # from ee.clickhouse.queries.funnels.funnel_correlation_persons import (
             #     FunnelCorrelationActors,
             # )
