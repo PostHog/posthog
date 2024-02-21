@@ -202,8 +202,8 @@ class SurveySerializerCreateUpdateOnly(SurveySerializer):
                 validated_data["targeting_flag_id"] = None
             validated_data.pop("remove_targeting_flag")
 
-        # make sure instance.targeting_flag is gone
-        instance.refresh_from_db()
+            # make sure instance.targeting_flag is gone
+            instance.refresh_from_db()
 
         # if the target flag filters come back with data, update the targeting feature flag if there is one, otherwise create a new one
         if validated_data.get("targeting_flag_filters"):
