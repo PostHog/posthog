@@ -105,7 +105,7 @@ def org_quota_limited_until(
     billing_period_end = round(dateutil.parser.isoparse(organization.usage["period"][1]).timestamp())
     quota_limiting_suspended_until = summary.get("quota_limiting_suspended_until", None)
     needs_save = False
-    trust_score = organization.trusted_customer_scores.get(resource.value)
+    trust_score = organization.merged_trust_scores.get(resource.value)
 
     if not is_quota_limited:
         if quota_limiting_suspended_until:
@@ -145,10 +145,8 @@ def org_quota_limited_until(
 
     _, today_end = get_current_day()
 
-    # Determine quota limiting end using the trusted customer score.
     if not trust_score:
         # Set them to the default trust score and immediately limit
-        # TODO actually compute their trust socre
         if trust_score is None:
             organization.trusted_customer_scores[resource] = 0
             needs_save = True
