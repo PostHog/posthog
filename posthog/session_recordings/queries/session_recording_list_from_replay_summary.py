@@ -223,9 +223,9 @@ class ActorsQuery(EventQuery):
 
             return self._raw_persons_query.format(
                 filter_persons_clause=filter_persons_clause,
-                select_person_props=", argMax(person_props, version) as person_props"
-                if "person_props" in filter_persons_clause
-                else "",
+                select_person_props=(
+                    ", argMax(person_props, version) as person_props" if "person_props" in filter_persons_clause else ""
+                ),
                 prop_filter_clause=prop_query,
                 prop_having_clause=having_prop_query,
                 filter_by_person_uuid_condition=filter_by_person_uuid_condition,
@@ -569,7 +569,7 @@ class SessionRecordingListFromReplaySummary(EventQuery):
     {log_matching_session_ids_clause}
     GROUP BY session_id
         HAVING 1=1 {duration_clause} {console_log_clause}
-    ORDER BY start_time DESC
+    ORDER BY %(order_by)s DESC
     LIMIT %(limit)s OFFSET %(offset)s
     """
 
@@ -625,11 +625,13 @@ class SessionRecordingListFromReplaySummary(EventQuery):
 
     def get_query(self) -> Tuple[str, Dict[str, Any]]:
         offset = self._filter.offset or 0
+        order_by = self._filter.target_entity_order or "start_time"
 
         base_params = {
             "team_id": self._team_id,
             "limit": self.limit + 1,
             "offset": offset,
+            "order_by": order_by,
             "clamped_to_storage_ttl": (datetime.now() - timedelta(days=self.ttl_days)),
         }
 

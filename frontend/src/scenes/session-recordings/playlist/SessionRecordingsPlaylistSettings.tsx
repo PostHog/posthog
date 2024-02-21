@@ -1,4 +1,4 @@
-import { LemonSwitch } from '@posthog/lemon-ui'
+import { LemonSelect, LemonSwitch } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { IconPause, IconPlay } from 'lib/lemon-ui/icons'
@@ -6,10 +6,13 @@ import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { DurationTypeSelect } from 'scenes/session-recordings/filters/DurationTypeSelect'
 
 import { playerSettingsLogic } from '../player/playerSettingsLogic'
+import { sessionRecordingsPlaylistLogic } from './sessionRecordingsPlaylistLogic'
 
 export function SessionRecordingsPlaylistSettings(): JSX.Element {
     const { autoplayDirection, durationTypeToShow, hideViewedRecordings } = useValues(playerSettingsLogic)
     const { toggleAutoplayDirection, setDurationTypeToShow, setHideViewedRecordings } = useActions(playerSettingsLogic)
+    const { orderBy } = useValues(sessionRecordingsPlaylistLogic)
+    const { setOrderBy } = useActions(sessionRecordingsPlaylistLogic)
 
     return (
         <div className="relative flex flex-col gap-2 p-3 bg-side border-b">
@@ -54,11 +57,43 @@ export function SessionRecordingsPlaylistSettings(): JSX.Element {
                 />
             </div>
             <div className="flex flex-row items-center justify-between space-x-2">
+                <span className="text-black font-medium">Order by</span>
+                <LemonSelect
+                    size="small"
+                    value={orderBy}
+                    menu={{ className: 'w-40' }}
+                    onChange={setOrderBy}
+                    options={[
+                        {
+                            value: 'start_time',
+                            label: 'Latest',
+                        },
+                        {
+                            value: 'console_error_count',
+                            label: 'Most console errors',
+                        },
+                        {
+                            value: 'duration',
+                            label: 'Longest',
+                        },
+                        {
+                            value: 'active_seconds',
+                            label: 'Most active',
+                        },
+                    ]}
+                />
+            </div>
+            <div className="flex flex-row items-center justify-between space-x-2">
                 <span className="text-black font-medium">Show</span>
                 <DurationTypeSelect
-                    value={durationTypeToShow}
+                    value={orderBy !== 'console_error_count' ? orderBy : durationTypeToShow}
                     onChange={(value) => setDurationTypeToShow(value)}
                     onChangeEventDescription="session recording list duration type to show selected"
+                    disabledReason={
+                        orderBy !== 'console_error_count'
+                            ? 'Not configurable because of the time based ordering'
+                            : undefined
+                    }
                 />
             </div>
         </div>

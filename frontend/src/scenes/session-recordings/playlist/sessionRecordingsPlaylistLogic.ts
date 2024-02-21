@@ -11,6 +11,7 @@ import posthog from 'posthog-js'
 
 import {
     AnyPropertyFilter,
+    DurationType,
     PropertyFilterType,
     PropertyOperator,
     RecordingDurationFilter,
@@ -236,6 +237,7 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
         setShowFilters: (showFilters: boolean) => ({ showFilters }),
         setShowAdvancedFilters: (showAdvancedFilters: boolean) => ({ showAdvancedFilters }),
         setShowSettings: (showSettings: boolean) => ({ showSettings }),
+        setOrderBy: (orderBy: string) => ({ orderBy }),
         resetFilters: true,
         setSelectedRecordingId: (id: SessionRecordingType['id'] | null) => ({
             id,
@@ -296,6 +298,7 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
                     const params = {
                         ...values.filters,
                         person_uuid: props.personUUID ?? '',
+                        target_entity_order: values.orderBy,
                         limit: RECORDINGS_LIMIT,
                     }
 
@@ -357,6 +360,12 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
         ],
     })),
     reducers(({ props }) => ({
+        orderBy: [
+            'start_time' as DurationType | 'console_error_count',
+            {
+                setOrderBy: (_, { orderBy }) => orderBy,
+            },
+        ],
         sessionBeingSummarized: [
             null as null | SessionRecordingType['id'],
             {
@@ -518,6 +527,10 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
             })
 
             actions.loadEventsHaveSessionId()
+        },
+
+        setOrderBy: () => {
+            actions.loadSessionRecordings()
         },
 
         resetFilters: () => {

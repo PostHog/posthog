@@ -8,15 +8,18 @@ interface DurationTypeFilterProps {
     onChangeEventDescription?: string
     onChange: (newFilter: DurationType) => void
     value?: DurationType
+    disabledReason?: string
 }
 
 export function DurationTypeSelect({
     onChange,
     value,
     onChangeEventDescription,
+    disabledReason,
 }: DurationTypeFilterProps): JSX.Element {
     return (
         <LemonSelect
+            disabledReason={disabledReason}
             data-attr="duration-type-selector"
             onChange={(v) => {
                 posthog.capture(onChangeEventDescription || 'session recording duration type filter changed', {
