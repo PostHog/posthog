@@ -12,7 +12,7 @@ from posthog.test.base import (
 from posthog.test.test_journeys import journeys_for
 
 
-class TestBreakdownsByCurrentURL(ClickhouseTestMixin, APIBaseTest):
+class TestFunnelBreakdownsByCurrentURL(ClickhouseTestMixin, APIBaseTest):
     def setUp(self):
         super().setUp()
         journey = {
