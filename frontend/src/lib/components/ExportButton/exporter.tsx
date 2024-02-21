@@ -39,7 +39,7 @@ export type TriggerExportProps = Pick<ExportedAssetType, 'export_format' | 'dash
 const isLocalExport = (context: ExportContext | undefined): context is LocalExportContext =>
     !!(context && 'localData' in context)
 
-export async function triggerExport(asset: TriggerExportProps): Promise<void> {
+export async function triggerExport(asset: TriggerExportProps): Promise<string> {
     if (isLocalExport(asset.export_context)) {
         try {
             downloadBlob(
@@ -50,6 +50,7 @@ export async function triggerExport(asset: TriggerExportProps): Promise<void> {
         } catch (e) {
             lemonToast.error('Export failed!')
         }
+        return 'Export complete'
     } else {
         // eslint-disable-next-line no-async-promise-executor,@typescript-eslint/no-misused-promises
         const poller = new Promise<string>(async (resolve, reject) => {
@@ -88,7 +89,9 @@ export async function triggerExport(asset: TriggerExportProps): Promise<void> {
                     attempts++
 
                     if (exportedAsset.has_content) {
-                        await downloadExportedAsset(exportedAsset)
+                        if (!isExportSidepanel) {
+                            await downloadExportedAsset(exportedAsset)
+                        }
 
                         trackingProperties.total_time_ms = performance.now() - startTime
                         posthog.capture('export succeeded', trackingProperties)
@@ -134,6 +137,7 @@ export async function triggerExport(asset: TriggerExportProps): Promise<void> {
                 ),
             }
         )
+        return poller
     }
 }
 

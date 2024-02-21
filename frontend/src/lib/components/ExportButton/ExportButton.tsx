@@ -2,6 +2,7 @@ import { useMountedLogic } from 'kea'
 import { LemonButton, LemonButtonProps, LemonButtonWithDropdown } from 'lib/lemon-ui/LemonButton'
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
 
+import { sidePanelExportsLogic } from '~/layout/navigation-3000/sidepanel/panels/exports/sidePanelExportsLogic'
 import { sidePanelLogic } from '~/layout/navigation-3000/sidepanel/sidePanelLogic'
 import { ExporterFormat, OnlineExportContext, SidePanelTab } from '~/types'
 
@@ -21,8 +22,10 @@ export interface ExportButtonProps extends Pick<LemonButtonProps, 'icon' | 'type
 
 export function ExportButton({ items, ...buttonProps }: ExportButtonProps): JSX.Element {
     useMountedLogic(sidePanelLogic)
+    useMountedLogic(sidePanelExportsLogic)
 
     const { actions } = sidePanelLogic
+    const { loadExports } = sidePanelExportsLogic.actions
 
     return (
         <LemonButtonWithDropdown
@@ -59,7 +62,9 @@ export function ExportButton({ items, ...buttonProps }: ExportButtonProps): JSX.
                                     fullWidth
                                     onClick={() => {
                                         actions.openSidePanel(SidePanelTab.Exports)
+                                        loadExports()
                                         void triggerExport(triggerExportProps)
+                                        loadExports()
                                     }}
                                     data-attr={`export-button-${exportFormatExtension}`}
                                     data-ph-capture-attribute-export-target={target}

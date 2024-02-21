@@ -2,21 +2,15 @@ import { IconDownload } from '@posthog/icons'
 import { LemonButton, LemonTag, Spinner, Tooltip } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { downloadExportedAsset } from 'lib/components/ExportButton/exporter'
-import { IconCheckmark, IconRefresh, IconWithCount } from 'lib/lemon-ui/icons'
+import { IconRefresh } from 'lib/lemon-ui/icons'
 import { humanFriendlyDetailedTime } from 'lib/utils'
 import { useEffect } from 'react'
 
 import { SidePanelPaneHeader } from '../../components/SidePanelPaneHeader'
 import { sidePanelExportsLogic } from './sidePanelExportsLogic'
 
-export const SidePanelExportsIcon = (props: { className?: string }): JSX.Element => {
-    const { exports } = useValues(sidePanelExportsLogic)
-
-    return (
-        <IconWithCount count={exports?.length} {...props}>
-            <IconDownload />
-        </IconWithCount>
-    )
+export const SidePanelExportsIcon = (): JSX.Element => {
+    return <IconDownload />
 }
 
 const ExportsContent = (): JSX.Element => {
@@ -39,29 +33,30 @@ const ExportsContent = (): JSX.Element => {
                 {exports.map((asset) => (
                     <LemonButton
                         type="secondary"
-                        status="alt"
                         key={asset.id}
                         fullWidth
                         className="mt-2"
+                        disabledReason={!asset.has_content ? 'Export not ready yet' : undefined}
                         onClick={() => {
                             void downloadExportedAsset(asset)
                         }}
+                        sideIcon={asset.has_content ? <IconDownload /> : undefined}
                     >
                         <div className="flex items-center justify-between w-full">
                             <div className="flex flex-col">
                                 <span className="text-sm font-medium">
-                                    <LemonTag size="small" className="mr-2">
+                                    {asset.filename}
+                                    <LemonTag size="small" className="ml-2">
                                         {asset.export_format}
                                     </LemonTag>
-                                    {asset.filename}
                                 </span>
                                 {asset.expires_after && (
-                                    <span className="text-xs mt-1">
+                                    <span className="text-xs text-muted mt-1">
                                         Available until {humanFriendlyDetailedTime(asset.expires_after)}
                                     </span>
                                 )}
                             </div>
-                            <div>{asset.has_content ? <IconCheckmark /> : <Spinner />}</div>
+                            <div>{!asset.has_content && <Spinner />}</div>
                         </div>
                     </LemonButton>
                 ))}
