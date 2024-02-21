@@ -15,7 +15,7 @@ import { AvailableFeature, ProductKey } from '~/types'
 
 import { appContextLogic } from './appContextLogic'
 import { handleLoginRedirect } from './authentication/loginLogic'
-import { OnboardingStepKey } from './onboarding/onboardingLogic'
+import { onboardingLogic, OnboardingStepKey } from './onboarding/onboardingLogic'
 import { organizationLogic } from './organizationLogic'
 import { preflightLogic } from './PreflightCheck/preflightLogic'
 import type { sceneLogicType } from './sceneLogicType'
@@ -289,6 +289,7 @@ export const sceneLogic = kea<sceneLogicType>([
                                 console.warn(
                                     `Onboarding not completed for ${productKeyFromUrl}, redirecting to onboarding intro`
                                 )
+                                onboardingLogic.actions.setIncludeIntro(true)
                                 router.actions.replace(
                                     urls.onboarding(productKeyFromUrl, OnboardingStepKey.PRODUCT_INTRO)
                                 )
