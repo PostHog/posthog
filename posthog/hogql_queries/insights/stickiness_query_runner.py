@@ -23,6 +23,7 @@ from posthog.models.action.action import Action
 from posthog.models.filters.mixins.utils import cached_property
 from posthog.schema import (
     ActionsNode,
+    DataWarehouseNode,
     EventsNode,
     StickinessQuery,
     HogQLQueryModifiers,
@@ -31,7 +32,7 @@ from posthog.schema import (
 
 
 class SeriesWithExtras:
-    series: EventsNode | ActionsNode
+    series: EventsNode | ActionsNode | DataWarehouseNode
     is_previous_period_series: Optional[bool]
 
     def __init__(
