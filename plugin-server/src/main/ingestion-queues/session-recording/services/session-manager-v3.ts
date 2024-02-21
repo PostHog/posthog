@@ -98,7 +98,7 @@ export type SessionManagerContext = {
     partition: number
 }
 
-export class SessionManagerV2 {
+export class SessionManagerV3 {
     buffer?: SessionBuffer
     flushPromise?: Promise<void>
     destroying = false
@@ -122,8 +122,8 @@ export class SessionManagerV2 {
         serverConfig: PluginsServerConfig,
         s3Client: ObjectStorage['s3'],
         context: SessionManagerContext
-    ): Promise<SessionManagerV2> {
-        const manager = new SessionManagerV2(serverConfig, s3Client, context)
+    ): Promise<SessionManagerV3> {
+        const manager = new SessionManagerV3(serverConfig, s3Client, context)
         await mkdir(context.dir, { recursive: true })
 
         try {

@@ -2,6 +2,7 @@ import { captureException } from '@sentry/node'
 import { readdir } from 'fs/promises'
 import { features, KafkaConsumer, librdkafkaVersion, Message, TopicPartition } from 'node-rdkafka'
 import path from 'path'
+import { Counter, Gauge, Histogram } from 'prom-client'
 
 import { sessionRecordingConsumerConfig } from '../../../config/config'
 import { KAFKA_SESSION_RECORDING_SNAPSHOT_ITEM_EVENTS } from '../../../config/kafka-topics'
@@ -15,7 +16,7 @@ import { fetchTeamTokensWithRecordings } from '../../../worker/ingestion/team-ma
 import { ObjectStorage } from '../../services/object_storage'
 import { runInstrumentedFunction } from '../../utils'
 import { addSentryBreadcrumbsEventListeners } from '../kafka-metrics'
-import { SessionManagerV2 } from './services/session-manager-v2'
+import { BUCKETS_KB_WRITTEN, SessionManagerV3 } from './services/session-manager-v3'
 import { IncomingRecordingMessage } from './types'
 import { parseKafkaMessage } from './utils'
 
@@ -26,74 +27,31 @@ require('@sentry/tracing')
 const KAFKA_CONSUMER_GROUP_ID = 'session-replay-ingester'
 const KAFKA_CONSUMER_SESSION_TIMEOUT_MS = 30000
 
-// const gaugeSessionsHandled = new Gauge({
-//     name: 'recording_blob_ingestion_session_manager_count',
-//     help: 'A gauge of the number of sessions being handled by this blob ingestion consumer',
-// })
+// NOTE: To remove once released
+const metricPrefix = 'v3_'
 
-// const gaugeSessionsRevoked = new Gauge({
-//     name: 'recording_blob_ingestion_sessions_revoked',
-//     help: 'A gauge of the number of sessions being revoked when partitions are revoked when a re-balance occurs',
-// })
+const gaugeSessionsHandled = new Gauge({
+    name: metricPrefix + 'recording_blob_ingestion_session_manager_count',
+    help: 'A gauge of the number of sessions being handled by this blob ingestion consumer',
+})
 
-// const gaugeRealtimeSessions = new Gauge({
-//     name: 'recording_realtime_sessions',
-//     help: 'Number of real time sessions being handled by this blob ingestion consumer',
-// })
+const histogramKafkaBatchSize = new Histogram({
+    name: metricPrefix + 'recording_blob_ingestion_kafka_batch_size',
+    help: 'The size of the batches we are receiving from Kafka',
+    buckets: [0, 50, 100, 150, 200, 250, 300, 350, 400, 450, 500, 600, Infinity],
+})
 
-// const gaugeLagMilliseconds = new Gauge({
-//     name: 'recording_blob_ingestion_lag_in_milliseconds',
-//     help: "A gauge of the lag in milliseconds, more useful than lag in messages since it affects how much work we'll be pushing to redis",
-//     labelNames: ['partition'],
-// })
+const histogramKafkaBatchSizeKb = new Histogram({
+    name: metricPrefix + 'recording_blob_ingestion_kafka_batch_size_kb',
+    help: 'The size in kb of the batches we are receiving from Kafka',
+    buckets: BUCKETS_KB_WRITTEN,
+})
 
-// // NOTE: This gauge is important! It is used as our primary metric for scaling up / down
-// const gaugeLag = new Gauge({
-//     name: 'recording_blob_ingestion_lag',
-//     help: 'A gauge of the lag in messages, taking into account in progress messages',
-//     labelNames: ['partition'],
-// })
-
-// const gaugeOffsetCommitted = new Gauge({
-//     name: 'offset_manager_offset_committed',
-//     help: 'When a session manager flushes to S3 it reports which offset on the partition it flushed.',
-//     labelNames: ['partition'],
-// })
-
-// const gaugeOffsetCommitFailed = new Gauge({
-//     name: 'offset_manager_offset_commit_failed',
-//     help: 'An attempt to commit failed, other than accidentally committing just after a rebalance this is not great news.',
-//     labelNames: ['partition'],
-// })
-
-// const histogramKafkaBatchSize = new Histogram({
-//     name: 'recording_blob_ingestion_kafka_batch_size',
-//     help: 'The size of the batches we are receiving from Kafka',
-//     buckets: [0, 50, 100, 150, 200, 250, 300, 350, 400, 450, 500, 600, Infinity],
-// })
-
-// const histogramKafkaBatchSizeKb = new Histogram({
-//     name: 'recording_blob_ingestion_kafka_batch_size_kb',
-//     help: 'The size in kb of the batches we are receiving from Kafka',
-//     buckets: BUCKETS_KB_WRITTEN,
-// })
-
-// const counterKafkaMessageReceived = new Counter({
-//     name: 'recording_blob_ingestion_kafka_message_received',
-//     help: 'The number of messages we have received from Kafka',
-//     labelNames: ['partition'],
-// })
-
-// const counterCommitSkippedDueToPotentiallyBlockingSession = new Counter({
-//     name: 'recording_blob_ingestion_commit_skipped_due_to_potentially_blocking_session',
-//     help: 'The number of times we skipped committing due to a potentially blocking session',
-// })
-
-// const histogramActiveSessionsWhenCommitIsBlocked = new Histogram({
-//     name: 'recording_blob_ingestion_active_sessions_when_commit_is_blocked',
-//     help: 'The number of active sessions on a partition when we skip committing due to a potentially blocking session',
-//     buckets: [0, 1, 2, 3, 4, 5, 10, 20, 50, 100, 1000, 10000, Infinity],
-// })
+const counterKafkaMessageReceived = new Counter({
+    name: metricPrefix + 'recording_blob_ingestion_kafka_message_received',
+    help: 'The number of messages we have received from Kafka',
+    labelNames: ['partition'],
+})
 
 export interface TeamIDWithConfig {
     teamId: TeamId | null
@@ -107,7 +65,7 @@ export interface TeamIDWithConfig {
  */
 export class SessionRecordingIngesterV3 {
     // redisPool: RedisPool
-    sessions: Record<string, SessionManagerV2> = {}
+    sessions: Record<string, SessionManagerV3> = {}
     // sessionHighWaterMarker: OffsetHighWaterMarker
     // persistentHighWaterMarker: OffsetHighWaterMarker
     // realtimeManager: RealtimeManager
@@ -199,7 +157,7 @@ export class SessionRecordingIngesterV3 {
         if (!this.sessions[key]) {
             const { partition } = event.metadata
 
-            this.sessions[key] = await SessionManagerV2.create(this.config, this.objectStorage.s3, {
+            this.sessions[key] = await SessionManagerV3.create(this.config, this.objectStorage.s3, {
                 teamId: team_id,
                 sessionId: session_id,
                 dir: path.join(this.rootDir, `${partition}`, key),
@@ -225,8 +183,8 @@ export class SessionRecordingIngesterV3 {
             statsKey: `recordingingester.handleEachBatch`,
             logExecutionTime: true,
             func: async () => {
-                // histogramKafkaBatchSize.observe(messages.length)
-                // histogramKafkaBatchSizeKb.observe(messages.reduce((acc, m) => (m.value?.length ?? 0) + acc, 0) / 1024)
+                histogramKafkaBatchSize.observe(messages.length)
+                histogramKafkaBatchSizeKb.observe(messages.reduce((acc, m) => (m.value?.length ?? 0) + acc, 0) / 1024)
 
                 const recordingMessages: IncomingRecordingMessage[] = []
 
@@ -234,7 +192,7 @@ export class SessionRecordingIngesterV3 {
                     statsKey: `recordingingester.handleEachBatch.parseKafkaMessages`,
                     func: async () => {
                         for (const message of messages) {
-                            // counterKafkaMessageReceived.inc({ partition })
+                            counterKafkaMessageReceived.inc({ partition: message.partition })
 
                             const recordingMessage = await parseKafkaMessage(message, (token) =>
                                 this.teamsRefresher.get().then((teams) => ({
@@ -328,7 +286,7 @@ export class SessionRecordingIngesterV3 {
             batchingTimeoutMs: this.config.KAFKA_CONSUMPTION_BATCHING_TIMEOUT_MS,
             topicCreationTimeoutMs: this.config.KAFKA_TOPIC_CREATION_TIMEOUT_MS,
             eachBatch: async (messages) => {
-                return await this.handleEachBatch(messages)
+                return await this.scheduleWork(this.handleEachBatch(messages))
             },
         })
 
@@ -355,8 +313,6 @@ export class SessionRecordingIngesterV3 {
         // void this.scheduleWork(this.replayEventsIngester.stop())
         // void this.scheduleWork(this.consoleLogsIngester.stop())
 
-        // TODO: Add the handleEachBatch to the promises so we can wait for it to finish
-
         const promiseResults = await Promise.allSettled(this.promises)
 
         // Finally we clear up redis once we are sure everything else has been handled
@@ -372,43 +328,6 @@ export class SessionRecordingIngesterV3 {
         // TODO: Maybe extend this to check if we are shutting down so we don't get killed early.
         return this.batchConsumer?.isHealthy()
     }
-
-    // private async reportPartitionMetrics() {
-    //     /**
-    //      * For all partitions we are assigned, report metrics.
-    //      * For any other number we clear the metrics from our gauges
-    //      */
-    //     const assignedPartitions = this.assignedTopicPartitions.map((x) => x.partition)
-    //     const offsetsByPartition = await this.latestOffsetsRefresher.get()
-
-    //     for (let partition = 0; partition < this.totalNumPartitions; partition++) {
-    //         if (assignedPartitions.includes(partition)) {
-    //             const metrics = this.partitionMetrics[partition] || {}
-    //             if (metrics.lastMessageTimestamp) {
-    //                 gaugeLagMilliseconds
-    //                     .labels({
-    //                         partition: partition.toString(),
-    //                     })
-    //                     .set(now() - metrics.lastMessageTimestamp)
-    //             }
-
-    //             const highOffset = offsetsByPartition[partition]
-
-    //             if (highOffset && metrics.lastMessageOffset) {
-    //                 metrics.offsetLag = highOffset - metrics.lastMessageOffset
-    //                 // NOTE: This is an important metric used by the autoscaler
-    //                 gaugeLag.set({ partition }, Math.max(0, metrics.offsetLag))
-    //             }
-    //         } else {
-    //             delete this.partitionMetrics[partition]
-    //             // Clear all metrics
-    //             gaugeLag.remove({ partition })
-    //             gaugeLagMilliseconds.remove({ partition })
-    //             gaugeOffsetCommitted.remove({ partition })
-    //             gaugeOffsetCommitFailed.remove({ partition })
-    //         }
-    //     }
-    // }
 
     async flushAllReadySessions(): Promise<void> {
         const promises: Promise<void>[] = []
@@ -443,10 +362,7 @@ export class SessionRecordingIngesterV3 {
             promises.push(flushPromise)
         }
         await Promise.allSettled(promises)
-        // gaugeSessionsHandled.set(Object.keys(this.sessions).length)
-        // gaugeRealtimeSessions.set(
-        //     Object.values(this.sessions).reduce((acc, sessionManager) => acc + (sessionManager.realtimeTail ? 1 : 0), 0)
-        // )
+        gaugeSessionsHandled.set(Object.keys(this.sessions).length)
     }
 
     private async syncSessionsWithDisk(): Promise<void> {
@@ -466,7 +382,7 @@ export class SessionRecordingIngesterV3 {
                         const [teamId, sessionId] = key.split('.')
 
                         if (!this.sessions[key]) {
-                            this.sessions[key] = await SessionManagerV2.create(this.config, this.objectStorage.s3, {
+                            this.sessions[key] = await SessionManagerV3.create(this.config, this.objectStorage.s3, {
                                 teamId: parseInt(teamId),
                                 sessionId,
                                 dir: path.join(this.rootDir, `${partition}`, key),
@@ -479,7 +395,7 @@ export class SessionRecordingIngesterV3 {
         )
     }
 
-    private async destroySession(key: string, sessionManager: SessionManagerV2): Promise<void> {
+    private async destroySession(key: string, sessionManager: SessionManagerV3): Promise<void> {
         delete this.sessions[key]
         await sessionManager.stop()
     }

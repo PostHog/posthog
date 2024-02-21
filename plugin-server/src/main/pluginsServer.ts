@@ -431,26 +431,26 @@ export async function startPluginsServer(
             hub.lastActivityType = 'serverStart'
         }
 
-        // if (capabilities.sessionRecordingBlobIngestion) {
-        //     const recordingConsumerConfig = sessionRecordingConsumerConfig(serverConfig)
-        //     const postgres = hub?.postgres ?? new PostgresRouter(serverConfig)
-        //     const s3 = hub?.objectStorage ?? getObjectStorage(recordingConsumerConfig)
+        if (capabilities.sessionRecordingBlobIngestion) {
+            const recordingConsumerConfig = sessionRecordingConsumerConfig(serverConfig)
+            const postgres = hub?.postgres ?? new PostgresRouter(serverConfig)
+            const s3 = hub?.objectStorage ?? getObjectStorage(recordingConsumerConfig)
 
-        //     if (!s3) {
-        //         throw new Error("Can't start session recording blob ingestion without object storage")
-        //     }
-        //     // NOTE: We intentionally pass in the original serverConfig as the ingester uses both kafkas
-        //     const ingester = new SessionRecordingIngester(serverConfig, postgres, s3)
-        //     await ingester.start()
+            if (!s3) {
+                throw new Error("Can't start session recording blob ingestion without object storage")
+            }
+            // NOTE: We intentionally pass in the original serverConfig as the ingester uses both kafkas
+            const ingester = new SessionRecordingIngester(serverConfig, postgres, s3)
+            await ingester.start()
 
-        //     const batchConsumer = ingester.batchConsumer
+            const batchConsumer = ingester.batchConsumer
 
-        //     if (batchConsumer) {
-        //         stopSessionRecordingBlobConsumer = () => ingester.stop()
-        //         shutdownOnConsumerExit(batchConsumer)
-        //         healthChecks['session-recordings-blob'] = () => ingester.isHealthy() ?? false
-        //     }
-        // }
+            if (batchConsumer) {
+                stopSessionRecordingBlobConsumer = () => ingester.stop()
+                shutdownOnConsumerExit(batchConsumer)
+                healthChecks['session-recordings-blob'] = () => ingester.isHealthy() ?? false
+            }
+        }
 
         if (capabilities.sessionRecordingV3Ingestion) {
             const recordingConsumerConfig = sessionRecordingConsumerConfig(serverConfig)
