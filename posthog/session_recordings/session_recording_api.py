@@ -380,6 +380,7 @@ class SessionRecordingViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             response_data["sources"] = sources
 
         elif source == "realtime":
+            # TODO: Swap to using the new API if supported
             snapshots = get_realtime_snapshots(team_id=self.team.pk, session_id=str(recording.session_id)) or []
 
             event_properties["source"] = "realtime"

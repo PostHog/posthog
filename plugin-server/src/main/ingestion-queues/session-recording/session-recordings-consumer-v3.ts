@@ -18,7 +18,7 @@ import { expressApp } from '../../services/http-server'
 import { ObjectStorage } from '../../services/object_storage'
 import { runInstrumentedFunction } from '../../utils'
 import { addSentryBreadcrumbsEventListeners } from '../kafka-metrics'
-import { BUCKETS_KB_WRITTEN, SessionManagerV3 } from './services/session-manager-v3'
+import { BUCKETS_KB_WRITTEN, BUFFER_FILE_NAME, SessionManagerV3 } from './services/session-manager-v3'
 import { IncomingRecordingMessage } from './types'
 import { parseKafkaMessage } from './utils'
 
@@ -382,22 +382,23 @@ export class SessionRecordingIngesterV3 {
                     return []
                 })
 
-                console.log(`Found on disk: ${keys} for partition ${partition}`, Object.keys(this.sessions))
-
+                // TODO: Below regex is a little crude. We should fix it
                 await Promise.all(
-                    keys.map(async (key) => {
-                        // TODO: Ensure sessionId can only be a uuid
-                        const [teamId, sessionId] = key.split('__')
+                    keys
+                        .filter((x) => /\d+__[a-zA-Z0-9\-]+/.test(x))
+                        .map(async (key) => {
+                            // TODO: Ensure sessionId can only be a uuid
+                            const [teamId, sessionId] = key.split('__')
 
-                        if (!this.sessions[key]) {
-                            this.sessions[key] = await SessionManagerV3.create(this.config, this.objectStorage.s3, {
-                                teamId: parseInt(teamId),
-                                sessionId,
-                                dir: this.dirForSession(partition, parseInt(teamId), sessionId),
-                                partition,
-                            })
-                        }
-                    })
+                            if (!this.sessions[key]) {
+                                this.sessions[key] = await SessionManagerV3.create(this.config, this.objectStorage.s3, {
+                                    teamId: parseInt(teamId),
+                                    sessionId,
+                                    dir: this.dirForSession(partition, parseInt(teamId), sessionId),
+                                    partition,
+                                })
+                            }
+                        })
                 )
             })
         )
@@ -438,7 +439,7 @@ export class SessionRecordingIngesterV3 {
                     continue
                 }
 
-                const fileStream = createReadStream(`${sessionDir}/buffer.jsonl`)
+                const fileStream = createReadStream(path.join(sessionDir, BUFFER_FILE_NAME))
                 fileStream.pipe(res)
                 return
             }

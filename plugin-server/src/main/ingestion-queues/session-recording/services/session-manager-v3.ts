@@ -6,6 +6,7 @@ import path from 'path'
 import { Counter, Histogram } from 'prom-client'
 import { PassThrough, Transform } from 'stream'
 import { pipeline } from 'stream/promises'
+import * as zlib from 'zlib'
 
 import { PluginsServerConfig } from '../../../../types'
 import { status } from '../../../../utils/status'
@@ -20,6 +21,9 @@ const S3_UPLOAD_WARN_TIME_SECONDS = 2 * 60 * 1000
 
 // NOTE: To remove once released
 const metricPrefix = 'v3_'
+
+export const BUFFER_FILE_NAME = 'buffer.jsonl.gz'
+export const FLUSH_FILE_EXTENSION = '.flush.jsonl.gz'
 
 const counterS3FilesWritten = new Counter({
     name: metricPrefix + 'recording_s3_files_written',
@@ -130,7 +134,7 @@ export class SessionManagerV3 {
             )
             manager.buffer = {
                 context: bufferMetadata,
-                fileStream: manager.createFileStreamFor(path.join(context.dir, 'buffer.jsonl')),
+                fileStream: manager.createFileStreamFor(path.join(context.dir, BUFFER_FILE_NAME)),
             }
         } catch (error) {
             // Indicates no buffer metadata file or it's corrupted
@@ -156,7 +160,7 @@ export class SessionManagerV3 {
     }
 
     private async getFlushFiles(): Promise<string[]> {
-        return (await readdir(this.context.dir)).filter((file) => file.endsWith('.flush.jsonl'))
+        return (await readdir(this.context.dir)).filter((file) => file.endsWith(FLUSH_FILE_EXTENSION))
     }
 
     private captureException(error: Error, extra: Record<string, any> = {}): void {
@@ -281,7 +285,7 @@ export class SessionManagerV3 {
         // ADD FLUSH METRICS HERE
 
         const { firstTimestamp, lastTimestamp } = buffer.context.eventsRange
-        const fileName = `${firstTimestamp}-${lastTimestamp}.flush.jsonl`
+        const fileName = `${firstTimestamp}-${lastTimestamp}${FLUSH_FILE_EXTENSION}`
 
         counterS3FilesWritten.labels(reason).inc(1)
         histogramS3LinesWritten.observe(buffer.context.count)
@@ -289,7 +293,7 @@ export class SessionManagerV3 {
 
         // NOTE: We simplify everything by keeping the files as the same name for S3
         await new Promise((resolve) => buffer.fileStream.end(resolve))
-        await rename(this.file('buffer.jsonl'), this.file(fileName))
+        await rename(this.file(BUFFER_FILE_NAME), this.file(fileName))
         this.buffer = undefined
 
         await this.save()
@@ -297,8 +301,7 @@ export class SessionManagerV3 {
 
     private async flushFiles(): Promise<void> {
         // We read all files marked for flushing and write them to S3
-        const filesToFlush = (await readdir(this.context.dir)).filter((file) => file.endsWith('.flush.jsonl'))
-        console.log('filesToFlush', filesToFlush)
+        const filesToFlush = await this.getFlushFiles()
         await Promise.all(filesToFlush.map((file) => this.flushFile(file)))
     }
 
@@ -329,7 +332,7 @@ export class SessionManagerV3 {
         const endFlushTimer = histogramFlushTimeSeconds.startTimer()
 
         try {
-            const targetFileName = filename.replace('.flush.jsonl', '.jsonl')
+            const targetFileName = filename.replace(FLUSH_FILE_EXTENSION, '.jsonl.gz')
             const baseKey = `${this.serverConfig.SESSION_RECORDING_REMOTE_FOLDER}/team_id/${this.context.teamId}/session_id/${this.context.sessionId}`
             const dataKey = `${baseKey}/data/${targetFileName}`
             readStream = createReadStream(file)
@@ -349,8 +352,7 @@ export class SessionManagerV3 {
                 params: {
                     Bucket: this.serverConfig.OBJECT_STORAGE_BUCKET,
                     Key: dataKey,
-                    // TODO: Add back in gzip encoding
-                    // ContentEncoding: 'gzip',
+                    ContentEncoding: 'gzip',
                     ContentType: 'application/json',
                     Body: readStream,
                 },
@@ -403,7 +405,7 @@ export class SessionManagerV3 {
                 }
                 const buffer: SessionBuffer = {
                     context,
-                    fileStream: this.createFileStreamFor(this.file('buffer.jsonl')),
+                    fileStream: this.createFileStreamFor(this.file(BUFFER_FILE_NAME)),
                 }
 
                 this.buffer = buffer
@@ -422,6 +424,7 @@ export class SessionManagerV3 {
         // The uncompressed file which we need for realtime playback
         pipeline(
             writeStream,
+            zlib.createGzip(),
             createWriteStream(file, {
                 // Opens in append mode in case it already exists
                 flags: 'a',
