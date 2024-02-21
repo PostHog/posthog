@@ -62,7 +62,9 @@ export const inviteLogic = kea<inviteLogicType>([
             [] as OrganizationInviteType[],
             {
                 loadInvites: async () => {
-                    return (await api.get('api/organizations/@current/invites/')).results
+                    return organizationLogic.values.currentOrganization
+                        ? (await api.get('api/organizations/@current/invites/')).results
+                        : []
                 },
                 deleteInvite: async (invite: OrganizationInviteType) => {
                     await api.delete(`api/organizations/@current/invites/${invite.id}/`)

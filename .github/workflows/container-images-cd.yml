@@ -45,7 +45,7 @@ jobs:
             - name: Login to DockerHub
               uses: docker/login-action@v3
               with:
-                  username: ${{ secrets.DOCKERHUB_USERNAME }}
+                  username: posthog
                   password: ${{ secrets.DOCKERHUB_TOKEN }}
 
             - name: Configure AWS credentials
@@ -75,22 +75,6 @@ jobs:
               with:
                   app_id: ${{ secrets.DEPLOYER_APP_ID }}
                   private_key: ${{ secrets.DEPLOYER_APP_PRIVATE_KEY }}
-
-            - name: Trigger PostHog Cloud deployment
-              # TODO: switch to https://github.com/marketplace/actions/repository-dispatch
-              # as this action is now deprecated.
-              uses: mvasigh/dispatch-action@main
-              with:
-                  token: ${{ steps.deployer.outputs.token }}
-                  repo: posthog-cloud-infra
-                  owner: PostHog
-                  event_type: posthog_cloud_build
-                  message: |
-                      {
-                        "image_tag": "${{ steps.build.outputs.digest }}",
-                        "image_tag_unit": "${{ steps.build.outputs.digest }}",
-                        "context": ${{ toJson(github) }}
-                      }
 
             - name: Trigger PostHog Cloud deployment from Charts
               uses: mvasigh/dispatch-action@main

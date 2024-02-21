@@ -1,10 +1,10 @@
 // eslint-disable-next-line no-restricted-imports
 import { CloseCircleOutlined, CrownFilled, LogoutOutlined } from '@ant-design/icons'
+import { IconLock, IconUnlock } from '@posthog/icons'
 import { LemonButton, LemonSelect, LemonSelectOption, LemonSwitch, LemonTable } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { RestrictedArea, RestrictionScope, useRestrictedArea } from 'lib/components/RestrictedArea'
 import { OrganizationMembershipLevel, TeamMembershipLevel } from 'lib/constants'
-import { IconLock, IconLockOpen } from 'lib/lemon-ui/icons'
 import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
 import { LemonTableColumns } from 'lib/lemon-ui/LemonTable'
 import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
@@ -231,7 +231,7 @@ export function ProjectAccessControl(): JSX.Element {
                     <>
                         This project is{' '}
                         <b>
-                            <IconLockOpen style={{ marginRight: 5 }} />
+                            <IconUnlock style={{ marginRight: 5 }} />
                             open
                         </b>
                         . Any member of the organization can access it. To enable granular access control, make it

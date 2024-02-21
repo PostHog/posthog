@@ -36,7 +36,17 @@ export const actionEditLogic = kea<actionEditLogicType>([
     path(['scenes', 'actions', 'actionEditLogic']),
     props({} as ActionEditLogicProps),
     key((props) => props.id || 'new'),
-    connect({ actions: [tagsModel, ['loadTags']], values: [sceneLogic, ['activeScene']] }),
+    connect({
+        actions: [
+            actionsModel,
+            ['loadActions'],
+            eventDefinitionsTableLogic,
+            ['loadEventDefinitions'],
+            tagsModel,
+            ['loadTags'],
+        ],
+        values: [sceneLogic, ['activeScene']],
+    }),
     actions({
         setAction: (action: Partial<ActionEditType>, options: SetActionProps = { merge: true }) => ({
             action,
@@ -46,11 +56,6 @@ export const actionEditLogic = kea<actionEditLogicType>([
         actionAlreadyExists: (actionId: number | null) => ({ actionId }),
         deleteAction: true,
     }),
-
-    connect({
-        actions: [actionsModel, ['loadActions'], eventDefinitionsTableLogic, ['loadEventDefinitions']],
-    }),
-
     reducers({
         createNew: [
             false,
@@ -117,8 +122,12 @@ export const actionEditLogic = kea<actionEditLogicType>([
                     lemonToast.success(`Action saved`)
                     if (!props.id) {
                         router.actions.push(urls.action(action.id))
+                    } else {
+                        const id = parseInt(props.id.toString()) // props.id can be a string
+                        const logic = actionLogic.findMounted(id)
+                        logic?.actions.loadActionSuccess(action)
                     }
-                    actionLogic.actions.loadActionSuccess(action)
+
                     // reload actions so they are immediately available throughout the app
                     actions.loadEventDefinitions()
                     actions.loadActions()

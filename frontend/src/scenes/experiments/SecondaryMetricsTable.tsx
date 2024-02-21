@@ -1,11 +1,10 @@
 import './Experiment.scss'
 
+import { IconPencil, IconTrash } from '@posthog/icons'
 import { LemonInput, LemonModal, LemonTable } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
-import { getSeriesColor } from 'lib/colors'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
-import { IconDelete, IconEdit } from 'lib/lemon-ui/icons'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { LemonTableColumns } from 'lib/lemon-ui/LemonTable'
@@ -17,10 +16,11 @@ import { InsightType } from '~/types'
 
 import { SECONDARY_METRIC_INSIGHT_ID } from './constants'
 import { experimentLogic, TabularSecondaryMetricResults } from './experimentLogic'
+import { getExperimentInsightColour } from './ExperimentResult'
 import { MetricSelector } from './MetricSelector'
 import { secondaryMetricsLogic, SecondaryMetricsProps } from './secondaryMetricsLogic'
 
-export function SecondaryMetrics({
+export function SecondaryMetricsTable({
     onMetricsChange,
     initialMetrics,
     experimentId,
@@ -44,6 +44,7 @@ export function SecondaryMetrics({
         isExperimentRunning,
         getIndexForVariant,
         experiment,
+        experimentResults,
         editingExistingExperiment,
         tabularSecondaryMetricResults,
     } = useValues(experimentLogic({ experimentId }))
@@ -58,9 +59,7 @@ export function SecondaryMetrics({
                         className="flex items-center w-fit h-5 px-1 rounded text-white text-xs"
                         // eslint-disable-next-line react/forbid-dom-props
                         style={{
-                            background: getSeriesColor(
-                                getIndexForVariant(item.variant, experiment.filters?.insight || InsightType.TRENDS)
-                            ),
+                            background: getExperimentInsightColour(getIndexForVariant(experimentResults, item.variant)),
                         }}
                     >
                         {capitalizeFirstLetter(item.variant)}
@@ -81,7 +80,7 @@ export function SecondaryMetrics({
                     </div>
                     <div className="flex" onClick={(event) => event.stopPropagation()}>
                         <LemonButton
-                            icon={<IconEdit />}
+                            icon={<IconPencil />}
                             size="small"
                             onClick={() => openModalToEditSecondaryMetric(metric, idx)}
                         />
@@ -175,12 +174,12 @@ export function SecondaryMetrics({
                                     </div>
                                     <div className="flex">
                                         <LemonButton
-                                            icon={<IconEdit />}
+                                            icon={<IconPencil />}
                                             size="small"
                                             onClick={() => openModalToEditSecondaryMetric(metric, idx)}
                                         />
                                         <LemonButton
-                                            icon={<IconDelete />}
+                                            icon={<IconTrash />}
                                             size="small"
                                             onClick={() => deleteMetric(idx)}
                                         />

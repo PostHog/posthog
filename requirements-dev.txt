@@ -4,6 +4,16 @@
 #
 #    pip-compile requirements-dev.in
 #
+aiohttp==3.9.2
+    # via
+    #   -c requirements.txt
+    #   aioresponses
+aioresponses==0.7.6
+    # via -r requirements-dev.in
+aiosignal==1.2.0
+    # via
+    #   -c requirements.txt
+    #   aiohttp
 annotated-types==0.5.0
     # via
     #   -c requirements.txt
@@ -17,7 +27,12 @@ asgiref==3.7.2
 async-timeout==4.0.2
     # via
     #   -c requirements.txt
+    #   aiohttp
     #   redis
+attrs==23.2.0
+    # via
+    #   -c requirements.txt
+    #   aiohttp
 black==22.8.0
     # via
     #   -r requirements-dev.in
@@ -84,6 +99,11 @@ flaky==3.7.0
     # via -r requirements-dev.in
 freezegun==1.2.2
     # via -r requirements-dev.in
+frozenlist==1.3.0
+    # via
+    #   -c requirements.txt
+    #   aiohttp
+    #   aiosignal
 genson==1.2.2
     # via datamodel-code-generator
 icdiff==2.0.5
@@ -93,6 +113,7 @@ idna==2.8
     #   -c requirements.txt
     #   email-validator
     #   requests
+    #   yarl
 inflect==5.6.2
     # via datamodel-code-generator
 iniconfig==1.1.1
@@ -101,14 +122,19 @@ isort==5.2.2
     # via datamodel-code-generator
 itypes==1.2.0
     # via coreapi
-jinja2==2.11.3
+jinja2==3.1.3
     # via
     #   coreschema
     #   datamodel-code-generator
 lupa==1.14.1
     # via fakeredis
-markupsafe==1.1.1
+markupsafe==2.1.5
     # via jinja2
+multidict==6.0.2
+    # via
+    #   -c requirements.txt
+    #   aiohttp
+    #   yarl
 mypy==1.8.0
     # via
     #   -r requirements-dev.in
@@ -273,6 +299,10 @@ wheel==0.42.0
     # via
     #   -c requirements.txt
     #   pip-tools
+yarl==1.7.2
+    # via
+    #   -c requirements.txt
+    #   aiohttp
 
 # The following packages are considered to be unsafe in a requirements file:
 # pip

@@ -3,6 +3,7 @@ import { EventType, eventWithTime } from '@rrweb/types'
 import { captureException } from '@sentry/react'
 import {
     actions,
+    afterMount,
     beforeUnmount,
     BreakPointFunction,
     connect,
@@ -482,8 +483,10 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
                         return values.sessionPlayerSnapshotData
                     }
 
+                    const snapshotLoadingStartTime = performance.now()
+
                     if (!cache.snapshotsStartTime) {
-                        cache.snapshotsStartTime = performance.now()
+                        cache.snapshotsStartTime = snapshotLoadingStartTime
                     }
 
                     const data: SessionPlayerSnapshotData = {
@@ -537,6 +540,7 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
 
                         posthog.capture('recording_snapshot_loaded', {
                             source: source.source,
+                            duration: Math.round(performance.now() - snapshotLoadingStartTime),
                         })
                     }
 
@@ -657,10 +661,18 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
                 },
             },
         ],
+        similarRecordings: [
+            null as [string, number][] | null,
+            {
+                fetchSimilarRecordings: async () => {
+                    return await api.recordings.similarRecordings(props.sessionRecordingId)
+                },
+            },
+        ],
     })),
     selectors({
         sessionPlayerData: [
-            (s) => [
+            (s, p) => [
                 s.sessionPlayerMetaData,
                 s.snapshotsByWindowId,
                 s.segments,
@@ -669,6 +681,7 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
                 s.end,
                 s.durationMs,
                 s.fullyLoaded,
+                p.sessionRecordingId,
             ],
             (
                 meta,
@@ -678,7 +691,8 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
                 start,
                 end,
                 durationMs,
-                fullyLoaded
+                fullyLoaded,
+                sessionRecordingId
             ): SessionPlayerData => ({
                 person: meta?.person ?? null,
                 start,
@@ -688,6 +702,7 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
                 segments,
                 bufferedToTime,
                 fullyLoaded,
+                sessionRecordingId,
             }),
         ],
 
@@ -829,6 +844,9 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
                 return Object.keys(snapshotsByWindowId)
             },
         ],
+    }),
+    afterMount(({ cache }) => {
+        resetTimingsCache(cache)
     }),
     beforeUnmount(({ cache }) => {
         resetTimingsCache(cache)

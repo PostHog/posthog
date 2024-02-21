@@ -427,11 +427,6 @@ export class SessionRecordingIngester {
             eachBatch: async (messages) => {
                 return await this.handleEachBatch(messages)
             },
-            topicConfig: {
-                // NOTE: In the event of a failover we want to reset fully to the earliest offset
-                // There is unlikely any other reason why the topic would not have offsets
-                'auto.offset.reset': 'earliest',
-            },
         })
 
         this.totalNumPartitions = (await getPartitionsForTopic(this.connectedBatchConsumer)).length

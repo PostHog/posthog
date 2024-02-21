@@ -4,6 +4,7 @@ import { createInsightStory } from 'scenes/insights/__mocks__/createInsightScene
 import { samplePersonProperties, sampleRetentionPeopleResponse } from 'scenes/insights/__mocks__/insight.mocks'
 
 import { mswDecorator } from '~/mocks/browser'
+import { billingJson } from '~/mocks/fixtures/_billing_v2'
 
 type Story = StoryObj<typeof App>
 const meta: Meta = {
@@ -23,6 +24,9 @@ const meta: Meta = {
                 '/api/projects/:team_id/persons/retention': sampleRetentionPeopleResponse,
                 '/api/projects/:team_id/persons/properties': samplePersonProperties,
                 '/api/projects/:team_id/groups_types': [],
+                '/api/billing-v2/': {
+                    ...billingJson,
+                },
             },
             post: {
                 '/api/projects/:team_id/cohorts/': { id: 1 },
@@ -244,55 +248,55 @@ TrendsWorldMapEdit.parameters = { testOptions: { waitForSelector: '.WorldMap' } 
 export const FunnelLeftToRight: Story = createInsightStory(
     require('../../mocks/fixtures/api/projects/team_id/insights/funnelLeftToRight.json')
 )
-FunnelLeftToRight.parameters = { testOptions: { waitForSelector: '[data-attr=funnel-bar-graph] .StepBar' } }
+FunnelLeftToRight.parameters = { testOptions: { waitForSelector: '[data-attr=funnel-bar-vertical] .StepBar' } }
 export const FunnelLeftToRightEdit: Story = createInsightStory(
     require('../../mocks/fixtures/api/projects/team_id/insights/funnelLeftToRight.json'),
     'edit'
 )
 FunnelLeftToRightEdit.parameters = {
-    testOptions: { waitForSelector: '[data-attr=funnel-bar-graph] .StepBar' },
+    testOptions: { waitForSelector: '[data-attr=funnel-bar-vertical] .StepBar' },
 }
 
 export const FunnelLeftToRightBreakdown: Story = createInsightStory(
     require('../../mocks/fixtures/api/projects/team_id/insights/funnelLeftToRightBreakdown.json')
 )
 FunnelLeftToRightBreakdown.parameters = {
-    testOptions: { waitForSelector: '[data-attr=funnel-bar-graph] .StepBar' },
+    testOptions: { waitForSelector: '[data-attr=funnel-bar-vertical] .StepBar' },
 }
 export const FunnelLeftToRightBreakdownEdit: Story = createInsightStory(
     require('../../mocks/fixtures/api/projects/team_id/insights/funnelLeftToRightBreakdown.json'),
     'edit'
 )
 FunnelLeftToRightBreakdownEdit.parameters = {
-    testOptions: { waitForSelector: '[data-attr=funnel-bar-graph] .StepBar' },
+    testOptions: { waitForSelector: '[data-attr=funnel-bar-vertical] .StepBar' },
 }
 
 export const FunnelTopToBottom: Story = createInsightStory(
     require('../../mocks/fixtures/api/projects/team_id/insights/funnelTopToBottom.json')
 )
 FunnelTopToBottom.parameters = {
-    testOptions: { waitForSelector: '[data-attr=funnel-bar-graph] .funnel-bar' },
+    testOptions: { waitForSelector: '[data-attr=funnel-bar-horizontal] .funnel-bar' },
 }
 export const FunnelTopToBottomEdit: Story = createInsightStory(
     require('../../mocks/fixtures/api/projects/team_id/insights/funnelTopToBottom.json'),
     'edit'
 )
 FunnelTopToBottomEdit.parameters = {
-    testOptions: { waitForSelector: '[data-attr=funnel-bar-graph] .funnel-bar' },
+    testOptions: { waitForSelector: '[data-attr=funnel-bar-horizontal] .funnel-bar' },
 }
 
 export const FunnelTopToBottomBreakdown: Story = createInsightStory(
     require('../../mocks/fixtures/api/projects/team_id/insights/funnelTopToBottomBreakdown.json')
 )
 FunnelTopToBottomBreakdown.parameters = {
-    testOptions: { waitForSelector: '[data-attr=funnel-bar-graph] .funnel-bar' },
+    testOptions: { waitForSelector: '[data-attr=funnel-bar-horizontal] .funnel-bar' },
 }
 export const FunnelTopToBottomBreakdownEdit: Story = createInsightStory(
     require('../../mocks/fixtures/api/projects/team_id/insights/funnelTopToBottomBreakdown.json'),
     'edit'
 )
 FunnelTopToBottomBreakdownEdit.parameters = {
-    testOptions: { waitForSelector: '[data-attr=funnel-bar-graph] .funnel-bar' },
+    testOptions: { waitForSelector: '[data-attr=funnel-bar-horizontal] .funnel-bar' },
 }
 
 export const FunnelHistoricalTrends: Story = createInsightStory(

@@ -108,11 +108,12 @@ export const playlistPopoverLogic = kea<playlistPopoverLogicType>([
                 actions.reportRecordingPlaylistCreated('pin')
 
                 if (!newPlaylist) {
-                    // This indicates the billing popover has been shown so we should close the modal
+                    // This indicates the billing popover has been shown, so we should close the modal
                     actions.setShowPlaylistPopover(false)
                     return
                 }
 
+                // TODO change to currentPlaylists isn't recalculating the selector
                 actions.addToPlaylist(newPlaylist)
                 actions.setNewFormShowing(false)
                 actions.resetNewPlaylist()
