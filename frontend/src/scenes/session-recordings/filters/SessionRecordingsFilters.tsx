@@ -5,6 +5,7 @@ import { useEffect, useState } from 'react'
 
 import { EntityTypes, FilterType, LocalRecordingFilters, RecordingFilters } from '~/types'
 
+import { SessionFilterMode } from '../playlist/sessionRecordingsPlaylistLogic'
 import { AdvancedSessionRecordingsFilters } from './AdvancedSessionRecordingsFilters'
 import { SimpleSessionRecordingsFilters } from './SimpleSessionRecordingsFilters'
 
@@ -13,9 +14,8 @@ interface SessionRecordingsFiltersProps {
     setFilters: (filters: RecordingFilters) => void
     showPropertyFilters?: boolean
     onReset?: () => void
-    hasAdvancedFilters: boolean
-    showAdvancedFilters: boolean
-    setShowAdvancedFilters: (showAdvancedFilters: boolean) => void
+    filterMode: SessionFilterMode
+    setFilterMode: (mode: SessionFilterMode) => void
 }
 
 const filtersToLocalFilters = (filters: RecordingFilters): LocalRecordingFilters => {
@@ -45,8 +45,8 @@ export function SessionRecordingsFilters({
     setFilters,
     showPropertyFilters,
     onReset,
-    showAdvancedFilters,
-    setShowAdvancedFilters,
+    filterMode,
+    setFilterMode,
 }: SessionRecordingsFiltersProps): JSX.Element {
     const [localFilters, setLocalFilters] = useState<FilterType>(filtersToLocalFilters(filters))
 
@@ -72,15 +72,15 @@ export function SessionRecordingsFilters({
         <div className="relative flex flex-col p-3">
             <div className="space-y-1">
                 <div className="flex justify-between">
-                    <LemonLabel>Find sessions by:</LemonLabel>
+                    <LemonLabel>Find sessions:</LemonLabel>
 
-                    {showAdvancedFilters && onReset && (
+                    {filterMode === 'advanced' && onReset && (
                         <span className="absolute top-2 right-2">
                             <LemonButton
                                 size="small"
                                 onClick={() => {
                                     onReset()
-                                    setShowAdvancedFilters(false)
+                                    setFilterMode('simple')
                                 }}
                             >
                                 Reset
@@ -90,7 +90,7 @@ export function SessionRecordingsFilters({
                 </div>
             </div>
 
-            {showAdvancedFilters ? (
+            {filterMode === 'advanced' ? (
                 <AdvancedSessionRecordingsFilters
                     filters={filters}
                     setFilters={setFilters}
@@ -105,7 +105,7 @@ export function SessionRecordingsFilters({
                         setFilters={setFilters}
                         localFilters={localFilters}
                         setLocalFilters={setLocalFilters}
-                        onClickAdvancedFilters={() => setShowAdvancedFilters(true)}
+                        onClickAdvancedFilters={() => setFilterMode('advanced')}
                     />
                 </div>
             )}

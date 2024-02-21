@@ -1,10 +1,11 @@
 import { IconPlus } from '@posthog/icons'
-import { LemonButton, LemonMenu } from '@posthog/lemon-ui'
+import { LemonButton, LemonMenu, Link } from '@posthog/lemon-ui'
 import { useValues } from 'kea'
 import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { useMemo } from 'react'
 import { teamLogic } from 'scenes/teamLogic'
+import { urls } from 'scenes/urls'
 
 import { EntityTypes, FilterType, PropertyFilterType, PropertyOperator, RecordingFilters } from '~/types'
 
@@ -93,51 +94,64 @@ export const SimpleSessionRecordingsFilters = ({
     }, [displayNameProperties, personProperties])
 
     return (
-        <div className="space-y-1">
-            <PropertyFilters
-                pageKey="session-recordings"
-                taxonomicGroupTypes={[TaxonomicFilterGroupType.PersonProperties]}
-                propertyFilters={personProperties}
-                onChange={(properties) => setFilters({ properties })}
-                allowNew={false}
-                openOnInsert
-            />
-            <PropertyFilters
-                pageKey="session-recordings-$current_url"
-                taxonomicGroupTypes={[TaxonomicFilterGroupType.EventProperties]}
-                propertyFilters={eventProperties}
-                onChange={(properties) => {
-                    setLocalFilters({
-                        ...filters,
-                        events:
-                            properties.length > 0
-                                ? [
-                                      {
-                                          id: '$pageview',
-                                          name: '$pageview',
-                                          type: EntityTypes.EVENTS,
-                                          properties: properties,
-                                      },
-                                  ]
-                                : [],
-                    })
-                }}
-                allowNew={false}
-                openOnInsert
-            />
-            <LemonMenu
-                items={[
-                    {
-                        title: 'Choose property',
-                        items: items,
-                    },
-                    {
-                        items: [{ label: 'Use advanced filters', onClick: onClickAdvancedFilters }],
-                    },
-                ]}
-            >
-                <LemonButton size="small" type="secondary" icon={<IconPlus />} />
-            </LemonMenu>
+        <div className="space-y-3">
+            <div className="space-y-1">
+                <PropertyFilters
+                    pageKey="session-recordings"
+                    taxonomicGroupTypes={[TaxonomicFilterGroupType.PersonProperties]}
+                    propertyFilters={personProperties}
+                    onChange={(properties) => setFilters({ properties })}
+                    allowNew={false}
+                    openOnInsert
+                />
+                <PropertyFilters
+                    pageKey="session-recordings-$current_url"
+                    taxonomicGroupTypes={[TaxonomicFilterGroupType.EventProperties]}
+                    propertyFilters={eventProperties}
+                    onChange={(properties) => {
+                        setLocalFilters({
+                            ...filters,
+                            events:
+                                properties.length > 0
+                                    ? [
+                                          {
+                                              id: '$pageview',
+                                              name: '$pageview',
+                                              type: EntityTypes.EVENTS,
+                                              properties: properties,
+                                          },
+                                      ]
+                                    : [],
+                        })
+                    }}
+                    allowNew={false}
+                    openOnInsert
+                />
+                <LemonMenu
+                    items={[
+                        {
+                            title: 'Preferred properties',
+                            items: items,
+                            footer: displayNameProperties.length === 0 && (
+                                <span className="text-muted text-xs px-2">
+                                    <Link
+                                        className="pb-1"
+                                        to={urls.settings('project-product-analytics', 'person-display-name')}
+                                    >
+                                        Add more
+                                    </Link>{' '}
+                                    person display properties
+                                </span>
+                            ),
+                        },
+                        {
+                            items: [{ label: 'Switch to advanced filters', onClick: onClickAdvancedFilters }],
+                        },
+                    ]}
+                >
+                    <LemonButton size="small" type="secondary" icon={<IconPlus />} />
+                </LemonMenu>
+            </div>
         </div>
     )
 }

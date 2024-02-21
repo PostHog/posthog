@@ -1,13 +1,13 @@
 import { createPostHogWidgetNode } from 'scenes/notebooks/Nodes/NodeWrapper'
 import { FilterType, NotebookNodeType, RecordingFilters, ReplayTabs } from '~/types'
 import {
+    SessionFilterMode,
     SessionRecordingPlaylistLogicProps,
-    addedAdvancedFilters,
     getDefaultFilters,
     sessionRecordingsPlaylistLogic,
 } from 'scenes/session-recordings/playlist/sessionRecordingsPlaylistLogic'
 import { BuiltLogic, useActions, useValues } from 'kea'
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo } from 'react'
 import { urls } from 'scenes/urls'
 import { notebookNodeLogic } from './notebookNodeLogic'
 import { JSONContent, NotebookNodeProps, NotebookNodeAttributeProperties } from '../Notebook/utils'
@@ -117,31 +117,25 @@ export const Settings = ({
     attributes,
     updateAttributes,
 }: NotebookNodeAttributeProperties<NotebookNodePlaylistAttributes>): JSX.Element => {
-    const { filters } = attributes
-    const [showAdvancedFilters, setShowAdvancedFilters] = useState(false)
+    const { filters, filterMode } = attributes
     const defaultFilters = getDefaultFilters()
-
-    const hasAdvancedFilters = useMemo(() => {
-        const defaultFilters = getDefaultFilters()
-        return addedAdvancedFilters(filters, defaultFilters)
-    }, [filters])
 
     return (
         <ErrorBoundary>
             <SessionRecordingsFilters
                 filters={{ ...defaultFilters, ...filters }}
                 setFilters={(filters) => updateAttributes({ filters })}
+                filterMode={filterMode ?? 'advanced'}
+                setFilterMode={(filterMode) => updateAttributes({ filterMode })}
                 showPropertyFilters
                 onReset={() => updateAttributes({ filters: undefined })}
-                hasAdvancedFilters={hasAdvancedFilters}
-                showAdvancedFilters={showAdvancedFilters}
-                setShowAdvancedFilters={setShowAdvancedFilters}
             />
         </ErrorBoundary>
     )
 }
 
 type NotebookNodePlaylistAttributes = {
+    filterMode?: SessionFilterMode
     filters: RecordingFilters
     pinned?: string[]
 }
@@ -163,6 +157,9 @@ export const NotebookNodePlaylist = createPostHogWidgetNode<NotebookNodePlaylist
         },
         pinned: {
             default: undefined,
+        },
+        filterMode: {
+            default: 'advanced',
         },
     },
     pasteOptions: {
