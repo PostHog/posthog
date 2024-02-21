@@ -77,6 +77,7 @@ export enum PluginServerMode {
     scheduler = 'scheduler',
     analytics_ingestion = 'analytics-ingestion',
     recordings_blob_ingestion = 'recordings-blob-ingestion',
+    recordings_ingestion_v3 = 'recordings-ingestion-v3',
     person_overrides = 'person-overrides',
 }
 
@@ -297,6 +298,7 @@ export interface PluginServerCapabilities {
     processAsyncOnEventHandlers?: boolean
     processAsyncWebhooksHandlers?: boolean
     sessionRecordingBlobIngestion?: boolean
+    sessionRecordingV3Ingestion?: boolean
     personOverrides?: boolean
     appManagementSingleton?: boolean
     preflightSchedules?: boolean // Used for instance health checks on hobby deploy, not useful on cloud
@@ -947,117 +949,6 @@ export interface RawSessionReplayEvent {
     distinct_id: string
     session_id: string
     /* TODO what columns do we need */
-}
-
-export interface RawPerformanceEvent {
-    uuid: string
-    team_id: number
-    distinct_id: string
-    session_id: string
-    window_id: string
-    pageview_id: string
-    current_url: string
-
-    // BASE_EVENT_COLUMNS
-    time_origin: number
-    timestamp: string
-    entry_type: string
-    name: string
-
-    // RESOURCE_EVENT_COLUMNS
-    start_time: number
-    redirect_start: number
-    redirect_end: number
-    worker_start: number
-    fetch_start: number
-    domain_lookup_start: number
-    domain_lookup_end: number
-    connect_start: number
-    secure_connection_start: number
-    connect_end: number
-    request_start: number
-    response_start: number
-    response_end: number
-    decoded_body_size: number
-    encoded_body_size: number
-    duration: number
-
-    initiator_type: string
-    next_hop_protocol: string
-    render_blocking_status: string
-    response_status: number
-    transfer_size: number
-
-    // LARGEST_CONTENTFUL_PAINT_EVENT_COLUMNS
-    largest_contentful_paint_element: string
-    largest_contentful_paint_render_time: number
-    largest_contentful_paint_load_time: number
-    largest_contentful_paint_size: number
-    largest_contentful_paint_id: string
-    largest_contentful_paint_url: string
-
-    // NAVIGATION_EVENT_COLUMNS
-    dom_complete: number
-    dom_content_loaded_event: number
-    dom_interactive: number
-    load_event_end: number
-    load_event_start: number
-    redirect_count: number
-    navigation_type: string
-    unload_event_end: number
-    unload_event_start: number
-}
-
-export const PerformanceEventReverseMapping: { [key: number]: keyof RawPerformanceEvent } = {
-    // BASE_PERFORMANCE_EVENT_COLUMNS
-    0: 'entry_type',
-    1: 'time_origin',
-    2: 'name',
-
-    // RESOURCE_EVENT_COLUMNS
-    3: 'start_time',
-    4: 'redirect_start',
-    5: 'redirect_end',
-    6: 'worker_start',
-    7: 'fetch_start',
-    8: 'domain_lookup_start',
-    9: 'domain_lookup_end',
-    10: 'connect_start',
-    11: 'secure_connection_start',
-    12: 'connect_end',
-    13: 'request_start',
-    14: 'response_start',
-    15: 'response_end',
-    16: 'decoded_body_size',
-    17: 'encoded_body_size',
-    18: 'initiator_type',
-    19: 'next_hop_protocol',
-    20: 'render_blocking_status',
-    21: 'response_status',
-    22: 'transfer_size',
-
-    // LARGEST_CONTENTFUL_PAINT_EVENT_COLUMNS
-    23: 'largest_contentful_paint_element',
-    24: 'largest_contentful_paint_render_time',
-    25: 'largest_contentful_paint_load_time',
-    26: 'largest_contentful_paint_size',
-    27: 'largest_contentful_paint_id',
-    28: 'largest_contentful_paint_url',
-
-    // NAVIGATION_EVENT_COLUMNS
-    29: 'dom_complete',
-    30: 'dom_content_loaded_event',
-    31: 'dom_interactive',
-    32: 'load_event_end',
-    33: 'load_event_start',
-    34: 'redirect_count',
-    35: 'navigation_type',
-    36: 'unload_event_end',
-    37: 'unload_event_start',
-
-    // Added after v1
-    39: 'duration',
-    40: 'timestamp',
 }
 
 export enum TimestampFormat {
