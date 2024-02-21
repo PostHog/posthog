@@ -1,11 +1,12 @@
 import json
 import uuid
-from typing import List, cast, Dict, Optional
+from typing import List, cast, Dict, Optional, Any
 from unittest import mock
 from unittest.mock import MagicMock, call, patch, ANY
 
 from asgiref.sync import sync_to_async
 from django.core.cache import cache
+from django.http import HttpResponse
 from freezegun import freeze_time
 from parameterized import parameterized
 from rest_framework import status
@@ -909,24 +910,76 @@ class TestTeamAPI(APIBaseTest):
             "/api/projects/@current/", {"session_recording_network_payload_capture_config": None}
         )
         assert response.status_code == status.HTTP_200_OK
+
         second_get_response = self.client.get("/api/projects/@current/")
         assert second_get_response.json()["session_recording_network_payload_capture_config"] is None
 
     def test_can_set_and_unset_session_replay_config(self) -> None:
         # can set
-        first_patch_response = self.client.patch(
-            "/api/projects/@current/",
-            {"session_replay_config": {"record_canvas": True}},
-        )
-        assert first_patch_response.status_code == status.HTTP_200_OK
-        get_response = self.client.get("/api/projects/@current/")
-        assert get_response.json()["session_replay_config"] == {"record_canvas": True}
+        self._patch_session_replay_config({"record_canvas": True})
+        self._assert_replay_config_is({"record_canvas": True})
 
         # can unset
-        response = self.client.patch("/api/projects/@current/", {"session_replay_config": None})
-        assert response.status_code == status.HTTP_200_OK
-        second_get_response = self.client.get("/api/projects/@current/")
-        assert second_get_response.json()["session_replay_config"] is None
+        self._patch_session_replay_config(None)
+        self._assert_replay_config_is(None)
+
+    def test_can_set_and_unset_session_replay_masking_inputs_config(self) -> None:
+        # can set
+        self._patch_session_replay_config({"maskAllInputs": True})
+        self._assert_replay_config_is({"maskAllInputs": True})
+
+        # can unset
+        self._patch_session_replay_config({"maskAllInputs": False})
+        self._assert_replay_config_is({"maskAllInputs": False})
+
+    def test_can_set_and_unset_session_replay_masking_text_config(self) -> None:
+        # can set
+        self._patch_session_replay_config({"maskAllText": True})
+        self._assert_replay_config_is({"maskAllText": True})
+
+        # can unset
+        self._patch_session_replay_config({"maskAllText": False})
+        self._assert_replay_config_is({"maskAllText": False})
+
+    def test_patching_session_replay_config_only_changes_provided_fields(self) -> None:
+        # can set one config
+        self._patch_session_replay_config({"maskAllText": True})
+        self._assert_replay_config_is({"maskAllText": True})
+
+        # can set a second config
+        self._patch_session_replay_config({"record_canvas": True})
+        self._assert_replay_config_is({"maskAllText": True, "record_canvas": True})
+
+        # can unset one config
+        self._patch_session_replay_config({"maskAllText": False})
+        self._assert_replay_config_is({"maskAllText": False, "record_canvas": True})
+
+    def test_cannot_send_unknown_config(self) -> None:
+        response = self._patch_session_replay_config({"wat": "wat"}, expected_status=status.HTTP_400_BAD_REQUEST)
+        assert response.json() == {
+            "attr": "session_replay_config",
+            "code": "invalid_input",
+            "detail": "Must provide a dictionary with only known keys. One or more of record_canvas, maskAllText, maskAllInputs",
+            "type": "validation_error",
+        }
+
+    def _assert_replay_config_is(self, expected: Dict[str, Any] | None) -> HttpResponse:
+        get_response = self.client.get("/api/projects/@current/")
+        assert get_response.status_code == status.HTTP_200_OK
+        assert get_response.json()["session_replay_config"] == expected
+
+        return get_response
+
+    def _patch_session_replay_config(
+        self, config: Dict[str, Any] | None, expected_status: int = status.HTTP_200_OK
+    ) -> HttpResponse:
+        patch_response = self.client.patch(
+            "/api/projects/@current/",
+            {"session_replay_config": config},
+        )
+        assert patch_response.status_code == expected_status
+
+        return patch_response
 
 
 def create_team(organization: Organization, name: str = "Test team") -> Team:

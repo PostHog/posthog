@@ -105,6 +105,8 @@ export const teamLogic = kea<teamLogicType>([
                         updatedAttribute === 'has_completed_onboarding_for'
                     ) {
                         message = "Congrats! You're now ready to use PostHog."
+                    } else if (updatedAttribute === 'session_recording_minimum_duration_milliseconds') {
+                        message = 'Session recording minimum duration updated successfully!'
                     } else {
                         message = `${parseUpdatedAttributeName(updatedAttribute)} updated successfully!`
                     }
