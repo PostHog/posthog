@@ -48,7 +48,7 @@ export function RenameModal({ typeKey, view }: RenameModalProps): JSX.Element {
                 onPressEnter={() => renameFilter(name)}
                 onChange={(value) => setName(value)}
                 suffix={
-                    <span className="text-muted-alt">
+                    <span className="text-muted-alt whitespace-nowrap">
                         {getDisplayNameFromEntityFilter(selectedFilter, false) ?? ''}
                     </span>
                 }
