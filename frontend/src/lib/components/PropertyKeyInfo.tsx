@@ -19,14 +19,17 @@ interface PropertyKeyInfoProps {
     className?: string
 }
 
-export function PropertyKeyInfo({
-    value,
-    type = TaxonomicFilterGroupType.EventProperties,
-    disablePopover = false,
-    disableIcon = false,
-    ellipsis = true,
-    className = '',
-}: PropertyKeyInfoProps): JSX.Element {
+export const PropertyKeyInfo = React.forwardRef<HTMLSpanElement, PropertyKeyInfoProps>(function PropertyKeyInfo(
+    {
+        value,
+        type = TaxonomicFilterGroupType.EventProperties,
+        disablePopover = false,
+        disableIcon = false,
+        ellipsis = true,
+        className = '',
+    },
+    ref
+): JSX.Element {
     const [popoverVisible, setPopoverVisible] = useState(false)
 
     value = value?.toString() ?? '' // convert to string
@@ -40,6 +43,7 @@ export function PropertyKeyInfo({
             className={clsx('PropertyKeyInfo', className)}
             aria-label={valueDisplayText}
             title={ellipsis && disablePopover ? valueDisplayText : undefined}
+            ref={ref}
         >
             {!disableIcon && !!data && <span className="PropertyKeyInfo__logo" />}
             <span className={clsx('PropertyKeyInfo__text', ellipsis && 'PropertyKeyInfo__text--ellipsis')}>
@@ -89,4 +93,4 @@ export function PropertyKeyInfo({
             })}
         </Popover>
     )
-}
+})

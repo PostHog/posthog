@@ -218,18 +218,22 @@ def _export_to_csv(exported_asset: ExportedAsset, limit: int) -> None:
             try:
                 response = make_api_call(access_token, body, limit, method, next_url, path)
             except HTTPError as e:
+                if "Query size exceeded" not in e.response.text:
+                    raise e
+
+                if limit <= CSV_EXPORT_BREAKDOWN_LIMIT_LOW:
+                    break  # Already tried with the lowest limit, so return what we have
+
                 # If error message contains "Query size exceeded", we try again with a lower limit
-                if "Query size exceeded" in e.response.text and limit > CSV_EXPORT_BREAKDOWN_LIMIT_LOW:
-                    limit = int(limit / 2)
-                    logger.warning(
-                        "csv_exporter.query_size_exceeded",
-                        exc=e,
-                        exc_info=True,
-                        response_text=e.response.text,
-                        limit=limit,
-                    )
-                    continue
-                raise e
+                limit = int(limit / 2)
+                logger.warning(
+                    "csv_exporter.query_size_exceeded",
+                    exc=e,
+                    exc_info=True,
+                    response_text=e.response.text,
+                    limit=limit,
+                )
+                continue
 
             # Figure out how to handle funnel polling....
             data = response.json()
@@ -255,20 +259,20 @@ def _export_to_csv(exported_asset: ExportedAsset, limit: int) -> None:
             next_url = data.get("next")
 
     renderer = OrderedCsvRenderer()
+    render_context = {}
 
-    # NOTE: This is not ideal as some rows _could_ have different keys
-    # Ideally we would extend the csvrenderer to supported keeping the order in place
     if len(all_csv_rows):
-        if not [x for x in all_csv_rows[0].values() if isinstance(x, dict) or isinstance(x, list)]:
+        # NOTE: This is not ideal as some rows _could_ have different keys
+        # Ideally we would extend the csvrenderer to supported keeping the order in place
+        is_any_col_list_or_dict = [x for x in all_csv_rows[0].values() if isinstance(x, dict) or isinstance(x, list)]
+        if not is_any_col_list_or_dict:
             # If values are serialised then keep the order of the keys, else allow it to be unordered
             renderer.header = all_csv_rows[0].keys()
 
-    render_context = {}
-    if columns:
-        render_context["header"] = columns
-
-    # Fallback if empty to produce any CSV at all to distinguish from a failed export
-    if not all_csv_rows:
+        if columns:
+            render_context["header"] = columns
+    else:
+        # Fallback if empty to produce any CSV at all to distinguish from a failed export
         all_csv_rows = [{}]
 
     rendered_csv_content = renderer.render(all_csv_rows, renderer_context=render_context)
@@ -290,14 +294,13 @@ def make_api_call(
     path: str,
 ) -> requests.models.Response:
     request_url: str = absolute_uri(next_url or path)
-    params: dict[str, str | int] = {
-        get_limit_param_key(request_url): limit,
-        "is_csv_export": "1",
-    }
+    url = add_query_params(
+        request_url,
+        {get_limit_param_key(request_url): str(limit), "is_csv_export": "1"},
+    )
     response = requests.request(
         method=method.lower(),
-        url=request_url,
-        params=params,
+        url=url,
         json=body,
         headers={"Authorization": f"Bearer {access_token}"},
         timeout=60,
