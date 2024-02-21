@@ -18,7 +18,7 @@ export interface LemonSwitchProps {
     disabledReason?: string | null | false
     'data-attr'?: string
     icon?: React.ReactElement | null
-    tooltip?: string | null
+    tooltip?: React.ReactElement | string | null
     handleContent?: React.ReactElement | null
     'aria-label'?: string
 }
