@@ -1,5 +1,6 @@
+# serializer version: 1
 # name: TestDataWarehouseQueryBuilder.test_trends_data_warehouse
-  '
+  '''
   SELECT groupArray(day_start) AS date,
          groupArray(count) AS total
   FROM
@@ -22,5 +23,5 @@
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
                      allow_experimental_object_type=1
-  '
----
+  '''
+# ---
