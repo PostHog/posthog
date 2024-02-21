@@ -2610,7 +2610,7 @@ class InsightActorsQueryOptions(BaseModel):
     )
     kind: Literal["InsightActorsQueryOptions"] = "InsightActorsQueryOptions"
     response: Optional[InsightActorsQueryOptionsResponse] = None
-    source: InsightActorsQuery
+    source: Union[InsightActorsQuery, FunnelsActorsQuery]
 
 
 class ActorsQuery(BaseModel):

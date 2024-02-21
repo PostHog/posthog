@@ -2391,7 +2391,14 @@
                     "$ref": "#/definitions/InsightActorsQueryOptionsResponse"
                 },
                 "source": {
-                    "$ref": "#/definitions/InsightActorsQuery"
+                    "anyOf": [
+                        {
+                            "$ref": "#/definitions/InsightActorsQuery"
+                        },
+                        {
+                            "$ref": "#/definitions/FunnelsActorsQuery"
+                        }
+                    ]
                 }
             },
             "required": ["kind", "source"],

@@ -1118,7 +1118,7 @@ export interface InsightActorsQueryOptionsResponse {
 
 export interface InsightActorsQueryOptions {
     kind: NodeKind.InsightActorsQueryOptions
-    source: InsightActorsQuery
+    source: InsightActorsQuery | FunnelsActorsQuery
     response?: InsightActorsQueryOptionsResponse
 }
 
