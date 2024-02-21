@@ -10,7 +10,7 @@ from posthog.hogql_queries.insights.stickiness_query_runner import StickinessQue
 from posthog.hogql_queries.insights.trends.trends_query_runner import TrendsQueryRunner
 from posthog.hogql_queries.query_runner import QueryRunner, get_query_runner
 from posthog.models.filters.mixins.utils import cached_property
-from posthog.schema import InsightActorsQuery, HogQLQueryResponse
+from posthog.schema import InsightActorsQuery, HogQLQueryResponse, StickinessQuery, TrendsQuery
 
 
 class InsightActorsQueryRunner(QueryRunner):
@@ -54,10 +54,19 @@ class InsightActorsQueryRunner(QueryRunner):
 
     @property
     def group_type_index(self) -> int | None:
-        if not self.source_runner or not isinstance(self.source_runner, RetentionQueryRunner):
-            return None
+        if isinstance(self.source_runner, RetentionQueryRunner):
+            return cast(RetentionQueryRunner, self.source_runner).group_type_index
 
-        return cast(RetentionQueryRunner, self.source_runner).group_type_index
+        if (
+            isinstance(self.source_runner, StickinessQueryRunner) and isinstance(self.query.source, StickinessQuery)
+        ) or (isinstance(self.source_runner, TrendsQueryRunner) and isinstance(self.query.source, TrendsQuery)):
+            series_index = self.query.series or 0
+            if self.query.source.series and series_index < len(self.query.source.series):
+                series = self.query.source.series[series_index]
+                if series.math_group_type_index is not None:
+                    return int(series.math_group_type_index or 0)
+
+        return None
 
     def calculate(self) -> HogQLQueryResponse:
         return execute_hogql_query(

@@ -162,6 +162,7 @@ export enum ProductKey {
     PRODUCT_ANALYTICS = 'product_analytics',
     PIPELINE_TRANSFORMATIONS = 'pipeline_transformations',
     PIPELINE_DESTINATIONS = 'pipeline_destinations',
+    SITE_APPS = 'site_apps',
     DATA_PIPELINES = 'data_pipelines',
     GROUP_ANALYTICS = 'group_analytics',
     INTEGRATIONS = 'integrations',
@@ -587,6 +588,8 @@ export enum PipelineTab {
     Overview = 'overview',
     Transformations = 'transformations',
     Destinations = 'destinations',
+    SiteApps = 'site-apps',
+    ImportApps = 'legacy-sources',
     AppsManagement = 'apps-management',
 }
 
@@ -594,6 +597,8 @@ export enum PipelineStage {
     Filter = 'filter',
     Transformation = 'transformation',
     Destination = 'destination',
+    SiteApp = 'site-app',
+    ImportApp = 'import-app',
 }
 
 export enum PipelineNodeTab {
@@ -1306,6 +1311,7 @@ export type BillingV2FeatureType = {
     key: AvailableFeatureUnion
     name: string
     description?: string | null
+    docsUrl?: string | null
     limit?: number | null
     note?: string | null
     unit?: string | null
@@ -1429,6 +1435,7 @@ export interface BillingV2PlanType {
     tiers?: BillingV2TierType[] | null
     included_if?: 'no_active_subscription' | 'has_subscription' | null
     initial_billing_limit?: number
+    contact_support?: boolean
 }
 
 export interface PlanInterface {

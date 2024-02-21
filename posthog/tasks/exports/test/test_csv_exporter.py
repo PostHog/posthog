@@ -207,6 +207,36 @@ class TestCSVExporter(APIBaseTest):
 
     @patch("posthog.models.exported_asset.UUIDT")
     @patch("posthog.models.exported_asset.object_storage.write")
+    def test_csv_exporter_includes_whole_dict(self, mocked_object_storage_write, mocked_uuidt) -> None:
+        exported_asset = self._create_asset({"columns": ["distinct_id", "properties"]})
+        mocked_uuidt.return_value = "a-guid"
+        mocked_object_storage_write.side_effect = ObjectStorageError("mock write failed")
+
+        with self.settings(OBJECT_STORAGE_ENABLED=True, OBJECT_STORAGE_EXPORTS_FOLDER="Test-Exports"):
+            csv_exporter.export_csv(exported_asset)
+
+            assert exported_asset.content_location is None
+
+            assert exported_asset.content == b"distinct_id,properties.$browser\r\n2,Safari\r\n2,Safari\r\n2,Safari\r\n"
+
+    @patch("posthog.models.exported_asset.UUIDT")
+    @patch("posthog.models.exported_asset.object_storage.write")
+    def test_csv_exporter_includes_whole_dict_alternative_order(
+        self, mocked_object_storage_write, mocked_uuidt
+    ) -> None:
+        exported_asset = self._create_asset({"columns": ["properties", "distinct_id"]})
+        mocked_uuidt.return_value = "a-guid"
+        mocked_object_storage_write.side_effect = ObjectStorageError("mock write failed")
+
+        with self.settings(OBJECT_STORAGE_ENABLED=True, OBJECT_STORAGE_EXPORTS_FOLDER="Test-Exports"):
+            csv_exporter.export_csv(exported_asset)
+
+            assert exported_asset.content_location is None
+
+            assert exported_asset.content == b"properties.$browser,distinct_id\r\nSafari,2\r\nSafari,2\r\nSafari,2\r\n"
+
+    @patch("posthog.models.exported_asset.UUIDT")
+    @patch("posthog.models.exported_asset.object_storage.write")
     def test_csv_exporter_does_filter_columns_and_can_handle_unexpected_columns(
         self, mocked_object_storage_write, mocked_uuidt
     ) -> None:
@@ -272,8 +302,8 @@ class TestCSVExporter(APIBaseTest):
 
             csv_exporter.export_csv(exported_asset)
 
-            assert patched_make_api_call.call_count == 5
-            patched_make_api_call.assert_called_with(mock.ANY, mock.ANY, 32, mock.ANY, mock.ANY, mock.ANY)
+            assert patched_make_api_call.call_count == 4
+            patched_make_api_call.assert_called_with(mock.ANY, mock.ANY, 64, mock.ANY, mock.ANY, mock.ANY)
 
     def test_limiting_query_as_expected(self) -> None:
         with self.settings(SITE_URL="https://app.posthog.com"):
