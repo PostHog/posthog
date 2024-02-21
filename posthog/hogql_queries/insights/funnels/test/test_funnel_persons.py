@@ -6,13 +6,13 @@ from django.utils import timezone
 from freezegun import freeze_time
 
 from posthog.constants import INSIGHT_FUNNELS
-from posthog.hogql_queries.insights.insight_actors_query_runner import InsightActorsQueryRunner
+from posthog.hogql_queries.actors_query_runner import ActorsQueryRunner
 from posthog.hogql_queries.legacy_compatibility.filter_to_query import filter_to_query
 from posthog.models import Cohort, Filter
 from posthog.models.event.util import bulk_create_events
 from posthog.models.person.util import bulk_create_persons
 from posthog.queries.funnels.funnel_persons import ClickhouseFunnelActors
-from posthog.schema import FunnelActorsFilter, FunnelsQuery, InsightActorsQuery
+from posthog.schema import ActorsQuery, FunnelActorsFilter, FunnelsQuery, InsightActorsQuery
 from posthog.session_recordings.queries.test.session_replay_sql import (
     produce_replay_summary,
 )
@@ -34,14 +34,19 @@ PERSON_ID_COLUMN = 2
 
 class TestFunnelPersons(ClickhouseTestMixin, APIBaseTest):
     def _get_actors(
-        self, filters: Dict[str, Any], funnelStep: int | None = None, funnelCustomSteps: List[int] | None = None
+        self,
+        filters: Dict[str, Any],
+        funnelStep: int | None = None,
+        funnelCustomSteps: List[int] | None = None,
+        offset: int | None = None,
     ):
-        source = cast(FunnelsQuery, filter_to_query(filters))
-        actors = FunnelActorsFilter(funnelStep=funnelStep, funnelCustomSteps=funnelCustomSteps)
-        query = InsightActorsQuery(source=source, funnelActorsFilter=actors)
+        funnels_query = cast(FunnelsQuery, filter_to_query(filters))
+        funnel_actors_filter = FunnelActorsFilter(funnelStep=funnelStep, funnelCustomSteps=funnelCustomSteps)
+        insight_actors_query = InsightActorsQuery(source=funnels_query, funnelActorsFilter=funnel_actors_filter)
+        actors_query = ActorsQuery(source=insight_actors_query, offset=offset)
 
-        results = InsightActorsQueryRunner(query=query, team=self.team).calculate().results
-        return results
+        response = ActorsQueryRunner(query=actors_query, team=self.team).calculate()
+        return response.results
 
     def _create_sample_data_multiple_dropoffs(self):
         for i in range(35):
@@ -264,12 +269,12 @@ class TestFunnelPersons(ClickhouseTestMixin, APIBaseTest):
             ],
         }
 
+        # fetch first 100 people
         results = self._get_actors(filters, funnelStep=1)
-
         self.assertEqual(100, len(results))
 
-        filter_offset = Filter(data={**data, "offset": 100})
-        _, results, _ = ClickhouseFunnelActors(filter_offset, self.team).get_actors()
+        # fetch next 100 people (just 10 remaining)
+        results = self._get_actors(filters, funnelStep=1, offset=100)
         self.assertEqual(10, len(results))
 
     def test_steps_with_custom_steps_parameter_are_equivalent_to_funnel_step(self):
