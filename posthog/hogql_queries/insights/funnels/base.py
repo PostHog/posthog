@@ -362,18 +362,26 @@ class FunnelBase(ABC):
     ) -> Dict[str, Any]:
         if isinstance(step, EventsNode):
             name = step.event
+            action_id = step.event
+            type = "events"
+        elif isinstance(step, DataWarehouseNode):
+            name = step.table_name
+            action_id = step.table_name
+            type = "data_warehouse"
         else:
             action = Action.objects.get(pk=step.id)
             name = action.name
+            action_id = step.id
+            type = "actions"
 
         return {
-            "action_id": step.event if isinstance(step, EventsNode) else step.id,
+            "action_id": action_id,
             "name": name,
             "custom_name": step.custom_name,
             "order": index,
             "people": people if people else [],
             "count": correct_result_for_sampling(count, sampling_factor),
-            "type": "events" if isinstance(step, EventsNode) else "actions",
+            "type": type,
         }
 
     @property
