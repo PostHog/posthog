@@ -403,7 +403,7 @@ export class SessionManagerV3 {
                 }
                 const buffer: SessionBuffer = {
                     context,
-                    fileStream: this.createFileStreamFor('buffer.jsonl'),
+                    fileStream: this.createFileStreamFor(this.file('buffer.jsonl')),
                 }
 
                 this.buffer = buffer
