@@ -196,6 +196,15 @@ class SurveySerializerCreateUpdateOnly(SurveySerializer):
         return super().create(validated_data)
 
     def update(self, instance: Survey, validated_data):
+        if validated_data.get("remove_targeting_flag"):
+            if instance.targeting_flag:
+                instance.targeting_flag.delete()
+                validated_data["targeting_flag_id"] = None
+            validated_data.pop("remove_targeting_flag")
+
+        # make sure instance.targeting_flag is gone
+        instance.refresh_from_db()
+
         # if the target flag filters come back with data, update the targeting feature flag if there is one, otherwise create a new one
         if validated_data.get("targeting_flag_filters"):
             new_filters = validated_data["targeting_flag_filters"]
@@ -219,20 +228,14 @@ class SurveySerializerCreateUpdateOnly(SurveySerializer):
             validated_data.pop("targeting_flag_filters")
 
         end_date = validated_data.get("end_date")
-        remove_targeting_flag = validated_data.get("remove_targeting_flag")
-        if (not remove_targeting_flag) and instance.targeting_flag:
+        if instance.targeting_flag:
             # turn off feature flag if survey is completed
             if end_date is None:
                 instance.targeting_flag.active = True
             else:
                 instance.targeting_flag.active = False
             instance.targeting_flag.save()
-        # best to do this last so that removing the flag is the final state and won't get re-saved accidentally
-        if remove_targeting_flag:
-            if instance.targeting_flag:
-                instance.targeting_flag.delete()
-                validated_data["targeting_flag_id"] = None
-            validated_data.pop("remove_targeting_flag")
+
         return super().update(instance, validated_data)
 
     def _create_new_targeting_flag(self, name, filters, active=False):
