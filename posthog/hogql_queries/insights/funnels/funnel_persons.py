@@ -7,9 +7,8 @@ from posthog.hogql_queries.insights.funnels.funnel import Funnel
 class FunnelActors(Funnel):
     def actor_query(
         self,
-        # limit_actors: Optional[bool] = True,
         # extra_fields: Optional[List[str]] = None,
-    ):  # -> ast.SelectQuery:
+    ) -> ast.SelectQuery:
         select: List[ast.Expr] = [
             ast.Alias(alias="actor_id", expr=ast.Field(chain=["aggregation_target"])),
             *self._get_funnel_person_step_events(),
@@ -25,7 +24,5 @@ class FunnelActors(Funnel):
             select_from=select_from,
             order_by=order_by,
             where=where,
-            # limit="LIMIT %(limit)s" if limit_actors else "",
-            # offset="OFFSET %(offset)s" if limit_actors else "",
             # SETTINGS max_ast_elements=1000000, max_expanded_ast_elements=1000000
         )
