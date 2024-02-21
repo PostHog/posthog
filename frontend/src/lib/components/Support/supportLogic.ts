@@ -52,29 +52,74 @@ const SUPPORT_TICKET_KIND_TO_TITLE: Record<SupportTicketKind, string> = {
 
 export const TARGET_AREA_TO_NAME = [
     {
-        label: 'General',
-        values: {
-            apps: 'Apps',
-            login: 'Authentication (incl. login, sign-up, invites)',
-            billing: 'Billing',
-            onboarding: 'Onboarding',
-            cohorts: 'Cohorts',
-            data_management: 'Data management (incl. events, actions, properties)',
-            notebooks: 'Notebooks',
-        },
+        title: 'General',
+        options: [
+            {
+                value: 'apps',
+                label: 'Apps',
+            },
+            {
+                value: 'login',
+                label: 'Authentication (incl. login, sign-up, invites)',
+            },
+            {
+                value: 'billing',
+                label: 'Billing',
+            },
+            {
+                value: 'onboarding',
+                label: 'Onboarding',
+            },
+            {
+                value: 'cohorts',
+                label: 'Cohorts',
+            },
+            {
+                value: 'data_management',
+                label: 'Data management (incl. events, actions, properties)',
+            },
+            {
+                value: 'notebooks',
+                label: 'Notebooks',
+            },
+        ],
     },
     {
-        label: 'Individual Product',
-        values: {
-            experiments: 'A/B Testing',
-            data_warehouse: 'Data Warehouse (beta)',
-            feature_flags: 'Feature Flags',
-            analytics: 'Product Analytics (incl. insights, dashboards, annotations)',
-            session_replay: 'Session Replay (incl. recordings)',
-            toolbar: 'Toolbar & Heatmaps',
-            surveys: 'Surveys',
-            web_analytics: 'Web Analytics (beta)',
-        },
+        title: 'Individual Product',
+        options: [
+            {
+                value: 'experiments',
+                label: 'A/B Testing',
+            },
+            {
+                value: 'data_warehouse',
+                label: 'Data Warehouse (beta)',
+            },
+            {
+                value: 'feature_flags',
+                label: 'Feature Flags',
+            },
+            {
+                value: 'analytics',
+                label: 'Product Analytics (incl. insights, dashboards, annotations)',
+            },
+            {
+                value: 'session_replay',
+                label: 'Session Replay (incl. recordings)',
+            },
+            {
+                value: 'toolbar',
+                label: 'Toolbar & Heatmaps',
+            },
+            {
+                value: 'surveys',
+                label: 'Surveys',
+            },
+            {
+                value: 'web_analytics',
+                label: 'Web Analytics (beta)',
+            },
+        ],
     },
 ]
 
@@ -91,12 +136,34 @@ export const SUPPORT_KIND_TO_SUBJECT = {
     support: 'Support Ticket',
 }
 
-export type SupportTicketTargetArea = keyof (typeof TARGET_AREA_TO_NAME)[0]['values']
+export type SupportTicketTargetArea =
+    | 'experiments'
+    | 'apps'
+    | 'login'
+    | 'billing'
+    | 'onboarding'
+    | 'cohorts'
+    | 'data_management'
+    | 'notebooks'
+    | 'data_warehouse'
+    | 'feature_flags'
+    | 'analytics'
+    | 'session_replay'
+    | 'toolbar'
+    | 'surveys'
+    | 'web_analytics'
 export type SupportTicketSeverityLevel = keyof typeof SEVERITY_LEVEL_TO_NAME
 export type SupportTicketKind = keyof typeof SUPPORT_KIND_TO_SUBJECT
 
-export const getLabelBasedOnTargetArea = (target_area: SupportTicketTargetArea): string | null => {
-    return TARGET_AREA_TO_NAME.map((x) => x.values[target_area]).filter((x) => x)[0] ?? null
+export const getLabelBasedOnTargetArea = (target_area: SupportTicketTargetArea): null | string => {
+    for (const category of TARGET_AREA_TO_NAME) {
+        for (const option of category.options) {
+            if (option.value === target_area) {
+                return option.label
+            }
+        }
+    }
+    return null // Return null if the value is not found
 }
 
 export const URL_PATH_TO_TARGET_AREA: Record<string, SupportTicketTargetArea> = {

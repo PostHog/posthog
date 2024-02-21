@@ -1,9 +1,6 @@
 import { IconBug } from '@posthog/icons'
 import {
     LemonBanner,
-    LemonButton,
-    LemonButtonWithDropdown,
-    LemonDivider,
     LemonInput,
     LemonSegmentedButton,
     LemonSegmentedButtonOption,
@@ -23,13 +20,7 @@ import { useEffect, useRef } from 'react'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { userLogic } from 'scenes/userLogic'
 
-import {
-    getLabelBasedOnTargetArea,
-    SEVERITY_LEVEL_TO_NAME,
-    supportLogic,
-    SupportTicketKind,
-    TARGET_AREA_TO_NAME,
-} from './supportLogic'
+import { SEVERITY_LEVEL_TO_NAME, supportLogic, SupportTicketKind, TARGET_AREA_TO_NAME } from './supportLogic'
 
 const SUPPORT_TICKET_OPTIONS: LemonSegmentedButtonOption<SupportTicketKind>[] = [
     {
@@ -137,45 +128,7 @@ export function SupportForm(): JSX.Element | null {
                     </LemonBanner>
                 )}
             <Field name="target_area" label="What area does this best relate to?">
-                {({ value, onChange }) => (
-                    <LemonButtonWithDropdown
-                        fullWidth
-                        type="secondary"
-                        sideIcon={undefined}
-                        dropdown={{
-                            className: 'Popover__TargetAreaField',
-                            placement: 'bottom-start',
-                            overlay: (
-                                <div className="TargetAreaField__dropdown">
-                                    {TARGET_AREA_TO_NAME.map(({ label, values }, i) =>
-                                        Object.keys(values).length != 0 ? (
-                                            <div key={i}>
-                                                {i !== 0 && <LemonDivider />}
-                                                <h5>{label}</h5>
-                                                {Object.entries(values).map(([key, _value]) => (
-                                                    <LemonButton
-                                                        key={key}
-                                                        onClick={() => {
-                                                            onChange(key)
-                                                        }}
-                                                        active={key == value}
-                                                        fullWidth
-                                                    >
-                                                        {_value}
-                                                    </LemonButton>
-                                                ))}
-                                            </div>
-                                        ) : null
-                                    )}
-                                </div>
-                            ),
-                        }}
-                    >
-                        <span className="font-medium">
-                            {getLabelBasedOnTargetArea(value) ?? <span className="text-muted">Select a value</span>}
-                        </span>
-                    </LemonButtonWithDropdown>
-                )}
+                <LemonSelect fullWidth type="secondary" options={TARGET_AREA_TO_NAME} />
             </Field>
             <Field name="severity_level" label="What is the severity of this issue?">
                 <LemonSelect
