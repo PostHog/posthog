@@ -23,10 +23,9 @@ from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 from posthog.caching.insight_cache import update_cached_state
 from posthog.clickhouse.query_tagging import tag_queries
-from posthog.constants import INSIGHT_TRENDS, AvailableFeature
+from posthog.constants import INSIGHT_TRENDS
 from posthog.models.experiment import Experiment
 from posthog.models.filters.filter import Filter
-from posthog.permissions import PremiumFeaturePermission
 from posthog.utils import generate_cache_key, get_safe_cache
 
 EXPERIMENT_RESULTS_CACHE_DEFAULT_TTL = 60 * 30  # 30 minutes
@@ -285,8 +284,6 @@ class ClickhouseExperimentsViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet
     scope_object = "experiment"
     serializer_class = ExperimentSerializer
     queryset = Experiment.objects.all()
-    permission_classes = [PremiumFeaturePermission]
-    premium_feature = AvailableFeature.EXPERIMENTATION
     ordering = "-created_at"
 
     def get_queryset(self):

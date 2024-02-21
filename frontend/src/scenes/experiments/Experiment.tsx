@@ -36,10 +36,9 @@ import { insightLogic } from 'scenes/insights/insightLogic'
 import { SceneExport } from 'scenes/sceneTypes'
 import { trendsDataLogic } from 'scenes/trends/trendsDataLogic'
 import { urls } from 'scenes/urls'
-import { userLogic } from 'scenes/userLogic'
 
 import { Query } from '~/queries/Query/Query'
-import { AvailableFeature, Experiment as ExperimentType, FunnelStep, InsightType, ProgressStatus } from '~/types'
+import { Experiment as ExperimentType, FunnelStep, InsightType, ProgressStatus } from '~/types'
 
 import { EXPERIMENT_INSIGHT_ID } from './constants'
 import { ExperimentImplementationDetails } from './ExperimentImplementationDetails'
@@ -47,7 +46,6 @@ import { experimentLogic, ExperimentLogicProps } from './experimentLogic'
 import { ExperimentPreview } from './ExperimentPreview'
 import { ExperimentResult } from './ExperimentResult'
 import { getExperimentStatus, getExperimentStatusColor } from './experimentsLogic'
-import { ExperimentsPayGate } from './ExperimentsPayGate'
 import { ExperimentInsightCreator } from './MetricSelector'
 import { SecondaryMetrics } from './SecondaryMetrics'
 
@@ -97,7 +95,6 @@ export function Experiment(): JSX.Element {
         updateExperimentSecondaryMetrics,
         setExperiment,
     } = useActions(experimentLogic)
-    const { hasAvailableFeature } = useValues(userLogic)
 
     const [showWarning, setShowWarning] = useState(true)
 
@@ -147,15 +144,6 @@ export function Experiment(): JSX.Element {
         { background: '#FFE6AE', color: '#35416B' },
         { background: '#8DA9E74D', color: '#35416B' },
     ]
-
-    if (!hasAvailableFeature(AvailableFeature.EXPERIMENTATION)) {
-        return (
-            <>
-                <PageHeader />
-                <ExperimentsPayGate />
-            </>
-        )
-    }
 
     if (experimentLoading) {
         return <LoadingState />
