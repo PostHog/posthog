@@ -21,10 +21,7 @@ export const lemonBannerLogic = kea<lemonBannerLogicType>([
             { persist: true },
             {
                 dismiss: () => true,
-                resetDismissKey: () => {
-                    console.log('reset!!')
-                    return false
-                },
+                resetDismissKey: () => false,
             },
         ],
     }),
