@@ -428,11 +428,11 @@ class PostgresBatchExportWorkflow(PostHogWorkflow):
             non_retryable_error_types=[
                 # Raised on errors that are related to database operation.
                 # For example: unexpected disconnect, database or other object not found.
-                "OperationalError"
+                "OperationalError",
                 # The schema name provided is invalid (usually because it doesn't exist).
-                "InvalidSchemaName"
+                "InvalidSchemaName",
                 # Missing permissions to, e.g., insert into table.
-                "InsufficientPrivilege"
+                "InsufficientPrivilege",
             ],
             update_inputs=update_inputs,
             # Disable heartbeat timeout until we add heartbeat support.
