@@ -366,7 +366,7 @@ export interface EventsNode extends EntityNode {
 }
 
 export interface DataWarehouseNode extends EntityNode {
-    kind: NodeKind.DatawarehouseNode
+    kind: NodeKind.DataWarehouseNode
     id_field: string
     table_name: string
     timestamp_field: string
