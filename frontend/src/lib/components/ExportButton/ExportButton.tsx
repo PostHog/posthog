@@ -27,6 +27,13 @@ export function ExportButton({ items, ...buttonProps }: ExportButtonProps): JSX.
     const { actions } = sidePanelLogic
     const { loadExports } = sidePanelExportsLogic.actions
 
+    const onExportClick = async (triggerExportProps: TriggerExportProps): Promise<void> => {
+        actions.openSidePanel(SidePanelTab.Exports)
+        loadExports()
+        await triggerExport(triggerExportProps)
+        loadExports()
+    }
+
     return (
         <LemonButtonWithDropdown
             data-attr="export-button"
@@ -60,12 +67,7 @@ export function ExportButton({ items, ...buttonProps }: ExportButtonProps): JSX.
                                 <LemonButton
                                     key={i}
                                     fullWidth
-                                    onClick={() => {
-                                        actions.openSidePanel(SidePanelTab.Exports)
-                                        loadExports()
-                                        void triggerExport(triggerExportProps)
-                                        loadExports()
-                                    }}
+                                    onClick={() => void onExportClick(triggerExportProps)}
                                     data-attr={`export-button-${exportFormatExtension}`}
                                     data-ph-capture-attribute-export-target={target}
                                     data-ph-capture-attribute-export-body={
