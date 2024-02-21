@@ -46,6 +46,7 @@ export enum NodeKind {
     // Data nodes
     EventsNode = 'EventsNode',
     ActionsNode = 'ActionsNode',
+    DatawarehouseNode = 'DatawarehouseNode',
     EventsQuery = 'EventsQuery',
     PersonsNode = 'PersonsNode',
     HogQLQuery = 'HogQLQuery',
@@ -364,12 +365,20 @@ export interface EventsNode extends EntityNode {
     }
 }
 
+export interface DataWarehouseNode extends EntityNode {
+    kind: NodeKind.DatawarehouseNode
+    id_field: string
+    table_name: string
+    timestamp_field: string
+}
+
 export interface ActionsNode extends EntityNode {
     kind: NodeKind.ActionsNode
     id: integer
 }
 
 export type AnyEntityNode = EventsNode | ActionsNode
+export type TrendsEntityNode = AnyEntityNode | DataWarehouseNode
 
 export interface QueryTiming {
     /** Key. Shortened to 'k' to save on data. */
@@ -633,7 +642,7 @@ export interface TrendsQuery extends InsightsQueryBase {
     /** Granularity of the response. Can be one of `hour`, `day`, `week` or `month` */
     interval?: IntervalType
     /** Events and actions to include */
-    series: AnyEntityNode[]
+    series: TrendsEntityNode[]
     /** Properties specific to the trends insight */
     trendsFilter?: TrendsFilter
     /** Breakdown of the events and actions */

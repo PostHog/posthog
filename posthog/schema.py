@@ -491,6 +491,7 @@ class LifecycleToggle(str, Enum):
 class NodeKind(str, Enum):
     EventsNode = "EventsNode"
     ActionsNode = "ActionsNode"
+    DatawarehouseNode = "DatawarehouseNode"
     EventsQuery = "EventsQuery"
     PersonsNode = "PersonsNode"
     HogQLQuery = "HogQLQuery"
@@ -590,6 +591,7 @@ class PropertyFilterType(str, Enum):
     recording = "recording"
     group = "group"
     hogql = "hogql"
+    data_warehouse = "data_warehouse"
 
 
 class PropertyMathType(str, Enum):
@@ -1061,17 +1063,6 @@ class DataNode(BaseModel):
     response: Optional[Dict[str, Any]] = Field(default=None, description="Cached query response")
 
 
-class DataWarehousePropertyFilter(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    key: str
-    label: Optional[str] = None
-    operator: PropertyOperator
-    type: Literal["data_warehouse"] = Field(default="data_warehouse", description="Data Warehouse properties")
-    value: Optional[Union[str, float, List[Union[str, float]]]] = None
-
-
 class ChartSettings(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -1079,6 +1070,17 @@ class ChartSettings(BaseModel):
     goalLines: Optional[List[GoalLine]] = None
     xAxis: Optional[ChartAxis] = None
     yAxis: Optional[List[ChartAxis]] = None
+
+
+class DataWarehousePropertyFilter(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    key: str
+    label: Optional[str] = None
+    operator: PropertyOperator
+    type: Literal["data_warehouse"] = "data_warehouse"
+    value: Optional[Union[str, float, List[Union[str, float]]]] = None
 
 
 class ElementPropertyFilter(BaseModel):
@@ -1674,10 +1676,8 @@ class DataWarehouseNode(BaseModel):
         default=None,
         description="Fixed properties in the query, can't be edited in the interface (e.g. scoping down by person)",
     )
-    table_name: str
     id_field: str
-    timestamp_field: str
-    kind: Literal["DataWarehouseNode"] = "DataWarehouseNode"
+    kind: Literal["DatawarehouseNode"] = "DatawarehouseNode"
     math: Optional[
         Union[BaseMathType, PropertyMathType, CountPerActorMathType, Literal["unique_group"], Literal["hogql"]]
     ] = None
@@ -1703,6 +1703,8 @@ class DataWarehouseNode(BaseModel):
         ]
     ] = Field(default=None, description="Properties configurable in the interface")
     response: Optional[Dict[str, Any]] = Field(default=None, description="Cached query response")
+    table_name: str
+    timestamp_field: str
 
 
 class DatabaseSchemaQuery(BaseModel):
@@ -2372,9 +2374,7 @@ class StickinessQuery(BaseModel):
         ]
     ] = Field(default=None, description="Property filters for all series")
     samplingFactor: Optional[float] = Field(default=None, description="Sampling rate")
-    series: List[Union[EventsNode, ActionsNode, DataWarehouseNode]] = Field(
-        ..., description="Events and actions to include"
-    )
+    series: List[Union[EventsNode, ActionsNode]] = Field(..., description="Events and actions to include")
     stickinessFilter: Optional[StickinessFilter] = Field(
         default=None, description="Properties specific to the stickiness insight"
     )
@@ -2416,7 +2416,7 @@ class TrendsQuery(BaseModel):
     ] = Field(default=None, description="Property filters for all series")
     response: Optional[TrendsQueryResponse] = None
     samplingFactor: Optional[float] = Field(default=None, description="Sampling rate")
-    series: List[Union[EventsNode, ActionsNode, DataWarehouseNode]] = Field(
+    series: List[Union[DataWarehouseNode, Union[EventsNode, ActionsNode]]] = Field(
         ..., description="Events and actions to include"
     )
     trendsFilter: Optional[TrendsFilter] = Field(default=None, description="Properties specific to the trends insight")
@@ -2510,9 +2510,7 @@ class FunnelsQuery(BaseModel):
         ]
     ] = Field(default=None, description="Property filters for all series")
     samplingFactor: Optional[float] = Field(default=None, description="Sampling rate")
-    series: List[Union[EventsNode, ActionsNode, DataWarehouseNode]] = Field(
-        ..., description="Events and actions to include"
-    )
+    series: List[Union[EventsNode, ActionsNode]] = Field(..., description="Events and actions to include")
 
 
 class InsightsQueryBase(BaseModel):
@@ -2585,9 +2583,7 @@ class LifecycleQuery(BaseModel):
     ] = Field(default=None, description="Property filters for all series")
     response: Optional[LifecycleQueryResponse] = None
     samplingFactor: Optional[float] = Field(default=None, description="Sampling rate")
-    series: List[Union[EventsNode, ActionsNode, DataWarehouseNode]] = Field(
-        ..., description="Events and actions to include"
-    )
+    series: List[Union[EventsNode, ActionsNode]] = Field(..., description="Events and actions to include")
 
 
 class NamedParametersTypeofDateRangeForFilter(BaseModel):

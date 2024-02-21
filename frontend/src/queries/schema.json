@@ -265,6 +265,9 @@
                 },
                 {
                     "$ref": "#/definitions/EmptyPropertyFilter"
+                },
+                {
+                    "$ref": "#/definitions/DataWarehousePropertyFilter"
                 }
             ]
         },
@@ -470,7 +473,7 @@
             ]
         },
         "BreakdownType": {
-            "enum": ["cohort", "person", "event", "group", "session", "hogql"],
+            "enum": ["cohort", "person", "event", "group", "session", "hogql", "data_warehouse"],
             "type": "string"
         },
         "BreakdownValueInt": {
@@ -750,6 +753,102 @@
                 }
             },
             "required": ["kind", "source"],
+            "type": "object"
+        },
+        "DataWarehouseNode": {
+            "additionalProperties": false,
+            "properties": {
+                "custom_name": {
+                    "type": "string"
+                },
+                "fixedProperties": {
+                    "description": "Fixed properties in the query, can't be edited in the interface (e.g. scoping down by person)",
+                    "items": {
+                        "$ref": "#/definitions/AnyPropertyFilter"
+                    },
+                    "type": "array"
+                },
+                "id_field": {
+                    "type": "string"
+                },
+                "kind": {
+                    "const": "DatawarehouseNode",
+                    "type": "string"
+                },
+                "math": {
+                    "anyOf": [
+                        {
+                            "$ref": "#/definitions/BaseMathType"
+                        },
+                        {
+                            "$ref": "#/definitions/PropertyMathType"
+                        },
+                        {
+                            "$ref": "#/definitions/CountPerActorMathType"
+                        },
+                        {
+                            "$ref": "#/definitions/GroupMathType"
+                        },
+                        {
+                            "$ref": "#/definitions/HogQLMathType"
+                        }
+                    ]
+                },
+                "math_group_type_index": {
+                    "enum": [0, 1, 2, 3, 4],
+                    "type": "number"
+                },
+                "math_hogql": {
+                    "type": "string"
+                },
+                "math_property": {
+                    "type": "string"
+                },
+                "name": {
+                    "type": "string"
+                },
+                "properties": {
+                    "description": "Properties configurable in the interface",
+                    "items": {
+                        "$ref": "#/definitions/AnyPropertyFilter"
+                    },
+                    "type": "array"
+                },
+                "response": {
+                    "description": "Cached query response",
+                    "type": "object"
+                },
+                "table_name": {
+                    "type": "string"
+                },
+                "timestamp_field": {
+                    "type": "string"
+                }
+            },
+            "required": ["id_field", "kind", "table_name", "timestamp_field"],
+            "type": "object"
+        },
+        "DataWarehousePropertyFilter": {
+            "additionalProperties": false,
+            "properties": {
+                "key": {
+                    "type": "string"
+                },
+                "label": {
+                    "type": "string"
+                },
+                "operator": {
+                    "$ref": "#/definitions/PropertyOperator"
+                },
+                "type": {
+                    "const": "data_warehouse",
+                    "type": "string"
+                },
+                "value": {
+                    "$ref": "#/definitions/PropertyFilterValue"
+                }
+            },
+            "required": ["key", "operator", "type"],
             "type": "object"
         },
         "DatabaseSchemaQuery": {
@@ -2785,6 +2884,7 @@
             "enum": [
                 "EventsNode",
                 "ActionsNode",
+                "DatawarehouseNode",
                 "EventsQuery",
                 "PersonsNode",
                 "HogQLQuery",
@@ -3126,7 +3226,8 @@
                 "cohort",
                 "recording",
                 "group",
-                "hogql"
+                "hogql",
+                "data_warehouse"
             ],
             "type": "string"
         },
@@ -4764,6 +4865,16 @@
             "required": ["events"],
             "type": "object"
         },
+        "TrendsEntityNode": {
+            "anyOf": [
+                {
+                    "$ref": "#/definitions/AnyEntityNode"
+                },
+                {
+                    "$ref": "#/definitions/DataWarehouseNode"
+                }
+            ]
+        },
         "TrendsFilter": {
             "additionalProperties": false,
             "properties": {
@@ -4918,7 +5029,7 @@
                 "series": {
                     "description": "Events and actions to include",
                     "items": {
-                        "$ref": "#/definitions/AnyEntityNode"
+                        "$ref": "#/definitions/TrendsEntityNode"
                     },
                     "type": "array"
                 },
