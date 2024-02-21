@@ -1,6 +1,5 @@
 import { Upload } from '@aws-sdk/lib-storage'
 import { captureException, captureMessage } from '@sentry/node'
-import { randomUUID } from 'crypto'
 import { createReadStream, createWriteStream, ReadStream } from 'fs'
 import { mkdir, readdir, readFile, rename, rmdir, stat, unlink, writeFile } from 'fs/promises'
 import path from 'path'
@@ -75,7 +74,6 @@ const writeStreamBlocked = new Counter({
 })
 
 export type SessionManagerBufferContext = {
-    file: string
     sizeEstimate: number
     count: number
     eventsRange: {
@@ -132,7 +130,7 @@ export class SessionManagerV3 {
             )
             manager.buffer = {
                 context: bufferMetadata,
-                fileStream: manager.createFileStreamFor(bufferMetadata.file),
+                fileStream: manager.createFileStreamFor(path.join(context.dir, 'buffer.jsonl')),
             }
         } catch (error) {
             // Indicates no buffer metadata file or it's corrupted
@@ -291,7 +289,7 @@ export class SessionManagerV3 {
 
         // NOTE: We simplify everything by keeping the files as the same name for S3
         await new Promise((resolve) => buffer.fileStream.end(resolve))
-        await rename(buffer.context.file, this.file(fileName))
+        await rename(this.file('buffer.jsonl'), this.file(fileName))
         this.buffer = undefined
 
         await this.save()
@@ -397,8 +395,7 @@ export class SessionManagerV3 {
     private getOrCreateBuffer(): SessionBuffer {
         if (!this.buffer) {
             try {
-                const context = {
-                    file: this.file(`${randomUUID()}.jsonl`),
+                const context: SessionManagerBufferContext = {
                     sizeEstimate: 0,
                     count: 0,
                     eventsRange: null,
@@ -406,7 +403,7 @@ export class SessionManagerV3 {
                 }
                 const buffer: SessionBuffer = {
                     context,
-                    fileStream: this.createFileStreamFor(context.file),
+                    fileStream: this.createFileStreamFor('buffer.jsonl'),
                 }
 
                 this.buffer = buffer

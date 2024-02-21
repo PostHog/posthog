@@ -1,5 +1,6 @@
 import { captureException } from '@sentry/node'
-import { readdir } from 'fs/promises'
+import { createReadStream } from 'fs'
+import { readdir, stat } from 'fs/promises'
 import { features, KafkaConsumer, librdkafkaVersion, Message, TopicPartition } from 'node-rdkafka'
 import path from 'path'
 import { Counter, Gauge, Histogram } from 'prom-client'
@@ -13,6 +14,7 @@ import { BackgroundRefresher } from '../../../utils/background-refresher'
 import { PostgresRouter } from '../../../utils/db/postgres'
 import { status } from '../../../utils/status'
 import { fetchTeamTokensWithRecordings } from '../../../worker/ingestion/team-manager'
+import { expressApp } from '../../services/http-server'
 import { ObjectStorage } from '../../services/object_storage'
 import { runInstrumentedFunction } from '../../utils'
 import { addSentryBreadcrumbsEventListeners } from '../kafka-metrics'
@@ -119,6 +121,10 @@ export class SessionRecordingIngesterV3 {
         return path.join(this.config.SESSION_RECORDING_LOCAL_DIRECTORY, 'session-recordings')
     }
 
+    private dirForSession(partition: number, teamId: number, sessionId: string): string {
+        return path.join(this.rootDir, `${partition}`, `${teamId}__${sessionId}`)
+    }
+
     private get connectedBatchConsumer(): KafkaConsumer | undefined {
         // Helper to only use the batch consumer if we are actually connected to it - otherwise it will throw errors
         const consumer = this.batchConsumer?.consumer
@@ -160,7 +166,7 @@ export class SessionRecordingIngesterV3 {
             this.sessions[key] = await SessionManagerV3.create(this.config, this.objectStorage.s3, {
                 teamId: team_id,
                 sessionId: session_id,
-                dir: path.join(this.rootDir, `${partition}`, key),
+                dir: this.dirForSession(partition, team_id, session_id),
                 partition,
             })
         }
@@ -255,6 +261,8 @@ export class SessionRecordingIngesterV3 {
             librdKafkaVersion: librdkafkaVersion,
             kafkaCapabilities: features,
         })
+
+        this.setupHttpRoutes()
 
         // Load teams into memory
         await this.teamsRefresher.refresh()
@@ -379,13 +387,13 @@ export class SessionRecordingIngesterV3 {
                 await Promise.all(
                     keys.map(async (key) => {
                         // TODO: Ensure sessionId can only be a uuid
-                        const [teamId, sessionId] = key.split('.')
+                        const [teamId, sessionId] = key.split('__')
 
                         if (!this.sessions[key]) {
                             this.sessions[key] = await SessionManagerV3.create(this.config, this.objectStorage.s3, {
                                 teamId: parseInt(teamId),
                                 sessionId,
-                                dir: path.join(this.rootDir, `${partition}`, key),
+                                dir: this.dirForSession(partition, parseInt(teamId), sessionId),
                                 partition,
                             })
                         }
@@ -398,5 +406,33 @@ export class SessionRecordingIngesterV3 {
     private async destroySession(key: string, sessionManager: SessionManagerV3): Promise<void> {
         delete this.sessions[key]
         await sessionManager.stop()
+    }
+
+    private setupHttpRoutes() {
+        expressApp.get('/api/projects/:projectId/session_recordings/:sessionId', async (req, res) => {
+            const { projectId, sessionId } = req.params
+
+            status.info('🔁', 'session-replay-ingestion - fetching session', { projectId, sessionId })
+
+            // TODO: Sanitize the projectId and sessionId as we are checking the filesystem
+
+            // We don't know the partition upfront so we have to recursively check all partitions
+            const partitions = await readdir(this.rootDir).catch(() => [])
+
+            for (const partition of partitions) {
+                const sessionDir = this.dirForSession(parseInt(partition), parseInt(projectId), sessionId)
+                const exists = await stat(sessionDir).catch(() => null)
+
+                if (!exists) {
+                    continue
+                }
+
+                const fileStream = createReadStream(`${sessionDir}/buffer.jsonl`)
+                fileStream.pipe(res)
+                return
+            }
+
+            res.sendStatus(404)
+        })
     }
 }
