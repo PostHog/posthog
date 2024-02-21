@@ -289,9 +289,9 @@ def get_decide(request: HttpRequest):
                     if mask_all_inputs is not None:
                         session_recording_response["maskAllInputs"] = mask_all_inputs
 
-                    mask_all_text = team.session_replay_config.get("mask_all_text")
-                    if mask_all_text is not None:
-                        session_recording_response["maskTextSelector"] = "*" if mask_all_text else None
+                    mask_all_text = team.session_replay_config.get("mask_all_text", None)
+                    if mask_all_text is True:
+                        session_recording_response["maskTextSelector"] = "*"
 
                 response["sessionRecording"] = session_recording_response
 

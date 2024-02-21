@@ -382,6 +382,19 @@ class TestDecide(BaseTest, QueryMatchingTest):
         assert response["sessionRecording"]["maskAllInputs"] is False
         assert response["sessionRecording"]["maskTextSelector"] == "*"
 
+        self._update_team(
+            {
+                "session_replay_config": {"mask_all_inputs": False, "mask_all_text": False},
+            }
+        )
+
+        response = self._post_decide().json()
+        assert response["sessionRecording"]["recordCanvas"] is False
+        assert response["sessionRecording"]["canvasFps"] is None
+        assert response["sessionRecording"]["canvasQuality"] is None
+        assert response["sessionRecording"]["maskAllInputs"] is False
+        assert "maskTextSelector" not in response["sessionRecording"]
+
     def test_exception_autocapture_opt_in(self, *args):
         # :TRICKY: Test for regression around caching
         response = self._post_decide().json()
