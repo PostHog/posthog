@@ -42,7 +42,7 @@
           AND hasAll(event_names, ['custom-event'])) as session_events_sub_query)
   GROUP BY session_id
   HAVING 1=1
-  ORDER BY start_time DESC
+  ORDER BY 'start_time' DESC
   LIMIT 51
   OFFSET 0
   '''
@@ -89,7 +89,7 @@
           AND hasAll(event_names, ['custom-event'])) as session_events_sub_query)
   GROUP BY session_id
   HAVING 1=1
-  ORDER BY start_time DESC
+  ORDER BY 'start_time' DESC
   LIMIT 51
   OFFSET 0
   '''
@@ -137,7 +137,7 @@
           AND hasAll(event_names, ['custom-event'])) as session_events_sub_query)
   GROUP BY session_id
   HAVING 1=1
-  ORDER BY start_time DESC
+  ORDER BY 'start_time' DESC
   LIMIT 51
   OFFSET 0
   '''
@@ -185,7 +185,7 @@
           AND hasAll(event_names, ['custom-event'])) as session_events_sub_query)
   GROUP BY session_id
   HAVING 1=1
-  ORDER BY start_time DESC
+  ORDER BY 'start_time' DESC
   LIMIT 51
   OFFSET 0
   '''
@@ -262,7 +262,7 @@
   GROUP BY session_id
   HAVING 1=1
   AND duration > 60
-  ORDER BY start_time DESC
+  ORDER BY 'start_time' DESC
   LIMIT 51
   OFFSET 0
   '''
@@ -305,7 +305,7 @@
           HAVING 1=1) as session_events_sub_query)
   GROUP BY session_id
   HAVING 1=1
-  ORDER BY start_time DESC
+  ORDER BY 'start_time' DESC
   LIMIT 51
   OFFSET 0
   '''
@@ -349,7 +349,7 @@
           HAVING 1=1) as session_events_sub_query)
   GROUP BY session_id
   HAVING 1=1
-  ORDER BY start_time DESC
+  ORDER BY 'start_time' DESC
   LIMIT 51
   OFFSET 0
   '''
@@ -393,7 +393,7 @@
           HAVING 1=1) as session_events_sub_query)
   GROUP BY session_id
   HAVING 1=1
-  ORDER BY start_time DESC
+  ORDER BY 'start_time' DESC
   LIMIT 51
   OFFSET 0
   '''
@@ -436,7 +436,7 @@
           HAVING 1=1) as session_events_sub_query)
   GROUP BY session_id
   HAVING 1=1
-  ORDER BY start_time DESC
+  ORDER BY 'start_time' DESC
   LIMIT 51
   OFFSET 0
   '''
@@ -480,7 +480,7 @@
           HAVING 1=1) as session_events_sub_query)
   GROUP BY session_id
   HAVING 1=1
-  ORDER BY start_time DESC
+  ORDER BY 'start_time' DESC
   LIMIT 51
   OFFSET 0
   '''
@@ -524,7 +524,7 @@
           HAVING 1=1) as session_events_sub_query)
   GROUP BY session_id
   HAVING 1=1
-  ORDER BY start_time DESC
+  ORDER BY 'start_time' DESC
   LIMIT 51
   OFFSET 0
   '''
@@ -554,7 +554,7 @@
     AND s.max_last_timestamp <= '2021-01-01 13:46:23'
   GROUP BY session_id
   HAVING 1=1
-  ORDER BY start_time DESC
+  ORDER BY 'start_time' DESC
   LIMIT 51
   OFFSET 0
   '''
@@ -585,7 +585,7 @@
   GROUP BY session_id
   HAVING 1=1
   AND duration > 60
-  ORDER BY start_time DESC
+  ORDER BY 'start_time' DESC
   LIMIT 51
   OFFSET 0
   '''
@@ -616,7 +616,7 @@
   GROUP BY session_id
   HAVING 1=1
   AND active_seconds > 60
-  ORDER BY start_time DESC
+  ORDER BY 'start_time' DESC
   LIMIT 51
   OFFSET 0
   '''
@@ -647,7 +647,7 @@
   GROUP BY session_id
   HAVING 1=1
   AND inactive_seconds > 60
-  ORDER BY start_time DESC
+  ORDER BY 'start_time' DESC
   LIMIT 51
   OFFSET 0
   '''
@@ -677,7 +677,7 @@
     AND s.max_last_timestamp <= '2021-01-01 13:46:23'
   GROUP BY session_id
   HAVING 1=1
-  ORDER BY start_time DESC
+  ORDER BY 'start_time' DESC
   LIMIT 2
   OFFSET 0
   '''
@@ -707,7 +707,7 @@
     AND s.max_last_timestamp <= '2021-01-01 13:46:23'
   GROUP BY session_id
   HAVING 1=1
-  ORDER BY start_time DESC
+  ORDER BY 'start_time' DESC
   LIMIT 2
   OFFSET 1
   '''
@@ -737,7 +737,7 @@
     AND s.max_last_timestamp <= '2021-01-01 13:46:23'
   GROUP BY session_id
   HAVING 1=1
-  ORDER BY start_time DESC
+  ORDER BY 'start_time' DESC
   LIMIT 2
   OFFSET 2
   '''
@@ -767,7 +767,7 @@
     AND s.max_last_timestamp <= '2021-01-01 13:46:23'
   GROUP BY session_id
   HAVING 1=1
-  ORDER BY start_time DESC
+  ORDER BY 'start_time' DESC
   LIMIT 51
   OFFSET 0
   '''
@@ -797,7 +797,7 @@
     AND s.max_last_timestamp <= '2021-01-01 13:46:23'
   GROUP BY session_id
   HAVING 1=1
-  ORDER BY start_time DESC
+  ORDER BY 'start_time' DESC
   LIMIT 51
   OFFSET 0
   '''
@@ -827,7 +827,7 @@
     AND s.max_last_timestamp <= '2021-01-01 12:46:00'
   GROUP BY session_id
   HAVING 1=1
-  ORDER BY start_time DESC
+  ORDER BY 'start_time' DESC
   LIMIT 51
   OFFSET 0
   '''
@@ -857,7 +857,7 @@
     AND s.max_last_timestamp <= '2021-01-01 12:46:00'
   GROUP BY session_id
   HAVING 1=1
-  ORDER BY start_time DESC
+  ORDER BY 'start_time' DESC
   LIMIT 51
   OFFSET 0
   '''
@@ -887,7 +887,7 @@
     AND s.max_last_timestamp <= '2021-01-01 12:46:00'
   GROUP BY session_id
   HAVING 1=1
-  ORDER BY start_time DESC
+  ORDER BY 'start_time' DESC
   LIMIT 51
   OFFSET 0
   '''
@@ -917,7 +917,7 @@
     AND s.max_last_timestamp <= '2020-12-28 23:59:59'
   GROUP BY session_id
   HAVING 1=1
-  ORDER BY start_time DESC
+  ORDER BY 'start_time' DESC
   LIMIT 51
   OFFSET 0
   '''
@@ -947,7 +947,7 @@
     AND s.max_last_timestamp <= '2020-12-29 23:59:59'
   GROUP BY session_id
   HAVING 1=1
-  ORDER BY start_time DESC
+  ORDER BY 'start_time' DESC
   LIMIT 51
   OFFSET 0
   '''
@@ -978,7 +978,7 @@
   GROUP BY session_id
   HAVING 1=1
   AND duration > 60
-  ORDER BY start_time DESC
+  ORDER BY 'start_time' DESC
   LIMIT 51
   OFFSET 0
   '''
@@ -1009,7 +1009,7 @@
   GROUP BY session_id
   HAVING 1=1
   AND duration < 60
-  ORDER BY start_time DESC
+  ORDER BY 'start_time' DESC
   LIMIT 51
   OFFSET 0
   '''
@@ -1054,7 +1054,7 @@
           AND hasAll(event_names, ['$pageview'])) as session_events_sub_query)
   GROUP BY session_id
   HAVING 1=1
-  ORDER BY start_time DESC
+  ORDER BY 'start_time' DESC
   LIMIT 51
   OFFSET 0
   '''
@@ -1099,7 +1099,7 @@
           AND hasAll(event_names, ['$autocapture'])) as session_events_sub_query)
   GROUP BY session_id
   HAVING 1=1
-  ORDER BY start_time DESC
+  ORDER BY 'start_time' DESC
   LIMIT 51
   OFFSET 0
   '''
@@ -1144,7 +1144,7 @@
           AND hasAll(event_names, ['$pageview'])) as session_events_sub_query)
   GROUP BY session_id
   HAVING 1=1
-  ORDER BY start_time DESC
+  ORDER BY 'start_time' DESC
   LIMIT 51
   OFFSET 0
   '''
@@ -1174,7 +1174,7 @@
     AND s.max_last_timestamp <= '2021-01-01 13:46:23'
   GROUP BY session_id
   HAVING 1=1
-  ORDER BY start_time DESC
+  ORDER BY 'start_time' DESC
   LIMIT 51
   OFFSET 0
   '''
@@ -1220,7 +1220,7 @@
   GROUP BY session_id
   HAVING 1=1
   AND duration > 60
-  ORDER BY start_time DESC
+  ORDER BY 'start_time' DESC
   LIMIT 51
   OFFSET 0
   '''
@@ -1266,7 +1266,7 @@
   GROUP BY session_id
   HAVING 1=1
   AND active_seconds > 60
-  ORDER BY start_time DESC
+  ORDER BY 'start_time' DESC
   LIMIT 51
   OFFSET 0
   '''
@@ -1319,7 +1319,7 @@
           AND hasAll(event_names, ['$pageview'])) as session_events_sub_query)
   GROUP BY session_id
   HAVING 1=1
-  ORDER BY start_time DESC
+  ORDER BY 'start_time' DESC
   LIMIT 51
   OFFSET 0
   '''
@@ -1364,7 +1364,7 @@
           AND hasAll(event_names, ['$pageview'])) as session_events_sub_query)
   GROUP BY session_id
   HAVING 1=1
-  ORDER BY start_time DESC
+  ORDER BY 'start_time' DESC
   LIMIT 51
   OFFSET 0
   '''
@@ -1445,7 +1445,7 @@
           AND hasAll(event_names, ['$pageview'])) as session_events_sub_query)
   GROUP BY session_id
   HAVING 1=1
-  ORDER BY start_time DESC
+  ORDER BY 'start_time' DESC
   LIMIT 51
   OFFSET 0
   '''
@@ -1524,7 +1524,7 @@
           HAVING 1=1) as session_events_sub_query)
   GROUP BY session_id
   HAVING 1=1
-  ORDER BY start_time DESC
+  ORDER BY 'start_time' DESC
   LIMIT 51
   OFFSET 0
   '''
@@ -1569,7 +1569,7 @@
           AND hasAll(event_names, ['$pageview'])) as session_events_sub_query)
   GROUP BY session_id
   HAVING 1=1
-  ORDER BY start_time DESC
+  ORDER BY 'start_time' DESC
   LIMIT 51
   OFFSET 0
   '''
@@ -1648,7 +1648,7 @@
           AND hasAll(event_names, ['$pageview'])) as session_events_sub_query)
   GROUP BY session_id
   HAVING 1=1
-  ORDER BY start_time DESC
+  ORDER BY 'start_time' DESC
   LIMIT 51
   OFFSET 0
   '''
@@ -1725,7 +1725,7 @@
           HAVING 1=1) as session_events_sub_query)
   GROUP BY session_id
   HAVING 1=1
-  ORDER BY start_time DESC
+  ORDER BY 'start_time' DESC
   LIMIT 51
   OFFSET 0
   '''
@@ -1803,7 +1803,7 @@
           AND hasAll(event_names, ['$pageview'])) as session_events_sub_query)
   GROUP BY session_id
   HAVING 1=1
-  ORDER BY start_time DESC
+  ORDER BY 'start_time' DESC
   LIMIT 51
   OFFSET 0
   '''
@@ -1881,7 +1881,7 @@
           AND hasAll(event_names, ['$pageview'])) as session_events_sub_query)
   GROUP BY session_id
   HAVING 1=1
-  ORDER BY start_time DESC
+  ORDER BY 'start_time' DESC
   LIMIT 51
   OFFSET 0
   '''
@@ -1927,7 +1927,7 @@
           AND hasAll(event_names, ['$pageview'])) as session_events_sub_query)
   GROUP BY session_id
   HAVING 1=1
-  ORDER BY start_time DESC
+  ORDER BY 'start_time' DESC
   LIMIT 51
   OFFSET 0
   '''
@@ -1973,7 +1973,7 @@
           AND hasAll(event_names, ['$pageview'])) as session_events_sub_query)
   GROUP BY session_id
   HAVING 1=1
-  ORDER BY start_time DESC
+  ORDER BY 'start_time' DESC
   LIMIT 51
   OFFSET 0
   '''
@@ -2019,7 +2019,7 @@
           AND hasAll(event_names, ['$pageview'])) as session_events_sub_query)
   GROUP BY session_id
   HAVING 1=1
-  ORDER BY start_time DESC
+  ORDER BY 'start_time' DESC
   LIMIT 51
   OFFSET 0
   '''
@@ -2065,7 +2065,7 @@
           AND hasAll(event_names, ['$pageview'])) as session_events_sub_query)
   GROUP BY session_id
   HAVING 1=1
-  ORDER BY start_time DESC
+  ORDER BY 'start_time' DESC
   LIMIT 51
   OFFSET 0
   '''
@@ -2110,7 +2110,7 @@
           AND hasAll(event_names, ['$pageview'])) as session_events_sub_query)
   GROUP BY session_id
   HAVING 1=1
-  ORDER BY start_time DESC
+  ORDER BY 'start_time' DESC
   LIMIT 51
   OFFSET 0
   '''
@@ -2155,7 +2155,7 @@
           AND hasAll(event_names, ['$autocapture'])) as session_events_sub_query)
   GROUP BY session_id
   HAVING 1=1
-  ORDER BY start_time DESC
+  ORDER BY 'start_time' DESC
   LIMIT 51
   OFFSET 0
   '''
@@ -2206,7 +2206,7 @@
           HAVING argMax(is_deleted, version) = 0) as session_persons_sub_query)
   GROUP BY session_id
   HAVING 1=1
-  ORDER BY start_time DESC
+  ORDER BY 'start_time' DESC
   LIMIT 51
   OFFSET 0
   '''
@@ -2252,7 +2252,7 @@
           AND hasAll(event_names, ['$pageview'])) as session_events_sub_query)
   GROUP BY session_id
   HAVING 1=1
-  ORDER BY start_time DESC
+  ORDER BY 'start_time' DESC
   LIMIT 51
   OFFSET 0
   '''
@@ -2298,7 +2298,7 @@
           AND hasAll(event_names, ['$pageview'])) as session_events_sub_query)
   GROUP BY session_id
   HAVING 1=1
-  ORDER BY start_time DESC
+  ORDER BY 'start_time' DESC
   LIMIT 51
   OFFSET 0
   '''
@@ -2344,7 +2344,7 @@
           AND hasAll(event_names, ['$pageview'])) as session_events_sub_query)
   GROUP BY session_id
   HAVING 1=1
-  ORDER BY start_time DESC
+  ORDER BY 'start_time' DESC
   LIMIT 51
   OFFSET 0
   '''
@@ -2390,7 +2390,7 @@
           AND hasAll(event_names, ['$pageview'])) as session_events_sub_query)
   GROUP BY session_id
   HAVING 1=1
-  ORDER BY start_time DESC
+  ORDER BY 'start_time' DESC
   LIMIT 51
   OFFSET 0
   '''
@@ -2479,7 +2479,7 @@
           AND hasAll(event_names, ['$pageview'])) as session_events_sub_query)
   GROUP BY session_id
   HAVING 1=1
-  ORDER BY start_time DESC
+  ORDER BY 'start_time' DESC
   LIMIT 51
   OFFSET 0
   '''
@@ -2524,7 +2524,7 @@
           AND hasAll(event_names, ['$pageview'])) as session_events_sub_query)
   GROUP BY session_id
   HAVING 1=1
-  ORDER BY start_time DESC
+  ORDER BY 'start_time' DESC
   LIMIT 51
   OFFSET 0
   '''
@@ -2613,7 +2613,7 @@
           AND hasAll(event_names, ['$pageview'])) as session_events_sub_query)
   GROUP BY session_id
   HAVING 1=1
-  ORDER BY start_time DESC
+  ORDER BY 'start_time' DESC
   LIMIT 51
   OFFSET 0
   '''
@@ -2658,7 +2658,7 @@
           AND hasAll(event_names, ['$pageview'])) as session_events_sub_query)
   GROUP BY session_id
   HAVING 1=1
-  ORDER BY start_time DESC
+  ORDER BY 'start_time' DESC
   LIMIT 51
   OFFSET 0
   '''
@@ -2704,7 +2704,7 @@
           AND hasAll(event_names, ['$pageview', '$pageleave'])) as session_events_sub_query)
   GROUP BY session_id
   HAVING 1=1
-  ORDER BY start_time DESC
+  ORDER BY 'start_time' DESC
   LIMIT 51
   OFFSET 0
   '''
@@ -2746,7 +2746,7 @@
   HAVING 1=1
   AND (console_warn_count > 0
        OR console_error_count > 0)
-  ORDER BY start_time DESC
+  ORDER BY 'start_time' DESC
   LIMIT 51
   OFFSET 0
   '''
@@ -2788,7 +2788,7 @@
   HAVING 1=1
   AND (console_warn_count > 0
        OR console_error_count > 0)
-  ORDER BY start_time DESC
+  ORDER BY 'start_time' DESC
   LIMIT 51
   OFFSET 0
   '''
@@ -2830,7 +2830,7 @@
   HAVING 1=1
   AND (console_warn_count > 0
        OR console_error_count > 0)
-  ORDER BY start_time DESC
+  ORDER BY 'start_time' DESC
   LIMIT 51
   OFFSET 0
   '''
@@ -2871,7 +2871,7 @@
   GROUP BY session_id
   HAVING 1=1
   AND (console_log_count > 0)
-  ORDER BY start_time DESC
+  ORDER BY 'start_time' DESC
   LIMIT 51
   OFFSET 0
   '''
@@ -2912,7 +2912,7 @@
   GROUP BY session_id
   HAVING 1=1
   AND (console_log_count > 0)
-  ORDER BY start_time DESC
+  ORDER BY 'start_time' DESC
   LIMIT 51
   OFFSET 0
   '''
@@ -2943,7 +2943,7 @@
   GROUP BY session_id
   HAVING 1=1
   AND (console_error_count > 0)
-  ORDER BY start_time DESC
+  ORDER BY 'start_time' DESC
   LIMIT 51
   OFFSET 0
   '''
@@ -2974,7 +2974,7 @@
   GROUP BY session_id
   HAVING 1=1
   AND (console_log_count > 0)
-  ORDER BY start_time DESC
+  ORDER BY 'start_time' DESC
   LIMIT 51
   OFFSET 0
   '''
@@ -3005,7 +3005,7 @@
   GROUP BY session_id
   HAVING 1=1
   AND (console_log_count > 0)
-  ORDER BY start_time DESC
+  ORDER BY 'start_time' DESC
   LIMIT 51
   OFFSET 0
   '''
@@ -3036,7 +3036,7 @@
   GROUP BY session_id
   HAVING 1=1
   AND (console_log_count > 0)
-  ORDER BY start_time DESC
+  ORDER BY 'start_time' DESC
   LIMIT 51
   OFFSET 0
   '''
@@ -3067,7 +3067,7 @@
   GROUP BY session_id
   HAVING 1=1
   AND (console_warn_count > 0)
-  ORDER BY start_time DESC
+  ORDER BY 'start_time' DESC
   LIMIT 51
   OFFSET 0
   '''
@@ -3098,7 +3098,7 @@
   GROUP BY session_id
   HAVING 1=1
   AND (console_warn_count > 0)
-  ORDER BY start_time DESC
+  ORDER BY 'start_time' DESC
   LIMIT 51
   OFFSET 0
   '''
@@ -3129,7 +3129,7 @@
   GROUP BY session_id
   HAVING 1=1
   AND (console_warn_count > 0)
-  ORDER BY start_time DESC
+  ORDER BY 'start_time' DESC
   LIMIT 51
   OFFSET 0
   '''
@@ -3160,7 +3160,7 @@
   GROUP BY session_id
   HAVING 1=1
   AND (console_log_count > 0)
-  ORDER BY start_time DESC
+  ORDER BY 'start_time' DESC
   LIMIT 51
   OFFSET 0
   '''
@@ -3191,7 +3191,7 @@
   GROUP BY session_id
   HAVING 1=1
   AND (console_log_count > 0)
-  ORDER BY start_time DESC
+  ORDER BY 'start_time' DESC
   LIMIT 51
   OFFSET 0
   '''
@@ -3223,7 +3223,7 @@
   HAVING 1=1
   AND (console_warn_count > 0
        OR console_error_count > 0)
-  ORDER BY start_time DESC
+  ORDER BY 'start_time' DESC
   LIMIT 51
   OFFSET 0
   '''
@@ -3254,7 +3254,7 @@
   GROUP BY session_id
   HAVING 1=1
   AND (console_log_count > 0)
-  ORDER BY start_time DESC
+  ORDER BY 'start_time' DESC
   LIMIT 51
   OFFSET 0
   '''
@@ -3285,7 +3285,7 @@
   GROUP BY session_id
   HAVING 1=1
   AND (console_log_count > 0)
-  ORDER BY start_time DESC
+  ORDER BY 'start_time' DESC
   LIMIT 51
   OFFSET 0
   '''
@@ -3356,7 +3356,7 @@
           HAVING argMax(is_deleted, version) = 0) as session_persons_sub_query)
   GROUP BY session_id
   HAVING 1=1
-  ORDER BY start_time DESC
+  ORDER BY 'start_time' DESC
   LIMIT 51
   OFFSET 0
   '''
@@ -3463,7 +3463,7 @@
           AND hasAll(event_names, ['$pageview'])) as session_events_sub_query)
   GROUP BY session_id
   HAVING 1=1
-  ORDER BY start_time DESC
+  ORDER BY 'start_time' DESC
   LIMIT 51
   OFFSET 0
   '''
@@ -3550,7 +3550,7 @@
           AND hasAll(event_names, ['custom_event'])) as session_events_sub_query)
   GROUP BY session_id
   HAVING 1=1
-  ORDER BY start_time DESC
+  ORDER BY 'start_time' DESC
   LIMIT 51
   OFFSET 0
   '''
@@ -3596,7 +3596,7 @@
           AND hasAll(event_names, ['$pageview', 'new-event'])) as session_events_sub_query)
   GROUP BY session_id
   HAVING 1=1
-  ORDER BY start_time DESC
+  ORDER BY 'start_time' DESC
   LIMIT 51
   OFFSET 0
   '''
@@ -3642,7 +3642,7 @@
           AND hasAll(event_names, ['$pageview', 'new-event2'])) as session_events_sub_query)
   GROUP BY session_id
   HAVING 1=1
-  ORDER BY start_time DESC
+  ORDER BY 'start_time' DESC
   LIMIT 51
   OFFSET 0
   '''
@@ -3687,7 +3687,7 @@
           AND current_person_id = '00000000-0000-0000-0000-000000000000') as session_persons_sub_query)
   GROUP BY session_id
   HAVING 1=1
-  ORDER BY start_time DESC
+  ORDER BY 'start_time' DESC
   LIMIT 51
   OFFSET 0
   '''
@@ -3732,7 +3732,7 @@
           AND hasAll(event_names, ['$pageview'])) as session_events_sub_query)
   GROUP BY session_id
   HAVING 1=1
-  ORDER BY start_time DESC
+  ORDER BY 'start_time' DESC
   LIMIT 51
   OFFSET 0
   '''
@@ -3775,7 +3775,7 @@
           HAVING 1=1) as session_events_sub_query)
   GROUP BY session_id
   HAVING 1=1
-  ORDER BY start_time DESC
+  ORDER BY 'start_time' DESC
   LIMIT 51
   OFFSET 0
   '''
@@ -3820,7 +3820,7 @@
           AND hasAll(event_names, ['$pageview'])) as session_events_sub_query)
   GROUP BY session_id
   HAVING 1=1
-  ORDER BY start_time DESC
+  ORDER BY 'start_time' DESC
   LIMIT 51
   OFFSET 0
   '''
@@ -3863,7 +3863,7 @@
           HAVING 1=1) as session_events_sub_query)
   GROUP BY session_id
   HAVING 1=1
-  ORDER BY start_time DESC
+  ORDER BY 'start_time' DESC
   LIMIT 51
   OFFSET 0
   '''
@@ -3908,7 +3908,7 @@
           AND hasAll(event_names, ['$pageview'])) as session_events_sub_query)
   GROUP BY session_id
   HAVING 1=1
-  ORDER BY start_time DESC
+  ORDER BY 'start_time' DESC
   LIMIT 51
   OFFSET 0
   '''
@@ -3951,7 +3951,7 @@
           HAVING 1=1) as session_events_sub_query)
   GROUP BY session_id
   HAVING 1=1
-  ORDER BY start_time DESC
+  ORDER BY 'start_time' DESC
   LIMIT 51
   OFFSET 0
   '''
@@ -3996,7 +3996,7 @@
           AND hasAll(event_names, ['$pageview'])) as session_events_sub_query)
   GROUP BY session_id
   HAVING 1=1
-  ORDER BY start_time DESC
+  ORDER BY 'start_time' DESC
   LIMIT 51
   OFFSET 0
   '''
@@ -4039,7 +4039,7 @@
           HAVING 1=1) as session_events_sub_query)
   GROUP BY session_id
   HAVING 1=1
-  ORDER BY start_time DESC
+  ORDER BY 'start_time' DESC
   LIMIT 51
   OFFSET 0
   '''
@@ -4084,7 +4084,7 @@
           AND hasAll(event_names, ['$pageview'])) as session_events_sub_query)
   GROUP BY session_id
   HAVING 1=1
-  ORDER BY start_time DESC
+  ORDER BY 'start_time' DESC
   LIMIT 51
   OFFSET 0
   '''
@@ -4127,7 +4127,7 @@
           HAVING 1=1) as session_events_sub_query)
   GROUP BY session_id
   HAVING 1=1
-  ORDER BY start_time DESC
+  ORDER BY 'start_time' DESC
   LIMIT 51
   OFFSET 0
   '''
@@ -4172,7 +4172,7 @@
           AND hasAll(event_names, ['$pageview'])) as session_events_sub_query)
   GROUP BY session_id
   HAVING 1=1
-  ORDER BY start_time DESC
+  ORDER BY 'start_time' DESC
   LIMIT 51
   OFFSET 0
   '''
@@ -4215,7 +4215,7 @@
           HAVING 1=1) as session_events_sub_query)
   GROUP BY session_id
   HAVING 1=1
-  ORDER BY start_time DESC
+  ORDER BY 'start_time' DESC
   LIMIT 51
   OFFSET 0
   '''
@@ -4260,7 +4260,7 @@
           AND hasAll(event_names, ['$pageview'])) as session_events_sub_query)
   GROUP BY session_id
   HAVING 1=1
-  ORDER BY start_time DESC
+  ORDER BY 'start_time' DESC
   LIMIT 51
   OFFSET 0
   '''
@@ -4308,7 +4308,7 @@
           AND (ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person_props, 'email'), ''), 'null'), '^"|"$', ''), 'bla'), 0))) as session_persons_sub_query)
   GROUP BY session_id
   HAVING 1=1
-  ORDER BY start_time DESC
+  ORDER BY 'start_time' DESC
   LIMIT 51
   OFFSET 0
   '''
@@ -4353,7 +4353,7 @@
           AND hasAll(event_names, ['$pageview'])) as session_events_sub_query)
   GROUP BY session_id
   HAVING 1=1
-  ORDER BY start_time DESC
+  ORDER BY 'start_time' DESC
   LIMIT 51
   OFFSET 0
   '''
@@ -4400,7 +4400,7 @@
           AND (ifNull(equals(nullIf(nullIf(pmat_email, ''), 'null'), 'bla'), 0))) as session_persons_sub_query)
   GROUP BY session_id
   HAVING 1=1
-  ORDER BY start_time DESC
+  ORDER BY 'start_time' DESC
   LIMIT 51
   OFFSET 0
   '''
@@ -4445,7 +4445,7 @@
           AND hasAll(event_names, ['$pageview'])) as session_events_sub_query)
   GROUP BY session_id
   HAVING 1=1
-  ORDER BY start_time DESC
+  ORDER BY 'start_time' DESC
   LIMIT 51
   OFFSET 0
   '''
@@ -4496,7 +4496,7 @@
           HAVING argMax(is_deleted, version) = 0) as session_persons_sub_query)
   GROUP BY session_id
   HAVING 1=1
-  ORDER BY start_time DESC
+  ORDER BY 'start_time' DESC
   LIMIT 51
   OFFSET 0
   '''
@@ -4541,7 +4541,7 @@
           AND hasAll(event_names, ['$pageview'])) as session_events_sub_query)
   GROUP BY session_id
   HAVING 1=1
-  ORDER BY start_time DESC
+  ORDER BY 'start_time' DESC
   LIMIT 51
   OFFSET 0
   '''
@@ -4592,7 +4592,7 @@
           HAVING argMax(is_deleted, version) = 0) as session_persons_sub_query)
   GROUP BY session_id
   HAVING 1=1
-  ORDER BY start_time DESC
+  ORDER BY 'start_time' DESC
   LIMIT 51
   OFFSET 0
   '''
