@@ -12,7 +12,7 @@ from posthog.models import Cohort, Filter
 from posthog.models.event.util import bulk_create_events
 from posthog.models.person.util import bulk_create_persons
 from posthog.queries.funnels.funnel_persons import ClickhouseFunnelActors
-from posthog.schema import ActorsQuery, FunnelActorsFilter, FunnelsQuery, InsightActorsQuery
+from posthog.schema import ActorsQuery, FunnelsActorsQuery, FunnelsQuery
 from posthog.session_recordings.queries.test.session_replay_sql import (
     produce_replay_summary,
 )
@@ -41,10 +41,10 @@ class TestFunnelPersons(ClickhouseTestMixin, APIBaseTest):
         offset: int | None = None,
     ):
         funnels_query = cast(FunnelsQuery, filter_to_query(filters))
-        funnel_actors_filter = FunnelActorsFilter(funnelStep=funnelStep, funnelCustomSteps=funnelCustomSteps)
-        insight_actors_query = InsightActorsQuery(source=funnels_query, funnelActorsFilter=funnel_actors_filter)
-        actors_query = ActorsQuery(source=insight_actors_query, offset=offset)
-
+        funnel_actors_query = FunnelsActorsQuery(
+            source=funnels_query, funnelStep=funnelStep, funnelCustomSteps=funnelCustomSteps
+        )
+        actors_query = ActorsQuery(source=funnel_actors_query, offset=offset)
         response = ActorsQueryRunner(query=actors_query, team=self.team).calculate()
         return response.results
 

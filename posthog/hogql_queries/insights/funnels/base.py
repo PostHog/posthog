@@ -585,16 +585,16 @@ class FunnelBase(ABC):
         #     return ""
 
     def _get_funnel_person_step_condition(self) -> ast.Expr:
-        funnelActorsFilter, breakdownType, max_steps = (
-            self.context.funnelActorsFilter,
+        actorsQuery, breakdownType, max_steps = (
+            self.context.actorsQuery,
             self.context.breakdownType,
             self.context.max_steps,
         )
-        assert funnelActorsFilter is not None
+        assert actorsQuery is not None
 
-        funnelStep = funnelActorsFilter.funnelStep
-        funnelCustomSteps = funnelActorsFilter.funnelCustomSteps
-        funnelStepBreakdown = funnelActorsFilter.funnelStepBreakdown
+        funnelStep = actorsQuery.funnelStep
+        funnelCustomSteps = actorsQuery.funnelCustomSteps
+        funnelStepBreakdown = actorsQuery.funnelStepBreakdown
 
         conditions: List[ast.Expr] = []
 

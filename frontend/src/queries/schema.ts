@@ -909,7 +909,7 @@ export interface ActorsQueryResponse {
 
 export interface ActorsQuery extends DataNode {
     kind: NodeKind.ActorsQuery
-    source?: InsightActorsQuery | HogQLQuery
+    source?: InsightActorsQuery | FunnelsActorsQuery | HogQLQuery
     select?: HogQLExpression[]
     search?: string
     properties?: AnyPropertyFilter[]
@@ -1061,24 +1061,25 @@ export type InsightFilter =
 
 export type Day = integer
 
-export interface InsightActorsQuery<T extends InsightsQueryBase = InsightQuerySource> {
+export interface InsightActorsQueryBase {
+    includeRecordings?: boolean
+    response?: ActorsQueryResponse
+}
+export interface InsightActorsQuery<T extends InsightsQueryBase = InsightQuerySource> extends InsightActorsQueryBase {
     kind: NodeKind.InsightActorsQuery
     source: T
-    funnelActorsFilter?: FunnelActorsFilter
     day?: string | Day
     status?: string
-    /**
-     * An interval selected out of available intervals in source query
-     */
+    /** An interval selected out of available intervals in source query. */
     interval?: integer
     series?: integer
     breakdown?: string | BreakdownValueInt
     compare?: 'current' | 'previous'
-    // TODO: add fields for other insights (funnels dropdown, compare_previous choice, etc)
-    response?: ActorsQueryResponse
 }
 
-export type FunnelActorsFilter = {
+export interface FunnelsActorsQuery extends InsightActorsQueryBase {
+    kind: NodeKind.InsightActorsQuery
+    source: FunnelsQuery
     /** Index of the step for which we want to get the timestamp for, per person.
      * Positive for converted persons, negative for dropped of persons. */
     funnelStep?: integer

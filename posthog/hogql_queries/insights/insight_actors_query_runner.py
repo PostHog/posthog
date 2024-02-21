@@ -11,12 +11,13 @@ from posthog.hogql_queries.insights.stickiness_query_runner import StickinessQue
 from posthog.hogql_queries.insights.trends.trends_query_runner import TrendsQueryRunner
 from posthog.hogql_queries.query_runner import QueryRunner, get_query_runner
 from posthog.models.filters.mixins.utils import cached_property
-from posthog.schema import FunnelActorsFilter, InsightActorsQuery, HogQLQueryResponse, StickinessQuery, TrendsQuery
+from posthog.schema import FunnelsActorsQuery, InsightActorsQuery, HogQLQueryResponse, StickinessQuery, TrendsQuery
+from posthog.types import InsightActorsQueryNode
 
 
 class InsightActorsQueryRunner(QueryRunner):
-    query: InsightActorsQuery
-    query_type = InsightActorsQuery
+    query: InsightActorsQueryNode
+    query_type = InsightActorsQueryNode
 
     @cached_property
     def source_runner(self) -> QueryRunner:
@@ -25,31 +26,33 @@ class InsightActorsQueryRunner(QueryRunner):
     def to_query(self) -> ast.SelectQuery | ast.SelectUnionQuery:
         if isinstance(self.source_runner, TrendsQueryRunner):
             trends_runner = cast(TrendsQueryRunner, self.source_runner)
+            query = cast(InsightActorsQuery, self.query)
             return trends_runner.to_actors_query(
-                time_frame=self.query.day,
-                series_index=self.query.series or 0,
-                breakdown_value=self.query.breakdown,
-                compare=self.query.compare,
+                time_frame=query.day,
+                series_index=query.series or 0,
+                breakdown_value=query.breakdown,
+                compare=query.compare,
             )
         elif isinstance(self.source_runner, FunnelsQueryRunner):
             funnels_runner = cast(FunnelsQueryRunner, self.source_runner)
-            funnels_runner.context.funnelActorsFilter = self.query.funnelActorsFilter or FunnelActorsFilter()
+            funnels_runner.context.actorsQuery = cast(FunnelsActorsQuery, self.query)
             return funnels_runner.to_actors_query()
         elif isinstance(self.source_runner, RetentionQueryRunner):
+            query = cast(InsightActorsQuery, self.query)
             retention_runner = cast(RetentionQueryRunner, self.source_runner)
-            return retention_runner.to_actors_query(interval=self.query.interval)
+            return retention_runner.to_actors_query(interval=query.interval)
         elif isinstance(self.source_runner, PathsQueryRunner):
             paths_runner = cast(PathsQueryRunner, self.source_runner)
             return paths_runner.to_actors_query()
         elif isinstance(self.source_runner, StickinessQueryRunner):
             stickiness_runner = cast(StickinessQueryRunner, self.source_runner)
-            return stickiness_runner.to_actors_query(
-                interval_num=int(self.query.day) if self.query.day is not None else None
-            )
+            query = cast(InsightActorsQuery, self.query)
+            return stickiness_runner.to_actors_query(interval_num=int(query.day) if query.day is not None else None)
         elif isinstance(self.source_runner, LifecycleQueryRunner):
             lifecycle_runner = cast(LifecycleQueryRunner, self.source_runner)
-            day = self.query.day
-            status = self.query.status
+            query = cast(InsightActorsQuery, self.query)
+            day = query.day
+            status = query.status
             return lifecycle_runner.to_actors_query(day=str(day) if day else None, status=status)
 
         raise ValueError(f"Cannot convert source query of type {self.query.source.kind} to persons query")

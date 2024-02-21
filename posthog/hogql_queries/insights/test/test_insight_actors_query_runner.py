@@ -247,3 +247,24 @@ class TestInsightActorsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         )
 
         self.assertEqual([("org1",)], response.results)
+
+    def test_insight_persons_funnels_query(self):
+        self._create_test_events()
+        self.team.timezone = "US/Pacific"
+        self.team.save()
+
+        response = self.select(
+            """
+                select * from (
+                    <ActorsQuery select={['properties.name']}>
+                        <FunnelsActorsQuery funnelStep={1}>
+                            <FunnelsQuery
+                                series={[<EventsNode event='$pageview' />, <EventsNode event='$pageview' />]}
+                            />
+                        </FunnelsActorsQuery>
+                    </ActorsQuery>
+                )
+                """
+        )
+
+        self.assertEqual([("p2",)], response.results)
