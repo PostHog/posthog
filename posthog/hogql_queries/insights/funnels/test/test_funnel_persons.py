@@ -8,10 +8,9 @@ from freezegun import freeze_time
 from posthog.constants import INSIGHT_FUNNELS
 from posthog.hogql_queries.actors_query_runner import ActorsQueryRunner
 from posthog.hogql_queries.legacy_compatibility.filter_to_query import filter_to_query
-from posthog.models import Cohort, Filter
+from posthog.models import Cohort
 from posthog.models.event.util import bulk_create_events
 from posthog.models.person.util import bulk_create_persons
-from posthog.queries.funnels.funnel_persons import ClickhouseFunnelActors
 from posthog.schema import ActorsQuery, FunnelsActorsQuery, FunnelsQuery
 from posthog.session_recordings.queries.test.session_replay_sql import (
     produce_replay_summary,
@@ -38,11 +37,15 @@ class TestFunnelPersons(ClickhouseTestMixin, APIBaseTest):
         filters: Dict[str, Any],
         funnelStep: int | None = None,
         funnelCustomSteps: List[int] | None = None,
+        funnelStepBreakdown: str | float | List[str | float] | None = None,
         offset: int | None = None,
     ):
         funnels_query = cast(FunnelsQuery, filter_to_query(filters))
         funnel_actors_query = FunnelsActorsQuery(
-            source=funnels_query, funnelStep=funnelStep, funnelCustomSteps=funnelCustomSteps
+            source=funnels_query,
+            funnelStep=funnelStep,
+            funnelCustomSteps=funnelCustomSteps,
+            funnelStepBreakdown=funnelStepBreakdown,
         )
         actors_query = ActorsQuery(source=funnel_actors_query, offset=offset)
         response = ActorsQueryRunner(query=actors_query, team=self.team).calculate()
@@ -361,119 +364,93 @@ class TestFunnelPersons(ClickhouseTestMixin, APIBaseTest):
     @also_test_with_materialized_columns(["$browser"])
     def test_first_step_breakdowns(self):
         person1, person2 = self._create_browser_breakdown_events()
-        filter = Filter(
-            data={
-                "insight": INSIGHT_FUNNELS,
-                "date_from": "2020-01-01",
-                "date_to": "2020-01-08",
-                "interval": "day",
-                "funnel_window_days": 7,
-                "funnel_step": 1,
-                "events": [
-                    {"id": "sign up", "order": 0},
-                    {"id": "play movie", "order": 1},
-                    {"id": "buy", "order": 2},
-                ],
-                "breakdown_type": "event",
-                "breakdown": "$browser",
-            }
-        )
-        _, results, _ = ClickhouseFunnelActors(filter, self.team).get_actors()
+        filters = {
+            "insight": INSIGHT_FUNNELS,
+            "date_from": "2020-01-01",
+            "date_to": "2020-01-08",
+            "interval": "day",
+            "funnel_window_days": 7,
+            "events": [
+                {"id": "sign up", "order": 0},
+                {"id": "play movie", "order": 1},
+                {"id": "buy", "order": 2},
+            ],
+            "breakdown_type": "event",
+            "breakdown": "$browser",
+        }
 
-        self.assertCountEqual([val["id"] for val in results], [person1.uuid, person2.uuid])
+        results = self._get_actors(filters, funnelStep=1)
+        self.assertCountEqual([val[0]["id"] for val in results], [person1.uuid, person2.uuid])
 
-        _, results, _ = ClickhouseFunnelActors(
-            filter.shallow_clone({"funnel_step_breakdown": "Chrome"}), self.team
-        ).get_actors()
+        results = self._get_actors(filters, funnelStep=1, funnelStepBreakdown=["Chrome"])
+        self.assertCountEqual([val[0]["id"] for val in results], [person1.uuid])
 
-        self.assertCountEqual([val["id"] for val in results], [person1.uuid])
-
-        _, results, _ = ClickhouseFunnelActors(
-            filter.shallow_clone({"funnel_step_breakdown": "Safari"}), self.team
-        ).get_actors()
-
-        self.assertCountEqual([val["id"] for val in results], [person2.uuid])
+        results = self._get_actors(filters, funnelStep=1, funnelStepBreakdown=["Safari"])
+        self.assertCountEqual([val[0]["id"] for val in results], [person2.uuid])
 
     def test_first_step_breakdowns_with_multi_property_breakdown(self):
         person1, person2 = self._create_browser_breakdown_events()
-        filter = Filter(
-            data={
-                "insight": INSIGHT_FUNNELS,
-                "date_from": "2020-01-01",
-                "date_to": "2020-01-08",
-                "interval": "day",
-                "funnel_window_days": 7,
-                "funnel_step": 1,
-                "events": [
-                    {"id": "sign up", "order": 0},
-                    {"id": "play movie", "order": 1},
-                    {"id": "buy", "order": 2},
-                ],
-                "breakdown_type": "event",
-                "breakdown": ["$browser", "$browser_version"],
-            }
-        )
-        _, results, _ = ClickhouseFunnelActors(filter, self.team).get_actors()
+        filters = {
+            "insight": INSIGHT_FUNNELS,
+            "date_from": "2020-01-01",
+            "date_to": "2020-01-08",
+            "interval": "day",
+            "funnel_window_days": 7,
+            "events": [
+                {"id": "sign up", "order": 0},
+                {"id": "play movie", "order": 1},
+                {"id": "buy", "order": 2},
+            ],
+            "breakdown_type": "event",
+            "breakdown": ["$browser", "$browser_version"],
+        }
 
-        self.assertCountEqual([val["id"] for val in results], [person1.uuid, person2.uuid])
+        results = self._get_actors(filters, funnelStep=1)
+        self.assertCountEqual([val[0]["id"] for val in results], [person1.uuid, person2.uuid])
 
-        _, results, _ = ClickhouseFunnelActors(
-            filter.shallow_clone({"funnel_step_breakdown": ["Chrome", "95"]}), self.team
-        ).get_actors()
+        results = self._get_actors(filters, funnelStep=1, funnelStepBreakdown=["Chrome", "95"])
+        self.assertCountEqual([val[0]["id"] for val in results], [person1.uuid])
 
-        self.assertCountEqual([val["id"] for val in results], [person1.uuid])
-
-        _, results, _ = ClickhouseFunnelActors(
-            filter.shallow_clone({"funnel_step_breakdown": ["Safari", "14"]}), self.team
-        ).get_actors()
-        self.assertCountEqual([val["id"] for val in results], [person2.uuid])
+        results = self._get_actors(filters, funnelStep=1, funnelStepBreakdown=["Safari", "14"])
+        self.assertCountEqual([val[0]["id"] for val in results], [person2.uuid])
 
     @also_test_with_materialized_columns(person_properties=["$country"])
     def test_first_step_breakdown_person(self):
         person1, person2 = self._create_browser_breakdown_events()
-        filter = Filter(
-            data={
-                "insight": INSIGHT_FUNNELS,
-                "date_from": "2020-01-01",
-                "date_to": "2020-01-08",
-                "interval": "day",
-                "funnel_window_days": 7,
-                "funnel_step": 1,
-                "events": [
-                    {"id": "sign up", "order": 0},
-                    {"id": "play movie", "order": 1},
-                    {"id": "buy", "order": 2},
-                ],
-                "breakdown_type": "person",
-                "breakdown": "$country",
-            }
-        )
+        filters = {
+            "insight": INSIGHT_FUNNELS,
+            "date_from": "2020-01-01",
+            "date_to": "2020-01-08",
+            "interval": "day",
+            "funnel_window_days": 7,
+            "events": [
+                {"id": "sign up", "order": 0},
+                {"id": "play movie", "order": 1},
+                {"id": "buy", "order": 2},
+            ],
+            "breakdown_type": "person",
+            "breakdown": "$country",
+        }
 
-        _, results, _ = ClickhouseFunnelActors(filter, self.team).get_actors()
-        self.assertCountEqual([val["id"] for val in results], [person1.uuid, person2.uuid])
+        results = self._get_actors(filters, funnelStep=1)
+        self.assertCountEqual([val[0]["id"] for val in results], [person1.uuid, person2.uuid])
 
-        _, results, _ = ClickhouseFunnelActors(
-            filter.shallow_clone({"funnel_step_breakdown": "EE"}), self.team
-        ).get_actors()
-        self.assertCountEqual([val["id"] for val in results], [person2.uuid])
+        results = self._get_actors(filters, funnelStep=1, funnelStepBreakdown=["EE"])
+        self.assertCountEqual([val[0]["id"] for val in results], [person2.uuid])
 
         # Check custom_steps give same answers for breakdowns
-        _, custom_step_results, _ = ClickhouseFunnelActors(
-            filter.shallow_clone({"funnel_step_breakdown": "EE", "funnel_custom_steps": [1, 2, 3]}),
-            self.team,
-        ).get_actors()
+        custom_step_results = self._get_actors(
+            filters, funnelStep=1, funnelCustomSteps=[1, 2, 3], funnelStepBreakdown=["EE"]
+        )
         self.assertEqual(results, custom_step_results)
 
-        _, results, _ = ClickhouseFunnelActors(
-            filter.shallow_clone({"funnel_step_breakdown": "PL"}), self.team
-        ).get_actors()
-        self.assertCountEqual([val["id"] for val in results], [person1.uuid])
+        results = self._get_actors(filters, funnelStep=1, funnelStepBreakdown=["PL"])
+        self.assertCountEqual([val[0]["id"] for val in results], [person1.uuid])
 
         # Check custom_steps give same answers for breakdowns
-        _, custom_step_results, _ = ClickhouseFunnelActors(
-            filter.shallow_clone({"funnel_step_breakdown": "PL", "funnel_custom_steps": [1, 2, 3]}),
-            self.team,
-        ).get_actors()
+        custom_step_results = self._get_actors(
+            filters, funnelStep=1, funnelCustomSteps=[1, 2, 3], funnelStepBreakdown=["PL"]
+        )
         self.assertEqual(results, custom_step_results)
 
     @also_test_with_materialized_columns(["$browser"], verify_no_jsonextract=False)
@@ -491,6 +468,8 @@ class TestFunnelPersons(ClickhouseTestMixin, APIBaseTest):
             name="test_cohort",
             groups=[{"properties": [{"key": "key", "value": "value", "type": "person"}]}],
         )
+        cohort.calculate_people_ch(pending_version=0)
+
         filters = {
             "events": [
                 {"id": "sign up", "order": 0},
@@ -501,13 +480,12 @@ class TestFunnelPersons(ClickhouseTestMixin, APIBaseTest):
             "date_from": "2020-01-01",
             "date_to": "2020-01-08",
             "funnel_window_days": 7,
-            "funnel_step": 1,
             "breakdown_type": "cohort",
             "breakdown": [cohort.pk],
         }
-        filter = Filter(data=filters)
-        _, results, _ = ClickhouseFunnelActors(filter, self.team).get_actors()
-        self.assertEqual(results[0]["id"], person.uuid)
+
+        results = self._get_actors(filters, funnelStep=1)
+        self.assertEqual(results[0][0]["id"], person.uuid)
 
     @snapshot_clickhouse_queries
     @freeze_time("2021-01-02 00:00:00.000Z")
@@ -557,23 +535,20 @@ class TestFunnelPersons(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(results[0]["matched_recordings"], [])
 
         # Second event, with recording
-        filter = Filter(
-            data={
-                "insight": INSIGHT_FUNNELS,
-                "date_from": "2021-01-01",
-                "date_to": "2021-01-08",
-                "interval": "day",
-                "funnel_window_days": 7,
-                "funnel_step": 2,
-                "events": [
-                    {"id": "step one", "order": 0},
-                    {"id": "step two", "order": 1},
-                    {"id": "step three", "order": 2},
-                ],
-                "include_recordings": "true",
-            }
-        )
-        _, results, _ = ClickhouseFunnelActors(filter, self.team).get_actors()
+        filters = {
+            "insight": INSIGHT_FUNNELS,
+            "date_from": "2021-01-01",
+            "date_to": "2021-01-08",
+            "interval": "day",
+            "funnel_window_days": 7,
+            "events": [
+                {"id": "step one", "order": 0},
+                {"id": "step two", "order": 1},
+                {"id": "step three", "order": 2},
+            ],
+        }
+        # "include_recordings": "true",
+        results = self._get_actors(filters, funnelStep=2)
         self.assertEqual(results[0]["id"], p1.uuid)
         self.assertEqual(
             results[0]["matched_recordings"],
@@ -592,23 +567,20 @@ class TestFunnelPersons(ClickhouseTestMixin, APIBaseTest):
         )
 
         # Third event dropoff, with recording
-        filter = Filter(
-            data={
-                "insight": INSIGHT_FUNNELS,
-                "date_from": "2021-01-01",
-                "date_to": "2021-01-08",
-                "interval": "day",
-                "funnel_window_days": 7,
-                "funnel_step": -3,
-                "events": [
-                    {"id": "step one", "order": 0},
-                    {"id": "step two", "order": 1},
-                    {"id": "step three", "order": 2},
-                ],
-                "include_recordings": "true",
-            }
-        )
-        _, results, _ = ClickhouseFunnelActors(filter, self.team).get_actors()
+        filters = {
+            "insight": INSIGHT_FUNNELS,
+            "date_from": "2021-01-01",
+            "date_to": "2021-01-08",
+            "interval": "day",
+            "funnel_window_days": 7,
+            "events": [
+                {"id": "step one", "order": 0},
+                {"id": "step two", "order": 1},
+                {"id": "step three", "order": 2},
+            ],
+        }
+        # "include_recordings": "true",
+        results = self._get_actors(filters, funnelStep=-3)
         self.assertEqual(results[0]["id"], p1.uuid)
         self.assertEqual(
             results[0]["matched_recordings"],
