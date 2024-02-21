@@ -24,6 +24,7 @@ import {
     BreakdownType,
     ChartDisplayType,
     CommonActorType,
+    GroupActorType,
     IntervalType,
     PersonActorType,
     PropertiesTimelineFilterType,
@@ -117,24 +118,41 @@ export const personsModalLogic = kea<personsModalLogicType>([
                             results: [
                                 {
                                     count: response.results.length,
-                                    people: response.results.map((result): PersonActorType => {
-                                        const person: PersonActorType = {
-                                            type: 'person',
-                                            id: result[0].id,
-                                            uuid: result[0].id,
-                                            distinct_ids: result[0].distinct_ids,
-                                            is_identified: result[0].is_identified,
-                                            properties: result[0].properties,
-                                            created_at: result[0].created_at,
-                                            matched_recordings: [],
-                                            value_at_data_point: null,
+                                    people: response.results.map((result): ActorType => {
+                                        if (result[0].group_type_index !== undefined) {
+                                            const group: GroupActorType = {
+                                                type: 'group',
+                                                id: result[0].id,
+                                                group_key: result[0].group_key,
+                                                group_type_index: result[0].group_type_index,
+                                                properties: result[0].group_properties,
+                                                created_at: result[0].created_at,
+                                                matched_recordings: [],
+                                                value_at_data_point: null,
+                                            }
+                                            Object.keys(props.additionalSelect || {}).forEach((field, index) => {
+                                                group[field] = result[additionalFieldIndices[index]]
+                                            })
+                                            return group
+                                        } else {
+                                            const person: PersonActorType = {
+                                                type: 'person',
+                                                id: result[0].id,
+                                                uuid: result[0].id,
+                                                distinct_ids: result[0].distinct_ids,
+                                                is_identified: result[0].is_identified,
+                                                properties: result[0].properties,
+                                                created_at: result[0].created_at,
+                                                matched_recordings: [],
+                                                value_at_data_point: null,
+                                            }
+
+                                            Object.keys(props.additionalSelect || {}).forEach((field, index) => {
+                                                person[field] = result[additionalFieldIndices[index]]
+                                            })
+
+                                            return person
                                         }
-
-                                        Object.keys(props.additionalSelect || {}).forEach((field, index) => {
-                                            person[field] = result[additionalFieldIndices[index]]
-                                        })
-
-                                        return person
                                     }),
                                 },
                             ],
@@ -329,7 +347,7 @@ export const personsModalLogic = kea<personsModalLogicType>([
             () => [(_, p) => p.additionalSelect],
             (additionalSelect: PersonModalLogicProps['additionalSelect']): string[] => {
                 const extra = Object.values(additionalSelect || {})
-                return ['person', 'created_at', ...extra]
+                return ['actor', 'created_at', ...extra]
             },
         ],
         actorsQuery: [

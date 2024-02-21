@@ -410,7 +410,14 @@
                     "$ref": "#/definitions/BreakdownKeyType"
                 },
                 "breakdown_group_type_index": {
-                    "type": "integer"
+                    "anyOf": [
+                        {
+                            "type": "integer"
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ]
                 },
                 "breakdown_hide_other_aggregation": {
                     "type": ["boolean", "null"]
@@ -1639,6 +1646,48 @@
             "enum": ["total", "previous"],
             "type": "string"
         },
+        "FunnelStepsBreakdownResults": {
+            "items": {
+                "items": {
+                    "type": "object"
+                },
+                "type": "array"
+            },
+            "type": "array"
+        },
+        "FunnelStepsResults": {
+            "items": {
+                "type": "object"
+            },
+            "type": "array"
+        },
+        "FunnelTimeToConvertResults": {
+            "additionalProperties": false,
+            "properties": {
+                "average_conversion_time": {
+                    "type": "integer"
+                },
+                "bins": {
+                    "items": {
+                        "items": {
+                            "type": "integer"
+                        },
+                        "maxItems": 2,
+                        "minItems": 2,
+                        "type": "array"
+                    },
+                    "type": "array"
+                }
+            },
+            "required": ["average_conversion_time", "bins"],
+            "type": "object"
+        },
+        "FunnelTrendsResults": {
+            "items": {
+                "type": "object"
+            },
+            "type": "array"
+        },
         "FunnelVizType": {
             "enum": ["steps", "time_to_convert", "trends"],
             "type": "string"
@@ -1647,7 +1696,7 @@
             "additionalProperties": false,
             "properties": {
                 "binCount": {
-                    "$ref": "#/definitions/BinCountValue"
+                    "type": "integer"
                 },
                 "breakdownAttributionType": {
                     "$ref": "#/definitions/BreakdownAttributionType"
@@ -1830,19 +1879,16 @@
                 "results": {
                     "anyOf": [
                         {
-                            "items": {
-                                "type": "object"
-                            },
-                            "type": "array"
+                            "$ref": "#/definitions/FunnelStepsResults"
                         },
                         {
-                            "items": {
-                                "items": {
-                                    "type": "object"
-                                },
-                                "type": "array"
-                            },
-                            "type": "array"
+                            "$ref": "#/definitions/FunnelStepsBreakdownResults"
+                        },
+                        {
+                            "$ref": "#/definitions/FunnelTimeToConvertResults"
+                        },
+                        {
+                            "$ref": "#/definitions/FunnelTrendsResults"
                         }
                     ]
                 },
@@ -3209,10 +3255,7 @@
                 "next_allowed_client_refresh": {
                     "type": "string"
                 },
-                "results": {
-                    "items": {},
-                    "type": "array"
-                },
+                "results": {},
                 "timings": {
                     "items": {
                         "$ref": "#/definitions/QueryTiming"

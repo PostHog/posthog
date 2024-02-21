@@ -1,9 +1,10 @@
 import './PlanComparison.scss'
 
+import { IconWarning, IconX } from '@posthog/icons'
 import { LemonButton, LemonModal, LemonTag, Link } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
-import { IconCheckmark, IconClose, IconWarning } from 'lib/lemon-ui/icons'
+import { IconCheckmark } from 'lib/lemon-ui/icons'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import React from 'react'
@@ -28,7 +29,7 @@ export function PlanIcon({
         <div className="flex items-center text-xs text-muted">
             {!feature ? (
                 <>
-                    <IconClose className={clsx('text-danger mx-4', className)} />
+                    <IconX className={clsx('text-danger mx-4', className)} />
                 </>
             ) : feature.limit ? (
                 <>

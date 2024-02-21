@@ -1,7 +1,7 @@
 import './EmptyDashboardComponent.scss'
 
+import { IconPlus } from '@posthog/icons'
 import { useValues } from 'kea'
-import { IconPlus } from 'lib/lemon-ui/icons'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
 import React from 'react'

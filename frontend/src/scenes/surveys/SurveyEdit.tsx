@@ -2,6 +2,7 @@ import './EditSurvey.scss'
 
 import { DndContext } from '@dnd-kit/core'
 import { SortableContext, verticalListSortingStrategy } from '@dnd-kit/sortable'
+import { IconLock, IconPlus, IconTrash } from '@posthog/icons'
 import {
     LemonButton,
     LemonCheckbox,
@@ -16,7 +17,7 @@ import {
 import { BindLogic, useActions, useValues } from 'kea'
 import { FlagSelector } from 'lib/components/FlagSelector'
 import { FEATURE_FLAGS } from 'lib/constants'
-import { IconCancel, IconDelete, IconLock, IconPlus } from 'lib/lemon-ui/icons'
+import { IconCancel } from 'lib/lemon-ui/icons'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { featureFlagLogic as enabledFeaturesLogic } from 'lib/logic/featureFlagLogic'
 import { featureFlagLogic } from 'scenes/feature-flags/featureFlagLogic'
@@ -129,11 +130,11 @@ export default function SurveyEdit(): JSX.Element {
                                                     <PresentationTypeCard
                                                         active={value === SurveyType.Widget}
                                                         onClick={() => onChange(SurveyType.Widget)}
-                                                        title="Feedback button (beta)"
+                                                        title="Feedback button"
                                                         description="Set up a survey based on your own custom button or our prebuilt feedback tab"
                                                         value={SurveyType.Widget}
                                                     >
-                                                        <LemonTag type="warning" className="uppercase ml-2">
+                                                        <LemonTag type="warning" className="uppercase">
                                                             Beta
                                                         </LemonTag>
                                                     </PresentationTypeCard>
@@ -204,7 +205,7 @@ export default function SurveyEdit(): JSX.Element {
                                                                       <div className="flex flex-row w-full items-center justify-between">
                                                                           <b>Confirmation message</b>
                                                                           <LemonButton
-                                                                              icon={<IconDelete />}
+                                                                              icon={<IconTrash />}
                                                                               data-attr="delete-survey-confirmation"
                                                                               onClick={(e) => {
                                                                                   e.stopPropagation()

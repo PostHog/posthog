@@ -1,3 +1,4 @@
+import { IconPlus } from '@posthog/icons'
 import { LemonButton, LemonSelectOptions, LemonTable, LemonTag, Link } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
@@ -9,7 +10,6 @@ import {
     IconChevronRight,
     IconExpandMore,
     IconInfo,
-    IconPlus,
 } from 'lib/lemon-ui/icons'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { More } from 'lib/lemon-ui/LemonButton/More'
@@ -18,6 +18,7 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { capitalizeFirstLetter, compactNumber } from 'lib/utils'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import posthog from 'posthog-js'
+import { useRef } from 'react'
 import { getProductIcon } from 'scenes/products/Products'
 
 import { BillingProductV2AddonType, BillingProductV2Type, BillingV2TierType } from '~/types'
@@ -199,6 +200,7 @@ export const BillingProductAddon = ({ addon }: { addon: BillingProductV2AddonTyp
 }
 
 export const BillingProduct = ({ product }: { product: BillingProductV2Type }): JSX.Element => {
+    const productRef = useRef<HTMLDivElement | null>(null)
     const { billing, redirectPath, isOnboarding, isUnlicensedDebug } = useValues(billingLogic)
     const {
         customLimitUsd,
@@ -216,7 +218,7 @@ export const BillingProduct = ({ product }: { product: BillingProductV2Type }): 
         toggleIsPlanComparisonModalOpen,
         reportSurveyShown,
         setSurveyResponse,
-    } = useActions(billingProductLogic({ product }))
+    } = useActions(billingProductLogic({ product, productRef }))
     const { reportBillingUpgradeClicked } = useActions(eventUsageLogic)
 
     const showUpgradeCTA = !product.subscribed && !product.contact_support && product.plans?.length
@@ -346,7 +348,7 @@ export const BillingProduct = ({ product }: { product: BillingProductV2Type }): 
             })}
             ref={ref}
         >
-            <div className="border border-border rounded w-full bg-bg-light">
+            <div className="border border-border rounded w-full bg-bg-light" ref={productRef}>
                 <div className="border-b border-border bg-mid p-4">
                     <div className="flex gap-4 items-center justify-between">
                         {getProductIcon(product.icon_key, 'text-2xl')}
