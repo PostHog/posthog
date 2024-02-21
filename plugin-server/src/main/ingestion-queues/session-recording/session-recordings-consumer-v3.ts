@@ -412,15 +412,11 @@ export class SessionRecordingIngesterV3 {
 
     async flushAllReadySessions(): Promise<void> {
         const promises: Promise<void>[] = []
-        // TODO: Change to get partitions from the consumer
-        // The logic is then for each partition, get all session managers and flush them if possible
-
         const assignedPartitions = this.assignedTopicPartitions.map((x) => x.partition)
 
         for (const [key, sessionManager] of Object.entries(this.sessions)) {
             if (!assignedPartitions.includes(sessionManager.context.partition)) {
-                // TODO: We are no longer in charge of it - we should stop it and remove it from memory
-
+                promises.push(this.destroySession(key, sessionManager))
                 continue
             }
 
@@ -441,9 +437,7 @@ export class SessionRecordingIngesterV3 {
                 .then(async () => {
                     // If the SessionManager is done (flushed and with no more queued events) then we remove it to free up memory
                     if (await sessionManager.isEmpty()) {
-                        await this.destroySessions([[key, sessionManager]])
-                        delete this.sessions[key]
-                        await sessionManager.stop()
+                        await this.destroySession(key, sessionManager)
                     }
                 })
             promises.push(flushPromise)
@@ -485,21 +479,8 @@ export class SessionRecordingIngesterV3 {
         )
     }
 
-    private async destroySessions(sessionsToDestroy: [string, SessionManagerV2][]): Promise<void> {
-        status.info('🔁', 'session-replay-ingestion - destroying sessions', {
-            sessionsToDestroy: sessionsToDestroy.map(([key, sessionManager]) => ({
-                key,
-                teamId: sessionManager.context.teamId,
-                sessionId: sessionManager.context.sessionId,
-            })),
-        })
-        const destroyPromises: Promise<void>[] = []
-
-        sessionsToDestroy.forEach(([key, sessionManager]) => {
-            delete this.sessions[key]
-            destroyPromises.push(sessionManager.stop())
-        })
-
-        await Promise.allSettled(destroyPromises)
+    private async destroySession(key: string, sessionManager: SessionManagerV2): Promise<void> {
+        delete this.sessions[key]
+        await sessionManager.stop()
     }
 }

@@ -367,8 +367,6 @@ export class SessionManagerV2 {
                     await inProgressUpload.done()
                 }
             )
-
-            await deleteFile()
         } catch (error: any) {
             // TRICKY: error can for some reason sometimes be undefined...
             error = error || new Error('Unknown Error')
@@ -392,7 +390,7 @@ export class SessionManagerV2 {
             throw error
         } finally {
             endFlushTimer()
-            void deleteFile()
+            await deleteFile()
         }
     }
 
