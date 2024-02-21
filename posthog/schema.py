@@ -206,6 +206,7 @@ class EmptyPropertyFilter(BaseModel):
 class EntityType(str, Enum):
     actions = "actions"
     events = "events"
+    data_warehouse = "data_warehouse"
     new_entity = "new_entity"
 
 
@@ -491,7 +492,7 @@ class LifecycleToggle(str, Enum):
 class NodeKind(str, Enum):
     EventsNode = "EventsNode"
     ActionsNode = "ActionsNode"
-    DatawarehouseNode = "DatawarehouseNode"
+    DataWarehouseNode = "DataWarehouseNode"
     EventsQuery = "EventsQuery"
     PersonsNode = "PersonsNode"
     HogQLQuery = "HogQLQuery"
@@ -1677,7 +1678,7 @@ class DataWarehouseNode(BaseModel):
         description="Fixed properties in the query, can't be edited in the interface (e.g. scoping down by person)",
     )
     id_field: str
-    kind: Literal["DatawarehouseNode"] = "DatawarehouseNode"
+    kind: Literal["DataWarehouseNode"] = "DataWarehouseNode"
     math: Optional[
         Union[BaseMathType, PropertyMathType, CountPerActorMathType, Literal["unique_group"], Literal["hogql"]]
     ] = None
