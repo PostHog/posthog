@@ -1568,6 +1568,10 @@ const api = {
             return await new ApiRequest().recording(recordingId).withAction('summarize').create()
         },
 
+        async similarRecordings(recordingId: SessionRecordingType['id']): Promise<[string, number][]> {
+            return await new ApiRequest().recording(recordingId).withAction('similar_sessions').get()
+        },
+
         async delete(recordingId: SessionRecordingType['id']): Promise<{ success: boolean }> {
             return await new ApiRequest().recording(recordingId).delete()
         },
