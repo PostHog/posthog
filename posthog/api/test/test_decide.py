@@ -315,7 +315,7 @@ class TestDecide(BaseTest, QueryMatchingTest):
             expected_status_code=status.HTTP_400_BAD_REQUEST,
         )
 
-    def test_session_replay_config(self, *args):
+    def test_session_replay_config_canvas(self, *args):
         # :TRICKY: Test for regression around caching
 
         self._update_team(
@@ -339,6 +339,48 @@ class TestDecide(BaseTest, QueryMatchingTest):
         self.assertEqual(response["sessionRecording"]["recordCanvas"], True)
         self.assertEqual(response["sessionRecording"]["canvasFps"], 4)
         self.assertEqual(response["sessionRecording"]["canvasQuality"], "0.6")
+
+    def test_session_replay_config_masking(self, *args):
+        # :TRICKY: Test for regression around caching
+
+        self._update_team(
+            {
+                "session_recording_opt_in": True,
+            }
+        )
+
+        response = self._post_decide().json()
+        assert "recordCanvas" not in response["sessionRecording"]
+        assert "canvasFps" not in response["sessionRecording"]
+        assert "canvasQuality" not in response["sessionRecording"]
+        assert "maskAllInputs" not in response["sessionRecording"]
+        assert "maskTextSelector" not in response["sessionRecording"]
+
+        self._update_team(
+            {
+                "session_replay_config": {"mask_all_inputs": True},
+            }
+        )
+
+        response = self._post_decide().json()
+        assert response["sessionRecording"]["recordCanvas"] is False
+        assert response["sessionRecording"]["canvasFps"] is None
+        assert response["sessionRecording"]["canvasQuality"] is None
+        assert response["sessionRecording"]["maskAllInputs"] is True
+        assert "maskTextSelector" not in response["sessionRecording"]
+
+        self._update_team(
+            {
+                "session_replay_config": {"mask_all_inputs": False, "mask_all_text": True},
+            }
+        )
+
+        response = self._post_decide().json()
+        assert response["sessionRecording"]["recordCanvas"] is False
+        assert response["sessionRecording"]["canvasFps"] is None
+        assert response["sessionRecording"]["canvasQuality"] is None
+        assert response["sessionRecording"]["maskAllInputs"] is False
+        assert response["sessionRecording"]["maskTextSelector"] == "*"
 
     def test_exception_autocapture_opt_in(self, *args):
         # :TRICKY: Test for regression around caching

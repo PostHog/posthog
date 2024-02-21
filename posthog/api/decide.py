@@ -285,6 +285,14 @@ def get_decide(request: HttpRequest):
                         }
                     )
 
+                    mask_all_inputs = team.session_replay_config.get("mask_all_inputs", None)
+                    if mask_all_inputs is not None:
+                        session_recording_response["maskAllInputs"] = mask_all_inputs
+
+                    mask_all_text = team.session_replay_config.get("mask_all_text")
+                    if mask_all_text is not None:
+                        session_recording_response["maskTextSelector"] = "*" if mask_all_text else None
+
                 response["sessionRecording"] = session_recording_response
 
             response["surveys"] = True if team.surveys_opt_in else False
