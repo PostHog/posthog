@@ -250,32 +250,30 @@ class BillingManager:
                 sync_org_quota_limits(organization)
 
         # Update trusted customer scores.
-        if not data["trust_score_overwritten"]:
-            # Do not attempt to automatically update if we've manually set the score through Django.
-            for resource in QuotaResource:
-                # Compute their trust score
-                score = 0
-                if data.get("billing_period").get("interval") == "year":
-                    # annual plan
-                    score = 15
-                elif data["has_active_subscription"] and data["highest_paid_bill"] >= 1000:
-                    # TODO: add teams plans check
-                    # teams plans or paid 1+ >$1k bill
-                    score = 10
-                elif data["has_active_subscription"] and data["highest_paid_bill"] > 0:
-                    # Subscribed, has paid 1+ times
-                    score = 7
-                elif data["has_active_subscription"]:
-                    # Subscribed but never paid
-                    score = 3
-                if not organization.trusted_customer_scores.get(resource.value):
+        for resource in QuotaResource:
+            # Compute their trust score
+            score = 0
+            if data.get("billing_period").get("interval") == "year":
+                # annual plan
+                score = 15
+            elif data["has_active_subscription"] and data["highest_paid_bill"][resource.value] >= 1000:
+                # TODO: add teams plans check
+                # teams plans or paid 1+ >$1k bill
+                score = 10
+            elif data["has_active_subscription"] and data["highest_paid_bill"][resource.value] > 0:
+                # Subscribed, has paid 1+ times
+                score = 7
+            elif data["has_active_subscription"]:
+                # Subscribed but never paid
+                score = 3
+            if not organization.trusted_customer_scores.get(resource.value):
+                organization.trusted_customer_scores[resource.value] = score
+                org_modified = True
+            else:
+                # Update if new score is higher
+                if score > organization.trusted_customer_scores[resource.value]:
                     organization.trusted_customer_scores[resource.value] = score
                     org_modified = True
-                else:
-                    # Update if new score is higher
-                    if score > organization.trusted_customer_scores[resource.value]:
-                        organization.trusted_customer_scores[resource.value] = score
-                        org_modified = True
 
         available_features = data.get("available_features", None)
         if available_features and available_features != organization.available_features:

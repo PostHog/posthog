@@ -59,8 +59,7 @@ class CustomerInfo(TypedDict):
     free_trial_until: Optional[str]
     discount_percent: Optional[int]
     discount_amount_usd: Optional[str]
-    highest_paid_bill: int
-    trust_score_overwritten: bool
+    highest_paid_bill: Dict[str, Decimal]
 
 
 class BillingStatus(TypedDict):

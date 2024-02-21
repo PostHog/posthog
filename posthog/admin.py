@@ -578,6 +578,8 @@ class OrganizationAdmin(admin.ModelAdmin):
         "billing_link_v2",
         "usage_posthog",
         "usage",
+        "trusted_customer_scores",
+        "trusted_customer_score_overrides",
     ]
     inlines = [OrganizationTeamInline, OrganizationMemberInline]
     readonly_fields = [
@@ -586,6 +588,7 @@ class OrganizationAdmin(admin.ModelAdmin):
         "billing_link_v2",
         "usage_posthog",
         "usage",
+        "trusted_customer_scores",
     ]
     search_fields = ("name", "members__email", "team__api_token")
     list_display = (
