@@ -360,6 +360,7 @@ class FunnelBase(ABC):
         people: Optional[List[uuid.UUID]] = None,
         sampling_factor: Optional[float] = None,
     ) -> Dict[str, Any]:
+        action_id: Optional[str | int]
         if isinstance(step, EventsNode):
             name = step.event
             action_id = step.event
