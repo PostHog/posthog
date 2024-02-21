@@ -37,7 +37,7 @@ export function ClickToInspectActors({
                 </div>
             )}
             <div className="table-subtext-click-to-inspect">
-                <IconHandClick style={{ marginRight: 4, marginBottom: 2 }} />
+                <IconHandClick className="mr-1 mb-0.5" />
                 Click to view {groupTypeLabel}
             </div>
         </div>

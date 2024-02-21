@@ -39,7 +39,13 @@ class QueryThrottle(TeamRateThrottle):
     rate = "120/hour"
 
 
-class QueryViewSet(PydanticModelMixin, TeamAndOrgViewSetMixin, viewsets.ViewSet):
+class QueryViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet):
+    # NOTE: Do we need to override the scopes for the "create"
+    scope_object = "query"
+    # Special case for query - these are all essentially read actions
+    scope_object_read_actions = ["retrieve", "create", "list", "destroy"]
+    scope_object_write_actions: list[str] = []
+
     def get_throttles(self):
         if self.action == "draft_sql":
             return [AIBurstRateThrottle(), AISustainedRateThrottle()]

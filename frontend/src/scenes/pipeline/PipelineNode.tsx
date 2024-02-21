@@ -19,6 +19,8 @@ import { PipelineNodeMetrics } from './PipelineNodeMetrics'
 export const PIPELINE_TAB_TO_NODE_STAGE: Partial<Record<PipelineTab, PipelineStage>> = {
     [PipelineTab.Transformations]: PipelineStage.Transformation,
     [PipelineTab.Destinations]: PipelineStage.Destination,
+    [PipelineTab.SiteApps]: PipelineStage.SiteApp,
+    [PipelineTab.ImportApps]: PipelineStage.ImportApp,
 }
 
 const paramsToProps = ({

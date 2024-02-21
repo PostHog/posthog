@@ -30,8 +30,6 @@
         }
 
         .LemonButton:not(:hover) {
-            background: var(--bg-3000);
-
             .LemonButton__content {
                 opacity: var(--lemon-button-icon-opacity);
             }
