@@ -16,6 +16,7 @@ import { userLogic } from 'scenes/userLogic'
 import { BillingProductV2Type, BillingV2Type, ProductKey } from '~/types'
 
 import type { billingLogicType } from './billingLogicType'
+import { lemonBannerLogic } from 'lib/lemon-ui/LemonBanner/lemonBannerLogic'
 
 export const ALLOCATION_THRESHOLD_ALERT = 0.85 // Threshold to show warning of event usage near limit
 export const ALLOCATION_THRESHOLD_BLOCK = 1.2 // Threshold to block usage
@@ -193,7 +194,8 @@ export const billingLogic = kea<billingLogicType>([
                     return productSpecificAlert
                 }
 
-                if (!billing || !preflight?.cloud) {
+                if (!billing) {
+                    // || !preflight?.cloud) {
                     return
                 }
 
@@ -238,10 +240,12 @@ export const billingLogic = kea<billingLogicType>([
                     }
                 }
 
-                localStorage.setItem(
-                    'components.lemon-banner.lemonBannerLogic.usage-limit-exceeded.isDismissed',
-                    'false'
-                )
+                debugger
+                lemonBannerLogic({ dismissKey: 'usage-limit-exceeded' }).actions.resetDismissKey()
+                // localStorage.setItem(
+                //     'components.lemon-banner.lemonBannerLogic.usage-limit-exceeded.isDismissed',
+                //     'false'
+                // )
 
                 const productApproachingLimit = billing.products?.find(
                     (x) => x.percentage_usage > ALLOCATION_THRESHOLD_ALERT
