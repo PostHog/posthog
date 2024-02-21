@@ -3263,7 +3263,7 @@ export interface ExportedAssetType {
     export_context?: ExportContext
     has_content: boolean
     filename: string
-    expires_after?: Dayjs
+    expires_after?: string
 }
 
 export enum FeatureFlagReleaseType {
@@ -3727,4 +3727,5 @@ export enum SidePanelTab {
     Activity = 'activity',
     Discussion = 'discussion',
     Status = 'status',
+    Exports = 'exports',
 }

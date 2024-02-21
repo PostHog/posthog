@@ -1,12 +1,14 @@
+import { useMountedLogic } from 'kea'
 import { LemonButton, LemonButtonProps, LemonButtonWithDropdown } from 'lib/lemon-ui/LemonButton'
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
 
-import { ExporterFormat, OnlineExportContext } from '~/types'
+import { sidePanelLogic } from '~/layout/navigation-3000/sidepanel/sidePanelLogic'
+import { ExporterFormat, OnlineExportContext, SidePanelTab } from '~/types'
 
 import { triggerExport, TriggerExportProps } from './exporter'
 
 export interface ExportButtonItem {
-    title?: string
+    title?: string | React.ReactNode
     export_format: ExporterFormat
     export_context?: TriggerExportProps['export_context']
     dashboard?: number
@@ -18,6 +20,10 @@ export interface ExportButtonProps extends Pick<LemonButtonProps, 'icon' | 'type
 }
 
 export function ExportButton({ items, ...buttonProps }: ExportButtonProps): JSX.Element {
+    useMountedLogic(sidePanelLogic)
+
+    const { actions } = sidePanelLogic
+
     return (
         <LemonButtonWithDropdown
             data-attr="export-button"
@@ -51,7 +57,10 @@ export function ExportButton({ items, ...buttonProps }: ExportButtonProps): JSX.
                                 <LemonButton
                                     key={i}
                                     fullWidth
-                                    onClick={() => void triggerExport(triggerExportProps)}
+                                    onClick={() => {
+                                        actions.openSidePanel(SidePanelTab.Exports)
+                                        void triggerExport(triggerExportProps)
+                                    }}
                                     data-attr={`export-button-${exportFormatExtension}`}
                                     data-ph-capture-attribute-export-target={target}
                                     data-ph-capture-attribute-export-body={
