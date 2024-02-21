@@ -81,7 +81,7 @@ export const teamLogic = kea<teamLogicType>([
                     if (payload.session_replay_config) {
                         payload.session_replay_config = {
                             ...values.currentTeam.session_replay_config,
-                            ...payload.session_replay_configNETWORK,
+                            ...payload.session_replay_config,
                         }
                     }
 

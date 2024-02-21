@@ -10,7 +10,6 @@ import { IconCancel } from 'lib/lemon-ui/icons'
 import { LemonLabel } from 'lib/lemon-ui/LemonLabel/LemonLabel'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { teamLogic } from 'scenes/teamLogic'
-import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
 import { AvailableFeature } from '~/types'
@@ -91,6 +90,10 @@ function NetworkCaptureSettings(): JSX.Element {
     return (
         <div>
             <h3>Network capture</h3>
+            <p>
+                This setting controls if performance and network information will be captured alongside recordings. The
+                network requests and timings will be shown in the recording player to help you debug any issues.
+            </p>
             <LemonSwitch
                 data-attr="opt-in-capture-performance-switch"
                 onChange={(checked) => {
@@ -103,12 +106,14 @@ function NetworkCaptureSettings(): JSX.Element {
                     !currentTeam?.session_recording_opt_in ? 'session recording must be enabled' : undefined
                 }
             />
-            <p>
-                This setting controls if performance and network information will be captured alongside recordings. The
-                network requests and timings will be shown in the recording player to help you debug any issues.
-            </p>
             <FlaggedFeature flag={FEATURE_FLAGS.NETWORK_PAYLOAD_CAPTURE} match={true}>
-                <h5>Network payloads</h5>
+                <p>
+                    When network capture is enabled, we always capture network timings. Use these switches to choose
+                    whether to also capture headers and payloads of requests.{' '}
+                    <Link to="https://posthog.com/docs/session-replay/network-recording" target="blank">
+                        Learn how to mask header and payload values in our docs
+                    </Link>
+                </p>
                 <div className="flex flex-row space-x-2">
                     <LemonSwitch
                         data-attr="opt-in-capture-network-headers-switch"
@@ -157,13 +162,6 @@ function NetworkCaptureSettings(): JSX.Element {
                         }
                     />
                 </div>
-                <p>
-                    When network capture is enabled, we always captured network timings. Use these switches to choose
-                    whether to capture headers and payloads of requests.{' '}
-                    <Link to="https://posthog.com/docs/session-replay/network-recording" target="blank">
-                        Learn how to mask header and payload values in our docs
-                    </Link>
-                </p>
             </FlaggedFeature>
         </div>
     )
@@ -172,8 +170,6 @@ function NetworkCaptureSettings(): JSX.Element {
 function MaskingSettings(): JSX.Element {
     const { updateCurrentTeam } = useActions(teamLogic)
     const { currentTeam } = useValues(teamLogic)
-
-    const existingReplaySettings = { ...(currentTeam?.session_replay_config || {}) }
 
     return (
         <div>
@@ -189,10 +185,10 @@ function MaskingSettings(): JSX.Element {
                     data-attr="opt-in-mask-inputs-switch"
                     onChange={(checked) => {
                         updateCurrentTeam({
-                            session_replay_config: { ...existingReplaySettings, maskAllInputs: checked },
+                            session_replay_config: { maskAllInputs: checked },
                         })
                     }}
-                    label="Enable masking of inputs"
+                    label="Mask all inputs"
                     bordered
                     checked={
                         currentTeam?.session_recording_opt_in
@@ -213,10 +209,10 @@ function MaskingSettings(): JSX.Element {
                     data-attr="opt-in-mask-text-switch"
                     onChange={(checked) => {
                         updateCurrentTeam({
-                            session_replay_config: { ...existingReplaySettings, maskAllText: checked },
+                            session_replay_config: { maskAllText: checked },
                         })
                     }}
-                    label="Enable masking of text"
+                    label="Mask all other text"
                     bordered
                     checked={
                         currentTeam?.session_recording_opt_in
@@ -452,10 +448,17 @@ export function ReplayGeneral(): JSX.Element {
     const { currentTeam } = useValues(teamLogic)
 
     return (
-        <div className="flex flex-col gap-2">
-            <p>Watch recordings of how users interact with your web app to see what can be improved.</p>
-
-            <div className="space-y-2">
+        <div className="flex flex-col gap-4">
+            <div>
+                <p>
+                    Watch recordings of how users interact with your web app to see what can be improved.{' '}
+                    <Link
+                        to="https://posthog.com/docs/user-guides/recordings?utm_campaign=session-recording&utm_medium=in-product"
+                        target="_blank"
+                    >
+                        Check out our docs
+                    </Link>
+                </p>
                 <LemonSwitch
                     data-attr="opt-in-session-recording-switch"
                     onChange={(checked) => {
@@ -471,26 +474,10 @@ export function ReplayGeneral(): JSX.Element {
                     bordered
                     checked={!!currentTeam?.session_recording_opt_in}
                 />
-                <p>
-                    Please note your website needs to have the{' '}
-                    <Link to={urls.settings('project', 'snippet')}>PostHog snippet</Link> or the latest version of{' '}
-                    <Link
-                        to="https://posthog.com/docs/libraries/js?utm_campaign=session-recording&utm_medium=in-product"
-                        target="_blank"
-                    >
-                        posthog-js
-                    </Link>{' '}
-                    directly installed. For more details, check out our{' '}
-                    <Link
-                        to="https://posthog.com/docs/user-guides/recordings?utm_campaign=session-recording&utm_medium=in-product"
-                        target="_blank"
-                    >
-                        docs
-                    </Link>
-                    .
-                </p>
             </div>
-            <MaskingSettings />
+            <FlaggedFeature flag={FEATURE_FLAGS.REPLAY_REMOTE_MASKING_CONFIG} match={true}>
+                <MaskingSettings />
+            </FlaggedFeature>
             <LogCaptureSettings />
             <CanvasCaptureSettings />
             <NetworkCaptureSettings />
