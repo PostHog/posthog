@@ -257,8 +257,9 @@ class TestInsightActorsQueryRunner(ClickhouseTestMixin, APIBaseTest):
             """
                 select * from (
                     <ActorsQuery select={['properties.name']}>
-                        <FunnelsActorsQuery funnelStep={1}>
+                        <FunnelsActorsQuery funnelStep={2}>
                             <FunnelsQuery
+                                dateRange={<DateRange date_from='2020-01-01' date_to='2020-01-19' />}
                                 series={[<EventsNode event='$pageview' />, <EventsNode event='$pageview' />]}
                             />
                         </FunnelsActorsQuery>
@@ -267,4 +268,4 @@ class TestInsightActorsQueryRunner(ClickhouseTestMixin, APIBaseTest):
                 """
         )
 
-        self.assertEqual([("p2",)], response.results)
+        self.assertEqual([("p1",), ("p2",)], response.results)
