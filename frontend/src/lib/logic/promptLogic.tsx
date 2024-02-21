@@ -106,7 +106,7 @@ function Prompt({
     )
 }
 
-export function cancellablePrompt(config: Pick<PromptProps, 'title' | 'placeholder' | 'value' | 'rules'>): {
+function cancellablePrompt(config: Pick<PromptProps, 'title' | 'placeholder' | 'value' | 'rules'>): {
     cancel: () => void
     promise: Promise<unknown>
 } {

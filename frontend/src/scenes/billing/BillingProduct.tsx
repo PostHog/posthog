@@ -1,3 +1,4 @@
+import { IconPlus } from '@posthog/icons'
 import { LemonButton, LemonSelectOptions, LemonTable, LemonTag, Link } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
@@ -9,7 +10,6 @@ import {
     IconChevronRight,
     IconExpandMore,
     IconInfo,
-    IconPlus,
 } from 'lib/lemon-ui/icons'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { More } from 'lib/lemon-ui/LemonButton/More'
@@ -18,6 +18,7 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { capitalizeFirstLetter, compactNumber } from 'lib/utils'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import posthog from 'posthog-js'
+import { useRef } from 'react'
 import { getProductIcon } from 'scenes/products/Products'
 
 import { BillingProductV2AddonType, BillingProductV2Type, BillingV2TierType } from '~/types'
@@ -64,13 +65,12 @@ export const BillingProductAddon = ({ addon }: { addon: BillingProductV2AddonTyp
         tierDisplayOptions.push({ label: `Current bill`, value: 'total' })
     }
 
-    const showPipelineAddonNotice =
+    const isOGPipelineAddon =
         addon.type === 'data_pipelines' &&
         addon.subscribed &&
-        featureFlags['data-pipelines-notice'] &&
         addon.plans?.[0]?.plan_key === 'addon-20240111-og-customers'
 
-    if (showPipelineAddonNotice) {
+    if (isOGPipelineAddon && featureFlags['data-pipelines-notice']) {
         setProductSpecificAlert({
             status: 'info',
             title: 'Welcome to the data pipelines addon!',
@@ -110,13 +110,24 @@ export const BillingProductAddon = ({ addon }: { addon: BillingProductV2AddonTyp
                             <h4 className="leading-5 mb-1 font-bold">{addon.name}</h4>
                             {addon.subscribed && (
                                 <div>
-                                    <LemonTag type="completion" icon={<IconCheckmark />}>
+                                    <LemonTag type="primary" icon={<IconCheckmark />}>
                                         Subscribed
                                     </LemonTag>
                                 </div>
                             )}
                         </div>
                         <p className="ml-0 mb-0">{addon.description}</p>
+                        {isOGPipelineAddon && (
+                            <div className="mt-2">
+                                <Link
+                                    targetBlankIcon
+                                    target="_blank"
+                                    to="https://posthog.com/changelog/2024#data-pipeline-add-on-launched"
+                                >
+                                    <span className="text-xs italic">Why am I subscribed to this?</span>
+                                </Link>
+                            </div>
+                        )}
                     </div>
                 </div>
                 <div className="ml-4 mr-4 mt-2 self-center flex gap-x-2 whitespace-nowrap">
@@ -189,6 +200,7 @@ export const BillingProductAddon = ({ addon }: { addon: BillingProductV2AddonTyp
 }
 
 export const BillingProduct = ({ product }: { product: BillingProductV2Type }): JSX.Element => {
+    const productRef = useRef<HTMLDivElement | null>(null)
     const { billing, redirectPath, isOnboarding, isUnlicensedDebug } = useValues(billingLogic)
     const {
         customLimitUsd,
@@ -206,7 +218,7 @@ export const BillingProduct = ({ product }: { product: BillingProductV2Type }): 
         toggleIsPlanComparisonModalOpen,
         reportSurveyShown,
         setSurveyResponse,
-    } = useActions(billingProductLogic({ product }))
+    } = useActions(billingProductLogic({ product, productRef }))
     const { reportBillingUpgradeClicked } = useActions(eventUsageLogic)
 
     const showUpgradeCTA = !product.subscribed && !product.contact_support && product.plans?.length
@@ -336,7 +348,7 @@ export const BillingProduct = ({ product }: { product: BillingProductV2Type }): 
             })}
             ref={ref}
         >
-            <div className="border border-border rounded w-full bg-bg-light">
+            <div className="border border-border rounded w-full bg-bg-light" ref={productRef}>
                 <div className="border-b border-border bg-mid p-4">
                     <div className="flex gap-4 items-center justify-between">
                         {getProductIcon(product.icon_key, 'text-2xl')}
@@ -536,7 +548,7 @@ export const BillingProduct = ({ product }: { product: BillingProductV2Type }): 
                                     <LemonTable
                                         stealth
                                         embedded
-                                        size="xs"
+                                        size="small"
                                         uppercaseHeader={false}
                                         columns={tableColumns}
                                         dataSource={tableTierData}
@@ -559,7 +571,7 @@ export const BillingProduct = ({ product }: { product: BillingProductV2Type }): 
                                 <LemonTable
                                     stealth
                                     embedded
-                                    size="xs"
+                                    size="small"
                                     uppercaseHeader={false}
                                     columns={[
                                         { title: '', dataIndex: 'name' },

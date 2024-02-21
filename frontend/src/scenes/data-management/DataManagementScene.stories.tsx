@@ -7,9 +7,7 @@ import { App } from 'scenes/App'
 import { urls } from 'scenes/urls'
 
 import { mswDecorator, setFeatureFlags } from '~/mocks/browser'
-import { useAvailableFeatures } from '~/mocks/features'
 import { DatabaseSchemaQueryResponse } from '~/queries/schema'
-import { AvailableFeature } from '~/types'
 
 import { ingestionWarningsResponse } from './ingestion-warnings/__mocks__/ingestion-warnings-response'
 
@@ -111,7 +109,6 @@ const meta: Meta = {
 }
 export default meta
 export function Database(): JSX.Element {
-    useAvailableFeatures([AvailableFeature.EXPERIMENTATION])
     useEffect(() => {
         router.actions.push(urls.database())
     }, [])

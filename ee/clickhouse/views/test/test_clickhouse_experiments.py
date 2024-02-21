@@ -1,4 +1,3 @@
-import pytest
 from django.core.cache import cache
 from flaky import flaky
 from rest_framework import status
@@ -17,14 +16,6 @@ class TestExperimentCRUD(APILicensedTest):
     def test_can_list_experiments(self):
         response = self.client.get(f"/api/projects/{self.team.id}/experiments/")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
-
-    @pytest.mark.skip_on_multitenancy
-    def test_cannot_list_experiments_without_proper_license(self):
-        self.organization.available_features = []
-        self.organization.save()
-        response = self.client.get(f"/api/projects/{self.team.id}/experiments/")
-        self.assertEqual(response.status_code, status.HTTP_402_PAYMENT_REQUIRED)
-        self.assertEqual(response.json(), self.license_required_response())
 
     def test_getting_experiments_is_not_nplus1(self) -> None:
         self.client.post(
@@ -53,7 +44,7 @@ class TestExperimentCRUD(APILicensedTest):
             format="json",
         ).json()
 
-        with self.assertNumQueries(FuzzyInt(9, 10)):
+        with self.assertNumQueries(FuzzyInt(8, 9)):
             response = self.client.get(f"/api/projects/{self.team.id}/experiments")
             self.assertEqual(response.status_code, status.HTTP_200_OK)
 
@@ -70,7 +61,7 @@ class TestExperimentCRUD(APILicensedTest):
                 format="json",
             ).json()
 
-        with self.assertNumQueries(FuzzyInt(9, 10)):
+        with self.assertNumQueries(FuzzyInt(8, 9)):
             response = self.client.get(f"/api/projects/{self.team.id}/experiments")
             self.assertEqual(response.status_code, status.HTTP_200_OK)
 

@@ -1,5 +1,5 @@
+import { IconX } from '@posthog/icons'
 import { useActions, useValues } from 'kea'
-import { IconClose } from 'lib/lemon-ui/icons'
 
 import { ElementInfo } from '~/toolbar/elements/ElementInfo'
 import { elementsLogic } from '~/toolbar/elements/elementsLogic'
@@ -108,7 +108,7 @@ export function ElementInfoWindow(): JSX.Element | null {
                         cursor: 'pointer',
                     }}
                 >
-                    <IconClose />
+                    <IconX />
                 </div>
             ) : null}
             {/* eslint-disable-next-line react/forbid-dom-props */}

@@ -1,5 +1,5 @@
+import json
 import uuid
-from unittest.mock import patch
 
 from django.test import TestCase
 
@@ -8,6 +8,8 @@ from posthog.client import sync_execute
 from posthog.hogql.errors import HogQLException
 from posthog.models import Organization, Team
 from posthog.test.base import ClickhouseTestMixin, snapshot_clickhouse_queries
+from unittest.mock import patch, MagicMock
+from posthog.clickhouse.client.execute_async import QueryStatusManager, execute_process_query
 
 
 def build_query(sql):
@@ -15,6 +17,40 @@ def build_query(sql):
         "kind": "HogQLQuery",
         "query": sql,
     }
+
+
+class TestExecuteProcessQuery(TestCase):
+    def setUp(self):
+        self.organization = Organization.objects.create(name="test")
+        self.team = Team.objects.create(organization=self.organization)
+        self.team_id = self.team.pk
+        self.query_id = "test_query_id"
+        self.query_json = {}
+        self.limit_context = None
+        self.refresh_requested = False
+        self.manager = QueryStatusManager(self.query_id, self.team_id)
+
+    @patch("posthog.clickhouse.client.execute_async.redis.get_client")
+    @patch("posthog.api.services.query.process_query")
+    def test_execute_process_query(self, mock_process_query, mock_redis_client):
+        mock_redis = MagicMock()
+        mock_redis.get.return_value = json.dumps(
+            {"id": self.query_id, "team_id": self.team_id, "complete": False, "error": False}
+        ).encode()
+        mock_redis_client.return_value = mock_redis
+
+        mock_process_query.return_value = [float("inf"), float("-inf"), float("nan"), 1.0, "👍"]
+
+        execute_process_query(self.team_id, self.query_id, self.query_json, self.limit_context, self.refresh_requested)
+
+        mock_redis_client.assert_called_once()
+        mock_process_query.assert_called_once()
+
+        # Assert that Redis set method was called with the correct arguments
+        mock_redis.set.assert_called_once()
+        args, kwargs = mock_redis.set.call_args
+        args_loaded = json.loads(args[1])
+        self.assertEqual(args_loaded["results"], [None, None, None, 1.0, "👍"])
 
 
 class ClickhouseClientTestCase(TestCase, ClickhouseTestMixin):

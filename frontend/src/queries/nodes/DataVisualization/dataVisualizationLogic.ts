@@ -3,6 +3,7 @@ import { subscriptions } from 'kea-subscriptions'
 import { insightSceneLogic } from 'scenes/insights/insightSceneLogic'
 import { teamLogic } from 'scenes/teamLogic'
 
+import { insightVizDataCollectionId } from '~/queries/nodes/InsightViz/InsightViz'
 import { AnyResponseType, ChartAxis, DataVisualizationNode } from '~/queries/schema'
 import { QueryContext } from '~/queries/types'
 import { ChartDisplayType, InsightLogicProps, ItemMode } from '~/types'
@@ -46,11 +47,23 @@ export const dataVisualizationLogic = kea<dataVisualizationLogicType>([
             ['currentTeamId'],
             insightSceneLogic,
             ['insightMode'],
-            dataNodeLogic({ cachedResults: props.cachedResults, key: props.key, query: props.query.source }),
+            dataNodeLogic({
+                cachedResults: props.cachedResults,
+                key: props.key,
+                query: props.query.source,
+                dataNodeCollectionId: insightVizDataCollectionId(props.insightLogicProps, props.key),
+                loadPriority: props.insightLogicProps.loadPriority,
+            }),
             ['response', 'responseLoading'],
         ],
         actions: [
-            dataNodeLogic({ cachedResults: props.cachedResults, key: props.key, query: props.query.source }),
+            dataNodeLogic({
+                cachedResults: props.cachedResults,
+                key: props.key,
+                query: props.query.source,
+                dataNodeCollectionId: insightVizDataCollectionId(props.insightLogicProps, props.key),
+                loadPriority: props.insightLogicProps.loadPriority,
+            }),
             ['loadDataSuccess'],
         ],
     })),
@@ -79,11 +92,11 @@ export const dataVisualizationLogic = kea<dataVisualizationLogicType>([
                         return []
                     }
 
-                    const columns: string[] = response['columns']
-                    const types: string[][] = response['types']
+                    const columns: string[] = response['columns'] ?? []
+                    const types: string[][] = response['types'] ?? []
 
                     return columns.map((column, index) => {
-                        const type = types[index][1]
+                        const type = types[index]?.[1]
                         return {
                             name: column,
                             type,

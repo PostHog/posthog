@@ -3,6 +3,7 @@ import {
     ClientMetrics,
     CODES,
     ConsumerGlobalConfig,
+    ConsumerTopicConfig,
     KafkaConsumer as RdKafkaConsumer,
     LibrdKafkaError,
     Message,
@@ -13,12 +14,12 @@ import {
 import { kafkaRebalancePartitionCount, latestOffsetTimestampGauge } from '../main/ingestion-queues/metrics'
 import { status } from '../utils/status'
 
-export const createKafkaConsumer = async (config: ConsumerGlobalConfig) => {
+export const createKafkaConsumer = async (config: ConsumerGlobalConfig, topicConfig: ConsumerTopicConfig = {}) => {
     // Creates a node-rdkafka consumer and connects it to the brokers, resolving
     // only when the connection is established.
 
     return await new Promise<RdKafkaConsumer>((resolve, reject) => {
-        const consumer = new RdKafkaConsumer(config, {})
+        const consumer = new RdKafkaConsumer(config, topicConfig)
 
         consumer.on('event.log', (log) => {
             status.info('📝', 'librdkafka log', { log: log })

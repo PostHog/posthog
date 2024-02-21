@@ -1,8 +1,8 @@
 import './FilterRow.scss'
 
+import { IconPlus, IconTrash, IconX } from '@posthog/icons'
 import clsx from 'clsx'
 import { isValidPropertyFilter } from 'lib/components/PropertyFilters/utils'
-import { IconClose, IconDelete, IconPlus } from 'lib/lemon-ui/icons'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { Popover } from 'lib/lemon-ui/Popover/Popover'
 import React, { useEffect, useState } from 'react'
@@ -72,7 +72,7 @@ export const FilterRow = React.memo(function FilterRow({
                         {filterComponent(() => setOpen(false))}
                         {!!Object.keys(filters[index]).length && (
                             <LemonButton
-                                icon={orFiltering ? <IconDelete /> : <IconClose />}
+                                icon={orFiltering ? <IconTrash /> : <IconX />}
                                 onClick={() => onRemove(index)}
                                 size="small"
                                 className="ml-2"

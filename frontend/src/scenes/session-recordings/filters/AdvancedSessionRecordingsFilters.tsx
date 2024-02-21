@@ -41,7 +41,6 @@ export const AdvancedSessionRecordingsFilters = ({
                 }}
                 typeKey="session-recordings"
                 mathAvailability={MathAvailability.None}
-                buttonCopy="Add filter"
                 hideRename
                 hideDuplicate
                 showNestedArrow={false}
@@ -72,6 +71,7 @@ export const AdvancedSessionRecordingsFilters = ({
             {showPropertyFilters && (
                 <PropertyFilters
                     pageKey="session-recordings"
+                    buttonText="Person or cohort"
                     taxonomicGroupTypes={[TaxonomicFilterGroupType.PersonProperties, TaxonomicFilterGroupType.Cohorts]}
                     propertyFilters={filters.properties}
                     onChange={(properties) => {

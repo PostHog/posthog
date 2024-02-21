@@ -1,17 +1,29 @@
 from functools import cached_property, lru_cache
 from typing import TYPE_CHECKING, Any, Dict, Optional, cast
 
-from rest_framework import authentication
 from rest_framework.exceptions import AuthenticationFailed, NotFound, ValidationError
+from rest_framework.permissions import IsAuthenticated
 from rest_framework.viewsets import GenericViewSet
 from rest_framework_extensions.routers import ExtendedDefaultRouter
 from rest_framework_extensions.settings import extensions_api_settings
 
 from posthog.api.utils import get_token
-from posthog.auth import JwtAuthentication, PersonalAPIKeyAuthentication
+from posthog.auth import (
+    JwtAuthentication,
+    PersonalAPIKeyAuthentication,
+    SessionAuthentication,
+    SharingAccessTokenAuthentication,
+)
 from posthog.models.organization import Organization
+from posthog.models.personal_api_key import APIScopeObjectOrNotSupported
 from posthog.models.team import Team
 from posthog.models.user import User
+from posthog.permissions import (
+    APIScopePermission,
+    OrganizationMemberPermissions,
+    SharingTokenPermission,
+    TeamMemberAccessPermission,
+)
 from posthog.user_permissions import UserPermissions
 
 if TYPE_CHECKING:
@@ -28,27 +40,71 @@ class DefaultRouterPlusPlus(ExtendedDefaultRouter):
         self.trailing_slash = r"/?"
 
 
-class StructuredViewSetMixin(_GenericViewSet):
+# NOTE: Previously known as the StructuredViewSetMixin
+# IMPORTANT: Almost all viewsets should inherit from this mixin. It should be the first thing it inherits from to ensure
+# that typing works as expected
+class TeamAndOrgViewSetMixin(_GenericViewSet):
     # This flag disables nested routing handling, reverting to the old request.user.team behavior
     # Allows for a smoother transition from the old flat API structure to the newer nested one
-    legacy_team_compatibility: bool = False
+    derive_current_team_from_user_only: bool = False
 
     # Rewrite filter queries, so that for example foreign keys can be accessed
     # Example: {"team_id": "foo__team_id"} will make the viewset filtered by obj.foo.team_id instead of obj.team_id
     filter_rewrite_rules: Dict[str, str] = {}
 
-    include_in_docs = True
+    authentication_classes = []
+    permission_classes = []
 
-    authentication_classes = [
-        JwtAuthentication,
-        PersonalAPIKeyAuthentication,
-        authentication.SessionAuthentication,
-        authentication.BasicAuthentication,
-    ]
+    # NOTE: Could we type this? Would be pretty cool as a helper
+    scope_object: Optional[APIScopeObjectOrNotSupported] = None
+    required_scopes: Optional[list[str]] = None
+    sharing_enabled_actions: list[str] = []
+
+    # We want to try and ensure that the base permission and authentication are always used
+    # so we offer a way to add additional classes
+    def get_permissions(self):
+        if isinstance(self.request.successful_authenticator, SharingAccessTokenAuthentication):
+            return [SharingTokenPermission()]
+
+        # NOTE: We define these here to make it hard _not_ to use them. If you want to override them, you have to
+        # override the entire method.
+        permission_classes: list = [IsAuthenticated, APIScopePermission]
+
+        if self.is_team_view:
+            permission_classes.append(TeamMemberAccessPermission)
+        else:
+            permission_classes.append(OrganizationMemberPermissions)
+
+        permission_classes.extend(self.permission_classes)
+        return [permission() for permission in permission_classes]
+
+    def get_authenticators(self):
+        # NOTE: Custom authentication_classes go first as these typically have extra initial checks
+        authentication_classes: list = [
+            *self.authentication_classes,
+        ]
+
+        if self.sharing_enabled_actions:
+            authentication_classes.append(SharingAccessTokenAuthentication)
+
+        authentication_classes.extend(
+            [
+                JwtAuthentication,
+                PersonalAPIKeyAuthentication,
+                SessionAuthentication,
+            ]
+        )
+
+        return [auth() for auth in authentication_classes]
 
     def get_queryset(self):
         queryset = super().get_queryset()
         return self.filter_queryset_by_parents_lookups(queryset)
+
+    @property
+    def is_team_view(self):
+        # NOTE: We check the property first as it avoids any potential DB lookups via the parents_query_dict
+        return self.derive_current_team_from_user_only or "team_id" in self.parents_query_dict
 
     @property
     def team_id(self) -> int:
@@ -56,11 +112,12 @@ class StructuredViewSetMixin(_GenericViewSet):
         if team_from_token:
             return team_from_token.id
 
-        if self.legacy_team_compatibility:
+        if self.derive_current_team_from_user_only:
             user = cast(User, self.request.user)
             team = user.team
             assert team is not None
             return team.id
+
         return self.parents_query_dict["team_id"]
 
     @cached_property
@@ -69,7 +126,7 @@ class StructuredViewSetMixin(_GenericViewSet):
         if team_from_token:
             return team_from_token
 
-        if self.legacy_team_compatibility:
+        if self.derive_current_team_from_user_only:
             user = cast(User, self.request.user)
             team = user.team
             assert team is not None
@@ -84,7 +141,12 @@ class StructuredViewSetMixin(_GenericViewSet):
         try:
             return self.parents_query_dict["organization_id"]
         except KeyError:
-            return str(self.team.organization_id)
+            user = cast(User, self.request.user)
+            current_organization_id = self.team.organization_id if self.is_team_view else user.current_organization_id
+
+            if not current_organization_id:
+                raise NotFound("You need to belong to an organization.")
+            return str(current_organization_id)
 
     @cached_property
     def organization(self) -> Organization:
@@ -112,7 +174,7 @@ class StructuredViewSetMixin(_GenericViewSet):
         # used to override the last visited project if there's a token in the request
         team_from_request = self._get_team_from_request()
 
-        if self.legacy_team_compatibility:
+        if self.derive_current_team_from_user_only:
             if not self.request.user.is_authenticated:
                 raise AuthenticationFailed()
             project = team_from_request or self.request.user.team
@@ -120,7 +182,7 @@ class StructuredViewSetMixin(_GenericViewSet):
                 raise ValidationError("This endpoint requires a project.")
             return {"team_id": project.id}
         result = {}
-        # process URL paremetrs (here called kwargs), such as organization_id in /api/organizations/:organization_id/
+        # process URL parameters (here called kwargs), such as organization_id in /api/organizations/:organization_id/
         for kwarg_name, kwarg_value in self.kwargs.items():
             # drf-extensions nested parameters are prefixed
             if kwarg_name.startswith(extensions_api_settings.DEFAULT_PARENT_LOOKUP_KWARG_NAME_PREFIX):
@@ -182,30 +244,30 @@ class StructuredViewSetMixin(_GenericViewSet):
 
     # def create(self, *args, **kwargs):
     #     super_cls = super()
-    #     if self.legacy_team_compatibility:
+    #     if self.derive_current_team_from_user_only:
     #         print(f"Legacy endpoint called – {super_cls.get_view_name()} (create)")
     #     return super_cls.create(*args, **kwargs)
 
     # def retrieve(self, *args, **kwargs):
     #     super_cls = super()
-    #     if self.legacy_team_compatibility:
+    #     if self.derive_current_team_from_user_only:
     #         print(f"Legacy endpoint called – {super_cls.get_view_name()} (retrieve)")
     #     return super_cls.retrieve(*args, **kwargs)
 
     # def list(self, *args, **kwargs):
     #     super_cls = super()
-    #     if self.legacy_team_compatibility:
+    #     if self.derive_current_team_from_user_only:
     #         print(f"Legacy endpoint called – {super_cls.get_view_name()} (list)")
     #     return super_cls.list(*args, **kwargs)
 
     # def update(self, *args, **kwargs):
     #     super_cls = super()
-    #     if self.legacy_team_compatibility:
+    #     if self.derive_current_team_from_user_only:
     #         print(f"Legacy endpoint called – {super_cls.get_view_name()} (update)")
     #     return super_cls.update(*args, **kwargs)
 
     # def delete(self, *args, **kwargs):
     #     super_cls = super()
-    #     if self.legacy_team_compatibility:
+    #     if self.derive_current_team_from_user_only:
     #         print(f"Legacy endpoint called – {super_cls.get_view_name()} (delete)")
     #     return super_cls.delete(*args, **kwargs)

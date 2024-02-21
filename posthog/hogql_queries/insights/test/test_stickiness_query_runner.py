@@ -200,7 +200,7 @@ class TestStickinessQueryRunner(APIBaseTest):
     ):
         query_series: List[EventsNode | ActionsNode] = [EventsNode(event="$pageview")] if series is None else series
         query_date_from = date_from or self.default_date_from
-        query_date_to = date_to or self.default_date_to
+        query_date_to = None if date_to == "now" else date_to or self.default_date_to
         query_interval = interval or IntervalType.day
 
         query = StickinessQuery(
@@ -285,6 +285,23 @@ class TestStickinessQueryRunner(APIBaseTest):
         assert result["days"] == [hour + 1 for hour in range(25)]
         assert result["data"] == hours_data
 
+    def test_interval_hour_last_days(self):
+        self._create_test_events()
+
+        with freeze_time("2020-01-20T12:00:00Z"):
+            response = self._run_query(interval=IntervalType.hour, date_from="-2d", date_to="now")
+            result = response.results[0]
+            # 61 = 48 + 12 + 1
+            hours_labels = [f"{hour + 1} hour{'' if hour == 0 else 's'}" for hour in range(61)]
+            hours_data = [0] * 61
+            hours_data[0] = 1
+            hours_data[1] = 1
+
+            assert result["label"] == "$pageview"
+            assert result["labels"] == hours_labels
+            assert result["days"] == [hour + 1 for hour in range(61)]
+            assert result["data"] == hours_data
+
     def test_interval_day(self):
         self._create_test_events()
 
@@ -330,6 +347,19 @@ class TestStickinessQueryRunner(APIBaseTest):
         assert result["labels"] == ["1 week", "2 weeks", "3 weeks"]
         assert result["days"] == [1, 2, 3]
         assert result["data"] == [0, 0, 2]
+
+    def test_interval_full_weeks(self):
+        self._create_test_events()
+
+        with freeze_time("2020-01-23T12:00:00Z"):
+            response = self._run_query(interval=IntervalType.week, date_from="-30d", date_to="now")
+
+            result = response.results[0]
+
+            assert result["label"] == "$pageview"
+            assert result["labels"] == ["1 week", "2 weeks", "3 weeks", "4 weeks", "5 weeks"]
+            assert result["days"] == [1, 2, 3, 4, 5]
+            assert result["data"] == [0, 0, 2, 0, 0]
 
     def test_interval_month(self):
         self._create_test_events()

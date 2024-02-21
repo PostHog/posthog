@@ -14,10 +14,9 @@ from rest_framework.exceptions import (
     ValidationError,
 )
 from rest_framework.pagination import CursorPagination
-from rest_framework.permissions import IsAuthenticated
 from rest_framework_dataclasses.serializers import DataclassSerializer
 
-from posthog.api.routing import StructuredViewSetMixin
+from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.batch_exports.models import (
     BATCH_EXPORT_INTERVALS,
     BatchExportLogEntry,
@@ -48,11 +47,6 @@ from posthog.models import (
     BatchExportRun,
     Team,
     User,
-)
-from posthog.permissions import (
-    OrganizationMemberPermissions,
-    ProjectMembershipNecessaryPermissions,
-    TeamMemberAccessPermission,
 )
 from posthog.temporal.common.client import sync_connect
 from posthog.utils import relative_date_parse
@@ -98,13 +92,9 @@ class RunsCursorPagination(CursorPagination):
     page_size = 100
 
 
-class BatchExportRunViewSet(StructuredViewSetMixin, viewsets.ReadOnlyModelViewSet):
+class BatchExportRunViewSet(TeamAndOrgViewSetMixin, viewsets.ReadOnlyModelViewSet):
+    scope_object = "batch_export"
     queryset = BatchExportRun.objects.all()
-    permission_classes = [
-        IsAuthenticated,
-        ProjectMembershipNecessaryPermissions,
-        TeamMemberAccessPermission,
-    ]
     serializer_class = BatchExportRunSerializer
     pagination_class = RunsCursorPagination
 
@@ -348,13 +338,9 @@ class BatchExportSerializer(serializers.ModelSerializer):
         return batch_export
 
 
-class BatchExportViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
+class BatchExportViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
+    scope_object = "batch_export"
     queryset = BatchExport.objects.all()
-    permission_classes = [
-        IsAuthenticated,
-        ProjectMembershipNecessaryPermissions,
-        TeamMemberAccessPermission,
-    ]
     serializer_class = BatchExportSerializer
 
     def get_queryset(self):
@@ -466,7 +452,6 @@ class BatchExportViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
 
 
 class BatchExportOrganizationViewSet(BatchExportViewSet):
-    permission_classes = [IsAuthenticated, OrganizationMemberPermissions]
     filter_rewrite_rules = {"organization_id": "team__organization_id"}
 
 
@@ -475,12 +460,8 @@ class BatchExportLogEntrySerializer(DataclassSerializer):
         dataclass = BatchExportLogEntry
 
 
-class BatchExportLogViewSet(StructuredViewSetMixin, mixins.ListModelMixin, viewsets.GenericViewSet):
-    permission_classes = [
-        IsAuthenticated,
-        ProjectMembershipNecessaryPermissions,
-        TeamMemberAccessPermission,
-    ]
+class BatchExportLogViewSet(TeamAndOrgViewSetMixin, mixins.ListModelMixin, viewsets.GenericViewSet):
+    scope_object = "batch_export"
     serializer_class = BatchExportLogEntrySerializer
 
     def get_queryset(self):

@@ -2,13 +2,11 @@ from typing import Optional
 
 from rest_framework import filters, serializers, viewsets
 from rest_framework.exceptions import NotAuthenticated
-from rest_framework.permissions import IsAuthenticated
 
-from posthog.api.routing import StructuredViewSetMixin
+from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 from posthog.hogql.database.database import create_hogql_database
 from posthog.models import User
-from posthog.permissions import OrganizationMemberPermissions
 from posthog.warehouse.models import DataWarehouseSavedQuery, DataWarehouseViewLink
 
 
@@ -84,14 +82,14 @@ class ViewLinkSerializer(serializers.ModelSerializer):
         return
 
 
-class ViewLinkViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
+class ViewLinkViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     """
     Create, Read, Update and Delete View Columns.
     """
 
+    scope_object = "INTERNAL"
     queryset = DataWarehouseViewLink.objects.all()
     serializer_class = ViewLinkSerializer
-    permission_classes = [IsAuthenticated, OrganizationMemberPermissions]
     filter_backends = [filters.SearchFilter]
     search_fields = ["name"]
     ordering = "-created_at"

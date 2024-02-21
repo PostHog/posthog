@@ -1,5 +1,6 @@
 import './TaxonomicPropertyFilter.scss'
 
+import { IconPlusSmall } from '@posthog/icons'
 import { LemonButton, LemonDropdown } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { useActions, useMountedLogic, useValues } from 'kea'
@@ -9,6 +10,7 @@ import { PropertyFilterInternalProps } from 'lib/components/PropertyFilters/type
 import {
     isGroupPropertyFilter,
     isPropertyFilterWithOperator,
+    PROPERTY_FILTER_TYPE_TO_TAXONOMIC_FILTER_GROUP_TYPE,
     propertyFilterTypeToTaxonomicFilterType,
 } from 'lib/components/PropertyFilters/utils'
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
@@ -19,7 +21,6 @@ import {
     TaxonomicFilterValue,
 } from 'lib/components/TaxonomicFilter/types'
 import { useResizeBreakpoints } from 'lib/hooks/useResizeObserver'
-import { IconPlusMini } from 'lib/lemon-ui/icons'
 import { isOperatorMulti, isOperatorRegex } from 'lib/utils'
 import { useMemo } from 'react'
 
@@ -171,7 +172,7 @@ export function TaxonomicPropertyFilter({
                         >
                             <LemonButton
                                 type="secondary"
-                                icon={!valuePresent ? <IconPlusMini /> : undefined}
+                                icon={!valuePresent ? <IconPlusSmall /> : undefined}
                                 data-attr={'property-select-toggle-' + index}
                                 sideIcon={null} // The null sideIcon is here on purpose - it prevents the dropdown caret
                                 onClick={() => (dropdownOpen ? closeDropdown() : openDropdown())}
@@ -179,7 +180,12 @@ export function TaxonomicPropertyFilter({
                                 {filter?.type === 'cohort' ? (
                                     selectedCohortName || `Cohort #${filter?.value}`
                                 ) : filter?.key ? (
-                                    <PropertyKeyInfo value={filter.key} disablePopover ellipsis />
+                                    <PropertyKeyInfo
+                                        value={filter.key}
+                                        disablePopover
+                                        ellipsis
+                                        type={PROPERTY_FILTER_TYPE_TO_TAXONOMIC_FILTER_GROUP_TYPE[filter.type]}
+                                    />
                                 ) : (
                                     addText || 'Add filter'
                                 )}

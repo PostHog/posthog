@@ -1,8 +1,8 @@
+import { IconPlus } from '@posthog/icons'
 import { LemonButton, LemonMenu } from '@posthog/lemon-ui'
 import { useValues } from 'kea'
 import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
-import { IconPlus } from 'lib/lemon-ui/icons'
 import { useMemo } from 'react'
 import { teamLogic } from 'scenes/teamLogic'
 

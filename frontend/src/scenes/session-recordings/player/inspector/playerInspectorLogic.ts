@@ -3,8 +3,9 @@ import FuseClass from 'fuse.js'
 import { actions, connect, events, kea, key, listeners, path, props, propsChanged, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import api from 'lib/api'
+import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { Dayjs, dayjs } from 'lib/dayjs'
-import { getKeyMapping } from 'lib/taxonomy'
+import { getCoreFilterDefinition } from 'lib/taxonomy'
 import { eventToDescription, objectsEqual, toParams } from 'lib/utils'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { matchNetworkEvents } from 'scenes/session-recordings/player/inspector/performance-event-utils'
@@ -101,8 +102,12 @@ const PostHogMobileEvents = [
     'Application Became Active',
 ]
 
+function isMobileEvent(item: InspectorListItemEvent): boolean {
+    return PostHogMobileEvents.includes(item.data.event)
+}
+
 function isPostHogEvent(item: InspectorListItemEvent): boolean {
-    return item.data.event.startsWith('$') || PostHogMobileEvents.includes(item.data.event)
+    return item.data.event.startsWith('$') || isMobileEvent(item)
 }
 
 function _isCustomSnapshot(x: unknown): x is customEvent {
@@ -496,7 +501,9 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
 
                     const timestamp = dayjs(event.timestamp)
                     const search = `${
-                        getKeyMapping(event.event, 'event')?.label ?? event.event ?? ''
+                        getCoreFilterDefinition(event.event, TaxonomicFilterGroupType.Events)?.label ??
+                        event.event ??
+                        ''
                     } ${eventToDescription(event)}`.replace(/['"]+/g, '')
 
                     items.push({
@@ -569,6 +576,10 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
                             include = true
                         }
                         if (miniFiltersByKey['events-posthog']?.enabled && isPostHogEvent(item)) {
+                            include = true
+                        }
+                        // include Mobile events as part of the Auto-Summary
+                        if (miniFiltersByKey['all-automatic']?.enabled && isMobileEvent(item)) {
                             include = true
                         }
                         if (

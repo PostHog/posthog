@@ -7,8 +7,8 @@ import { useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
 import { CodeEditor } from 'lib/components/CodeEditors'
 import { Drawer } from 'lib/components/Drawer'
-import { Field } from 'lib/forms/Field'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
+import { LemonField } from 'lib/lemon-ui/LemonField'
 import { useEffect } from 'react'
 import { createDefaultPluginSource } from 'scenes/plugins/source/createDefaultPluginSource'
 import { pluginSourceLogic } from 'scenes/plugins/source/pluginSourceLogic'
@@ -112,7 +112,7 @@ export function PluginSource({
                         ) : (
                             <>
                                 <PluginSourceTabs logic={logic} />
-                                <Field name={[currentFile]}>
+                                <LemonField name={[currentFile]}>
                                     {({ value, onChange }) => (
                                         <>
                                             <CodeEditor
@@ -139,7 +139,7 @@ export function PluginSource({
                                             ) : null}
                                         </>
                                     )}
-                                </Field>
+                                </LemonField>
                             </>
                         )}
                     </>

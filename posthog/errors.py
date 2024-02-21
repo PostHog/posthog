@@ -4,7 +4,7 @@ from typing import Dict
 
 from clickhouse_driver.errors import ServerException
 
-from posthog.exceptions import EstimatedQueryExecutionTimeTooLong
+from posthog.exceptions import EstimatedQueryExecutionTimeTooLong, QuerySizeExceeded
 
 
 class InternalCHQueryError(ServerException):
@@ -49,6 +49,9 @@ def wrap_query_error(err: Exception) -> Exception:
         return EstimatedQueryExecutionTimeTooLong(
             detail=f"{match.group(0)} Try reducing its scope by changing the time range."
         )
+    # Handle syntax error when "max query size exceeded" in the message
+    if "query size exceeded" in err.message:
+        return QuerySizeExceeded()
 
     # :TRICKY: Return a custom class for every code by looking up the short name and creating a class dynamically.
     if hasattr(err, "code"):
@@ -339,7 +342,7 @@ CLICKHOUSE_ERROR_CODE_LOOKUP: Dict[int, ErrorCodeMeta] = {
     255: ErrorCodeMeta("TOO_MANY_RETRIES_TO_FETCH_PARTS"),
     256: ErrorCodeMeta("PARTITION_ALREADY_EXISTS"),
     257: ErrorCodeMeta("PARTITION_DOESNT_EXIST"),
-    258: ErrorCodeMeta("UNION_ALL_RESULT_STRUCTURES_MISMATCH"),
+    258: ErrorCodeMeta("UNION_ALL_RESULT_STRUCTURES_MISMATCH", user_safe="Mismatched number of columns in UNION ALL."),
     260: ErrorCodeMeta("CLIENT_OUTPUT_FORMAT_SPECIFIED"),
     261: ErrorCodeMeta("UNKNOWN_BLOCK_INFO_FIELD"),
     262: ErrorCodeMeta("BAD_COLLATION"),

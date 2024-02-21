@@ -1,12 +1,12 @@
 import './LemonCollapse.scss'
 
+import { IconCollapse, IconExpand } from '@posthog/icons'
 import clsx from 'clsx'
 import React, { ReactNode, useState } from 'react'
 import { Transition } from 'react-transition-group'
 import { ENTERED, ENTERING } from 'react-transition-group/Transition'
 import useResizeObserver from 'use-resize-observer'
 
-import { IconUnfoldLess, IconUnfoldMore } from '../icons'
 import { LemonButton } from '../LemonButton'
 
 export interface LemonCollapsePanel<K extends React.Key> {
@@ -96,7 +96,7 @@ function LemonCollapsePanel({ header, content, isExpanded, onChange }: LemonColl
         <div className="LemonCollapsePanel" aria-expanded={isExpanded}>
             <LemonButton
                 onClick={() => onChange(!isExpanded)}
-                icon={isExpanded ? <IconUnfoldLess /> : <IconUnfoldMore />}
+                icon={isExpanded ? <IconCollapse /> : <IconExpand />}
                 className="LemonCollapsePanel__header"
             >
                 {header}

@@ -1,4 +1,4 @@
-import { LemonButton, LemonLabel, LemonSwitch, LemonTag } from '@posthog/lemon-ui'
+import { LemonLabel, LemonSegmentedButton, LemonSwitch, LemonTag } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import posthog from 'posthog-js'
 
@@ -44,23 +44,18 @@ export function SamplingFilter({ insightProps, infoTooltipContent }: SamplingFil
             {samplingPercentage ? (
                 <div className="SamplingFilter">
                     <div className="flex items-center gap-2">
-                        {AVAILABLE_SAMPLING_PERCENTAGES.map((percentage, key) => (
-                            <LemonButton
-                                key={key}
-                                type="secondary"
-                                size="small"
-                                active={samplingPercentage === percentage}
-                                onClick={() => {
-                                    setSamplingPercentage(percentage)
+                        <LemonSegmentedButton
+                            options={AVAILABLE_SAMPLING_PERCENTAGES.map((percentage) => ({
+                                value: percentage,
+                                label: `${percentage}%`,
+                            }))}
+                            value={samplingPercentage}
+                            onChange={(newValue) => {
+                                setSamplingPercentage(newValue)
 
-                                    if (samplingPercentage === percentage) {
-                                        posthog.capture('sampling_disabled_on_insight')
-                                    } else {
-                                        posthog.capture('sampling_percentage_updated', { samplingPercentage })
-                                    }
-                                }}
-                            >{`${percentage}%`}</LemonButton>
-                        ))}
+                                posthog.capture('sampling_percentage_updated', { samplingPercentage })
+                            }}
+                        />
                     </div>
                 </div>
             ) : null}

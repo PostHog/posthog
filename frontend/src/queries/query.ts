@@ -93,6 +93,8 @@ export function queryExportContext<N extends DataNode = DataNode>(
     }
 }
 
+const SYNC_ONLY_QUERY_KINDS = ['HogQLMetadata', 'EventsQuery', 'HogQLAutocomplete'] satisfies NodeKind[keyof NodeKind][]
+
 /**
  * Execute a query node and return the response, use async query if enabled
  */
@@ -102,12 +104,13 @@ async function executeQuery<N extends DataNode = DataNode>(
     refresh?: boolean,
     queryId?: string
 ): Promise<NonNullable<N['response']>> {
-    const queryAsyncEnabled = Boolean(featureFlagLogic.findMounted()?.values.featureFlags?.[FEATURE_FLAGS.QUERY_ASYNC])
-    const excludedKinds = ['HogQLMetadata', 'EventsQuery', 'HogQLAutocomplete']
-    const queryAsync = queryAsyncEnabled && !excludedKinds.includes(queryNode.kind)
-    const response = await api.query(queryNode, methodOptions, queryId, refresh, queryAsync)
+    const isAsyncQuery =
+        !SYNC_ONLY_QUERY_KINDS.includes(queryNode.kind) &&
+        !!featureFlagLogic.findMounted()?.values.featureFlags?.[FEATURE_FLAGS.QUERY_ASYNC]
 
-    if (!queryAsync || !response.query_async) {
+    const response = await api.query(queryNode, methodOptions, queryId, refresh, isAsyncQuery)
+
+    if (!isAsyncQuery || !response.query_async) {
         return response
     }
 
@@ -402,6 +405,25 @@ export function legacyInsightQueryURL({ filters, currentTeamId, refresh }: Legac
     }
 }
 
+export function legacyInsightQueryData({
+    filters,
+    currentTeamId,
+    refresh,
+}: LegacyInsightQueryParams): [string, Record<string, any>] {
+    const baseUrl = `api/projects/${currentTeamId}/insights`
+
+    if (isTrendsFilter(filters) || isStickinessFilter(filters) || isLifecycleFilter(filters)) {
+        return [`${baseUrl}/trend/`, { ...filterTrendsClientSideParams(filters), refresh }]
+    } else if (isRetentionFilter(filters)) {
+        return [`${baseUrl}/retention/`, { ...filters, refresh }]
+    } else if (isFunnelsFilter(filters)) {
+        return [`${baseUrl}/funnel/`, { ...filters, refresh }]
+    } else if (isPathsFilter(filters)) {
+        return [`${baseUrl}/path/`, { ...filters, refresh }]
+    }
+    throw new Error(`Unsupported insight type: ${filters.insight}`)
+}
+
 export function legacyInsightQueryExportContext({
     filters,
     currentTeamId,
@@ -442,16 +464,17 @@ export async function legacyInsightQuery({
     methodOptions,
     refresh,
 }: LegacyInsightQueryParams): Promise<[Response, string]> {
-    const apiUrl = legacyInsightQueryURL({ filters, currentTeamId, refresh })
+    const [apiUrl, data] = legacyInsightQueryData({ filters, currentTeamId, refresh })
     let fetchResponse: Response
-    if (isTrendsFilter(filters) || isStickinessFilter(filters) || isLifecycleFilter(filters)) {
-        fetchResponse = await api.getResponse(apiUrl, methodOptions)
-    } else if (isRetentionFilter(filters)) {
-        fetchResponse = await api.getResponse(apiUrl, methodOptions)
-    } else if (isFunnelsFilter(filters)) {
-        fetchResponse = await api.createResponse(apiUrl, filters, methodOptions)
-    } else if (isPathsFilter(filters)) {
-        fetchResponse = await api.createResponse(apiUrl, filters, methodOptions)
+    if (
+        isTrendsFilter(filters) ||
+        isStickinessFilter(filters) ||
+        isLifecycleFilter(filters) ||
+        isRetentionFilter(filters) ||
+        isFunnelsFilter(filters) ||
+        isPathsFilter(filters)
+    ) {
+        fetchResponse = await api.createResponse(apiUrl, data, methodOptions)
     } else {
         throw new Error(`Unsupported insight type: ${filters.insight}`)
     }

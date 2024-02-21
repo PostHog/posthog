@@ -14,6 +14,10 @@ from posthog.ph_client import get_ph_client
 from posthog.redis import get_client
 from posthog.tasks.utils import CeleryQueue
 
+from structlog import get_logger
+
+logger = get_logger(__name__)
+
 
 @shared_task(ignore_result=True)
 def delete_expired_exported_assets() -> None:
@@ -543,17 +547,13 @@ def sync_insight_caching_state(
 
 @shared_task(ignore_result=True)
 def calculate_decide_usage() -> None:
-    from django.db.models import Q
-
-    from posthog.models import Team
-    from posthog.models.feature_flag.flag_analytics import capture_team_decide_usage
+    from posthog.models.feature_flag.flag_analytics import (
+        capture_usage_for_all_teams as capture_decide_usage_for_all_teams,
+    )
 
     ph_client = get_ph_client()
 
-    for team in Team.objects.select_related("organization").exclude(
-        Q(organization__for_internal_metrics=True) | Q(is_demo=True)
-    ):
-        capture_team_decide_usage(ph_client, team.id, team.uuid)
+    capture_decide_usage_for_all_teams(ph_client)
 
     ph_client.shutdown()
 
@@ -720,3 +720,17 @@ def check_data_import_row_limits() -> None:
         pass
     else:
         check_synced_row_limits()
+
+
+# this task runs a CH query and triggers other tasks
+# it can run on the default queue
+@shared_task(ignore_result=True)
+def calculate_replay_embeddings() -> None:
+    try:
+        from ee.tasks.replay import generate_recordings_embeddings_batch
+
+        generate_recordings_embeddings_batch()
+    except ImportError:
+        pass
+    except Exception as e:
+        logger.error("Failed to calculate replay embeddings", error=e, exc_info=True)

@@ -16,11 +16,10 @@ from drf_spectacular.utils import extend_schema
 from loginas.utils import is_impersonated_session
 from rest_framework import exceptions, request, serializers, viewsets
 from rest_framework.decorators import action
-from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 
 from posthog.api.person import MinimalPersonSerializer
-from posthog.api.routing import StructuredViewSetMixin
+from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.auth import SharingAccessTokenAuthentication
 from posthog.cloud_utils import is_cloud
 from posthog.constants import SESSION_RECORDINGS_FILTER_IDS
@@ -28,11 +27,6 @@ from posthog.models import User
 from posthog.models.filters.session_recordings_filter import SessionRecordingsFilter
 from posthog.models.person.person import PersonDistinctId
 from posthog.session_recordings.models.session_recording import SessionRecording
-from posthog.permissions import (
-    ProjectMembershipNecessaryPermissions,
-    SharingTokenPermission,
-    TeamMemberAccessPermission,
-)
 from posthog.session_recordings.models.session_recording_event import (
     SessionRecordingViewed,
 )
@@ -50,7 +44,8 @@ from posthog.rate_limit import (
 )
 from posthog.session_recordings.queries.session_replay_events import SessionReplayEvents
 from posthog.session_recordings.realtime_snapshots import get_realtime_snapshots, publish_subscription
-from posthog.session_recordings.session_summary.summarize_session import summarize_recording
+from ee.session_recordings.session_summary.summarize_session import summarize_recording
+from ee.session_recordings.ai.similar_recordings import similar_recordings
 from posthog.session_recordings.snapshots.convert_legacy_snapshots import (
     convert_original_version_lts_recording,
 )
@@ -180,26 +175,15 @@ def list_recordings_response(
     return response
 
 
-class SessionRecordingViewSet(StructuredViewSetMixin, viewsets.GenericViewSet):
-    permission_classes = [
-        IsAuthenticated,
-        ProjectMembershipNecessaryPermissions,
-        TeamMemberAccessPermission,
-    ]
+# NOTE: Could we put the sharing stuff in the shared mixin :thinking:
+class SessionRecordingViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
+    scope_object = "session_recording"
     throttle_classes = [ClickHouseBurstRateThrottle, ClickHouseSustainedRateThrottle]
     serializer_class = SessionRecordingSerializer
     # We don't use this
     queryset = SessionRecording.objects.none()
 
     sharing_enabled_actions = ["retrieve", "snapshots", "snapshot_file"]
-
-    def get_permissions(self):
-        if isinstance(self.request.successful_authenticator, SharingAccessTokenAuthentication):
-            return [SharingTokenPermission()]
-        return super().get_permissions()
-
-    def get_authenticators(self):
-        return [SharingAccessTokenAuthentication(), *super().get_authenticators()]
 
     def get_serializer_class(self) -> Type[serializers.Serializer]:
         if isinstance(self.request.successful_authenticator, SharingAccessTokenAuthentication):
@@ -519,6 +503,35 @@ class SessionRecordingViewSet(StructuredViewSetMixin, viewsets.GenericViewSet):
             r.headers["Server-Timing"] = ", ".join(
                 f"{key};dur={round(duration, ndigits=2)}" for key, duration in timings.items()
             )
+        return r
+
+    @action(methods=["GET"], detail=True)
+    def similar_sessions(self, request: request.Request, **kwargs):
+        if not request.user.is_authenticated:
+            raise exceptions.NotAuthenticated()
+
+        cache_key = f'similar_sessions_{self.team.pk}_{self.kwargs["pk"]}'
+        # Check if the response is cached
+        cached_response = cache.get(cache_key)
+        if cached_response:
+            return Response(cached_response)
+
+        user = cast(User, request.user)
+
+        if not posthoganalytics.feature_enabled("session-replay-similar-recordings", str(user.distinct_id)):
+            raise exceptions.ValidationError("similar recordings is not enabled for this user")
+
+        recording = self.get_object()
+
+        if not SessionReplayEvents().exists(session_id=str(recording.session_id), team=self.team):
+            raise exceptions.NotFound("Recording not found")
+
+        recordings = similar_recordings(recording, self.team)
+        if recordings:
+            cache.set(cache_key, recordings, timeout=30)
+
+        # let the browser cache for half the time we cache on the server
+        r = Response(recordings, headers={"Cache-Control": "max-age=15"})
         return r
 
 

@@ -84,7 +84,7 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
                         subscriptionId={subscriptionId}
                     />
                     <SharingModal
-                        title="Insight Sharing"
+                        title="Insight sharing"
                         isOpen={insightMode === ItemMode.Sharing}
                         closeModal={() => push(urls.insightView(insight.short_id as InsightShortId))}
                         insightShortId={insight.short_id}
@@ -180,7 +180,7 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
                                             toggleQueryEditorPanel()
                                         }}
                                         fullWidth
-                                        label="View Source"
+                                        label="View source"
                                     />
                                     {hogQL && (
                                         <>
