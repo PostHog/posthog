@@ -586,7 +586,7 @@ export class DB {
         } else if (database === Database.Postgres) {
             return await this.postgres
                 .query<RawPerson>(PostgresUse.COMMON_WRITE, 'SELECT * FROM posthog_person', undefined, 'fetchPersons')
-                .then((result) => result.rows.map(this.toPerson))
+                .then(({ rows }) => rows.map(this.toPerson))
         } else {
             throw new Error(`Can't fetch persons for database: ${database}`)
         }
@@ -688,17 +688,7 @@ export class DB {
         )
         const person = this.toPerson(rows[0])
 
-        const kafkaMessages: ProducerRecord[] = []
-        kafkaMessages.push(
-            generateKafkaPersonUpdateMessage(
-                person.created_at,
-                person.properties,
-                person.team_id,
-                person.is_identified,
-                person.uuid,
-                person.version
-            )
-        )
+        const kafkaMessages = [generateKafkaPersonUpdateMessage(person)]
 
         for (const distinctId of distinctIds) {
             kafkaMessages.push({
@@ -765,14 +755,7 @@ export class DB {
         }
 
         const kafkaMessages = []
-        const message = generateKafkaPersonUpdateMessage(
-            updatedPerson.created_at,
-            updatedPerson.properties,
-            updatedPerson.team_id,
-            updatedPerson.is_identified,
-            updatedPerson.uuid,
-            updatedPerson.version
-        )
+        const message = generateKafkaPersonUpdateMessage(updatedPerson)
         if (tx) {
             kafkaMessages.push(message)
         } else {
@@ -788,7 +771,7 @@ export class DB {
     }
 
     public async deletePerson(person: Person, tx?: TransactionClient): Promise<ProducerRecord[]> {
-        const result = await this.postgres.query<{ version: string }>(
+        const { rows } = await this.postgres.query<{ version: string }>(
             tx ?? PostgresUse.COMMON_WRITE,
             'DELETE FROM posthog_person WHERE team_id = $1 AND id = $2 RETURNING version',
             [person.team_id, person.id],
@@ -797,18 +780,9 @@ export class DB {
 
         let kafkaMessages: ProducerRecord[] = []
 
-        if (result.rows.length > 0) {
-            kafkaMessages = [
-                generateKafkaPersonUpdateMessage(
-                    person.created_at,
-                    person.properties,
-                    person.team_id,
-                    person.is_identified,
-                    person.uuid,
-                    Number(result.rows[0].version || 0) + 100, // keep in sync with delete_person in posthog/models/person/util.py
-                    1
-                ),
-            ]
+        if (rows.length > 0) {
+            const [row] = rows
+            kafkaMessages = [generateKafkaPersonUpdateMessage({ ...person, version: Number(row.version || 0) }, true)]
         }
         return kafkaMessages
     }
