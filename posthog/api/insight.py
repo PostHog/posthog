@@ -860,7 +860,7 @@ Using the correct cache and enriching the response with dashboard specific confi
             result = self.stickiness_query_class().run(stickiness_filter, team)
         else:
             trends_query = Trends()
-            result = trends_query.run(filter, team)
+            result = trends_query.run(filter, team, is_csv_export=bool(request.GET.get("is_csv_export", False)))
 
         return {"result": result, "timezone": team.timezone}
 
