@@ -24,23 +24,30 @@ import { urls } from 'scenes/urls'
 
 import { cohortsModel } from '~/models/cohortsModel'
 import { groupsModel } from '~/models/groupsModel'
-import { AnyPropertyFilter, FeatureFlagGroupType } from '~/types'
+import { AnyPropertyFilter, FeatureFlagFilters, FeatureFlagGroupType, FeatureFlagType } from '~/types'
 
 import { featureFlagLogic } from './featureFlagLogic'
 
-interface FeatureFlagReadOnlyProps {
+interface FeatureFlagReleaseConditionsProps {
     readOnly?: boolean
     isSuper?: boolean
     excludeTitle?: boolean
     usageContext?: string
+    // featureFlag?: FeatureFlagType  // get this from bindlogic always
+    value?: FeatureFlagFilters
+    onChange?: (value: FeatureFlagFilters) => void
 }
 
+// Lets setup a releaseconditions logic that handles all the logic required here
+// and perhaps connect to flag using key? or id?
 export function FeatureFlagReleaseConditions({
     readOnly,
     isSuper,
     excludeTitle,
     usageContext,
-}: FeatureFlagReadOnlyProps): JSX.Element {
+    value,
+    onChange
+}: FeatureFlagReleaseConditionsProps): JSX.Element {
     const logic = usageContext === 'schedule' ? featureFlagLogic({ id: 'schedule' }) : featureFlagLogic
 
     const { showGroupsOptions, aggregationLabel } = useValues(groupsModel)
