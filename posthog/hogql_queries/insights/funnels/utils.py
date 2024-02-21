@@ -23,7 +23,7 @@ def get_funnel_order_class(funnelsFilter: FunnelsFilter):
 
 
 def get_funnel_actor_class(funnelsFilter: FunnelsFilter):
-    from posthog.hogql_queries.insights.funnels.funnel_persons import FunnelActors
+    from posthog.hogql_queries.insights.funnels import FunnelActors, FunnelStrictActors
 
     # if filter.correlation_person_entity and EE_AVAILABLE:
     if False:
@@ -46,8 +46,7 @@ def get_funnel_actor_class(funnelsFilter: FunnelsFilter):
             return FunnelActors
             # return FunnelUnorderedActors
         elif funnelsFilter.funnelOrderType == StepOrderValue.strict:
-            return FunnelActors
-            # return FunnelStrictActors
+            return FunnelStrictActors
         else:
             return FunnelActors
 
