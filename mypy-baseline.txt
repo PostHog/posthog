@@ -4,13 +4,13 @@ posthog/temporal/common/utils.py:0: error: Argument 2 to "__get__" of "classmeth
 posthog/hogql/database/argmax.py:0: error: Argument "chain" to "Field" has incompatible type "list[str]"; expected "list[str | int]"  [arg-type]
 posthog/hogql/database/argmax.py:0: note: "List" is invariant -- see https://mypy.readthedocs.io/en/stable/common_issues.html#variance
 posthog/hogql/database/argmax.py:0: note: Consider using "Sequence" instead, which is covariant
-posthog/hogql/database/schema/numbers.py:0: error: Incompatible types in assignment (expression has type "dict[str, IntegerDatabaseField]", variable has type "dict[str, FieldOrTable]")  [assignment]
-posthog/hogql/database/schema/numbers.py:0: note: "Dict" is invariant -- see https://mypy.readthedocs.io/en/stable/common_issues.html#variance
-posthog/hogql/database/schema/numbers.py:0: note: Consider using "Mapping" instead, which is covariant in the value type
 posthog/hogql/ast.py:0: error: Argument "chain" to "FieldTraverserType" has incompatible type "list[str]"; expected "list[str | int]"  [arg-type]
 posthog/hogql/ast.py:0: note: "List" is invariant -- see https://mypy.readthedocs.io/en/stable/common_issues.html#variance
 posthog/hogql/ast.py:0: note: Consider using "Sequence" instead, which is covariant
 posthog/hogql/ast.py:0: error: Incompatible return value type (got "bool | None", expected "bool")  [return-value]
+posthog/hogql/database/schema/numbers.py:0: error: Incompatible types in assignment (expression has type "dict[str, IntegerDatabaseField]", variable has type "dict[str, FieldOrTable]")  [assignment]
+posthog/hogql/database/schema/numbers.py:0: note: "Dict" is invariant -- see https://mypy.readthedocs.io/en/stable/common_issues.html#variance
+posthog/hogql/database/schema/numbers.py:0: note: Consider using "Mapping" instead, which is covariant in the value type
 posthog/hogql/visitor.py:0: error: Statement is unreachable  [unreachable]
 posthog/hogql/visitor.py:0: error: Argument 1 to "visit" of "Visitor" has incompatible type "Type | None"; expected "AST"  [arg-type]
 posthog/hogql/visitor.py:0: error: Argument 1 to "visit" of "Visitor" has incompatible type "Type | None"; expected "AST"  [arg-type]
@@ -145,6 +145,7 @@ posthog/hogql_queries/legacy_compatibility/filter_to_query.py:0: error: Dict ent
 posthog/hogql_queries/legacy_compatibility/filter_to_query.py:0: error: Dict entry 0 has incompatible type "str": "LifecycleFilter"; expected "str": "TrendsFilter"  [dict-item]
 posthog/hogql_queries/legacy_compatibility/filter_to_query.py:0: error: Dict entry 0 has incompatible type "str": "StickinessFilter"; expected "str": "TrendsFilter"  [dict-item]
 posthog/hogql_queries/legacy_compatibility/feature_flag.py:0: error: Item "AnonymousUser" of "User | AnonymousUser" has no attribute "email"  [union-attr]
+posthog/hogql/modifiers.py:0: error: Incompatible types in assignment (expression has type "PersonOnEventsMode", variable has type "PersonsOnEventsMode | None")  [assignment]
 posthog/hogql/transforms/property_types.py:0: error: Incompatible default for argument "context" (default has type "None", argument has type "HogQLContext")  [assignment]
 posthog/hogql/transforms/property_types.py:0: note: PEP 484 prohibits implicit Optional. Accordingly, mypy has changed its default to no_implicit_optional=True
 posthog/hogql/transforms/property_types.py:0: note: Use https://github.com/hauntsaninja/no_implicit_optional to automatically upgrade your codebase
@@ -162,7 +163,6 @@ posthog/hogql/transforms/property_types.py:0: error: Non-overlapping equality ch
 posthog/hogql/transforms/property_types.py:0: error: Argument 2 to "_get_materialized_column" of "PropertySwapper" has incompatible type "str | int"; expected "str"  [arg-type]
 posthog/hogql/transforms/property_types.py:0: error: Statement is unreachable  [unreachable]
 posthog/hogql/transforms/property_types.py:0: error: Argument 2 to "_get_materialized_column" of "PropertySwapper" has incompatible type "str | int"; expected "str"  [arg-type]
-posthog/hogql/modifiers.py:0: error: Incompatible types in assignment (expression has type "PersonOnEventsMode", variable has type "PersonsOnEventsMode | None")  [assignment]
 posthog/hogql/functions/cohort.py:0: error: Argument 1 to "escape_clickhouse_string" has incompatible type "str | None"; expected "float | int | str | list[Any] | tuple[Any, ...] | date | datetime | UUID | UUIDT"  [arg-type]
 posthog/hogql/functions/cohort.py:0: error: Argument 1 to "escape_clickhouse_string" has incompatible type "str | None"; expected "float | int | str | list[Any] | tuple[Any, ...] | date | datetime | UUID | UUIDT"  [arg-type]
 posthog/hogql/functions/cohort.py:0: error: Incompatible types in assignment (expression has type "ValuesQuerySet[Cohort, tuple[int, bool | None]]", variable has type "ValuesQuerySet[Cohort, tuple[int, bool | None, str | None]]")  [assignment]
@@ -173,6 +173,7 @@ ee/billing/quota_limiting.py:0: error: Unsupported target for indexed assignment
 ee/billing/quota_limiting.py:0: error: "object" has no attribute "get"  [attr-defined]
 ee/billing/quota_limiting.py:0: error: Unsupported target for indexed assignment ("object")  [index]
 ee/billing/quota_limiting.py:0: error: Unsupported target for indexed assignment ("object")  [index]
+posthog/permissions.py:0: error: Metaclass conflict: the metaclass of a derived class must be a (non-strict) subclass of the metaclasses of all its bases  [misc]
 posthog/permissions.py:0: error: Metaclass conflict: the metaclass of a derived class must be a (non-strict) subclass of the metaclasses of all its bases  [misc]
 posthog/permissions.py:0: error: Metaclass conflict: the metaclass of a derived class must be a (non-strict) subclass of the metaclasses of all its bases  [misc]
 posthog/permissions.py:0: error: Metaclass conflict: the metaclass of a derived class must be a (non-strict) subclass of the metaclasses of all its bases  [misc]
@@ -364,12 +365,16 @@ posthog/hogql/query.py:0: error: Incompatible types in assignment (expression ha
 posthog/hogql/query.py:0: error: Argument 1 to "get_default_limit_for_context" has incompatible type "LimitContext | None"; expected "LimitContext"  [arg-type]
 posthog/hogql/query.py:0: error: "SelectQuery" has no attribute "select_queries"  [attr-defined]
 posthog/hogql/query.py:0: error: Subclass of "SelectQuery" and "SelectUnionQuery" cannot exist: would have incompatible method signatures  [unreachable]
+posthog/hogql/autocomplete.py:0: error: Unused "type: ignore" comment  [unused-ignore]
+posthog/hogql/autocomplete.py:0: error: Unused "type: ignore" comment  [unused-ignore]
 posthog/hogql_queries/insights/trends/breakdown_values.py:0: error: Item "SelectUnionQuery" of "SelectQuery | SelectUnionQuery" has no attribute "select"  [union-attr]
 posthog/hogql_queries/insights/trends/breakdown_values.py:0: error: Value of type "list[Any] | None" is not indexable  [index]
-posthog/hogql_queries/insights/funnels/base.py:0: error: Incompatible types in assignment (expression has type "FunnelExclusionEventsNode | FunnelExclusionActionsNode", variable has type "EventsNode | ActionsNode")  [assignment]
-posthog/hogql_queries/insights/funnels/base.py:0: error: Item "EventsNode" of "EventsNode | ActionsNode" has no attribute "funnelFromStep"  [union-attr]
-posthog/hogql_queries/insights/funnels/base.py:0: error: Item "ActionsNode" of "EventsNode | ActionsNode" has no attribute "funnelFromStep"  [union-attr]
 posthog/hogql_queries/sessions_timeline_query_runner.py:0: error: Statement is unreachable  [unreachable]
+posthog/hogql_queries/hogql_query_runner.py:0: error: Statement is unreachable  [unreachable]
+posthog/hogql_queries/hogql_query_runner.py:0: error: Argument "placeholders" to "parse_select" has incompatible type "dict[str, Constant] | None"; expected "dict[str, Expr] | None"  [arg-type]
+posthog/hogql_queries/hogql_query_runner.py:0: error: Incompatible types in assignment (expression has type "Expr", variable has type "SelectQuery | SelectUnionQuery")  [assignment]
+posthog/hogql_queries/hogql_query_runner.py:0: error: Incompatible return value type (got "SelectQuery | SelectUnionQuery", expected "SelectQuery")  [return-value]
+posthog/hogql_queries/events_query_runner.py:0: error: Statement is unreachable  [unreachable]
 posthog/hogql_queries/insights/trends/breakdown.py:0: error: Item "None" of "BreakdownFilter | None" has no attribute "breakdown_type"  [union-attr]
 posthog/hogql_queries/insights/trends/breakdown.py:0: error: Item "None" of "BreakdownFilter | None" has no attribute "breakdown_histogram_bin_count"  [union-attr]
 posthog/hogql_queries/insights/trends/breakdown.py:0: error: Item "None" of "BreakdownFilter | None" has no attribute "breakdown_type"  [union-attr]
@@ -395,14 +400,12 @@ posthog/hogql_queries/insights/trends/breakdown.py:0: error: Argument "breakdown
 posthog/hogql_queries/insights/trends/breakdown.py:0: error: Item "None" of "BreakdownFilter | None" has no attribute "breakdown"  [union-attr]
 posthog/hogql_queries/insights/trends/breakdown.py:0: error: Argument "breakdown_field" to "get_properties_chain" has incompatible type "str | float | list[str | float] | Any | None"; expected "str"  [arg-type]
 posthog/hogql_queries/insights/trends/breakdown.py:0: error: Item "None" of "BreakdownFilter | None" has no attribute "breakdown_group_type_index"  [union-attr]
-posthog/hogql_queries/hogql_query_runner.py:0: error: Statement is unreachable  [unreachable]
-posthog/hogql_queries/hogql_query_runner.py:0: error: Argument "placeholders" to "parse_select" has incompatible type "dict[str, Constant] | None"; expected "dict[str, Expr] | None"  [arg-type]
-posthog/hogql_queries/hogql_query_runner.py:0: error: Incompatible types in assignment (expression has type "Expr", variable has type "SelectQuery | SelectUnionQuery")  [assignment]
-posthog/hogql_queries/hogql_query_runner.py:0: error: Incompatible return value type (got "SelectQuery | SelectUnionQuery", expected "SelectQuery")  [return-value]
-posthog/hogql_queries/events_query_runner.py:0: error: Statement is unreachable  [unreachable]
 posthog/hogql/metadata.py:0: error: Argument "metadata_source" to "translate_hogql" has incompatible type "SelectQuery | SelectUnionQuery"; expected "SelectQuery | None"  [arg-type]
 posthog/hogql/metadata.py:0: error: Incompatible types in assignment (expression has type "Expr", variable has type "SelectQuery | SelectUnionQuery")  [assignment]
 posthog/queries/breakdown_props.py:0: error: Argument 1 to "translate_hogql" has incompatible type "str | int"; expected "str"  [arg-type]
+posthog/hogql_queries/insights/funnels/base.py:0: error: Incompatible types in assignment (expression has type "FunnelExclusionEventsNode | FunnelExclusionActionsNode", variable has type "EventsNode | ActionsNode")  [assignment]
+posthog/hogql_queries/insights/funnels/base.py:0: error: Item "EventsNode" of "EventsNode | ActionsNode" has no attribute "funnelFromStep"  [union-attr]
+posthog/hogql_queries/insights/funnels/base.py:0: error: Item "ActionsNode" of "EventsNode | ActionsNode" has no attribute "funnelFromStep"  [union-attr]
 posthog/queries/funnels/base.py:0: error: "HogQLContext" has no attribute "person_on_events_mode"  [attr-defined]
 posthog/queries/funnels/base.py:0: error: Argument 1 to "translate_hogql" has incompatible type "str | int"; expected "str"  [arg-type]
 ee/clickhouse/queries/funnels/funnel_correlation.py:0: error: Statement is unreachable  [unreachable]
@@ -411,22 +414,6 @@ posthog/api/person.py:0: error: Argument 1 to "loads" has incompatible type "str
 posthog/api/person.py:0: error: Argument "user" to "log_activity" has incompatible type "User | AnonymousUser"; expected "User | None"  [arg-type]
 posthog/api/person.py:0: error: Argument "user" to "log_activity" has incompatible type "User | AnonymousUser"; expected "User | None"  [arg-type]
 posthog/hogql_queries/web_analytics/web_analytics_query_runner.py:0: error: Argument 1 to "append" of "list" has incompatible type "EventPropertyFilter"; expected "Expr"  [arg-type]
-posthog/hogql_queries/insights/trends/trends_query_runner.py:0: error: Return type "list[SelectQuery | SelectUnionQuery]" of "to_query" incompatible with return type "SelectQuery | SelectUnionQuery" in supertype "QueryRunner"  [override]
-posthog/hogql_queries/insights/trends/trends_query_runner.py:0: error: Signature of "to_actors_query" incompatible with supertype "QueryRunner"  [override]
-posthog/hogql_queries/insights/trends/trends_query_runner.py:0: note: Superclass:
-posthog/hogql_queries/insights/trends/trends_query_runner.py:0: note: def to_actors_query(self) -> SelectQuery | SelectUnionQuery
-posthog/hogql_queries/insights/trends/trends_query_runner.py:0: note: Subclass:
-posthog/hogql_queries/insights/trends/trends_query_runner.py:0: note: def to_actors_query(self, time_frame: str | int | None, series_index: int, breakdown_value: str | int | None = ..., compare: Compare | None = ...) -> SelectQuery | SelectUnionQuery
-posthog/hogql_queries/insights/trends/trends_query_runner.py:0: note: Superclass:
-posthog/hogql_queries/insights/trends/trends_query_runner.py:0: note: def to_actors_query(self) -> SelectQuery | SelectUnionQuery
-posthog/hogql_queries/insights/trends/trends_query_runner.py:0: note: Subclass:
-posthog/hogql_queries/insights/trends/trends_query_runner.py:0: note: def to_actors_query(self, time_frame: str | int | None, series_index: int, breakdown_value: str | int | None = ..., compare: Compare | None = ...) -> SelectQuery | SelectUnionQuery
-posthog/hogql_queries/insights/trends/trends_query_runner.py:0: error: Statement is unreachable  [unreachable]
-posthog/hogql_queries/insights/trends/trends_query_runner.py:0: error: List item 0 has incompatible type "str | float | None"; expected "str | float"  [list-item]
-posthog/hogql_queries/insights/trends/trends_query_runner.py:0: error: Item "None" of "BreakdownFilter | None" has no attribute "breakdown"  [union-attr]
-posthog/hogql_queries/insights/trends/trends_query_runner.py:0: error: Argument 1 to "FormulaAST" has incompatible type "map[Any]"; expected "list[list[float]]"  [arg-type]
-posthog/hogql_queries/insights/trends/trends_query_runner.py:0: error: Argument 1 to "FormulaAST" has incompatible type "map[Any]"; expected "list[list[float]]"  [arg-type]
-posthog/hogql_queries/insights/trends/trends_query_runner.py:0: error: Argument 1 to "_event_property" of "TrendsQueryRunner" has incompatible type "str | float | list[str | float] | None"; expected "str"  [arg-type]
 posthog/hogql_queries/insights/retention_query_runner.py:0: error: Incompatible types in assignment (expression has type "Expr", variable has type "Call")  [assignment]
 posthog/hogql_queries/insights/retention_query_runner.py:0: error: Incompatible types in assignment (expression has type "Call", variable has type "Field")  [assignment]
 posthog/hogql_queries/insights/retention_query_runner.py:0: error: Argument "select" to "SelectQuery" has incompatible type "list[Alias]"; expected "list[Expr]"  [arg-type]
@@ -451,6 +438,21 @@ posthog/hogql_queries/insights/lifecycle_query_runner.py:0: note: Consider using
 posthog/hogql_queries/insights/lifecycle_query_runner.py:0: error: Argument 1 to "sorted" has incompatible type "list[Any] | None"; expected "Iterable[Any]"  [arg-type]
 posthog/hogql_queries/insights/lifecycle_query_runner.py:0: error: Item "SelectUnionQuery" of "SelectQuery | SelectUnionQuery" has no attribute "select_from"  [union-attr]
 posthog/hogql_queries/insights/lifecycle_query_runner.py:0: error: Item "None" of "JoinExpr | Any | None" has no attribute "sample"  [union-attr]
+posthog/hogql_queries/insights/trends/trends_query_runner.py:0: error: Signature of "to_actors_query" incompatible with supertype "QueryRunner"  [override]
+posthog/hogql_queries/insights/trends/trends_query_runner.py:0: note: Superclass:
+posthog/hogql_queries/insights/trends/trends_query_runner.py:0: note: def to_actors_query(self) -> SelectQuery | SelectUnionQuery
+posthog/hogql_queries/insights/trends/trends_query_runner.py:0: note: Subclass:
+posthog/hogql_queries/insights/trends/trends_query_runner.py:0: note: def to_actors_query(self, time_frame: str | int | None, series_index: int, breakdown_value: str | int | None = ..., compare: Compare | None = ...) -> SelectQuery | SelectUnionQuery
+posthog/hogql_queries/insights/trends/trends_query_runner.py:0: note: Superclass:
+posthog/hogql_queries/insights/trends/trends_query_runner.py:0: note: def to_actors_query(self) -> SelectQuery | SelectUnionQuery
+posthog/hogql_queries/insights/trends/trends_query_runner.py:0: note: Subclass:
+posthog/hogql_queries/insights/trends/trends_query_runner.py:0: note: def to_actors_query(self, time_frame: str | int | None, series_index: int, breakdown_value: str | int | None = ..., compare: Compare | None = ...) -> SelectQuery | SelectUnionQuery
+posthog/hogql_queries/insights/trends/trends_query_runner.py:0: error: Statement is unreachable  [unreachable]
+posthog/hogql_queries/insights/trends/trends_query_runner.py:0: error: List item 0 has incompatible type "str | float | None"; expected "str | float"  [list-item]
+posthog/hogql_queries/insights/trends/trends_query_runner.py:0: error: Item "None" of "BreakdownFilter | None" has no attribute "breakdown"  [union-attr]
+posthog/hogql_queries/insights/trends/trends_query_runner.py:0: error: Argument 1 to "FormulaAST" has incompatible type "map[Any]"; expected "list[list[float]]"  [arg-type]
+posthog/hogql_queries/insights/trends/trends_query_runner.py:0: error: Argument 1 to "FormulaAST" has incompatible type "map[Any]"; expected "list[list[float]]"  [arg-type]
+posthog/hogql_queries/insights/trends/trends_query_runner.py:0: error: Argument 1 to "_event_property" of "TrendsQueryRunner" has incompatible type "str | float | list[str | float] | None"; expected "str"  [arg-type]
 posthog/hogql_queries/legacy_compatibility/process_insight.py:0: error: Incompatible types in assignment (expression has type "PathFilter", variable has type "RetentionFilter")  [assignment]
 posthog/hogql_queries/legacy_compatibility/process_insight.py:0: error: Incompatible types in assignment (expression has type "StickinessFilter", variable has type "RetentionFilter")  [assignment]
 posthog/hogql_queries/legacy_compatibility/process_insight.py:0: error: Incompatible types in assignment (expression has type "Filter", variable has type "RetentionFilter")  [assignment]
@@ -479,6 +481,8 @@ posthog/tasks/exports/test/test_csv_exporter_url_sanitising.py:0: error: Functio
 posthog/tasks/exports/test/test_csv_exporter_renders.py:0: error: Function is missing a type annotation  [no-untyped-def]
 posthog/tasks/exports/test/test_csv_exporter.py:0: error: Function is missing a return type annotation  [no-untyped-def]
 posthog/tasks/exports/test/test_csv_exporter.py:0: error: Function is missing a type annotation  [no-untyped-def]
+posthog/tasks/exports/test/test_csv_exporter.py:0: error: Function is missing a type annotation for one or more arguments  [no-untyped-def]
+posthog/tasks/exports/test/test_csv_exporter.py:0: error: Function is missing a type annotation for one or more arguments  [no-untyped-def]
 posthog/tasks/exports/test/test_csv_exporter.py:0: error: Function is missing a type annotation for one or more arguments  [no-untyped-def]
 posthog/tasks/exports/test/test_csv_exporter.py:0: error: Function is missing a type annotation for one or more arguments  [no-untyped-def]
 posthog/tasks/exports/test/test_csv_exporter.py:0: error: Function is missing a type annotation for one or more arguments  [no-untyped-def]
@@ -588,10 +592,6 @@ posthog/hogql_queries/insights/test/test_paginators.py:0: error: Argument 2 to "
 posthog/hogql_queries/insights/test/test_paginators.py:0: error: Value of type "object" is not indexable  [index]
 posthog/hogql_queries/insights/test/test_paginators.py:0: error: Value of type "object" is not indexable  [index]
 posthog/hogql_queries/insights/test/test_paginators.py:0: error: Value of type "object" is not indexable  [index]
-posthog/hogql_queries/insights/test/test_events_query_runner.py:0: error: Item "Expr" of "Expr | None" has no attribute "exprs"  [union-attr]
-posthog/hogql_queries/insights/test/test_events_query_runner.py:0: error: Item "None" of "Expr | None" has no attribute "exprs"  [union-attr]
-posthog/hogql_queries/insights/test/test_events_query_runner.py:0: error: Item "Expr" of "Expr | None" has no attribute "exprs"  [union-attr]
-posthog/hogql_queries/insights/test/test_events_query_runner.py:0: error: Item "None" of "Expr | None" has no attribute "exprs"  [union-attr]
 posthog/hogql/test/test_timings.py:0: error: No overload variant of "__setitem__" of "list" matches argument types "int", "float"  [call-overload]
 posthog/hogql/test/test_timings.py:0: note: Possible overload variants:
 posthog/hogql/test/test_timings.py:0: note: def __setitem__(self, SupportsIndex, int, /) -> None
@@ -829,8 +829,6 @@ posthog/temporal/tests/batch_exports/test_s3_batch_export_workflow.py:0: error: 
 posthog/temporal/tests/batch_exports/test_backfill_batch_export.py:0: error: Argument "name" to "acreate_batch_export" has incompatible type "object"; expected "str"  [arg-type]
 posthog/temporal/tests/batch_exports/test_backfill_batch_export.py:0: error: Argument "destination_data" to "acreate_batch_export" has incompatible type "object"; expected "dict[Any, Any]"  [arg-type]
 posthog/temporal/tests/batch_exports/test_backfill_batch_export.py:0: error: Argument "interval" to "acreate_batch_export" has incompatible type "object"; expected "str"  [arg-type]
-posthog/temporal/tests/batch_exports/test_redshift_batch_export_workflow.py:0: error: Unsupported left operand type for + ("None")  [operator]
-posthog/temporal/tests/batch_exports/test_redshift_batch_export_workflow.py:0: note: Left operand is of type "Any | None"
 posthog/temporal/tests/batch_exports/test_redshift_batch_export_workflow.py:0: error: Incompatible types in assignment (expression has type "str | int", variable has type "int")  [assignment]
 posthog/api/test/batch_exports/conftest.py:0: error: Argument "activities" to "ThreadedWorker" has incompatible type "list[function]"; expected "Sequence[Callable[..., Any]]"  [arg-type]
 posthog/management/commands/test/test_create_batch_export_from_app.py:0: error: Incompatible return value type (got "dict[str, Collection[str]]", expected "dict[str, str]")  [return-value]
@@ -867,6 +865,12 @@ posthog/management/commands/test/test_create_batch_export_from_app.py:0: error: 
 posthog/management/commands/test/test_create_batch_export_from_app.py:0: note: Possible overload variants:
 posthog/management/commands/test/test_create_batch_export_from_app.py:0: note: def __getitem__(self, SupportsIndex, /) -> str
 posthog/management/commands/test/test_create_batch_export_from_app.py:0: note: def __getitem__(self, slice, /) -> list[str]
+posthog/api/test/test_capture.py:0: error: Dict entry 0 has incompatible type "Any": "float"; expected "str": "int"  [dict-item]
+posthog/api/test/test_capture.py:0: error: Dict entry 0 has incompatible type "Any": "float"; expected "str": "int"  [dict-item]
+posthog/api/test/test_capture.py:0: error: Dict entry 0 has incompatible type "Any": "float"; expected "str": "int"  [dict-item]
+posthog/api/test/test_capture.py:0: error: Dict entry 0 has incompatible type "Any": "float"; expected "str": "int"  [dict-item]
+posthog/api/test/test_capture.py:0: error: Dict entry 0 has incompatible type "Any": "float"; expected "str": "int"  [dict-item]
+posthog/api/test/test_capture.py:0: error: Dict entry 0 has incompatible type "Any": "float"; expected "str": "int"  [dict-item]
 posthog/api/test/batch_exports/test_update.py:0: error: Unsupported target for indexed assignment ("Collection[str]")  [index]
 posthog/api/test/batch_exports/test_update.py:0: error: Unsupported target for indexed assignment ("Collection[str]")  [index]
 posthog/api/test/batch_exports/test_update.py:0: error: Dict entry 1 has incompatible type "str": "dict[str, Collection[str]]"; expected "str": "str"  [dict-item]
@@ -876,9 +880,3 @@ posthog/api/test/batch_exports/test_update.py:0: error: Value of type "BatchExpo
 posthog/api/test/batch_exports/test_pause.py:0: error: "batch_export_delete_schedule" does not return a value (it only ever returns None)  [func-returns-value]
 posthog/api/test/batch_exports/test_log_entry.py:0: error: Need type annotation for "results" (hint: "results: List[<type>] = ...")  [var-annotated]
 posthog/api/test/batch_exports/test_log_entry.py:0: error: Need type annotation for "results" (hint: "results: List[<type>] = ...")  [var-annotated]
-posthog/api/test/test_capture.py:0: error: Dict entry 0 has incompatible type "Any": "float"; expected "str": "int"  [dict-item]
-posthog/api/test/test_capture.py:0: error: Dict entry 0 has incompatible type "Any": "float"; expected "str": "int"  [dict-item]
-posthog/api/test/test_capture.py:0: error: Dict entry 0 has incompatible type "Any": "float"; expected "str": "int"  [dict-item]
-posthog/api/test/test_capture.py:0: error: Dict entry 0 has incompatible type "Any": "float"; expected "str": "int"  [dict-item]
-posthog/api/test/test_capture.py:0: error: Dict entry 0 has incompatible type "Any": "float"; expected "str": "int"  [dict-item]
-posthog/api/test/test_capture.py:0: error: Dict entry 0 has incompatible type "Any": "float"; expected "str": "int"  [dict-item]

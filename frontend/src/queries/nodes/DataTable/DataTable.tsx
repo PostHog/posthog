@@ -19,6 +19,7 @@ import { DateRange } from '~/queries/nodes/DataNode/DateRange'
 import { ElapsedTime } from '~/queries/nodes/DataNode/ElapsedTime'
 import { LoadNext } from '~/queries/nodes/DataNode/LoadNext'
 import { Reload } from '~/queries/nodes/DataNode/Reload'
+import { TestAccountFilters } from '~/queries/nodes/DataNode/TestAccountFilters'
 import { BackToSource } from '~/queries/nodes/DataTable/BackToSource'
 import { ColumnConfigurator } from '~/queries/nodes/DataTable/ColumnConfigurator/ColumnConfigurator'
 import { DataTableExport } from '~/queries/nodes/DataTable/DataTableExport'
@@ -101,6 +102,7 @@ export function DataTable({
         query: query.source,
         key: dataNodeLogicKey ?? dataKey,
         cachedResults: cachedResults,
+        dataNodeCollectionId: context?.insightProps?.dataNodeCollectionId || dataKey,
     }
     const builtDataNodeLogic = dataNodeLogic(dataNodeLogicProps)
 
@@ -130,6 +132,7 @@ export function DataTable({
     const {
         showActions,
         showDateRange,
+        showTestAccountFilters,
         showSearch,
         showEventFilter,
         showPropertyFilter,
@@ -205,7 +208,7 @@ export function DataTable({
                                     // Typecasting to a query type with select and order_by fields.
                                     // The actual query may or may not be an events query.
                                     const source = query.source as EventsQuery
-                                    const columns = getDataNodeDefaultColumns(source)
+                                    const columns = columnsInLemonTable ?? getDataNodeDefaultColumns(source)
                                     const isAggregation = isHogQlAggregation(hogQl)
                                     const isOrderBy = source.orderBy?.[0] === key
                                     const isDescOrderBy = source.orderBy?.[0] === `${key} DESC`
@@ -279,7 +282,7 @@ export function DataTable({
                                 if (setQuery && hogQl && sourceFeatures.has(QueryFeature.selectAndOrderByColumns)) {
                                     const isAggregation = isHogQlAggregation(hogQl)
                                     const source = query.source as EventsQuery
-                                    const columns = getDataNodeDefaultColumns(source)
+                                    const columns = columnsInLemonTable ?? getDataNodeDefaultColumns(source)
                                     setQuery({
                                         ...query,
                                         source: {
@@ -308,7 +311,7 @@ export function DataTable({
                                 if (setQuery && hogQl && sourceFeatures.has(QueryFeature.selectAndOrderByColumns)) {
                                     const isAggregation = isHogQlAggregation(hogQl)
                                     const source = query.source as EventsQuery
-                                    const columns = getDataNodeDefaultColumns(source)
+                                    const columns = columnsInLemonTable ?? getDataNodeDefaultColumns(source)
                                     setQuery?.({
                                         ...query,
                                         source: {
@@ -420,6 +423,9 @@ export function DataTable({
     ].filter((x) => !!x)
 
     const firstRowRight = [
+        showTestAccountFilters && sourceFeatures.has(QueryFeature.testAccountFilters) ? (
+            <TestAccountFilters key="test-account-filters" query={query.source} setQuery={setQuerySource} />
+        ) : null,
         showSavedQueries && sourceFeatures.has(QueryFeature.savedEventsQueries) ? (
             <SavedQueries key="saved-queries" query={query} setQuery={setQuery} />
         ) : null,

@@ -50,10 +50,18 @@ export function ExperimentResult({ secondaryMetricId }: ExperimentResultProps): 
 
     const validMetric = targetResults && targetResults.insight
 
+    if (targetResultsLoading) {
+        return (
+            <div className="my-6">
+                <LoadingState />
+            </div>
+        )
+    }
+
     return (
         <div className="experiment-result">
-            {validMetric ? (
-                experimentResultVariants.length > 4 ? (
+            {validMetric &&
+                (experimentResultVariants.length > 4 ? (
                     <>
                         <LemonTable
                             showHeader={false}
@@ -206,10 +214,7 @@ export function ExperimentResult({ secondaryMetricId }: ExperimentResultProps): 
                                 ))
                         }
                     </div>
-                )
-            ) : (
-                targetResultsLoading && <LoadingState />
-            )}
+                ))}
             {validMetric ? (
                 // :KLUDGE: using `insights-page` for proper styling, should rather adapt styles
                 <div className="mt-4 Insight">

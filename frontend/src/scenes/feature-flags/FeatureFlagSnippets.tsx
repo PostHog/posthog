@@ -329,7 +329,7 @@ export function AndroidSnippet({ flagKey, multivariant, payload }: FeatureFlagSn
     const variantSuffix = multivariant ? ` == "example-variant"` : ''
     return (
         <CodeSnippet language={Language.Kotlin} wrap>
-            {`if (${clientSuffix}${flagFunction}("${flagKey}") ${variantSuffix}) {
+            {`if (${clientSuffix}${flagFunction}("${flagKey}")${variantSuffix}) {
     // do something
 }
             `}
@@ -337,10 +337,24 @@ export function AndroidSnippet({ flagKey, multivariant, payload }: FeatureFlagSn
     )
 }
 
-export function FlutterSnippet({ flagKey }: FeatureFlagSnippet): JSX.Element {
+export function FlutterSnippet({ flagKey, multivariant, payload }: FeatureFlagSnippet): JSX.Element {
+    const clientSuffix = 'await Posthog().'
+
+    if (payload) {
+        return (
+            <CodeSnippet language={Language.Dart} wrap>
+                {`${clientSuffix}getFeatureFlagPayload('${flagKey}');`}
+            </CodeSnippet>
+        )
+    }
+
+    const flagFunction = multivariant ? 'getFeatureFlag' : 'isFeatureEnabled'
+
+    const variantSuffix = multivariant ? ` == 'example-variant'` : ''
+
     return (
         <CodeSnippet language={Language.Dart} wrap>
-            {`if (await Posthog().isFeatureEnabled('${flagKey}') ?? false) {
+            {`if (${clientSuffix}${flagFunction}('${flagKey}')${variantSuffix}) {
     // do something
 }
             `}
@@ -364,7 +378,7 @@ export function iOSSnippet({ flagKey, multivariant, payload }: FeatureFlagSnippe
     const variantSuffix = multivariant ? `as? String == "example-variant"` : ''
     return (
         <CodeSnippet language={Language.Swift} wrap>
-            {`if ${clientSuffix}${flagFunction}("${flagKey}") ${variantSuffix} {
+            {`if ${clientSuffix}${flagFunction}("${flagKey}")${variantSuffix} {
     // do something
 }`}
         </CodeSnippet>

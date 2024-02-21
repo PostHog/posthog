@@ -22,6 +22,7 @@ class OrganizationFeatureFlagView(
     viewsets.ViewSet,
     mixins.RetrieveModelMixin,
 ):
+    scope_object = "INTERNAL"
     """
     Retrieves all feature flags for a given organization and key.
     """

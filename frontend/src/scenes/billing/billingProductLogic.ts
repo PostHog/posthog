@@ -13,6 +13,7 @@ const DEFAULT_BILLING_LIMIT = 500
 
 export interface BillingProductLogicProps {
     product: BillingProductV2Type | BillingProductV2AddonType
+    productRef?: React.MutableRefObject<HTMLDivElement | null>
     billingLimitInputRef?: React.MutableRefObject<HTMLInputElement | null>
 }
 
@@ -234,7 +235,7 @@ export const billingProductLogic = kea<billingProductLogicType>([
             if (scrollToProductKey && scrollToProductKey === props.product.type) {
                 const { currentPlan } = values.currentAndUpgradePlans
 
-                if (currentPlan.initial_billing_limit) {
+                if (currentPlan?.initial_billing_limit) {
                     actions.setProductSpecificAlert({
                         status: 'warning',
                         title: 'Billing Limit Automatically Applied',
@@ -257,6 +258,15 @@ export const billingProductLogic = kea<billingProductLogicType>([
                             children: 'Update billing limit',
                         },
                     })
+                } else {
+                    setTimeout(() => {
+                        if (props.productRef?.current) {
+                            props.productRef?.current.scrollIntoView({
+                                behavior: 'smooth',
+                                block: 'start',
+                            })
+                        }
+                    }, 0)
                 }
             }
         },

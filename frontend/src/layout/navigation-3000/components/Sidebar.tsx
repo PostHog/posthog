@@ -1,7 +1,8 @@
+import { IconX } from '@posthog/icons'
 import { LemonButton, LemonInput } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { LogicWrapper, useActions, useValues } from 'kea'
-import { IconClose, IconMagnifier } from 'lib/lemon-ui/icons'
+import { IconMagnifier } from 'lib/lemon-ui/icons'
 import { Spinner } from 'lib/lemon-ui/Spinner'
 import { capitalizeFirstLetter } from 'lib/utils'
 import React, { useRef, useState } from 'react'
@@ -195,12 +196,7 @@ function SidebarKeyboardShortcut(): JSX.Element {
             <span className="truncate">
                 <i>Tip:</i> Press <KeyboardShortcut command b /> to toggle this sidebar
             </span>
-            <LemonButton
-                icon={<IconClose />}
-                size="small"
-                onClick={() => acknowledgeSidebarKeyboardShortcut()}
-                noPadding
-            />
+            <LemonButton icon={<IconX />} size="small" onClick={() => acknowledgeSidebarKeyboardShortcut()} noPadding />
         </div>
     )
 }

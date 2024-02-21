@@ -1,12 +1,12 @@
+import { IconCopy } from '@posthog/icons'
 import { LemonButton, LemonCheckbox, LemonDivider, LemonInput } from '@posthog/lemon-ui'
 import { captureException } from '@sentry/react'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
 import { SharingModalContent } from 'lib/components/Sharing/SharingModal'
-import { Field } from 'lib/forms/Field'
-import { IconCopy } from 'lib/lemon-ui/icons'
 import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
+import { LemonField } from 'lib/lemon-ui/LemonField'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
 
 import { playerShareLogic, PlayerShareLogicProps } from './playerShareLogic'
@@ -37,10 +37,10 @@ export function PlayerShareRecording(props: PlayerShareLogicProps): JSX.Element 
 
             <Form logic={playerShareLogic} props={props} formKey="shareUrl">
                 <div className="flex gap-2 items-center">
-                    <Field name="includeTime">
+                    <LemonField name="includeTime">
                         <LemonCheckbox label="Start at" />
-                    </Field>
-                    <Field name="time" inline>
+                    </LemonField>
+                    <LemonField name="time" inline>
                         <LemonInput
                             className={clsx('w-20', { 'opacity-50': !shareUrl.includeTime })}
                             placeholder="00:00"
@@ -49,7 +49,7 @@ export function PlayerShareRecording(props: PlayerShareLogicProps): JSX.Element 
                             fullWidth={false}
                             size="small"
                         />
-                    </Field>
+                    </LemonField>
                 </div>
             </Form>
 

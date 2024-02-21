@@ -1,9 +1,10 @@
 import './LemonBanner.scss'
 
+import { IconWarning, IconX } from '@posthog/icons'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { useResizeBreakpoints } from 'lib/hooks/useResizeObserver'
-import { IconClose, IconInfo, IconWarning } from 'lib/lemon-ui/icons'
+import { IconInfo } from 'lib/lemon-ui/icons'
 import { LemonButton, SideAction } from 'lib/lemon-ui/LemonButton'
 import { LemonButtonPropsBase } from 'lib/lemon-ui/LemonButton'
 
@@ -67,11 +68,9 @@ export function LemonBanner({
                         <IconInfo className="LemonBanner__icon" />
                     )
                 ) : null}
-                <div className="grow">{children}</div>
+                <div className="grow overflow-hidden">{children}</div>
                 {!isCompact && action && <LemonButton type="secondary" {...action} />}
-                {showCloseButton && (
-                    <LemonButton size="small" icon={<IconClose />} onClick={_onClose} aria-label="close" />
-                )}
+                {showCloseButton && <LemonButton size="small" icon={<IconX />} onClick={_onClose} aria-label="close" />}
             </div>
             {isCompact && action && <LemonButton type="secondary" fullWidth {...action} />}
         </div>

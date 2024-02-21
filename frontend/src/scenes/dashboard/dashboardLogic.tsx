@@ -62,8 +62,6 @@ export const BREAKPOINTS: Record<DashboardLayoutSize, number> = {
     xs: 0,
 }
 export const BREAKPOINT_COLUMN_COUNTS: Record<DashboardLayoutSize, number> = { sm: 12, xs: 1 }
-export const MIN_ITEM_WIDTH_UNITS = 3
-export const MIN_ITEM_HEIGHT_UNITS = 5
 
 export const DASHBOARD_MIN_REFRESH_INTERVAL_MINUTES = 5
 
@@ -76,6 +74,9 @@ export interface DashboardLogicProps {
 }
 
 export interface RefreshStatus {
+    /** Insight is about to be loaded */
+    queued?: boolean
+    /** Insight is currently loading */
     loading?: boolean
     refreshed?: boolean
     error?: boolean
@@ -165,8 +166,12 @@ export const dashboardLogic = kea<dashboardLogicType>([
         }),
         setProperties: (properties: AnyPropertyFilter[]) => ({ properties }),
         setAutoRefresh: (enabled: boolean, interval: number) => ({ enabled, interval }),
-        setRefreshStatus: (shortId: InsightShortId, loading = false) => ({ shortId, loading }),
-        setRefreshStatuses: (shortIds: InsightShortId[], loading = false) => ({ shortIds, loading }),
+        setRefreshStatus: (shortId: InsightShortId, loading = false, queued = false) => ({ shortId, loading, queued }),
+        setRefreshStatuses: (shortIds: InsightShortId[], loading = false, queued = false) => ({
+            shortIds,
+            loading,
+            queued,
+        }),
         setRefreshError: (shortId: InsightShortId) => ({ shortId }),
         reportDashboardViewed: true, // Reports `viewed dashboard` and `dashboard analyzed` events
         setShouldReportOnAPILoad: (shouldReport: boolean) => ({ shouldReport }), // See reducer for details
@@ -499,18 +504,22 @@ export const dashboardLogic = kea<dashboardLogicType>([
         refreshStatus: [
             {} as Record<string, RefreshStatus>,
             {
-                setRefreshStatus: (state, { shortId, loading }) => ({
+                setRefreshStatus: (state, { shortId, loading, queued }) => ({
                     ...state,
                     [shortId]: loading
-                        ? { loading: true, timer: new Date() }
+                        ? { loading: true, queued: true, timer: new Date() }
+                        : queued
+                        ? { loading: false, queued: true, timer: null }
                         : { refreshed: true, timer: state[shortId]?.timer || null },
                 }),
-                setRefreshStatuses: (state, { shortIds, loading }) =>
+                setRefreshStatuses: (state, { shortIds, loading, queued }) =>
                     Object.fromEntries(
                         shortIds.map((shortId) => [
                             shortId,
                             loading
-                                ? { loading: true, timer: new Date() }
+                                ? { loading: true, queued: true, timer: new Date() }
+                                : queued
+                                ? { loading: false, queued: true, timer: null }
                                 : { refreshed: true, timer: state[shortId]?.timer || null },
                         ])
                     ) as Record<string, RefreshStatus>,
@@ -658,6 +667,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 return dashboardLoading || Object.values(refreshStatus).some((s) => s.loading)
             },
         ],
+        isRefreshingQueued: [(s) => [s.refreshStatus], (refreshStatus) => (id: string) => !!refreshStatus[id]?.queued],
         isRefreshing: [(s) => [s.refreshStatus], (refreshStatus) => (id: string) => !!refreshStatus[id]?.loading],
         highlightedInsightId: [
             () => [router.selectors.searchParams],
@@ -728,7 +738,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
             (refreshStatus) => {
                 const total = Object.keys(refreshStatus).length ?? 0
                 return {
-                    completed: total - (Object.values(refreshStatus).filter((s) => s.loading).length ?? 0),
+                    completed: total - (Object.values(refreshStatus).filter((s) => s.loading || s.queued).length ?? 0),
                     total,
                 }
             },
@@ -934,6 +944,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
             let cancelled = false
             actions.setRefreshStatuses(
                 insights.map((item) => item.short_id),
+                false,
                 true
             )
 
@@ -954,6 +965,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
             // array of functions that reload each item
             const fetchItemFunctions = insights.map((insight) => async () => {
                 // :TODO: Support query cancellation and use this queryId in the actual query.
+                // :TODO: in the future we should use dataNodeCollectionLogic.reloadAll()
                 const queryId = `${dashboardQueryId}::${uuid()}`
                 const queryStartTime = performance.now()
                 const apiUrl = `api/projects/${values.currentTeamId}/insights/${insight.id}/?${toParams({
@@ -962,6 +974,8 @@ export const dashboardLogic = kea<dashboardLogicType>([
                     client_query_id: queryId,
                     session_id: currentSessionId(),
                 })}`
+
+                actions.setRefreshStatus(insight.short_id, true, true)
 
                 try {
                     breakpoint()
@@ -1076,6 +1090,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
             if (values.autoRefresh.enabled) {
                 // Refresh right now after enabling if we haven't refreshed recently
                 if (
+                    !values.itemsLoading &&
                     values.lastRefreshed &&
                     values.lastRefreshed.isBefore(now().subtract(values.autoRefresh.interval, 'seconds'))
                 ) {

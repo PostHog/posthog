@@ -8,7 +8,9 @@ import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
 import { DashboardPrivilegeLevel } from 'lib/constants'
 import { LemonButton, LemonButtonWithDropdown } from 'lib/lemon-ui/LemonButton'
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
+import { LemonTableLoader } from 'lib/lemon-ui/LemonTable/LemonTableLoader'
 import { Link } from 'lib/lemon-ui/Link'
+import { Spinner } from 'lib/lemon-ui/Spinner'
 import { Splotch, SplotchColor } from 'lib/lemon-ui/Splotch'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { capitalizeFirstLetter } from 'lib/utils'
@@ -36,6 +38,7 @@ interface InsightMetaProps
         | 'removeFromDashboard'
         | 'deleteWithUndo'
         | 'refresh'
+        | 'loading'
         | 'rename'
         | 'duplicate'
         | 'dashboardId'
@@ -56,6 +59,7 @@ export function InsightMeta({
     removeFromDashboard,
     deleteWithUndo,
     refresh,
+    loading,
     rename,
     duplicate,
     moveToDashboard,
@@ -98,11 +102,24 @@ export function InsightMeta({
                     <Link to={urls.insightView(short_id)}>
                         <h4 title={name} data-attr="insight-card-title">
                             {name || <i>{summary}</i>}
+                            {loading && (
+                                <Tooltip
+                                    title="This insight is queued to check for newer results. It will be updated soon."
+                                    placement="topRight"
+                                >
+                                    <span className="text-primary text-sm font-medium">
+                                        <Spinner className="mx-1" />
+                                        Refreshing
+                                    </span>
+                                </Tooltip>
+                            )}
                         </h4>
                     </Link>
 
                     {!!insight.description && <div className="CardMeta__description">{insight.description}</div>}
                     {insight.tags && insight.tags.length > 0 && <ObjectTags tags={insight.tags} staticOnly />}
+
+                    {loading && <LemonTableLoader loading={true} />}
                 </>
             }
             metaDetails={<InsightDetails insight={insight} />}

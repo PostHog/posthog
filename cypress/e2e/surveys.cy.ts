@@ -113,7 +113,7 @@ describe('Surveys', () => {
         // refresh, see survey show up on page
         cy.reload()
 
-        cy.contains('Unique users viewed').should('exist')
+        cy.contains('Unique users shown').should('exist')
 
         // stop survey
         cy.contains('Stop').click()

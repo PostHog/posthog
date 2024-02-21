@@ -46,3 +46,4 @@ python-dateutil>=2.8.2
 responses==0.23.1
 syrupy~=4.6.0
 flaky==3.7.0
+aioresponses==0.7.6

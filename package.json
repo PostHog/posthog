@@ -61,7 +61,8 @@
         "prepare": "husky install",
         "mobile-replay:web:schema:build:json": "ts-json-schema-generator -f tsconfig.json --path 'node_modules/@rrweb/types/dist/index.d.ts' --type 'eventWithTime' --expose all --no-top-ref --out ee/frontend/mobile-replay/schema/web/rr-web-schema.json && prettier --write ee/frontend/mobile-replay/schema/web/rr-web-schema.json",
         "mobile-replay:mobile:schema:build:json": "ts-json-schema-generator -f tsconfig.json --path 'ee/frontend/mobile-replay/mobile.types.ts' --type 'mobileEventWithTime' --expose all --no-top-ref --out ee/frontend/mobile-replay/schema/mobile/rr-mobile-schema.json && prettier --write ee/frontend/mobile-replay/schema/mobile/rr-mobile-schema.json",
-        "mobile-replay:schema:build:json": "pnpm mobile-replay:web:schema:build:json && pnpm mobile-replay:mobile:schema:build:json"
+        "mobile-replay:schema:build:json": "pnpm mobile-replay:web:schema:build:json && pnpm mobile-replay:mobile:schema:build:json",
+        "visualize-toolbar-bundle": "pnpm exec esbuild-visualizer --metadata ./toolbar-esbuild-meta.json --filename=toolbar-esbuild-bundle-visualization.html"
     },
     "dependencies": {
         "@ant-design/icons": "^4.7.0",
@@ -71,7 +72,7 @@
         "@dnd-kit/utilities": "^3.2.1",
         "@floating-ui/react": "^0.16.0",
         "@lottiefiles/react-lottie-player": "^3.4.7",
-        "@medv/finder": "^2.1.0",
+        "@medv/finder": "^3.1.0",
         "@microlink/react-json-view": "^1.21.3",
         "@monaco-editor/react": "4.4.6",
         "@posthog/icons": "0.5.1",
@@ -141,7 +142,7 @@
         "pmtiles": "^2.11.0",
         "postcss": "^8.4.31",
         "postcss-preset-env": "^9.3.0",
-        "posthog-js": "1.105.7",
+        "posthog-js": "1.108.0",
         "posthog-js-lite": "2.5.0",
         "prettier": "^2.8.8",
         "prop-types": "^15.7.2",
@@ -173,7 +174,6 @@
         "tailwindcss": "^3.4.0",
         "use-debounce": "^9.0.3",
         "use-resize-observer": "^8.0.0",
-        "wildcard-match": "^5.1.2",
         "zxcvbn": "^4.4.2"
     },
     "devDependencies": {
@@ -188,7 +188,7 @@
         "@babel/preset-typescript": "^7.22.5",
         "@babel/runtime": "^7.22.10",
         "@cypress/webpack-preprocessor": "^5.17.1",
-        "@playwright/test": "1.32.2",
+        "@playwright/test": "1.41.2",
         "@sentry/types": "7.22.0",
         "@storybook/addon-a11y": "^7.6.4",
         "@storybook/addon-actions": "^7.6.4",
@@ -245,6 +245,7 @@
         "cypress": "^13.3.0",
         "cypress-axe": "^1.5.0",
         "cypress-terminal-report": "^5.3.7",
+        "esbuild-visualizer": "^0.6.0",
         "eslint": "^8.52.0",
         "eslint-config-prettier": "^9.0.0",
         "eslint-plugin-compat": "^4.2.0",
@@ -304,7 +305,7 @@
     },
     "pnpm": {
         "overrides": {
-            "playwright": "1.32.2"
+            "playwright": "1.41.2"
         },
         "patchedDependencies": {
             "rrweb@2.0.0-alpha.11": "patches/rrweb@2.0.0-alpha.11.patch"
@@ -317,6 +318,10 @@
             "prettier --write"
         ],
         "frontend/src/**/*.{js,jsx,mjs,ts,tsx}": [
+            "eslint -c .eslintrc.js --fix",
+            "prettier --write"
+        ],
+        "frontend/*.mjs": [
             "eslint -c .eslintrc.js --fix",
             "prettier --write"
         ],

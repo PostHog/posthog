@@ -1,5 +1,6 @@
 import { Placement } from '@floating-ui/react'
 import { LemonButton, LemonButtonProps, LemonButtonWithDropdown, LemonDivider } from '@posthog/lemon-ui'
+import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import {
     CUSTOM_OPTION_DESCRIPTION,
@@ -210,7 +211,7 @@ export function DateFilter({
             id="daterange_selector"
             onClick={isVisible ? close : open}
             disabled={disabled}
-            className={className}
+            className={clsx('text-nowrap', className)}
             size={size ?? 'small'}
             type="secondary"
             dropdown={{

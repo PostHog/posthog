@@ -1,12 +1,12 @@
 import './Experiment.scss'
 
+import { IconPencil, IconTrash } from '@posthog/icons'
 import { LemonInput, LemonModal, LemonTable } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
-import { Field } from 'lib/forms/Field'
-import { IconDelete, IconEdit } from 'lib/lemon-ui/icons'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
+import { LemonField } from 'lib/lemon-ui/LemonField'
 import { LemonTableColumns } from 'lib/lemon-ui/LemonTable'
 import { capitalizeFirstLetter, humanFriendlyNumber } from 'lib/utils'
 import { ActionFilter } from 'scenes/insights/filters/ActionFilter/ActionFilter'
@@ -80,7 +80,7 @@ export function SecondaryMetricsTable({
                     </div>
                     <div className="flex" onClick={(event) => event.stopPropagation()}>
                         <LemonButton
-                            icon={<IconEdit />}
+                            icon={<IconPencil />}
                             size="small"
                             onClick={() => openModalToEditSecondaryMetric(metric, idx)}
                         />
@@ -151,16 +151,16 @@ export function SecondaryMetricsTable({
                     id="secondary-metric-modal-form"
                     className="space-y-4"
                 >
-                    <Field name="name" label="Name">
+                    <LemonField name="name" label="Name">
                         <LemonInput data-attr="secondary-metric-name" />
-                    </Field>
-                    <Field name="filters" label="Query">
+                    </LemonField>
+                    <LemonField name="filters" label="Query">
                         <MetricSelector
                             dashboardItemId={SECONDARY_METRIC_INSIGHT_ID}
                             setPreviewInsight={setPreviewInsight}
                             showDateRangeBanner={isExperimentRunning}
                         />
-                    </Field>
+                    </LemonField>
                 </Form>
             </LemonModal>
             {experimentId == 'new' || editingExistingExperiment ? (
@@ -174,12 +174,12 @@ export function SecondaryMetricsTable({
                                     </div>
                                     <div className="flex">
                                         <LemonButton
-                                            icon={<IconEdit />}
+                                            icon={<IconPencil />}
                                             size="small"
                                             onClick={() => openModalToEditSecondaryMetric(metric, idx)}
                                         />
                                         <LemonButton
-                                            icon={<IconDelete />}
+                                            icon={<IconTrash />}
                                             size="small"
                                             onClick={() => deleteMetric(idx)}
                                         />

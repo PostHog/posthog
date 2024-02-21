@@ -19,7 +19,6 @@ from rest_framework.parsers import JSONParser
 from rest_framework.response import Response
 from rest_framework.settings import api_settings
 from rest_framework_csv import renderers as csvrenderers
-from sentry_sdk import capture_exception
 
 from posthog import schema
 from posthog.api.documentation import extend_schema
@@ -561,11 +560,12 @@ class InsightSerializer(InsightBasicSerializer, UserPermissionsSerializerMixin):
 
 
 class InsightViewSet(
-    TaggedItemViewSetMixin,
     TeamAndOrgViewSetMixin,
+    TaggedItemViewSetMixin,
     ForbidDestroyModel,
     viewsets.ModelViewSet,
 ):
+    scope_object = "insight"
     serializer_class = InsightSerializer
     throttle_classes = [
         ClickHouseBurstRateThrottle,
@@ -574,7 +574,7 @@ class InsightViewSet(
     renderer_classes = tuple(api_settings.DEFAULT_RENDERER_CLASSES) + (csvrenderers.CSVRenderer,)
     filter_backends = [DjangoFilterBackend]
     filterset_fields = ["short_id", "created_by"]
-    include_in_docs = True
+    sharing_enabled_actions = ["retrieve", "list"]
 
     retention_query_class = Retention
     stickiness_query_class = Stickiness
@@ -589,22 +589,10 @@ class InsightViewSet(
             return InsightBasicSerializer
         return super().get_serializer_class()
 
-    def get_authenticators(self):
-        return [SharingAccessTokenAuthentication(), *super().get_authenticators()]
-
     def get_serializer_context(self) -> Dict[str, Any]:
         context = super().get_serializer_context()
         context["is_shared"] = isinstance(self.request.successful_authenticator, SharingAccessTokenAuthentication)
         return context
-
-    def get_permissions(self):
-        if isinstance(self.request.successful_authenticator, SharingAccessTokenAuthentication) and self.action in (
-            "retrieve",
-            "list",
-        ):
-            # Anonymous users authenticated via SharingAccessTokenAuthentication get read-only access to insights
-            return []
-        return super().get_permissions()
 
     def get_queryset(self) -> QuerySet:
         queryset: QuerySet
@@ -813,12 +801,6 @@ Using the correct cache and enriching the response with dashboard specific confi
     @action(methods=["GET", "POST"], detail=False)
     def trend(self, request: request.Request, *args: Any, **kwargs: Any):
         timings = HogQLTimings()
-
-        try:
-            serializer = TrendSerializer(request=request)
-            serializer.is_valid(raise_exception=True)
-        except Exception as e:
-            capture_exception(e)
         try:
             with timings.measure("calculate"):
                 result = self.calculate_trends(request)
@@ -878,7 +860,7 @@ Using the correct cache and enriching the response with dashboard specific confi
             result = self.stickiness_query_class().run(stickiness_filter, team)
         else:
             trends_query = Trends()
-            result = trends_query.run(filter, team)
+            result = trends_query.run(filter, team, is_csv_export=bool(request.GET.get("is_csv_export", False)))
 
         return {"result": result, "timezone": team.timezone}
 
@@ -905,11 +887,6 @@ Using the correct cache and enriching the response with dashboard specific confi
     @action(methods=["GET", "POST"], detail=False)
     def funnel(self, request: request.Request, *args: Any, **kwargs: Any) -> Response:
         timings = HogQLTimings()
-        try:
-            serializer = FunnelSerializer(request=request)
-            serializer.is_valid(raise_exception=True)
-        except Exception as e:
-            capture_exception(e)
         try:
             with timings.measure("calculate"):
                 funnel = self.calculate_funnel(request)
@@ -1032,7 +1009,7 @@ Using the correct cache and enriching the response with dashboard specific confi
         activity_page = load_activity(scope="Insight", team_id=self.team_id, limit=limit, page=page)
         return activity_page_response(activity_page, limit, page, request)
 
-    @action(methods=["GET"], detail=True)
+    @action(methods=["GET"], detail=True, required_scopes=["activity_log:read"])
     def activity(self, request: request.Request, **kwargs):
         limit = int(request.query_params.get("limit", "10"))
         page = int(request.query_params.get("page", "1"))

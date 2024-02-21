@@ -34,12 +34,12 @@ class ElementSerializer(serializers.ModelSerializer):
 
 
 class ElementViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
+    scope_object = "INTERNAL"
     filter_rewrite_rules = {"team_id": "group__team_id"}
 
     queryset = Element.objects.all()
     serializer_class = ElementSerializer
     authentication_classes = [TemporaryTokenAuthentication]
-    include_in_docs = False
 
     @action(methods=["GET"], detail=False)
     def stats(self, request: request.Request, **kwargs) -> response.Response:
