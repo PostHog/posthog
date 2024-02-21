@@ -309,7 +309,9 @@ export function ItemPerformanceEvent({
                         </>
                     ) : (
                         <>
-                            <StatusRow item={item} />
+                            <FlaggedFeature flag={FEATURE_FLAGS.NETWORK_PAYLOAD_CAPTURE} match={true}>
+                                <StatusRow item={item} />
+                            </FlaggedFeature>
                             <p>
                                 Request started at{' '}
                                 <b>{humanFriendlyMilliseconds(item.start_time || item.fetch_start)}</b> and took{' '}
