@@ -227,7 +227,7 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
         if not isinstance(value, Dict):
             raise exceptions.ValidationError("Must provide a dictionary or None.")
 
-        known_keys = ["record_canvas", "maskAllText", "maskAllInputs"]
+        known_keys = ["record_canvas", "mask_all_text", "mask_all_inputs"]
         if not all(key in known_keys for key in value.keys()):
             raise exceptions.ValidationError(
                 f"Must provide a dictionary with only known keys. One or more of {', '.join(known_keys)}"

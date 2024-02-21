@@ -185,19 +185,21 @@ function MaskingSettings(): JSX.Element {
                     data-attr="opt-in-mask-inputs-switch"
                     onChange={(checked) => {
                         updateCurrentTeam({
-                            session_replay_config: { maskAllInputs: checked },
+                            session_replay_config: { mask_all_inputs: checked },
                         })
                     }}
                     label="Mask all inputs"
                     bordered
                     checked={
                         currentTeam?.session_recording_opt_in
-                            ? currentTeam?.session_replay_config?.maskAllInputs || true
+                            ? currentTeam?.session_replay_config?.mask_all_inputs === undefined
+                                ? true
+                                : currentTeam?.session_replay_config?.mask_all_inputs
                             : false
                     }
                     tooltip={
                         <>
-                            Setting this is equivalent to setting <pre className="inline">maskAllInputs: true</pre> in
+                            Setting this is equivalent to setting <pre className="inline">mask_all_inputs: true</pre> in
                             your client config.{' '}
                         </>
                     }
@@ -209,14 +211,14 @@ function MaskingSettings(): JSX.Element {
                     data-attr="opt-in-mask-text-switch"
                     onChange={(checked) => {
                         updateCurrentTeam({
-                            session_replay_config: { maskAllText: checked },
+                            session_replay_config: { mask_all_text: checked },
                         })
                     }}
                     label="Mask all other text"
                     bordered
                     checked={
                         currentTeam?.session_recording_opt_in
-                            ? currentTeam?.session_replay_config?.maskAllText || false
+                            ? currentTeam?.session_replay_config?.mask_all_text || false
                             : false
                     }
                     tooltip={

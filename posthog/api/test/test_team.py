@@ -925,41 +925,42 @@ class TestTeamAPI(APIBaseTest):
 
     def test_can_set_and_unset_session_replay_masking_inputs_config(self) -> None:
         # can set
-        self._patch_session_replay_config({"maskAllInputs": True})
-        self._assert_replay_config_is({"maskAllInputs": True})
+        self._patch_session_replay_config({"mask_all_inputs": True})
+        self._assert_replay_config_is({"mask_all_inputs": True})
 
         # can unset
-        self._patch_session_replay_config({"maskAllInputs": False})
-        self._assert_replay_config_is({"maskAllInputs": False})
+        self._patch_session_replay_config({"mask_all_inputs": False})
+        self._assert_replay_config_is({"mask_all_inputs": False})
 
     def test_can_set_and_unset_session_replay_masking_text_config(self) -> None:
         # can set
-        self._patch_session_replay_config({"maskAllText": True})
-        self._assert_replay_config_is({"maskAllText": True})
+        self._patch_session_replay_config({"mask_all_text": True})
+        self._assert_replay_config_is({"mask_all_text": True})
 
         # can unset
-        self._patch_session_replay_config({"maskAllText": False})
-        self._assert_replay_config_is({"maskAllText": False})
+        self._patch_session_replay_config({"mask_all_text": False})
+        self._assert_replay_config_is({"mask_all_text": False})
 
     def test_patching_session_replay_config_only_changes_provided_fields(self) -> None:
         # can set one config
-        self._patch_session_replay_config({"maskAllText": True})
-        self._assert_replay_config_is({"maskAllText": True})
+        self._patch_session_replay_config({"mask_all_text": True})
+        self._assert_replay_config_is({"mask_all_text": True})
 
         # can set a second config
         self._patch_session_replay_config({"record_canvas": True})
-        self._assert_replay_config_is({"maskAllText": True, "record_canvas": True})
+        self._assert_replay_config_is({"mask_all_text": True, "record_canvas": True})
 
         # can unset one config
-        self._patch_session_replay_config({"maskAllText": False})
-        self._assert_replay_config_is({"maskAllText": False, "record_canvas": True})
+        self._patch_session_replay_config({"mask_all_text": False})
+        self._assert_replay_config_is({"mask_all_text": False, "record_canvas": True})
 
     def test_cannot_send_unknown_config(self) -> None:
         response = self._patch_session_replay_config({"wat": "wat"}, expected_status=status.HTTP_400_BAD_REQUEST)
+        expected_detail = "Must provide a dictionary with only known keys. One or more of record_canvas, mask_all_text, mask_all_inputs"
         assert response.json() == {
             "attr": "session_replay_config",
             "code": "invalid_input",
-            "detail": "Must provide a dictionary with only known keys. One or more of record_canvas, maskAllText, maskAllInputs",
+            "detail": expected_detail,
             "type": "validation_error",
         }
 

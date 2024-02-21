@@ -419,7 +419,7 @@ export interface TeamType extends TeamBasicType {
         | undefined
         | null
     session_replay_config:
-        | { record_canvas?: boolean; maskAllInputs?: boolean; maskAllText?: boolean }
+        | { record_canvas?: boolean; mask_all_inputs?: boolean; mask_all_text?: boolean }
         | undefined
         | null
     autocapture_exceptions_opt_in: boolean
