@@ -148,7 +148,7 @@ export class SessionRecordingIngesterV3 {
 
     public async consume(event: IncomingRecordingMessage): Promise<void> {
         const { team_id, session_id } = event
-        const key = `${team_id}-${session_id}`
+        const key = `${team_id}__${session_id}`
 
         const { offset, partition } = event.metadata
         if (this.debugPartition === partition) {

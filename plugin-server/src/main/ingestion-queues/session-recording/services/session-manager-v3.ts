@@ -420,7 +420,14 @@ export class SessionManagerV3 {
         const writeStream = new PassThrough()
 
         // The uncompressed file which we need for realtime playback
-        pipeline(writeStream, createWriteStream(file)).catch((error) => {
+        pipeline(
+            writeStream,
+            createWriteStream(file, {
+                // Opens in append mode in case it already exists
+                flags: 'a',
+                encoding: 'utf-8',
+            })
+        ).catch((error) => {
             // TODO: If this actually happens we probably want to destroy the buffer as we will be stuck...
             status.error('🧨', '[session-manager] writestream errored', {
                 ...this.context,
