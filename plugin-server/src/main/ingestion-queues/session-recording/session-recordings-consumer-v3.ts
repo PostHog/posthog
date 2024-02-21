@@ -1,4 +1,5 @@
 import { captureException } from '@sentry/node'
+import { readdir } from 'fs/promises'
 import { features, KafkaConsumer, librdkafkaVersion, Message, TopicPartition } from 'node-rdkafka'
 import path from 'path'
 
@@ -201,7 +202,7 @@ export class SessionRecordingIngesterV3 {
             this.sessions[key] = await SessionManagerV2.create(this.config, this.objectStorage.s3, {
                 teamId: team_id,
                 sessionId: session_id,
-                dir: path.join(this.rootDir, `${partition}`, `${team_id}`, session_id),
+                dir: path.join(this.rootDir, `${partition}`, key),
                 partition,
             })
         }
@@ -214,6 +215,7 @@ export class SessionRecordingIngesterV3 {
             size: messages.length,
             partitionsInBatch: [...new Set(messages.map((x) => x.partition))],
             assignedPartitions: this.assignedTopicPartitions.map((x) => x.partition),
+            sessionsHandled: Object.keys(this.sessions).length,
         })
 
         // TODO: For all assigned partitions, load up any sessions on disk that we don't already have in memory
@@ -251,14 +253,17 @@ export class SessionRecordingIngesterV3 {
                 // await this.reportPartitionMetrics()
 
                 await runInstrumentedFunction({
+                    statsKey: `recordingingester.handleEachBatch.ensureSessionsAreLoaded`,
+                    func: async () => {
+                        await this.syncSessionsWithDisk()
+                    },
+                })
+
+                await runInstrumentedFunction({
                     statsKey: `recordingingester.handleEachBatch.consumeBatch`,
                     func: async () => {
-                        if (this.config.SESSION_RECORDING_PARALLEL_CONSUMPTION) {
-                            await Promise.all(recordingMessages.map((x) => this.consume(x)))
-                        } else {
-                            for (const message of recordingMessages) {
-                                await this.consume(message)
-                            }
+                        for (const message of recordingMessages) {
+                            await this.consume(message)
                         }
                     },
                 })
@@ -450,7 +455,44 @@ export class SessionRecordingIngesterV3 {
         // )
     }
 
+    private async syncSessionsWithDisk(): Promise<void> {
+        // As we may get assigned and reassigned partitions, we want to make sure that we have all sessions loaded into memory
+        await Promise.all(
+            this.assignedTopicPartitions.map(async ({ partition }) => {
+                const keys = await readdir(path.join(this.rootDir, `${partition}`)).catch(() => {
+                    // This happens if there are no files on disk for that partition yet
+                    return []
+                })
+
+                console.log(`Found on disk: ${keys} for partition ${partition}`, Object.keys(this.sessions))
+
+                await Promise.all(
+                    keys.map(async (key) => {
+                        // TODO: Ensure sessionId can only be a uuid
+                        const [teamId, sessionId] = key.split('.')
+
+                        if (!this.sessions[key]) {
+                            this.sessions[key] = await SessionManagerV2.create(this.config, this.objectStorage.s3, {
+                                teamId: parseInt(teamId),
+                                sessionId,
+                                dir: path.join(this.rootDir, `${partition}`, key),
+                                partition,
+                            })
+                        }
+                    })
+                )
+            })
+        )
+    }
+
     private async destroySessions(sessionsToDestroy: [string, SessionManagerV2][]): Promise<void> {
+        status.info('🔁', 'session-replay-ingestion - destroying sessions', {
+            sessionsToDestroy: sessionsToDestroy.map(([key, sessionManager]) => ({
+                key,
+                teamId: sessionManager.context.teamId,
+                sessionId: sessionManager.context.sessionId,
+            })),
+        })
         const destroyPromises: Promise<void>[] = []
 
         sessionsToDestroy.forEach(([key, sessionManager]) => {

@@ -1,8 +1,8 @@
 import { Upload } from '@aws-sdk/lib-storage'
 import { captureException, captureMessage } from '@sentry/node'
 import { randomUUID } from 'crypto'
-import { createReadStream, createWriteStream, mkdirSync, ReadStream } from 'fs'
-import { mkdir, readdir, readFile, rename, stat, unlink, writeFile } from 'fs/promises'
+import { createReadStream, createWriteStream, ReadStream } from 'fs'
+import { mkdir, readdir, readFile, rename, rmdir, stat, unlink, writeFile } from 'fs/promises'
 import path from 'path'
 import { Counter, Histogram } from 'prom-client'
 import { PassThrough, Transform } from 'stream'
@@ -112,8 +112,6 @@ export class SessionManagerV2 {
     ) {
         // We add a jitter multiplier to the buffer age so that we don't have all sessions flush at the same time
         this.flushJitterMultiplier = 1 - Math.random() * serverConfig.SESSION_RECORDING_BUFFER_AGE_JITTER
-
-        status.info('📦', '[session-manager] started new manager', this.context)
     }
 
     private file(name: string): string {
@@ -130,7 +128,7 @@ export class SessionManagerV2 {
 
         try {
             const bufferMetadata: SessionManagerBufferContext = JSON.parse(
-                await readFile(path.join(context.dir, 'buffer-metadata.json'), 'utf-8')
+                await readFile(path.join(context.dir, 'metadata.json'), 'utf-8')
             )
             manager.buffer = {
                 context: bufferMetadata,
@@ -138,8 +136,16 @@ export class SessionManagerV2 {
             }
         } catch (error) {
             // Indicates no buffer metadata file or it's corrupted
+            status.error('🧨', '[session-manager] failed to read buffer metadata', {
+                ...context,
+                error,
+            })
         }
 
+        status.info('📦', '[session-manager] started new manager', {
+            ...manager.context,
+            ...(manager.buffer?.context ?? {}),
+        })
         return manager
     }
 
@@ -214,46 +220,48 @@ export class SessionManagerV2 {
     }
 
     public async flush(): Promise<void> {
-        if (this.destroying || !this.buffer) {
+        if (this.destroying) {
             return
         }
 
-        if (this.buffer.context.sizeEstimate >= this.serverConfig.SESSION_RECORDING_MAX_BUFFER_SIZE_KB * 1024) {
-            return this.markCurrentBufferForFlush('buffer_size')
-        }
+        if (this.buffer) {
+            if (this.buffer.context.sizeEstimate >= this.serverConfig.SESSION_RECORDING_MAX_BUFFER_SIZE_KB * 1024) {
+                return this.markCurrentBufferForFlush('buffer_size')
+            }
 
-        const flushThresholdMs = this.serverConfig.SESSION_RECORDING_MAX_BUFFER_AGE_SECONDS * 1000
-        const flushThresholdJitteredMs = flushThresholdMs * this.flushJitterMultiplier
-        const flushThresholdMemoryMs =
-            flushThresholdJitteredMs * this.serverConfig.SESSION_RECORDING_BUFFER_AGE_IN_MEMORY_MULTIPLIER
+            const flushThresholdMs = this.serverConfig.SESSION_RECORDING_MAX_BUFFER_AGE_SECONDS * 1000
+            const flushThresholdJitteredMs = flushThresholdMs * this.flushJitterMultiplier
+            const flushThresholdMemoryMs =
+                flushThresholdJitteredMs * this.serverConfig.SESSION_RECORDING_BUFFER_AGE_IN_MEMORY_MULTIPLIER
 
-        const logContext: Record<string, any> = {
-            ...this.context,
-            flushThresholdMs,
-            flushThresholdJitteredMs,
-            flushThresholdMemoryMs,
-        }
+            const logContext: Record<string, any> = {
+                ...this.context,
+                flushThresholdMs,
+                flushThresholdJitteredMs,
+                flushThresholdMemoryMs,
+            }
 
-        if (!this.buffer.context.count) {
-            status.warn('🚽', `[session-manager] buffer has no items yet`, { logContext })
-            return
-        }
+            if (!this.buffer.context.count) {
+                status.warn('🚽', `[session-manager] buffer has no items yet`, { logContext })
+                return
+            }
 
-        const bufferAgeInMemoryMs = now() - this.buffer.context.createdAt
+            const bufferAgeInMemoryMs = now() - this.buffer.context.createdAt
 
-        // check the in-memory age against a larger value than the flush threshold,
-        // otherwise we'll flap between reasons for flushing when close to real-time processing
-        const isSessionAgeOverThreshold = bufferAgeInMemoryMs >= flushThresholdMemoryMs
+            // check the in-memory age against a larger value than the flush threshold,
+            // otherwise we'll flap between reasons for flushing when close to real-time processing
+            const isSessionAgeOverThreshold = bufferAgeInMemoryMs >= flushThresholdMemoryMs
 
-        logContext['bufferAgeInMemoryMs'] = bufferAgeInMemoryMs
-        logContext['isSessionAgeOverThreshold'] = isSessionAgeOverThreshold
+            logContext['bufferAgeInMemoryMs'] = bufferAgeInMemoryMs
+            logContext['isSessionAgeOverThreshold'] = isSessionAgeOverThreshold
 
-        histogramSessionAgeSeconds.observe(bufferAgeInMemoryMs / 1000)
-        histogramSessionSize.observe(this.buffer.context.count)
-        histogramSessionSizeKb.observe(this.buffer.context.sizeEstimate / 1024)
+            histogramSessionAgeSeconds.observe(bufferAgeInMemoryMs / 1000)
+            histogramSessionSize.observe(this.buffer.context.count)
+            histogramSessionSizeKb.observe(this.buffer.context.sizeEstimate / 1024)
 
-        if (isSessionAgeOverThreshold) {
-            return this.markCurrentBufferForFlush('buffer_age')
+            if (isSessionAgeOverThreshold) {
+                return this.markCurrentBufferForFlush('buffer_age')
+            }
         }
 
         await this.flushFiles()
@@ -292,11 +300,15 @@ export class SessionManagerV2 {
     private async flushFiles(): Promise<void> {
         // We read all files marked for flushing and write them to S3
         const filesToFlush = (await readdir(this.context.dir)).filter((file) => file.endsWith('.flush.jsonl'))
+        console.log('filesToFlush', filesToFlush)
         await Promise.all(filesToFlush.map((file) => this.flushFile(file)))
     }
 
     private async flushFile(filename: string): Promise<void> {
-        // TODO: DO WE CARE?!?!
+        status.info('🚽', '[session-manager] flushing file to S3', {
+            filename,
+            ...this.context,
+        })
         if (this.destroying) {
             status.warn('🚽', '[session-manager] flush called but we are in a destroying state', {
                 ...this.context,
@@ -312,17 +324,17 @@ export class SessionManagerV2 {
                 await new Promise((resolve) => readStream?.close(resolve))
             }
 
-            await stat(this.file(file))
-            await unlink(this.file(file))
+            await stat(file)
+            await unlink(file)
         }
 
         const endFlushTimer = histogramFlushTimeSeconds.startTimer()
 
         try {
-            const targetFileName = file.replace('.flush.jsonl', '.jsonl')
+            const targetFileName = filename.replace('.flush.jsonl', '.jsonl')
             const baseKey = `${this.serverConfig.SESSION_RECORDING_REMOTE_FOLDER}/team_id/${this.context.teamId}/session_id/${this.context.sessionId}`
             const dataKey = `${baseKey}/data/${targetFileName}`
-            readStream = createReadStream(this.file(file))
+            readStream = createReadStream(file)
 
             readStream.on('error', (err) => {
                 // TODO: What should we do here?
@@ -442,6 +454,14 @@ export class SessionManagerV2 {
         const buffer = this.buffer
         if (buffer) {
             await new Promise((resolve) => buffer.fileStream.end(resolve))
+        }
+
+        if (await this.isEmpty()) {
+            status.info('🧨', '[session-manager] removing empty session directory', {
+                ...this.context,
+            })
+
+            await rmdir(this.context.dir, { recursive: true })
         }
     }
 }
