@@ -37,7 +37,7 @@ class SeriesWithExtras:
 
     def __init__(
         self,
-        series: EventsNode | ActionsNode,
+        series: EventsNode | ActionsNode | DataWarehouseNode,
         is_previous_period_series: Optional[bool],
     ):
         self.series = series

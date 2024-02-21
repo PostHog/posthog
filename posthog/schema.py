@@ -2374,7 +2374,9 @@ class StickinessQuery(BaseModel):
         ]
     ] = Field(default=None, description="Property filters for all series")
     samplingFactor: Optional[float] = Field(default=None, description="Sampling rate")
-    series: List[Union[EventsNode, ActionsNode]] = Field(..., description="Events and actions to include")
+    series: List[Union[EventsNode, ActionsNode, DataWarehouseNode]] = Field(
+        ..., description="Events and actions to include"
+    )
     stickinessFilter: Optional[StickinessFilter] = Field(
         default=None, description="Properties specific to the stickiness insight"
     )
@@ -2416,7 +2418,7 @@ class TrendsQuery(BaseModel):
     ] = Field(default=None, description="Property filters for all series")
     response: Optional[TrendsQueryResponse] = None
     samplingFactor: Optional[float] = Field(default=None, description="Sampling rate")
-    series: List[Union[DataWarehouseNode, Union[EventsNode, ActionsNode]]] = Field(
+    series: List[Union[EventsNode, ActionsNode, DataWarehouseNode]] = Field(
         ..., description="Events and actions to include"
     )
     trendsFilter: Optional[TrendsFilter] = Field(default=None, description="Properties specific to the trends insight")
@@ -2510,7 +2512,9 @@ class FunnelsQuery(BaseModel):
         ]
     ] = Field(default=None, description="Property filters for all series")
     samplingFactor: Optional[float] = Field(default=None, description="Sampling rate")
-    series: List[Union[EventsNode, ActionsNode]] = Field(..., description="Events and actions to include")
+    series: List[Union[EventsNode, ActionsNode, DataWarehouseNode]] = Field(
+        ..., description="Events and actions to include"
+    )
 
 
 class InsightsQueryBase(BaseModel):
@@ -2583,7 +2587,9 @@ class LifecycleQuery(BaseModel):
     ] = Field(default=None, description="Property filters for all series")
     response: Optional[LifecycleQueryResponse] = None
     samplingFactor: Optional[float] = Field(default=None, description="Sampling rate")
-    series: List[Union[EventsNode, ActionsNode]] = Field(..., description="Events and actions to include")
+    series: List[Union[EventsNode, ActionsNode, DataWarehouseNode]] = Field(
+        ..., description="Events and actions to include"
+    )
 
 
 class NamedParametersTypeofDateRangeForFilter(BaseModel):

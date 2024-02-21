@@ -24,7 +24,6 @@ from posthog.schema import (
     ActionsNode,
     BreakdownAttributionType,
     BreakdownType,
-    DataWarehouseNode,
     EventsNode,
     FunnelExclusionActionsNode,
     FunnelTimeToConvertResults,
@@ -354,7 +353,7 @@ class FunnelBase(ABC):
 
     def _serialize_step(
         self,
-        step: ActionsNode | EventsNode | DataWarehouseNode,
+        step: ActionsNode | EventsNode,
         count: int,
         index: int,
         people: Optional[List[uuid.UUID]] = None,

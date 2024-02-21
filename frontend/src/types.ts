@@ -882,7 +882,7 @@ export interface SessionRecordingsResponse {
     has_next: boolean
 }
 
-export type EntityType = 'actions' | 'events' | 'new_entity'
+export type EntityType = 'actions' | 'events' | 'data_warehouse' | 'new_entity'
 
 export interface Entity {
     id: string | number
@@ -895,6 +895,7 @@ export interface Entity {
 export enum EntityTypes {
     ACTIONS = 'actions',
     EVENTS = 'events',
+    DATA_WAREHOUSE = 'data_warehouse',
 }
 
 export type EntityFilter = {

@@ -46,7 +46,7 @@ export enum NodeKind {
     // Data nodes
     EventsNode = 'EventsNode',
     ActionsNode = 'ActionsNode',
-    DatawarehouseNode = 'DatawarehouseNode',
+    DataWarehouseNode = 'DataWarehouseNode',
     EventsQuery = 'EventsQuery',
     PersonsNode = 'PersonsNode',
     HogQLQuery = 'HogQLQuery',
@@ -377,8 +377,7 @@ export interface ActionsNode extends EntityNode {
     id: integer
 }
 
-export type AnyEntityNode = EventsNode | ActionsNode
-export type TrendsEntityNode = AnyEntityNode | DataWarehouseNode
+export type AnyEntityNode = EventsNode | ActionsNode | DataWarehouseNode
 
 export interface QueryTiming {
     /** Key. Shortened to 'k' to save on data. */
@@ -642,7 +641,7 @@ export interface TrendsQuery extends InsightsQueryBase {
     /** Granularity of the response. Can be one of `hour`, `day`, `week` or `month` */
     interval?: IntervalType
     /** Events and actions to include */
-    series: TrendsEntityNode[]
+    series: AnyEntityNode[]
     /** Properties specific to the trends insight */
     trendsFilter?: TrendsFilter
     /** Breakdown of the events and actions */

@@ -231,6 +231,9 @@
                 },
                 {
                     "$ref": "#/definitions/ActionsNode"
+                },
+                {
+                    "$ref": "#/definitions/DataWarehouseNode"
                 }
             ]
         },
@@ -4865,16 +4868,6 @@
             "required": ["events"],
             "type": "object"
         },
-        "TrendsEntityNode": {
-            "anyOf": [
-                {
-                    "$ref": "#/definitions/AnyEntityNode"
-                },
-                {
-                    "$ref": "#/definitions/DataWarehouseNode"
-                }
-            ]
-        },
         "TrendsFilter": {
             "additionalProperties": false,
             "properties": {
@@ -5029,7 +5022,7 @@
                 "series": {
                     "description": "Events and actions to include",
                     "items": {
-                        "$ref": "#/definitions/TrendsEntityNode"
+                        "$ref": "#/definitions/AnyEntityNode"
                     },
                     "type": "array"
                 },
