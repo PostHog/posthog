@@ -259,20 +259,20 @@ def _export_to_csv(exported_asset: ExportedAsset, limit: int) -> None:
             next_url = data.get("next")
 
     renderer = OrderedCsvRenderer()
+    render_context = {}
 
-    # NOTE: This is not ideal as some rows _could_ have different keys
-    # Ideally we would extend the csvrenderer to supported keeping the order in place
     if len(all_csv_rows):
-        if not [x for x in all_csv_rows[0].values() if isinstance(x, dict) or isinstance(x, list)]:
+        # NOTE: This is not ideal as some rows _could_ have different keys
+        # Ideally we would extend the csvrenderer to supported keeping the order in place
+        is_any_col_list_or_dict = [x for x in all_csv_rows[0].values() if isinstance(x, dict) or isinstance(x, list)]
+        if not is_any_col_list_or_dict:
             # If values are serialised then keep the order of the keys, else allow it to be unordered
             renderer.header = all_csv_rows[0].keys()
 
-    render_context = {}
-    if columns:
-        render_context["header"] = columns
-
-    # Fallback if empty to produce any CSV at all to distinguish from a failed export
-    if not all_csv_rows:
+        if columns:
+            render_context["header"] = columns
+    else:
+        # Fallback if empty to produce any CSV at all to distinguish from a failed export
         all_csv_rows = [{}]
 
     rendered_csv_content = renderer.render(all_csv_rows, renderer_context=render_context)
