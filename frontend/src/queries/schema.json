@@ -775,7 +775,7 @@
                     "type": "string"
                 },
                 "kind": {
-                    "const": "DatawarehouseNode",
+                    "const": "DataWarehouseNode",
                     "type": "string"
                 },
                 "math": {
@@ -1054,7 +1054,7 @@
             "type": "object"
         },
         "EntityType": {
-            "enum": ["actions", "events", "new_entity"],
+            "enum": ["actions", "events", "data_warehouse", "new_entity"],
             "type": "string"
         },
         "EventPropertyFilter": {
@@ -2887,7 +2887,7 @@
             "enum": [
                 "EventsNode",
                 "ActionsNode",
-                "DatawarehouseNode",
+                "DataWarehouseNode",
                 "EventsQuery",
                 "PersonsNode",
                 "HogQLQuery",
