@@ -2867,6 +2867,9 @@ export interface FunnelExperimentResults {
 
 export type ExperimentResults = TrendsExperimentResults | FunnelExperimentResults
 
+export type SecondaryMetricResults = Partial<ExperimentResults['result']> & {
+    result?: Record<string, number>
+}
 export interface SecondaryExperimentMetric {
     name: string
     filters: Partial<FilterType>
