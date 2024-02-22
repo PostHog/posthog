@@ -1,14 +1,12 @@
 import json
 from time import sleep
 from typing import Dict, List, Optional
-import requests
 
 import structlog
 from prometheus_client import Counter
 
 from posthog import settings
 from posthog.redis import get_client
-from posthog.settings import RECORDINGS_INGESTER_URL
 from sentry_sdk import capture_exception
 
 logger = structlog.get_logger(__name__)
