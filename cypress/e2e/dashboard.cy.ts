@@ -20,7 +20,7 @@ describe('Dashboard', () => {
     })
 
     it('Adding new insight to dashboard works', () => {
-        const dashboardName = randomString('to add an insight to')
+        const dashboardName = randomString('Dashboard with insight A')
         const insightName = randomString('insight to add to dashboard')
 
         // create and visit a dashboard to get it into turbomode cache
@@ -30,7 +30,30 @@ describe('Dashboard', () => {
 
         insight.addInsightToDashboard(dashboardName, { visitAfterAdding: true })
 
-        cy.get('h1').should('have.text', dashboardName)
+        cy.get('.CardMeta h4').should('have.text', insightName)
+
+        dashboard.addPropertyFilter()
+        cy.get('main').contains("There are no matching events for this query").should('not.exist')
+
+        cy.clickNavMenu('dashboards')
+        const dashboardNameB = randomString('Dashboard with insight B')
+        dashboards.createAndGoToEmptyDashboard(dashboardNameB)
+
+        insight.visitInsight(insightName)
+        insight.addInsightToDashboard(dashboardNameB, { visitAfterAdding: true })
+
+        dashboard.addPropertyFilter("Browser", "Hogbrowser")
+
+        // Go back and forth to make sure the filters are correctly applied
+        for (let i = 0; i < 3; i++) {
+            cy.clickNavMenu('dashboards')
+            dashboards.visitDashboard(dashboardName)
+            cy.get('main').contains("There are no matching events for this query").should('not.exist')
+
+            cy.clickNavMenu('dashboards')
+            dashboards.visitDashboard(dashboardNameB)
+            cy.get('main').contains("There are no matching events for this query").should('exist')
+        }
     })
 
     it('Adding new insight to dashboard does not clear filters', () => {

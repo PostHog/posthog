@@ -96,16 +96,21 @@ export const insight = {
 
         cy.wait(`@${networkInterceptAlias}`)
     },
+    visitInsight: (insightName: string): void => {
+        cy.clickNavMenu('savedinsights')
+        cy.contains('.row-name > .Link', insightName).click()
+    },
     create: (insightName: string, insightType: string = 'TRENDS'): void => {
         cy.clickNavMenu('savedinsights')
         cy.get('[data-attr="saved-insights-new-insight-dropdown"]').click()
         cy.get(`[data-attr-insight-type="${insightType}"]`).click()
 
-        cy.get('[data-attr="insight-save-button"]').click() // Save the insight
-        cy.url().should('not.include', '/new') // wait for insight to complete and update URL
         cy.get('[data-attr="top-bar-name"] button').click()
         cy.get('[data-attr="top-bar-name"] input').clear().type(insightName)
         cy.get('[data-attr="top-bar-name"] [title="Save"]').click()
+
+        cy.get('[data-attr="insight-save-button"]').click() // Save the insight
+        cy.url().should('not.include', '/new') // wait for insight to complete and update URL
     },
     addInsightToDashboard: (dashboardName: string, options: { visitAfterAdding: boolean }): void => {
         cy.intercept('PATCH', /api\/projects\/\d+\/insights\/\d+\/.*/).as('patchInsight')
@@ -204,6 +209,14 @@ export const dashboard = {
         cy.get('[data-attr="prop-val-0"]').click({ force: true })
         cy.get('.PropertyFilterButton').should('have.length', 1)
     },
+    addPropertyFilter(type: string = "Browser", value: string = "Chrome"): void {
+        cy.get('.PropertyFilterButton').should('have.length', 0)
+        cy.get('[data-attr="property-filter-0"]').click()
+        cy.get('[data-attr="taxonomic-filter-searchfield"]').click().type("Browser").wait(1000)
+        cy.get('[data-attr="prop-filter-event_properties-0"]').click({ force: true })
+        cy.get('.ant-select-selector').type(value)
+        cy.get('.ant-select-item-option-content').click({ force: true })
+    }
 }
 
 export function createInsight(insightName: string): void {
