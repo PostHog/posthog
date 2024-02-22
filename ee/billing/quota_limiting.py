@@ -163,7 +163,7 @@ def org_quota_limited_until(
             "needs_save": needs_save,
         }
     elif trust_score == 7:
-        # If limitng suspended was set in the previous period or was never set, update it.
+        # If limiting suspended was set in the previous period or was never set, update it.
         if (
             not quota_limiting_suspended_until
             or (
