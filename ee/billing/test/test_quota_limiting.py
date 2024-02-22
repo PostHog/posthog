@@ -544,7 +544,6 @@ class TestQuotaLimiting(BaseTest):
         ) == {
             "quota_limited_until": 1612137599,
             "quota_limiting_suspended_until": None,
-            "needs_save": False,
         }
 
         self.organization.usage["events"]["usage"] = 90
@@ -554,7 +553,6 @@ class TestQuotaLimiting(BaseTest):
         ) == {
             "quota_limited_until": 1612137599,
             "quota_limiting_suspended_until": None,
-            "needs_save": False,
         }
 
         self.organization.usage["events"]["limit"] = None
@@ -579,7 +577,6 @@ class TestQuotaLimiting(BaseTest):
         ) == {
             "quota_limited_until": 1612137599,
             "quota_limiting_suspended_until": None,
-            "needs_save": False,
         }
 
         assert (
@@ -595,7 +592,6 @@ class TestQuotaLimiting(BaseTest):
         ) == {
             "quota_limited_until": 1612137599,
             "quota_limiting_suspended_until": None,
-            "needs_save": False,
         }
 
         with freeze_time("2021-01-25T00:00:00Z"):
@@ -609,21 +605,18 @@ class TestQuotaLimiting(BaseTest):
             ) == {
                 "quota_limited_until": None,
                 "quota_limiting_suspended_until": 1611878400,
-                "needs_save": True,
             }
             assert org_quota_limited_until(
                 self.organization, QuotaResource.EVENTS, previously_quota_limited_team_tokens_events
             ) == {
                 "quota_limited_until": None,
                 "quota_limiting_suspended_until": 1611705600,
-                "needs_save": True,
             }
             assert org_quota_limited_until(
                 self.organization, QuotaResource.RECORDINGS, previously_quota_limited_team_tokens_recordings
             ) == {
                 "quota_limited_until": 1612137599,
                 "quota_limiting_suspended_until": None,
-                "needs_save": False,
             }
 
     def test_over_quota_but_not_dropped_org(self):

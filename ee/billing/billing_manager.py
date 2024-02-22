@@ -10,7 +10,6 @@ from sentry_sdk import capture_exception
 
 from ee.billing.billing_types import BillingStatus
 from ee.billing.quota_limiting import (
-    QuotaResource,
     set_org_usage_summary,
     sync_org_quota_limits,
 )
@@ -249,31 +248,6 @@ class BillingManager:
                 org_modified = True
                 sync_org_quota_limits(organization)
 
-        # Update trusted customer scores.
-        for resource in QuotaResource:
-            score = 0
-            if data["billing_period"]["interval"] == "year":
-                # annual plan
-                score = 15
-            elif data["has_active_subscription"] and data["highest_paid_bill"][resource.value] >= 1000:
-                # TODO: add teams plans check
-                # teams plans or paid 1+ >$1k bill
-                score = 10
-            elif data["has_active_subscription"] and data["highest_paid_bill"][resource.value] > 0:
-                # Subscribed, has paid 1+ times
-                score = 7
-            elif data["has_active_subscription"]:
-                # Subscribed but never paid
-                score = 3
-            if not organization.trusted_customer_scores.get(resource.value):
-                organization.trusted_customer_scores[resource.value] = score
-                org_modified = True
-            else:
-                # Update if new score is higher
-                if score > organization.trusted_customer_scores[resource.value]:
-                    organization.trusted_customer_scores[resource.value] = score
-                    org_modified = True
-
         available_features = data.get("available_features", None)
         if available_features and available_features != organization.available_features:
             organization.available_features = data["available_features"]
@@ -287,6 +261,11 @@ class BillingManager:
         never_drop_data = data.get("never_drop_data", None)
         if never_drop_data != organization.never_drop_data:
             organization.never_drop_data = never_drop_data
+            org_modified = True
+
+        trusted_customer_scores = data.get("trusted_customer_scores")
+        if trusted_customer_scores != organization.trusted_customer_scores:
+            organization.trusted_customer_scores = trusted_customer_scores
             org_modified = True
 
         if org_modified:

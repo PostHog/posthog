@@ -123,7 +123,6 @@ class Organization(UUIDModel):
     enforce_2fa: models.BooleanField = models.BooleanField(null=True, blank=True)
     # Scoring mechanism defined here: https://github.com/PostHog/product-internal/pull/564
     trusted_customer_scores: models.JSONField = models.JSONField(default=dict, null=True, blank=True)
-    trusted_customer_score_overrides: models.JSONField = models.JSONField(default=dict, null=True, blank=True)
     is_hipaa: models.BooleanField = models.BooleanField(default=False, null=True, blank=True)
 
     ## Managed by Billing
