@@ -58,11 +58,7 @@ export function ProductCard({
 
     return (
         <LemonCard
-            className={clsx(
-                'flex gap-4 justify-center cursor-pointer',
-                vertical ? 'flex-col max-w-80' : 'items-center',
-                className
-            )}
+            className={clsx('flex justify-center cursor-pointer', vertical ? 'flex-col' : 'items-center', className)}
             key={product.type}
             onClick={() => {
                 setIncludeIntro(false)
@@ -89,9 +85,9 @@ export function ProductCard({
                     </Tooltip>
                 </div>
             )}
-            <div className="flex flex-col items-center ">
-                <div>{getProductIcon(product.name, product.icon_key, 'text-2xl')}</div>
-                <div className="font-bold text-center">{product.name}</div>
+            <div className="grid grid-rows-[repeat(2,_48px)] justify-items-center">
+                <div className="self-center">{getProductIcon(product.name, product.icon_key, 'text-2xl')}</div>
+                <div className="font-bold text-center self-start">{product.name}</div>
             </div>
         </LemonCard>
     )

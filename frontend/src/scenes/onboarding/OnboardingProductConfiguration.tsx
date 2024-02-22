@@ -1,5 +1,3 @@
-import './Onboarding.scss'
-
 import { LemonDivider, LemonSelect, LemonSwitch } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { useEffect } from 'react'
