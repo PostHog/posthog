@@ -127,6 +127,7 @@ class ExportedAssetSerializer(serializers.ModelSerializer):
 
 class ExportedAssetViewSet(
     TeamAndOrgViewSetMixin,
+    mixins.ListModelMixin,
     mixins.RetrieveModelMixin,
     mixins.CreateModelMixin,
     viewsets.GenericViewSet,
@@ -134,6 +135,12 @@ class ExportedAssetViewSet(
     scope_object = "export"
     queryset = ExportedAsset.objects.order_by("-created_at")
     serializer_class = ExportedAssetSerializer
+
+    def get_queryset(self):
+        queryset = super().get_queryset()
+        if self.action == "list":
+            return queryset.filter(created_by=self.request.user)
+        return queryset
 
     # TODO: This should be removed as it is only used by frontend exporter and can instead use the api/sharing.py endpoint
     @action(methods=["GET"], detail=True)

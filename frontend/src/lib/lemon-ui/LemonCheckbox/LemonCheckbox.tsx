@@ -68,7 +68,7 @@ export function LemonCheckbox({
     }, [checked, indeterminate])
 
     return (
-        <Tooltip title={disabledReason ? <i>{disabledReason}</i> : null} placement="topLeft">
+        <Tooltip title={disabledReason ? <i>{disabledReason}</i> : null} placement="top-start">
             <span
                 className={clsx(
                     'LemonCheckbox',

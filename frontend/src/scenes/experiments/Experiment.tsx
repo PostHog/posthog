@@ -286,7 +286,7 @@ export function Experiment(): JSX.Element {
                                                                     !(index === 0 || index === 1) && (
                                                                         <Tooltip
                                                                             title="Delete this variant"
-                                                                            placement="bottomLeft"
+                                                                            placement="bottom-start"
                                                                         >
                                                                             <LemonButton
                                                                                 size="small"
