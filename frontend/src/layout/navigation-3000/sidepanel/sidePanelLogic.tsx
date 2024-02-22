@@ -47,9 +47,6 @@ export const sidePanelLogic = kea<sidePanelLogicType>([
                 const tabs: SidePanelTab[] = []
 
                 tabs.push(SidePanelTab.Notebooks)
-                if (featureflags[FEATURE_FLAGS.EXPORTS_SIDEPANEL]) {
-                    tabs.push(SidePanelTab.Exports)
-                }
                 tabs.push(SidePanelTab.Docs)
                 if (isCloudOrDev) {
                     tabs.push(SidePanelTab.Support)
@@ -60,6 +57,9 @@ export const sidePanelLogic = kea<sidePanelLogicType>([
                 }
                 if (isReady && !hasCompletedAllTasks) {
                     tabs.push(SidePanelTab.Activation)
+                }
+                if (featureflags[FEATURE_FLAGS.EXPORTS_SIDEPANEL]) {
+                    tabs.push(SidePanelTab.Exports)
                 }
                 tabs.push(SidePanelTab.FeaturePreviews)
                 tabs.push(SidePanelTab.Settings)

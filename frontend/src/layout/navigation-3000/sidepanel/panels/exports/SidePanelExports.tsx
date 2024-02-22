@@ -2,8 +2,8 @@ import { IconDownload } from '@posthog/icons'
 import { LemonButton, LemonTag, Spinner, Tooltip } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { downloadExportedAsset } from 'lib/components/ExportButton/exporter'
+import { dayjs } from 'lib/dayjs'
 import { IconRefresh } from 'lib/lemon-ui/icons'
-import { humanFriendlyDetailedTime } from 'lib/utils'
 import { useEffect } from 'react'
 
 import { SidePanelPaneHeader } from '../../components/SidePanelPaneHeader'
@@ -52,7 +52,7 @@ const ExportsContent = (): JSX.Element => {
                                 </span>
                                 {asset.expires_after && (
                                     <span className="text-xs text-muted mt-1">
-                                        Available until {humanFriendlyDetailedTime(asset.expires_after)}
+                                        Expires {dayjs(asset.expires_after).fromNow()}
                                     </span>
                                 )}
                             </div>
