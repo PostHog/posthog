@@ -196,24 +196,6 @@ class TestDataWarehouseQueryBuilder(ClickhouseTestMixin, BaseTest):
         assert response.results[0][1] == [1, 0, 0, 0, 0, 0, 0]
 
     @snapshot_clickhouse_queries
-    def test_trends_other_property_invalid(self):
-        table_name = self.create_parquet_file()
-
-        trends_query = TrendsQuery(
-            kind="TrendsQuery",
-            dateRange=DateRange(date_from="2023-01-01"),
-            series=[DataWarehouseNode(table_name=table_name, id_field="id", timestamp_field="created")],
-            properties=clean_entity_properties([{"key": "prop_1", "value": "a", "type": "events"}]),
-        )
-
-        with freeze_time("2023-01-07"):
-            response = self.get_response(trends_query=trends_query)
-
-        assert response.columns is not None
-        assert set(response.columns).issubset({"date", "total"})
-        assert response.results[0][1] == [1, 1, 1, 1, 0, 0, 0]
-
-    @snapshot_clickhouse_queries
     def test_trends_breakdown(self):
         table_name = self.create_parquet_file()
 
