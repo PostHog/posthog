@@ -644,9 +644,7 @@ class TestFunnelUnorderedStepsBreakdown(
 
 class TestUnorderedFunnelGroupBreakdown(
     ClickhouseTestMixin,
-    funnel_breakdown_group_test_factory(  # type: ignore
-        ClickhouseFunnelUnorderedActors,
-    ),
+    funnel_breakdown_group_test_factory(FunnelOrderType.UNORDERED),
 ):
     pass
 

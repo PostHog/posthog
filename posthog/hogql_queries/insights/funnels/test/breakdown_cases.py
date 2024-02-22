@@ -6,6 +6,7 @@ from typing import Any, Callable, Dict, List, Literal, Optional, Union, cast
 
 from posthog.constants import INSIGHT_FUNNELS, FunnelOrderType
 from posthog.hogql_queries.insights.funnels.funnels_query_runner import FunnelsQueryRunner
+from posthog.hogql_queries.insights.funnels.test.test_funnel_persons import get_actors
 from posthog.hogql_queries.legacy_compatibility.filter_to_query import filter_to_query
 from posthog.models.action.action import Action
 
@@ -2687,16 +2688,11 @@ def funnel_breakdown_test_factory(
     return TestFunnelBreakdown
 
 
-def funnel_breakdown_group_test_factory(FunnelPerson):
-    funnel_order_type = FunnelOrderType.ORDERED
-
+def funnel_breakdown_group_test_factory(funnel_order_type: FunnelOrderType):
     class TestFunnelBreakdownGroup(APIBaseTest):
-        def _get_actor_ids_at_step(self, filter, funnel_step, breakdown_value=None):
-            filter = Filter(data=filter, team=self.team)
-            person_filter = filter.shallow_clone({"funnel_step": funnel_step, "funnel_step_breakdown": breakdown_value})
-            _, serialized_result, _ = FunnelPerson(person_filter, self.team).get_actors()
-
-            return [val["id"] for val in serialized_result]
+        def _get_actor_ids_at_step(self, filters, funnelStep, funnelStepBreakdown=None):
+            results = get_actors(filters, self.team, funnelStep=funnelStep, funnelStepBreakdown=funnelStepBreakdown)
+            return [val[0]["id"] for val in results]
 
         def _create_groups(self):
             GroupTypeMapping.objects.create(team=self.team, group_type="organization", group_type_index=0)
@@ -2804,6 +2800,7 @@ def funnel_breakdown_group_test_factory(FunnelPerson):
                     {"id": "buy", "order": 2},
                 ],
                 "insight": INSIGHT_FUNNELS,
+                "funnel_order_type": funnel_order_type,
                 "date_from": "2020-01-01",
                 "date_to": "2020-01-08",
                 "funnel_window_days": 7,
@@ -2839,11 +2836,11 @@ def funnel_breakdown_group_test_factory(FunnelPerson):
 
             # Querying persons when aggregating by persons should be ok, despite group breakdown
             self.assertCountEqual(
-                self._get_actor_ids_at_step(filters, 1, "finance"),
+                self._get_actor_ids_at_step(filters, 1, ["finance"]),
                 [people["person1"].uuid],
             )
             self.assertCountEqual(
-                self._get_actor_ids_at_step(filters, 2, "finance"),
+                self._get_actor_ids_at_step(filters, 2, ["finance"]),
                 [people["person1"].uuid],
             )
 
@@ -2863,11 +2860,11 @@ def funnel_breakdown_group_test_factory(FunnelPerson):
             )
 
             self.assertCountEqual(
-                self._get_actor_ids_at_step(filters, 1, "technology"),
+                self._get_actor_ids_at_step(filters, 1, ["technology"]),
                 [people["person2"].uuid, people["person3"].uuid],
             )
             self.assertCountEqual(
-                self._get_actor_ids_at_step(filters, 2, "technology"),
+                self._get_actor_ids_at_step(filters, 2, ["technology"]),
                 [people["person2"].uuid],
             )
 
@@ -2925,6 +2922,7 @@ def funnel_breakdown_group_test_factory(FunnelPerson):
                     {"id": "buy", "order": 2},
                 ],
                 "insight": INSIGHT_FUNNELS,
+                "funnel_order_type": funnel_order_type,
                 "date_from": "2020-01-01",
                 "date_to": "2020-01-08",
                 "funnel_window_days": 7,
@@ -3038,6 +3036,7 @@ def funnel_breakdown_group_test_factory(FunnelPerson):
                     {"id": "buy", "order": 2},
                 ],
                 "insight": INSIGHT_FUNNELS,
+                "funnel_order_type": funnel_order_type,
                 "date_from": "2020-01-01",
                 "date_to": "2020-01-08",
                 "funnel_window_days": 7,

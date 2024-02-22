@@ -183,9 +183,7 @@ class TestFunnelStrictStepsBreakdown(
 
 class TestStrictFunnelGroupBreakdown(
     ClickhouseTestMixin,
-    funnel_breakdown_group_test_factory(  # type: ignore
-        ClickhouseFunnelStrictActors,
-    ),
+    funnel_breakdown_group_test_factory(FunnelOrderType.STRICT),
 ):
     pass
 
