@@ -1,16 +1,14 @@
+import express, { Request, Response } from 'express'
 import { DateTime } from 'luxon'
 import { IngestionConsumer, KafkaJSIngestionConsumer } from 'main/ingestion-queues/kafka-queue'
 import * as prometheus from 'prom-client'
 
 import { status } from '../../utils/status'
+import { delay } from '../../utils/utils'
 
 prometheus.collectDefaultMetrics()
 const v8Profiler = require('v8-profiler-next')
 v8Profiler.setGenerateType(1)
-
-import express, { Request, Response } from 'express'
-
-import { delay } from '../../utils/utils'
 
 export const expressApp: express.Application = express()
 
