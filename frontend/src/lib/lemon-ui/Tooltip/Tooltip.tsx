@@ -75,7 +75,7 @@ export function Tooltip({
 
     const { styles: transitionStyles } = useTransitionStyles(context, {
         duration: {
-            open: 200,
+            open: 150,
             close: 0,
         },
         initial: ({ side }) => ({
