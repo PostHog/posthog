@@ -142,6 +142,7 @@ $colors: (
     'glass-bg-3000': var(--glass-bg-3000),
     'glass-border-3000': var(--border-3000),
     'link-3000': var(--link-3000),
+    'tooltip-bg': var(--tooltip-bg),
     'primary-3000-frame-bg': var(--primary-3000-frame-bg),
     'primary-3000-button-bg': var(--primary-3000-button-bg),
     'primary-3000-button-border': var(--primary-3000-button-border),
@@ -248,6 +249,7 @@ $_lifecycle_dormant: $_danger;
     --z-command-palette: 1875;
     --z-force-modal-above-popovers: 1850;
     --z-ant-message: 1070;
+    --z-tooltip: 1070;
     --z-ant-select-dropdown: 1065;
     --z-definition-popover: 1064;
     --z-popover: 1063;

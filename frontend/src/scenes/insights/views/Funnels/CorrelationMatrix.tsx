@@ -132,15 +132,15 @@ export function CorrelationMatrix(): JSX.Element {
                                         )}
                                     </td>
                                     <td>
-                                        <div className="percentage">
-                                            <Tooltip
-                                                title={`False negative (FN) - Percentage of users who ${action} and did not complete the funnel.`}
-                                            >
+                                        <Tooltip
+                                            title={`False negative (FN) - Percentage of users who ${action} and did not complete the funnel.`}
+                                        >
+                                            <div className="percentage">
                                                 {falseNegative
                                                     ? percentage(falseNegative / (falseNegative + trueNegative))
                                                     : '0.00%'}
-                                            </Tooltip>
-                                        </div>
+                                            </div>
+                                        </Tooltip>
                                         {falseNegative === 0 ? (
                                             '0 users'
                                         ) : (
@@ -157,27 +157,27 @@ export function CorrelationMatrix(): JSX.Element {
                                 <tr>
                                     <td className="horizontal-header">No</td>
                                     <td>
-                                        <div className="percentage">
-                                            <Tooltip
-                                                title={`False positive (FP) - Percentage of users who did not ${action} and completed the funnel.`}
-                                            >
+                                        <Tooltip
+                                            title={`False positive (FP) - Percentage of users who did not ${action} and completed the funnel.`}
+                                        >
+                                            <div className="percentage">
                                                 {falsePositive
                                                     ? percentage(falsePositive / (truePositive + falsePositive))
                                                     : '0.00%'}
-                                            </Tooltip>
-                                        </div>
+                                            </div>
+                                        </Tooltip>
                                         {pluralize(falsePositive, 'user', undefined, true)}
                                     </td>
                                     <td>
-                                        <div className="percentage">
-                                            <Tooltip
-                                                title={`True negative (TN) - Percentage of users who did not ${action} and did not complete the funnel.`}
-                                            >
+                                        <Tooltip
+                                            title={`True negative (TN) - Percentage of users who did not ${action} and did not complete the funnel.`}
+                                        >
+                                            <div className="percentage">
                                                 {trueNegative
                                                     ? percentage(trueNegative / (falseNegative + trueNegative))
                                                     : '0.00%'}
-                                            </Tooltip>
-                                        </div>
+                                            </div>
+                                        </Tooltip>
                                         {pluralize(trueNegative, 'user', undefined, true)}
                                     </td>
                                 </tr>
