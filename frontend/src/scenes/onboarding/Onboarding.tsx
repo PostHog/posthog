@@ -86,7 +86,7 @@ const ProductAnalyticsOnboarding = (): JSX.Element => {
                     {
                         title: 'Autocapture frontend interactions',
                         description: `If you use our JavaScript or React Native libraries, we'll automagically 
-                        capture frontend interactions like pageviews, clicks, and more. Fine-tune what you 
+                        capture frontend interactions like clicks, submits, and more. Fine-tune what you 
                         capture directly in your code snippet.`,
                         teamProperty: 'autocapture_opt_out',
                         value: !currentTeam?.autocapture_opt_out,
