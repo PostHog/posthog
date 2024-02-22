@@ -76,7 +76,7 @@ export function PropertyDefinitionsTable(): JSX.Element {
                         { dateRange: { date_from: '-24h' } }
                     )}
                 >
-                    Click here!
+                    Query with SQL
                 </Link>
             </LemonBanner>
             <div className="flex justify-between mb-4 gap-2 flex-wrap">

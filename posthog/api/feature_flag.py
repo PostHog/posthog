@@ -61,6 +61,8 @@ DATABASE_FOR_LOCAL_EVALUATION = (
     else "replica"
 )
 
+BEHAVIOURAL_COHORT_FOUND_ERROR_CODE = "behavioral_cohort_found"
+
 
 class FeatureFlagThrottle(BurstRateThrottle):
     # Throttle class that's scoped just to the local evaluation endpoint.
@@ -222,8 +224,8 @@ class FeatureFlagSerializer(TaggedItemSerializerMixin, serializers.HyperlinkedMo
                         for cohort in [initial_cohort, *dependent_cohorts]:
                             if [prop for prop in cohort.properties.flat if prop.type == "behavioral"]:
                                 raise serializers.ValidationError(
-                                    detail=f"Cohort '{cohort.name}' with behavioral filters cannot be used in feature flags.",
-                                    code="behavioral_cohort_found",
+                                    detail=f"Cohort '{cohort.name}' with filters on events cannot be used in feature flags.",
+                                    code=BEHAVIOURAL_COHORT_FOUND_ERROR_CODE,
                                 )
                     except Cohort.DoesNotExist:
                         raise serializers.ValidationError(
