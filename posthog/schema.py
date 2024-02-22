@@ -2544,7 +2544,8 @@ class FunnelsActorsQuery(BaseModel):
         extra="forbid",
     )
     funnelCustomSteps: Optional[List[int]] = Field(
-        default=None, description="Custom step numbers to get persons for. This overrides `funnelStep`."
+        default=None,
+        description="Custom step numbers to get persons for. This overrides `funnelStep`. Primarily for correlation use.",
     )
     funnelStep: Optional[int] = Field(
         default=None,
@@ -2555,7 +2556,10 @@ class FunnelsActorsQuery(BaseModel):
         description="The breakdown value for which to get persons for. This is an array for person and event properties, a string for groups and an integer for cohorts.",
     )
     funnelTrendsDropOff: Optional[bool] = None
-    funnelTrendsEntrancePeriodStart: Optional[str] = None
+    funnelTrendsEntrancePeriodStart: Optional[str] = Field(
+        default=None,
+        description="Used together with `funnelTrendsDropOff` for funnels time conversion date for the persons modal.",
+    )
     includeRecordings: Optional[bool] = None
     kind: Literal["InsightActorsQuery"] = "InsightActorsQuery"
     response: Optional[ActorsQueryResponse] = None

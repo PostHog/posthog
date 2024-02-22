@@ -1699,7 +1699,7 @@
             "additionalProperties": false,
             "properties": {
                 "funnelCustomSteps": {
-                    "description": "Custom step numbers to get persons for. This overrides `funnelStep`.",
+                    "description": "Custom step numbers to get persons for. This overrides `funnelStep`. Primarily for correlation use.",
                     "items": {
                         "type": "integer"
                     },
@@ -1717,6 +1717,7 @@
                     "type": "boolean"
                 },
                 "funnelTrendsEntrancePeriodStart": {
+                    "description": "Used together with `funnelTrendsDropOff` for funnels time conversion date for the persons modal.",
                     "type": "string"
                 },
                 "includeRecordings": {
