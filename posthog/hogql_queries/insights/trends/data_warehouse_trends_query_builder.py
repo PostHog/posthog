@@ -11,7 +11,7 @@ from posthog.hogql_queries.insights.trends.display import TrendsDisplay
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 from posthog.models.filters.mixins.utils import cached_property
 from posthog.models.team.team import Team
-from posthog.schema import HogQLQueryModifiers, TrendsQuery, DataWarehouseNode
+from posthog.schema import HogQLQueryModifiers, TrendsQuery, DataWarehouseNode, DataWarehousePropertyFilter
 
 
 class DataWarehouseTrendsQueryBuilder:
@@ -324,7 +324,9 @@ class DataWarehouseTrendsQueryBuilder:
         # Properties
         if self.query.properties is not None and self.query.properties != []:
             # Only apply data warehouse properties
-            filtered_query_properties = [prop for prop in self.query.properties if prop.type == "data_warehouse"]
+            filtered_query_properties = [
+                prop for prop in self.query.properties if isinstance(prop, DataWarehousePropertyFilter)
+            ]
             filters.append(property_to_expr(filtered_query_properties, self.team))
 
         # Series Filters
