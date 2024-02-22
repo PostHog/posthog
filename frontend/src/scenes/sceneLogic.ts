@@ -289,7 +289,9 @@ export const sceneLogic = kea<sceneLogicType>([
                                 console.warn(
                                     `Onboarding not completed for ${productKeyFromUrl}, redirecting to onboarding intro`
                                 )
+                                onboardingLogic.mount()
                                 onboardingLogic.actions.setIncludeIntro(true)
+                                onboardingLogic.unmount()
                                 router.actions.replace(
                                     urls.onboarding(productKeyFromUrl, OnboardingStepKey.PRODUCT_INTRO)
                                 )
