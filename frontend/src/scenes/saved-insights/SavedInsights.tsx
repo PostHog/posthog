@@ -68,7 +68,7 @@ interface NewInsightButtonProps {
 export interface InsightTypeMetadata {
     name: string
     description?: string
-    icon: (props?: any) => JSX.Element
+    icon: (props?: any) => JSX.Element | null
     inMenu: boolean
 }
 

@@ -76,7 +76,7 @@ export function SurveyEditQuestionHeader({
                             survey.questions.filter((_, i) => i !== index)
                         )
                     }}
-                    tooltipPlacement="topRight"
+                    tooltipPlacement="top-end"
                 />
             )}
         </div>

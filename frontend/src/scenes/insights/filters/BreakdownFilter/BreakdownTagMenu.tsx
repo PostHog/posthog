@@ -1,8 +1,8 @@
 import './BreakdownTagMenu.scss'
 
+import { IconInfo } from '@posthog/icons'
 import { LemonButton, LemonDivider, LemonInput, LemonSwitch } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
-import { IconInfo } from 'lib/lemon-ui/icons'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'

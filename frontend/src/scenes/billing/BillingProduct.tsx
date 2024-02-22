@@ -18,6 +18,7 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { capitalizeFirstLetter, compactNumber } from 'lib/utils'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import posthog from 'posthog-js'
+import { useRef } from 'react'
 import { getProductIcon } from 'scenes/products/Products'
 
 import { BillingProductV2AddonType, BillingProductV2Type, BillingV2TierType } from '~/types'
@@ -199,6 +200,7 @@ export const BillingProductAddon = ({ addon }: { addon: BillingProductV2AddonTyp
 }
 
 export const BillingProduct = ({ product }: { product: BillingProductV2Type }): JSX.Element => {
+    const productRef = useRef<HTMLDivElement | null>(null)
     const { billing, redirectPath, isOnboarding, isUnlicensedDebug } = useValues(billingLogic)
     const {
         customLimitUsd,
@@ -216,7 +218,7 @@ export const BillingProduct = ({ product }: { product: BillingProductV2Type }): 
         toggleIsPlanComparisonModalOpen,
         reportSurveyShown,
         setSurveyResponse,
-    } = useActions(billingProductLogic({ product }))
+    } = useActions(billingProductLogic({ product, productRef }))
     const { reportBillingUpgradeClicked } = useActions(eventUsageLogic)
 
     const showUpgradeCTA = !product.subscribed && !product.contact_support && product.plans?.length
@@ -346,7 +348,7 @@ export const BillingProduct = ({ product }: { product: BillingProductV2Type }): 
             })}
             ref={ref}
         >
-            <div className="border border-border rounded w-full bg-bg-light">
+            <div className="border border-border rounded w-full bg-bg-light" ref={productRef}>
                 <div className="border-b border-border bg-mid p-4">
                     <div className="flex gap-4 items-center justify-between">
                         {getProductIcon(product.icon_key, 'text-2xl')}
@@ -470,24 +472,25 @@ export const BillingProduct = ({ product }: { product: BillingProductV2Type }): 
                                                         }amount you have been billed for this ${
                                                             billing?.billing_period?.interval
                                                         } so far.`}
-                                                        className="flex flex-col items-center"
                                                     >
-                                                        <div className="font-bold text-3xl leading-7">
-                                                            $
-                                                            {(
-                                                                parseFloat(product.current_amount_usd || '') *
-                                                                (1 -
-                                                                    (billing?.discount_percent
-                                                                        ? billing.discount_percent / 100
-                                                                        : 0))
-                                                            ).toFixed(2) || '0.00'}
+                                                        <div className="flex flex-col items-center">
+                                                            <div className="font-bold text-3xl leading-7">
+                                                                $
+                                                                {(
+                                                                    parseFloat(product.current_amount_usd || '') *
+                                                                    (1 -
+                                                                        (billing?.discount_percent
+                                                                            ? billing.discount_percent / 100
+                                                                            : 0))
+                                                                ).toFixed(2) || '0.00'}
+                                                            </div>
+                                                            <span className="text-xs text-muted">
+                                                                {capitalizeFirstLetter(
+                                                                    billing?.billing_period?.interval || ''
+                                                                )}
+                                                                -to-date
+                                                            </span>
                                                         </div>
-                                                        <span className="text-xs text-muted">
-                                                            {capitalizeFirstLetter(
-                                                                billing?.billing_period?.interval || ''
-                                                            )}
-                                                            -to-date
-                                                        </span>
                                                     </Tooltip>
                                                     {product.tiers && (
                                                         <Tooltip
@@ -496,19 +499,20 @@ export const BillingProduct = ({ product }: { product: BillingProductV2Type }): 
                                                                     ? ', discounts on your account,'
                                                                     : ''
                                                             } and the remaining time left in this billing period.`}
-                                                            className="flex flex-col items-center justify-end"
                                                         >
-                                                            <div className="font-bold text-muted text-lg leading-5">
-                                                                $
-                                                                {(
-                                                                    parseFloat(product.projected_amount_usd || '') *
-                                                                    (1 -
-                                                                        (billing?.discount_percent
-                                                                            ? billing.discount_percent / 100
-                                                                            : 0))
-                                                                ).toFixed(2) || '0.00'}
+                                                            <div className="flex flex-col items-center justify-end">
+                                                                <div className="font-bold text-muted text-lg leading-5">
+                                                                    $
+                                                                    {(
+                                                                        parseFloat(product.projected_amount_usd || '') *
+                                                                        (1 -
+                                                                            (billing?.discount_percent
+                                                                                ? billing.discount_percent / 100
+                                                                                : 0))
+                                                                    ).toFixed(2) || '0.00'}
+                                                                </div>
+                                                                <span className="text-xs text-muted">Projected</span>
                                                             </div>
-                                                            <span className="text-xs text-muted">Projected</span>
                                                         </Tooltip>
                                                     )}
                                                 </div>
@@ -518,14 +522,15 @@ export const BillingProduct = ({ product }: { product: BillingProductV2Type }): 
                                         <div className="my-8">
                                             <Tooltip
                                                 title={`The current amount you will be billed for this ${billing?.billing_period?.interval}.`}
-                                                className="flex flex-col items-center"
                                             >
-                                                <div className="font-bold text-3xl leading-7">
-                                                    ${product.current_amount_usd}
+                                                <div className="flex flex-col items-center">
+                                                    <div className="font-bold text-3xl leading-7">
+                                                        ${product.current_amount_usd}
+                                                    </div>
+                                                    <span className="text-xs text-muted">
+                                                        per {billing?.billing_period?.interval || 'period'}
+                                                    </span>
                                                 </div>
-                                                <span className="text-xs text-muted">
-                                                    per {billing?.billing_period?.interval || 'period'}
-                                                </span>
                                             </Tooltip>
                                         </div>
                                     )}

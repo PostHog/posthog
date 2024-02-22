@@ -70,12 +70,13 @@ export function PropertyDefinitionsTable(): JSX.Element {
                     to={urls.insightNewHogQL(
                         'SELECT arrayJoin(JSONExtractKeys(properties)) AS property_key, count()\n' +
                             (filters.type === 'person' ? 'FROM persons\n' : 'FROM events\n') +
-                            (filters.type === 'person' ? '' : 'WHERE timestamp > now() - interval 1 month\n') +
+                            (filters.type === 'person' ? '' : 'WHERE {filters}\n') +
                             'GROUP BY property_key\n' +
-                            'ORDER BY count() DESC'
+                            'ORDER BY count() DESC',
+                        { dateRange: { date_from: '-24h' } }
                     )}
                 >
-                    Click here!
+                    Query with SQL
                 </Link>
             </LemonBanner>
             <div className="flex justify-between mb-4 gap-2 flex-wrap">

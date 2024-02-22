@@ -48,7 +48,7 @@ export function FunnelStepsPicker(): JSX.Element | null {
                 size="small"
                 className="mx-1"
                 dropdownMatchSelectWidth={false}
-                optionTooltipPlacement="bottomLeft"
+                optionTooltipPlacement="bottom-start"
                 disabled={!isFunnelWithEnoughSteps}
                 options={optionsForRange(fromRange)}
                 value={funnelsFilter?.funnelFromStep || 0}
@@ -61,7 +61,7 @@ export function FunnelStepsPicker(): JSX.Element | null {
                 size="small"
                 className="mx-1"
                 dropdownMatchSelectWidth={false}
-                optionTooltipPlacement="bottomLeft"
+                optionTooltipPlacement="bottom-start"
                 disabled={!isFunnelWithEnoughSteps}
                 options={optionsForRange(toRange)}
                 value={funnelsFilter?.funnelToStep || Math.max(numberOfSeries - 1, 1)}

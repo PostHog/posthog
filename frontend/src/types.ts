@@ -1311,6 +1311,7 @@ export type BillingV2FeatureType = {
     key: AvailableFeatureUnion
     name: string
     description?: string | null
+    docsUrl?: string | null
     limit?: number | null
     note?: string | null
     unit?: string | null
@@ -1434,6 +1435,7 @@ export interface BillingV2PlanType {
     tiers?: BillingV2TierType[] | null
     included_if?: 'no_active_subscription' | 'has_subscription' | null
     initial_billing_limit?: number
+    contact_support?: boolean
 }
 
 export interface PlanInterface {
@@ -2865,6 +2867,9 @@ export interface FunnelExperimentResults {
 
 export type ExperimentResults = TrendsExperimentResults | FunnelExperimentResults
 
+export type SecondaryMetricResults = Partial<ExperimentResults['result']> & {
+    result?: Record<string, number>
+}
 export interface SecondaryExperimentMetric {
     name: string
     filters: Partial<FilterType>
@@ -3261,7 +3266,7 @@ export interface ExportedAssetType {
     export_context?: ExportContext
     has_content: boolean
     filename: string
-    expires_after?: Dayjs
+    expires_after?: string
 }
 
 export enum FeatureFlagReleaseType {
@@ -3725,4 +3730,5 @@ export enum SidePanelTab {
     Activity = 'activity',
     Discussion = 'discussion',
     Status = 'status',
+    Exports = 'exports',
 }
