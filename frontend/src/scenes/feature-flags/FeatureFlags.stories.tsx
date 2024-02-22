@@ -5,8 +5,6 @@ import { App } from 'scenes/App'
 import { urls } from 'scenes/urls'
 
 import { mswDecorator } from '~/mocks/browser'
-import { useAvailableFeatures } from '~/mocks/features'
-import { AvailableFeature } from '~/types'
 
 import featureFlags from './__mocks__/feature_flags.json'
 
@@ -69,7 +67,6 @@ export function EditFeatureFlag(): JSX.Element {
 
 export function EditMultiVariateFeatureFlag(): JSX.Element {
     useEffect(() => {
-        useAvailableFeatures([AvailableFeature.MULTIVARIATE_FLAGS])
         router.actions.push(urls.featureFlag(1502))
     }, [])
     return <App />

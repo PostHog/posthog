@@ -17,7 +17,6 @@ export interface LemonSwitchProps {
     /** Like plain `disabled`, except we enforce a reason to be shown in the tooltip. */
     disabledReason?: string | null | false
     'data-attr'?: string
-    icon?: React.ReactElement | null
     tooltip?: string | null
     handleContent?: React.ReactElement | null
     'aria-label'?: string
@@ -39,7 +38,6 @@ export const LemonSwitch: React.FunctionComponent<LemonSwitchProps & React.RefAt
             disabledReason,
             label,
             labelClassName,
-            icon,
             tooltip,
             'data-attr': dataAttr,
             'aria-label': ariaLabel,
@@ -104,7 +102,6 @@ export const LemonSwitch: React.FunctionComponent<LemonSwitchProps & React.RefAt
                     'LemonSwitch--full-width': fullWidth,
                 })}
             >
-                {icon}
                 {label && (
                     <label htmlFor={id} className={labelClassName}>
                         {label}

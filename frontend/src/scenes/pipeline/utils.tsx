@@ -1,7 +1,10 @@
-import { LemonSkeleton } from '@posthog/lemon-ui'
+import { LemonMenuItem, LemonSkeleton, LemonTableColumn } from '@posthog/lemon-ui'
+import { useValues } from 'kea'
 import api from 'lib/api'
+import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
 import { Link } from 'lib/lemon-ui/Link'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
+import { deleteWithUndo } from 'lib/utils/deleteWithUndo'
 import posthog from 'posthog-js'
 import BigQueryIcon from 'public/pipeline/BigQuery.png'
 import PostgresIcon from 'public/pipeline/Postgres.png'
@@ -9,17 +12,29 @@ import RedshiftIcon from 'public/pipeline/Redshift.svg'
 import S3Icon from 'public/pipeline/S3.png'
 import SnowflakeIcon from 'public/pipeline/Snowflake.png'
 import { PluginImage, PluginImageSize } from 'scenes/plugins/plugin/PluginImage'
+import { urls } from 'scenes/urls'
 
 import {
     BatchExportConfiguration,
     BatchExportDestination,
+    PipelineNodeTab,
+    PipelineStage,
     PluginConfigTypeNew,
     PluginLogEntryType,
     PluginType,
 } from '~/types'
 
 import { PipelineLogLevel } from './pipelineNodeLogsLogic'
-import { Destination } from './types'
+import { pipelineTransformationsLogic } from './transformationsLogic'
+import {
+    Destination,
+    ImportApp,
+    PipelineBackend,
+    PluginBasedStepBase,
+    SiteApp,
+    Transformation,
+    WebhookDestination,
+} from './types'
 
 const PLUGINS_ALLOWED_WITHOUT_DATA_PIPELINES_ARR = [
     // frontend apps
@@ -228,4 +243,121 @@ export const humanFriendlyFrequencyName = (frequency: Destination['interval']): 
         case 'every 5 minutes':
             return '5 min'
     }
+}
+
+export function nameColumn<
+    T extends { stage: PipelineStage; id: number; name: string; description?: string }
+>(): LemonTableColumn<T, 'name'> {
+    return {
+        title: 'Name',
+        sticky: true,
+        render: function RenderName(_, pipelineNode) {
+            return (
+                <>
+                    <Tooltip title="Click to update configuration, view metrics, and more">
+                        <Link
+                            to={urls.pipelineNode(pipelineNode.stage, pipelineNode.id, PipelineNodeTab.Configuration)}
+                        >
+                            <span className="row-name">{pipelineNode.name}</span>
+                        </Link>
+                    </Tooltip>
+                    {pipelineNode.description && (
+                        <LemonMarkdown className="row-description" lowKeyHeadings>
+                            {pipelineNode.description}
+                        </LemonMarkdown>
+                    )}
+                </>
+            )
+        },
+    }
+}
+export function appColumn<T extends { plugin: Transformation['plugin'] }>(): LemonTableColumn<T, 'plugin'> {
+    return {
+        title: 'App',
+        render: function RenderAppInfo(_, pipelineNode) {
+            return <RenderApp plugin={pipelineNode.plugin} />
+        },
+    }
+}
+
+function pluginMenuItems(node: PluginBasedStepBase): LemonMenuItem[] {
+    if (node.plugin?.url) {
+        return [
+            {
+                label: 'View app source code',
+                to: node.plugin.url,
+                targetBlank: true,
+            },
+        ]
+    }
+    return []
+}
+
+export function pipelineNodeMenuCommonItems(node: Transformation | SiteApp | ImportApp | Destination): LemonMenuItem[] {
+    const { canConfigurePlugins } = useValues(pipelineTransformationsLogic)
+
+    const items: LemonMenuItem[] = [
+        {
+            label: canConfigurePlugins ? 'Edit configuration' : 'View configuration',
+            to: urls.pipelineNode(node.stage, node.id, PipelineNodeTab.Configuration),
+        },
+        {
+            label: 'View metrics',
+            to: urls.pipelineNode(node.stage, node.id, PipelineNodeTab.Metrics),
+        },
+        {
+            label: 'View logs',
+            to: urls.pipelineNode(node.stage, node.id, PipelineNodeTab.Logs),
+        },
+    ]
+    if (node.backend === PipelineBackend.Plugin) {
+        items.concat(pluginMenuItems(node))
+    }
+    return items
+}
+
+export function pipelinePluginBackedNodeMenuCommonItems(
+    node: Transformation | SiteApp | ImportApp | WebhookDestination,
+    toggleEnabled: any,
+    loadPluginConfigs: any,
+    inOverview?: boolean
+): LemonMenuItem[] {
+    const { canConfigurePlugins } = useValues(pipelineTransformationsLogic)
+
+    return [
+        ...(!inOverview
+            ? [
+                  {
+                      label: node.enabled ? 'Disable app' : 'Enable app',
+                      onClick: () =>
+                          toggleEnabled({
+                              enabled: !node.enabled,
+                              id: node.id,
+                          }),
+                      disabledReason: canConfigurePlugins
+                          ? undefined
+                          : 'You do not have permission to enable/disable apps.',
+                  },
+              ]
+            : []),
+        ...pipelineNodeMenuCommonItems(node),
+        ...(!inOverview
+            ? [
+                  {
+                      label: 'Delete app',
+                      onClick: () => {
+                          void deleteWithUndo({
+                              endpoint: `plugin_config`,
+                              object: {
+                                  id: node.id,
+                                  name: node.name,
+                              },
+                              callback: loadPluginConfigs,
+                          })
+                      },
+                      disabledReason: canConfigurePlugins ? undefined : 'You do not have permission to delete apps.',
+                  },
+              ]
+            : []),
+    ]
 }
