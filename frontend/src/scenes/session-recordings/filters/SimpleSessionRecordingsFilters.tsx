@@ -1,5 +1,5 @@
-import { IconPlus } from '@posthog/icons'
-import { LemonButton, LemonMenu, Link } from '@posthog/lemon-ui'
+import { IconPlus, IconPlusSmall } from '@posthog/icons'
+import { LemonButton, LemonMenu } from '@posthog/lemon-ui'
 import { useValues } from 'kea'
 import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
@@ -132,16 +132,16 @@ export const SimpleSessionRecordingsFilters = ({
                         {
                             title: 'Preferred properties',
                             items: items,
-                            footer: displayNameProperties.length === 0 && (
-                                <span className="text-muted text-xs px-2">
-                                    <Link
-                                        className="pb-1"
-                                        to={urls.settings('project-product-analytics', 'person-display-name')}
-                                    >
-                                        Add more
-                                    </Link>{' '}
-                                    person display properties
-                                </span>
+                            footer: (
+                                <LemonButton
+                                    size="xsmall"
+                                    icon={<IconPlusSmall className="text-primary" />}
+                                    to={urls.settings('project-product-analytics', 'person-display-name')}
+                                >
+                                    <span className="text-primary">
+                                        {displayNameProperties.length === 0 ? 'Add' : 'Edit'} person display properties
+                                    </span>
+                                </LemonButton>
                             ),
                         },
                         {
