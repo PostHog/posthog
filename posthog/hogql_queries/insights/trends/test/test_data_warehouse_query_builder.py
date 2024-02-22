@@ -9,9 +9,11 @@ from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 from posthog.schema import (
     BreakdownFilter,
     BreakdownType,
+    ChartDisplayType,
     DateRange,
     DataWarehouseNode,
     TrendsQuery,
+    TrendsFilter,
 )
 from posthog.test.base import BaseTest
 from posthog.warehouse.models import DataWarehouseTable, DataWarehouseCredential
@@ -259,3 +261,20 @@ class TestDataWarehouseQueryBuilder(ClickhouseTestMixin, BaseTest):
 
         assert response.results[1][1] == [0, 0, 0, 0, 0, 0, 0]
         assert response.results[1][2] == "$$_posthog_breakdown_other_$$"
+
+    def test_trends_pie(self):
+        table_name = self.create_parquet_file()
+
+        trends_query = TrendsQuery(
+            kind="TrendsQuery",
+            dateRange=DateRange(date_from="2023-01-01"),
+            series=[DataWarehouseNode(table_name=table_name, id_field="id", timestamp_field="created")],
+            trendsFilter=TrendsFilter(display=ChartDisplayType.ActionsPie),
+        )
+
+        with freeze_time("2023-01-07"):
+            response = self.get_response(trends_query=trends_query)
+
+        assert response.columns is not None
+        assert set(response.columns).issubset({"date", "total"})
+        assert response.results[0][0] == 4
