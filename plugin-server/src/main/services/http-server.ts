@@ -16,7 +16,17 @@ export function setupCommonRoutes(
     healthChecks: { [service: string]: () => Promise<boolean> | boolean },
     analyticsEventsIngestionConsumer?: KafkaJSIngestionConsumer | IngestionConsumer
 ): express.Application {
-    expressApp.get('/_health', async (req, res) => {
+    expressApp.get('/_health', getHealth(healthChecks))
+    expressApp.get('/_ready', getReady(analyticsEventsIngestionConsumer))
+    expressApp.get('/_metrics', getMetrics)
+    expressApp.get('/metrics', getMetrics)
+    expressApp.get('/_profile/:type', getProfileByType)
+
+    return expressApp
+}
+
+const getHealth =
+    (healthChecks: { [service: string]: () => Promise<boolean> | boolean }) => async (req: Request, res: Response) => {
         // Check that all health checks pass. Note that a failure of these
         // _may_ result in the process being terminated by e.g. Kubernetes
         // so the stakes are high.
@@ -66,9 +76,11 @@ export function setupCommonRoutes(
         }
 
         return res.status(statusCode).json({ status: statusCode === 200 ? 'ok' : 'error', checks: checkResultsMapping })
-    })
+    }
 
-    expressApp.get('/_ready', (req, res) => {
+const getReady =
+    (analyticsEventsIngestionConsumer?: KafkaJSIngestionConsumer | IngestionConsumer) =>
+    (req: Request, res: Response) => {
         // Check that, if the server should have a kafka queue,
         // the Kafka consumer is ready to consume messages
         if (!analyticsEventsIngestionConsumer || analyticsEventsIngestionConsumer.consumerReady) {
@@ -85,14 +97,7 @@ export function setupCommonRoutes(
             status: 'error',
         }
         return res.status(503).json(responseBody)
-    })
-
-    expressApp.get('/_metrics', getMetrics)
-    expressApp.get('/metrics', getMetrics)
-    expressApp.get('/_profile/:type', getProfileByType)
-
-    return expressApp
-}
+    }
 
 const getMetrics = async (req: Request, res: Response) => {
     try {
