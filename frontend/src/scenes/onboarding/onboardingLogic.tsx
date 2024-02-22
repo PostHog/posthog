@@ -347,6 +347,10 @@ export const onboardingLogic = kea<onboardingLogicType>([
             if (productKey !== values.productKey) {
                 actions.setProductKey(productKey)
             }
+
+            // Reset onboarding steps so they can be populated upon render in the component.
+            actions.setAllOnboardingSteps([])
+
             if (step) {
                 actions.setStepKey(step)
             } else {

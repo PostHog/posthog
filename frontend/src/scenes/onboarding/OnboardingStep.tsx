@@ -48,7 +48,7 @@ export const OnboardingStep = ({
                     <h1 className="font-bold m-0 pl-2">
                         {title || stepKeyToTitle(currentOnboardingStep?.props.stepKey)}
                     </h1>
-                    <div className="flex items-center gap-x-3">
+                    <div className="flex items-center gap-x-3" data-attr="onboarding-breadcrumbs">
                         {onboardingStepKeys.map((stepName, idx) => {
                             return (
                                 <React.Fragment key={`stepKey-${idx}`}>

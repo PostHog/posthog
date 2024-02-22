@@ -45,6 +45,7 @@ from posthog.rate_limit import (
 from posthog.session_recordings.queries.session_replay_events import SessionReplayEvents
 from posthog.session_recordings.realtime_snapshots import get_realtime_snapshots, publish_subscription
 from ee.session_recordings.session_summary.summarize_session import summarize_recording
+from ee.session_recordings.ai.similar_recordings import similar_recordings
 from posthog.session_recordings.snapshots.convert_legacy_snapshots import (
     convert_original_version_lts_recording,
 )
@@ -506,6 +507,35 @@ class SessionRecordingViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             r.headers["Server-Timing"] = ", ".join(
                 f"{key};dur={round(duration, ndigits=2)}" for key, duration in timings.items()
             )
+        return r
+
+    @action(methods=["GET"], detail=True)
+    def similar_sessions(self, request: request.Request, **kwargs):
+        if not request.user.is_authenticated:
+            raise exceptions.NotAuthenticated()
+
+        cache_key = f'similar_sessions_{self.team.pk}_{self.kwargs["pk"]}'
+        # Check if the response is cached
+        cached_response = cache.get(cache_key)
+        if cached_response:
+            return Response(cached_response)
+
+        user = cast(User, request.user)
+
+        if not posthoganalytics.feature_enabled("session-replay-similar-recordings", str(user.distinct_id)):
+            raise exceptions.ValidationError("similar recordings is not enabled for this user")
+
+        recording = self.get_object()
+
+        if not SessionReplayEvents().exists(session_id=str(recording.session_id), team=self.team):
+            raise exceptions.NotFound("Recording not found")
+
+        recordings = similar_recordings(recording, self.team)
+        if recordings:
+            cache.set(cache_key, recordings, timeout=30)
+
+        # let the browser cache for half the time we cache on the server
+        r = Response(recordings, headers={"Cache-Control": "max-age=15"})
         return r
 
 

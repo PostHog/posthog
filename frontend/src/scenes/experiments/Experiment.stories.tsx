@@ -5,10 +5,8 @@ import { App } from 'scenes/App'
 import { urls } from 'scenes/urls'
 
 import { mswDecorator } from '~/mocks/browser'
-import { useAvailableFeatures } from '~/mocks/features'
 import { toPaginatedResponse } from '~/mocks/handlers'
 import {
-    AvailableFeature,
     BreakdownAttributionType,
     ChartDisplayType,
     Experiment,
@@ -1238,7 +1236,6 @@ const meta: Meta = {
 }
 export default meta
 export const ExperimentsList: StoryFn = () => {
-    useAvailableFeatures([AvailableFeature.EXPERIMENTATION])
     useEffect(() => {
         router.actions.push(urls.experiments())
     }, [])
@@ -1246,7 +1243,6 @@ export const ExperimentsList: StoryFn = () => {
 }
 
 export const CompleteFunnelExperiment: StoryFn = () => {
-    useAvailableFeatures([AvailableFeature.EXPERIMENTATION])
     useEffect(() => {
         router.actions.push(urls.experiment(MOCK_FUNNEL_EXPERIMENT.id))
     }, [])
@@ -1259,7 +1255,6 @@ CompleteFunnelExperiment.parameters = {
 }
 
 export const RunningTrendExperiment: StoryFn = () => {
-    useAvailableFeatures([AvailableFeature.EXPERIMENTATION])
     useEffect(() => {
         router.actions.push(urls.experiment(MOCK_TREND_EXPERIMENT.id))
     }, [])
@@ -1273,7 +1268,6 @@ RunningTrendExperiment.parameters = {
 }
 
 export const RunningTrendExperimentManyVariants: StoryFn = () => {
-    useAvailableFeatures([AvailableFeature.EXPERIMENTATION])
     useEffect(() => {
         router.actions.push(urls.experiment(MOCK_TREND_EXPERIMENT_MANY_VARIANTS.id))
     }, [])
@@ -1286,22 +1280,7 @@ RunningTrendExperimentManyVariants.parameters = {
     },
 }
 
-export const ExperimentsListPayGate: StoryFn = () => {
-    useEffect(() => {
-        router.actions.push(urls.experiments())
-    }, [])
-    return <App />
-}
-
-export const ViewExperimentPayGate: StoryFn = () => {
-    useEffect(() => {
-        router.actions.push(urls.experiment(MOCK_FUNNEL_EXPERIMENT.id))
-    }, [])
-    return <App />
-}
-
 export const ExperimentNotFound: StoryFn = () => {
-    useAvailableFeatures([AvailableFeature.EXPERIMENTATION])
     useEffect(() => {
         router.actions.push(urls.experiment('1200000'))
     }, [])
