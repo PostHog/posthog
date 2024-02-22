@@ -19,8 +19,7 @@ describe('Dashboard', () => {
         cy.get('[data-attr=breadcrumb-Dashboards]').should('have.text', 'Dashboards')
     })
 
-    // FIXME: this test works in real, but not in cypress
-    it.skip('Adding new insight to dashboard works', () => {
+    it('Adding new insight to dashboard works', () => {
         const dashboardName = randomString('to add an insight to')
         const insightName = randomString('insight to add to dashboard')
 
@@ -31,7 +30,7 @@ describe('Dashboard', () => {
 
         insight.addInsightToDashboard(dashboardName, { visitAfterAdding: true })
 
-        cy.get('.CardMeta h4').should('have.text', insightName)
+        cy.get('h1').should('have.text', dashboardName)
     })
 
     it('Adding new insight to dashboard does not clear filters', () => {
