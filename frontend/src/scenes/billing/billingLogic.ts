@@ -194,8 +194,7 @@ export const billingLogic = kea<billingLogicType>([
                     return productSpecificAlert
                 }
 
-                if (!billing) {
-                    // || !preflight?.cloud) {
+                if (!billing || !preflight?.cloud) {
                     return
                 }
 
@@ -226,7 +225,7 @@ export const billingLogic = kea<billingLogicType>([
                 }
 
                 const productOverLimit = billing.products?.find((x: BillingProductV2Type) => {
-                    return x.percentage_usage < 1 && x.usage_key
+                    return x.percentage_usage > 1 && x.usage_key
                 })
 
                 if (productOverLimit) {
