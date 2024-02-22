@@ -2,6 +2,7 @@ import { Upload } from '@aws-sdk/lib-storage'
 import fs from 'fs/promises'
 import { DateTime, Settings } from 'luxon'
 import path from 'path'
+import * as zlib from 'zlib'
 
 import { defaultConfig } from '../../../../../src/config/config'
 import { SessionManagerV3 } from '../../../../../src/main/ingestion-queues/session-recording/services/session-manager-v3'
@@ -204,24 +205,49 @@ describe('session-manager', () => {
         await expect(fs.stat(sm.context.dir)).rejects.toThrowError('ENOENT: no such file or directory')
     })
 
-    it('moves a file for flushing if it already exists on create', async () => {
-        let sm = await createSessionManager('session_id_2', 2, 2)
-
+    it('reads successfully with the stream not closed', async () => {
         const event = createIncomingRecordingMessage({
             events: [
                 { timestamp: 170000000, type: 4, data: { href: 'http://localhost:3001/' } },
                 { timestamp: 170000000 + 1000, type: 4, data: { href: 'http://localhost:3001/' } },
             ],
         })
-        await sm.add(event)
-        expect(await fs.readdir(sm.context.dir)).toEqual(['buffer.jsonl.gz', 'metadata.json'])
-        await sm.stop()
-        expect(await fs.readdir(sm.context.dir)).toEqual(['buffer.jsonl.gz', 'metadata.json'])
+        await sessionManager.add(event)
 
-        // Create a new manager (like a new pod coming up)
-        sm = await createSessionManager('session_id_2', 2, 2)
-        expect(await fs.readdir(sm.context.dir)).toEqual(['170000000-170001000.flush.jsonl.gz'])
-        await sm.flush()
-        expect(await fs.readdir(sm.context.dir)).toEqual([])
+        const content = await fs.readFile(`${sessionManager.context.dir}/buffer.jsonl.gz`, 'utf-8')
+        expect(content).toEqual(
+            '{"window_id":"window_id_1","data":[{"timestamp":170000000,"type":4,"data":{"href":"http://localhost:3001/"}},{"timestamp":170001000,"type":4,"data":{"href":"http://localhost:3001/"}}]}\n'
+        )
+    })
+
+    it('adds to the existing buffer when restarted', async () => {
+        const sm1 = await createSessionManager('session_id_2', 2, 2)
+
+        await sm1.add(
+            createIncomingRecordingMessage({
+                events: [
+                    { timestamp: 170000000, type: 4, data: { href: 'http://localhost:3001/' } },
+                    { timestamp: 170000000 + 1000, type: 4, data: { href: 'http://localhost:3001/' } },
+                ],
+            })
+        )
+
+        const sm2 = await createSessionManager('session_id_2', 2, 2)
+        await sm2.add(
+            createIncomingRecordingMessage({
+                events: [
+                    { timestamp: 170000000 + 2000, type: 4, data: { href: 'http://localhost:3001/' } },
+                    { timestamp: 170000000 + 3000, type: 4, data: { href: 'http://localhost:3001/' } },
+                ],
+            })
+        )
+
+        const buffer = await fs.readFile(`${sm1.context.dir}/buffer.jsonl.gz`, 'utf-8')
+        expect(buffer).toEqual(
+            '{"window_id":"window_id_1","data":[{"timestamp":170000000,"type":4,"data":{"href":"http://localhost:3001/"}},{"timestamp":170001000,"type":4,"data":{"href":"http://localhost:3001/"}}]}\n{"window_id":"window_id_1","data":[{"timestamp":170002000,"type":4,"data":{"href":"http://localhost:3001/"}},{"timestamp":170003000,"type":4,"data":{"href":"http://localhost:3001/"}}]}\n'
+        )
+
+        await sm1.stop()
+        await sm2.stop()
     })
 })

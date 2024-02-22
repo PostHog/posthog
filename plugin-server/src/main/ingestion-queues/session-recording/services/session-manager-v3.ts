@@ -22,8 +22,9 @@ const S3_UPLOAD_WARN_TIME_SECONDS = 2 * 60 * 1000
 // NOTE: To remove once released
 const metricPrefix = 'v3_'
 
-export const BUFFER_FILE_NAME = 'buffer.jsonl.gz'
-export const FLUSH_FILE_EXTENSION = '.flush.jsonl.gz'
+export const FILE_EXTENSION = '.jsonl.gz'
+export const BUFFER_FILE_NAME = `buffer${FILE_EXTENSION}`
+export const FLUSH_FILE_EXTENSION = `.flush${FILE_EXTENSION}`
 
 const counterS3FilesWritten = new Counter({
     name: metricPrefix + 'recording_s3_files_written',
@@ -141,11 +142,6 @@ export class SessionManagerV3 {
                     context: bufferMetadata,
                     fileStream: manager.createFileStreamFor(path.join(context.dir, BUFFER_FILE_NAME)),
                 }
-
-                // TODO: Flush the file here as appending to a gzipped file doesn't seem to work
-
-                console.log('HERE=!')
-                await manager.markCurrentBufferForFlush('rebalance')
             }
         } catch (error) {
             // Indicates no buffer metadata file or it's corrupted
@@ -351,7 +347,7 @@ export class SessionManagerV3 {
         const endFlushTimer = histogramFlushTimeSeconds.startTimer()
 
         try {
-            const targetFileName = filename.replace(FLUSH_FILE_EXTENSION, '.jsonl.gz')
+            const targetFileName = filename.replace(FLUSH_FILE_EXTENSION, FILE_EXTENSION)
             const baseKey = `${this.serverConfig.SESSION_RECORDING_REMOTE_FOLDER}/team_id/${this.context.teamId}/session_id/${this.context.sessionId}`
             const dataKey = `${baseKey}/data/${targetFileName}`
             readStream = createReadStream(file)
@@ -443,7 +439,6 @@ export class SessionManagerV3 {
         // The uncompressed file which we need for realtime playback
         pipeline(
             writeStream,
-            zlib.createGzip(),
             createWriteStream(file, {
                 // Opens in append mode in case it already exists
                 flags: 'a',
