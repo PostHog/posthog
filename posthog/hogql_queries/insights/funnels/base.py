@@ -45,10 +45,9 @@ class FunnelBase(ABC):
         self._extra_event_fields: List[ColumnName] = []
         self._extra_event_properties: List[PropertyName] = []
 
-        # TODO: implement with actors query
-        # if self._filter.include_recordings:
-        #     self._extra_event_fields = ["uuid"]
-        #     self._extra_event_properties = ["$session_id", "$window_id"]
+        if self.context.actorsQuery and self.context.actorsQuery.includeRecordings:
+            self._extra_event_fields = ["uuid"]
+            self._extra_event_properties = ["$session_id", "$window_id"]
 
     def get_query(self) -> ast.SelectQuery:
         raise NotImplementedError()
@@ -620,22 +619,22 @@ class FunnelBase(ABC):
         return ast.And(exprs=conditions)
 
     def _get_funnel_person_step_events(self) -> List[ast.Expr]:
+        if self.context.actorsQuery and self.context.actorsQuery.includeRecordings:
+            step_num = self.context.actorsQuery.funnelStep
+            # if self._filter.include_final_matching_events:
+            if False:  # TODO: Implement with correlations
+                # Always returns the user's final step of the funnel
+                return [parse_expr("final_matching_events as matching_events")]
+            elif step_num is None:
+                raise ValueError("Missing funnelStep actors query property")
+            if step_num >= 0:
+                # None drop off case
+                matching_events_step_num = step_num - 1
+            else:
+                # Drop off case if negative number
+                matching_events_step_num = abs(step_num) - 2
+            return [parse_expr(f"step_{matching_events_step_num}_matching_events as matching_events")]
         return []
-        # if self._filter.include_recordings:
-        #     step_num = self._filter.funnel_step
-        #     if self._filter.include_final_matching_events:
-        #         # Always returns the user's final step of the funnel
-        #         return ", final_matching_events as matching_events"
-        #     elif step_num is None:
-        #         raise ValueError("Missing funnel_step filter property")
-        #     if step_num >= 0:
-        #         # None drop off case
-        #         self.params.update({"matching_events_step_num": step_num - 1})
-        #     else:
-        #         # Drop off case if negative number
-        #         self.params.update({"matching_events_step_num": abs(step_num) - 2})
-        #     return ", step_%(matching_events_step_num)s_matching_events as matching_events"
-        # return ""
 
     def _get_count_columns(self, max_steps: int) -> List[ast.Expr]:
         exprs: List[ast.Expr] = []
@@ -653,41 +652,36 @@ class FunnelBase(ABC):
 
         return exprs
 
-    # def _get_final_matching_event(self, max_steps: int):
-    #     statement = None
-    #     for i in range(max_steps - 1, -1, -1):
-    #         if i == max_steps - 1:
-    #             statement = f"if(isNull(latest_{i}),step_{i-1}_matching_event,step_{i}_matching_event)"
-    #         elif i == 0:
-    #             statement = f"if(isNull(latest_0),(null,null,null,null),{statement})"
-    #         else:
-    #             statement = f"if(isNull(latest_{i}),step_{i-1}_matching_event,{statement})"
-    #     return f",{statement} as final_matching_event" if statement else ""
+    def _get_final_matching_event(self, max_steps: int) -> List[ast.Expr]:
+        statement = None
+        for i in range(max_steps - 1, -1, -1):
+            if i == max_steps - 1:
+                statement = f"if(isNull(latest_{i}),step_{i-1}_matching_event,step_{i}_matching_event)"
+            elif i == 0:
+                statement = f"if(isNull(latest_0),(null,null,null,null),{statement})"
+            else:
+                statement = f"if(isNull(latest_{i}),step_{i-1}_matching_event,{statement})"
+        return [parse_expr(f"{statement} as final_matching_event")] if statement else []
 
     def _get_matching_events(self, max_steps: int) -> List[ast.Expr]:
-        # if self._filter.include_recordings:
-        #     events = []
-        #     for i in range(0, max_steps):
-        #         event_fields = ["latest"] + self.extra_event_fields_and_properties
-        #         event_fields_with_step = ", ".join([f'"{field}_{i}"' for field in event_fields])
-        #         event_clause = f"({event_fields_with_step}) as step_{i}_matching_event"
-        #         events.append(event_clause)
-        #     matching_event_select_statements = "," + ", ".join(events)
+        if self.context.actorsQuery and self.context.actorsQuery.includeRecordings:
+            events = []
+            for i in range(0, max_steps):
+                event_fields = ["latest"] + self.extra_event_fields_and_properties
+                event_fields_with_step = ", ".join([f'"{field}_{i}"' for field in event_fields])
+                event_clause = f"({event_fields_with_step}) as step_{i}_matching_event"
+                events.append(parse_expr(event_clause))
 
-        #     final_matching_event_statement = self._get_final_matching_event(max_steps)
-
-        #     return matching_event_select_statements + final_matching_event_statement
-
+            return [*events, *self._get_final_matching_event(max_steps)]
         return []
 
     def _get_matching_event_arrays(self, max_steps: int) -> List[ast.Expr]:
-        # select_clause = ""
-        # if self._filter.include_recordings:
-        #     for i in range(0, max_steps):
-        #         select_clause += f", groupArray(10)(step_{i}_matching_event) as step_{i}_matching_events"
-        #     select_clause += f", groupArray(10)(final_matching_event) as final_matching_events"
-        # return select_clause
-        return []
+        exprs: List[ast.Expr] = []
+        if self.context.actorsQuery and self.context.actorsQuery.includeRecordings:
+            for i in range(0, max_steps):
+                exprs.append(parse_expr(f"groupArray(10)(step_{i}_matching_event) as step_{i}_matching_events"))
+            exprs.append(parse_expr(f"groupArray(10)(final_matching_event) as final_matching_events"))
+        return exprs
 
     def _get_step_time_avgs(self, max_steps: int, inner_query: bool = False) -> List[ast.Expr]:
         exprs: List[ast.Expr] = []
