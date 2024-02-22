@@ -147,7 +147,7 @@ export const gatherConsoleLogEvents = (
 
     return consoleLogEntries
 }
-const getTimestampsFrom = (events: RRWebEvent[]): ClickHouseTimestamp[] =>
+export const getTimestampsFrom = (events: RRWebEvent[]): ClickHouseTimestamp[] =>
     events
         // from millis expects a number and handles unexpected input gracefully so we have to do some filtering
         // since we're accepting input over the API and have seen very unexpected values in the past
