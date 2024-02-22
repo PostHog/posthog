@@ -1,7 +1,7 @@
 import abc
 from posthog.hogql import ast
 from typing import List, Optional
-from posthog.schema import Breakdown
+from posthog.hogql_queries.insights.trends.breakdown import Breakdown
 from posthog.hogql_queries.insights.trends.aggregation_operations import (
     AggregationOperations,
 )
