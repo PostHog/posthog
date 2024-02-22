@@ -403,7 +403,7 @@ export function ReplaySummarySettings(): JSX.Element | null {
 
     const updateSummaryConfig = (summaryConfig: SessionRecordingAIConfig): void => {
         updateCurrentTeam({
-            session_replay_config: { ...sessionReplayConfig, ai_config: summaryConfig },
+            session_replay_config: { ai_config: summaryConfig },
         })
     }
 

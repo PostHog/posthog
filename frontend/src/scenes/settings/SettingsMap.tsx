@@ -176,7 +176,7 @@ export const SettingsMap: SettingSection[] = [
                 id: 'replay-ai-config',
                 title: 'AI Recording Summary',
                 component: <ReplaySummarySettings />,
-                flag: 'AI_SESSION_SUMMARY',
+                flag: 'AI_SESSION_PERMISSIONS',
             },
         ],
     },

@@ -202,6 +202,7 @@ export const FEATURE_FLAGS = {
     SIDEPANEL_STATUS: 'sidepanel-status', // owner: @benjackwhite
     NEW_FEATURE_FLAG_OPERATORS: 'new-feature-flag-operators', // owner: @neilkakkar
     AI_SESSION_SUMMARY: 'ai-session-summary', // owner: #team-replay
+    AI_SESSION_PERMISSIONS: 'ai-session-permissions', // owner: #team-replay
     PRODUCT_INTRO_PAGES: 'product-intro-pages', // owner: @raquelmsmith
     DATANODE_CONCURRENCY_LIMIT: 'datanode-concurrency-limit', // owner: @robbie-c
     SESSION_REPLAY_DOCTOR: 'session-replay-doctor', // owner: #team-replay
