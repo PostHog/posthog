@@ -20,6 +20,8 @@
 
     &.LemonSwitch--full-width {
         width: 100%;
+        padding-right: 0.5rem;
+        padding-left: 0.5rem; // Should be aligned with buttons
     }
 
     &.LemonSwitch--bordered {

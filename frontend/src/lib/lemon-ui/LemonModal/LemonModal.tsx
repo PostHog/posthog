@@ -1,8 +1,8 @@
 import './LemonModal.scss'
 
+import { IconX } from '@posthog/icons'
 import clsx from 'clsx'
 import { useFloatingContainerContext } from 'lib/hooks/useFloatingContainerContext'
-import { IconClose } from 'lib/lemon-ui/icons'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { useEffect, useRef, useState } from 'react'
 import Modal from 'react-modal'
@@ -105,7 +105,7 @@ export function LemonModal({
                                 <>
                                     You have unsaved input that will be discarded.
                                     <br />
-                                    Use the <IconClose /> button to close explicitly.
+                                    Use the <IconX /> button to close explicitly.
                                 </>
                             ) : (
                                 <>
@@ -115,7 +115,7 @@ export function LemonModal({
                         }
                     >
                         <LemonButton
-                            icon={<IconClose />}
+                            icon={<IconX />}
                             size="small"
                             onClick={onClose}
                             aria-label="close"

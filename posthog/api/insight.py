@@ -560,11 +560,12 @@ class InsightSerializer(InsightBasicSerializer, UserPermissionsSerializerMixin):
 
 
 class InsightViewSet(
-    TaggedItemViewSetMixin,
     TeamAndOrgViewSetMixin,
+    TaggedItemViewSetMixin,
     ForbidDestroyModel,
     viewsets.ModelViewSet,
 ):
+    scope_object = "insight"
     serializer_class = InsightSerializer
     throttle_classes = [
         ClickHouseBurstRateThrottle,
@@ -573,7 +574,6 @@ class InsightViewSet(
     renderer_classes = tuple(api_settings.DEFAULT_RENDERER_CLASSES) + (csvrenderers.CSVRenderer,)
     filter_backends = [DjangoFilterBackend]
     filterset_fields = ["short_id", "created_by"]
-    include_in_docs = True
     sharing_enabled_actions = ["retrieve", "list"]
 
     retention_query_class = Retention
@@ -860,7 +860,7 @@ Using the correct cache and enriching the response with dashboard specific confi
             result = self.stickiness_query_class().run(stickiness_filter, team)
         else:
             trends_query = Trends()
-            result = trends_query.run(filter, team)
+            result = trends_query.run(filter, team, is_csv_export=bool(request.GET.get("is_csv_export", False)))
 
         return {"result": result, "timezone": team.timezone}
 
@@ -1009,7 +1009,7 @@ Using the correct cache and enriching the response with dashboard specific confi
         activity_page = load_activity(scope="Insight", team_id=self.team_id, limit=limit, page=page)
         return activity_page_response(activity_page, limit, page, request)
 
-    @action(methods=["GET"], detail=True)
+    @action(methods=["GET"], detail=True, required_scopes=["activity_log:read"])
     def activity(self, request: request.Request, **kwargs):
         limit = int(request.query_params.get("limit", "10"))
         page = int(request.query_params.get("page", "1"))

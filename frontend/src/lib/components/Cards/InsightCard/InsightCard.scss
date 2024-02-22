@@ -30,6 +30,7 @@
     flex-direction: column;
     width: 100%;
     overflow: auto;
+    border-radius: 0 0 var(--radius) var(--radius);
 
     .LineGraph,
     .AnnotationsOverlay {

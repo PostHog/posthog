@@ -1,7 +1,8 @@
+import { IconTrash } from '@posthog/icons'
 import { LemonButton, Link } from '@posthog/lemon-ui'
 import { Popconfirm } from 'antd'
 import { useActions, useValues } from 'kea'
-import { IconCheckmark, IconCloudDownload, IconDelete, IconReplay, IconWeb } from 'lib/lemon-ui/icons'
+import { IconCheckmark, IconCloudDownload, IconReplay, IconWeb } from 'lib/lemon-ui/icons'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { canGloballyManagePlugins } from 'scenes/plugins/access'
 import { PluginImage } from 'scenes/plugins/plugin/PluginImage'
@@ -72,7 +73,7 @@ export function AppManagementView({
                                 type="secondary"
                                 status="danger"
                                 size="small"
-                                icon={<IconDelete />}
+                                icon={<IconTrash />}
                                 disabledReason={
                                     unusedPlugins.includes(plugin.id) ? undefined : 'This app is still in use.'
                                 }

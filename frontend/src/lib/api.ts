@@ -50,6 +50,7 @@ import {
     OrganizationFeatureFlagsCopyBody,
     OrganizationResourcePermissionType,
     OrganizationType,
+    PersonalAPIKeyType,
     PersonListParams,
     PersonType,
     PluginConfigTypeNew,
@@ -715,6 +716,15 @@ class ApiRequest {
     // ActivityLog
     public activity_log(teamId?: TeamType['id']): ApiRequest {
         return this.projectsDetail(teamId).addPathComponent('activity_log')
+    }
+
+    // Personal API keys
+    public personalApiKeys(): ApiRequest {
+        return this.addPathComponent('personal_api_keys')
+    }
+
+    public personalApiKey(id: PersonalAPIKeyType['id']): ApiRequest {
+        return this.personalApiKeys().addPathComponent(id)
     }
 
     // Request finalization
@@ -1558,6 +1568,10 @@ const api = {
             return await new ApiRequest().recording(recordingId).withAction('summarize').create()
         },
 
+        async similarRecordings(recordingId: SessionRecordingType['id']): Promise<[string, number][]> {
+            return await new ApiRequest().recording(recordingId).withAction('similar_sessions').get()
+        },
+
         async delete(recordingId: SessionRecordingType['id']): Promise<{ success: boolean }> {
             return await new ApiRequest().recording(recordingId).delete()
         },
@@ -1963,6 +1977,21 @@ const api = {
     queryStatus: {
         async get(queryId: string): Promise<QueryStatus> {
             return await new ApiRequest().queryStatus(queryId).get()
+        },
+    },
+
+    personalApiKeys: {
+        async list(): Promise<PersonalAPIKeyType[]> {
+            return await new ApiRequest().personalApiKeys().get()
+        },
+        async create(data: Partial<PersonalAPIKeyType>): Promise<PersonalAPIKeyType> {
+            return await new ApiRequest().personalApiKeys().create({ data })
+        },
+        async update(id: PersonalAPIKeyType['id'], data: Partial<PersonalAPIKeyType>): Promise<PersonalAPIKeyType> {
+            return await new ApiRequest().personalApiKey(id).update({ data })
+        },
+        async delete(id: PersonalAPIKeyType['id']): Promise<void> {
+            await new ApiRequest().personalApiKey(id).delete()
         },
     },
 

@@ -3,18 +3,19 @@ import { LemonButton, Link, Spinner } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { WavingHog } from 'lib/components/hedgehogs'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
+import posthog from 'posthog-js'
 import React from 'react'
 import { convertLargeNumberToWords } from 'scenes/billing/billing-utils'
 import { billingProductLogic } from 'scenes/billing/billingProductLogic'
 import { ProductPricingModal } from 'scenes/billing/ProductPricingModal'
 import { getProductIcon } from 'scenes/products/Products'
-import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
 import { BillingProductV2Type, BillingV2FeatureType, ProductKey } from '~/types'
 
 import { onboardingLogic, OnboardingStepKey } from './onboardingLogic'
 import { OnboardingStep } from './OnboardingStep'
+import { multiInstallProducts, sdksLogic } from './sdks/sdksLogic'
 
 export const Feature = ({ name, description, images }: BillingV2FeatureType): JSX.Element => {
     return images ? (
@@ -43,30 +44,72 @@ export const Subfeature = ({ name, description, icon_key }: BillingV2FeatureType
 const GetStartedButton = ({ product }: { product: BillingProductV2Type }): JSX.Element => {
     const { user } = useValues(userLogic)
     const { reportOnboardingProductSelected } = useActions(eventUsageLogic)
+    const { completeOnboarding, setTeamPropertiesForProduct, goToNextStep } = useActions(onboardingLogic)
+    const { isFirstProductOnboarding } = useValues(onboardingLogic)
+    const { hasSnippetEvents } = useValues(sdksLogic)
     const cta: Partial<Record<ProductKey, string>> = {
         [ProductKey.SESSION_REPLAY]: 'Start recording my website',
         [ProductKey.FEATURE_FLAGS]: 'Create a feature flag or experiment',
         [ProductKey.SURVEYS]: 'Create a survey',
     }
+    const includeFirstOnboardingProductOnUserProperties = user?.date_joined
+        ? new Date(user?.date_joined) > new Date('2024-01-10T00:00:00Z')
+        : false
 
     return (
         <div className="flex gap-x-4 items-center">
-            <LemonButton
-                to={urls.onboarding(product.type, OnboardingStepKey.INSTALL)}
-                type="primary"
-                status="alt"
-                data-attr={`${product.type}-onboarding`}
-                center
-                className="max-w-max"
-                onClick={() => {
-                    const includeFirstOnboardingProductOnUserProperties = user?.date_joined
-                        ? new Date(user?.date_joined) > new Date('2024-01-10T00:00:00Z')
-                        : false
-                    reportOnboardingProductSelected(product.type, includeFirstOnboardingProductOnUserProperties)
-                }}
-            >
-                {cta[product.type] || 'Get started'}
-            </LemonButton>
+            {isFirstProductOnboarding ? (
+                <>
+                    <LemonButton
+                        type="primary"
+                        status="alt"
+                        data-attr="start-onboarding"
+                        center
+                        className="max-w-max"
+                        onClick={() => {
+                            setTeamPropertiesForProduct(product.type as ProductKey)
+                            reportOnboardingProductSelected(product.type, includeFirstOnboardingProductOnUserProperties)
+                            goToNextStep()
+                        }}
+                    >
+                        {cta[product.type] || 'Get started'}
+                    </LemonButton>
+                </>
+            ) : (
+                <>
+                    <LemonButton
+                        type="primary"
+                        status="alt"
+                        data-attr="skip-onboarding"
+                        center
+                        className="max-w-max"
+                        onClick={() => {
+                            setTeamPropertiesForProduct(product.type as ProductKey)
+                            reportOnboardingProductSelected(product.type, includeFirstOnboardingProductOnUserProperties)
+                            posthog.capture('product onboarding skipped', { product_key: product.type })
+                            completeOnboarding()
+                        }}
+                    >
+                        {cta[product.type] || 'Get started'}
+                    </LemonButton>
+                    {(!hasSnippetEvents || multiInstallProducts.includes(product.type as ProductKey)) && (
+                        <LemonButton
+                            type="tertiary"
+                            data-attr="start-onboarding"
+                            onClick={() => {
+                                setTeamPropertiesForProduct(product.type as ProductKey)
+                                reportOnboardingProductSelected(
+                                    product.type,
+                                    includeFirstOnboardingProductOnUserProperties
+                                )
+                                goToNextStep()
+                            }}
+                        >
+                            View SDK instructions
+                        </LemonButton>
+                    )}
+                </>
+            )}
         </div>
     )
 }
@@ -75,6 +118,9 @@ const PricingSection = ({ product }: { product: BillingProductV2Type }): JSX.Ele
     const { currentAndUpgradePlans, isPricingModalOpen } = useValues(billingProductLogic({ product: product }))
     const { toggleIsPricingModalOpen } = useActions(billingProductLogic({ product: product }))
     const planForStats = currentAndUpgradePlans.upgradePlan || currentAndUpgradePlans.currentPlan
+    if (!planForStats) {
+        return <></>
+    }
     const pricingListItems = [
         planForStats.tiers?.[0].up_to && (
             <>

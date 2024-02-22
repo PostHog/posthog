@@ -1,3 +1,4 @@
+import { IconLock } from '@posthog/icons'
 import { LemonInput, LemonSelect, LemonTag } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
@@ -9,7 +10,6 @@ import { PageHeader } from 'lib/components/PageHeader'
 import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductIntroduction'
 import PropertyFiltersDisplay from 'lib/components/PropertyFilters/components/PropertyFiltersDisplay'
 import { FEATURE_FLAGS } from 'lib/constants'
-import { IconLock } from 'lib/lemon-ui/icons'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { More } from 'lib/lemon-ui/LemonButton/More'
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
@@ -269,36 +269,32 @@ export function OverViewTab({
                                 value={searchTerm || ''}
                             />
                             <div className="flex items-center gap-2">
-                                {hasAvailableFeature(AvailableFeature.MULTIVARIATE_FLAGS) && (
-                                    <>
-                                        <span>
-                                            <b>Type</b>
-                                        </span>
-                                        <LemonSelect
-                                            dropdownMatchSelectWidth={false}
-                                            size="small"
-                                            onChange={(type) => {
-                                                if (type) {
-                                                    if (type === 'all') {
-                                                        if (filters) {
-                                                            const { type, ...restFilters } = filters
-                                                            setFeatureFlagsFilters(restFilters, true)
-                                                        }
-                                                    } else {
-                                                        setFeatureFlagsFilters({ type })
-                                                    }
+                                <span>
+                                    <b>Type</b>
+                                </span>
+                                <LemonSelect
+                                    dropdownMatchSelectWidth={false}
+                                    size="small"
+                                    onChange={(type) => {
+                                        if (type) {
+                                            if (type === 'all') {
+                                                if (filters) {
+                                                    const { type, ...restFilters } = filters
+                                                    setFeatureFlagsFilters(restFilters, true)
                                                 }
-                                            }}
-                                            options={[
-                                                { label: 'All', value: 'all' },
-                                                { label: 'Boolean', value: 'boolean' },
-                                                { label: 'Multiple variants', value: 'multivariant' },
-                                                { label: 'Experiment', value: 'experiment' },
-                                            ]}
-                                            value={filters.type ?? 'all'}
-                                        />
-                                    </>
-                                )}
+                                            } else {
+                                                setFeatureFlagsFilters({ type })
+                                            }
+                                        }
+                                    }}
+                                    options={[
+                                        { label: 'All', value: 'all' },
+                                        { label: 'Boolean', value: 'boolean' },
+                                        { label: 'Multiple variants', value: 'multivariant' },
+                                        { label: 'Experiment', value: 'experiment' },
+                                    ]}
+                                    value={filters.type ?? 'all'}
+                                />
                                 <span>
                                     <b>Status</b>
                                 </span>
