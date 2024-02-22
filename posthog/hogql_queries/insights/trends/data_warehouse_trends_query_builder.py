@@ -1,6 +1,6 @@
 from typing import List, Optional, cast
 from posthog.hogql import ast
-from posthog.hogql.parser import parse_expr, parse_select
+from posthog.hogql.parser import parse_select
 from posthog.hogql.property import property_to_expr
 from posthog.hogql.timings import HogQLTimings
 from posthog.hogql_queries.insights.trends.aggregation_operations import (
@@ -132,8 +132,6 @@ class DataWarehouseTrendsQueryBuilder:
         no_modifications: Optional[bool],
         is_actors_query: bool,
         breakdown: Breakdown,
-        breakdown_values_override: Optional[str | int] = None,
-        actors_query_time_frame: Optional[str | int] = None,
     ) -> ast.SelectQuery:
         day_start = ast.Alias(
             alias="day_start",
@@ -147,8 +145,6 @@ class DataWarehouseTrendsQueryBuilder:
             ignore_breakdowns=False,
             breakdown=breakdown,
             is_actors_query=is_actors_query,
-            breakdown_values_override=breakdown_values_override,
-            actors_query_time_frame=actors_query_time_frame,
         )
 
         default_query = cast(
@@ -321,49 +317,15 @@ class DataWarehouseTrendsQueryBuilder:
         is_actors_query: bool,
         breakdown: Breakdown | None,
         ignore_breakdowns: bool = False,
-        breakdown_values_override: Optional[str | int] = None,
-        actors_query_time_frame: Optional[str | int] = None,
     ) -> ast.Expr:
         series = self.series
         filters: List[ast.Expr] = []
 
-        # Dates
-        if is_actors_query and actors_query_time_frame is not None:
-            to_start_of_time_frame = f"toStartOf{self.query_date_range.interval_name.capitalize()}"
-            filters.append(
-                ast.CompareOperation(
-                    left=ast.Call(name=to_start_of_time_frame, args=[ast.Field(chain=["timestamp"])]),
-                    op=ast.CompareOperationOp.Eq,
-                    right=ast.Call(name="toDateTime", args=[ast.Constant(value=actors_query_time_frame)]),
-                )
-            )
-        elif not self._aggregation_operation.requires_query_orchestration():
-            filters.extend(
-                [
-                    parse_expr(
-                        "{timestamp_field} >= {date_from_with_adjusted_start_of_interval}",
-                        placeholders={
-                            "timestamp_field": ast.Call(
-                                name="toDateTime", args=[ast.Field(chain=[self.series.timestamp_field])]
-                            ),
-                            **self.query_date_range.to_placeholders(),
-                        },
-                    ),
-                    parse_expr(
-                        "{timestamp_field} <= {date_to}",
-                        placeholders={
-                            "timestamp_field": ast.Call(
-                                name="toDateTime", args=[ast.Field(chain=[self.series.timestamp_field])]
-                            ),
-                            **self.query_date_range.to_placeholders(),
-                        },
-                    ),
-                ]
-            )
-
         # Properties
         if self.query.properties is not None and self.query.properties != []:
-            filters.append(property_to_expr(self.query.properties, self.team))
+            # Only apply data warehouse properties
+            filtered_query_properties = [prop for prop in self.query.properties if prop.type == "data_warehouse"]
+            filters.append(property_to_expr(filtered_query_properties, self.team))
 
         # Series Filters
         if series.properties is not None and series.properties != []:
@@ -393,7 +355,6 @@ class DataWarehouseTrendsQueryBuilder:
                 breakdown=None,  # Passing in None because we know we dont actually need it
                 ignore_breakdowns=True,
                 is_actors_query=is_actors_query,
-                breakdown_values_override=breakdown_values_override,
             ),
             breakdown_values_override=[breakdown_values_override] if breakdown_values_override is not None else None,
         )

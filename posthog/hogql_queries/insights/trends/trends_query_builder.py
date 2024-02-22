@@ -477,7 +477,9 @@ class TrendsQueryBuilder:
 
         # Properties
         if self.query.properties is not None and self.query.properties != []:
-            filters.append(property_to_expr(self.query.properties, self.team))
+            # Remove data warehouse properties
+            filtered_query_properties = [prop for prop in self.query.properties if prop.type != "data_warehouse"]
+            filters.append(property_to_expr(filtered_query_properties, self.team))
 
         # Series Filters
         if series.properties is not None and series.properties != []:
