@@ -5,6 +5,7 @@ from posthog.hogql_queries.insights.trends.breakdown import Breakdown
 from posthog.hogql_queries.insights.trends.aggregation_operations import (
     AggregationOperations,
 )
+from posthog.models.filters.mixins.utils import cached_property
 
 
 class TrendsQueryBuilderAbstract(metaclass=abc.ABCMeta):
@@ -53,5 +54,6 @@ class TrendsQueryBuilderAbstract(metaclass=abc.ABCMeta):
         pass
 
     @abc.abstractmethod
+    @cached_property
     def _aggregation_operation(self) -> AggregationOperations:
         pass
