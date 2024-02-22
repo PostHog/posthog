@@ -220,3 +220,25 @@ class TestDataWarehouseQueryBuilder(ClickhouseTestMixin, BaseTest):
 
         assert response.results[4][1] == [0, 0, 0, 0, 0, 0, 0]
         assert response.results[4][2] == "$$_posthog_breakdown_other_$$"
+
+    def test_trends_breakdown_with_property(self):
+        table_name = self.create_parquet_file()
+
+        trends_query = TrendsQuery(
+            kind="TrendsQuery",
+            dateRange=DateRange(date_from="2023-01-01"),
+            series=[DataWarehouseNode(table_name=table_name, id_field="id", timestamp_field="created")],
+            properties=clean_entity_properties([{"key": "prop_1", "value": "a", "type": "data_warehouse"}]),
+            breakdownFilter=BreakdownFilter(breakdown_type=BreakdownType.data_warehouse, breakdown="prop_1"),
+        )
+
+        with freeze_time("2023-01-07"):
+            response = self.get_response(trends_query=trends_query)
+
+        assert response.columns is not None
+        assert set(response.columns).issubset({"date", "total", "breakdown_value"})
+        assert response.results[0][1] == [1, 0, 0, 0, 0, 0, 0]
+        assert response.results[0][2] == "a"
+
+        assert response.results[1][1] == [0, 0, 0, 0, 0, 0, 0]
+        assert response.results[1][2] == "$$_posthog_breakdown_other_$$"
