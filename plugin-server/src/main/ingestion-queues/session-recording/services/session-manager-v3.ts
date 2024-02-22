@@ -129,17 +129,23 @@ export class SessionManagerV3 {
         await mkdir(context.dir, { recursive: true })
 
         try {
-            const bufferMetadata: SessionManagerBufferContext = JSON.parse(
-                await readFile(path.join(context.dir, 'metadata.json'), 'utf-8')
+            const fileExists = await stat(manager.file('metadata.json')).then(
+                () => true,
+                () => false
             )
-            manager.buffer = {
-                context: bufferMetadata,
-                fileStream: manager.createFileStreamFor(path.join(context.dir, BUFFER_FILE_NAME)),
+            if (fileExists) {
+                const bufferMetadata: SessionManagerBufferContext = JSON.parse(
+                    await readFile(path.join(context.dir, 'json'), 'utf-8')
+                )
+                manager.buffer = {
+                    context: bufferMetadata,
+                    fileStream: manager.createFileStreamFor(path.join(context.dir, BUFFER_FILE_NAME)),
+                }
+
+                // TODO: Flush the file here as appending to a gzipped file doesn't seem to work
+
+                await manager.markCurrentBufferForFlush('rebalance')
             }
-
-            // TODO: Flush the file here as appending to a gzipped file doesn't seem to work
-
-            await manager.markCurrentBufferForFlush('rebalance')
         } catch (error) {
             // Indicates no buffer metadata file or it's corrupted
             status.error('🧨', '[session-manager] failed to read buffer metadata', {
@@ -225,52 +231,60 @@ export class SessionManagerV3 {
         return !this.buffer?.context.count && !(await this.getFlushFiles()).length
     }
 
-    public async flush(): Promise<void> {
+    public async flush(force = false): Promise<void> {
         if (this.destroying) {
             return
         }
 
-        if (this.buffer) {
-            if (this.buffer.context.sizeEstimate >= this.serverConfig.SESSION_RECORDING_MAX_BUFFER_SIZE_KB * 1024) {
-                return this.markCurrentBufferForFlush('buffer_size')
-            }
-
-            const flushThresholdMs = this.serverConfig.SESSION_RECORDING_MAX_BUFFER_AGE_SECONDS * 1000
-            const flushThresholdJitteredMs = flushThresholdMs * this.flushJitterMultiplier
-            const flushThresholdMemoryMs =
-                flushThresholdJitteredMs * this.serverConfig.SESSION_RECORDING_BUFFER_AGE_IN_MEMORY_MULTIPLIER
-
-            const logContext: Record<string, any> = {
-                ...this.context,
-                flushThresholdMs,
-                flushThresholdJitteredMs,
-                flushThresholdMemoryMs,
-            }
-
-            if (!this.buffer.context.count) {
-                status.warn('🚽', `[session-manager] buffer has no items yet`, { logContext })
-                return
-            }
-
-            const bufferAgeInMemoryMs = now() - this.buffer.context.createdAt
-
-            // check the in-memory age against a larger value than the flush threshold,
-            // otherwise we'll flap between reasons for flushing when close to real-time processing
-            const isSessionAgeOverThreshold = bufferAgeInMemoryMs >= flushThresholdMemoryMs
-
-            logContext['bufferAgeInMemoryMs'] = bufferAgeInMemoryMs
-            logContext['isSessionAgeOverThreshold'] = isSessionAgeOverThreshold
-
-            histogramSessionAgeSeconds.observe(bufferAgeInMemoryMs / 1000)
-            histogramSessionSize.observe(this.buffer.context.count)
-            histogramSessionSizeKb.observe(this.buffer.context.sizeEstimate / 1024)
-
-            if (isSessionAgeOverThreshold) {
-                return this.markCurrentBufferForFlush('buffer_age')
-            }
+        if (!force) {
+            await this.maybeFlushCurrentBuffer()
+        } else {
+            // This is mostly used by tests
+            await this.markCurrentBufferForFlush('rebalance')
         }
 
         await this.flushFiles()
+    }
+
+    private async maybeFlushCurrentBuffer(): Promise<void> {
+        if (!this.buffer) {
+            return
+        }
+
+        if (this.buffer.context.sizeEstimate >= this.serverConfig.SESSION_RECORDING_MAX_BUFFER_SIZE_KB * 1024) {
+            return this.markCurrentBufferForFlush('buffer_size')
+        }
+
+        const flushThresholdMs = this.serverConfig.SESSION_RECORDING_MAX_BUFFER_AGE_SECONDS * 1000
+        const flushThresholdJitteredMs = flushThresholdMs * this.flushJitterMultiplier
+
+        const logContext: Record<string, any> = {
+            ...this.context,
+            flushThresholdMs,
+            flushThresholdJitteredMs,
+        }
+
+        if (!this.buffer.context.count) {
+            status.warn('🚽', `[session-manager] buffer has no items yet`, { logContext })
+            return
+        }
+
+        const bufferAgeInMemoryMs = now() - this.buffer.context.createdAt
+
+        // check the in-memory age against a larger value than the flush threshold,
+        // otherwise we'll flap between reasons for flushing when close to real-time processing
+        const isSessionAgeOverThreshold = bufferAgeInMemoryMs >= flushThresholdJitteredMs
+
+        logContext['bufferAgeInMemoryMs'] = bufferAgeInMemoryMs
+        logContext['isSessionAgeOverThreshold'] = isSessionAgeOverThreshold
+
+        histogramSessionAgeSeconds.observe(bufferAgeInMemoryMs / 1000)
+        histogramSessionSize.observe(this.buffer.context.count)
+        histogramSessionSizeKb.observe(this.buffer.context.sizeEstimate / 1024)
+
+        if (isSessionAgeOverThreshold) {
+            return this.markCurrentBufferForFlush('buffer_age')
+        }
     }
 
     private async markCurrentBufferForFlush(reason: 'buffer_size' | 'buffer_age' | 'rebalance'): Promise<void> {
