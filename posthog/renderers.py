@@ -12,4 +12,9 @@ class SafeJSONRenderer(JSONRenderer):
         if data is None:
             return b""
 
-        return orjson.dumps(data, default=JSONEncoder().default, option=orjson.OPT_UTC_Z)
+        option = orjson.OPT_UTC_Z
+
+        if renderer_context and renderer_context.get("indent"):
+            option |= orjson.OPT_INDENT_2
+
+        return orjson.dumps(data, default=JSONEncoder().default, option=option)
