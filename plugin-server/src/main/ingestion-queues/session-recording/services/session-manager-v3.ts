@@ -151,7 +151,7 @@ export class SessionManagerV3 {
         return manager
     }
 
-    private async save(): Promise<void> {
+    private async syncMetadata(): Promise<void> {
         if (this.buffer) {
             await writeFile(this.file('metadata.json'), JSON.stringify(this.buffer?.context), 'utf-8')
         } else {
@@ -205,12 +205,12 @@ export class SessionManagerV3 {
             buffer.context.count += 1
             buffer.context.sizeEstimate += content.length
 
-            await this.save()
-
             if (!buffer.fileStream.write(content, 'utf-8')) {
                 writeStreamBlocked.inc()
                 await new Promise((r) => buffer.fileStream.once('drain', r))
             }
+
+            await this.syncMetadata()
         } catch (error) {
             this.captureException(error, { message })
             throw error
@@ -296,7 +296,7 @@ export class SessionManagerV3 {
         await rename(this.file(BUFFER_FILE_NAME), this.file(fileName))
         this.buffer = undefined
 
-        await this.save()
+        await this.syncMetadata()
     }
 
     private async flushFiles(): Promise<void> {
