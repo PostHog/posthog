@@ -1,12 +1,15 @@
+import { useMountedLogic } from 'kea'
 import { LemonButton, LemonButtonProps, LemonButtonWithDropdown } from 'lib/lemon-ui/LemonButton'
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
 
-import { ExporterFormat, OnlineExportContext } from '~/types'
+import { sidePanelExportsLogic } from '~/layout/navigation-3000/sidepanel/panels/exports/sidePanelExportsLogic'
+import { sidePanelLogic } from '~/layout/navigation-3000/sidepanel/sidePanelLogic'
+import { ExporterFormat, OnlineExportContext, SidePanelTab } from '~/types'
 
 import { triggerExport, TriggerExportProps } from './exporter'
 
 export interface ExportButtonItem {
-    title?: string
+    title?: string | React.ReactNode
     export_format: ExporterFormat
     export_context?: TriggerExportProps['export_context']
     dashboard?: number
@@ -18,6 +21,19 @@ export interface ExportButtonProps extends Pick<LemonButtonProps, 'icon' | 'type
 }
 
 export function ExportButton({ items, ...buttonProps }: ExportButtonProps): JSX.Element {
+    useMountedLogic(sidePanelLogic)
+    useMountedLogic(sidePanelExportsLogic)
+
+    const { actions } = sidePanelLogic
+    const { loadExports } = sidePanelExportsLogic.actions
+
+    const onExportClick = async (triggerExportProps: TriggerExportProps): Promise<void> => {
+        actions.openSidePanel(SidePanelTab.Exports)
+        loadExports()
+        await triggerExport(triggerExportProps)
+        loadExports()
+    }
+
     return (
         <LemonButtonWithDropdown
             data-attr="export-button"
@@ -51,7 +67,7 @@ export function ExportButton({ items, ...buttonProps }: ExportButtonProps): JSX.
                                 <LemonButton
                                     key={i}
                                     fullWidth
-                                    onClick={() => void triggerExport(triggerExportProps)}
+                                    onClick={() => void onExportClick(triggerExportProps)}
                                     data-attr={`export-button-${exportFormatExtension}`}
                                     data-ph-capture-attribute-export-target={target}
                                     data-ph-capture-attribute-export-body={

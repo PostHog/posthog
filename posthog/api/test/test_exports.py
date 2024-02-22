@@ -61,7 +61,7 @@ class TestExports(APIBaseTest):
             name="example insight",
         )
         cls.exported_asset = ExportedAsset.objects.create(
-            team=cls.team, dashboard_id=cls.dashboard.id, export_format="image/png"
+            team=cls.team, dashboard_id=cls.dashboard.id, export_format="image/png", created_by=cls.user
         )
 
     @patch("posthog.api.exports.exporter")
@@ -442,6 +442,24 @@ class TestExports(APIBaseTest):
 
         self.maxDiff = None
         self.assertEqual(activity, expected)
+
+    def test_can_list_exports(self) -> None:
+        response = self.client.get(f"/api/projects/{self.team.id}/exports")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(len(response.json()["results"]), 1)
+
+        ExportedAsset.objects.create(
+            team=self.team, dashboard_id=self.dashboard.id, export_format="image/png", created_by=self.user
+        )
+
+        # Also crete an unrelated export in the db
+        ExportedAsset.objects.create(
+            team=self.team, dashboard_id=self.dashboard.id, export_format="image/png", created_by=None
+        )
+
+        response = self.client.get(f"/api/projects/{self.team.id}/exports")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(len(response.json()["results"]), 2)
 
 
 class TestExportMixin(APIBaseTest):
