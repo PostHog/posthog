@@ -1,10 +1,10 @@
 import { Upload } from '@aws-sdk/lib-storage'
 import { captureException, captureMessage } from '@sentry/node'
-import { createReadStream, createWriteStream, ReadStream } from 'fs'
+import { createReadStream, createWriteStream, ReadStream, WriteStream } from 'fs'
 import { mkdir, readdir, readFile, rename, rmdir, stat, unlink, writeFile } from 'fs/promises'
 import path from 'path'
 import { Counter, Histogram } from 'prom-client'
-import { PassThrough, Transform } from 'stream'
+import { PassThrough } from 'stream'
 import { pipeline } from 'stream/promises'
 import * as zlib from 'zlib'
 
@@ -22,7 +22,7 @@ const S3_UPLOAD_WARN_TIME_SECONDS = 2 * 60 * 1000
 // NOTE: To remove once released
 const metricPrefix = 'v3_'
 
-export const FILE_EXTENSION = '.jsonl.gz'
+export const FILE_EXTENSION = '.jsonl'
 export const BUFFER_FILE_NAME = `buffer${FILE_EXTENSION}`
 export const FLUSH_FILE_EXTENSION = `.flush${FILE_EXTENSION}`
 
@@ -90,7 +90,7 @@ export type SessionManagerBufferContext = {
 
 export type SessionBuffer = {
     context: SessionManagerBufferContext
-    fileStream: Transform
+    fileStream: WriteStream
 }
 
 // Context that is updated and persisted to disk so must be serializable
@@ -333,13 +333,8 @@ export class SessionManagerV3 {
         }
 
         const file = this.file(filename)
-        let readStream: ReadStream | undefined
 
         const deleteFile = async () => {
-            if (readStream) {
-                await new Promise((resolve) => readStream?.close(resolve))
-            }
-
             await stat(file)
             await unlink(file)
         }
@@ -350,7 +345,19 @@ export class SessionManagerV3 {
             const targetFileName = filename.replace(FLUSH_FILE_EXTENSION, FILE_EXTENSION)
             const baseKey = `${this.serverConfig.SESSION_RECORDING_REMOTE_FOLDER}/team_id/${this.context.teamId}/session_id/${this.context.sessionId}`
             const dataKey = `${baseKey}/data/${targetFileName}`
-            readStream = createReadStream(file)
+
+            const readStream = createReadStream(file)
+            const uploadStream = new PassThrough()
+
+            // The compressed file
+            pipeline(readStream, zlib.createGzip(), uploadStream).catch((error) => {
+                // TODO: If this actually happens we probably want to destroy the buffer as we will be stuck...
+                status.error('🧨', '[session-manager] writestream errored', {
+                    ...this.context,
+                    error,
+                })
+                this.captureException(error)
+            })
 
             readStream.on('error', (err) => {
                 // TODO: What should we do here?
@@ -369,7 +376,7 @@ export class SessionManagerV3 {
                     Key: dataKey,
                     ContentEncoding: 'gzip',
                     ContentType: 'application/json',
-                    Body: readStream,
+                    Body: uploadStream,
                 },
             }))
 
@@ -433,28 +440,12 @@ export class SessionManagerV3 {
         return this.buffer as SessionBuffer
     }
 
-    protected createFileStreamFor(file: string): Transform {
-        const writeStream = new PassThrough()
-
-        // The uncompressed file which we need for realtime playback
-        pipeline(
-            writeStream,
-            createWriteStream(file, {
-                // Opens in append mode in case it already exists
-                flags: 'a',
-                encoding: 'utf-8',
-            })
-        ).catch((error) => {
-            // TODO: If this actually happens we probably want to destroy the buffer as we will be stuck...
-            status.error('🧨', '[session-manager] writestream errored', {
-                ...this.context,
-                error,
-            })
-
-            this.captureException(error)
+    protected createFileStreamFor(file: string): WriteStream {
+        return createWriteStream(file, {
+            // Opens in append mode in case it already exists
+            flags: 'a',
+            encoding: 'utf-8',
         })
-
-        return writeStream
     }
 
     public async stop(): Promise<void> {
