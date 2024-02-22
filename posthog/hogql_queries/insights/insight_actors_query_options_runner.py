@@ -21,12 +21,12 @@ class InsightActorsQueryOptionsRunner(QueryRunner):
         raise ValueError(f"Cannot convert source query of type {self.query.source.kind} to query")
 
     def calculate(self) -> InsightActorsQueryOptionsResponse:
-        if isinstance(self.source_runner, LifecycleQueryRunner):
-            lifecycle_runner = cast(LifecycleQueryRunner, self.source_runner)
-            return lifecycle_runner.to_actors_query_options()
-        elif isinstance(self.source_runner, TrendsQueryRunner):
+        if isinstance(self.source_runner, TrendsQueryRunner):
             trends_runner = cast(TrendsQueryRunner, self.source_runner)
             return trends_runner.to_actors_query_options()
+        elif isinstance(self.source_runner, LifecycleQueryRunner):
+            lifecycle_runner = cast(LifecycleQueryRunner, self.source_runner)
+            return lifecycle_runner.to_actors_query_options()
 
         return InsightActorsQueryOptionsResponse(day=None, status=None, interval=None, breakdown=None, series=None)
 
