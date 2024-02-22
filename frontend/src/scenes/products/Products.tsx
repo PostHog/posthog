@@ -31,10 +31,8 @@ const ProductNameToColor = {
 }
 
 export function getProductIcon(productName: string, iconKey?: string | null, className?: string): JSX.Element {
-    return Icons[iconKey || 'IconLogomark']({
-        className,
-        color: ProductNameToColor[productName] || 'none',
-    })
+    const Icon = Icons[iconKey || 'IconLogomark']
+    return <Icon className={className} color={ProductNameToColor[productName] || 'none'} />
 }
 
 export function ProductCard({
@@ -58,6 +56,7 @@ export function ProductCard({
 
     return (
         <LemonCard
+            data-attr={`${product.type}-onboarding-card`}
             className={clsx('flex justify-center cursor-pointer', vertical ? 'flex-col' : 'items-center', className)}
             key={product.type}
             onClick={() => {
