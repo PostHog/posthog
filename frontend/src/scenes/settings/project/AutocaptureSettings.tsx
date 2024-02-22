@@ -17,7 +17,7 @@ export function AutocaptureSettings(): JSX.Element {
     return (
         <>
             <p>
-                Automagically capture front-end interactions like pageviews, clicks, and more when using our web
+                Automagically capture front-end interactions like clicks, submits, and more when using our web
                 JavaScript SDK.{' '}
             </p>
             <p>

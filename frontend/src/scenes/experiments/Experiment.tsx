@@ -47,7 +47,8 @@ import { ExperimentPreview } from './ExperimentPreview'
 import { ExperimentResult } from './ExperimentResult'
 import { getExperimentStatus, getExperimentStatusColor } from './experimentsLogic'
 import { ExperimentInsightCreator } from './MetricSelector'
-import { SecondaryMetrics } from './SecondaryMetrics'
+import { SecondaryMetricsResult } from './SecondaryMetricsResult'
+import { SecondaryMetricsTable } from './SecondaryMetricsTable'
 
 export const scene: SceneExport = {
     component: Experiment,
@@ -91,6 +92,7 @@ export function Experiment(): JSX.Element {
         resetRunningExperiment,
         loadExperiment,
         loadExperimentResults,
+        loadSecondaryMetricResults,
         setExposureAndSampleSize,
         updateExperimentSecondaryMetrics,
         setExperiment,
@@ -284,7 +286,7 @@ export function Experiment(): JSX.Element {
                                                                     !(index === 0 || index === 1) && (
                                                                         <Tooltip
                                                                             title="Delete this variant"
-                                                                            placement="bottomLeft"
+                                                                            placement="bottom-start"
                                                                         >
                                                                             <LemonButton
                                                                                 size="small"
@@ -460,7 +462,7 @@ export function Experiment(): JSX.Element {
                                                     Use secondary metrics to monitor metrics related to your experiment
                                                     goal. You can add up to three secondary metrics.{' '}
                                                 </div>
-                                                <SecondaryMetrics
+                                                <SecondaryMetricsTable
                                                     onMetricsChange={onChange}
                                                     initialMetrics={value}
                                                     experimentId={experiment.id}
@@ -544,6 +546,13 @@ export function Experiment(): JSX.Element {
                                                                 data-attr="refresh-experiment"
                                                             >
                                                                 Refresh experiment results
+                                                            </LemonButton>
+                                                            <LemonButton
+                                                                onClick={() => loadSecondaryMetricResults(true)}
+                                                                fullWidth
+                                                                data-attr="refresh-secondary-metrics"
+                                                            >
+                                                                Refresh secondary metrics
                                                             </LemonButton>
                                                         </>
                                                     }
@@ -803,7 +812,7 @@ export function Experiment(): JSX.Element {
                                                 </div>
                                             )}
                                             <div>
-                                                <SecondaryMetrics
+                                                <SecondaryMetricsTable
                                                     experimentId={experiment.id}
                                                     onMetricsChange={(metrics) =>
                                                         updateExperimentSecondaryMetrics(metrics)
@@ -825,7 +834,9 @@ export function Experiment(): JSX.Element {
                             </div>
                         )}
                     </div>
+                    <h2 className="font-semibold text-lg m-0 mt-4">Experiment result</h2>
                     <ExperimentResult />
+                    <SecondaryMetricsResult />
                 </div>
             ) : (
                 <LoadingState />

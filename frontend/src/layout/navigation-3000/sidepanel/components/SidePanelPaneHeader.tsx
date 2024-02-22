@@ -31,10 +31,7 @@ export function SidePanelPaneHeader({ children, title }: SidePanelPaneHeaderProp
                 </h3>
             ) : null}
             {children}
-            <Tooltip
-                placement={modalMode ? 'top' : 'bottomRight'}
-                title={modalMode ? 'Close' : 'Close this side panel'}
-            >
+            <Tooltip placement={modalMode ? 'top' : 'bottom-end'} title={modalMode ? 'Close' : 'Close this side panel'}>
                 <LemonButton size="small" sideIcon={<IconX />} onClick={() => closeSidePanel()} />
             </Tooltip>
         </header>

@@ -1,12 +1,19 @@
 import { Properties } from '@posthog/plugin-scaffold'
 import * as Sentry from '@sentry/node'
 import { ProducerRecord } from 'kafkajs'
-import { DateTime } from 'luxon'
 import { Counter } from 'prom-client'
 
 import { defaultConfig } from '../../config/config'
 import { KAFKA_PERSON } from '../../config/kafka-topics'
-import { BasePerson, Person, PluginLogEntryType, PluginLogLevel, RawPerson, TimestampFormat } from '../../types'
+import {
+    BasePerson,
+    ClickHousePerson,
+    Person,
+    PluginLogEntryType,
+    PluginLogLevel,
+    RawPerson,
+    TimestampFormat,
+} from '../../types'
 import { status } from '../../utils/status'
 import { castTimestampOrNow } from '../../utils/utils'
 
@@ -99,28 +106,20 @@ export function personInitialAndUTMProperties(properties: Properties): Propertie
     return propertiesCopy
 }
 
-export function generateKafkaPersonUpdateMessage(
-    createdAt: DateTime | string,
-    properties: Properties,
-    teamId: number,
-    isIdentified: boolean,
-    id: string,
-    version: number,
-    isDeleted = 0
-): ProducerRecord {
+export function generateKafkaPersonUpdateMessage(person: Person, isDeleted = false): ProducerRecord {
     return {
         topic: KAFKA_PERSON,
         messages: [
             {
                 value: JSON.stringify({
-                    id,
-                    created_at: castTimestampOrNow(createdAt, TimestampFormat.ClickHouseSecondPrecision),
-                    properties: JSON.stringify(properties),
-                    team_id: teamId,
-                    is_identified: isIdentified,
-                    is_deleted: isDeleted,
-                    ...(version !== null ? { version } : {}),
-                }),
+                    id: person.uuid,
+                    created_at: castTimestampOrNow(person.created_at, TimestampFormat.ClickHouseSecondPrecision),
+                    properties: JSON.stringify(person.properties),
+                    team_id: person.team_id,
+                    is_identified: Number(person.is_identified),
+                    is_deleted: Number(isDeleted),
+                    version: person.version + (isDeleted ? 100 : 0), // keep in sync with delete_person in posthog/models/person/util.py
+                } as Omit<ClickHousePerson, 'timestamp'>),
             },
         ],
     }

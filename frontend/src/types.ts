@@ -2867,6 +2867,9 @@ export interface FunnelExperimentResults {
 
 export type ExperimentResults = TrendsExperimentResults | FunnelExperimentResults
 
+export type SecondaryMetricResults = Partial<ExperimentResults['result']> & {
+    result?: Record<string, number>
+}
 export interface SecondaryExperimentMetric {
     name: string
     filters: Partial<FilterType>
@@ -3263,7 +3266,7 @@ export interface ExportedAssetType {
     export_context?: ExportContext
     has_content: boolean
     filename: string
-    expires_after?: Dayjs
+    expires_after?: string
 }
 
 export enum FeatureFlagReleaseType {
@@ -3727,4 +3730,5 @@ export enum SidePanelTab {
     Activity = 'activity',
     Discussion = 'discussion',
     Status = 'status',
+    Exports = 'exports',
 }

@@ -2,8 +2,10 @@ from typing import List
 from posthog.constants import FUNNEL_WINDOW_INTERVAL_TYPES
 from posthog.hogql import ast
 from posthog.hogql.parser import parse_expr
-from posthog.schema import FunnelConversionWindowTimeUnit, FunnelsFilter, StepOrderValue
+from posthog.schema import FunnelConversionWindowTimeUnit, FunnelVizType, FunnelsFilter, StepOrderValue
 from rest_framework.exceptions import ValidationError
+
+from posthog.settings.ee import EE_AVAILABLE
 
 
 def get_funnel_order_class(funnelsFilter: FunnelsFilter):
@@ -18,6 +20,36 @@ def get_funnel_order_class(funnelsFilter: FunnelsFilter):
     elif funnelsFilter.funnelOrderType == StepOrderValue.strict:
         return FunnelStrict
     return Funnel
+
+
+def get_funnel_actor_class(funnelsFilter: FunnelsFilter):
+    from posthog.hogql_queries.insights.funnels.funnel_persons import FunnelActors
+
+    # if filter.correlation_person_entity and EE_AVAILABLE:
+    if False:
+        if EE_AVAILABLE:  # type: ignore
+            # from ee.clickhouse.queries.funnels.funnel_correlation_persons import (
+            #     FunnelCorrelationActors,
+            # )
+
+            return FunnelActors
+            # return FunnelCorrelationActors
+        else:
+            raise ValueError(
+                "Funnel Correlations is not available without an enterprise license and enterprise supported deployment"
+            )
+    elif funnelsFilter.funnelVizType == FunnelVizType.trends:
+        return FunnelActors
+        # return FunnelTrendsActors
+    else:
+        if funnelsFilter.funnelOrderType == StepOrderValue.unordered:
+            return FunnelActors
+            # return FunnelUnorderedActors
+        elif funnelsFilter.funnelOrderType == StepOrderValue.strict:
+            return FunnelActors
+            # return FunnelStrictActors
+        else:
+            return FunnelActors
 
 
 def funnel_window_interval_unit_to_sql(
@@ -58,8 +90,7 @@ def get_breakdown_expr(
 
 def normalize_url_breakdown(breakdown_value, breakdown_normalize_url: bool | None):
     if breakdown_normalize_url:
-        return (
-            f"if( empty(trim(TRAILING '/?#' from {breakdown_value})), '/', trim(TRAILING '/?#' from {breakdown_value}))"
-        )
+        regex = "[\\\\/?#]*$"
+        return f"if( empty( replaceRegexpOne({breakdown_value}, '{regex}', '') ), '/', replaceRegexpOne({breakdown_value}, '{regex}', ''))"
 
     return breakdown_value
