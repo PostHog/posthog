@@ -2,7 +2,6 @@ import { DateTime } from 'luxon'
 
 import {
     ConsoleLogEntry,
-    createPerformanceEvent,
     createSessionReplayEvent,
     gatherConsoleLogEvents,
     getTimestampsFrom,

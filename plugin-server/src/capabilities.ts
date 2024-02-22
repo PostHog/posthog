@@ -19,8 +19,6 @@ export function getPluginServerCapabilities(config: PluginsServerConfig): Plugin
                 processAsyncOnEventHandlers: true,
                 processAsyncWebhooksHandlers: true,
                 sessionRecordingBlobIngestion: true,
-                // TODO: Remove this
-                sessionRecordingV3Ingestion: true,
                 personOverrides: true,
                 appManagementSingleton: true,
                 preflightSchedules: true,
