@@ -1,7 +1,6 @@
-import { LemonButton } from '@posthog/lemon-ui'
+import { LemonSwitch } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { SINGLE_SERIES_DISPLAY_TYPES } from 'lib/constants'
-import { IconCalculate } from 'lib/lemon-ui/icons'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 
@@ -26,17 +25,14 @@ export function TrendsSeriesLabel({ insightProps }: EditorFilterProps): JSX.Elem
                         : 'Make your own formula the output of the insight with formula mode. Use graph series as variables.'
                 }
             >
-                {/** The negative margin negates the button's effect on label sizing. */}
-                <div className="-my-1">
-                    <LemonButton
-                        size="small"
-                        onClick={() => updateInsightFilter({ formula: hasFormula ? undefined : '' })}
+                <div className="">
+                    <LemonSwitch
+                        onChange={() => updateInsightFilter({ formula: hasFormula ? undefined : '' })}
+                        checked={hasFormula}
                         disabled={formulaModeButtonDisabled}
-                        icon={<IconCalculate />}
                         id="trends-formula-switch"
-                    >
-                        {hasFormula ? 'Disable' : 'Enable'} formula mode
-                    </LemonButton>
+                        label="Formula mode"
+                    />
                 </div>
             </Tooltip>
         </div>
