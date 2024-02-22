@@ -227,8 +227,33 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
         if not isinstance(value, Dict):
             raise exceptions.ValidationError("Must provide a dictionary or None.")
 
-        if not all(key in ["record_canvas"] for key in value.keys()):
-            raise exceptions.ValidationError("Must provide a dictionary with only 'record_canvas' key.")
+        known_keys = ["record_canvas", "ai_config"]
+        if not all(key in known_keys for key in value.keys()):
+            raise exceptions.ValidationError(
+                f"Must provide a dictionary with only known keys. One or more of {', '.join(known_keys)}."
+            )
+
+        if "ai_config" in value:
+            self.validate_session_replay_ai_summary_config(value["ai_config"])
+
+        return value
+
+    def validate_session_replay_ai_summary_config(self, value: Dict | None) -> Dict | None:
+        if value is not None:
+            if not isinstance(value, Dict):
+                raise exceptions.ValidationError("Must provide a dictionary or None.")
+
+            allowed_keys = [
+                "included_event_properties",
+                "opt_in",
+                "preferred_events",
+                "excluded_events",
+                "important_user_properties",
+            ]
+            if not all(key in allowed_keys for key in value.keys()):
+                raise exceptions.ValidationError(
+                    f"Must provide a dictionary with only allowed keys: {', '.join(allowed_keys)}."
+                )
 
         return value
 
@@ -315,6 +340,17 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
 
         if "timezone" in validated_data and validated_data["timezone"] != instance.timezone:
             self._handle_timezone_update(instance)
+
+        if (
+            "session_replay_config" in validated_data
+            and validated_data["session_replay_config"] is not None
+            and instance.session_replay_config is not None
+        ):
+            # don't change keys that are not provided, that would be confusing
+            validated_data["session_replay_config"] = {
+                **instance.session_replay_config,
+                **validated_data["session_replay_config"],
+            }
 
         updated_team = super().update(instance, validated_data)
         changes = dict_changes_between("Team", before_update, updated_team.__dict__, use_field_exclusions=True)

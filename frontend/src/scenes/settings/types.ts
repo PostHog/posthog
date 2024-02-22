@@ -73,6 +73,7 @@ export type SettingId =
     | 'notifications'
     | 'optout'
     | 'theme'
+    | 'replay-ai-config'
 
 export type Setting = {
     id: SettingId

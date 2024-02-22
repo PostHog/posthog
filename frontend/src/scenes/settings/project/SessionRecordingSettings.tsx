@@ -1,18 +1,22 @@
+import { IconPlus } from '@posthog/icons'
 import { LemonButton, LemonSelect, LemonSwitch, LemonTag, Link } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { AuthorizedUrlList } from 'lib/components/AuthorizedUrlList/AuthorizedUrlList'
 import { AuthorizedUrlListType } from 'lib/components/AuthorizedUrlList/authorizedUrlListLogic'
+import { EventSelect } from 'lib/components/EventSelect/EventSelect'
 import { FlaggedFeature } from 'lib/components/FlaggedFeature'
 import { FlagSelector } from 'lib/components/FlagSelector'
+import { PropertySelect } from 'lib/components/PropertySelect/PropertySelect'
+import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { FEATURE_FLAGS, SESSION_REPLAY_MINIMUM_DURATION_OPTIONS } from 'lib/constants'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
-import { IconCancel } from 'lib/lemon-ui/icons'
+import { IconAutoAwesome, IconCancel, IconSelectEvents } from 'lib/lemon-ui/icons'
 import { LemonLabel } from 'lib/lemon-ui/LemonLabel/LemonLabel'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { teamLogic } from 'scenes/teamLogic'
 import { userLogic } from 'scenes/userLogic'
 
-import { AvailableFeature } from '~/types'
+import { AvailableFeature, SessionRecordingAIConfig } from '~/types'
 
 function LogCaptureSettings(): JSX.Element {
     const { updateCurrentTeam } = useActions(teamLogic)
@@ -376,6 +380,154 @@ export function ReplayCostControl(): JSX.Element | null {
             )}
         </>
     ) : null
+}
+
+export function ReplaySummarySettings(): JSX.Element | null {
+    const { updateCurrentTeam } = useActions(teamLogic)
+
+    const { currentTeam } = useValues(teamLogic)
+
+    if (!currentTeam) {
+        return null
+    }
+
+    const defaultConfig = {
+        opt_in: false,
+        preferred_events: [],
+        excluded_events: ['$feature_flag_called'],
+        included_event_properties: ['elements_chain', '$window_id', '$current_url', '$event_type'],
+        important_user_properties: [],
+    }
+    const sessionReplayConfig = currentTeam.session_replay_config || {}
+    const currentConfig: SessionRecordingAIConfig = sessionReplayConfig.ai_config || defaultConfig
+
+    const updateSummaryConfig = (summaryConfig: SessionRecordingAIConfig): void => {
+        updateCurrentTeam({
+            session_replay_config: { ...sessionReplayConfig, ai_config: summaryConfig },
+        })
+    }
+
+    return (
+        <div className="flex flex-col gap-2">
+            <div>
+                <LemonButton type="secondary" onClick={() => updateSummaryConfig(defaultConfig)}>
+                    Reset to default
+                </LemonButton>
+            </div>
+            <div>
+                <p>
+                    We use Open AI to summarise sessions. No data is sent to OpenAI without an explicit instruction to
+                    do so. Only by clicking the <IconAutoAwesome /> "Summary" button will selected event data be shared
+                    with a third party. We only send the data selected below.{' '}
+                    <strong>Data submitted is not used to train Open AI's models</strong>
+                </p>
+                <LemonSwitch
+                    checked={currentConfig.opt_in}
+                    onChange={(checked) => {
+                        updateSummaryConfig({
+                            ...currentConfig,
+                            opt_in: checked,
+                        })
+                    }}
+                    bordered
+                    label="Opt in to enable AI suggested summaries"
+                />
+            </div>
+            {currentConfig.opt_in && (
+                <>
+                    <div>
+                        <h3 className="flex items-center gap-2">
+                            <IconSelectEvents className="text-lg" />
+                            Preferred events
+                        </h3>
+                        <p>
+                            These events are treated as more interesting when generating a summary. We recommend you
+                            include events that represent value for your user
+                        </p>
+                        <EventSelect
+                            onChange={(includedEvents) => {
+                                updateSummaryConfig({
+                                    ...currentConfig,
+                                    preferred_events: includedEvents,
+                                })
+                            }}
+                            selectedEvents={currentConfig.preferred_events || []}
+                            addElement={
+                                <LemonButton size="small" type="secondary" icon={<IconPlus />} sideIcon={null}>
+                                    Add event
+                                </LemonButton>
+                            }
+                        />
+                    </div>
+                    <div>
+                        <h3 className="flex items-center gap-2">
+                            <IconSelectEvents className="text-lg" />
+                            Excluded events
+                        </h3>
+                        <p>These events are never submitted even when they are present in the session.</p>
+                        <EventSelect
+                            onChange={(excludedEvents) => {
+                                updateSummaryConfig({
+                                    ...currentConfig,
+                                    excluded_events: excludedEvents,
+                                })
+                            }}
+                            selectedEvents={currentConfig.excluded_events || []}
+                            addElement={
+                                <LemonButton size="small" type="secondary" icon={<IconPlus />} sideIcon={null}>
+                                    Exclude event
+                                </LemonButton>
+                            }
+                        />
+                    </div>
+                    <div>
+                        <h3 className="flex items-center gap-2">
+                            <IconSelectEvents className="text-lg" />
+                            Included event properties
+                        </h3>
+                        <p>
+                            We always send the event name and timestamp. The only event data sent are values of the
+                            properties selected here.
+                        </p>
+                        <PropertySelect
+                            taxonomicFilterGroup={TaxonomicFilterGroupType.EventProperties}
+                            sortable={false}
+                            onChange={(properties: string[]) => {
+                                updateSummaryConfig({
+                                    ...currentConfig,
+                                    included_event_properties: properties,
+                                })
+                            }}
+                            selectedProperties={currentConfig.included_event_properties || []}
+                            addText="Add property"
+                        />
+                    </div>
+                    <div>
+                        <h3 className="flex items-center gap-2">
+                            <IconSelectEvents className="text-lg" />
+                            Important user properties
+                        </h3>
+                        <p>
+                            We always send the first and last seen dates. The only user data sent are values of the
+                            properties selected here.
+                        </p>
+                        <PropertySelect
+                            taxonomicFilterGroup={TaxonomicFilterGroupType.PersonProperties}
+                            sortable={false}
+                            onChange={(properties) => {
+                                updateSummaryConfig({
+                                    ...currentConfig,
+                                    important_user_properties: properties,
+                                })
+                            }}
+                            selectedProperties={currentConfig.important_user_properties || []}
+                            addText="Add property"
+                        />
+                    </div>
+                </>
+            )}
+        </div>
+    )
 }
 
 export function ReplayGeneral(): JSX.Element {
