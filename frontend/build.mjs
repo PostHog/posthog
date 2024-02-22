@@ -72,23 +72,18 @@ await buildInParallel(
                         // we can add a plugin just for the toolbar build to mark lemon-ui as having no side effects
                         // that will allow tree-shaking and reduce the toolbar bundle size
                         // by over 40% at implementation time
+                        build.onResolve({ filter: /(^(lib|@posthog)\/lemon-ui|^lib\/api\.ts$)/ }, async (args) => {
+                            if (args.pluginData) {
+                                return
+                            } // Ignore this if we called ourselves
 
-                        const sideEffectFreeMatches = [/^(lib|@posthog)\/lemon-ui/, /^lib\/api\.ts$/]
+                            const { path, ...rest } = args
+                            rest.pluginData = true // Avoid infinite recursion
+                            const result = await build.resolve(path, rest)
 
-                        sideEffectFreeMatches.forEach((match) => {
-                            build.onResolve({ filter: match }, async (args) => {
-                                if (args.pluginData) {
-                                    return
-                                } // Ignore this if we called ourselves
+                            result.sideEffects = false
 
-                                const { path, ...rest } = args
-                                rest.pluginData = true // Avoid infinite recursion
-                                const result = await build.resolve(path, rest)
-
-                                result.sideEffects = false
-
-                                return result
-                            })
+                            return result
                         })
                     },
                 },
