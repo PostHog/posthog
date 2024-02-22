@@ -12,9 +12,10 @@ from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 from posthog.models.filters.mixins.utils import cached_property
 from posthog.models.team.team import Team
 from posthog.schema import HogQLQueryModifiers, TrendsQuery, DataWarehouseNode
+from posthog.hogql_queries.insights.trends.trends_query_builder_abstract import TrendsQueryBuilderAbstract
 
 
-class DataWarehouseTrendsQueryBuilder:
+class DataWarehouseTrendsQueryBuilder(TrendsQueryBuilderAbstract):
     query: TrendsQuery
     team: Team
     query_date_range: QueryDateRange
@@ -132,6 +133,8 @@ class DataWarehouseTrendsQueryBuilder:
         no_modifications: Optional[bool],
         is_actors_query: bool,
         breakdown: Breakdown,
+        breakdown_values_override: Optional[str | int] = None,
+        actors_query_time_frame: Optional[str | int] = None,
     ) -> ast.SelectQuery:
         day_start = ast.Alias(
             alias="day_start",
@@ -317,6 +320,8 @@ class DataWarehouseTrendsQueryBuilder:
         is_actors_query: bool,
         breakdown: Breakdown | None,
         ignore_breakdowns: bool = False,
+        breakdown_values_override: Optional[str | int] = None,
+        actors_query_time_frame: Optional[str | int] = None,
     ) -> ast.Expr:
         series = self.series
         filters: List[ast.Expr] = []
@@ -376,6 +381,7 @@ class DataWarehouseTrendsQueryBuilder:
                 breakdown=None,  # Passing in None because we know we dont actually need it
                 ignore_breakdowns=True,
                 is_actors_query=is_actors_query,
+                breakdown_values_override=breakdown_values_override,
             ),
             breakdown_values_override=[breakdown_values_override] if breakdown_values_override is not None else None,
         )
