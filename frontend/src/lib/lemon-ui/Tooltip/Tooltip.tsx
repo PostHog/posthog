@@ -19,6 +19,7 @@ import {
     useTransitionStyles,
 } from '@floating-ui/react'
 import clsx from 'clsx'
+import { useFloatingContainer } from 'lib/hooks/useFloatingContainerContext'
 import React, { useRef, useState } from 'react'
 
 export interface TooltipProps {
@@ -44,6 +45,7 @@ export function Tooltip({
 }: TooltipProps): JSX.Element {
     const [uncontrolledOpen, setUncontrolledOpen] = useState(false)
     const caretRef = useRef(null)
+    const floatingContainer = useFloatingContainer()
 
     const open = controlledOpen ?? uncontrolledOpen
 
@@ -106,7 +108,7 @@ export function Tooltip({
         <>
             {clonedChild}
             {open && (
-                <FloatingPortal>
+                <FloatingPortal root={floatingContainer}>
                     <div
                         ref={refs.setFloating}
                         className="Tooltip max-w-sm"
