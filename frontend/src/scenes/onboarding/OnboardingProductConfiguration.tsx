@@ -40,6 +40,9 @@ export const OnboardingProductConfiguration = ({
                                     )
                                 }}
                                 className="self-center"
+                                label={option.title}
+                                fullWidth={true}
+                                labelClassName="text-base font-semibold -ml-2"
                                 checked={option.value || false}
                             />
                         ) : (
