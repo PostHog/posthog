@@ -1,5 +1,5 @@
 import datetime
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple, Generator
 from urllib.parse import parse_qsl, quote, urlencode, urlparse, urlunparse
 
 import requests
@@ -75,7 +75,7 @@ def add_query_params(url: str, params: Dict[str, str]) -> str:
     return urlunparse(parsed)
 
 
-def _convert_response_to_csv_data(data: Any) -> List[Any]:
+def _convert_response_to_csv_data(data: Any) -> Generator[Any, None, None]:
     if isinstance(data.get("results"), list):
         results = data.get("results")
 
@@ -83,58 +83,53 @@ def _convert_response_to_csv_data(data: Any) -> List[Any]:
         if len(results) > 0 and (isinstance(results[0], list) or isinstance(results[0], tuple)) and "types" in data:
             # e.g. {'columns': ['count()'], 'hasMore': False, 'results': [[1775]], 'types': ['UInt64']}
             # or {'columns': ['count()', 'event'], 'hasMore': False, 'results': [[551, '$feature_flag_called'], [265, '$autocapture']], 'types': ['UInt64', 'String']}
-            csv_rows: List[Dict[str, Any]] = []
             for row in results:
                 row_dict = {}
                 for idx, x in enumerate(row):
                     row_dict[data["columns"][idx]] = x
-                csv_rows.append(row_dict)
-            return csv_rows
+                yield row_dict
+            return
 
         # persons modal like
         if len(results) == 1 and set(results[0].keys()) == {"people", "count"}:
-            return results[0].get("people")
+            yield from results[0].get("people")
+            return
 
         # Pagination object
-        return results
+        yield from results
+        return
     elif data.get("result") and isinstance(data.get("result"), list):
         items = data["result"]
         first_result = items[0]
 
         if isinstance(first_result, list) or first_result.get("action_id"):
-            csv_rows = []
             multiple_items = items if isinstance(first_result, list) else [items]
             # FUNNELS LIKE
 
             for items in multiple_items:
-                csv_rows.extend(
-                    [
-                        {
-                            "name": x["custom_name"] or x["action_id"],
-                            "breakdown_value": "::".join(x.get("breakdown_value", [])),
-                            "action_id": x["action_id"],
-                            "count": x["count"],
-                            "median_conversion_time (seconds)": x["median_conversion_time"],
-                            "average_conversion_time (seconds)": x["average_conversion_time"],
-                        }
-                        for x in items
-                    ]
+                yield from (
+                    {
+                        "name": x["custom_name"] or x["action_id"],
+                        "breakdown_value": "::".join(x.get("breakdown_value", [])),
+                        "action_id": x["action_id"],
+                        "count": x["count"],
+                        "median_conversion_time (seconds)": x["median_conversion_time"],
+                        "average_conversion_time (seconds)": x["average_conversion_time"],
+                    }
+                    for x in items
                 )
-
-            return csv_rows
+            return
         elif first_result.get("appearances") and first_result.get("person"):
             # RETENTION PERSONS LIKE
             period = data["filters"]["period"] or "Day"
-            csv_rows = []
             for item in items:
                 line = {"person": item["person"]["name"]}
                 for index, data in enumerate(item["appearances"]):
                     line[f"{period} {index}"] = data
 
-                csv_rows.append(line)
-            return csv_rows
+                yield line
+            return
         elif first_result.get("values") and first_result.get("label"):
-            csv_rows = []
             # RETENTION LIKE
             for item in items:
                 if item.get("date"):
@@ -154,10 +149,9 @@ def _convert_response_to_csv_data(data: Any) -> List[Any]:
                     for index, data in enumerate(item["values"]):
                         line[f"Period {index}"] = data["count"]
 
-                csv_rows.append(line)
-            return csv_rows
+                yield line
+            return
         elif isinstance(first_result.get("data"), list):
-            csv_rows = []
             # TRENDS LIKE
             for index, item in enumerate(items):
                 line = {"series": item.get("label", f"Series #{index + 1}")}
@@ -169,23 +163,20 @@ def _convert_response_to_csv_data(data: Any) -> List[Any]:
                     for index, data in enumerate(item["data"]):
                         line[item["labels"][index]] = data
 
-                csv_rows.append(line)
+                yield line
 
-            return csv_rows
+            return
         else:
             return items
     elif data.get("result") and isinstance(data.get("result"), dict):
         result = data["result"]
 
         if "bins" not in result:
-            return []
+            return
 
-        csv_rows = []
         for key, value in result["bins"]:
-            csv_rows.append({"bin": key, "value": value})
-        return csv_rows
-
-    return []
+            yield {"bin": key, "value": value}
+    return None
 
 
 class UnexpectedEmptyJsonResponse(Exception):
@@ -201,7 +192,7 @@ def _export_to_csv(exported_asset: ExportedAsset, limit: int) -> None:
     if resource.get("source"):
         query = resource.get("source")
         query_response = process_query(team=exported_asset.team, query_json=query, limit_context=LimitContext.EXPORT)
-        all_csv_rows = _convert_response_to_csv_data(query_response)
+        all_csv_rows = list(_convert_response_to_csv_data(query_response))
 
     else:
         path: str = resource["path"]
@@ -249,7 +240,7 @@ def _export_to_csv(exported_asset: ExportedAsset, limit: int) -> None:
 
                 raise unexpected_empty_json_response
 
-            csv_rows = _convert_response_to_csv_data(data)
+            csv_rows = list(_convert_response_to_csv_data(data))
 
             all_csv_rows = all_csv_rows + csv_rows
 
