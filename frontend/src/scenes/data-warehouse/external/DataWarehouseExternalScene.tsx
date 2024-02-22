@@ -98,7 +98,7 @@ export function DataWarehouseExternalScene(): JSX.Element {
             },
         ]
 
-        if (featureFlags[FEATURE_FLAGS.DATA_WAREHOUSE_VIEWS]) {
+        if (featureFlags[FEATURE_FLAGS.DATA_WAREHOUSE]) {
             items.push({
                 name: 'Views',
                 items: savedQueriesFormatted.map((table) => ({
@@ -116,7 +116,7 @@ export function DataWarehouseExternalScene(): JSX.Element {
             <PageHeader
                 buttons={
                     <>
-                        {featureFlags[FEATURE_FLAGS.DATA_WAREHOUSE_VIEWS] && (
+                        {featureFlags[FEATURE_FLAGS.DATA_WAREHOUSE] && (
                             <LemonButton
                                 type="primary"
                                 data-attr="new-data-warehouse-view"
