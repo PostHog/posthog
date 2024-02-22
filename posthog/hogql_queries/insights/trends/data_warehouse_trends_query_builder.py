@@ -1,6 +1,6 @@
 from typing import List, Optional, cast
 from posthog.hogql import ast
-from posthog.hogql.parser import parse_select
+from posthog.hogql.parser import parse_select, parse_expr
 from posthog.hogql.property import property_to_expr
 from posthog.hogql.timings import HogQLTimings
 from posthog.hogql_queries.insights.trends.aggregation_operations import (
@@ -11,7 +11,7 @@ from posthog.hogql_queries.insights.trends.display import TrendsDisplay
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 from posthog.models.filters.mixins.utils import cached_property
 from posthog.models.team.team import Team
-from posthog.schema import HogQLQueryModifiers, TrendsQuery, DataWarehouseNode, DataWarehousePropertyFilter
+from posthog.schema import HogQLQueryModifiers, TrendsQuery, DataWarehouseNode
 
 
 class DataWarehouseTrendsQueryBuilder:
@@ -321,13 +321,32 @@ class DataWarehouseTrendsQueryBuilder:
         series = self.series
         filters: List[ast.Expr] = []
 
+        filters.extend(
+            [
+                parse_expr(
+                    "{timestamp_field} >= {date_from_with_adjusted_start_of_interval}",
+                    placeholders={
+                        "timestamp_field": ast.Call(
+                            name="toDateTime", args=[ast.Field(chain=[self.series.timestamp_field])]
+                        ),
+                        **self.query_date_range.to_placeholders(),
+                    },
+                ),
+                parse_expr(
+                    "{timestamp_field} <= {date_to}",
+                    placeholders={
+                        "timestamp_field": ast.Call(
+                            name="toDateTime", args=[ast.Field(chain=[self.series.timestamp_field])]
+                        ),
+                        **self.query_date_range.to_placeholders(),
+                    },
+                ),
+            ]
+        )
+
         # Properties
         if self.query.properties is not None and self.query.properties != []:
-            # Only apply data warehouse properties
-            filtered_query_properties = [
-                prop for prop in self.query.properties if isinstance(prop, DataWarehousePropertyFilter)
-            ]
-            filters.append(property_to_expr(filtered_query_properties, self.team))
+            filters.append(property_to_expr(self.query.properties, self.team))
 
         # Series Filters
         if series.properties is not None and series.properties != []:

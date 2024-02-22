@@ -153,6 +153,7 @@ class TestDataWarehouseQueryBuilder(ClickhouseTestMixin, BaseTest):
         assert set(response.columns).issubset({"date", "total"})
         assert response.results[0][1] == [1, 1, 1, 1, 0, 0, 0]
 
+    @snapshot_clickhouse_queries
     def test_trends_entity_property(self):
         table_name = self.create_parquet_file()
 
@@ -176,6 +177,7 @@ class TestDataWarehouseQueryBuilder(ClickhouseTestMixin, BaseTest):
         assert set(response.columns).issubset({"date", "total"})
         assert response.results[0][1] == [1, 0, 0, 0, 0, 0, 0]
 
+    @snapshot_clickhouse_queries
     def test_trends_property(self):
         table_name = self.create_parquet_file()
 
@@ -193,6 +195,7 @@ class TestDataWarehouseQueryBuilder(ClickhouseTestMixin, BaseTest):
         assert set(response.columns).issubset({"date", "total"})
         assert response.results[0][1] == [1, 0, 0, 0, 0, 0, 0]
 
+    @snapshot_clickhouse_queries
     def test_trends_other_property_invalid(self):
         table_name = self.create_parquet_file()
 
@@ -210,6 +213,7 @@ class TestDataWarehouseQueryBuilder(ClickhouseTestMixin, BaseTest):
         assert set(response.columns).issubset({"date", "total"})
         assert response.results[0][1] == [1, 1, 1, 1, 0, 0, 0]
 
+    @snapshot_clickhouse_queries
     def test_trends_breakdown(self):
         table_name = self.create_parquet_file()
 
@@ -240,6 +244,7 @@ class TestDataWarehouseQueryBuilder(ClickhouseTestMixin, BaseTest):
         assert response.results[4][1] == [0, 0, 0, 0, 0, 0, 0]
         assert response.results[4][2] == "$$_posthog_breakdown_other_$$"
 
+    @snapshot_clickhouse_queries
     def test_trends_breakdown_with_property(self):
         table_name = self.create_parquet_file()
 
@@ -262,19 +267,29 @@ class TestDataWarehouseQueryBuilder(ClickhouseTestMixin, BaseTest):
         assert response.results[1][1] == [0, 0, 0, 0, 0, 0, 0]
         assert response.results[1][2] == "$$_posthog_breakdown_other_$$"
 
-    def test_trends_pie(self):
+    def assert_column_names_with_display_type(self, display_type: ChartDisplayType):
+        # KLUDGE: creating data on every variant
         table_name = self.create_parquet_file()
 
         trends_query = TrendsQuery(
             kind="TrendsQuery",
             dateRange=DateRange(date_from="2023-01-01"),
             series=[DataWarehouseNode(table_name=table_name, id_field="id", timestamp_field="created")],
-            trendsFilter=TrendsFilter(display=ChartDisplayType.ActionsPie),
+            trendsFilter=TrendsFilter(display=display_type),
         )
 
         with freeze_time("2023-01-07"):
-            response = self.get_response(trends_query=trends_query)
+            response = self.get_response(trends_query)
 
         assert response.columns is not None
         assert set(response.columns).issubset({"date", "total"})
-        assert response.results[0][0] == 4
+
+    def test_column_names_with_display_type(self):
+        self.assert_column_names_with_display_type(ChartDisplayType.ActionsAreaGraph)
+        self.assert_column_names_with_display_type(ChartDisplayType.ActionsBar)
+        self.assert_column_names_with_display_type(ChartDisplayType.ActionsBarValue)
+        self.assert_column_names_with_display_type(ChartDisplayType.ActionsLineGraph)
+        self.assert_column_names_with_display_type(ChartDisplayType.ActionsPie)
+        self.assert_column_names_with_display_type(ChartDisplayType.BoldNumber)
+        self.assert_column_names_with_display_type(ChartDisplayType.WorldMap)
+        self.assert_column_names_with_display_type(ChartDisplayType.ActionsLineGraphCumulative)
