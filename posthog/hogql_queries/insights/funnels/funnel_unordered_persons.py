@@ -10,8 +10,8 @@ class FunnelUnorderedActors(FunnelUnordered):
         # Unordered funnels does not support matching events (and thereby recordings),
         # but it simplifies the logic if we return an empty array for matching events
         # if self._filter.include_recordings:
-        if False:  # typing: ignore TODO: implement with recordings
-            return [parse_expr("array() as matching_events")]
+        if False:
+            return [parse_expr("array() as matching_events")]  # type: ignore
         return []
 
     def actor_query(
