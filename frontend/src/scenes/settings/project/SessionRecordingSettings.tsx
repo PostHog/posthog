@@ -10,7 +10,7 @@ import { PropertySelect } from 'lib/components/PropertySelect/PropertySelect'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { FEATURE_FLAGS, SESSION_REPLAY_MINIMUM_DURATION_OPTIONS } from 'lib/constants'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
-import { IconAutoAwesome, IconCancel, IconSelectEvents } from 'lib/lemon-ui/icons'
+import { IconCancel, IconSelectEvents } from 'lib/lemon-ui/icons'
 import { LemonLabel } from 'lib/lemon-ui/LemonLabel/LemonLabel'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { teamLogic } from 'scenes/teamLogic'
@@ -416,10 +416,9 @@ export function ReplaySummarySettings(): JSX.Element | null {
             </div>
             <div>
                 <p>
-                    We use Open AI to summarise sessions. No data is sent to OpenAI without an explicit instruction to
-                    do so. Only by clicking the <IconAutoAwesome /> "Summary" button will selected event data be shared
-                    with a third party. We only send the data selected below.{' '}
-                    <strong>Data submitted is not used to train Open AI's models</strong>
+                    We use several machine learning technologies to process sessions. Some of those are hosted by Open
+                    AI. No data is sent to OpenAI without an explicit instruction to do so. If we do send data we only
+                    send the data selected below. s<strong>Data submitted is not used to train Open AI's models</strong>
                 </p>
                 <LemonSwitch
                     checked={currentConfig.opt_in}
@@ -430,7 +429,7 @@ export function ReplaySummarySettings(): JSX.Element | null {
                         })
                     }}
                     bordered
-                    label="Opt in to enable AI suggested summaries"
+                    label="Opt in to enable AI processing"
                 />
             </div>
             {currentConfig.opt_in && (
