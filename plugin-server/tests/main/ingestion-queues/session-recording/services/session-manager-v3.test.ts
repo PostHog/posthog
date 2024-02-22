@@ -74,12 +74,16 @@ describe('session-manager', () => {
         send: jest.fn(),
     }
 
-    const createSessionManager = async (): Promise<SessionManagerV3> => {
+    const createSessionManager = async (
+        sessionId = 'session_id_1',
+        teamId = 1,
+        partition = 1
+    ): Promise<SessionManagerV3> => {
         return await SessionManagerV3.create(defaultConfig, mockS3Client, {
-            sessionId: 'session_id_1',
-            teamId: 1,
-            partition: 1,
-            dir: path.join(tmpDir, '1'),
+            sessionId,
+            teamId,
+            partition,
+            dir: path.join(tmpDir, `${partition}`, `${teamId}__${sessionId}`),
         })
     }
 
@@ -118,7 +122,7 @@ describe('session-manager', () => {
             createdAt: 1527202800000,
         })
 
-        const stats = await fs.stat(path.join(tmpDir, '1', 'buffer.jsonl.gz'))
+        const stats = await fs.stat(`${sessionManager.context.dir}/buffer.jsonl.gz`)
         expect(stats.size).toBeGreaterThan(0)
     })
 
@@ -134,7 +138,7 @@ describe('session-manager', () => {
         await sessionManager.add(event)
         await sessionManager.flush()
 
-        expect(await fs.readdir(path.join(tmpDir, '1'))).toEqual(['buffer.jsonl.gz', 'metadata.json'])
+        expect(await fs.readdir(sessionManager.context.dir)).toEqual(['buffer.jsonl.gz', 'metadata.json'])
     })
 
     it('does flush if the stored file is older than the threshold', async () => {
@@ -155,7 +159,7 @@ describe('session-manager', () => {
 
         await sessionManager.flush()
 
-        expect(await fs.readdir(path.join(tmpDir, '1'))).toEqual([])
+        expect(await fs.readdir(sessionManager.context.dir)).toEqual([])
 
         // as a proxy for flush having been called or not
         const mockUploadCalls = (Upload as unknown as jest.Mock).mock.calls
@@ -180,22 +184,44 @@ describe('session-manager', () => {
     })
 
     it('not remove files when stopped', async () => {
-        expect(await fs.readdir(path.join(tmpDir, '1'))).toEqual([])
+        expect(await fs.readdir(sessionManager.context.dir)).toEqual([])
         await sessionManager.add(createIncomingRecordingMessage())
-        expect(await fs.readdir(path.join(tmpDir, '1'))).toEqual(['buffer.jsonl.gz', 'metadata.json'])
+        expect(await fs.readdir(sessionManager.context.dir)).toEqual(['buffer.jsonl.gz', 'metadata.json'])
         await sessionManager.stop()
-        expect(await fs.readdir(path.join(tmpDir, '1'))).toEqual(['buffer.jsonl.gz', 'metadata.json'])
+        expect(await fs.readdir(sessionManager.context.dir)).toEqual(['buffer.jsonl.gz', 'metadata.json'])
     })
 
     it('removes the directly when stopped after fully flushed', async () => {
-        expect(await fs.readdir(path.join(tmpDir, '1'))).toEqual([])
-        await sessionManager.add(createIncomingRecordingMessage())
-        expect(await fs.readdir(path.join(tmpDir, '1'))).toEqual(['buffer.jsonl.gz', 'metadata.json'])
-        await sessionManager.flush(true)
-        expect(await fs.readdir(path.join(tmpDir, '1'))).toEqual([])
-        await sessionManager.stop()
-        ;(sessionManager as any) = undefined // Stop the afterEach from failing
+        const sm = await createSessionManager('session_id_2', 2, 2)
+        expect(await fs.readdir(sm.context.dir)).toEqual([])
+        await sm.add(createIncomingRecordingMessage())
+        expect(await fs.readdir(sm.context.dir)).toEqual(['buffer.jsonl.gz', 'metadata.json'])
+        await sm.flush(true)
+        expect(await fs.readdir(sm.context.dir)).toEqual([])
+        await sm.stop()
+        // ;(sessionManager as any) = undefined // Stop the afterEach from failing
 
-        await expect(fs.stat(path.join(tmpDir, '1'))).rejects.toThrowError('ENOENT: no such file or directory')
+        await expect(fs.stat(sm.context.dir)).rejects.toThrowError('ENOENT: no such file or directory')
+    })
+
+    it('moves a file for flushing if it already exists on create', async () => {
+        let sm = await createSessionManager('session_id_2', 2, 2)
+
+        const event = createIncomingRecordingMessage({
+            events: [
+                { timestamp: 170000000, type: 4, data: { href: 'http://localhost:3001/' } },
+                { timestamp: 170000000 + 1000, type: 4, data: { href: 'http://localhost:3001/' } },
+            ],
+        })
+        await sm.add(event)
+        expect(await fs.readdir(sm.context.dir)).toEqual(['buffer.jsonl.gz', 'metadata.json'])
+        await sm.stop()
+        expect(await fs.readdir(sm.context.dir)).toEqual(['buffer.jsonl.gz', 'metadata.json'])
+
+        // Create a new manager (like a new pod coming up)
+        sm = await createSessionManager('session_id_2', 2, 2)
+        expect(await fs.readdir(sm.context.dir)).toEqual(['170000000-170001000.flush.jsonl.gz'])
+        await sm.flush()
+        expect(await fs.readdir(sm.context.dir)).toEqual([])
     })
 })

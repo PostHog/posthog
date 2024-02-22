@@ -135,7 +135,7 @@ export class SessionManagerV3 {
             )
             if (fileExists) {
                 const bufferMetadata: SessionManagerBufferContext = JSON.parse(
-                    await readFile(path.join(context.dir, 'json'), 'utf-8')
+                    await readFile(manager.file('metadata.json'), 'utf-8')
                 )
                 manager.buffer = {
                     context: bufferMetadata,
@@ -144,6 +144,7 @@ export class SessionManagerV3 {
 
                 // TODO: Flush the file here as appending to a gzipped file doesn't seem to work
 
+                console.log('HERE=!')
                 await manager.markCurrentBufferForFlush('rebalance')
             }
         } catch (error) {
