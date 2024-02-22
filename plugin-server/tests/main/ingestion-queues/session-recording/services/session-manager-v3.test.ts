@@ -1,4 +1,5 @@
 import { Upload } from '@aws-sdk/lib-storage'
+import { randomUUID } from 'crypto'
 import fs from 'fs/promises'
 import { DateTime, Settings } from 'luxon'
 import path from 'path'
@@ -34,7 +35,7 @@ describe('session-manager', () => {
     }
 
     const createSessionManager = async (
-        sessionId = 'session_id_1',
+        sessionId = randomUUID(),
         teamId = 1,
         partition = 1
     ): Promise<SessionManagerV3> => {
@@ -122,6 +123,8 @@ describe('session-manager', () => {
 
         expect(await fs.readdir(sessionManager.context.dir)).toEqual([])
 
+        const sessionId = sessionManager.context.sessionId
+
         // as a proxy for flush having been called or not
         const mockUploadCalls = (Upload as unknown as jest.Mock).mock.calls
         expect(mockUploadCalls.length).toBe(1)
@@ -129,7 +132,7 @@ describe('session-manager', () => {
         expect(mockUploadCalls[0][0]).toEqual(
             expect.objectContaining({
                 params: expect.objectContaining({
-                    Key: `session_recordings/team_id/1/session_id/session_id_1/data/${firstTimestamp}-${lastTimestamp}.jsonl`,
+                    Key: `session_recordings/team_id/1/session_id/${sessionId}/data/${firstTimestamp}-${lastTimestamp}.jsonl`,
                 }),
             })
         )
@@ -220,11 +223,10 @@ describe('session-manager', () => {
         await sessionManager.flush(true)
 
         const mockUploadCalls = (Upload as unknown as jest.Mock).mock.calls
-        console.log(mockUploadCalls[0][0])
         expect(mockUploadCalls[0][0]).toMatchObject({
             params: {
                 Bucket: 'posthog',
-                Key: 'session_recordings/team_id/1/session_id/session_id_1/data/170000000-170000000.jsonl',
+                Key: `session_recordings/team_id/1/session_id/${sessionManager.context.sessionId}/data/170000000-170000000.jsonl`,
                 ContentEncoding: 'gzip',
                 ContentType: 'application/json',
             },
