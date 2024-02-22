@@ -917,7 +917,7 @@ export interface ActorsQueryResponse {
 
 export interface ActorsQuery extends DataNode {
     kind: NodeKind.ActorsQuery
-    source?: InsightActorsQuery | HogQLQuery
+    source?: InsightActorsQuery | FunnelsActorsQuery | HogQLQuery
     select?: HogQLExpression[]
     search?: string
     properties?: AnyPropertyFilter[]
@@ -1069,20 +1069,33 @@ export type InsightFilter =
 
 export type Day = integer
 
-export interface InsightActorsQuery<T extends InsightsQueryBase = InsightQuerySource> {
+export interface InsightActorsQueryBase {
+    includeRecordings?: boolean
+    response?: ActorsQueryResponse
+}
+export interface InsightActorsQuery<T extends InsightsQueryBase = InsightQuerySource> extends InsightActorsQueryBase {
     kind: NodeKind.InsightActorsQuery
     source: T
     day?: string | Day
     status?: string
-    /**
-     * An interval selected out of available intervals in source query
-     */
+    /** An interval selected out of available intervals in source query. */
     interval?: integer
     series?: integer
     breakdown?: string | BreakdownValueInt
     compare?: 'current' | 'previous'
-    // TODO: add fields for other insights (funnels dropdown, compare_previous choice, etc)
-    response?: ActorsQueryResponse
+}
+
+export interface FunnelsActorsQuery extends InsightActorsQueryBase {
+    kind: NodeKind.InsightActorsQuery
+    source: FunnelsQuery
+    /** Index of the step for which we want to get the timestamp for, per person.
+     * Positive for converted persons, negative for dropped of persons. */
+    funnelStep?: integer
+    /** Custom step numbers to get persons for. This overrides `funnelStep`. */
+    funnelCustomSteps?: integer[]
+    /** The breakdown value for which to get persons for. This is an array for
+     * person and event properties, a string for groups and an integer for cohorts. */
+    funnelStepBreakdown?: BreakdownKeyType
 }
 
 export type BreakdownValueInt = integer
@@ -1113,7 +1126,7 @@ export interface InsightActorsQueryOptionsResponse {
 
 export interface InsightActorsQueryOptions {
     kind: NodeKind.InsightActorsQueryOptions
-    source: InsightActorsQuery
+    source: InsightActorsQuery | FunnelsActorsQuery
     response?: InsightActorsQueryOptionsResponse
 }
 

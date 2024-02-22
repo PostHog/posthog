@@ -119,7 +119,7 @@ export default function FeatureFlagSchedule(): JSX.Element {
                     >
                         <LemonTag type={type}>
                             <b className="uppercase">{text}</b>
-                        </LemonTag>{' '}
+                        </LemonTag>
                     </Tooltip>
                 )
             },

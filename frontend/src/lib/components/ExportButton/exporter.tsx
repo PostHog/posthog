@@ -1,9 +1,11 @@
 import { AnimationType } from 'lib/animations/animations'
 import api from 'lib/api'
 import { Animation } from 'lib/components/Animation/Animation'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { Spinner } from 'lib/lemon-ui/Spinner/Spinner'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { delay } from 'lib/utils'
 import posthog from 'posthog-js'
 import { useEffect, useState } from 'react'
@@ -25,7 +27,7 @@ function downloadBlob(content: Blob, filename: string): void {
     window.URL.revokeObjectURL(objectURL)
 }
 
-async function downloadExportedAsset(asset: ExportedAssetType): Promise<void> {
+export async function downloadExportedAsset(asset: ExportedAssetType): Promise<void> {
     const downloadUrl = api.exports.determineExportUrl(asset.id)
     const response = await api.getResponse(downloadUrl)
     const blobObject = await response.blob()
@@ -37,7 +39,7 @@ export type TriggerExportProps = Pick<ExportedAssetType, 'export_format' | 'dash
 const isLocalExport = (context: ExportContext | undefined): context is LocalExportContext =>
     !!(context && 'localData' in context)
 
-export async function triggerExport(asset: TriggerExportProps): Promise<void> {
+export async function triggerExport(asset: TriggerExportProps): Promise<string> {
     if (isLocalExport(asset.export_context)) {
         try {
             downloadBlob(
@@ -48,6 +50,7 @@ export async function triggerExport(asset: TriggerExportProps): Promise<void> {
         } catch (e) {
             lemonToast.error('Export failed!')
         }
+        return 'Export complete'
     } else {
         // eslint-disable-next-line no-async-promise-executor,@typescript-eslint/no-misused-promises
         const poller = new Promise<string>(async (resolve, reject) => {
@@ -60,13 +63,18 @@ export async function triggerExport(asset: TriggerExportProps): Promise<void> {
             }
             const startTime = performance.now()
 
+            const isExportSidepanel = Boolean(
+                featureFlagLogic.findMounted()?.values.featureFlags?.[FEATURE_FLAGS.EXPORTS_SIDEPANEL]
+            )
+            const expiresAfter = isExportSidepanel ? dayjs().add(6, 'hour') : dayjs().add(10, 'minute')
+
             try {
                 let exportedAsset = await api.exports.create({
                     export_format: asset.export_format,
                     dashboard: asset.dashboard,
                     insight: asset.insight,
                     export_context: asset.export_context,
-                    expires_after: dayjs().add(10, 'minute'),
+                    expires_after: expiresAfter.toJSON(),
                 })
 
                 if (!exportedAsset.id) {
@@ -81,7 +89,9 @@ export async function triggerExport(asset: TriggerExportProps): Promise<void> {
                     attempts++
 
                     if (exportedAsset.has_content) {
-                        await downloadExportedAsset(exportedAsset)
+                        if (!isExportSidepanel) {
+                            await downloadExportedAsset(exportedAsset)
+                        }
 
                         trackingProperties.total_time_ms = performance.now() - startTime
                         posthog.capture('export succeeded', trackingProperties)
@@ -127,6 +137,7 @@ export async function triggerExport(asset: TriggerExportProps): Promise<void> {
                 ),
             }
         )
+        return poller
     }
 }
 

@@ -105,7 +105,7 @@ export function InsightMeta({
                             {loading && (
                                 <Tooltip
                                     title="This insight is queued to check for newer results. It will be updated soon."
-                                    placement="topRight"
+                                    placement="top-end"
                                 >
                                     <span className="text-primary text-sm font-medium">
                                         <Spinner className="mx-1" />

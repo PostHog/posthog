@@ -16,8 +16,10 @@ from posthog.schema import (
     FeaturePropertyFilter,
     FunnelExclusionActionsNode,
     FunnelExclusionEventsNode,
+    FunnelsActorsQuery,
     GroupPropertyFilter,
     HogQLPropertyFilter,
+    InsightActorsQuery,
     PersonPropertyFilter,
     RecordingDurationFilter,
     SessionPropertyFilter,
@@ -40,6 +42,8 @@ InsightQueryNode: TypeAlias = Union[
     StickinessQuery,
     LifecycleQuery,
 ]
+
+InsightActorsQueryNode: TypeAlias = Union[InsightActorsQuery, FunnelsActorsQuery]
 
 AnyPropertyFilter: TypeAlias = Union[
     EventPropertyFilter,
