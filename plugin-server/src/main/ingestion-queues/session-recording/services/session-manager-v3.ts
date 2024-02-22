@@ -136,6 +136,10 @@ export class SessionManagerV3 {
                 context: bufferMetadata,
                 fileStream: manager.createFileStreamFor(path.join(context.dir, BUFFER_FILE_NAME)),
             }
+
+            // TODO: Flush the file here as appending to a gzipped file doesn't seem to work
+
+            await manager.markCurrentBufferForFlush('rebalance')
         } catch (error) {
             // Indicates no buffer metadata file or it's corrupted
             status.error('🧨', '[session-manager] failed to read buffer metadata', {
@@ -269,7 +273,7 @@ export class SessionManagerV3 {
         await this.flushFiles()
     }
 
-    private async markCurrentBufferForFlush(reason: 'buffer_size' | 'buffer_age'): Promise<void> {
+    private async markCurrentBufferForFlush(reason: 'buffer_size' | 'buffer_age' | 'rebalance'): Promise<void> {
         const buffer = this.buffer
         if (!buffer) {
             // TODO: maybe error properly here?
