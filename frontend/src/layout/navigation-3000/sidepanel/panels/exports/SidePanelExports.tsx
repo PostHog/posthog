@@ -40,11 +40,11 @@ const ExportsContent = (): JSX.Element => {
                         onClick={() => {
                             void downloadExportedAsset(asset)
                         }}
-                        sideIcon={asset.has_content ? <IconDownload /> : undefined}
+                        sideIcon={asset.has_content ? <IconDownload className="text-link" /> : undefined}
                     >
-                        <div className="flex items-center justify-between w-full">
-                            <div className="flex flex-col">
-                                <span className="text-sm font-medium">
+                        <div className="flex items-center justify-between flex-auto p-2">
+                            <div>
+                                <span className="text-link font-medium block">
                                     {asset.filename}
                                     <LemonTag size="small" className="ml-2">
                                         {asset.export_format}
