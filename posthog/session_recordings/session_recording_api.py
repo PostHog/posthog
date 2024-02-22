@@ -382,8 +382,10 @@ class SessionRecordingViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
 
         elif source == "realtime":
             if request.GET.get("version", None) == "3" and settings.RECORDINGS_INGESTER_URL:
-                url = f"{settings.RECORDINGS_INGESTER_URL}/api/projects/{self.team.pk}/session_recordings/{str(recording.session_id)}/snapshots"
-                with requests.get(url=url, stream=True) as r:
+                with requests.get(
+                    url=f"{settings.RECORDINGS_INGESTER_URL}/api/projects/{self.team.pk}/session_recordings/{str(recording.session_id)}/snapshots",
+                    stream=True,
+                ) as r:
                     if r.status_code == 404:
                         return Response({"snapshots": []})
 
