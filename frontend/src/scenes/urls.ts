@@ -13,6 +13,7 @@ import {
     PipelineNodeTab,
     PipelineStage,
     PipelineTab,
+    ProductKey,
     ReplayTabs,
 } from '~/types'
 
@@ -174,7 +175,8 @@ export const urls = {
     onboarding: (productKey: string, stepKey?: OnboardingStepKey): string =>
         `/onboarding/${productKey}${stepKey ? '?step=' + stepKey : ''}`,
     // Cloud only
-    organizationBilling: (): string => '/organization/billing',
+    organizationBilling: (products?: ProductKey[]): string =>
+        `/organization/billing${products && products.length ? `?products=${products.join(',')}` : ''}`,
     // Self-hosted only
     instanceStatus: (): string => '/instance/status',
     instanceStaffUsers: (): string => '/instance/staff_users',
