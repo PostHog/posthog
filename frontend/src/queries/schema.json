@@ -1713,6 +1713,12 @@
                     "$ref": "#/definitions/BreakdownKeyType",
                     "description": "The breakdown value for which to get persons for. This is an array for person and event properties, a string for groups and an integer for cohorts."
                 },
+                "funnelTrendsDropOff": {
+                    "type": "boolean"
+                },
+                "funnelTrendsEntrancePeriodStart": {
+                    "type": "string"
+                },
                 "includeRecordings": {
                     "type": "boolean"
                 },

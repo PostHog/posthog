@@ -23,7 +23,12 @@ def get_funnel_order_class(funnelsFilter: FunnelsFilter):
 
 
 def get_funnel_actor_class(funnelsFilter: FunnelsFilter):
-    from posthog.hogql_queries.insights.funnels import FunnelActors, FunnelStrictActors, FunnelUnorderedActors
+    from posthog.hogql_queries.insights.funnels import (
+        FunnelActors,
+        FunnelStrictActors,
+        FunnelUnorderedActors,
+        FunnelTrendsActors,
+    )
 
     # if filter.correlation_person_entity and EE_AVAILABLE:
     if False:
@@ -39,8 +44,7 @@ def get_funnel_actor_class(funnelsFilter: FunnelsFilter):
                 "Funnel Correlations is not available without an enterprise license and enterprise supported deployment"
             )
     elif funnelsFilter.funnelVizType == FunnelVizType.trends:
-        return FunnelActors
-        # return FunnelTrendsActors
+        return FunnelTrendsActors
     else:
         if funnelsFilter.funnelOrderType == StepOrderValue.unordered:
             return FunnelUnorderedActors

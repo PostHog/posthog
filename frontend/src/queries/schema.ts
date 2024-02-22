@@ -1088,6 +1088,8 @@ export interface FunnelsActorsQuery extends InsightActorsQueryBase {
     /** The breakdown value for which to get persons for. This is an array for
      * person and event properties, a string for groups and an integer for cohorts. */
     funnelStepBreakdown?: BreakdownKeyType
+    funnelTrendsDropOff?: boolean
+    funnelTrendsEntrancePeriodStart?: string
 }
 
 export type BreakdownValueInt = integer

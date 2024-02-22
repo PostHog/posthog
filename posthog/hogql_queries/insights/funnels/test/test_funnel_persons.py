@@ -1,5 +1,5 @@
 from datetime import datetime
-from typing import Dict, List, cast, Any
+from typing import Dict, List, Optional, cast, Any
 
 
 from posthog.constants import INSIGHT_FUNNELS
@@ -28,10 +28,12 @@ PERSON_ID_COLUMN = 2
 def get_actors(
     filters: Dict[str, Any],
     team: Team,
-    funnelStep: int | None = None,
-    funnelCustomSteps: List[int] | None = None,
-    funnelStepBreakdown: str | float | List[str | float] | None = None,
-    offset: int | None = None,
+    funnelStep: Optional[int] = None,
+    funnelCustomSteps: Optional[List[int]] = None,
+    funnelStepBreakdown: Optional[str | float | List[str | float]] = None,
+    funnelTrendsDropOff: Optional[bool] = None,
+    funnelTrendsEntrancePeriodStart: Optional[str] = None,
+    offset: Optional[int] = None,
 ):
     funnels_query = cast(FunnelsQuery, filter_to_query(filters))
     funnel_actors_query = FunnelsActorsQuery(
@@ -39,6 +41,8 @@ def get_actors(
         funnelStep=funnelStep,
         funnelCustomSteps=funnelCustomSteps,
         funnelStepBreakdown=funnelStepBreakdown,
+        funnelTrendsDropOff=funnelTrendsDropOff,
+        funnelTrendsEntrancePeriodStart=funnelTrendsEntrancePeriodStart,
     )
     actors_query = ActorsQuery(source=funnel_actors_query, offset=offset)
     response = ActorsQueryRunner(query=actors_query, team=team).calculate()

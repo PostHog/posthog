@@ -2554,6 +2554,8 @@ class FunnelsActorsQuery(BaseModel):
         default=None,
         description="The breakdown value for which to get persons for. This is an array for person and event properties, a string for groups and an integer for cohorts.",
     )
+    funnelTrendsDropOff: Optional[bool] = None
+    funnelTrendsEntrancePeriodStart: Optional[str] = None
     includeRecordings: Optional[bool] = None
     kind: Literal["InsightActorsQuery"] = "InsightActorsQuery"
     response: Optional[ActorsQueryResponse] = None
