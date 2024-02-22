@@ -9,8 +9,11 @@ from posthog.models.property import PropertyName, TableColumn
 from posthog.utils import PersonOnEventsMode
 
 
-def resolve_property_types(node: ast.Expr, context: HogQLContext = None) -> ast.Expr:
+def resolve_property_types(node: ast.Expr, context: Optional[HogQLContext] = None) -> ast.Expr:
     from posthog.models import PropertyDefinition
+
+    if not context or not context.team_id:
+        return node
 
     # find all properties
     property_finder = PropertyFinder()
@@ -86,23 +89,24 @@ class PropertyFinder(TraversingVisitor):
             if isinstance(node.field_type.table_type, ast.BaseTableType):
                 table_type = node.field_type.table_type
                 table_name = table_type.resolve_database_table().to_printed_hogql()
+                property_name = str(node.chain[0])
                 if table_name == "persons" or table_name == "raw_persons":
-                    self.person_properties.add(node.chain[0])
+                    self.person_properties.add(property_name)
                 if table_name == "groups":
                     if isinstance(table_type, ast.LazyJoinType):
                         if table_type.field.startswith("group_"):
                             group_id = int(table_type.field.split("_")[1])
                             if self.group_properties.get(group_id) is None:
                                 self.group_properties[group_id] = set()
-                            self.group_properties[group_id].add(node.chain[0])
+                            self.group_properties[group_id].add(property_name)
                 if table_name == "events":
                     if (
                         isinstance(node.field_type.table_type, ast.VirtualTableType)
                         and node.field_type.table_type.field == "poe"
                     ):
-                        self.person_properties.add(node.chain[0])
+                        self.person_properties.add(property_name)
                     else:
-                        self.event_properties.add(node.chain[0])
+                        self.event_properties.add(property_name)
 
     def visit_field(self, node: ast.Field):
         super().visit_field(node)
@@ -143,35 +147,37 @@ class PropertySwapper(CloningVisitor):
 
         type = node.type
         if isinstance(type, ast.PropertyType) and type.field_type.name == "properties" and len(type.chain) == 1:
+            property_name = str(type.chain[0])
             if (
                 isinstance(type.field_type.table_type, ast.VirtualTableType)
                 and type.field_type.table_type.field == "poe"
             ):
-                if type.chain[0] in self.person_properties:
-                    return self._convert_string_property_to_type(node, "person", type.chain[0])
+                if property_name in self.person_properties:
+                    return self._convert_string_property_to_type(node, "person", property_name)
             elif isinstance(type.field_type.table_type, ast.BaseTableType):
                 table_type = type.field_type.table_type
                 table_name = table_type.resolve_database_table().to_printed_hogql()
                 if table_name == "persons" or table_name == "raw_persons":
-                    if type.chain[0] in self.person_properties:
-                        return self._convert_string_property_to_type(node, "person", type.chain[0])
+                    if property_name in self.person_properties:
+                        return self._convert_string_property_to_type(node, "person", property_name)
                 if table_name == "groups":
                     if isinstance(table_type, ast.LazyJoinType):
                         if table_type.field.startswith("group_"):
                             group_id = int(table_type.field.split("_")[1])
-                            if f"{group_id}_{type.chain[0]}" in self.group_properties:
+                            if f"{group_id}_{property_name}" in self.group_properties:
                                 return self._convert_string_property_to_type(
-                                    node, "group", f"{group_id}_{type.chain[0]}"
+                                    node, "group", f"{group_id}_{property_name}"
                                 )
                 if table_name == "events":
-                    if type.chain[0] in self.event_properties:
-                        return self._convert_string_property_to_type(node, "event", type.chain[0])
+                    if property_name in self.event_properties:
+                        return self._convert_string_property_to_type(node, "event", property_name)
         if isinstance(type, ast.PropertyType) and type.field_type.name == "person_properties" and len(type.chain) == 1:
+            property_name = str(type.chain[0])
             if isinstance(type.field_type.table_type, ast.BaseTableType):
                 table = type.field_type.table_type.resolve_database_table().to_printed_hogql()
                 if table == "events":
-                    if type.chain[0] in self.person_properties:
-                        return self._convert_string_property_to_type(node, "person", type.chain[0])
+                    if property_name in self.person_properties:
+                        return self._convert_string_property_to_type(node, "person", property_name)
 
         return node
 
@@ -212,13 +218,13 @@ class PropertySwapper(CloningVisitor):
         node: ast.Field,
         property_type: Literal["event", "person", "group"],
         field_type: str,
-    ) -> str:
-        property_name = node.chain[-1]
+    ):
+        property_name = str(node.chain[-1])
         if property_type == "person":
-            if self.context.modifiers.personsOnEventsMode != PersonOnEventsMode.DISABLED:
+            if self.context.modifiers.personsOnEventsMode != PersonOnEventsMode.DISABLED:  # type: ignore[comparison-overlap]
                 materialized_column = self._get_materialized_column("events", property_name, "person_properties")
             else:
-                materialized_column = self._get_materialized_column("person", property_name, "properties")
+                materialized_column = self._get_materialized_column("person", property_name, "properties")  # type: ignore[unreachable]
         elif property_type == "group":
             name_parts = property_name.split("_")
             name_parts.pop(0)
