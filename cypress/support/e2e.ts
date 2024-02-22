@@ -32,6 +32,7 @@ beforeEach(() => {
                 'surveys-new-creation-flow': true,
                 'surveys-results-visualizations': true,
                 'auto-redirect': true,
+
                 notebooks: true,
             })
         )

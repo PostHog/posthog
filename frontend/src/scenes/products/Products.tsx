@@ -73,6 +73,7 @@ function OnboardingNotCompletedButton({
                 }
                 router.actions.push(url)
             }}
+            data-attr={`${productKey}-get-started-button`}
         >
             Get started
         </LemonButton>

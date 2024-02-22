@@ -36,7 +36,7 @@ export const OnboardingProductConfiguration = ({
                                 }}
                                 label={option.title}
                                 fullWidth={true}
-                                labelClassName="text-base font-semibold"
+                                labelClassName="text-base font-semibold -ml-2"
                                 checked={option.value || false}
                             />
                             <p className="prompt-text ml-0">{option.description}</p>
