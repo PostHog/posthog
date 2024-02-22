@@ -6,3 +6,4 @@ from .funnel_time_to_convert import FunnelTimeToConvert
 from .funnel_trends import FunnelTrends
 from .funnel_persons import FunnelActors
 from .funnel_strict_persons import FunnelStrictActors
+from .funnel_unordered_persons import FunnelUnorderedActors

@@ -1,11 +1,8 @@
 from datetime import datetime
-from typing import Any, Dict, List, cast
 
 
 from posthog.constants import INSIGHT_FUNNELS
-from posthog.hogql_queries.actors_query_runner import ActorsQueryRunner
-from posthog.hogql_queries.legacy_compatibility.filter_to_query import filter_to_query
-from posthog.schema import ActorsQuery, FunnelsActorsQuery, FunnelsQuery
+from posthog.hogql_queries.insights.funnels.test.test_funnel_persons import get_actors
 from posthog.test.base import (
     APIBaseTest,
     ClickhouseTestMixin,
@@ -16,25 +13,6 @@ FORMAT_TIME = "%Y-%m-%d 00:00:00"
 
 
 class TestFunnelStrictStepsPersons(ClickhouseTestMixin, APIBaseTest):
-    def _get_actors(
-        self,
-        filters: Dict[str, Any],
-        funnelStep: int | None = None,
-        funnelCustomSteps: List[int] | None = None,
-        funnelStepBreakdown: str | float | List[str | float] | None = None,
-        offset: int | None = None,
-    ):
-        funnels_query = cast(FunnelsQuery, filter_to_query(filters))
-        funnel_actors_query = FunnelsActorsQuery(
-            source=funnels_query,
-            funnelStep=funnelStep,
-            funnelCustomSteps=funnelCustomSteps,
-            funnelStepBreakdown=funnelStepBreakdown,
-        )
-        actors_query = ActorsQuery(source=funnel_actors_query, offset=offset)
-        response = ActorsQueryRunner(query=actors_query, team=self.team).calculate()
-        return response.results
-
     def _create_sample_data_multiple_dropoffs(self):
         events_by_person = {}
         for i in range(5):
@@ -72,7 +50,7 @@ class TestFunnelStrictStepsPersons(ClickhouseTestMixin, APIBaseTest):
             ],
         }
 
-        results = self._get_actors(filters, funnelStep=1)
+        results = get_actors(filters, self.team, funnelStep=1)
 
         self.assertEqual(35, len(results))
 
@@ -92,7 +70,7 @@ class TestFunnelStrictStepsPersons(ClickhouseTestMixin, APIBaseTest):
             ],
         }
 
-        results = self._get_actors(filters, funnelStep=2)
+        results = get_actors(filters, self.team, funnelStep=2)
 
         self.assertEqual(10, len(results))
 
@@ -112,7 +90,7 @@ class TestFunnelStrictStepsPersons(ClickhouseTestMixin, APIBaseTest):
             ],
         }
 
-        results = self._get_actors(filters, funnelStep=-2)
+        results = get_actors(filters, self.team, funnelStep=-2)
 
         self.assertEqual(25, len(results))
 
@@ -133,7 +111,7 @@ class TestFunnelStrictStepsPersons(ClickhouseTestMixin, APIBaseTest):
             ],
         }
 
-        results = self._get_actors(filters, funnelStep=3)
+        results = get_actors(filters, self.team, funnelStep=3)
 
         self.assertEqual(0, len(results))
 
@@ -198,7 +176,7 @@ class TestFunnelStrictStepsPersons(ClickhouseTestMixin, APIBaseTest):
     #     }
 
     #     # "include_recordings": "true",
-    #     results = self._get_actors(filters, funnelStep=1)
+    #     results = get_actors(filters, self.team, funnelStep=1)
 
     #     self.assertEqual(results[0]["id"], p1.uuid)
     #     self.assertEqual(results[0]["matched_recordings"], [])
@@ -219,7 +197,7 @@ class TestFunnelStrictStepsPersons(ClickhouseTestMixin, APIBaseTest):
     #     }
 
     #     # "include_recordings": "true",
-    #     results = self._get_actors(filters, funnelStep=2)
+    #     results = get_actors(filters, self.team, funnelStep=2)
 
     #     self.assertEqual(results[0]["id"], p1.uuid)
     #     self.assertEqual(
@@ -254,7 +232,7 @@ class TestFunnelStrictStepsPersons(ClickhouseTestMixin, APIBaseTest):
     #     }
 
     #     # "include_recordings": "true",
-    #     results = self._get_actors(filters, funnelStep=-3)
+    #     results = get_actors(filters, self.team, funnelStep=-3)
 
     #     self.assertEqual(results[0]["id"], p1.uuid)
     #     self.assertEqual(
