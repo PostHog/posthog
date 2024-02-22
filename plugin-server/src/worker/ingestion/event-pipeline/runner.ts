@@ -130,7 +130,11 @@ export class EventPipelineRunner {
         }
         const [normalizedEvent, person] = await this.runStep(processPersonsStep, [this, processedEvent], event.team_id)
 
-        const preparedEvent = await this.runStep(prepareEventStep, [this, normalizedEvent], event.team_id)
+        const [preparedEvent, prepareEventAcks] = await this.runStep(
+            prepareEventStep,
+            [this, normalizedEvent],
+            event.team_id
+        )
 
         const [rawClickhouseEvent, eventAck] = await this.runStep(
             createEventStep,
@@ -138,7 +142,12 @@ export class EventPipelineRunner {
             event.team_id
         )
 
-        return this.registerLastStep('createEventStep', event.team_id, [rawClickhouseEvent, person], [eventAck])
+        return this.registerLastStep(
+            'createEventStep',
+            event.team_id,
+            [rawClickhouseEvent, person],
+            [...prepareEventAcks, eventAck]
+        )
     }
 
     registerLastStep(

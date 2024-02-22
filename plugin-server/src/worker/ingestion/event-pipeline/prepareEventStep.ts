@@ -6,7 +6,10 @@ import { captureIngestionWarning } from '../utils'
 import { invalidTimestampCounter } from './metrics'
 import { EventPipelineRunner } from './runner'
 
-export async function prepareEventStep(runner: EventPipelineRunner, event: PluginEvent): Promise<PreIngestionEvent> {
+export async function prepareEventStep(
+    runner: EventPipelineRunner,
+    event: PluginEvent
+): Promise<[PreIngestionEvent, Promise<void>[]]> {
     const { team_id, uuid } = event
     const tsParsingIngestionWarnings: Promise<void>[] = []
     const invalidTimestampCallback = function (type: string, details: Record<string, any>) {
@@ -15,14 +18,13 @@ export async function prepareEventStep(runner: EventPipelineRunner, event: Plugi
         tsParsingIngestionWarnings.push(captureIngestionWarning(runner.hub.db, team_id, type, details))
     }
 
-    const preIngestionEvent = await runner.hub.eventsProcessor.processEvent(
+    const [preIngestionEvent, acks] = await runner.hub.eventsProcessor.processEvent(
         String(event.distinct_id),
         event,
         team_id,
         parseEventTimestamp(event, invalidTimestampCallback),
         uuid! // it will throw if it's undefined,
     )
-    await Promise.all(tsParsingIngestionWarnings)
 
-    return preIngestionEvent
+    return [preIngestionEvent, [...tsParsingIngestionWarnings, ...acks]]
 }

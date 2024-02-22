@@ -72,7 +72,7 @@ export class EventsProcessor {
         teamId: number,
         timestamp: DateTime,
         eventUuid: string
-    ): Promise<PreIngestionEvent> {
+    ): Promise<[PreIngestionEvent, Promise<void>[]]> {
         const singleSaveTimer = new Date()
         const timeout = timeoutGuard('Still inside "EventsProcessor.processEvent". Timeout warning after 30 sec!', {
             event: JSON.stringify(data),
@@ -136,16 +136,18 @@ export class EventsProcessor {
         distinctId: string,
         properties: Properties,
         timestamp: DateTime
-    ): Promise<PreIngestionEvent> {
+    ): Promise<[PreIngestionEvent, Promise<void>[]]> {
         event = sanitizeEventName(event)
 
         if (properties['$ip'] && team.anonymize_ips) {
             delete properties['$ip']
         }
 
+        const acks: Promise<void>[] = []
+
         if (this.pluginsServer.SKIP_UPDATE_EVENT_AND_PROPERTIES_STEP === false) {
             try {
-                await this.propertyDefinitionsManager.updateEventNamesAndProperties(team.id, event, properties)
+                acks.push(this.propertyDefinitionsManager.updateEventNamesAndProperties(team.id, event, properties))
             } catch (err) {
                 Sentry.captureException(err, { tags: { team_id: team.id } })
                 status.warn('⚠️', 'Failed to update property definitions for an event', {
@@ -160,17 +162,20 @@ export class EventsProcessor {
         properties = await addGroupProperties(team.id, properties, this.groupTypeManager)
 
         if (event === '$groupidentify') {
-            await this.upsertGroup(team.id, properties, timestamp)
+            acks.push(this.upsertGroup(team.id, properties, timestamp))
         }
 
-        return {
-            eventUuid,
-            event,
-            distinctId,
-            properties,
-            timestamp: timestamp.toISO() as ISOTimestamp,
-            teamId: team.id,
-        }
+        return [
+            {
+                eventUuid,
+                event,
+                distinctId,
+                properties,
+                timestamp: timestamp.toISO() as ISOTimestamp,
+                teamId: team.id,
+            },
+            acks,
+        ]
     }
 
     getGroupIdentifiers(properties: Properties): GroupId[] {
