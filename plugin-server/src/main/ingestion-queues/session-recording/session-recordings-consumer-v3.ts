@@ -414,7 +414,8 @@ export class SessionRecordingIngesterV3 {
     }
 
     private setupHttpRoutes() {
-        expressApp.get('/api/projects/:projectId/session_recordings/:sessionId', async (req, res) => {
+        // Mimic the app sever's endpoint
+        expressApp.get('/api/projects/:projectId/session_recordings/:sessionId/snapshots', async (req, res) => {
             // TODO: Sanitize the projectId and sessionId as we are checking the filesystem
 
             // validate that projectId is a number and sessionId is UUID like
