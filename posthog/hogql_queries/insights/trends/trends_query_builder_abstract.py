@@ -2,16 +2,14 @@ import abc
 from posthog.hogql import ast
 from typing import List, Optional
 from posthog.hogql_queries.insights.trends.breakdown import Breakdown
-from posthog.hogql_queries.insights.trends.aggregation_operations import (
-    AggregationOperations,
-)
-from posthog.models.filters.mixins.utils import cached_property
 
 
 class TrendsQueryBuilderAbstract(metaclass=abc.ABCMeta):
     @abc.abstractmethod
     def build_query(self) -> ast.SelectQuery | ast.SelectUnionQuery:
         pass
+
+    # Private functions not really necessary but keeping here for uniformity for now
 
     @abc.abstractmethod
     def _get_date_subqueries(self, breakdown: Breakdown, ignore_breakdowns: bool = False) -> List[ast.SelectQuery]:
@@ -51,9 +49,4 @@ class TrendsQueryBuilderAbstract(metaclass=abc.ABCMeta):
 
     @abc.abstractmethod
     def _breakdown(self, is_actors_query: bool, breakdown_values_override: Optional[str | int] = None):
-        pass
-
-    @abc.abstractmethod
-    @cached_property
-    def _aggregation_operation(self) -> AggregationOperations:
         pass
