@@ -316,8 +316,12 @@ export class SessionRecordingIngesterV3 {
         // Mark as stopping so that we don't actually process any more incoming messages, but still keep the process alive
         await this.batchConsumer?.stop()
 
-        // Simulate a revoke command to try and flush all sessions
-        // There is a race between the revoke callback and this function - Either way one of them gets there and covers the revocations
+        void this.scheduleWork(
+            Promise.allSettled(
+                Object.entries(this.sessions).map(([key, sessionManager]) => this.destroySession(key, sessionManager))
+            )
+        )
+
         // void this.scheduleWork(this.replayEventsIngester.stop())
         // void this.scheduleWork(this.consoleLogsIngester.stop())
 
