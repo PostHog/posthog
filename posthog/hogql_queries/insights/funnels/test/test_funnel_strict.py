@@ -12,10 +12,10 @@ from posthog.hogql_queries.insights.funnels.test.breakdown_cases import (
     funnel_breakdown_group_test_factory,
     assert_funnel_results_equal,
 )
+from posthog.hogql_queries.insights.funnels.test.test_funnel_persons import get_actors
 from posthog.hogql_queries.legacy_compatibility.filter_to_query import filter_to_query
 from posthog.models.action import Action
 from posthog.models.action_step import ActionStep
-from posthog.models.filters import Filter
 from posthog.models.instance_setting import override_instance_config
 from posthog.queries.funnels.funnel_strict_persons import ClickhouseFunnelStrictActors
 from posthog.schema import FunnelsQuery
@@ -200,12 +200,9 @@ class TestFunnelStrictStepsConversionTime(
 class TestFunnelStrictSteps(ClickhouseTestMixin, APIBaseTest):
     maxDiff = None
 
-    def _get_actor_ids_at_step(self, filter, funnel_step, breakdown_value=None):
-        filter = Filter(data=filter, team=self.team)
-        person_filter = filter.shallow_clone({"funnel_step": funnel_step, "funnel_step_breakdown": breakdown_value})
-        _, serialized_result, _ = ClickhouseFunnelStrictActors(person_filter, self.team).get_actors()
-
-        return [val["id"] for val in serialized_result]
+    def _get_actor_ids_at_step(self, filters, funnelStep, funnelStepBreakdown=None):
+        results = get_actors(filters, self.team, funnelStep=funnelStep, funnelStepBreakdown=funnelStepBreakdown)
+        return [val[0]["id"] for val in results]
 
     def test_basic_strict_funnel(self):
         filters = {
