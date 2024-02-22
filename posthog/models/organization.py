@@ -156,13 +156,6 @@ class Organization(UUIDModel):
     __repr__ = sane_repr("name")
 
     @property
-    def merged_trust_scores(self):
-        merged_scores = self.trusted_customer_scores
-        for key, value in self.trusted_customer_score_overrides.items():
-            merged_scores[key] = value
-        return merged_scores
-
-    @property
     def _billing_plan_details(self) -> Tuple[Optional[str], Optional[str]]:
         """
         Obtains details on the billing plan for the organization.
