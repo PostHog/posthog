@@ -81,7 +81,7 @@ function OnboardingNotCompletedButton({
 }
 
 export function getProductIcon(iconKey?: string | null, className?: string): JSX.Element {
-    return Icons[iconKey || 'IconLogomark']({ className })
+    return Icons[iconKey || 'IconLogomark'].render({ className })
 }
 
 export function ProductCard({

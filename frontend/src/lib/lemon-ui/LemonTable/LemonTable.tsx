@@ -341,7 +341,6 @@ export function LemonTable<T extends Record<string, any>>({
                                                                             : null
                                                                     }
                                                                 />
-                                                                {/* this non-breaking space lets antd's tooltip work*/}{' '}
                                                             </Tooltip>
                                                         )}
                                                     </div>

@@ -213,12 +213,12 @@ export function Billing(): JSX.Element {
                                                                       )}`
                                                                     : null
                                                             }
-                                                            placement="bottomLeft"
+                                                            placement="bottom-start"
                                                         >
                                                             <strong>
                                                                 $
                                                                 {parseInt(billing.discount_amount_usd).toLocaleString()}
-                                                            </strong>{' '}
+                                                            </strong>
                                                         </Tooltip>
                                                         remaining credits applied to your bill.
                                                     </p>

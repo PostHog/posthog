@@ -235,7 +235,9 @@ export const PlanComparison = ({
                                 i == fullyFeaturedPlan?.features?.length - 1 && 'PlanTable__th__last-feature'
                             )}
                         >
-                            <Tooltip title={feature.description}>{feature.name}</Tooltip>
+                            <Tooltip title={feature.description}>
+                                <span>{feature.name}</span>
+                            </Tooltip>
                         </th>
                         {plans?.map((plan) => (
                             <td key={`${plan.plan_key}-${feature.key}`}>
@@ -255,7 +257,7 @@ export const PlanComparison = ({
                             <th colSpan={1} className="PlanTable__th__section rounded text-left">
                                 <h3 className="mt-6 mb-2">
                                     <Tooltip title="Organizations with any paid subscription get access to additional features.">
-                                        Included platform features:
+                                        <span>Included platform features:</span>
                                     </Tooltip>
                                 </h3>
                             </th>
@@ -298,7 +300,9 @@ export const PlanComparison = ({
                                                             : ''
                                                     )}
                                                 >
-                                                    <Tooltip title={feature.description}>{feature.name}</Tooltip>
+                                                    <Tooltip title={feature.description}>
+                                                        <span>{feature.name}</span>
+                                                    </Tooltip>
                                                 </th>
                                                 {includedProduct.plans?.map((plan) => (
                                                     <React.Fragment key={`${plan.plan_key}-${feature.key}`}>

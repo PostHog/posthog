@@ -63,7 +63,9 @@ export const LemonTextAreaMarkdown = React.forwardRef<HTMLTextAreaElement, Lemon
                                 ) : (
                                     <div className="text-muted inline-flex items-center space-x-1">
                                         <Tooltip title="Enable object storage to add images by dragging and dropping.">
-                                            <IconTools className="text-xl mr-1" />
+                                            <span>
+                                                <IconTools className="text-xl mr-1" />
+                                            </span>
                                         </Tooltip>
                                         <span>
                                             Add external images using{' '}

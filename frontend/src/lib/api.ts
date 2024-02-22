@@ -998,6 +998,12 @@ const api = {
             return new ApiRequest().exports(teamId).withQueryString(toParams(params)).create({ data })
         },
 
+        async list(
+            teamId: TeamType['id'] = ApiConfig.getCurrentTeamId()
+        ): Promise<PaginatedResponse<ExportedAssetType>> {
+            return new ApiRequest().exports(teamId).get()
+        },
+
         async get(id: number, teamId: TeamType['id'] = ApiConfig.getCurrentTeamId()): Promise<ExportedAssetType> {
             return new ApiRequest().export(id, teamId).get()
         },

@@ -207,6 +207,7 @@ export const FEATURE_FLAGS = {
     SESSION_REPLAY_DOCTOR: 'session-replay-doctor', // owner: #team-replay
     REPLAY_SIMILAR_RECORDINGS: 'session-replay-similar-recordings', // owner: #team-replay
     SAVED_NOT_PINNED: 'saved-not-pinned', // owner: #team-replay
+    EXPORTS_SIDEPANEL: 'exports-sidepanel', // owner: #team-product-analytics
 } as const
 export type FeatureFlagKey = (typeof FEATURE_FLAGS)[keyof typeof FEATURE_FLAGS]
 

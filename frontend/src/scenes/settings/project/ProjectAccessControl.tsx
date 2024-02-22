@@ -1,10 +1,9 @@
-// eslint-disable-next-line no-restricted-imports
-import { CloseCircleOutlined, CrownFilled, LogoutOutlined } from '@ant-design/icons'
-import { IconLock, IconUnlock } from '@posthog/icons'
-import { LemonButton, LemonSelect, LemonSelectOption, LemonSwitch, LemonTable } from '@posthog/lemon-ui'
+import { IconCrown, IconLock, IconUnlock } from '@posthog/icons'
+import { LemonButton, LemonSelect, LemonSelectOption, LemonSnack, LemonSwitch, LemonTable } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { RestrictedArea, RestrictionScope, useRestrictedArea } from 'lib/components/RestrictedArea'
 import { OrganizationMembershipLevel, TeamMembershipLevel } from 'lib/constants'
+import { IconCancel, IconLogout } from 'lib/lemon-ui/icons'
 import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
 import { LemonTableColumns } from 'lib/lemon-ui/LemonTable'
 import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
@@ -51,11 +50,13 @@ function LevelComponent(member: FusedTeamMemberType): JSX.Element | null {
         ? `This user is a member of the project implicitly due to being an organization ${levelName}.`
         : getReasonForAccessLevelChangeProhibition(myMembershipLevel, user, member, allowedLevels)
 
-    const levelButton = disallowedReason ? (
-        <div className="border rounded px-3 py-2 flex inline-flex items-center">
-            {member.level === OrganizationMembershipLevel.Owner && <CrownFilled className="mr-2" />}
-            {levelName}
-        </div>
+    return disallowedReason ? (
+        <Tooltip title={disallowedReason}>
+            <LemonSnack className="capitalize">
+                {member.level === OrganizationMembershipLevel.Owner && <IconCrown className="mr-2" />}
+                {levelName}
+            </LemonSnack>
+        </Tooltip>
     ) : (
         <LemonSelect
             dropdownMatchSelectWidth={false}
@@ -78,8 +79,6 @@ function LevelComponent(member: FusedTeamMemberType): JSX.Element | null {
             value={member.explicit_team_level}
         />
     )
-
-    return disallowedReason ? <Tooltip title={disallowedReason}>{levelButton}</Tooltip> : levelButton
 }
 
 function ActionsComponent(member: FusedTeamMemberType): JSX.Element | null {
@@ -117,13 +116,16 @@ function ActionsComponent(member: FusedTeamMemberType): JSX.Element | null {
         // Only members without implicit access can leave or be removed
         member.organization_level < MINIMUM_IMPLICIT_ACCESS_LEVEL
 
+    const isSelf = member.user.uuid === user.uuid
+
     return allowDeletion ? (
-        <LemonButton status="danger" onClick={handleClick} data-attr="delete-team-membership">
-            {member.user.uuid !== user.uuid ? (
-                <CloseCircleOutlined title="Remove from project" />
-            ) : (
-                <LogoutOutlined title="Leave project" />
-            )}
+        <LemonButton
+            status="danger"
+            onClick={handleClick}
+            data-attr="delete-team-membership"
+            tooltip={isSelf ? 'Leave project' : 'Remove from project'}
+        >
+            {isSelf ? <IconLogout /> : <IconCancel />}
         </LemonButton>
     ) : null
 }
