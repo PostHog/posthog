@@ -786,12 +786,15 @@ export const dashboardLogic = kea<dashboardLogicType>([
         ],
     })),
     events(({ actions, cache, props }) => ({
+        propsChanged: () => {
+            if (props.id) {
+                actions.loadDashboardItems({ action: 'update' })
+            }
+        },
         afterMount: () => {
             if (props.id) {
                 if (props.dashboard) {
-                    // If we already have dashboard data, use it. Should the data turn out to be stale,
-                    // the loadDashboardItemsSuccess listener will initiate a refresh
-                    actions.loadDashboardItemsSuccess(props.dashboard)
+                    actions.loadDashboardItems({ action: 'update' })
                 } else {
                     actions.loadDashboardItems({
                         refresh: false,
