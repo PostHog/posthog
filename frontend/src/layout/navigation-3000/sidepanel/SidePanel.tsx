@@ -42,7 +42,7 @@ export const SIDE_PANEL_TABS: Record<
         Content: SidePanelSupport,
     },
     [SidePanelTab.Docs]: {
-        label: 'Docs (old)',
+        label: 'Docs',
         Icon: IconInfo,
         Content: SidePanelDocs,
         noModalSupport: true,
