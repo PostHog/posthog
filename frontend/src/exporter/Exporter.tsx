@@ -3,8 +3,8 @@ import './Exporter.scss'
 
 import clsx from 'clsx'
 import { useValues } from 'kea'
-import { use3000Body } from 'lib/hooks/use3000Body'
 import { useResizeObserver } from 'lib/hooks/useResizeObserver'
+import { useThemedBody } from 'lib/hooks/useThemedBody'
 import { Link } from 'lib/lemon-ui/Link'
 import { useEffect } from 'react'
 import { Dashboard } from 'scenes/dashboard/Dashboard'
@@ -34,7 +34,7 @@ export function Exporter(props: ExportedData): JSX.Element {
         window.parent?.postMessage({ event: 'posthog:dimensions', name: window.name, height, width }, '*')
     }, [height, width])
 
-    use3000Body()
+    useThemedBody()
 
     return (
         <div
