@@ -258,7 +258,7 @@ export const startBatchConsumer = async ({
 
                 // NOTE: we do not handle any retries. This should be handled by
                 // the implementation of `eachBatch`.
-                status.info('⏳', `Starting to process batch of ${messages.length} events...`, batchSummary)
+                status.debug('⏳', `Starting to process batch of ${messages.length} events...`, batchSummary)
                 await eachBatch(messages)
 
                 messagesProcessed += messages.length
@@ -271,7 +271,7 @@ export const startBatchConsumer = async ({
                 if (processingTimeMs > SLOW_BATCH_PROCESSING_LOG_THRESHOLD_MS) {
                     status.warn('🕒', `Slow batch: ${logSummary}`, batchSummary)
                 } else {
-                    status.info('⌛️', logSummary, batchSummary)
+                    status.debug('⌛️', logSummary, batchSummary)
                 }
 
                 if (autoCommit) {
