@@ -2,6 +2,7 @@ import { combineUrl } from 'kea-router'
 import { toParams } from 'lib/utils'
 
 import { ExportOptions } from '~/exporter/types'
+import { HogQLFilters } from '~/queries/schema'
 import {
     ActionType,
     AnnotationType,
@@ -77,14 +78,14 @@ export const urls = {
             ...(filters ? { filters } : {}),
             ...(query ? { q: typeof query === 'string' ? query : JSON.stringify(query) } : {}),
         }).url,
-    insightNewHogQL: (query: string): string =>
+    insightNewHogQL: (query: string, filters?: HogQLFilters): string =>
         urls.insightNew(
             undefined,
             undefined,
             JSON.stringify({
                 kind: 'DataTableNode',
                 full: true,
-                source: { kind: 'HogQLQuery', query },
+                source: { kind: 'HogQLQuery', query, filters },
             })
         ),
     insightEdit: (id: InsightShortId): string => `/insights/${id}/edit`,

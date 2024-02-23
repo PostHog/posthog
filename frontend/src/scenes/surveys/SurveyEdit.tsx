@@ -222,7 +222,7 @@ export default function SurveyEdit(): JSX.Element {
                                                                                       displayThankYouMessage: false,
                                                                                   })
                                                                               }}
-                                                                              tooltipPlacement="topRight"
+                                                                              tooltipPlacement="top-end"
                                                                           />
                                                                       </div>
                                                                   ),

@@ -471,24 +471,25 @@ export const BillingProduct = ({ product }: { product: BillingProductV2Type }): 
                                                         }amount you have been billed for this ${
                                                             billing?.billing_period?.interval
                                                         } so far.`}
-                                                        className="flex flex-col items-center"
                                                     >
-                                                        <div className="font-bold text-3xl leading-7">
-                                                            $
-                                                            {(
-                                                                parseFloat(product.current_amount_usd || '') *
-                                                                (1 -
-                                                                    (billing?.discount_percent
-                                                                        ? billing.discount_percent / 100
-                                                                        : 0))
-                                                            ).toFixed(2) || '0.00'}
+                                                        <div className="flex flex-col items-center">
+                                                            <div className="font-bold text-3xl leading-7">
+                                                                $
+                                                                {(
+                                                                    parseFloat(product.current_amount_usd || '') *
+                                                                    (1 -
+                                                                        (billing?.discount_percent
+                                                                            ? billing.discount_percent / 100
+                                                                            : 0))
+                                                                ).toFixed(2) || '0.00'}
+                                                            </div>
+                                                            <span className="text-xs text-muted">
+                                                                {capitalizeFirstLetter(
+                                                                    billing?.billing_period?.interval || ''
+                                                                )}
+                                                                -to-date
+                                                            </span>
                                                         </div>
-                                                        <span className="text-xs text-muted">
-                                                            {capitalizeFirstLetter(
-                                                                billing?.billing_period?.interval || ''
-                                                            )}
-                                                            -to-date
-                                                        </span>
                                                     </Tooltip>
                                                     {product.tiers && (
                                                         <Tooltip
@@ -497,19 +498,20 @@ export const BillingProduct = ({ product }: { product: BillingProductV2Type }): 
                                                                     ? ', discounts on your account,'
                                                                     : ''
                                                             } and the remaining time left in this billing period.`}
-                                                            className="flex flex-col items-center justify-end"
                                                         >
-                                                            <div className="font-bold text-muted text-lg leading-5">
-                                                                $
-                                                                {(
-                                                                    parseFloat(product.projected_amount_usd || '') *
-                                                                    (1 -
-                                                                        (billing?.discount_percent
-                                                                            ? billing.discount_percent / 100
-                                                                            : 0))
-                                                                ).toFixed(2) || '0.00'}
+                                                            <div className="flex flex-col items-center justify-end">
+                                                                <div className="font-bold text-muted text-lg leading-5">
+                                                                    $
+                                                                    {(
+                                                                        parseFloat(product.projected_amount_usd || '') *
+                                                                        (1 -
+                                                                            (billing?.discount_percent
+                                                                                ? billing.discount_percent / 100
+                                                                                : 0))
+                                                                    ).toFixed(2) || '0.00'}
+                                                                </div>
+                                                                <span className="text-xs text-muted">Projected</span>
                                                             </div>
-                                                            <span className="text-xs text-muted">Projected</span>
                                                         </Tooltip>
                                                     )}
                                                 </div>
@@ -519,14 +521,15 @@ export const BillingProduct = ({ product }: { product: BillingProductV2Type }): 
                                         <div className="my-8">
                                             <Tooltip
                                                 title={`The current amount you will be billed for this ${billing?.billing_period?.interval}.`}
-                                                className="flex flex-col items-center"
                                             >
-                                                <div className="font-bold text-3xl leading-7">
-                                                    ${product.current_amount_usd}
+                                                <div className="flex flex-col items-center">
+                                                    <div className="font-bold text-3xl leading-7">
+                                                        ${product.current_amount_usd}
+                                                    </div>
+                                                    <span className="text-xs text-muted">
+                                                        per {billing?.billing_period?.interval || 'period'}
+                                                    </span>
                                                 </div>
-                                                <span className="text-xs text-muted">
-                                                    per {billing?.billing_period?.interval || 'period'}
-                                                </span>
                                             </Tooltip>
                                         </div>
                                     ) : null}

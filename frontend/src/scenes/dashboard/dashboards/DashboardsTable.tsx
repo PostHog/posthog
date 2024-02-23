@@ -101,7 +101,9 @@ export function DashboardsTable({
                             )}
                             {isPrimary && (
                                 <Tooltip title="The primary dashboard is shown on the project home page.">
-                                    <IconCottage className="ml-1 text-base text-warning" />
+                                    <span>
+                                        <IconCottage className="ml-1 text-base text-warning" />
+                                    </span>
                                 </Tooltip>
                             )}
                         </div>

@@ -1,10 +1,10 @@
 import './index.scss'
 
+import { IconInfo } from '@posthog/icons'
 import { LemonBanner, Link } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { PageHeader } from 'lib/components/PageHeader'
 import { FEATURE_FLAGS } from 'lib/constants'
-import { IconInfo } from 'lib/lemon-ui/icons'
 import { LemonTab, LemonTabs } from 'lib/lemon-ui/LemonTabs'
 import { LemonTag } from 'lib/lemon-ui/LemonTag/LemonTag'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
@@ -36,8 +36,10 @@ export function SystemStatus(): JSX.Element {
         {
             key: 'overview',
             label: (
-                <Tooltip title={<>System overview is cached for 60 seconds</>}>
-                    System overview <IconInfo />
+                <Tooltip title="System overview is cached for 60 seconds">
+                    <span>
+                        System overview <IconInfo />
+                    </span>
                 </Tooltip>
             ),
             content: <OverviewTab />,

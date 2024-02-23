@@ -1220,6 +1220,14 @@ class HogQLQueryResponse(BaseModel):
     types: Optional[List] = Field(default=None, description="Types of returned columns")
 
 
+class InsightActorsQueryBase(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    includeRecordings: Optional[bool] = None
+    response: Optional[ActorsQueryResponse] = None
+
+
 class LifecycleFilter(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -2531,6 +2539,27 @@ class PathsQuery(BaseModel):
     samplingFactor: Optional[float] = Field(default=None, description="Sampling rate")
 
 
+class FunnelsActorsQuery(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    funnelCustomSteps: Optional[List[int]] = Field(
+        default=None, description="Custom step numbers to get persons for. This overrides `funnelStep`."
+    )
+    funnelStep: Optional[int] = Field(
+        default=None,
+        description="Index of the step for which we want to get the timestamp for, per person. Positive for converted persons, negative for dropped of persons.",
+    )
+    funnelStepBreakdown: Optional[Union[str, float, List[Union[str, float]]]] = Field(
+        default=None,
+        description="The breakdown value for which to get persons for. This is an array for person and event properties, a string for groups and an integer for cohorts.",
+    )
+    includeRecordings: Optional[bool] = None
+    kind: Literal["InsightActorsQuery"] = "InsightActorsQuery"
+    response: Optional[ActorsQueryResponse] = None
+    source: FunnelsQuery
+
+
 class InsightVizNode(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -2562,8 +2591,9 @@ class InsightActorsQuery(BaseModel):
     breakdown: Optional[Union[str, int]] = None
     compare: Optional[Compare] = None
     day: Optional[Union[str, int]] = None
+    includeRecordings: Optional[bool] = None
     interval: Optional[int] = Field(
-        default=None, description="An interval selected out of available intervals in source query"
+        default=None, description="An interval selected out of available intervals in source query."
     )
     kind: Literal["InsightActorsQuery"] = "InsightActorsQuery"
     response: Optional[ActorsQueryResponse] = None
@@ -2580,7 +2610,7 @@ class InsightActorsQueryOptions(BaseModel):
     )
     kind: Literal["InsightActorsQueryOptions"] = "InsightActorsQueryOptions"
     response: Optional[InsightActorsQueryOptionsResponse] = None
-    source: InsightActorsQuery
+    source: Union[InsightActorsQuery, FunnelsActorsQuery]
 
 
 class ActorsQuery(BaseModel):
@@ -2626,7 +2656,7 @@ class ActorsQuery(BaseModel):
     response: Optional[ActorsQueryResponse] = Field(default=None, description="Cached query response")
     search: Optional[str] = None
     select: Optional[List[str]] = None
-    source: Optional[Union[InsightActorsQuery, HogQLQuery]] = None
+    source: Optional[Union[InsightActorsQuery, FunnelsActorsQuery, HogQLQuery]] = None
 
 
 class DataTableNode(BaseModel):

@@ -798,7 +798,7 @@ Using the correct cache and enriching the response with dashboard specific confi
         operation_id="Trends",
         responses=TrendResultsSerializer,
     )
-    @action(methods=["GET", "POST"], detail=False)
+    @action(methods=["GET", "POST"], detail=False, required_scopes=["insight:read"])
     def trend(self, request: request.Request, *args: Any, **kwargs: Any):
         timings = HogQLTimings()
         try:
@@ -860,7 +860,7 @@ Using the correct cache and enriching the response with dashboard specific confi
             result = self.stickiness_query_class().run(stickiness_filter, team)
         else:
             trends_query = Trends()
-            result = trends_query.run(filter, team)
+            result = trends_query.run(filter, team, is_csv_export=bool(request.GET.get("is_csv_export", False)))
 
         return {"result": result, "timezone": team.timezone}
 
@@ -884,7 +884,7 @@ Using the correct cache and enriching the response with dashboard specific confi
         tags=["funnel"],
         operation_id="Funnels",
     )
-    @action(methods=["GET", "POST"], detail=False)
+    @action(methods=["GET", "POST"], detail=False, required_scopes=["insight:read"])
     def funnel(self, request: request.Request, *args: Any, **kwargs: Any) -> Response:
         timings = HogQLTimings()
         try:
@@ -926,7 +926,7 @@ Using the correct cache and enriching the response with dashboard specific confi
     # - start_entity: (dict) specifies id and type of the entity to focus retention on
     # - **shared filter types
     # ******************************************
-    @action(methods=["GET", "POST"], detail=False)
+    @action(methods=["GET", "POST"], detail=False, required_scopes=["insight:read"])
     def retention(self, request: request.Request, *args: Any, **kwargs: Any) -> Response:
         timings = HogQLTimings()
         try:
@@ -956,7 +956,7 @@ Using the correct cache and enriching the response with dashboard specific confi
     # - request_type: (string: $pageview, $autocapture, $screen, custom_event) specifies the path type
     # - **shared filter types
     # ******************************************
-    @action(methods=["GET", "POST"], detail=False)
+    @action(methods=["GET", "POST"], detail=False, required_scopes=["insight:read"])
     def path(self, request: request.Request, *args: Any, **kwargs: Any) -> Response:
         timings = HogQLTimings()
         try:
@@ -1001,7 +1001,7 @@ Using the correct cache and enriching the response with dashboard specific confi
         )
         return Response(status=status.HTTP_201_CREATED)
 
-    @action(methods=["GET"], url_path="activity", detail=False)
+    @action(methods=["GET"], url_path="activity", detail=False, required_scopes=["activity_log:read"])
     def all_activity(self, request: request.Request, **kwargs):
         limit = int(request.query_params.get("limit", "10"))
         page = int(request.query_params.get("page", "1"))
