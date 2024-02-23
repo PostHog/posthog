@@ -14,6 +14,7 @@ import {
 import {
     ActionsNode,
     BreakdownFilter,
+    DataWarehouseNode,
     EventsNode,
     FunnelExclusionActionsNode,
     FunnelExclusionEventsNode,
@@ -42,6 +43,7 @@ import {
     ActionFilter,
     AnyPropertyFilter,
     BaseMathType,
+    DataWarehouseFilter,
     FilterLogicalOperator,
     FilterType,
     FunnelExclusionLegacy,
@@ -75,16 +77,24 @@ const actorsOnlyMathTypes = [
     HogQLMathType.HogQL,
 ]
 
-type FilterTypeActionsAndEvents = { events?: ActionFilter[]; actions?: ActionFilter[]; new_entity?: ActionFilter[] }
+type FilterTypeActionsAndEvents = {
+    events?: ActionFilter[]
+    actions?: ActionFilter[]
+    data_warehouse?: DataWarehouseFilter[]
+    new_entity?: ActionFilter[]
+}
 
 export const legacyEntityToNode = (
-    entity: ActionFilter,
+    entity: ActionFilter | DataWarehouseFilter,
     includeProperties: boolean,
     mathAvailability: MathAvailability
-): EventsNode | ActionsNode => {
-    let shared: Partial<EventsNode | ActionsNode> = {
+): EventsNode | ActionsNode | DataWarehouseNode => {
+    let shared: Partial<EventsNode | ActionsNode | DataWarehouseNode> = {
         name: entity.name || undefined,
         custom_name: entity.custom_name || undefined,
+        id_field: entity.id_field || undefined,
+        timestamp_field: entity.timestamp_field || undefined,
+        table_name: entity.table_name || undefined,
     }
 
     if (includeProperties) {
@@ -116,6 +126,12 @@ export const legacyEntityToNode = (
             id: entity.id,
             ...shared,
         }) as any
+    } else if (entity.type === 'data_warehouse') {
+        return objectCleanWithEmpty({
+            kind: NodeKind.DataWarehouseNode,
+            id: entity.id,
+            ...shared,
+        }) as any
     } else {
         return objectCleanWithEmpty({
             kind: NodeKind.EventsNode,
@@ -137,11 +153,11 @@ export const exlusionEntityToNode = (
 }
 
 export const actionsAndEventsToSeries = (
-    { actions, events, new_entity }: FilterTypeActionsAndEvents,
+    { actions, events, data_warehouse, new_entity }: FilterTypeActionsAndEvents,
     includeProperties: boolean,
     includeMath: MathAvailability
-): (EventsNode | ActionsNode)[] => {
-    const series: any = [...(actions || []), ...(events || []), ...(new_entity || [])]
+): (EventsNode | ActionsNode | DataWarehouseNode)[] => {
+    const series: any = [...(actions || []), ...(events || []), ...(data_warehouse || []), ...(new_entity || [])]
         .sort((a, b) => (a.order || b.order ? (!a.order ? -1 : !b.order ? 1 : a.order - b.order) : 0))
         .map((f) => legacyEntityToNode(f, includeProperties, includeMath))
 
@@ -294,8 +310,12 @@ export const filtersToQueryNode = (filters: Partial<FilterType>): InsightQueryNo
             includeMath = MathAvailability.ActorsOnly
         }
 
-        const { events, actions } = filters
-        query.series = actionsAndEventsToSeries({ actions, events } as any, includeProperties, includeMath)
+        const { events, actions, data_warehouse } = filters
+        query.series = actionsAndEventsToSeries(
+            { actions, events, data_warehouse } as any,
+            includeProperties,
+            includeMath
+        )
         query.interval = filters.interval
     }
 

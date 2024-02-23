@@ -235,6 +235,9 @@ export function ActionFilterRow({
                     type: taxonomicFilterGroupTypeToEntityType(taxonomicGroupType) || undefined,
                     id: changedValue ? String(changedValue) : null,
                     name: item?.name ?? '',
+                    id_field: item?.id_field,
+                    timestamp_field: item?.timestamp_field,
+                    table_name: item?.name,
                     index,
                 })
             }}
@@ -635,6 +638,7 @@ function MathSelector(props: MathSelectorProps): JSX.Element {
 const taxonomicFilterGroupTypeToEntityTypeMapping: Partial<Record<TaxonomicFilterGroupType, EntityTypes>> = {
     [TaxonomicFilterGroupType.Events]: EntityTypes.EVENTS,
     [TaxonomicFilterGroupType.Actions]: EntityTypes.ACTIONS,
+    [TaxonomicFilterGroupType.DataWarehouse]: EntityTypes.DATA_WAREHOUSE,
 }
 
 export function taxonomicFilterGroupTypeToEntityType(

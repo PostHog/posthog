@@ -1685,6 +1685,7 @@ class DataWarehouseNode(BaseModel):
         default=None,
         description="Fixed properties in the query, can't be edited in the interface (e.g. scoping down by person)",
     )
+    id: str
     id_field: str
     kind: Literal["DataWarehouseNode"] = "DataWarehouseNode"
     math: Optional[
@@ -2876,6 +2877,7 @@ class QueryRequest(BaseModel):
     query: Union[
         EventsNode,
         ActionsNode,
+        DataWarehouseNode,
         PersonsNode,
         TimeToSeeDataSessionsQuery,
         EventsQuery,

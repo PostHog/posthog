@@ -3,7 +3,16 @@ import { convertPropertyGroupToProperties } from 'lib/components/PropertyFilters
 import { uuid } from 'lib/utils'
 import { eventUsageLogic, GraphSeriesAddedSource } from 'lib/utils/eventUsageLogic'
 
-import { ActionFilter, AnyPropertyFilter, Entity, EntityFilter, EntityType, EntityTypes, FilterType } from '~/types'
+import {
+    ActionFilter,
+    AnyPropertyFilter,
+    DataWarehouseFilter,
+    Entity,
+    EntityFilter,
+    EntityType,
+    EntityTypes,
+    FilterType,
+} from '~/types'
 
 import type { entityFilterLogicType } from './entityFilterLogicType'
 
@@ -14,7 +23,11 @@ export type LocalFilter = ActionFilter & {
 export type BareEntity = Pick<Entity, 'id' | 'name'>
 
 export function toLocalFilters(filters: Partial<FilterType>): LocalFilter[] {
-    const localFilters = [...(filters[EntityTypes.ACTIONS] || []), ...(filters[EntityTypes.EVENTS] || [])]
+    const localFilters = [
+        ...(filters[EntityTypes.ACTIONS] || []),
+        ...(filters[EntityTypes.EVENTS] || []),
+        ...(filters[EntityTypes.DATA_WAREHOUSE] || []),
+    ]
         .sort((a, b) => a.order - b.order)
         .map((filter, order) => ({ ...(filter as ActionFilter), order }))
     return localFilters.map((filter) =>
@@ -37,6 +50,7 @@ export function toFilters(localFilters: LocalFilter[]): FilterType {
     return {
         [EntityTypes.ACTIONS]: filters.filter((filter) => filter.type === EntityTypes.ACTIONS),
         [EntityTypes.EVENTS]: filters.filter((filter) => filter.type === EntityTypes.EVENTS),
+        [EntityTypes.DATA_WAREHOUSE]: filters.filter((filter) => filter.type === EntityTypes.DATA_WAREHOUSE),
     } as FilterType
 }
 
@@ -70,15 +84,18 @@ export const entityFilterLogic = kea<entityFilterLogicType>([
             math_group_type_index: filter.math_group_type_index,
         }),
         updateFilter: (
-            filter: EntityFilter & {
-                index: number
-            }
+            filter:
+                | (EntityFilter & {
+                      index: number
+                  })
+                | (ActionFilter & {
+                      index: number
+                  })
+                | (DataWarehouseFilter & {
+                      index: number
+                  })
         ) => ({
-            type: filter.type,
-            index: filter.index,
-            id: filter.id,
-            name: filter.name,
-            custom_name: filter.custom_name,
+            ...filter,
         }),
         renameFilter: (custom_name: string) => ({ custom_name }),
         removeLocalFilter: (
@@ -161,7 +178,7 @@ export const entityFilterLogic = kea<entityFilterLogicType>([
         hideModal: () => {
             actions.selectFilter(null)
         },
-        updateFilter: async ({ type, index, name, id, custom_name }) => {
+        updateFilter: async ({ type, index, name, id, custom_name, id_field, timestamp_field, table_name }) => {
             actions.setFilters(
                 values.localFilters.map((filter, i) =>
                     i === index
@@ -171,6 +188,10 @@ export const entityFilterLogic = kea<entityFilterLogicType>([
                               name: typeof name === 'undefined' ? filter.name : name,
                               type: typeof type === 'undefined' ? filter.type : type,
                               custom_name: typeof custom_name === 'undefined' ? filter.custom_name : custom_name,
+                              id_field: typeof id_field === 'undefined' ? filter.id_field : id_field,
+                              timestamp_field:
+                                  typeof timestamp_field === 'undefined' ? filter.timestamp_field : timestamp_field,
+                              table_name: typeof table_name === 'undefined' ? filter.table_name : table_name,
                           }
                         : filter
                 )

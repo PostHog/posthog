@@ -917,6 +917,12 @@ export interface ActionFilter extends EntityFilter {
     days?: string[] // TODO: why was this added here?
 }
 
+export interface DataWarehouseFilter extends ActionFilter {
+    id_field: string
+    timestamp_field: string
+    table_name: string
+}
+
 export interface FunnelExclusionLegacy extends Partial<EntityFilter> {
     funnel_from_step: number
     funnel_to_step: number
@@ -1876,6 +1882,7 @@ export interface FilterType {
 
     events?: Record<string, any>[]
     actions?: Record<string, any>[]
+    data_warehouse?: Record<string, any>[]
     new_entity?: Record<string, any>[]
 
     // persons modal

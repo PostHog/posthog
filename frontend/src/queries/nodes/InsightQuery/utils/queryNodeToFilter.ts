@@ -120,12 +120,15 @@ export const queryNodeToFilter = (query: InsightQueryNode): Partial<FilterType> 
     })
 
     if (!isRetentionQuery(query) && !isPathsQuery(query)) {
-        const { actions, events, new_entity } = seriesToActionsAndEvents(query.series)
+        const { actions, events, data_warehouse, new_entity } = seriesToActionsAndEvents(query.series)
         if (actions.length > 0) {
             filters.actions = actions
         }
         if (events.length > 0) {
             filters.events = events
+        }
+        if (data_warehouse.length > 0) {
+            filters.data_warehouse = data_warehouse
         }
         if (new_entity.length > 0) {
             filters.new_entity = new_entity
