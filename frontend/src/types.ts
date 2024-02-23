@@ -1437,6 +1437,7 @@ export interface BillingV2PlanType {
     product_key: ProductKeyUnion
     current_plan?: any
     tiers?: BillingV2TierType[] | null
+    unit_amount_usd?: string
     included_if?: 'no_active_subscription' | 'has_subscription' | null
     initial_billing_limit?: number
     contact_support?: boolean

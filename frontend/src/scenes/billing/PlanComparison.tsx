@@ -15,6 +15,9 @@ import { BillingProductV2AddonType, BillingProductV2Type, BillingV2FeatureType, 
 
 import { convertLargeNumberToWords, getUpgradeProductLink } from './billing-utils'
 import { billingLogic } from './billingLogic'
+import { UNSUBSCRIBE_SURVEY_ID } from './BillingProduct'
+import { billingProductLogic } from './billingProductLogic'
+import { UnsubscribeSurveyModal } from './UnsubscribeSurveyModal'
 
 export function PlanIcon({
     feature,
@@ -105,7 +108,9 @@ export const PlanComparison = ({
     product: BillingProductV2Type
     includeAddons?: boolean
 }): JSX.Element | null => {
-    const plans = product.plans
+    const plans = product.plans?.filter(
+        (plan) => !plan.included_if || plan.included_if == 'has_subscription' || plan.current_plan
+    )
     if (plans?.length === 0) {
         return null
     }
@@ -113,25 +118,50 @@ export const PlanComparison = ({
     const { billing, redirectPath } = useValues(billingLogic)
     const { width, ref: planComparisonRef } = useResizeObserver()
     const { reportBillingUpgradeClicked } = useActions(eventUsageLogic)
+    const currentPlanIndex = plans.findIndex((plan) => plan.current_plan)
+    const { surveyID } = useValues(billingProductLogic({ product }))
+    const { reportSurveyShown, setSurveyResponse } = useActions(billingProductLogic({ product }))
 
-    const upgradeButtons = plans?.map((plan) => {
+    const upgradeButtons = plans?.map((plan, i) => {
         return (
             <td key={`${plan.plan_key}-cta`} className="PlanTable__td__upgradeButton">
                 <LemonButton
-                    to={getUpgradeProductLink(product, plan.plan_key || '', redirectPath, includeAddons)}
-                    type={plan.current_plan ? 'secondary' : 'primary'}
+                    to={
+                        plan.contact_support
+                            ? 'mailto:sales@posthog.com?subject=Enterprise%20plan%20request'
+                            : getUpgradeProductLink(product, plan.plan_key || '', redirectPath, includeAddons)
+                    }
+                    type={plan.current_plan || i < currentPlanIndex ? 'secondary' : 'primary'}
                     status={plan.current_plan ? 'default' : 'alt'}
                     fullWidth
                     center
-                    disableClientSideRouting
-                    disabled={plan.current_plan}
+                    disableClientSideRouting={!plan.contact_support}
+                    disabled={plan.current_plan || plan.included_if == 'has_subscription'}
+                    disabledReason={
+                        plan.included_if == 'has_subscription'
+                            ? billing?.has_active_subscription
+                                ? 'Unsubscribe from all products to remove'
+                                : 'Subscribe to any product for access'
+                            : undefined
+                    }
                     onClick={() => {
                         if (!plan.current_plan) {
+                            // TODO: add current plan key and new plan key
                             reportBillingUpgradeClicked(product.type)
+                        }
+                        if (plan.included_if == 'has_subscription' && !plan.current_plan && i < currentPlanIndex) {
+                            setSurveyResponse(product.type, '$survey_response_1')
+                            reportSurveyShown(UNSUBSCRIBE_SURVEY_ID, product.type)
                         }
                     }}
                 >
-                    {plan.current_plan ? 'Current plan' : 'Subscribe'}
+                    {plan.current_plan
+                        ? 'Current plan'
+                        : i < currentPlanIndex
+                        ? 'Downgrade'
+                        : plan.contact_support
+                        ? 'Get in touch'
+                        : 'Subscribe'}
                 </LemonButton>
                 {!plan.current_plan && !plan.free_allocation && includeAddons && product.addons?.length > 0 && (
                     <p className="text-center ml-0 mt-2 mb-0">
@@ -155,33 +185,43 @@ export const PlanComparison = ({
                     <td />
                     {plans?.map((plan) => (
                         <td key={`plan-type-${plan.plan_key}`}>
-                            <h3 className="font-bold">{plan.free_allocation && !plan.tiers ? 'Free' : 'Paid'}</h3>
+                            <h3 className="font-bold">{plan.name}</h3>
                         </td>
                     ))}
                 </tr>
             </thead>
             <tbody>
                 <tr className="PlanTable__tr__border">
-                    <td className="font-bold">Monthly base price</td>
+                    <td className="font-bold">Monthly {product.tiered && 'base '} price</td>
                     {plans?.map((plan) => (
                         <td key={`${plan.plan_key}-basePrice`} className="text-sm font-bold">
-                            {plan.free_allocation && !plan.tiers ? 'Free forever' : '$0 per month'}
+                            {plan.free_allocation && !plan.tiers
+                                ? 'Free forever'
+                                : plan.unit_amount_usd
+                                ? `$${parseFloat(plan.unit_amount_usd).toFixed(0)} per month`
+                                : plan.contact_support
+                                ? 'Custom'
+                                : plan.included_if == 'has_subscription'
+                                ? 'Free, included with any product subscription'
+                                : '$0 per month'}
                         </td>
                     ))}
                 </tr>
-                <tr className="PlanTable__tr__border">
-                    <th scope="row">
-                        {includeAddons && product.addons?.length > 0 && (
-                            <p className="ml-0">
-                                <span className="font-bold">{product.name}</span>
-                            </p>
-                        )}
-                        <p className="ml-0 text-xs mt-1">Priced per {product.unit}</p>
-                    </th>
-                    {plans?.map((plan) => (
-                        <td key={`${plan.plan_key}-tiers-td`}>{getProductTiers(plan, product)}</td>
-                    ))}
-                </tr>
+                {product.tiered && (
+                    <tr className="PlanTable__tr__border">
+                        <th scope="row">
+                            {includeAddons && product.addons?.length > 0 && (
+                                <p className="ml-0">
+                                    <span className="font-bold">{product.name}</span>
+                                </p>
+                            )}
+                            <p className="ml-0 text-xs mt-1">Priced per {product.unit}</p>
+                        </th>
+                        {plans?.map((plan) => (
+                            <td key={`${plan.plan_key}-tiers-td`}>{getProductTiers(plan, product)}</td>
+                        ))}
+                    </tr>
+                )}
                 {includeAddons &&
                     product.addons?.map((addon) => {
                         return addon.tiered ? (
@@ -329,6 +369,7 @@ export const PlanComparison = ({
                     </>
                 )}
             </tbody>
+            {surveyID && <UnsubscribeSurveyModal product={product} />}
         </table>
     )
 }
