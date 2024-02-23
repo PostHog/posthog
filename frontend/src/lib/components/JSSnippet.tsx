@@ -1,6 +1,6 @@
 import { useValues } from 'kea'
 import { CodeSnippet, Language } from 'lib/components/CodeSnippet'
-import { apiHostOrigin } from 'lib/utils/apiHost'
+import { apiHostOrigin, assetHostOrigin } from 'lib/utils/apiHost'
 import { teamLogic } from 'scenes/teamLogic'
 
 export function JSSnippet(): JSX.Element {
