@@ -1,5 +1,6 @@
-import { LemonButton, LemonModal, Link } from '@posthog/lemon-ui'
+import { LemonButton, LemonCheckbox, LemonModal, Link } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
+import { useState } from 'react'
 import { personDeleteModalLogic } from 'scenes/persons/personDeleteModalLogic'
 
 import { PersonType } from '~/types'
@@ -8,6 +9,7 @@ import { asDisplay } from './person-utils'
 
 export function PersonDeleteModal(): JSX.Element | null {
     const { personDeleteModal } = useValues(personDeleteModalLogic)
+    const [isDeletionConfirmed, setIsDeletionConfirmed] = useState(false)
     const { deletePerson, showPersonDeleteModal } = useActions(personDeleteModalLogic)
 
     return (
@@ -29,6 +31,11 @@ export function PersonDeleteModal(): JSX.Element | null {
                             Learn more
                         </Link>
                     </p>
+                    <LemonCheckbox
+                        onChange={(value) => setIsDeletionConfirmed(value)}
+                        className="mt-3"
+                        label="I understand that re-using the same distinct_id will result in a bad state."
+                    />
                 </>
             }
             footer={
@@ -37,6 +44,7 @@ export function PersonDeleteModal(): JSX.Element | null {
                         status="danger"
                         type="tertiary"
                         onClick={() => deletePerson(personDeleteModal as PersonType, true)}
+                        disabled={!isDeletionConfirmed}
                         data-attr="delete-person-with-events"
                     >
                         Delete person and all corresponding events
@@ -52,6 +60,7 @@ export function PersonDeleteModal(): JSX.Element | null {
                         type="secondary"
                         status="danger"
                         onClick={() => deletePerson(personDeleteModal as PersonType, false)}
+                        disabled={!isDeletionConfirmed}
                         data-attr="delete-person-no-events"
                     >
                         Delete person
