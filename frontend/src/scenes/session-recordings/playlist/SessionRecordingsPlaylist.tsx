@@ -114,6 +114,7 @@ function PinnedRecordingsList(): JSX.Element | null {
 function RecordingsLists(): JSX.Element {
     const {
         filters,
+        simpleFilters,
         hasNext,
         pinnedRecordings,
         otherRecordings,
@@ -124,7 +125,6 @@ function RecordingsLists(): JSX.Element {
         totalFiltersCount,
         sessionRecordingsAPIErrored,
         unusableEventsInFilter,
-        filterMode,
         logicProps,
         showOtherRecordings,
         recordingsCount,
@@ -134,11 +134,11 @@ function RecordingsLists(): JSX.Element {
     const {
         setSelectedRecordingId,
         setFilters,
+        setSimpleFilters,
         maybeLoadSessionRecordings,
         setShowFilters,
         setShowSettings,
         resetFilters,
-        setFilterMode,
         toggleShowOtherRecordings,
         summarizeSession,
     } = useActions(sessionRecordingsPlaylistLogic)
@@ -246,11 +246,11 @@ function RecordingsLists(): JSX.Element {
                     <div className="bg-side border-b">
                         <SessionRecordingsFilters
                             filters={filters}
+                            simpleFilters={simpleFilters}
                             setFilters={setFilters}
+                            setSimpleFilters={setSimpleFilters}
                             showPropertyFilters={!logicProps.personUUID}
                             onReset={resetFilters}
-                            filterMode={filterMode}
-                            setFilterMode={setFilterMode}
                         />
                     </div>
                 ) : showSettings ? (

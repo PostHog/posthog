@@ -1,4 +1,4 @@
-import { IconPlus, IconPlusSmall } from '@posthog/icons'
+import { IconPlus } from '@posthog/icons'
 import { LemonButton, LemonMenu } from '@posthog/lemon-ui'
 import { useValues } from 'kea'
 import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
@@ -14,13 +14,11 @@ export const SimpleSessionRecordingsFilters = ({
     setFilters,
     localFilters,
     setLocalFilters,
-    onClickAdvancedFilters,
 }: {
     filters: RecordingFilters
     setFilters: (filters: RecordingFilters) => void
     localFilters: FilterType
     setLocalFilters: (localFilters: FilterType) => void
-    onClickAdvancedFilters: () => void
 }): JSX.Element => {
     const { currentTeam } = useValues(teamLogic)
 
@@ -132,24 +130,20 @@ export const SimpleSessionRecordingsFilters = ({
                         {
                             title: 'Preferred properties',
                             items: items,
-                            footer: (
-                                <LemonButton
-                                    size="xsmall"
-                                    icon={<IconPlusSmall className="text-primary" />}
-                                    to={urls.settings('project-product-analytics', 'person-display-name')}
-                                >
-                                    <span className="text-primary">
-                                        {displayNameProperties.length === 0 ? 'Add' : 'Edit'} person display properties
-                                    </span>
-                                </LemonButton>
-                            ),
                         },
                         {
-                            items: [{ label: 'Switch to advanced filters', onClick: onClickAdvancedFilters }],
+                            items: [
+                                {
+                                    label: `${
+                                        displayNameProperties.length === 0 ? 'Add' : 'Edit'
+                                    } person display properties`,
+                                    to: urls.settings('project-product-analytics', 'person-display-name'),
+                                },
+                            ],
                         },
                     ]}
                 >
-                    <LemonButton size="small" type="secondary" icon={<IconPlus />} />
+                    <LemonButton size="small" icon={<IconPlus />} />
                 </LemonMenu>
             </div>
         </div>

@@ -5,48 +5,32 @@ import { useEffect, useState } from 'react'
 
 import { EntityTypes, FilterType, LocalRecordingFilters, RecordingFilters } from '~/types'
 
-import { SessionFilterMode } from '../player/playerSettingsLogic'
 import { AdvancedSessionRecordingsFilters } from './AdvancedSessionRecordingsFilters'
 import { SimpleSessionRecordingsFilters } from './SimpleSessionRecordingsFilters'
 
 interface SessionRecordingsFiltersProps {
     filters: RecordingFilters
+    simpleFilters: RecordingFilters
     setFilters: (filters: RecordingFilters) => void
+    setSimpleFilters: (filters: RecordingFilters) => void
     showPropertyFilters?: boolean
     onReset?: () => void
-    filterMode: SessionFilterMode
-    setFilterMode: (mode: SessionFilterMode) => void
 }
 
 const filtersToLocalFilters = (filters: RecordingFilters): LocalRecordingFilters => {
-    if (filters.actions?.length || filters.events?.length) {
-        return {
-            actions: filters.actions,
-            events: filters.events,
-        }
-    }
-
     return {
-        actions: [],
-        events: [],
-        new_entity: [
-            {
-                id: 'empty',
-                type: EntityTypes.EVENTS,
-                order: 0,
-                name: 'empty',
-            },
-        ],
+        actions: filters.actions || [],
+        events: filters.events || [],
     }
 }
 
 export function SessionRecordingsFilters({
     filters,
+    simpleFilters,
     setFilters,
+    setSimpleFilters,
     showPropertyFilters,
     onReset,
-    filterMode,
-    setFilterMode,
 }: SessionRecordingsFiltersProps): JSX.Element {
     const [localFilters, setLocalFilters] = useState<FilterType>(filtersToLocalFilters(filters))
 
@@ -69,46 +53,35 @@ export function SessionRecordingsFilters({
     }, [filters])
 
     return (
-        <div className="relative flex flex-col p-3">
-            <div className="space-y-1">
+        <div className="relative flex flex-col">
+            <div className="space-y-1 p-3">
                 <div className="flex justify-between">
                     <LemonLabel>Find sessions:</LemonLabel>
 
-                    {filterMode === 'advanced' && onReset && (
+                    {onReset && (
                         <span className="absolute top-2 right-2">
-                            <LemonButton
-                                size="small"
-                                onClick={() => {
-                                    onReset()
-                                    setFilterMode('simple')
-                                }}
-                            >
+                            <LemonButton size="small" onClick={onReset}>
                                 Reset
                             </LemonButton>
                         </span>
                     )}
                 </div>
-            </div>
 
-            {filterMode === 'advanced' ? (
-                <AdvancedSessionRecordingsFilters
-                    filters={filters}
-                    setFilters={setFilters}
+                <SimpleSessionRecordingsFilters
+                    filters={simpleFilters}
+                    setFilters={setSimpleFilters}
                     localFilters={localFilters}
                     setLocalFilters={setLocalFilters}
-                    showPropertyFilters={showPropertyFilters}
                 />
-            ) : (
-                <div className="space-y-2">
-                    <SimpleSessionRecordingsFilters
-                        filters={filters}
-                        setFilters={setFilters}
-                        localFilters={localFilters}
-                        setLocalFilters={setLocalFilters}
-                        onClickAdvancedFilters={() => setFilterMode('advanced')}
-                    />
-                </div>
-            )}
+            </div>
+
+            <AdvancedSessionRecordingsFilters
+                filters={filters}
+                setFilters={setFilters}
+                localFilters={localFilters}
+                setLocalFilters={setLocalFilters}
+                showPropertyFilters={showPropertyFilters}
+            />
         </div>
     )
 }

@@ -16,19 +16,19 @@ import { SessionRecordingsPlaylist } from 'scenes/session-recordings/playlist/Se
 import { sessionRecordingPlayerLogic } from 'scenes/session-recordings/player/sessionRecordingPlayerLogic'
 import { IconComment } from 'lib/lemon-ui/icons'
 import { sessionRecordingPlayerLogicType } from 'scenes/session-recordings/player/sessionRecordingPlayerLogicType'
-import { SessionFilterMode } from 'scenes/session-recordings/player/playerSettingsLogic'
 
 const Component = ({
     attributes,
     updateAttributes,
 }: NotebookNodeProps<NotebookNodePlaylistAttributes>): JSX.Element => {
-    const { filters, pinned, nodeId } = attributes
+    const { filters, simpleFilters, pinned, nodeId } = attributes
     const playerKey = `notebook-${nodeId}`
 
     const recordingPlaylistLogicProps: SessionRecordingPlaylistLogicProps = useMemo(
         () => ({
             logicKey: playerKey,
             filters,
+            simpleFilters,
             updateSearchParams: false,
             autoPlay: false,
             onFiltersChange: (newFilters: RecordingFilters) => {
@@ -117,16 +117,16 @@ export const Settings = ({
     attributes,
     updateAttributes,
 }: NotebookNodeAttributeProperties<NotebookNodePlaylistAttributes>): JSX.Element => {
-    const { filters, filterMode } = attributes
+    const { filters, simpleFilters } = attributes
     const defaultFilters = getDefaultFilters()
 
     return (
         <ErrorBoundary>
             <SessionRecordingsFilters
                 filters={{ ...defaultFilters, ...filters }}
+                simpleFilters={simpleFilters ?? {}}
                 setFilters={(filters) => updateAttributes({ filters })}
-                filterMode={filterMode ?? 'advanced'}
-                setFilterMode={(filterMode) => updateAttributes({ filterMode })}
+                setSimpleFilters={(simpleFilters) => updateAttributes({ simpleFilters })}
                 showPropertyFilters
                 onReset={() => updateAttributes({ filters: undefined })}
             />
@@ -135,8 +135,8 @@ export const Settings = ({
 }
 
 type NotebookNodePlaylistAttributes = {
-    filterMode?: SessionFilterMode
     filters: RecordingFilters
+    simpleFilters?: RecordingFilters
     pinned?: string[]
 }
 
@@ -155,11 +155,11 @@ export const NotebookNodePlaylist = createPostHogWidgetNode<NotebookNodePlaylist
         filters: {
             default: undefined,
         },
+        simpleFilters: {
+            default: {},
+        },
         pinned: {
             default: undefined,
-        },
-        filterMode: {
-            default: 'advanced',
         },
     },
     pasteOptions: {

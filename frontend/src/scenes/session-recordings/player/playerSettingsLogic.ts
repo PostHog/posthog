@@ -15,8 +15,6 @@ export type SharedListMiniFilter = {
     enabled?: boolean
 }
 
-export type SessionFilterMode = 'simple' | 'advanced'
-
 const MiniFilters: SharedListMiniFilter[] = [
     {
         tab: SessionRecordingPlayerTab.ALL,
@@ -175,7 +173,6 @@ export const playerSettingsLogic = kea<playerSettingsLogicType>([
     actions({
         setSkipInactivitySetting: (skipInactivitySetting: boolean) => ({ skipInactivitySetting }),
         setSpeed: (speed: number) => ({ speed }),
-        setFilterMode: (mode: SessionFilterMode) => ({ mode }),
         setShowOnlyMatching: (showOnlyMatching: boolean) => ({ showOnlyMatching }),
         setHideViewedRecordings: (hideViewedRecordings: boolean) => ({ hideViewedRecordings }),
         toggleAutoplayDirection: true,
@@ -196,13 +193,6 @@ export const playerSettingsLogic = kea<playerSettingsLogicType>([
             },
             {
                 setShowFilters: (_, { showFilters }) => showFilters,
-            },
-        ],
-        filterMode: [
-            'simple' as SessionFilterMode,
-            { persist: true },
-            {
-                setFilterMode: (_, { mode }) => mode,
             },
         ],
         durationTypeToShow: [
