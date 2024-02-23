@@ -56,30 +56,37 @@ export const TARGET_AREA_TO_NAME = [
         options: [
             {
                 value: 'apps',
+                'data-attr': `support-form-target-area-apps`,
                 label: 'Apps',
             },
             {
                 value: 'login',
+                'data-attr': `support-form-target-area-login`,
                 label: 'Authentication (incl. login, sign-up, invites)',
             },
             {
                 value: 'billing',
+                'data-attr': `support-form-target-area-billing`,
                 label: 'Billing',
             },
             {
                 value: 'onboarding',
+                'data-attr': `support-form-target-area-onboarding`,
                 label: 'Onboarding',
             },
             {
                 value: 'cohorts',
+                'data-attr': `support-form-target-area-cohorts`,
                 label: 'Cohorts',
             },
             {
                 value: 'data_management',
+                'data-attr': `support-form-target-area-data_management`,
                 label: 'Data management (incl. events, actions, properties)',
             },
             {
                 value: 'notebooks',
+                'data-attr': `support-form-target-area-notebooks`,
                 label: 'Notebooks',
             },
         ],
@@ -89,34 +96,42 @@ export const TARGET_AREA_TO_NAME = [
         options: [
             {
                 value: 'experiments',
+                'data-attr': `support-form-target-area-experiments`,
                 label: 'A/B Testing',
             },
             {
                 value: 'data_warehouse',
+                'data-attr': `support-form-target-area-data_warehouse`,
                 label: 'Data Warehouse (beta)',
             },
             {
                 value: 'feature_flags',
+                'data-attr': `support-form-target-area-feature_flags`,
                 label: 'Feature Flags',
             },
             {
                 value: 'analytics',
+                'data-attr': `support-form-target-area-analytics`,
                 label: 'Product Analytics (incl. insights, dashboards, annotations)',
             },
             {
                 value: 'session_replay',
+                'data-attr': `support-form-target-area-session_replay`,
                 label: 'Session Replay (incl. recordings)',
             },
             {
                 value: 'toolbar',
+                'data-attr': `support-form-target-area-toolbar`,
                 label: 'Toolbar & Heatmaps',
             },
             {
                 value: 'surveys',
+                'data-attr': `support-form-target-area-surveys`,
                 label: 'Surveys',
             },
             {
                 value: 'web_analytics',
+                'data-attr': `support-form-target-area-web_analytics`,
                 label: 'Web Analytics (beta)',
             },
         ],
