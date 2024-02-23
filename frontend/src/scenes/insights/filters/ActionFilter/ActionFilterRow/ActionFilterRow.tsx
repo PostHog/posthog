@@ -136,7 +136,11 @@ export function ActionFilterRow({
     customRowSuffix,
     hasBreakdown,
     showNestedArrow = false,
-    actionsTaxonomicGroupTypes = [TaxonomicFilterGroupType.Events, TaxonomicFilterGroupType.Actions],
+    actionsTaxonomicGroupTypes = [
+        TaxonomicFilterGroupType.Events,
+        TaxonomicFilterGroupType.Actions,
+        TaxonomicFilterGroupType.DataWarehouse,
+    ],
     propertiesTaxonomicGroupTypes,
     disabled = false,
     readOnly = false,

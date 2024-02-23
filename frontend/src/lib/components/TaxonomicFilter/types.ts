@@ -1,5 +1,6 @@
 import Fuse from 'fuse.js'
 import { LogicWrapper } from 'kea'
+import { DataWarehouseTableType } from 'scenes/data-warehouse/types'
 
 import { AnyDataNode } from '~/queries/schema'
 import {
@@ -127,4 +128,10 @@ export type ListFuse = Fuse<{
     item: EventDefinition | CohortType
 }> // local alias for typegen
 
-export type TaxonomicDefinitionTypes = EventDefinition | PropertyDefinition | CohortType | ActionType | PersonProperty
+export type TaxonomicDefinitionTypes =
+    | EventDefinition
+    | PropertyDefinition
+    | CohortType
+    | ActionType
+    | PersonProperty
+    | DataWarehouseTableType
