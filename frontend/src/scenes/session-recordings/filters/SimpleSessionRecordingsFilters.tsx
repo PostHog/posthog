@@ -139,7 +139,9 @@ export const SimpleSessionRecordingsFilters = ({
                         },
                     ]}
                 >
-                    <LemonButton size="small" icon={<IconPlus />} />
+                    <LemonButton size="small" type="secondary" icon={<IconPlus />}>
+                        Add property
+                    </LemonButton>
                 </LemonMenu>
             </div>
         </div>
