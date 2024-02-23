@@ -80,8 +80,8 @@ describe('session-manager', () => {
         expect(sessionManager.buffer?.context).toEqual({
             sizeEstimate: 193,
             count: 1,
-            eventsRange: { firstTimestamp: 1527202800000, lastTimestamp: 1527202801000 },
-            createdAt: 1527202800000,
+            eventsRange: { firstTimestamp: timestamp, lastTimestamp: timestamp + 1000 },
+            createdAt: timestamp,
         })
 
         const stats = await fs.stat(`${sessionManager.context.dir}/buffer.jsonl`)
