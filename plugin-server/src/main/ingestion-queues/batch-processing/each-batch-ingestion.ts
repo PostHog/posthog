@@ -7,7 +7,7 @@ import { formPipelineEvent } from '../../../utils/event'
 import { retryIfRetriable } from '../../../utils/retries'
 import { status } from '../../../utils/status'
 import { ConfiguredLimiter, LoggingLimiter, OverflowWarningLimiter } from '../../../utils/token-bucket'
-import { runEventPipeline } from '../../../worker/ingestion/event-pipeline/runner'
+import { EventPipelineRunner } from '../../../worker/ingestion/event-pipeline/runner'
 import { captureIngestionWarning } from '../../../worker/ingestion/utils'
 import { ingestionPartitionKeyOverflowed } from '../analytics-events-ingestion-consumer'
 import { IngestionConsumer } from '../kafka-queue'
@@ -156,7 +156,8 @@ export async function eachBatchParallelIngestion(
                 for (const { message, pluginEvent } of currentBatch) {
                     try {
                         const result = (await retryIfRetriable(async () => {
-                            return await runEventPipeline(queue.pluginsServer, pluginEvent)
+                            const runner = new EventPipelineRunner(queue.pluginsServer, pluginEvent)
+                            return await runner.runEventPipeline(pluginEvent)
                         })) as IngestResult
 
                         result.promises?.forEach((promise) =>
