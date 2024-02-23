@@ -660,8 +660,8 @@ export const BillingProduct = ({ product }: { product: BillingProductV2Type }): 
                                             First {convertLargeNumberToWords(upgradePlan?.tiers?.[0].up_to, null)}{' '}
                                             {product.unit}s free
                                         </b>
-                                        , then ${upgradePlan?.tiers?.[1]?.unit_amount_usd}/{product.unit} with volume
-                                        discounts.
+                                        , then just ${upgradePlan?.tiers?.[1]?.unit_amount_usd} per {product.unit} and{' '}
+                                        <Link onClick={toggleIsPlanComparisonModalOpen}>volume discounts</Link>.
                                     </p>
                                 )}
                         </div>
