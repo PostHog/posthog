@@ -68,6 +68,7 @@ export const TARGET_AREA_TO_NAME = {
     toolbar: 'Toolbar & Heatmaps',
     surveys: 'Surveys',
     web_analytics: 'Web Analytics',
+    mobile: 'Mobile',
 }
 
 export const SEVERITY_LEVEL_TO_NAME = {
