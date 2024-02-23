@@ -49,7 +49,9 @@ export function timeoutGuard(
 }
 
 // when changing this set, be sure to update the frontend as well (taxonomy.tsx (eventToPersonProperties))
-const eventToPersonProperties = new Set([
+// Think carefully before adding new properties here, maybe they should be eventToPersonPropertiesInitialOnly
+// if the latest value changes a lot it causes a lot of updates to the person, which slow ingestion to a crawl
+const eventToPersonPropertiesInitialAndLatest = new Set([
     // mobile params
     '$app_build',
     '$app_name',
@@ -59,10 +61,12 @@ const eventToPersonProperties = new Set([
     '$browser',
     '$browser_version',
     '$device_type',
-    '$current_url',
-    '$pathname',
     '$os',
     '$os_version',
+])
+const eventToPersonPropertiesInitialOnly = new Set([
+    '$current_url',
+    '$pathname',
     '$referring_domain',
     '$referrer',
     // campaign params - automatically added by posthog-js here https://github.com/PostHog/posthog-js/blob/master/src/utils/event-utils.ts
@@ -84,18 +88,20 @@ const eventToPersonProperties = new Set([
 export function personInitialAndUTMProperties(properties: Properties): Properties {
     const propertiesCopy = { ...properties }
 
-    const propertiesForPerson: [string, any][] = Object.entries(properties).filter(([key]) =>
-        eventToPersonProperties.has(key)
+    // Add initial properties from event properties to the person via $set_once
+    const initialPropertiesForPerson: [string, any][] = Object.entries(properties).filter(
+        ([key]) => eventToPersonPropertiesInitialAndLatest.has(key) || eventToPersonPropertiesInitialOnly.has(key)
     )
-
-    // all potential params are checked for $initial_ values and added to $set_once
-    const maybeSetOnce: [string, any][] = propertiesForPerson.map(([key, value]) => [
+    const maybeSetOnce: [string, any][] = initialPropertiesForPerson.map(([key, value]) => [
         `$initial_${key.replace('$', '')}`,
         value,
     ])
 
-    // all found are also then added to $set
-    const maybeSet: [string, any][] = propertiesForPerson
+    // Add latest properties from event properties to the person via $set
+    const latestPropertiesForPerson: [string, any][] = Object.entries(properties).filter(([key]) =>
+        eventToPersonPropertiesInitialAndLatest.has(key)
+    )
+    const maybeSet: [string, any][] = latestPropertiesForPerson
 
     if (maybeSet.length > 0) {
         propertiesCopy.$set = { ...(properties.$set || {}), ...Object.fromEntries(maybeSet) }
