@@ -20,6 +20,7 @@ import { CopyToClipboardInline } from 'lib/components/CopyToClipboard'
 import { EditableField } from 'lib/components/EditableField/EditableField'
 import { NotFound } from 'lib/components/NotFound'
 import { PageHeader } from 'lib/components/PageHeader'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
@@ -28,6 +29,7 @@ import { LemonCollapse } from 'lib/lemon-ui/LemonCollapse'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { LemonProgress } from 'lib/lemon-ui/LemonProgress'
 import { Link } from 'lib/lemon-ui/Link'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { capitalizeFirstLetter, humanFriendlyNumber } from 'lib/utils'
 import { useEffect, useState } from 'react'
 import { funnelDataLogic } from 'scenes/funnels/funnelDataLogic'
@@ -43,6 +45,7 @@ import { Experiment as ExperimentType, FunnelStep, InsightType, ProgressStatus }
 import { EXPERIMENT_INSIGHT_ID } from './constants'
 import { ExperimentImplementationDetails } from './ExperimentImplementationDetails'
 import { experimentLogic, ExperimentLogicProps } from './experimentLogic'
+import { ExperimentNext } from './ExperimentNext'
 import { ExperimentPreview } from './ExperimentPreview'
 import { ExperimentResult } from './ExperimentResult'
 import { getExperimentStatus, getExperimentStatusColor } from './experimentsLogic'
@@ -51,11 +54,20 @@ import { SecondaryMetricsResult } from './SecondaryMetricsResult'
 import { SecondaryMetricsTable } from './SecondaryMetricsTable'
 
 export const scene: SceneExport = {
-    component: Experiment,
+    component: ExperimentTemporaryWrapper,
     logic: experimentLogic,
     paramsToProps: ({ params: { id } }): ExperimentLogicProps => ({
         experimentId: id === 'new' ? 'new' : parseInt(id),
     }),
+}
+
+function ExperimentTemporaryWrapper(): JSX.Element {
+    const { featureFlags } = useValues(featureFlagLogic)
+
+    if (featureFlags[FEATURE_FLAGS.NEW_EXPERIMENTS_UI]) {
+        return <ExperimentNext />
+    }
+    return <Experiment />
 }
 
 export function Experiment(): JSX.Element {

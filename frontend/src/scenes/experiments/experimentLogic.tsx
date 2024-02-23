@@ -143,6 +143,7 @@ export const experimentLogic = kea<experimentLogicType>([
         closeExperimentGoalModal: true,
         openExperimentExposureModal: true,
         closeExperimentExposureModal: true,
+        setCurrentFormStep: (idx: number) => ({ idx }),
     }),
     reducers({
         experiment: [
@@ -276,6 +277,12 @@ export const experimentLogic = kea<experimentLogicType>([
                 setExperiment: () => true,
                 loadExperiment: () => false,
                 updateExperiment: () => false,
+            },
+        ],
+        currentFormStep: [
+            null as number | null,
+            {
+                setCurrentFormStep: (_, { idx }) => idx,
             },
         ],
     }),
@@ -1008,6 +1015,13 @@ export const experimentLogic = kea<experimentLogicType>([
                 },
             }),
             submit: () => {
+                // First step - don't submit, only advance the step
+                if (values.currentFormStep === 0) {
+                    actions.setCurrentFormStep(1)
+                    return
+                }
+
+                // Second step - submit the form
                 const { exposure, sampleSize } = values.exposureAndSampleSize
                 actions.createExperiment(true, exposure, sampleSize)
             },

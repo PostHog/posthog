@@ -98,6 +98,7 @@ export const INSTANTLY_AVAILABLE_PROPERTIES = [
     '$group_key',
     'distinct_id',
 ]
+export const MAX_VARIANTS = 10
 
 // Event constants
 export const ACTION_TYPE = 'action_type'
@@ -208,6 +209,7 @@ export const FEATURE_FLAGS = {
     REPLAY_SIMILAR_RECORDINGS: 'session-replay-similar-recordings', // owner: #team-replay
     SAVED_NOT_PINNED: 'saved-not-pinned', // owner: #team-replay
     EXPORTS_SIDEPANEL: 'exports-sidepanel', // owner: #team-product-analytics
+    NEW_EXPERIMENTS_UI: 'new-experiments-ui', // owner: @jurajmajerik #team-feature-success
 } as const
 export type FeatureFlagKey = (typeof FEATURE_FLAGS)[keyof typeof FEATURE_FLAGS]
 

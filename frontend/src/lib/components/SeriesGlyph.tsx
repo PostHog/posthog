@@ -52,3 +52,25 @@ export function SeriesLetter({ className, hasBreakdown, seriesIndex, seriesColor
         </SeriesGlyph>
     )
 }
+
+interface ExperimentVariantNumberProps {
+    className?: string
+    index: number
+}
+export function ExperimentVariantNumber({ className, index }: ExperimentVariantNumberProps): JSX.Element {
+    const color = getSeriesColor(index)
+    const { isDarkModeOn } = useValues(themeLogic)
+
+    return (
+        <SeriesGlyph
+            className={className}
+            style={{
+                borderColor: color,
+                color: color,
+                backgroundColor: isDarkModeOn ? RGBToRGBA(lightenDarkenColor(color, -20), 0.3) : hexToRGBA(color, 0.2),
+            }}
+        >
+            {index}
+        </SeriesGlyph>
+    )
+}
