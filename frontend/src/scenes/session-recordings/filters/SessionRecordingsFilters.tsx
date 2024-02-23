@@ -5,7 +5,7 @@ import { useEffect, useState } from 'react'
 
 import { EntityTypes, FilterType, LocalRecordingFilters, RecordingFilters } from '~/types'
 
-import { SessionFilterMode } from '../playlist/sessionRecordingsPlaylistLogic'
+import { SessionFilterMode } from '../player/playerSettingsLogic'
 import { AdvancedSessionRecordingsFilters } from './AdvancedSessionRecordingsFilters'
 import { SimpleSessionRecordingsFilters } from './SimpleSessionRecordingsFilters'
 

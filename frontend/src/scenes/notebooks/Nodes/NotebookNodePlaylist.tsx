@@ -1,7 +1,6 @@
 import { createPostHogWidgetNode } from 'scenes/notebooks/Nodes/NodeWrapper'
 import { FilterType, NotebookNodeType, RecordingFilters, ReplayTabs } from '~/types'
 import {
-    SessionFilterMode,
     SessionRecordingPlaylistLogicProps,
     getDefaultFilters,
     sessionRecordingsPlaylistLogic,
@@ -17,6 +16,7 @@ import { SessionRecordingsPlaylist } from 'scenes/session-recordings/playlist/Se
 import { sessionRecordingPlayerLogic } from 'scenes/session-recordings/player/sessionRecordingPlayerLogic'
 import { IconComment } from 'lib/lemon-ui/icons'
 import { sessionRecordingPlayerLogicType } from 'scenes/session-recordings/player/sessionRecordingPlayerLogicType'
+import { SessionFilterMode } from 'scenes/session-recordings/player/playerSettingsLogic'
 
 const Component = ({
     attributes,

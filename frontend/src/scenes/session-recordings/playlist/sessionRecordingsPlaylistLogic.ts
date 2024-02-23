@@ -20,11 +20,10 @@ import {
     SessionRecordingType,
 } from '~/types'
 
-import { playerSettingsLogic } from '../player/playerSettingsLogic'
+import { playerSettingsLogic, SessionFilterMode } from '../player/playerSettingsLogic'
 import { sessionRecordingsListPropertiesLogic } from './sessionRecordingsListPropertiesLogic'
 import type { sessionRecordingsPlaylistLogicType } from './sessionRecordingsPlaylistLogicType'
 
-export type SessionFilterMode = 'simple' | 'advanced'
 export type PersonUUID = string
 
 interface Params {
@@ -142,6 +141,7 @@ export interface SessionRecordingPlaylistLogicProps {
     updateSearchParams?: boolean
     autoPlay?: boolean
     filters?: RecordingFilters
+    filterMode?: SessionFilterMode
     onFiltersChange?: (filters: RecordingFilters) => void
     pinnedRecordings?: (SessionRecordingType | string)[]
     onPinnedChange?: (recording: SessionRecordingType, pinned: boolean) => void
@@ -165,18 +165,19 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
             ['reportRecordingsListFetched', 'reportRecordingsListFilterAdded'],
             sessionRecordingsListPropertiesLogic,
             ['maybeLoadPropertiesForSessions'],
+            playerSettingsLogic,
+            ['setFilterMode'],
         ],
         values: [
             featureFlagLogic,
             ['featureFlags'],
             playerSettingsLogic,
-            ['autoplayDirection', 'hideViewedRecordings'],
+            ['autoplayDirection', 'hideViewedRecordings', 'filterMode'],
         ],
     }),
     actions({
         setFilters: (filters: Partial<RecordingFilters>) => ({ filters }),
         setShowFilters: (showFilters: boolean) => ({ showFilters }),
-        setFilterMode: (mode: SessionFilterMode) => ({ mode }),
         setShowSettings: (showSettings: boolean) => ({ showSettings }),
         resetFilters: true,
         setSelectedRecordingId: (id: SessionRecordingType['id'] | null) => ({
@@ -193,7 +194,13 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
     }),
     propsChanged(({ actions, props }, oldProps) => {
         if (!objectsEqual(props.filters, oldProps.filters)) {
-            props.filters ? actions.setFilters(props.filters) : actions.resetFilters()
+            if (props.filters) {
+                actions.setFilters(props.filters)
+                actions.setFilterMode(props.filterMode ?? 'advanced')
+                // TODO:
+            } else {
+                actions.resetFilters()
+            }
         }
 
         // If the defined list changes, we need to call the loader to either load the new items or change the list
@@ -355,13 +362,6 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
             {
                 setShowSettings: (_, { showSettings }) => showSettings,
                 setShowFilters: () => false,
-            },
-        ],
-        filterMode: [
-            'simple' as SessionFilterMode,
-            { persist: true },
-            {
-                setFilterMode: (_, { mode }) => mode,
             },
         ],
         sessionRecordings: [
