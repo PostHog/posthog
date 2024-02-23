@@ -508,8 +508,3 @@ class TeamViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     def user_permissions(self):
         team = self.get_object() if self.action == "reset_token" else None
         return UserPermissions(cast(User, self.request.user), team)
-
-
-# NOTE: We don't want people managing projects via the "current_organization" concept. Rather specifying the org ID at the top level
-class RootTeamViewSet(TeamViewSet):
-    scope_object = "INTERNAL"
