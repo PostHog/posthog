@@ -744,18 +744,8 @@
 # ---
 # name: TestStrictFunnelGroupBreakdown.test_funnel_breakdown_group.3
   '''
-  SELECT persons.id,
-         persons.id AS id,
-         toTimeZone(persons.created_at, 'UTC') AS created_at,
-         1
+  SELECT actor_id AS actor_id
   FROM
-    (SELECT argMax(person.created_at, person.version) AS created_at,
-            person.id AS id
-     FROM person
-     WHERE equals(person.team_id, 2)
-     GROUP BY person.id
-     HAVING ifNull(equals(argMax(person.is_deleted, person.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS persons
-  INNER JOIN
     (SELECT aggregation_target AS actor_id
      FROM
        (SELECT aggregation_target AS aggregation_target,
@@ -852,8 +842,7 @@
                       and isNull(max_steps)))
      WHERE and(ifNull(in(steps, [1, 2, 3]), 0), ifNull(equals(arrayFlatten(array(prop)), arrayFlatten(array(['finance']))), isNull(arrayFlatten(array(prop)))
                                                        and isNull(arrayFlatten(array(['finance'])))))
-     ORDER BY aggregation_target ASC) AS source ON equals(persons.id, source.actor_id)
-  ORDER BY toTimeZone(persons.created_at, 'UTC') DESC
+     ORDER BY aggregation_target ASC)
   LIMIT 101
   OFFSET 0 SETTINGS readonly=2,
                     max_execution_time=60,
@@ -891,18 +880,8 @@
 # ---
 # name: TestStrictFunnelGroupBreakdown.test_funnel_breakdown_group.5
   '''
-  SELECT persons.id,
-         persons.id AS id,
-         toTimeZone(persons.created_at, 'UTC') AS created_at,
-         1
+  SELECT actor_id AS actor_id
   FROM
-    (SELECT argMax(person.created_at, person.version) AS created_at,
-            person.id AS id
-     FROM person
-     WHERE equals(person.team_id, 2)
-     GROUP BY person.id
-     HAVING ifNull(equals(argMax(person.is_deleted, person.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS persons
-  INNER JOIN
     (SELECT aggregation_target AS actor_id
      FROM
        (SELECT aggregation_target AS aggregation_target,
@@ -999,8 +978,7 @@
                       and isNull(max_steps)))
      WHERE and(ifNull(in(steps, [2, 3]), 0), ifNull(equals(arrayFlatten(array(prop)), arrayFlatten(array(['finance']))), isNull(arrayFlatten(array(prop)))
                                                     and isNull(arrayFlatten(array(['finance'])))))
-     ORDER BY aggregation_target ASC) AS source ON equals(persons.id, source.actor_id)
-  ORDER BY toTimeZone(persons.created_at, 'UTC') DESC
+     ORDER BY aggregation_target ASC)
   LIMIT 101
   OFFSET 0 SETTINGS readonly=2,
                     max_execution_time=60,
@@ -1038,18 +1016,8 @@
 # ---
 # name: TestStrictFunnelGroupBreakdown.test_funnel_breakdown_group.7
   '''
-  SELECT persons.id,
-         persons.id AS id,
-         toTimeZone(persons.created_at, 'UTC') AS created_at,
-         1
+  SELECT actor_id AS actor_id
   FROM
-    (SELECT argMax(person.created_at, person.version) AS created_at,
-            person.id AS id
-     FROM person
-     WHERE equals(person.team_id, 2)
-     GROUP BY person.id
-     HAVING ifNull(equals(argMax(person.is_deleted, person.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS persons
-  INNER JOIN
     (SELECT aggregation_target AS actor_id
      FROM
        (SELECT aggregation_target AS aggregation_target,
@@ -1146,8 +1114,7 @@
                       and isNull(max_steps)))
      WHERE and(ifNull(in(steps, [1, 2, 3]), 0), ifNull(equals(arrayFlatten(array(prop)), arrayFlatten(array(['technology']))), isNull(arrayFlatten(array(prop)))
                                                        and isNull(arrayFlatten(array(['technology'])))))
-     ORDER BY aggregation_target ASC) AS source ON equals(persons.id, source.actor_id)
-  ORDER BY toTimeZone(persons.created_at, 'UTC') DESC
+     ORDER BY aggregation_target ASC)
   LIMIT 101
   OFFSET 0 SETTINGS readonly=2,
                     max_execution_time=60,
@@ -1185,18 +1152,8 @@
 # ---
 # name: TestStrictFunnelGroupBreakdown.test_funnel_breakdown_group.9
   '''
-  SELECT persons.id,
-         persons.id AS id,
-         toTimeZone(persons.created_at, 'UTC') AS created_at,
-         1
+  SELECT actor_id AS actor_id
   FROM
-    (SELECT argMax(person.created_at, person.version) AS created_at,
-            person.id AS id
-     FROM person
-     WHERE equals(person.team_id, 2)
-     GROUP BY person.id
-     HAVING ifNull(equals(argMax(person.is_deleted, person.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS persons
-  INNER JOIN
     (SELECT aggregation_target AS actor_id
      FROM
        (SELECT aggregation_target AS aggregation_target,
@@ -1293,8 +1250,7 @@
                       and isNull(max_steps)))
      WHERE and(ifNull(in(steps, [2, 3]), 0), ifNull(equals(arrayFlatten(array(prop)), arrayFlatten(array(['technology']))), isNull(arrayFlatten(array(prop)))
                                                     and isNull(arrayFlatten(array(['technology'])))))
-     ORDER BY aggregation_target ASC) AS source ON equals(persons.id, source.actor_id)
-  ORDER BY toTimeZone(persons.created_at, 'UTC') DESC
+     ORDER BY aggregation_target ASC)
   LIMIT 101
   OFFSET 0 SETTINGS readonly=2,
                     max_execution_time=60,

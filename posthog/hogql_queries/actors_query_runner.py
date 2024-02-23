@@ -158,6 +158,10 @@ class ActorsQueryRunner(QueryRunner):
         )
 
     def to_query(self) -> ast.SelectQuery:
+        return ast.SelectQuery(
+            select=[ast.Field(chain=["actor_id"])],
+            select_from=ast.JoinExpr(table=self.source_query_runner.to_actors_query()),
+        )
         with self.timings.measure("columns"):
             columns = []
             group_by = []
