@@ -187,7 +187,7 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
     def _run_trends_query(
         self,
         date_from: str,
-        date_to: str,
+        date_to: Optional[str],
         interval: IntervalType,
         series: Optional[List[EventsNode | ActionsNode]],
         trends_filters: Optional[TrendsFilter] = None,
@@ -403,6 +403,60 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
 
         self.assertEqual(["day 0", "day 1", "day 2", "day 3", "day 4"], response.results[0]["labels"])
         self.assertEqual(["day 0", "day 1", "day 2", "day 3", "day 4"], response.results[1]["labels"])
+
+    def test_trends_query_compare_weeks(self):
+        self._create_test_events()
+
+        with freeze_time("2020-01-24"):
+            response = self._run_trends_query(
+                "-7d",
+                None,
+                IntervalType.day,
+                [EventsNode(event="$pageview")],
+                TrendsFilter(compare=True),
+            )
+
+            self.assertEqual(2, len(response.results))
+
+            self.assertEqual(True, response.results[0]["compare"])
+            self.assertEqual(True, response.results[1]["compare"])
+
+            self.assertEqual("current", response.results[0]["compare_label"])
+            self.assertEqual("previous", response.results[1]["compare_label"])
+
+            self.assertEqual(
+                [
+                    "2020-01-17",
+                    "2020-01-18",
+                    "2020-01-19",
+                    "2020-01-20",
+                    "2020-01-21",
+                    "2020-01-22",
+                    "2020-01-23",
+                    "2020-01-24",
+                ],
+                response.results[0]["days"],
+            )
+            self.assertEqual(
+                [
+                    "2020-01-10",
+                    "2020-01-11",
+                    "2020-01-12",
+                    "2020-01-13",
+                    "2020-01-14",
+                    "2020-01-15",
+                    "2020-01-16",
+                    "2020-01-17",
+                ],
+                response.results[1]["days"],
+            )
+
+            self.assertEqual(
+                ["day 0", "day 1", "day 2", "day 3", "day 4", "day 5", "day 6", "day 7"], response.results[0]["labels"]
+            )
+            self.assertEqual(
+                ["day 0", "day 1", "day 2", "day 3", "day 4", "day 5", "day 6", "day 7"], response.results[1]["labels"]
+            )
 
     def test_trends_query_formula_with_compare(self):
         self._create_test_events()
