@@ -491,6 +491,7 @@ export function FeatureFlag({ id }: { id?: string } = {}): JSX.Element {
                                                 <ObjectTags
                                                     tags={featureFlag.tags}
                                                     onChange={(_, tags) => {
+                                                        // TODO: Use an existing function instead of this new one for updates?
                                                         triggerFeatureFlagUpdate({ tags })
                                                     }}
                                                     saving={featureFlagLoading}
