@@ -1736,7 +1736,10 @@ class TestCapture(BaseTest):
     @patch("posthog.kafka_client.client._KafkaProducer.produce")
     @pytest.mark.ee
     def test_quota_limits(self, kafka_produce: MagicMock) -> None:
-        from ee.billing.quota_limiting import QuotaResource, replace_limited_team_tokens
+        from ee.billing.quota_limiting import (
+            QuotaResource,
+            replace_limited_team_tokens,
+        )
 
         def _produce_events():
             kafka_produce.reset_mock()
@@ -1782,6 +1785,7 @@ class TestCapture(BaseTest):
                 {self.team.api_token: timezone.now().timestamp() + 10000},
                 QuotaLimitingCaches.QUOTA_LIMITER_CACHE_KEY,
             )
+
             _produce_events()
             self.assertEqual(kafka_produce.call_count, 1)  # Only the recording event
 
@@ -1803,6 +1807,7 @@ class TestCapture(BaseTest):
                 {self.team.api_token: timezone.now().timestamp() - 10000},
                 QuotaLimitingCaches.QUOTA_LIMITER_CACHE_KEY,
             )
+
             _produce_events()
             self.assertEqual(kafka_produce.call_count, 3)  # All events as limit-until timestamp is in the past
 

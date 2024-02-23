@@ -264,7 +264,9 @@ class BillingManager:
 
         product_key_to_usage_key = {
             product["type"]: product["usage_key"]
-            for product in (billing_status["customer"].get("products") or self.get_default_products(organization))
+            for product in (
+                billing_status["customer"].get("products") or self.get_default_products(organization)["products"]
+            )
         }
         org_trusted_customer_scores = {}
         for product_key in trusted_customer_scores:
