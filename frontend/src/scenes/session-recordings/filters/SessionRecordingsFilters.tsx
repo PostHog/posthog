@@ -1,57 +1,30 @@
 import { LemonButton } from '@posthog/lemon-ui'
-import equal from 'fast-deep-equal'
 import { LemonLabel } from 'lib/lemon-ui/LemonLabel/LemonLabel'
-import { useEffect, useState } from 'react'
 
-import { EntityTypes, FilterType, LocalRecordingFilters, RecordingFilters } from '~/types'
+import { RecordingFilters } from '~/types'
 
 import { AdvancedSessionRecordingsFilters } from './AdvancedSessionRecordingsFilters'
 import { SimpleSessionRecordingsFilters } from './SimpleSessionRecordingsFilters'
 
 interface SessionRecordingsFiltersProps {
-    filters: RecordingFilters
+    advancedFilters: RecordingFilters
     simpleFilters: RecordingFilters
-    setFilters: (filters: RecordingFilters) => void
+    setAdvancedFilters: (filters: RecordingFilters) => void
     setSimpleFilters: (filters: RecordingFilters) => void
     showPropertyFilters?: boolean
+    hideSimpleFilters?: boolean
     onReset?: () => void
 }
 
-const filtersToLocalFilters = (filters: RecordingFilters): LocalRecordingFilters => {
-    return {
-        actions: filters.actions || [],
-        events: filters.events || [],
-    }
-}
-
 export function SessionRecordingsFilters({
-    filters,
+    advancedFilters,
     simpleFilters,
-    setFilters,
+    setAdvancedFilters,
     setSimpleFilters,
     showPropertyFilters,
+    hideSimpleFilters,
     onReset,
 }: SessionRecordingsFiltersProps): JSX.Element {
-    const [localFilters, setLocalFilters] = useState<FilterType>(filtersToLocalFilters(filters))
-
-    // We have a copy of the filters as local state as it stores more properties than we want for playlists
-    useEffect(() => {
-        if (!equal(filters.actions, localFilters.actions) || !equal(filters.events, localFilters.events)) {
-            setFilters({
-                actions: localFilters.actions,
-                events: localFilters.events,
-            })
-        }
-    }, [localFilters])
-
-    useEffect(() => {
-        // We have a copy of the filters as local state as it stores more properties than we want for playlists
-        // if (!equal(filters.actions, localFilters.actions) || !equal(filters.events, localFilters.events)) {
-        if (!equal(filters.actions, localFilters.actions) || !equal(filters.events, localFilters.events)) {
-            setLocalFilters(filtersToLocalFilters(filters))
-        }
-    }, [filters])
-
     return (
         <div className="relative flex flex-col">
             <div className="space-y-1 p-3">
@@ -67,19 +40,14 @@ export function SessionRecordingsFilters({
                     )}
                 </div>
 
-                <SimpleSessionRecordingsFilters
-                    filters={simpleFilters}
-                    setFilters={setSimpleFilters}
-                    localFilters={localFilters}
-                    setLocalFilters={setLocalFilters}
-                />
+                {!hideSimpleFilters && (
+                    <SimpleSessionRecordingsFilters filters={simpleFilters} setFilters={setSimpleFilters} />
+                )}
             </div>
 
             <AdvancedSessionRecordingsFilters
-                filters={filters}
-                setFilters={setFilters}
-                localFilters={localFilters}
-                setLocalFilters={setLocalFilters}
+                filters={advancedFilters}
+                setFilters={setAdvancedFilters}
                 showPropertyFilters={showPropertyFilters}
             />
         </div>

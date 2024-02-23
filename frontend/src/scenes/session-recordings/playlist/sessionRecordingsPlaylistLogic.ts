@@ -28,6 +28,8 @@ export type PersonUUID = string
 
 interface Params {
     filters?: RecordingFilters
+    simpleFilters?: RecordingFilters
+    advancedFilters?: RecordingFilters
     sessionRecordingId?: SessionRecordingId
 }
 
@@ -62,6 +64,11 @@ export const defaultRecordingDurationFilter: RecordingDurationFilter = {
     operator: PropertyOperator.GreaterThan,
 }
 
+const DEFAULT_SIMPLE_RECORDING_FILTERS: RecordingFilters = {
+    events: [],
+    properties: [],
+}
+
 export const DEFAULT_RECORDING_FILTERS: RecordingFilters = {
     session_recording_duration: defaultRecordingDurationFilter,
     properties: [],
@@ -70,6 +77,7 @@ export const DEFAULT_RECORDING_FILTERS: RecordingFilters = {
     date_from: '-7d',
     date_to: null,
     console_logs: [],
+    console_search_query: '',
 }
 
 const DEFAULT_PERSON_RECORDING_FILTERS: RecordingFilters = {
@@ -134,12 +142,26 @@ export const defaultPageviewPropertyEntityFilter = (
     }
 }
 
+const capturePartialFilters = (filters: Partial<RecordingFilters>): void => {
+    // capture only the partial filters applied (not the full filters object)
+    // take each key from the filter and change it to `partial_filter_chosen_${key}`
+    const partialFilters = Object.keys(filters).reduce((acc, key) => {
+        acc[`partial_filter_chosen_${key}`] = filters[key]
+        return acc
+    }, {})
+
+    posthog.capture('recording list filters changed', {
+        ...partialFilters,
+    })
+}
+
 export interface SessionRecordingPlaylistLogicProps {
     logicKey?: string
     personUUID?: PersonUUID
     updateSearchParams?: boolean
     autoPlay?: boolean
-    filters?: RecordingFilters
+    hideSimpleFilters?: boolean
+    advancedFilters?: RecordingFilters
     simpleFilters?: RecordingFilters
     onFiltersChange?: (filters: RecordingFilters) => void
     pinnedRecordings?: (SessionRecordingType | string)[]
@@ -173,7 +195,7 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
         ],
     }),
     actions({
-        setFilters: (filters: Partial<RecordingFilters>) => ({ filters }),
+        setAdvancedFilters: (filters: Partial<RecordingFilters>) => ({ filters }),
         setSimpleFilters: (filters: Partial<RecordingFilters>) => ({ filters }),
         setShowFilters: (showFilters: boolean) => ({ showFilters }),
         setShowSettings: (showSettings: boolean) => ({ showSettings }),
@@ -191,8 +213,11 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
         toggleShowOtherRecordings: (show?: boolean) => ({ show }),
     }),
     propsChanged(({ actions, props }, oldProps) => {
-        if (!objectsEqual(props.filters, oldProps.filters)) {
-            props.filters ? actions.setFilters(props.filters) : actions.resetFilters()
+        if (!objectsEqual(props.advancedFilters, oldProps.advancedFilters)) {
+            actions.setAdvancedFilters(props.advancedFilters || {})
+        }
+        if (!objectsEqual(props.simpleFilters, oldProps.simpleFilters)) {
+            actions.setSimpleFilters(props.simpleFilters || {})
         }
 
         // If the defined list changes, we need to call the loader to either load the new items or change the list
@@ -315,7 +340,6 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
                 toggleShowOtherRecordings: (state, { show }) => (show === undefined ? !state : show),
             },
         ],
-
         unusableEventsInFilter: [
             [] as string[],
             {
@@ -327,23 +351,23 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
             },
         ],
         simpleFilters: [
-            {},
+            props.simpleFilters ?? DEFAULT_SIMPLE_RECORDING_FILTERS,
             {
                 setSimpleFilters: (state, { filters }) => ({
                     ...state,
                     ...filters,
                 }),
-                resetFilters: () => {},
+                resetFilters: () => DEFAULT_SIMPLE_RECORDING_FILTERS,
             },
         ],
         advancedFilters: [
-            props.filters ?? null,
+            props.advancedFilters ?? getDefaultFilters(props.personUUID),
             {
-                setFilters: (state, { filters }) => ({
+                setAdvancedFilters: (state, { filters }) => ({
                     ...state,
                     ...filters,
                 }),
-                resetFilters: () => null,
+                resetFilters: () => getDefaultFilters(props.personUUID),
             },
         ],
         showFilters: [
@@ -427,7 +451,8 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
             {
                 loadSessionRecordingsFailure: () => true,
                 loadSessionRecordingSuccess: () => false,
-                setFilters: () => false,
+                setAdvancedFilters: () => false,
+                setSimpleFilters: () => false,
                 loadNext: () => false,
                 loadPrev: () => false,
             },
@@ -438,21 +463,16 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
             actions.loadSessionRecordings()
             actions.loadPinnedRecordings()
         },
-        setFilters: ({ filters }) => {
+        setSimpleFilters: ({ filters }) => {
             actions.loadSessionRecordings()
             props.onFiltersChange?.(values.filters)
-
-            // capture only the partial filters applied (not the full filters object)
-            // take each key from the filter and change it to `partial_filter_chosen_${key}`
-            const partialFilters = Object.keys(filters).reduce((acc, key) => {
-                acc[`partial_filter_chosen_${key}`] = filters[key]
-                return acc
-            }, {})
-
-            posthog.capture('recording list filters changed', {
-                ...partialFilters,
-            })
-
+            capturePartialFilters(filters)
+            actions.loadEventsHaveSessionId()
+        },
+        setAdvancedFilters: ({ filters }) => {
+            actions.loadSessionRecordings()
+            props.onFiltersChange?.(values.filters)
+            capturePartialFilters(filters)
             actions.loadEventsHaveSessionId()
         },
 
@@ -486,45 +506,15 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
     selectors({
         logicProps: [() => [(_, props) => props], (props): SessionRecordingPlaylistLogicProps => props],
 
-        customFilters: [
-            (s) => [s.simpleFilters, s.advancedFilters],
-            (simpleFilters, advancedFilters): RecordingFilters => {
-                return { ...simpleFilters, ...advancedFilters }
-            },
-        ],
-
-        shouldShowEmptyState: [
-            (s) => [
-                s.sessionRecordings,
-                s.customFilters,
-                s.sessionRecordingsResponseLoading,
-                s.sessionRecordingsAPIErrored,
-                (_, props) => props.personUUID,
-            ],
-            (
-                sessionRecordings,
-                customFilters,
-                sessionRecordingsResponseLoading,
-                sessionRecordingsAPIErrored,
-                personUUID
-            ): boolean => {
-                return (
-                    !sessionRecordingsAPIErrored &&
-                    !sessionRecordingsResponseLoading &&
-                    sessionRecordings.length === 0 &&
-                    !customFilters &&
-                    !personUUID
-                )
-            },
-        ],
-
         filters: [
-            (s) => [s.customFilters, (_, props) => props.personUUID],
-            (customFilters, personUUID): RecordingFilters => {
+            (s) => [s.simpleFilters, s.advancedFilters, (_, props) => props.personUUID],
+            (simpleFilters, advancedFilters, personUUID): RecordingFilters => {
                 const defaultFilters = getDefaultFilters(personUUID)
                 return {
                     ...defaultFilters,
-                    ...customFilters,
+                    ...advancedFilters,
+                    events: [...(simpleFilters?.events || []), ...(advancedFilters?.events || [])],
+                    properties: [...(simpleFilters?.properties || []), ...(advancedFilters?.properties || [])],
                 }
             },
         ],
@@ -614,7 +604,8 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
                     (filters.date_from === defaultFilters.date_from && filters.date_to === defaultFilters.date_to
                         ? 0
                         : 1) +
-                    (filters.console_logs?.length || 0)
+                    (filters.console_logs?.length || 0) +
+                    (filters.console_search_query?.length ? 1 : 0)
                 )
             },
         ],
@@ -671,40 +662,38 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
             }
         ] => {
             const params: Params = objectClean({
-                filters: values.customFilters ?? undefined,
+                simpleFilters: values.simpleFilters ?? undefined,
+                advancedFilters: values.advancedFilters ?? undefined,
                 sessionRecordingId: values.selectedRecordingId ?? undefined,
             })
-
-            // We used to have sessionRecordingId in the hash, so we keep it there for backwards compatibility
-            if (router.values.hashParams.sessionRecordingId) {
-                delete router.values.hashParams.sessionRecordingId
-            }
 
             return [router.values.location.pathname, params, router.values.hashParams, { replace }]
         }
 
         return {
             setSelectedRecordingId: () => buildURL(false),
-            setFilters: () => buildURL(true),
+            setAdvancedFilters: () => buildURL(true),
+            setSimpleFilters: () => buildURL(true),
             resetFilters: () => buildURL(true),
         }
     }),
 
     urlToAction(({ actions, values, props }) => {
-        const urlToAction = (_: any, params: Params, hashParams: Params): void => {
+        const urlToAction = (_: any, params: Params): void => {
             if (!props.updateSearchParams) {
                 return
             }
-
-            // We changed to have the sessionRecordingId in the query params, but it used to be in the hash so backwards compatibility
-            const nulledSessionRecordingId = params.sessionRecordingId ?? hashParams.sessionRecordingId ?? null
-            if (nulledSessionRecordingId !== values.selectedRecordingId) {
-                actions.setSelectedRecordingId(nulledSessionRecordingId)
-            }
-
-            if (params.filters) {
-                if (!equal(params.filters, values.customFilters)) {
-                    actions.setFilters(params.filters)
+            if (params.simpleFilters || params.advancedFilters) {
+                if (params.simpleFilters && !equal(params.simpleFilters, values.simpleFilters)) {
+                    actions.setSimpleFilters(params.simpleFilters)
+                }
+                if (params.advancedFilters && !equal(params.advancedFilters, values.advancedFilters)) {
+                    actions.setAdvancedFilters(params.advancedFilters)
+                }
+            } else if (params.filters) {
+                if (!equal(params.filters, values.filters)) {
+                    actions.setAdvancedFilters(params.filters)
+                    actions.setSimpleFilters({})
                 }
             }
         }

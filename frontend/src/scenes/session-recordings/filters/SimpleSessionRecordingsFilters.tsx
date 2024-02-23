@@ -7,24 +7,20 @@ import { useMemo } from 'react'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
-import { EntityTypes, FilterType, PropertyFilterType, PropertyOperator, RecordingFilters } from '~/types'
+import { EntityTypes, PropertyFilterType, PropertyOperator, RecordingFilters } from '~/types'
 
 export const SimpleSessionRecordingsFilters = ({
     filters,
     setFilters,
-    localFilters,
-    setLocalFilters,
 }: {
     filters: RecordingFilters
     setFilters: (filters: RecordingFilters) => void
-    localFilters: FilterType
-    setLocalFilters: (localFilters: FilterType) => void
 }): JSX.Element => {
     const { currentTeam } = useValues(teamLogic)
 
     const displayNameProperties = useMemo(() => currentTeam?.person_display_name_properties ?? [], [currentTeam])
 
-    const pageviewEvent = localFilters.events?.find((event) => event.id === '$pageview')
+    const pageviewEvent = filters.events?.find((event) => event.id === '$pageview')
 
     const personProperties = filters.properties || []
     const eventProperties = pageviewEvent?.properties || []
@@ -41,7 +37,7 @@ export const SimpleSessionRecordingsFilters = ({
 
     const onClickCurrentUrl = (): void => {
         const events = filters.events || []
-        setLocalFilters({
+        setFilters({
             ...filters,
             events: [
                 ...events,
@@ -95,7 +91,7 @@ export const SimpleSessionRecordingsFilters = ({
         <div className="space-y-3">
             <div className="space-y-1">
                 <PropertyFilters
-                    pageKey="session-recordings"
+                    pageKey="session-recordings-simple-$country"
                     taxonomicGroupTypes={[TaxonomicFilterGroupType.PersonProperties]}
                     propertyFilters={personProperties}
                     onChange={(properties) => setFilters({ properties })}
@@ -103,11 +99,11 @@ export const SimpleSessionRecordingsFilters = ({
                     openOnInsert
                 />
                 <PropertyFilters
-                    pageKey="session-recordings-$current_url"
+                    pageKey="session-recordings-simple-$current_url"
                     taxonomicGroupTypes={[TaxonomicFilterGroupType.EventProperties]}
                     propertyFilters={eventProperties}
                     onChange={(properties) => {
-                        setLocalFilters({
+                        setFilters({
                             ...filters,
                             events:
                                 properties.length > 0

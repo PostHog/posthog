@@ -39,26 +39,6 @@ describe('sessionRecordingsPlaylistLogic', () => {
             })
             logic.mount()
         })
-
-        describe('should show empty state', () => {
-            it('starts out false', async () => {
-                await expectLogic(logic).toMatchValues({ shouldShowEmptyState: false })
-            })
-
-            it('is true if after API call is made there are no results', async () => {
-                await expectLogic(logic, () => {
-                    logic.actions.setSelectedRecordingId('abc')
-                })
-                    .toDispatchActionsInAnyOrder(['loadSessionRecordings', 'loadSessionRecordingsSuccess'])
-                    .toMatchValues({ shouldShowEmptyState: true })
-            })
-
-            it('is false after API call error', async () => {
-                await expectLogic(logic, () => {
-                    logic.actions.loadSessionRecordingsFailure('abc')
-                }).toMatchValues({ shouldShowEmptyState: false })
-            })
-        })
     })
 
     describe('with recordings to load', () => {
@@ -157,12 +137,6 @@ describe('sessionRecordingsPlaylistLogic', () => {
                 })
             })
 
-            describe('should show empty state', () => {
-                it('starts out false', async () => {
-                    await expectLogic(logic).toMatchValues({ shouldShowEmptyState: false })
-                })
-            })
-
             describe('activeSessionRecording', () => {
                 it('starts as null', () => {
                     expectLogic(logic).toMatchValues({ activeSessionRecording: undefined })
@@ -221,7 +195,7 @@ describe('sessionRecordingsPlaylistLogic', () => {
 
                 it('is set by setFilters and loads filtered results and sets the url', async () => {
                     await expectLogic(logic, () => {
-                        logic.actions.setFilters({
+                        logic.actions.setAdvancedFilters({
                             events: [{ id: '$autocapture', type: 'events', order: 0, name: '$autocapture' }],
                         })
                     })
@@ -238,7 +212,7 @@ describe('sessionRecordingsPlaylistLogic', () => {
             describe('date range', () => {
                 it('is set by setFilters and fetches results from server and sets the url', async () => {
                     await expectLogic(logic, () => {
-                        logic.actions.setFilters({
+                        logic.actions.setAdvancedFilters({
                             date_from: '2021-10-05',
                             date_to: '2021-10-20',
                         })
@@ -259,7 +233,7 @@ describe('sessionRecordingsPlaylistLogic', () => {
             describe('duration filter', () => {
                 it('is set by setFilters and fetches results from server and sets the url', async () => {
                     await expectLogic(logic, () => {
-                        logic.actions.setFilters({
+                        logic.actions.setAdvancedFilters({
                             session_recording_duration: {
                                 type: PropertyFilterType.Recording,
                                 key: 'duration',
@@ -349,7 +323,7 @@ describe('sessionRecordingsPlaylistLogic', () => {
 
                 it('is set by setFilters and loads filtered results', async () => {
                     await expectLogic(logic, () => {
-                        logic.actions.setFilters({
+                        logic.actions.setAdvancedFilters({
                             events: [{ id: '$autocapture', type: 'events', order: 0, name: '$autocapture' }],
                         })
                     })
@@ -463,7 +437,7 @@ describe('sessionRecordingsPlaylistLogic', () => {
 
             it('counts console log filters', async () => {
                 await expectLogic(logic, () => {
-                    logic.actions.setFilters({
+                    logic.actions.setAdvancedFilters({
                         console_logs: ['warn', 'error'],
                     } satisfies Partial<RecordingFilters>)
                 }).toMatchValues({ totalFiltersCount: 2 })
@@ -482,7 +456,7 @@ describe('sessionRecordingsPlaylistLogic', () => {
 
             it('resets console log filters', async () => {
                 await expectLogic(logic, () => {
-                    logic.actions.setFilters({
+                    logic.actions.setAdvancedFilters({
                         console_logs: ['warn', 'error'],
                     } satisfies Partial<RecordingFilters>)
                     logic.actions.resetFilters()

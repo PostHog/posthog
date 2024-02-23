@@ -27,7 +27,7 @@ const Component = ({
     const recordingPlaylistLogicProps: SessionRecordingPlaylistLogicProps = useMemo(
         () => ({
             logicKey: playerKey,
-            filters,
+            advancedFilters: filters,
             simpleFilters,
             updateSearchParams: false,
             autoPlay: false,
@@ -123,9 +123,9 @@ export const Settings = ({
     return (
         <ErrorBoundary>
             <SessionRecordingsFilters
-                filters={{ ...defaultFilters, ...filters }}
+                advancedFilters={{ ...defaultFilters, ...filters }}
                 simpleFilters={simpleFilters ?? {}}
-                setFilters={(filters) => updateAttributes({ filters })}
+                setAdvancedFilters={(filters) => updateAttributes({ filters })}
                 setSimpleFilters={(simpleFilters) => updateAttributes({ simpleFilters })}
                 showPropertyFilters
                 onReset={() => updateAttributes({ filters: undefined })}

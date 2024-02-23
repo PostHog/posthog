@@ -866,10 +866,6 @@ export interface RecordingFilters {
     filter_test_accounts?: boolean
 }
 
-export interface LocalRecordingFilters extends RecordingFilters {
-    new_entity?: Record<string, any>[]
-}
-
 export interface SessionRecordingsResponse {
     results: SessionRecordingType[]
     has_next: boolean
