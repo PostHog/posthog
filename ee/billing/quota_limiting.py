@@ -105,7 +105,7 @@ def org_quota_limited_until(
     billing_period_start = round(dateutil.parser.isoparse(organization.usage["period"][0]).timestamp())
     billing_period_end = round(dateutil.parser.isoparse(organization.usage["period"][1]).timestamp())
     quota_limiting_suspended_until = summary.get("quota_limiting_suspended_until", None)
-    trust_score = organization.trusted_customer_scores.get(resource)
+    trust_score = organization.trusted_customer_scores.get(resource.value)
 
     if not is_over_limit:
         if quota_limiting_suspended_until:
@@ -234,7 +234,7 @@ def sync_org_quota_limits(organization: Organization):
             resource, QuotaLimitingCaches.QUOTA_LIMITER_CACHE_KEY
         )
         team_attributes = get_team_attribute_by_quota_resource(organization, resource)
-        result = org_quota_limited_until(organization, resource, previously_quota_limited_team_tokens.keys())
+        result = org_quota_limited_until(organization, resource, previously_quota_limited_team_tokens)
 
         if result:
             quota_limited_until = result.get("quota_limited_until")

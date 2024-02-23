@@ -131,7 +131,7 @@ class BillingManager:
 
         handle_billing_service_error(res)
 
-    def get_default_products(self, organization: Optional[Organization]):
+    def get_default_products(self, organization: Optional[Organization]) -> dict:
         response = {}
         # If we don't have products from the billing service then get the default ones with our local usage calculation
         products = self._get_products(organization)
@@ -264,7 +264,7 @@ class BillingManager:
 
         product_key_to_usage_key = {
             product["type"]: product["usage_key"]
-            for product in billing_status["customer"].get("products", self.get_default_products(organization))
+            for product in (billing_status["customer"].get("products") or self.get_default_products(organization))
         }
         org_trusted_customer_scores = {}
         for product_key in trusted_customer_scores:
