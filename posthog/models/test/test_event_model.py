@@ -72,8 +72,15 @@ def filter_by_actions_factory(_create_event, _create_person, _get_events_for_act
                         attr_class=["one-class"],
                     ),
                     Element(tag_name="button", nth_child=0, nth_of_type=0),
-                    Element(tag_name="div", nth_child=0, nth_of_type=0),
-                    Element(tag_name="div", nth_child=0, nth_of_type=0, attr_id="nested"),
+                    Element(
+                        # Important that in this hierarchy the div is sandwiched between button and section.
+                        # This way makes sure that any conditions which should match this element also work
+                        # if the element is neither first nor last in the hierarchy.
+                        tag_name="div",
+                        nth_child=0,
+                        nth_of_type=0,
+                    ),
+                    Element(tag_name="section", nth_child=0, nth_of_type=0, attr_id="nested"),
                 ],
             )
 
