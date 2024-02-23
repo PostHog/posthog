@@ -98,8 +98,14 @@ export function FeatureFlag({ id }: { id?: string } = {}): JSX.Element {
         newCohortLoading,
     } = useValues(featureFlagLogic)
     const { featureFlags } = useValues(enabledFeaturesLogic)
-    const { deleteFeatureFlag, editFeatureFlag, loadFeatureFlag, triggerFeatureFlagUpdate, createStaticCohort } =
-        useActions(featureFlagLogic)
+    const {
+        deleteFeatureFlag,
+        editFeatureFlag,
+        loadFeatureFlag,
+        triggerFeatureFlagUpdate,
+        createStaticCohort,
+        setFeatureFlagFilters,
+    } = useActions(featureFlagLogic)
 
     const { addableRoles, unfilteredAddableRolesLoading, rolesToAdd, derivedRoles } = useValues(
         featureFlagPermissionsLogic({ flagId: featureFlag.id })
@@ -142,8 +148,10 @@ export function FeatureFlag({ id }: { id?: string } = {}): JSX.Element {
                     <div className="flex gap-4 flex-wrap">
                         <div className="flex-1">
                             <FeatureFlagRollout readOnly />
-                            {featureFlag.filters.super_groups && <FeatureFlagReleaseConditions readOnly isSuper />}
-                            <FeatureFlagReleaseConditions readOnly />
+                            {featureFlag.filters.super_groups && (
+                                <FeatureFlagReleaseConditions readOnly isSuper filters={featureFlag.filters} />
+                            )}
+                            <FeatureFlagReleaseConditions readOnly filters={featureFlag.filters} />
                             {featureFlags[FEATURE_FLAGS.AUTO_ROLLBACK_FEATURE_FLAGS] && (
                                 <FeatureFlagAutoRollback readOnly />
                             )}
@@ -396,7 +404,11 @@ export function FeatureFlag({ id }: { id?: string } = {}): JSX.Element {
                         <LemonDivider />
                         <FeatureFlagRollout />
                         <LemonDivider />
-                        <FeatureFlagReleaseConditions />
+                        <FeatureFlagReleaseConditions
+                            id={String(featureFlag.id)}
+                            filters={featureFlag.filters}
+                            onChange={setFeatureFlagFilters}
+                        />
                         <LemonDivider />
                         <FeatureFlagCodeExample featureFlag={featureFlag} />
                         <LemonDivider />
@@ -1054,4 +1066,24 @@ function FeatureFlagRollout({ readOnly }: { readOnly?: boolean }): JSX.Element {
             )}
         </>
     )
+}
+
+export function hasErrors(object: any): boolean {
+    if (Array.isArray(object)) {
+        return object.some(hasErrors)
+    } else if (typeof object === 'object' && object !== null) {
+        return Object.values(object).some(hasErrors)
+    }
+    return !!object
+}
+
+export function getFirstError(object: any): string | undefined {
+    if (Array.isArray(object)) {
+        return object.map(getFirstError).find((error) => !!error)
+    } else if (typeof object === 'object' && object !== null) {
+        return Object.values(object)
+            .map(getFirstError)
+            .find((error) => !!error)
+    }
+    return object
 }

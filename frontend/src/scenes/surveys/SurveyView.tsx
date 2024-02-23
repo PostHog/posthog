@@ -35,7 +35,7 @@ import {
 } from './surveyViewViz'
 
 export function SurveyView({ id }: { id: string }): JSX.Element {
-    const { survey, surveyLoading, selectedQuestion } = useValues(surveyLogic)
+    const { survey, surveyLoading, selectedQuestion, targetingFlagFilters } = useValues(surveyLogic)
     const { editingSurvey, updateSurvey, launchSurvey, stopSurvey, archiveSurvey, resumeSurvey, setSelectedQuestion } =
         useActions(surveyLogic)
     const { deleteSurvey } = useActions(surveysLogic)
@@ -197,7 +197,7 @@ export function SurveyView({ id }: { id: string }): JSX.Element {
                                             <SurveyReleaseSummary
                                                 id={id}
                                                 survey={survey}
-                                                hasTargetingFlag={!!survey.targeting_flag}
+                                                targetingFlagFilters={targetingFlagFilters}
                                             />
                                         </div>
                                         <div className="w-full flex flex-col items-center">

@@ -7,7 +7,6 @@ import api from 'lib/api'
 import { dayjs } from 'lib/dayjs'
 import { featureFlagLogic as enabledFlagLogic } from 'lib/logic/featureFlagLogic'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
-import { featureFlagLogic } from 'scenes/feature-flags/featureFlagLogic'
 import { Scene } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
@@ -15,6 +14,7 @@ import { DataTableNode, HogQLQuery, NodeKind } from '~/queries/schema'
 import { hogql } from '~/queries/utils'
 import {
     Breadcrumb,
+    FeatureFlagFilters,
     PropertyFilterType,
     PropertyOperator,
     Survey,
@@ -129,6 +129,7 @@ export const surveyLogic = kea<surveyLogicType>([
         setSelectedQuestion: (idx: number | null) => ({ idx }),
         setSelectedSection: (section: SurveyEditSection | null) => ({ section }),
         resetTargeting: true,
+        setFlagPropertyErrors: (errors: any) => ({ errors }),
     }),
     loaders(({ props, actions, values }) => ({
         survey: {
@@ -438,6 +439,13 @@ export const surveyLogic = kea<surveyLogicType>([
             actions.setSurveyValue('conditions', NEW_SURVEY.conditions)
             actions.setSurveyValue('remove_targeting_flag', true)
         },
+        submitSurveyFailure: async () => {
+            // When errors occur, scroll to the error, but wait for errors to be set in the DOM first
+            setTimeout(
+                () => document.querySelector(`.Field--error`)?.scrollIntoView({ block: 'center', behavior: 'smooth' }),
+                1
+            )
+        },
     })),
     reducers({
         isEditingSurvey: [
@@ -553,6 +561,12 @@ export const surveyLogic = kea<surveyLogicType>([
                 setWritingHTMLDescription: (_, { writingHTML }) => writingHTML,
             },
         ],
+        flagPropertyErrors: [
+            null as any,
+            {
+                setFlagPropertyErrors: (_, { errors }) => errors,
+            },
+        ],
     }),
     selectors({
         isSurveyRunning: [
@@ -633,10 +647,17 @@ export const surveyLogic = kea<surveyLogicType>([
                 }
             },
         ],
-        hasTargetingFlag: [
+        targetingFlagFilters: [
             (s) => [s.survey],
-            (survey): boolean => {
-                return !!survey.targeting_flag || !!survey.targeting_flag_filters
+            (survey): FeatureFlagFilters | undefined => {
+                if (survey.targeting_flag_filters) {
+                    return {
+                        groups: survey.targeting_flag_filters.groups,
+                        multivariate: null,
+                        payloads: {},
+                    }
+                }
+                return survey.targeting_flag?.filters || undefined
             },
         ],
         urlMatchTypeValidationError: [
@@ -683,19 +704,25 @@ export const surveyLogic = kea<surveyLogicType>([
                           }
                         : {}),
                 })),
+                // release conditions controlled using a PureField in the form
+                targeting_flag_filters: values.flagPropertyErrors,
                 // controlled using a PureField in the form
                 urlMatchType: values.urlMatchTypeValidationError,
             }),
             submit: (surveyPayload) => {
-                let surveyPayloadWithTargetingFlagFilters = surveyPayload
-                const flagLogic = featureFlagLogic({ id: values.survey.targeting_flag?.id || 'new' })
-                if (values.hasTargetingFlag) {
-                    const targetingFlag = flagLogic.values.featureFlag
-                    surveyPayloadWithTargetingFlagFilters = {
-                        ...surveyPayload,
-                        ...{ targeting_flag_filters: targetingFlag.filters },
-                    }
-                }
+                const surveyPayloadWithTargetingFlagFilters = surveyPayload
+                // TODO: This is so convoluted, because the releaseconditions update the flag, and then we use
+                // the current value in the flag as input to survey
+                // and then the survey API backend actually makes the update for the flag and survey smh
+                // confirm removing this doesn't bork things
+                // const flagLogic = featureFlagLogic({ id: values.survey.targeting_flag?.id || 'new' })
+                // if (values.hasTargetingFlag) {
+                //     const targetingFlag = flagLogic.values.featureFlag
+                //     surveyPayloadWithTargetingFlagFilters = {
+                //         ...surveyPayload,
+                //         ...{ targeting_flag_filters: targetingFlag.filters },
+                //     }
+                // }
                 if (props.id && props.id !== 'new') {
                     actions.updateSurvey(surveyPayloadWithTargetingFlagFilters)
                 } else {

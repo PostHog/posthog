@@ -3,7 +3,6 @@ import './FeatureFlag.scss'
 import { IconCopy, IconPlus, IconTrash } from '@posthog/icons'
 import { LemonInput, LemonSelect, Link } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
-import { Group } from 'kea-forms'
 import { router } from 'kea-router'
 import { allOperatorsToHumanName } from 'lib/components/DefinitionPopover/utils'
 import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
@@ -24,59 +23,66 @@ import { urls } from 'scenes/urls'
 
 import { cohortsModel } from '~/models/cohortsModel'
 import { groupsModel } from '~/models/groupsModel'
-import { AnyPropertyFilter, FeatureFlagFilters, FeatureFlagGroupType, FeatureFlagType } from '~/types'
+import { AnyPropertyFilter, FeatureFlagGroupType } from '~/types'
 
 import { featureFlagLogic } from './featureFlagLogic'
-
-interface FeatureFlagReleaseConditionsProps {
-    readOnly?: boolean
-    isSuper?: boolean
-    excludeTitle?: boolean
-    usageContext?: string
-    // featureFlag?: FeatureFlagType  // get this from bindlogic always
-    value?: FeatureFlagFilters
-    onChange?: (value: FeatureFlagFilters) => void
-}
+import {
+    featureFlagReleaseConditionsLogic,
+    FeatureFlagReleaseConditionsLogicProps,
+} from './FeatureFlagReleaseConditionsLogic'
 
 // Lets setup a releaseconditions logic that handles all the logic required here
 // and perhaps connect to flag using key? or id?
 export function FeatureFlagReleaseConditions({
+    id,
     readOnly,
     isSuper,
     excludeTitle,
-    usageContext,
-    value,
-    onChange
-}: FeatureFlagReleaseConditionsProps): JSX.Element {
-    const logic = usageContext === 'schedule' ? featureFlagLogic({ id: 'schedule' }) : featureFlagLogic
+    filters,
+    onChange,
+}: FeatureFlagReleaseConditionsLogicProps): JSX.Element {
+    // TODO: Confirm don't need usageContext for scheduling flags
 
-    const { showGroupsOptions, aggregationLabel } = useValues(groupsModel)
+    const releaseConditionsLogic = featureFlagReleaseConditionsLogic({
+        id,
+        readOnly,
+        isSuper,
+        excludeTitle,
+        filters,
+        onChange,
+    })
     const {
-        aggregationTargetName,
-        featureFlag,
-        groupTypes,
         taxonomicGroupTypes,
-        nonEmptyVariants,
         propertySelectErrors,
         computeBlastRadiusPercentage,
         affectedUsers,
         totalUsers,
         featureFlagTaxonomicOptions,
         enabledFeatures,
-    } = useValues(logic)
+    } = useValues(releaseConditionsLogic)
+
     const {
         setAggregationGroupTypeIndex,
         updateConditionSet,
         duplicateConditionSet,
         removeConditionSet,
         addConditionSet,
-    } = useActions(logic)
+    } = useActions(releaseConditionsLogic)
+
+    const { showGroupsOptions, aggregationLabel } = useValues(groupsModel)
+    const {
+        aggregationTargetName,
+        earlyAccessFeaturesList,
+        hasEarlyAccessFeatures,
+        featureFlagKey,
+        groupTypes,
+        nonEmptyVariants,
+    } = useValues(featureFlagLogic)
+
     const { cohortsById } = useValues(cohortsModel)
     const { groupsAccessStatus } = useValues(groupsAccessLogic)
 
-    const filterGroups: FeatureFlagGroupType[] = isSuper
-        ? featureFlag.filters.super_groups || []
-        : featureFlag.filters.groups
+    const filterGroups: FeatureFlagGroupType[] = isSuper ? filters?.super_groups || [] : filters?.groups || []
     // :KLUDGE: Match by select only allows Select.Option as children, so render groups option directly rather than as a child
     const matchByGroupsIntroductionOption = GroupsIntroductionOption()
     const hasNonInstantProperty = (properties: AnyPropertyFilter[]): boolean => {
@@ -87,9 +93,8 @@ export function FeatureFlagReleaseConditions({
 
     const isEarlyAccessFeatureCondition = (group: FeatureFlagGroupType): boolean => {
         return !!(
-            featureFlag.features?.length &&
-            featureFlag.features?.length > 0 &&
-            group.properties?.some((property) => property.key === '$feature_enrollment/' + featureFlag.key)
+            hasEarlyAccessFeatures &&
+            group.properties?.some((property) => property.key === '$feature_enrollment/' + featureFlagKey)
         )
     }
 
@@ -220,8 +225,8 @@ export function FeatureFlagReleaseConditions({
                         <div>
                             <PropertyFilters
                                 orFiltering={true}
-                                pageKey={`feature-flag-${featureFlag.id}-${index}-${filterGroups.length}-${
-                                    featureFlag.filters.aggregation_group_type_index ?? ''
+                                pageKey={`feature-flag-${id}-${index}-${filterGroups.length}-${
+                                    filters.aggregation_group_type_index ?? ''
                                 }`}
                                 propertyFilters={group?.properties}
                                 logicalRowDivider
@@ -286,23 +291,21 @@ export function FeatureFlagReleaseConditions({
                                     step={1}
                                     className="ml-1.5 w-20"
                                 />
-                                <Group name={['filters', 'groups', index]}>
-                                    <LemonField name="rollout_percentage">
-                                        <LemonInput
-                                            data-attr="rollout-percentage"
-                                            type="number"
-                                            className="ml-2 mr-1.5 max-w-30"
-                                            onChange={(value): void => {
-                                                updateConditionSet(index, value === undefined ? 0 : value)
-                                            }}
-                                            value={group.rollout_percentage !== null ? group.rollout_percentage : 100}
-                                            min={0}
-                                            max={100}
-                                            step="any"
-                                            suffix={<span>%</span>}
-                                        />
-                                    </LemonField>
-                                </Group>{' '}
+                                <LemonField.Pure error={propertySelectErrors?.[index]?.rollout_percentage}>
+                                    <LemonInput
+                                        data-attr="rollout-percentage"
+                                        type="number"
+                                        className="ml-2 mr-1.5 max-w-30"
+                                        onChange={(value): void => {
+                                            updateConditionSet(index, value === undefined ? 0 : value)
+                                        }}
+                                        value={group.rollout_percentage !== null ? group.rollout_percentage : 100}
+                                        min={0}
+                                        max={100}
+                                        step="any"
+                                        suffix={<span>%</span>}
+                                    />
+                                </LemonField.Pure>{' '}
                                 of <b>{aggregationTargetName}</b> in this set.{' '}
                             </div>
                             <div>
@@ -376,7 +379,7 @@ export function FeatureFlagReleaseConditions({
         }
 
         // TODO: EarlyAccessFeatureType is not the correct type for featureFlag.features, hence bypassing TS check
-        const hasMatchingEarlyAccessFeature = featureFlag.features?.find((f: any) => f.flagKey === featureFlag.key)
+        const hasMatchingEarlyAccessFeature = earlyAccessFeaturesList?.find((f: any) => f.flagKey === featureFlagKey)
 
         return (
             <div className="w-full" key={`${index}-${filterGroups.length}`}>
@@ -389,7 +392,7 @@ export function FeatureFlagReleaseConditions({
                                     <>
                                         Match <b>{aggregationTargetName}</b> against value set on{' '}
                                         <span className="simple-tag tag-light-blue text-primary-alt">
-                                            {'$feature_enrollment/' + featureFlag.key}
+                                            {'$feature_enrollment/' + featureFlagKey}
                                         </span>
                                     </>
                                 ) : (
@@ -424,9 +427,8 @@ export function FeatureFlagReleaseConditions({
                             data-attr="feature-flag-feature-list-button"
                             size="small"
                             onClick={() =>
-                                featureFlag.features &&
-                                featureFlag.features.length &&
-                                router.actions.push(urls.earlyAccessFeature(featureFlag.features[0].id))
+                                hasEarlyAccessFeatures &&
+                                router.actions.push(urls.earlyAccessFeature(earlyAccessFeaturesList[0].id))
                             }
                         >
                             {hasMatchingEarlyAccessFeature ? 'View Early Access Feature' : 'No Early Access Feature'}
@@ -469,7 +471,7 @@ export function FeatureFlagReleaseConditions({
                             </LemonBanner>
                         )}
                 </div>
-                {!readOnly && showGroupsOptions && usageContext !== 'schedule' && (
+                {!readOnly && showGroupsOptions && id !== 'schedule' && (
                     <div className="centered">
                         Match by
                         <LemonSelect
@@ -486,9 +488,7 @@ export function FeatureFlagReleaseConditions({
                                 setAggregationGroupTypeIndex(groupTypeIndex)
                             }}
                             value={
-                                featureFlag.filters.aggregation_group_type_index != null
-                                    ? featureFlag.filters.aggregation_group_type_index
-                                    : -1
+                                filters.aggregation_group_type_index != null ? filters.aggregation_group_type_index : -1
                             }
                             options={[
                                 { value: -1, label: 'Users' },
@@ -496,7 +496,8 @@ export function FeatureFlagReleaseConditions({
                                     value: groupType.group_type_index,
                                     label: capitalizeFirstLetter(aggregationLabel(groupType.group_type_index).plural),
                                     disabledReason:
-                                        !featureFlag?.features || featureFlag.features.length > 0
+                                        // TODO: The first part of old condition seemed a bit wonky check if we do need it
+                                        hasEarlyAccessFeatures
                                             ? 'This feature flag cannot be group-based, because it is linked to an early access feature.'
                                             : null,
                                 })),

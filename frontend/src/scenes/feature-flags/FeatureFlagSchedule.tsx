@@ -21,36 +21,37 @@ import { useEffect } from 'react'
 import { groupsModel } from '~/models/groupsModel'
 import { ScheduledChangeOperationType, ScheduledChangeType } from '~/types'
 
+import { hasErrors } from './FeatureFlag'
 import { featureFlagLogic } from './featureFlagLogic'
 import { FeatureFlagReleaseConditions } from './FeatureFlagReleaseConditions'
 import { groupFilters } from './FeatureFlags'
 
-const featureFlagScheduleLogic = featureFlagLogic({ id: 'schedule' })
-export const DAYJS_FORMAT = 'MMMM DD, YYYY h:mm A'
+export const DAYJS_FORMAT = 'MMMM DD, YYYY h:mm A'
 
 export default function FeatureFlagSchedule(): JSX.Element {
-    const { featureFlag, scheduledChanges, scheduledChangeOperation, scheduleDateMarker } =
-        useValues(featureFlagScheduleLogic)
     const {
-        setFeatureFlagId,
-        setFeatureFlag,
-        setAggregationGroupTypeIndex,
+        featureFlag,
+        scheduledChanges,
+        scheduledChangeOperation,
+        scheduleDateMarker,
+        schedulePayload,
+        schedulePayloadErrors,
+    } = useValues(featureFlagLogic)
+    const {
         loadScheduledChanges,
         deleteScheduledChange,
         setScheduleDateMarker,
+        setSchedulePayload,
         setScheduledChangeOperation,
         createScheduledChange,
-    } = useActions(featureFlagScheduleLogic)
+    } = useActions(featureFlagLogic)
     const { aggregationLabel } = useValues(groupsModel)
 
-    const featureFlagId = useValues(featureFlagLogic).featureFlag.id
-    const aggregationGroupTypeIndex = useValues(featureFlagLogic).featureFlag.filters.aggregation_group_type_index
+    const aggregationGroupTypeIndex = featureFlag.filters.aggregation_group_type_index
+
+    const scheduleFilters = { ...schedulePayload.filters, aggregation_group_type_index: aggregationGroupTypeIndex }
 
     useEffect(() => {
-        // Set the feature flag ID from the main flag logic to the current logic
-        setFeatureFlagId(featureFlagId)
-        setAggregationGroupTypeIndex(aggregationGroupTypeIndex || null)
-
         loadScheduledChanges()
     }, [])
 
@@ -153,11 +154,11 @@ export default function FeatureFlagSchedule(): JSX.Element {
             <div className="inline-flex gap-10 mb-8">
                 <div>
                     <div className="font-semibold leading-6 h-6 mb-1">Change type</div>
-                    <LemonSelect
+                    <LemonSelect<ScheduledChangeOperationType>
                         className="w-50"
                         placeholder="Select variant"
                         value={scheduledChangeOperation}
-                        onChange={(value) => setScheduledChangeOperation(value)}
+                        onChange={(value) => value && setScheduledChangeOperation(value)}
                         options={[
                             { label: 'Change status', value: ScheduledChangeOperationType.UpdateStatus },
                             { label: 'Add a condition', value: ScheduledChangeOperationType.AddReleaseCondition },
@@ -198,22 +199,34 @@ export default function FeatureFlagSchedule(): JSX.Element {
                                     id="flag-enabled-checkbox"
                                     label="Enable feature flag"
                                     onChange={(value) => {
-                                        featureFlag.active = value
-                                        setFeatureFlag(featureFlag)
+                                        setSchedulePayload(null, value)
                                     }}
-                                    checked={featureFlag.active}
+                                    checked={schedulePayload.active}
                                 />
                             </div>
                         </>
                     )}
+                    {/* // TODO: There's a problem here, if you click schedule, then click back inside release conditions, the filters are old.
+                    Not sure why this is. Do we need to key releaseConditions??? */}
                     {scheduledChangeOperation === ScheduledChangeOperationType.AddReleaseCondition && (
-                        <FeatureFlagReleaseConditions usageContext="schedule" />
+                        <FeatureFlagReleaseConditions
+                            id="schedule"
+                            filters={scheduleFilters}
+                            onChange={(value, errors) => setSchedulePayload(value, null, errors)}
+                        />
                     )}
+                    {JSON.stringify(schedulePayloadErrors)}
                     <div className="flex items-center justify-end">
                         <LemonButton
                             type="primary"
                             onClick={createScheduledChange}
-                            disabledReason={!scheduleDateMarker ? 'Select the scheduled date and time' : null}
+                            disabledReason={
+                                !scheduleDateMarker
+                                    ? 'Select the scheduled date and time'
+                                    : hasErrors(schedulePayloadErrors)
+                                    ? 'Fix release condition errors'
+                                    : undefined
+                            }
                         >
                             Schedule
                         </LemonButton>
