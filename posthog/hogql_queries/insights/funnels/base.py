@@ -615,7 +615,17 @@ class FunnelBase(ABC):
             if isinstance(breakdown_prop_value, int) and breakdownType != "cohort":
                 breakdown_prop_value = str(breakdown_prop_value)
 
-            conditions.append(parse_expr(f"arrayFlatten(array(prop)) = arrayFlatten(array({breakdown_prop_value}))"))
+            # :TRICKY: we need to handle strings differently, so that parse_expr correctly parses them into a constant
+            if not isinstance(breakdown_prop_value, str):
+                conditions.append(
+                    parse_expr(f"arrayFlatten(array(prop)) = arrayFlatten(array({breakdown_prop_value}))")
+                )
+            elif len(breakdown_prop_value) == 0:
+                conditions.append(parse_expr(f"arrayFlatten(array(prop)) = arrayFlatten(array(''))"))
+            else:
+                conditions.append(
+                    parse_expr(f"arrayFlatten(array(prop)) = arrayFlatten(array('{breakdown_prop_value}'))")
+                )
 
         return ast.And(exprs=conditions)
 
