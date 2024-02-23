@@ -17,7 +17,6 @@ from posthog.hogql_queries.legacy_compatibility.filter_to_query import filter_to
 from posthog.models.action import Action
 from posthog.models.action_step import ActionStep
 from posthog.models.instance_setting import override_instance_config
-from posthog.queries.funnels.funnel_strict_persons import ClickhouseFunnelStrictActors
 from posthog.schema import FunnelsQuery
 from posthog.test.base import (
     APIBaseTest,
@@ -189,7 +188,7 @@ class TestStrictFunnelGroupBreakdown(
 
 class TestFunnelStrictStepsConversionTime(
     ClickhouseTestMixin,
-    funnel_conversion_time_test_factory(FunnelOrderType.ORDERED, ClickhouseFunnelStrictActors),  # type: ignore
+    funnel_conversion_time_test_factory(FunnelOrderType.ORDERED),  # type: ignore
 ):
     maxDiff = None
     pass

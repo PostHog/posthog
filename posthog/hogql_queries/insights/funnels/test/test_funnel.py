@@ -16,7 +16,6 @@ from posthog.models.cohort.cohort import Cohort
 from posthog.models.group.util import create_group
 from posthog.models.group_type_mapping import GroupTypeMapping
 from posthog.models.property_definition import PropertyDefinition
-from posthog.queries.funnels import ClickhouseFunnelActors
 from posthog.schema import ActorsQuery, EventsNode, FunnelsActorsQuery, FunnelsQuery
 from posthog.test.base import (
     APIBaseTest,
@@ -70,7 +69,7 @@ class TestFunnelGroupBreakdown(
 
 class TestFunnelConversionTime(
     ClickhouseTestMixin,
-    funnel_conversion_time_test_factory(FunnelOrderType.ORDERED, ClickhouseFunnelActors),  # type: ignore
+    funnel_conversion_time_test_factory(FunnelOrderType.ORDERED),  # type: ignore
 ):
     maxDiff = None
     pass

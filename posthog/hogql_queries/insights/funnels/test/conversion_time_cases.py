@@ -3,21 +3,18 @@ from typing import Any, Dict, List, cast
 
 from posthog.constants import INSIGHT_FUNNELS, FunnelOrderType
 from posthog.hogql_queries.insights.funnels.funnels_query_runner import FunnelsQueryRunner
+from posthog.hogql_queries.insights.funnels.test.test_funnel_persons import get_actors
 from posthog.hogql_queries.legacy_compatibility.filter_to_query import filter_to_query
-from posthog.models.filters import Filter
 from posthog.schema import FunnelsQuery
 from posthog.test.base import APIBaseTest
 from posthog.test.test_journeys import journeys_for
 
 
-def funnel_conversion_time_test_factory(funnel_order_type: FunnelOrderType, FunnelPerson):
+def funnel_conversion_time_test_factory(funnel_order_type: FunnelOrderType):
     class TestFunnelConversionTime(APIBaseTest):
-        def _get_actor_ids_at_step(self, filter, funnel_step, breakdown_value=None):
-            filter = Filter(data=filter, team=self.team)
-            person_filter = filter.shallow_clone({"funnel_step": funnel_step, "funnel_step_breakdown": breakdown_value})
-            _, serialized_result, _ = FunnelPerson(person_filter, self.team).get_actors()
-
-            return [val["id"] for val in serialized_result]
+        def _get_actor_ids_at_step(self, filters, funnelStep, funnelStepBreakdown=None):
+            results = get_actors(filters, self.team, funnelStep=funnelStep, funnelStepBreakdown=funnelStepBreakdown)
+            return [val[0]["id"] for val in results]
 
         def test_funnel_with_multiple_incomplete_tries(self):
             filters = {

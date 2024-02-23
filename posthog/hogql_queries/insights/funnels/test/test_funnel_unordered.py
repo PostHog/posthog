@@ -652,7 +652,6 @@ class TestFunnelUnorderedStepsConversionTime(
     ClickhouseTestMixin,
     funnel_conversion_time_test_factory(  # type: ignore
         FunnelOrderType.UNORDERED,
-        ClickhouseFunnelUnorderedActors,
     ),
 ):
     maxDiff = None
