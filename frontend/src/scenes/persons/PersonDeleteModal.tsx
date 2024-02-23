@@ -33,6 +33,7 @@ export function PersonDeleteModal(): JSX.Element | null {
                     </p>
                     <LemonCheckbox
                         onChange={(value) => setIsDeletionConfirmed(value)}
+                        checked={isDeletionConfirmed}
                         className="mt-3"
                         label="I understand that re-using the same distinct_id will result in a bad state."
                     />
