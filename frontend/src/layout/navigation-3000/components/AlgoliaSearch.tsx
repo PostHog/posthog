@@ -10,15 +10,16 @@ const Hits = (): JSX.Element => {
 
     return (
         <div className="relative">
-            <ol className="list-none m-0 p-0 absolute w-full bg-white z-50 border rounded-sm max-h-[300px] overflow-auto mt-1 divide-y">
+            <ol className="list-none m-0 p-0 absolute w-full bg-white z-50 border rounded-sm max-h-[85vh] overflow-auto mt-0.5 divide-y shadow-xl">
                 {hits.map(({ title, excerpt, slug, id }) => {
                     return (
                         <li className="p-1" key={id as Key}>
-                            <LemonButton to={`https://posthog.com/${slug}`}>
-                                <span>
-                                    <p className="m-0 font-bold mb-1">{title}</p>
-                                    <p className="text-xs m-0 opacity-80">{excerpt}</p>
-                                </span>
+                            <LemonButton
+                                to={`https://posthog.com/${slug}`}
+                                className="[&_>span>span]:flex-col [&_>span>span]:items-start [&_>span>span]:space-y-1"
+                            >
+                                <p className="m-0 font-bold font-sans">{title}</p>
+                                <p className="text-xs m-0 opacity-80 font-normal font-sans">{excerpt}</p>
                             </LemonButton>
                         </li>
                     )
