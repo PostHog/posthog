@@ -289,7 +289,7 @@ export const PlanComparison = ({
                         ))}
                     </tr>
                 ))}
-                {!billing?.has_active_subscription && (
+                {!billing?.has_active_subscription && !product.inclusion_only && (
                     <>
                         <tr>
                             <th colSpan={1} className="PlanTable__th__section rounded text-left">
