@@ -302,70 +302,78 @@ export const PlanComparison = ({
                         </tr>
                         {billing?.products
                             .filter((product) => product.inclusion_only)
-                            .map((includedProduct) => (
-                                <React.Fragment key={`inclusion-only-product-features-${includedProduct.type}`}>
-                                    <tr>
-                                        <th
-                                            colSpan={3}
-                                            className="PlanTable__th__section bg-side justify-left rounded text-left mb-2"
-                                        >
-                                            <div className="flex items-center gap-x-2 my-2">
-                                                {getProductIcon(includedProduct.icon_key, 'text-2xl')}
-                                                <Tooltip title={includedProduct.description}>
-                                                    <span className="font-bold">{includedProduct.name}</span>
-                                                </Tooltip>
-                                            </div>
-                                        </th>
-                                    </tr>
-                                    {includedProduct.plans
-                                        .find((plan: BillingV2PlanType) => plan.included_if == 'has_subscription')
-                                        ?.features?.map((feature, i) => (
-                                            <tr key={`tr-${feature.key}`}>
-                                                <th
-                                                    className={clsx(
-                                                        'text-muted PlanTable__th__feature',
-                                                        width &&
-                                                            width < 600 &&
-                                                            'PlanTable__th__feature--reduced_padding',
-                                                        // If this is the last feature in the list, add a class to add padding to the bottom of
-                                                        // the cell (which makes the whole row have the padding)
-                                                        i ==
-                                                            (includedProduct.plans.find(
-                                                                (plan) => plan.included_if == 'has_subscription'
-                                                            )?.features?.length || 0) -
-                                                                1
-                                                            ? 'PlanTable__th__last-feature'
-                                                            : ''
-                                                    )}
-                                                >
-                                                    <Tooltip title={feature.description}>{feature.name}</Tooltip>
-                                                </th>
-                                                {includedProduct.plans?.map((plan) => (
-                                                    <React.Fragment key={`${plan.plan_key}-${feature.key}`}>
-                                                        {/* Some products don't have a free plan, so we need to pretend there is one 
+                            .map((includedProduct) => {
+                                const includedPlans = includedProduct.plans.filter(
+                                    (plan) => plan.included_if == 'has_subscription' || plan.current_plan
+                                )
+                                return (
+                                    <React.Fragment key={`inclusion-only-product-features-${includedProduct.type}`}>
+                                        <tr>
+                                            <th
+                                                colSpan={3}
+                                                className="PlanTable__th__section bg-side justify-left rounded text-left mb-2"
+                                            >
+                                                <div className="flex items-center gap-x-2 my-2">
+                                                    {getProductIcon(includedProduct.icon_key, 'text-2xl')}
+                                                    <Tooltip title={includedProduct.description}>
+                                                        <span className="font-bold">{includedProduct.name}</span>
+                                                    </Tooltip>
+                                                </div>
+                                            </th>
+                                        </tr>
+                                        {includedPlans
+                                            .find((plan: BillingV2PlanType) => plan.included_if == 'has_subscription')
+                                            ?.features?.map((feature, i) => (
+                                                <tr key={`tr-${feature.key}`}>
+                                                    <th
+                                                        className={clsx(
+                                                            'text-muted PlanTable__th__feature',
+                                                            width &&
+                                                                width < 600 &&
+                                                                'PlanTable__th__feature--reduced_padding',
+                                                            // If this is the last feature in the list, add a class to add padding to the bottom of
+                                                            // the cell (which makes the whole row have the padding)
+                                                            i ==
+                                                                (includedPlans.find(
+                                                                    (plan) => plan.included_if == 'has_subscription'
+                                                                )?.features?.length || 0) -
+                                                                    1
+                                                                ? 'PlanTable__th__last-feature'
+                                                                : ''
+                                                        )}
+                                                    >
+                                                        <Tooltip title={feature.description}>{feature.name}</Tooltip>
+                                                    </th>
+                                                    {includedPlans?.map((plan) => (
+                                                        <React.Fragment key={`${plan.plan_key}-${feature.key}`}>
+                                                            {/* Some products don't have a free plan, so we need to pretend there is one 
                                                                         so the features line up in the correct columns in the UI. This is kind of 
                                                                         hacky because it assumes we only have 2 plans total, but it works for now.
                                                                     */}
-                                                        {includedProduct.plans?.length === 1 && (
+                                                            {includedPlans?.length === 1 && (
+                                                                <td>
+                                                                    <PlanIcon
+                                                                        feature={undefined}
+                                                                        className="text-base"
+                                                                    />
+                                                                </td>
+                                                            )}
                                                             <td>
-                                                                <PlanIcon feature={undefined} className="text-base" />
+                                                                <PlanIcon
+                                                                    feature={plan.features?.find(
+                                                                        (thisPlanFeature) =>
+                                                                            feature.key === thisPlanFeature.key
+                                                                    )}
+                                                                    className="text-base"
+                                                                />
                                                             </td>
-                                                        )}
-                                                        <td>
-                                                            <PlanIcon
-                                                                feature={plan.features?.find(
-                                                                    (thisPlanFeature) =>
-                                                                        feature.key === thisPlanFeature.key
-                                                                )}
-                                                                className="text-base"
-                                                            />
-                                                        </td>
-                                                    </React.Fragment>
-                                                ))}
-                                            </tr>
-                                        ))}
-                                </React.Fragment>
-                            ))}
+                                                        </React.Fragment>
+                                                    ))}
+                                                </tr>
+                                            ))}
+                                    </React.Fragment>
+                                )
+                            })}
                     </>
                 )}
             </tbody>
