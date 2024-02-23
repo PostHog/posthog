@@ -318,7 +318,7 @@ class FunnelBase(ABC):
                     {
                         "breakdown": (
                             get_breakdown_cohort_name(breakdown_value)
-                            if self.context.breakdownFilter.breakdown_type == "cohort"
+                            if self.context.breakdownType == "cohort"
                             else breakdown_value
                         ),
                         "breakdown_value": breakdown_value,

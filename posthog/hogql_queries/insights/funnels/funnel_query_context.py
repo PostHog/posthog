@@ -70,13 +70,15 @@ class FunnelQueryContext(QueryContext):
         #
         # Once multi property breakdown is implemented in Trends this becomes unnecessary
 
-        # if isinstance(self._filter.breakdowns, List) and self._filter.breakdown_type in [
+        # if isinstance(self.breakdownFilter.breakdowns, List) and self.breakdownType in [
         #     "person",
         #     "event",
         #     "hogql",
         #     None,
         # ]:
-        #     data.update({"breakdown": [b.get("property") for b in self._filter.breakdowns]})
+        #     self.breakdown = [
+        #         b.property if isinstance(b.property, str) else int(b.property) for b in self.breakdownFilter.breakdowns
+        #     ]
 
         if isinstance(self.breakdownFilter.breakdown, str) and self.breakdownType in [
             "person",
