@@ -6,6 +6,7 @@ import {
     IconGraph,
     IconHogQL,
     IconLifecycle,
+    IconPerson,
     IconPlusSmall,
     IconRetention,
     IconStar,
@@ -27,7 +28,6 @@ import {
     IconEvent,
     IconGridView,
     IconListView,
-    IconPerson,
     IconSelectEvents,
     IconTableChart,
 } from 'lib/lemon-ui/icons'

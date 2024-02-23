@@ -21,8 +21,9 @@ import { notebookNodeLogic } from './notebookNodeLogic'
 import { LemonSwitch } from '@posthog/lemon-ui'
 import { JSONContent, NotebookNodeProps, NotebookNodeAttributeProperties } from '../Notebook/utils'
 import { asDisplay } from 'scenes/persons/person-utils'
-import { IconComment, IconPerson } from 'lib/lemon-ui/icons'
+import { IconComment } from 'lib/lemon-ui/icons'
 import { NotFound } from 'lib/components/NotFound'
+import { IconPerson } from '@posthog/icons'
 
 const HEIGHT = 500
 const MIN_HEIGHT = '20rem'
