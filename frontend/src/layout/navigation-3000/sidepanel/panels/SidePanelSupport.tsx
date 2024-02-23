@@ -11,13 +11,14 @@ import {
     IconToggle,
     IconTrends,
 } from '@posthog/icons'
-import { LemonButton, LemonInput, Link } from '@posthog/lemon-ui'
+import { LemonButton, Link } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { SupportForm } from 'lib/components/Support/SupportForm'
 import { supportLogic } from 'lib/components/Support/supportLogic'
 
 import { SidePanelTab } from '~/types'
 
+import AlgoliaSearch from '../../components/AlgoliaSearch'
 import { SidePanelPaneHeader } from '../components/SidePanelPaneHeader'
 import { sidePanelStateLogic } from '../sidePanelStateLogic'
 
@@ -77,7 +78,7 @@ export const SidePanelSupport = (): JSX.Element => {
             <div className="overflow-y-auto" data-attr="side-panel-support-container">
                 <div className="p-3 max-w-160 w-full mx-auto">
                     <Section title="Search docs & community questions">
-                        <LemonInput type="search" fullWidth placeholder="Search..." />
+                        <AlgoliaSearch />
                     </Section>
 
                     <Section title="Explore the docs">
