@@ -412,7 +412,7 @@ $_lifecycle_dormant: $_danger;
 }
 
 // defined here so that they can be shared with the toolbar
-@mixin posthog-3000-variables {
+@mixin common-variables {
     --default: var(--text-3000);
     --text-secondary: var(--text-secondary-3000);
     --muted: var(--muted-3000);

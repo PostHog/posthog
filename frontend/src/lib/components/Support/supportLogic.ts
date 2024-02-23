@@ -68,7 +68,6 @@ export const TARGET_AREA_TO_NAME = {
     toolbar: 'Toolbar & Heatmaps',
     surveys: 'Surveys',
     web_analytics: 'Web Analytics',
-    'posthog-3000': 'PostHog 3000',
 }
 
 export const SEVERITY_LEVEL_TO_NAME = {

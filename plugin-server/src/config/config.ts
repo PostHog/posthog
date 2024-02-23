@@ -130,6 +130,7 @@ export function getDefaultConfig(): PluginsServerConfig {
         POE_EMBRACE_JOIN_FOR_TEAMS: '',
         POE_WRITES_ENABLED_MAX_TEAM_ID: 0,
         POE_WRITES_EXCLUDE_TEAMS: '',
+        PIPELINE_STEP_STALLED_LOG_TIMEOUT: 30,
         RELOAD_PLUGIN_JITTER_MAX_MS: 60000,
         RUSTY_HOOK_FOR_TEAMS: '',
         RUSTY_HOOK_ROLLOUT_PERCENTAGE: 0,
