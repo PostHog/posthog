@@ -5,15 +5,12 @@ from rest_framework.exceptions import ValidationError
 
 from posthog.constants import INSIGHT_FUNNELS, FunnelOrderType
 from posthog.hogql_queries.insights.funnels.funnels_query_runner import FunnelsQueryRunner
+from posthog.hogql_queries.insights.funnels.test.test_funnel_persons import get_actors
 from posthog.hogql_queries.legacy_compatibility.filter_to_query import filter_to_query
 
 from posthog.models.action import Action
 from posthog.models.action_step import ActionStep
-from posthog.models.filters import Filter
 from posthog.models.property_definition import PropertyDefinition
-from posthog.queries.funnels.funnel_unordered_persons import (
-    ClickhouseFunnelUnorderedActors,
-)
 from posthog.hogql_queries.insights.funnels.test.conversion_time_cases import (
     funnel_conversion_time_test_factory,
 )
@@ -659,12 +656,9 @@ class TestFunnelUnorderedStepsConversionTime(
 
 
 class TestFunnelUnorderedSteps(ClickhouseTestMixin, APIBaseTest):
-    def _get_actor_ids_at_step(self, filter, funnel_step, breakdown_value=None):
-        filter = Filter(data=filter, team=self.team)
-        person_filter = filter.shallow_clone({"funnel_step": funnel_step, "funnel_step_breakdown": breakdown_value})
-        _, serialized_result, _ = ClickhouseFunnelUnorderedActors(person_filter, self.team).get_actors()
-
-        return [val["id"] for val in serialized_result]
+    def _get_actor_ids_at_step(self, filters, funnelStep, funnelStepBreakdown=None):
+        results = get_actors(filters, self.team, funnelStep=funnelStep, funnelStepBreakdown=funnelStepBreakdown)
+        return [val[0]["id"] for val in results]
 
     def test_basic_unordered_funnel(self):
         filters = {
