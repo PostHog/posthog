@@ -12,7 +12,7 @@ env:
 
 jobs:
   build:
-    runs-on: buildjet-4vcpu-ubuntu-2204
+    runs-on: depot-ubuntu-22.04-4
 
     steps:
       - uses: actions/checkout@v3
@@ -34,7 +34,7 @@ jobs:
         run: cargo build --all --locked --release && find target/release/ -maxdepth 1 -executable -type f | xargs strip
 
   test:
-    runs-on: buildjet-4vcpu-ubuntu-2204
+    runs-on: depot-ubuntu-22.04-4
     timeout-minutes: 10
 
     steps:
@@ -72,7 +72,7 @@ jobs:
         run: cargo check --all-features
 
   clippy:
-    runs-on: buildjet-4vcpu-ubuntu-2204
+    runs-on: depot-ubuntu-22.04-4
 
     steps:
       - uses: actions/checkout@v3
@@ -95,7 +95,7 @@ jobs:
         run: cargo clippy -- -D warnings
 
   format:
-    runs-on: buildjet-4vcpu-ubuntu-2204
+    runs-on: depot-ubuntu-22.04-4
 
     steps:
       - uses: actions/checkout@v3

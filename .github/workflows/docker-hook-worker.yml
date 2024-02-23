@@ -12,7 +12,7 @@ permissions:
 jobs:
   build:
     name: build and publish hook-worker image
-    runs-on: buildjet-4vcpu-ubuntu-2204-arm
+    runs-on: depot-ubuntu-22.04-4
     permissions:
       id-token: write # allow issuing OIDC tokens for this workflow run
       contents: read # allow reading the repo contents
