@@ -508,3 +508,10 @@ class TeamViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     def user_permissions(self):
         team = self.get_object() if self.action == "reset_token" else None
         return UserPermissions(cast(User, self.request.user), team)
+
+
+class RootTeamViewSet(TeamViewSet):
+    # NOTE: We don't want people managing projects via the "current_organization" concept.
+    # Rather specifying the org ID at the top level - we still support it for backwards compat but don't document it anymore.
+
+    hide_api_docs = True

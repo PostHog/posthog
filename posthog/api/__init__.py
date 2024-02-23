@@ -65,7 +65,7 @@ router.register(r"plugin_config", plugin.LegacyPluginConfigViewSet, "legacy_plug
 router.register(r"feature_flag", feature_flag.LegacyFeatureFlagViewSet)  # Used for library side feature flag evaluation
 
 # Nested endpoints shared
-projects_router = router.register(r"projects", team.TeamViewSet)
+projects_router = router.register(r"projects", team.RootTeamViewSet)
 project_plugins_configs_router = projects_router.register(
     r"plugin_configs", plugin.PluginConfigViewSet, "project_plugin_configs", ["team_id"]
 )
@@ -257,7 +257,7 @@ organizations_router.register(
 )
 
 # Project nested endpoints
-projects_router = router.register(r"projects", team.TeamViewSet, "projects")
+projects_router = router.register(r"projects", team.RootTeamViewSet, "projects")
 
 projects_router.register(
     r"event_definitions",
