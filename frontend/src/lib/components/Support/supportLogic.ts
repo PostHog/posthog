@@ -11,7 +11,7 @@ import { teamLogic } from 'scenes/teamLogic'
 import { userLogic } from 'scenes/userLogic'
 
 import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
-import { AvailableFeature, Region, SidePanelTab, TeamType, UserType } from '~/types'
+import { Region, SidePanelTab, TeamType, UserType } from '~/types'
 
 import type { supportLogicType } from './supportLogicType'
 import { openSupportModal } from './SupportModal'
@@ -121,7 +121,7 @@ export type SupportFormLogicProps = {
 export type SupportFormFields = {
     name: string
     email: string
-    kind: SupportTicketKind | null
+    kind: SupportTicketKind
     target_area: SupportTicketTargetArea | null
     severity_level: SupportTicketSeverityLevel | null
     message: string
@@ -154,7 +154,7 @@ export const supportLogic = kea<supportLogicType>([
             defaults: {
                 name: '',
                 email: '',
-                kind: null,
+                kind: 'support',
                 severity_level: null,
                 target_area: null,
                 message: '',
@@ -183,9 +183,7 @@ export const supportLogic = kea<supportLogicType>([
         title: [
             (s) => [s.sendSupportRequest ?? null],
             (sendSupportRequest) =>
-                !userLogic.values.hasAvailableFeature(AvailableFeature.EMAIL_SUPPORT)
-                    ? 'Get help with PostHog'
-                    : sendSupportRequest.kind
+                sendSupportRequest.kind
                     ? SUPPORT_TICKET_KIND_TO_TITLE[sendSupportRequest.kind]
                     : 'Leave a message with PostHog',
         ],
@@ -204,7 +202,7 @@ export const supportLogic = kea<supportLogicType>([
         },
         openSupportForm: async ({ name, email, kind, target_area, severity_level, message }) => {
             const area = target_area ?? getURLPathToTargetArea(window.location.pathname)
-            kind = kind ?? null
+            kind = kind ?? 'support'
             actions.resetSendSupportRequest({
                 name: name ?? '',
                 email: email ?? '',

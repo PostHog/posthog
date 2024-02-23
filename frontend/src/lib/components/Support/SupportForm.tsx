@@ -1,4 +1,11 @@
-import { LemonBanner, LemonInput, LemonSegmentedButtonOption, lemonToast, Link } from '@posthog/lemon-ui'
+import {
+    LemonBanner,
+    LemonInput,
+    LemonSegmentedButton,
+    LemonSegmentedButtonOption,
+    lemonToast,
+    Link,
+} from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
 import { useUploadFiles } from 'lib/hooks/useUploadFiles'
@@ -83,8 +90,7 @@ export function SupportForm(): JSX.Element | null {
                 </>
             )}
             <LemonField name="kind" label="What type of message is this?">
-                {/* <LemonSegmentedButton fullWidth options={SUPPORT_TICKET_OPTIONS} /> */}
-                <LemonSelect fullWidth options={SUPPORT_TICKET_OPTIONS} />
+                <LemonSegmentedButton fullWidth options={SUPPORT_TICKET_OPTIONS} />
             </LemonField>
             <LemonField name="target_area" label="What area does this best relate to?">
                 <LemonSelect
