@@ -26,27 +26,40 @@ export interface NavbarButtonProps extends Pick<LemonButtonProps, 'onClick' | 'i
 export const NavbarButton: FunctionComponent<NavbarButtonProps> = React.forwardRef<
     HTMLButtonElement,
     NavbarButtonProps
->(
-    (
-        { identifier, shortTitle, title, forceTooltipOnHover, tag, onClick, sideAction, sideIcon, ...rest },
-        ref
-    ): JSX.Element => {
-        const { activeScene } = useValues(sceneLogic)
-        const { sceneBreadcrumbKeys } = useValues(breadcrumbsLogic)
-        const { hideNavOnMobile } = useActions(navigation3000Logic)
-        const { isNavCollapsed } = useValues(navigation3000Logic)
-        const isUsingNewNav = useFeatureFlag('POSTHOG_3000_NAV')
+>(({ identifier, shortTitle, title, forceTooltipOnHover, tag, onClick, sideAction, ...rest }, ref): JSX.Element => {
+    const { activeScene } = useValues(sceneLogic)
+    const { sceneBreadcrumbKeys } = useValues(breadcrumbsLogic)
+    const { hideNavOnMobile } = useActions(navigation3000Logic)
+    const { isNavCollapsed } = useValues(navigation3000Logic)
+    const isUsingNewNav = useFeatureFlag('POSTHOG_3000_NAV')
 
-        const [hasBeenClicked, setHasBeenClicked] = useState(false)
+    const [hasBeenClicked, setHasBeenClicked] = useState(false)
 
-        const here = activeScene === identifier || sceneBreadcrumbKeys.includes(identifier)
-        const isNavCollapsedActually = isNavCollapsed || isUsingNewNav
+    const here = activeScene === identifier || sceneBreadcrumbKeys.includes(identifier)
+    const isNavCollapsedActually = isNavCollapsed || isUsingNewNav
 
-        const buttonProps: LemonButtonProps = rest
-        if (!isUsingNewNav) {
-            buttonProps.active = here
+    const buttonProps: LemonButtonProps = rest
+    if (!isUsingNewNav) {
+        buttonProps.active = here
+    }
+    let content: JSX.Element | string | undefined
+    if (!isNavCollapsedActually) {
+        content = shortTitle || title
+        if (tag) {
+            content = (
+                <>
+                    <span className="grow">{content}</span>
+                    <LemonTag
+                        type={tag === 'alpha' ? 'completion' : tag === 'beta' ? 'warning' : 'success'}
+                        size="small"
+                        className="ml-2"
+                    >
+                        {tag.toUpperCase()}
+                    </LemonTag>
+                </>
+            )
         }
-        if (!isNavCollapsedActually && sideAction) {
+        if (sideAction) {
             // @ts-expect-error - in this case we are perfectly okay with assigning a sideAction
             buttonProps.sideAction = {
                 ...sideAction,
@@ -56,79 +69,62 @@ export const NavbarButton: FunctionComponent<NavbarButtonProps> = React.forwardR
             }
             buttonProps.sideIcon = null
         }
-
-        let content: JSX.Element | string | undefined
-        if (!isNavCollapsedActually) {
-            content = shortTitle || title
-            if (tag) {
-                content = (
-                    <>
-                        <span className="grow">{content}</span>
-                        <LemonTag
-                            type={tag === 'alpha' ? 'completion' : tag === 'beta' ? 'warning' : 'success'}
-                            size="small"
-                            className="ml-2"
-                        >
-                            {tag.toUpperCase()}
-                        </LemonTag>
-                    </>
-                )
-            }
-        }
-
-        const buttonContent = (
-            <LemonButton
-                ref={ref}
-                data-attr={`menu-item-${identifier.toString().toLowerCase()}`}
-                onMouseEnter={() => setHasBeenClicked(false)}
-                onClick={(e) => {
-                    if (buttonProps.to) {
-                        hideNavOnMobile()
-                    }
-                    setHasBeenClicked(true)
-                    onClick?.(e)
-                }}
-                className={clsx('NavbarButton', isUsingNewNav && here && 'NavbarButton--here')}
-                fullWidth
-                type="secondary"
-                status="alt"
-                {...buttonProps}
-            >
-                {content}
-            </LemonButton>
-        )
-
-        const [notices, onAcknowledged] = useSidebarChangeNotices({ identifier })
-
-        return (
-            <li className="w-full">
-                {notices.length ? (
-                    <Tooltip
-                        title={<SidebarChangeNoticeContent notices={notices} onAcknowledged={onAcknowledged} />}
-                        placement={notices[0].placement ?? 'right'}
-                        delayMs={0}
-                        visible={true}
-                    >
-                        {buttonContent}
-                    </Tooltip>
-                ) : (
-                    <Tooltip
-                        title={
-                            forceTooltipOnHover || isNavCollapsedActually
-                                ? here
-                                    ? `${title} (you are here)`
-                                    : title
-                                : null
-                        }
-                        placement="right"
-                        delayMs={0}
-                        visible={hasBeenClicked ? false : undefined} // Force-hide tooltip after button click
-                    >
-                        {buttonContent}
-                    </Tooltip>
-                )}
-            </li>
-        )
+    } else {
+        buttonProps.sideIcon = null
     }
-)
+
+    const buttonContent = (
+        <LemonButton
+            ref={ref}
+            data-attr={`menu-item-${identifier.toString().toLowerCase()}`}
+            onMouseEnter={() => setHasBeenClicked(false)}
+            onClick={(e) => {
+                if (buttonProps.to) {
+                    hideNavOnMobile()
+                }
+                setHasBeenClicked(true)
+                onClick?.(e)
+            }}
+            className={clsx('NavbarButton', isUsingNewNav && here && 'NavbarButton--here')}
+            fullWidth
+            type="secondary"
+            status="alt"
+            {...buttonProps}
+        >
+            {content}
+        </LemonButton>
+    )
+
+    const [notices, onAcknowledged] = useSidebarChangeNotices({ identifier })
+
+    return (
+        <li className="w-full">
+            {notices.length ? (
+                <Tooltip
+                    title={<SidebarChangeNoticeContent notices={notices} onAcknowledged={onAcknowledged} />}
+                    placement={notices[0].placement ?? 'right'}
+                    delayMs={0}
+                    visible={true}
+                >
+                    {buttonContent}
+                </Tooltip>
+            ) : (
+                <Tooltip
+                    title={
+                        forceTooltipOnHover || isNavCollapsedActually
+                            ? here
+                                ? `${title} (you are here)`
+                                : title
+                            : null
+                    }
+                    placement="right"
+                    delayMs={0}
+                    visible={hasBeenClicked ? false : undefined} // Force-hide tooltip after button click
+                >
+                    {buttonContent}
+                </Tooltip>
+            )}
+        </li>
+    )
+})
 NavbarButton.displayName = 'NavbarButton'
