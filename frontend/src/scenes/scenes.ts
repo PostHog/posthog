@@ -269,6 +269,7 @@ export const sceneConfigurations: Record<Scene, SceneConfig> = {
     },
     [Scene.Onboarding]: {
         projectBased: true,
+        hideBillingNotice: true,
         hideProjectNotice: true,
     },
     [Scene.ToolbarLaunch]: {
