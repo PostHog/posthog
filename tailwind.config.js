@@ -7,6 +7,20 @@ const config = {
             // TODO: Move all colors over to Tailwind
             // Currently color utility classes are still generated with SCSS in colors.scss due to relying on our color
             // CSS vars in lots of stylesheets
+
+            'light-blue': '#54B6FF',
+            'lime-green': '#96E5B6',
+            blue: '#2F80FA',
+            green: '#6AA84F',
+            orange: '#EB9D2A',
+            purple: '#B62AD9',
+            salmon: '#F35454',
+            seagreen: '#30ABC6',
+            teal: '#29DBBB',
+            yellow: '#F7A501',
+
+            primary: '#151515',
+            'primary-dark': '#fff',
         },
         fontFamily: {
             sans: [

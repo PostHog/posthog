@@ -37,12 +37,12 @@ export const SIDE_PANEL_TABS: Record<
         noModalSupport: true,
     },
     [SidePanelTab.Support]: {
-        label: 'Support',
+        label: 'Help & support',
         Icon: IconSupport,
         Content: SidePanelSupport,
     },
     [SidePanelTab.Docs]: {
-        label: 'Docs',
+        label: 'Docs (old)',
         Icon: IconInfo,
         Content: SidePanelDocs,
         noModalSupport: true,
