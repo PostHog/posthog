@@ -1,8 +1,8 @@
-import { IconCheckCircle, IconWarning, IconX } from '@posthog/icons'
+import { IconCheckCircle, IconInfo, IconWarning, IconX } from '@posthog/icons'
 import posthog from 'posthog-js'
 import { toast, ToastContentProps as ToastifyRenderProps, ToastOptions } from 'react-toastify'
 
-import { IconErrorOutline, IconInfo } from '../icons'
+import { IconErrorOutline } from '../icons'
 import { LemonButton } from '../LemonButton'
 import { Spinner } from '../Spinner'
 

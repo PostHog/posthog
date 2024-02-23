@@ -1,7 +1,7 @@
+import { IconDatabase } from '@posthog/icons'
 import { actions, afterMount, connect, kea, path, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import api from 'lib/api'
-import { IconDatabase } from 'lib/lemon-ui/icons'
 import { pluginsLogic } from 'scenes/plugins/pluginsLogic'
 import { userLogic } from 'scenes/userLogic'
 

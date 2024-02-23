@@ -8,7 +8,7 @@ import { EventType } from '~/types'
 type EventIconProps = { event: EventType }
 
 export const EventIcon = ({ event }: EventIconProps): JSX.Element => {
-    let Component: React.ComponentType<{ className: string }>
+    let Component
     switch (event.event) {
         case '$pageview':
             Component = IconEyeVisible
