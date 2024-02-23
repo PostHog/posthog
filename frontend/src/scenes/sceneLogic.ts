@@ -15,7 +15,7 @@ import { AvailableFeature, ProductKey } from '~/types'
 
 import { appContextLogic } from './appContextLogic'
 import { handleLoginRedirect } from './authentication/loginLogic'
-import { OnboardingStepKey } from './onboarding/onboardingLogic'
+import { onboardingLogic, OnboardingStepKey } from './onboarding/onboardingLogic'
 import { organizationLogic } from './organizationLogic'
 import { preflightLogic } from './PreflightCheck/preflightLogic'
 import type { sceneLogicType } from './sceneLogicType'
@@ -251,7 +251,14 @@ export const sceneLogic = kea<sceneLogicType>([
                         !removeProjectIdIfPresent(location.pathname).startsWith(urls.products()) &&
                         !removeProjectIdIfPresent(location.pathname).startsWith(urls.settings())
                     ) {
-                        if (!teamLogic.values.hasOnboardedAnyProduct) {
+                        const allProductUrls = Object.values(productUrlMapping).flat()
+                        if (
+                            !teamLogic.values.hasOnboardedAnyProduct &&
+                            (values.featureFlags[FEATURE_FLAGS.PRODUCT_INTRO_PAGES] !== 'test' ||
+                                !allProductUrls.some((path) =>
+                                    removeProjectIdIfPresent(location.pathname).startsWith(path)
+                                ))
+                        ) {
                             console.warn('No onboarding completed, redirecting to /products')
                             router.actions.replace(urls.products())
                             return
@@ -282,6 +289,9 @@ export const sceneLogic = kea<sceneLogicType>([
                                 console.warn(
                                     `Onboarding not completed for ${productKeyFromUrl}, redirecting to onboarding intro`
                                 )
+                                onboardingLogic.mount()
+                                onboardingLogic.actions.setIncludeIntro(true)
+                                onboardingLogic.unmount()
                                 router.actions.replace(
                                     urls.onboarding(productKeyFromUrl, OnboardingStepKey.PRODUCT_INTRO)
                                 )

@@ -70,7 +70,7 @@ export const getProductUri = (productKey: ProductKey, featureFlags?: FeatureFlag
         case ProductKey.SESSION_REPLAY:
             return urls.replay()
         case ProductKey.FEATURE_FLAGS:
-            return urls.featureFlags()
+            return urls.featureFlag('new')
         case ProductKey.SURVEYS:
             return urls.surveyTemplates()
         default:
@@ -102,6 +102,7 @@ export const onboardingLogic = kea<onboardingLogicType>([
         setStepKey: (stepKey: OnboardingStepKey) => ({ stepKey }),
         setSubscribedDuringOnboarding: (subscribedDuringOnboarding: boolean) => ({ subscribedDuringOnboarding }),
         setIncludeIntro: (includeIntro: boolean) => ({ includeIntro }),
+        setTeamPropertiesForProduct: (productKey: ProductKey) => ({ productKey }),
         goToNextStep: true,
         goToPreviousStep: true,
         resetStepKey: true,
@@ -230,21 +231,23 @@ export const onboardingLogic = kea<onboardingLogicType>([
                 window.location.href = urls.default()
             } else {
                 actions.resetStepKey()
-                switch (product.type) {
-                    case ProductKey.PRODUCT_ANALYTICS:
-                        return
-                    case ProductKey.SESSION_REPLAY:
-                        actions.updateCurrentTeam({
-                            session_recording_opt_in: true,
-                            capture_console_log_opt_in: true,
-                            capture_performance_opt_in: true,
-                        })
-                        return
-                    case ProductKey.FEATURE_FLAGS:
-                        return
-                    default:
-                        return
-                }
+            }
+        },
+        setTeamPropertiesForProduct: ({ productKey }) => {
+            switch (productKey) {
+                case ProductKey.PRODUCT_ANALYTICS:
+                    return
+                case ProductKey.SESSION_REPLAY:
+                    actions.updateCurrentTeam({
+                        session_recording_opt_in: true,
+                        capture_console_log_opt_in: true,
+                        capture_performance_opt_in: true,
+                    })
+                    return
+                case ProductKey.FEATURE_FLAGS:
+                    return
+                default:
+                    return
             }
         },
         setProductKey: ({ productKey }) => {
@@ -344,6 +347,10 @@ export const onboardingLogic = kea<onboardingLogicType>([
             if (productKey !== values.productKey) {
                 actions.setProductKey(productKey)
             }
+
+            // Reset onboarding steps so they can be populated upon render in the component.
+            actions.setAllOnboardingSteps([])
+
             if (step) {
                 actions.setStepKey(step)
             } else {

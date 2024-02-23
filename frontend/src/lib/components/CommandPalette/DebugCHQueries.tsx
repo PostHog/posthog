@@ -130,7 +130,7 @@ function DebugCHQueries(): JSX.Element {
                             return (
                                 <div className="max-w-200">
                                     {item.exception && (
-                                        <LemonBanner type="error" className="text-xs font-mono">
+                                        <LemonBanner type="error" className="text-xs font-mono mb-2">
                                             {item.exception}
                                         </LemonBanner>
                                     )}

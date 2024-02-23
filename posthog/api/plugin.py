@@ -297,6 +297,7 @@ class PluginSerializer(serializers.ModelSerializer):
 
 
 class PluginViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
+    scope_object = "plugin"
     queryset = Plugin.objects.all()
     serializer_class = PluginSerializer
     permission_classes = [
@@ -708,6 +709,7 @@ class PluginConfigSerializer(serializers.ModelSerializer):
 
 
 class PluginConfigViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
+    scope_object = "plugin"
     queryset = PluginConfig.objects.all()
     serializer_class = PluginConfigSerializer
 
@@ -897,5 +899,48 @@ class PipelineDestinationsConfigsViewSet(PluginConfigViewSet):
             & (
                 Q(plugin__capabilities__methods__contains=["onEvent"])
                 | Q(plugin__capabilities__methods__contains=["composeWebhook"])
+            )
+        )
+
+
+class PipelineFrontendAppsViewSet(PluginViewSet):
+    def get_queryset(self):
+        queryset = super().get_queryset()
+        return queryset.exclude(Q(capabilities__has_key="methods") | Q(capabilities__has_key="scheduled_tasks"))
+
+
+class PipelineFrontendAppsConfigsViewSet(PluginConfigViewSet):
+    def get_queryset(self):
+        queryset = super().get_queryset()
+        return queryset.exclude(
+            Q(plugin__capabilities__has_key="methods") | Q(plugin__capabilities__has_key="scheduled_tasks")
+        )
+
+
+class PipelineImportAppsViewSet(PluginViewSet):
+    def get_queryset(self):
+        queryset = super().get_queryset()
+        # All the plugins, that are not on the other pages
+        return queryset.filter(
+            Q(Q(capabilities__has_key="scheduled_tasks") & ~Q(capabilities__scheduled_tasks=[]))
+            | Q(
+                Q(capabilities__has_key="methods")
+                & ~Q(capabilities__methods__contains="onEvent")
+                & ~Q(capabilities__methods__contains="composeWebhook")
+                & ~Q(capabilities__methods__contains="processEvent")
+            )
+        )
+
+
+class PipelineImportAppsConfigsViewSet(PluginConfigViewSet):
+    def get_queryset(self):
+        queryset = super().get_queryset()
+        return queryset.filter(
+            Q(Q(plugin__capabilities__has_key="scheduled_tasks") & ~Q(plugin__capabilities__scheduled_tasks=[]))
+            | Q(
+                Q(plugin__capabilities__has_key="methods")
+                & ~Q(plugin__capabilities__methods__contains="onEvent")
+                & ~Q(plugin__capabilities__methods__contains="composeWebhook")
+                & ~Q(plugin__capabilities__methods__contains="processEvent")
             )
         )

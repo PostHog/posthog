@@ -1838,3 +1838,49 @@ class TestCapture(BaseTest):
                 kafka_produce.call_args_list[0][1]["topic"],
                 KAFKA_EVENTS_PLUGIN_INGESTION_HISTORICAL,
             )
+
+    @patch("posthog.kafka_client.client._KafkaProducer.produce")
+    def test_capture_historical_analytics_events_opt_in(self, kafka_produce) -> None:
+        """
+        Based on `historical_migration` flag in the payload, we send data
+        to the KAFKA_EVENTS_PLUGIN_INGESTION_HISTORICAL topic.
+        """
+        resp = self.client.post(
+            "/batch/",
+            data={
+                "data": json.dumps(
+                    {
+                        "api_key": self.team.api_token,
+                        "historical_migration": True,
+                        "batch": [
+                            {
+                                "event": "$autocapture",
+                                "properties": {
+                                    "distinct_id": 2,
+                                    "$elements": [
+                                        {
+                                            "tag_name": "a",
+                                            "nth_child": 1,
+                                            "nth_of_type": 2,
+                                            "attr__class": "btn btn-sm",
+                                        },
+                                        {
+                                            "tag_name": "div",
+                                            "nth_child": 1,
+                                            "nth_of_type": 2,
+                                            "$el_text": "💻",
+                                        },
+                                    ],
+                                },
+                            }
+                        ],
+                    }
+                )
+            },
+        )
+        self.assertEqual(resp.status_code, 200)
+        self.assertEqual(kafka_produce.call_count, 1)
+        self.assertEqual(
+            kafka_produce.call_args_list[0][1]["topic"],
+            KAFKA_EVENTS_PLUGIN_INGESTION_HISTORICAL,
+        )

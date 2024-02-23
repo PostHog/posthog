@@ -23,7 +23,7 @@ from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 from posthog.api.tagged_item import TaggedItemSerializerMixin, TaggedItemViewSetMixin
 from posthog.api.dashboards.dashboard import Dashboard
-from posthog.auth import TemporaryTokenAuthentication
+from posthog.auth import PersonalAPIKeyAuthentication, TemporaryTokenAuthentication
 from posthog.constants import FlagRequestType
 from posthog.event_usage import report_user_action
 from posthog.helpers.dashboard_templates import (
@@ -60,6 +60,8 @@ DATABASE_FOR_LOCAL_EVALUATION = (
     if ("local_evaluation" not in settings.READ_REPLICA_OPT_IN or "replica" not in settings.DATABASES)
     else "replica"
 )
+
+BEHAVIOURAL_COHORT_FOUND_ERROR_CODE = "behavioral_cohort_found"
 
 
 class FeatureFlagThrottle(BurstRateThrottle):
@@ -222,8 +224,8 @@ class FeatureFlagSerializer(TaggedItemSerializerMixin, serializers.HyperlinkedMo
                         for cohort in [initial_cohort, *dependent_cohorts]:
                             if [prop for prop in cohort.properties.flat if prop.type == "behavioral"]:
                                 raise serializers.ValidationError(
-                                    detail=f"Cohort '{cohort.name}' with behavioral filters cannot be used in feature flags.",
-                                    code="behavioral_cohort_found",
+                                    detail=f"Cohort '{cohort.name}' with filters on events cannot be used in feature flags.",
+                                    code=BEHAVIOURAL_COHORT_FOUND_ERROR_CODE,
                                 )
                     except Cohort.DoesNotExist:
                         raise serializers.ValidationError(
@@ -369,6 +371,7 @@ class FeatureFlagViewSet(
     If you're looking to use feature flags on your application, you can either use our JavaScript Library or our dedicated endpoint to check if feature flags are enabled for a given user.
     """
 
+    scope_object = "feature_flag"
     queryset = FeatureFlag.objects.all()
     serializer_class = FeatureFlagSerializer
     permission_classes = [CanEditFeatureFlag]
@@ -396,7 +399,7 @@ class FeatureFlagViewSet(
         return queryset.select_related("created_by").order_by("-created_at")
 
     def list(self, request, *args, **kwargs):
-        if getattr(request, "using_personal_api_key", False):
+        if isinstance(request.successful_authenticator, PersonalAPIKeyAuthentication):
             # Add request for analytics only if request coming with personal API key authentication
             increment_request_count(self.team.pk, 1, FlagRequestType.LOCAL_EVALUATION)
 
@@ -494,7 +497,9 @@ class FeatureFlagViewSet(
             )
         )
 
-    @action(methods=["GET"], detail=False, throttle_classes=[FeatureFlagThrottle])
+    @action(
+        methods=["GET"], detail=False, throttle_classes=[FeatureFlagThrottle], required_scopes=["feature_flag:read"]
+    )
     def local_evaluation(self, request: request.Request, **kwargs):
         feature_flags: QuerySet[FeatureFlag] = FeatureFlag.objects.using(DATABASE_FOR_LOCAL_EVALUATION).filter(
             team_id=self.team_id, deleted=False, active=True
@@ -653,7 +658,7 @@ class FeatureFlagViewSet(
         cohort_serializer.save()
         return Response({"cohort": cohort_serializer.data}, status=201)
 
-    @action(methods=["GET"], url_path="activity", detail=False)
+    @action(methods=["GET"], url_path="activity", detail=False, required_scopes=["activity_log:read"])
     def all_activity(self, request: request.Request, **kwargs):
         limit = int(request.query_params.get("limit", "10"))
         page = int(request.query_params.get("page", "1"))
@@ -662,7 +667,7 @@ class FeatureFlagViewSet(
 
         return activity_page_response(activity_page, limit, page, request)
 
-    @action(methods=["GET"], detail=True)
+    @action(methods=["GET"], detail=True, required_scopes=["activity_log:read"])
     def activity(self, request: request.Request, **kwargs):
         limit = int(request.query_params.get("limit", "10"))
         page = int(request.query_params.get("page", "1"))

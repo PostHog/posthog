@@ -1,10 +1,8 @@
 import { expectLogic } from 'kea-test-utils'
 import { userLogic } from 'scenes/userLogic'
 
-import { useAvailableFeatures } from '~/mocks/features'
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
-import { AvailableFeature } from '~/types'
 
 import { experimentLogic } from './experimentLogic'
 
@@ -15,7 +13,6 @@ describe('experimentLogic', () => {
     let logic: ReturnType<typeof experimentLogic.build>
 
     beforeEach(async () => {
-        useAvailableFeatures([AvailableFeature.EXPERIMENTATION])
         useMocks({
             get: {
                 '/api/projects/:team/experiments': {

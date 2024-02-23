@@ -31,7 +31,7 @@ export function InsightsNav(): JSX.Element {
                     label: (
                         <Link to={insightTypeUrls[type]} preventClick data-attr={dataAttr}>
                             <Tooltip placement="top" title={INSIGHT_TYPES_METADATA[type].description}>
-                                {label}
+                                <span>{label}</span>
                             </Tooltip>
                         </Link>
                     ),

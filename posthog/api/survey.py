@@ -1,3 +1,4 @@
+from contextlib import contextmanager
 from typing import Type
 
 from django.http import JsonResponse
@@ -9,7 +10,11 @@ from posthog.exceptions import generate_exception_response
 from posthog.models.feedback.survey import Survey
 from rest_framework.response import Response
 from rest_framework.decorators import action
-from posthog.api.feature_flag import FeatureFlagSerializer, MinimalFeatureFlagSerializer
+from posthog.api.feature_flag import (
+    BEHAVIOURAL_COHORT_FOUND_ERROR_CODE,
+    FeatureFlagSerializer,
+    MinimalFeatureFlagSerializer,
+)
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from rest_framework import serializers, viewsets, request
 from rest_framework.request import Request
@@ -183,8 +188,8 @@ class SurveySerializerCreateUpdateOnly(SurveySerializer):
 
         validated_data["team_id"] = self.context["team_id"]
         if validated_data.get("targeting_flag_filters"):
-            targeting_feature_flag = self._create_new_targeting_flag(
-                validated_data["name"], validated_data["targeting_flag_filters"]
+            targeting_feature_flag = self._create_or_update_targeting_flag(
+                None, validated_data["targeting_flag_filters"], validated_data["name"]
             )
             validated_data["targeting_flag_id"] = targeting_feature_flag.id
             validated_data.pop("targeting_flag_filters")
@@ -211,16 +216,11 @@ class SurveySerializerCreateUpdateOnly(SurveySerializer):
                     **existing_targeting_flag.filters,
                     **new_filters,
                 }
-                existing_flag_serializer = FeatureFlagSerializer(
-                    existing_targeting_flag,
-                    data={"filters": serialized_data_filters},
-                    partial=True,
-                    context=self.context,
-                )
-                existing_flag_serializer.is_valid(raise_exception=True)
-                existing_flag_serializer.save()
+                self._create_or_update_targeting_flag(instance.targeting_flag, serialized_data_filters)
             else:
-                new_flag = self._create_new_targeting_flag(instance.name, new_filters, bool(instance.start_date))
+                new_flag = self._create_or_update_targeting_flag(
+                    None, new_filters, instance.name, bool(instance.start_date)
+                )
                 validated_data["targeting_flag_id"] = new_flag.id
             validated_data.pop("targeting_flag_filters")
 
@@ -235,24 +235,37 @@ class SurveySerializerCreateUpdateOnly(SurveySerializer):
 
         return super().update(instance, validated_data)
 
-    def _create_new_targeting_flag(self, name, filters, active=False):
-        feature_flag_key = slugify(f"{SURVEY_TARGETING_FLAG_PREFIX}{name}")
-        feature_flag_serializer = FeatureFlagSerializer(
-            data={
-                "key": feature_flag_key,
-                "name": f"Targeting flag for survey {name}",
-                "filters": filters,
-                "active": active,
-            },
-            context=self.context,
-        )
+    def _create_or_update_targeting_flag(self, existing_flag=None, filters=None, name=None, active=False):
+        with create_flag_with_survey_errors():
+            if existing_flag:
+                existing_flag_serializer = FeatureFlagSerializer(
+                    existing_flag,
+                    data={"filters": filters},
+                    partial=True,
+                    context=self.context,
+                )
+                existing_flag_serializer.is_valid(raise_exception=True)
+                return existing_flag_serializer.save()
+            elif name and filters:
+                feature_flag_key = slugify(f"{SURVEY_TARGETING_FLAG_PREFIX}{name}")
+                feature_flag_serializer = FeatureFlagSerializer(
+                    data={
+                        "key": feature_flag_key,
+                        "name": f"Targeting flag for survey {name}",
+                        "filters": filters,
+                        "active": active,
+                    },
+                    context=self.context,
+                )
 
-        feature_flag_serializer.is_valid(raise_exception=True)
-        targeting_feature_flag = feature_flag_serializer.save()
-        return targeting_feature_flag
+                feature_flag_serializer.is_valid(raise_exception=True)
+                return feature_flag_serializer.save()
+            else:
+                raise serializers.ValidationError("Targeting flag for survey failed, invalid parameters.")
 
 
 class SurveyViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
+    scope_object = "survey"
     queryset = Survey.objects.select_related("linked_flag", "targeting_flag").all()
 
     def get_serializer_class(self) -> Type[serializers.Serializer]:
@@ -349,6 +362,28 @@ def surveys(request: Request):
     ).data
 
     return cors_response(request, JsonResponse({"surveys": surveys}))
+
+
+@contextmanager
+def create_flag_with_survey_errors():
+    # context manager to raise error with a different message when flag creation fails
+    try:
+        yield
+    except serializers.ValidationError as e:
+        # get the full details of the error to figure out if it's a behavioural cohort error
+        error_details = e.get_full_details()
+        matching_errors = [
+            detail
+            for detail in error_details.get("filters", [{}])
+            if detail.get("code") == BEHAVIOURAL_COHORT_FOUND_ERROR_CODE
+        ]
+        if matching_errors:
+            original_detail = matching_errors[0].get("message")
+            raise serializers.ValidationError(
+                detail=original_detail.replace("feature flags", "surveys"),
+                code=BEHAVIOURAL_COHORT_FOUND_ERROR_CODE,
+            )
+        raise e
 
 
 def nh3_clean_with_allow_list(to_clean: str):

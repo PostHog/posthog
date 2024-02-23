@@ -39,7 +39,7 @@ import {
 } from './ingestion-queues/on-event-handler-consumer'
 import { startScheduledTasksConsumer } from './ingestion-queues/scheduled-tasks-consumer'
 import { SessionRecordingIngester } from './ingestion-queues/session-recording/session-recordings-consumer'
-import { createHttpServer } from './services/http-server'
+import { setupCommonRoutes } from './services/http-server'
 import { getObjectStorage } from './services/object_storage'
 
 CompressionCodecs[CompressionTypes.Snappy] = SnappyCodec
@@ -113,7 +113,7 @@ export async function startPluginsServer(
 
     let personOverridesPeriodicTask: PeriodicTask | undefined
 
-    let httpServer: Server | undefined // healthcheck server
+    let httpServer: Server | undefined // server
 
     let graphileWorker: GraphileWorker | undefined
 
@@ -468,7 +468,11 @@ export async function startPluginsServer(
         }
 
         if (capabilities.http) {
-            httpServer = createHttpServer(serverConfig.HTTP_SERVER_PORT, healthChecks, analyticsEventsIngestionConsumer)
+            const app = setupCommonRoutes(healthChecks, analyticsEventsIngestionConsumer)
+
+            httpServer = app.listen(serverConfig.HTTP_SERVER_PORT, () => {
+                status.info('🩺', `Status server listening on port ${serverConfig.HTTP_SERVER_PORT}`)
+            })
         }
 
         return serverInstance ?? { stop: closeJobs }

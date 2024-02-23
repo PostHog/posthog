@@ -135,11 +135,11 @@ export default function SurveyEdit(): JSX.Element {
                                                     <PresentationTypeCard
                                                         active={value === SurveyType.Widget}
                                                         onClick={() => onChange(SurveyType.Widget)}
-                                                        title="Feedback button (beta)"
+                                                        title="Feedback button"
                                                         description="Set up a survey based on your own custom button or our prebuilt feedback tab"
                                                         value={SurveyType.Widget}
                                                     >
-                                                        <LemonTag type="warning" className="uppercase ml-2">
+                                                        <LemonTag type="warning" className="uppercase">
                                                             Beta
                                                         </LemonTag>
                                                     </PresentationTypeCard>
@@ -222,7 +222,7 @@ export default function SurveyEdit(): JSX.Element {
                                                                                       displayThankYouMessage: false,
                                                                                   })
                                                                               }}
-                                                                              tooltipPlacement="topRight"
+                                                                              tooltipPlacement="top-end"
                                                                           />
                                                                       </div>
                                                                   ),

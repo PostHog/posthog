@@ -73,12 +73,12 @@ function VerifiedDomainsTable(): JSX.Element {
                   {
                       key: 'is_verified',
                       title: (
-                          <>
-                              Verification
+                          <div className="flex items-center space-x-1">
+                              <span>Verification</span>
                               <Tooltip title="Verification (through DNS) is required to use domains for authentication (e.g. SAML or enforce SSO).">
-                                  <IconInfo style={{ marginLeft: 4 }} />
+                                  <IconInfo />
                               </Tooltip>
-                          </>
+                          </div>
                       ),
                       render: function Verified(_, { is_verified, verified_at }) {
                           return is_verified ? (
@@ -101,8 +101,8 @@ function VerifiedDomainsTable(): JSX.Element {
         {
             key: 'jit_provisioning_enabled',
             title: (
-                <>
-                    Automatic provisioning{' '}
+                <div className="flex items-center space-x-1">
+                    <span>Automatic provisioning</span>
                     <Tooltip
                         title={`Enables just-in-time provisioning. If a user logs in with SSO with an email address on this domain an account will be created in ${
                             currentOrganization?.name || 'this organization'
@@ -110,7 +110,7 @@ function VerifiedDomainsTable(): JSX.Element {
                     >
                         <IconInfo />
                     </Tooltip>
-                </>
+                </div>
             ),
             render: function AutomaticProvisioning(_, { jit_provisioning_enabled, id, is_verified }) {
                 return is_verified ? (
@@ -132,12 +132,12 @@ function VerifiedDomainsTable(): JSX.Element {
         {
             key: 'sso_enforcement',
             title: (
-                <>
-                    Enforce SSO{' '}
+                <div className="flex items-center space-x-1">
+                    <span>Enforce SSO</span>
                     <Tooltip title="Require users with email addresses on this domain to always log in using a specific SSO provider.">
                         <IconInfo />
                     </Tooltip>
-                </>
+                </div>
             ),
             render: function SSOEnforcement(_, { sso_enforcement, is_verified, id, has_saml }, index) {
                 if (!isSSOEnforcementAvailable) {

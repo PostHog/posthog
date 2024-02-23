@@ -269,36 +269,32 @@ export function OverViewTab({
                                 value={searchTerm || ''}
                             />
                             <div className="flex items-center gap-2">
-                                {hasAvailableFeature(AvailableFeature.MULTIVARIATE_FLAGS) && (
-                                    <>
-                                        <span>
-                                            <b>Type</b>
-                                        </span>
-                                        <LemonSelect
-                                            dropdownMatchSelectWidth={false}
-                                            size="small"
-                                            onChange={(type) => {
-                                                if (type) {
-                                                    if (type === 'all') {
-                                                        if (filters) {
-                                                            const { type, ...restFilters } = filters
-                                                            setFeatureFlagsFilters(restFilters, true)
-                                                        }
-                                                    } else {
-                                                        setFeatureFlagsFilters({ type })
-                                                    }
+                                <span>
+                                    <b>Type</b>
+                                </span>
+                                <LemonSelect
+                                    dropdownMatchSelectWidth={false}
+                                    size="small"
+                                    onChange={(type) => {
+                                        if (type) {
+                                            if (type === 'all') {
+                                                if (filters) {
+                                                    const { type, ...restFilters } = filters
+                                                    setFeatureFlagsFilters(restFilters, true)
                                                 }
-                                            }}
-                                            options={[
-                                                { label: 'All', value: 'all' },
-                                                { label: 'Boolean', value: 'boolean' },
-                                                { label: 'Multiple variants', value: 'multivariant' },
-                                                { label: 'Experiment', value: 'experiment' },
-                                            ]}
-                                            value={filters.type ?? 'all'}
-                                        />
-                                    </>
-                                )}
+                                            } else {
+                                                setFeatureFlagsFilters({ type })
+                                            }
+                                        }
+                                    }}
+                                    options={[
+                                        { label: 'All', value: 'all' },
+                                        { label: 'Boolean', value: 'boolean' },
+                                        { label: 'Multiple variants', value: 'multivariant' },
+                                        { label: 'Experiment', value: 'experiment' },
+                                    ]}
+                                    value={filters.type ?? 'all'}
+                                />
                                 <span>
                                     <b>Status</b>
                                 </span>

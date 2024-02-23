@@ -1,6 +1,6 @@
 import './FeatureFlag.scss'
 
-import { IconCollapse, IconExpand, IconLock, IconPlus, IconTrash } from '@posthog/icons'
+import { IconCollapse, IconExpand, IconPlus, IconTrash } from '@posthog/icons'
 import { LemonSegmentedButton, LemonSkeleton } from '@posthog/lemon-ui'
 import { Popconfirm } from 'antd'
 import { useActions, useValues } from 'kea'
@@ -29,7 +29,6 @@ import { featureFlagLogic as enabledFeaturesLogic } from 'lib/logic/featureFlagL
 import { alphabet, capitalizeFirstLetter } from 'lib/utils'
 import { PostHogFeature } from 'posthog-js/react'
 import { useEffect, useState } from 'react'
-import { billingLogic } from 'scenes/billing/billingLogic'
 import { Dashboard } from 'scenes/dashboard/Dashboard'
 import { dashboardLogic } from 'scenes/dashboard/dashboardLogic'
 import { EmptyDashboardComponent } from 'scenes/dashboard/EmptyDashboardComponent'
@@ -709,8 +708,6 @@ function FeatureFlagRollout({ readOnly }: { readOnly?: boolean }): JSX.Element {
     const { distributeVariantsEqually, addVariant, removeVariant, setMultivariateEnabled } =
         useActions(featureFlagLogic)
     const [showVariantDiscardWarning, setShowVariantDiscardWarning] = useState(false)
-    const { hasAvailableFeature } = useValues(userLogic)
-    const { upgradeLink } = useValues(billingLogic)
 
     const filterGroups: FeatureFlagGroupType[] = featureFlag.filters.groups || []
 
@@ -816,18 +813,8 @@ function FeatureFlagRollout({ readOnly }: { readOnly?: boolean }): JSX.Element {
                                                 : undefined,
                                     },
                                     {
-                                        label: !hasAvailableFeature(AvailableFeature.MULTIVARIATE_FLAGS) ? (
-                                            <Link to={upgradeLink} target="_blank">
-                                                <IconLock className="mr-1 text-warning" />
-                                                Multiple variants with rollout percentages (A/B test)
-                                            </Link>
-                                        ) : (
-                                            <span>Multiple variants with rollout percentages (A/B test)</span>
-                                        ),
+                                        label: <span>Multiple variants with rollout percentages (A/B test)</span>,
                                         value: 'multivariate',
-                                        disabledReason: !hasAvailableFeature(AvailableFeature.MULTIVARIATE_FLAGS)
-                                            ? 'This feature is not available on your current plan.'
-                                            : undefined,
                                     },
                                 ]}
                                 onChange={(value) => {
@@ -1017,7 +1004,7 @@ function FeatureFlagRollout({ readOnly }: { readOnly?: boolean }): JSX.Element {
                                                         ? 'Cannot delete variants from a feature flag that is part of an experiment'
                                                         : undefined
                                                 }
-                                                tooltipPlacement="topRight"
+                                                tooltipPlacement="top-end"
                                             />
                                         )}
                                     </div>
@@ -1043,7 +1030,7 @@ function FeatureFlagRollout({ readOnly }: { readOnly?: boolean }): JSX.Element {
                                     ? 'Cannot add variants to a feature flag that is part of an experiment. To update variants, create a new experiment.'
                                     : undefined
                             }
-                            tooltipPlacement="topLeft"
+                            tooltipPlacement="top-start"
                             center
                         >
                             Add variant

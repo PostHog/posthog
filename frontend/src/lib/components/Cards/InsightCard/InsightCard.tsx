@@ -164,7 +164,7 @@ function VizComponentFallback(): JSX.Element {
 }
 
 export interface FilterBasedCardContentProps
-    extends Pick<InsightCardProps, 'insight' | 'loadingQueued' | 'loading' | 'apiErrored' | 'timedOut' | 'style'> {
+    extends Pick<InsightCardProps, 'insight' | 'loading' | 'apiErrored' | 'timedOut' | 'style'> {
     insightProps: InsightLogicProps
     tooFewFunnelSteps?: boolean
     validationError?: string | null
@@ -177,7 +177,6 @@ export interface FilterBasedCardContentProps
 export function FilterBasedCardContent({
     insight,
     insightProps,
-    loadingQueued,
     loading,
     setAreDetailsShown,
     apiErrored,
@@ -212,7 +211,6 @@ export function FilterBasedCardContent({
                 }
             >
                 {loading && <SpinnerOverlay />}
-                {loadingQueued && !loading && <SpinnerOverlay mode="waiting" />}
                 {tooFewFunnelSteps ? (
                     <FunnelSingleStepState actionable={false} />
                 ) : validationError ? (
@@ -311,6 +309,7 @@ function InsightCardInternal(
                     removeFromDashboard={removeFromDashboard}
                     deleteWithUndo={deleteWithUndo}
                     refresh={refresh}
+                    loading={loadingQueued || loading}
                     rename={rename}
                     duplicate={duplicate}
                     moveToDashboard={moveToDashboard}
@@ -334,7 +333,6 @@ function InsightCardInternal(
                     <FilterBasedCardContent
                         insight={insight}
                         insightProps={insightLogicProps}
-                        loadingQueued={loadingQueued}
                         loading={loading}
                         apiErrored={apiErrored}
                         timedOut={timedOut}

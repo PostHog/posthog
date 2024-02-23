@@ -5,6 +5,7 @@ describe('Shared dashboard', () => {
         cy.intercept('GET', /api\/projects\/\d+\/insights\/\?.*/).as('loadInsightList')
         cy.intercept('PATCH', /api\/projects\/\d+\/insights\/\d+\/.*/).as('patchInsight')
         cy.intercept('POST', /\/api\/projects\/\d+\/dashboards/).as('createDashboard')
+        cy.useSubscriptionStatus('unsubscribed')
 
         cy.clickNavMenu('dashboards')
     })

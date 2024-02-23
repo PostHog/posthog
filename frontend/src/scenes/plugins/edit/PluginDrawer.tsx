@@ -46,7 +46,7 @@ function EnabledDisabledSwitch({
 const SecretFieldIcon = (): JSX.Element => (
     <>
         <Tooltip
-            placement="topLeft"
+            placement="top-start"
             title="This is a secret write-only field. Its value is not available after saving."
         >
             <IconLock style={{ marginRight: 5 }} />

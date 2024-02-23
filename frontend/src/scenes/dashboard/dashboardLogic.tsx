@@ -62,8 +62,6 @@ export const BREAKPOINTS: Record<DashboardLayoutSize, number> = {
     xs: 0,
 }
 export const BREAKPOINT_COLUMN_COUNTS: Record<DashboardLayoutSize, number> = { sm: 12, xs: 1 }
-export const MIN_ITEM_WIDTH_UNITS = 3
-export const MIN_ITEM_HEIGHT_UNITS = 5
 
 export const DASHBOARD_MIN_REFRESH_INTERVAL_MINUTES = 5
 
