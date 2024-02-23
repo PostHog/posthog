@@ -51,7 +51,6 @@ class TestFunnelUnorderedStepsBreakdown(
     ClickhouseTestMixin,
     funnel_breakdown_test_factory(  # type: ignore
         FunnelOrderType.UNORDERED,
-        ClickhouseFunnelUnorderedActors,
         _create_action,
         _create_person,
     ),

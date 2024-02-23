@@ -11,7 +11,6 @@ from posthog.hogql_queries.legacy_compatibility.filter_to_query import filter_to
 from posthog.models.action.action import Action
 
 from posthog.models.cohort import Cohort
-from posthog.models.filters import Filter
 from posthog.models.group.util import create_group
 from posthog.models.group_type_mapping import GroupTypeMapping
 from posthog.models.instance_setting import override_instance_config
@@ -40,17 +39,13 @@ class FunnelStepResult:
 
 def funnel_breakdown_test_factory(
     funnel_order_type: FunnelOrderType,
-    FunnelPerson,
     _create_action: Callable[..., Action],
     _create_person: Callable[..., Person],
 ):
     class TestFunnelBreakdown(APIBaseTest):
-        def _get_actor_ids_at_step(self, filter, funnel_step, breakdown_value=None):
-            filter = Filter(data=filter, team=self.team)
-            person_filter = filter.shallow_clone({"funnel_step": funnel_step, "funnel_step_breakdown": breakdown_value})
-            _, serialized_result, _ = FunnelPerson(person_filter, self.team).get_actors()
-
-            return [val["id"] for val in serialized_result]
+        def _get_actor_ids_at_step(self, filters, funnelStep, funnelStepBreakdown=None):
+            results = get_actors(filters, self.team, funnelStep=funnelStep, funnelStepBreakdown=funnelStepBreakdown)
+            return [val[0]["id"] for val in results]
 
         def _assert_funnel_breakdown_result_is_correct(self, result, steps: List[FunnelStepResult]):
             def funnel_result(step: FunnelStepResult, order: int) -> Dict[str, Any]:

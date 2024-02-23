@@ -53,7 +53,6 @@ class TestFunnelBreakdown(
     ClickhouseTestMixin,
     funnel_breakdown_test_factory(  # type: ignore
         FunnelOrderType.ORDERED,
-        ClickhouseFunnelActors,
         _create_action,
         _create_person,
     ),
