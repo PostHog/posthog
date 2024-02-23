@@ -121,8 +121,7 @@ class Organization(UUIDModel):
     for_internal_metrics: models.BooleanField = models.BooleanField(default=False)
     is_member_join_email_enabled: models.BooleanField = models.BooleanField(default=True)
     enforce_2fa: models.BooleanField = models.BooleanField(null=True, blank=True)
-    # Scoring mechanism defined here: https://github.com/PostHog/product-internal/pull/564
-    trusted_customer_scores: models.JSONField = models.JSONField(default=dict, null=True, blank=True)
+
     is_hipaa: models.BooleanField = models.BooleanField(default=False, null=True, blank=True)
 
     ## Managed by Billing
@@ -137,6 +136,8 @@ class Organization(UUIDModel):
     # Also currently indicates if the organization is on billing V2 or not
     usage: models.JSONField = models.JSONField(null=True, blank=True)
     never_drop_data: models.BooleanField = models.BooleanField(default=False, null=True, blank=True)
+    # Scoring mechanism defined here: https://github.com/PostHog/product-internal/pull/564
+    trusted_customer_scores: models.JSONField = models.JSONField(default=dict, null=True, blank=True)
 
     # DEPRECATED attributes (should be removed on next major version)
     setup_section_2_completed: models.BooleanField = models.BooleanField(default=True)

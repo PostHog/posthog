@@ -9,10 +9,7 @@ from rest_framework.exceptions import NotAuthenticated
 from sentry_sdk import capture_exception
 
 from ee.billing.billing_types import BillingStatus
-from ee.billing.quota_limiting import (
-    set_org_usage_summary,
-    sync_org_quota_limits,
-)
+from ee.billing.quota_limiting import set_org_usage_summary, sync_org_quota_limits
 from ee.models import License
 from ee.settings import BILLING_SERVICE_URL
 from posthog.cloud_utils import get_cached_instance_license
@@ -263,8 +260,17 @@ class BillingManager:
             organization.never_drop_data = never_drop_data
             org_modified = True
 
-        trusted_customer_scores = data.get("trusted_customer_scores")
-        if trusted_customer_scores != organization.trusted_customer_scores:
+        trusted_customer_scores = data.get("trusted_customer_scores", {})
+
+        product_key_to_usage_key = {
+            product["type"]: product["usage_key"]
+            for product in billing_status["customer"].get("products", self.get_default_products(organization))
+        }
+        org_trusted_customer_scores = {}
+        for product_key in trusted_customer_scores:
+            org_trusted_customer_scores[product_key_to_usage_key[product_key]] = trusted_customer_scores[product_key]
+
+        if org_trusted_customer_scores != organization.trusted_customer_scores:
             organization.trusted_customer_scores = trusted_customer_scores
             org_modified = True
 

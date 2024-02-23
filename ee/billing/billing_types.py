@@ -28,6 +28,7 @@ class CustomerProduct(TypedDict):
     percentage_usage: float
     projected_usage: int
     projected_amount: Decimal
+    usage_key: str
 
 
 class LicenseInfo(TypedDict):

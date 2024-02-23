@@ -1,7 +1,7 @@
 import copy
 from datetime import datetime, timedelta
 from enum import Enum
-from typing import Dict, List, Mapping, Optional, Sequence, TypedDict, cast
+from typing import Dict, List, Mapping, Optional, Sequence, Tuple, TypedDict, cast
 
 import dateutil.parser
 import posthoganalytics
@@ -29,8 +29,8 @@ QUOTA_LIMIT_MEDIUM_HIGH_TRUST_GRACE_PERIOD_DAYS = 3
 
 
 class OrgQuotaLimitingInformation(TypedDict):
-    quota_limited_until: int
-    quota_limiting_suspended_until: int
+    quota_limited_until: Optional[int]
+    quota_limiting_suspended_until: Optional[int]
 
 
 class QuotaResource(Enum):
@@ -51,7 +51,9 @@ OVERAGE_BUFFER = {
 }
 
 
-def replace_limited_team_tokens(resource: QuotaResource, tokens: Mapping[str, int], cache_key: str) -> None:
+def replace_limited_team_tokens(
+    resource: QuotaResource, tokens: Mapping[str, int], cache_key: QuotaLimitingCaches
+) -> None:
     pipe = get_client().pipeline()
     pipe.delete(f"{cache_key}{resource.value}")
     if tokens:
@@ -59,18 +61,18 @@ def replace_limited_team_tokens(resource: QuotaResource, tokens: Mapping[str, in
     pipe.execute()
 
 
-def add_limited_team_tokens(resource: QuotaResource, tokens: Mapping[str, int], cache_key: str) -> None:
+def add_limited_team_tokens(resource: QuotaResource, tokens: Mapping[str, int], cache_key: QuotaLimitingCaches) -> None:
     redis_client = get_client()
     redis_client.zadd(f"{cache_key}{resource.value}", tokens)  # type: ignore # (zadd takes a Mapping[str, int] but the derived Union type is wrong)
 
 
-def remove_limited_team_tokens(resource: QuotaResource, tokens: List[str], cache_key: str) -> None:
+def remove_limited_team_tokens(resource: QuotaResource, tokens: List[str], cache_key: QuotaLimitingCaches) -> None:
     redis_client = get_client()
     redis_client.zrem(f"{cache_key}{resource.value}", *tokens)
 
 
 @cache_for(timedelta(seconds=30), background_refresh=True)
-def list_limited_team_attributes(resource: QuotaResource, cache_key: str) -> List[str]:
+def list_limited_team_attributes(resource: QuotaResource, cache_key: QuotaLimitingCaches) -> List[str]:
     now = timezone.now()
     redis_client = get_client()
     results = redis_client.zrangebyscore(f"{cache_key}{resource.value}", min=now.timestamp(), max="+inf")
@@ -103,7 +105,7 @@ def org_quota_limited_until(
     billing_period_start = round(dateutil.parser.isoparse(organization.usage["period"][0]).timestamp())
     billing_period_end = round(dateutil.parser.isoparse(organization.usage["period"][1]).timestamp())
     quota_limiting_suspended_until = summary.get("quota_limiting_suspended_until", None)
-    trust_score = organization.merged_trust_scores.get(resource.value)
+    trust_score = organization.trusted_customer_scores.get(resource)
 
     if not is_over_limit:
         if quota_limiting_suspended_until:
@@ -232,7 +234,7 @@ def sync_org_quota_limits(organization: Organization):
             resource, QuotaLimitingCaches.QUOTA_LIMITER_CACHE_KEY
         )
         team_attributes = get_team_attribute_by_quota_resource(organization, resource)
-        result = org_quota_limited_until(organization, resource, previously_quota_limited_team_tokens)
+        result = org_quota_limited_until(organization, resource, previously_quota_limited_team_tokens.keys())
 
         if result:
             quota_limited_until = result.get("quota_limited_until")
@@ -315,7 +317,9 @@ def set_org_usage_summary(
     return has_changed
 
 
-def update_all_org_billing_quotas(dry_run: bool = False) -> Dict[str, Dict[str, int]]:
+def update_all_org_billing_quotas(
+    dry_run: bool = False,
+) -> Tuple[Dict[str, Dict[str, int]], Dict[str, Dict[str, int]]]:
     period = get_current_day()
     period_start, period_end = period
 
@@ -371,7 +375,7 @@ def update_all_org_billing_quotas(dry_run: bool = False) -> Dict[str, Dict[str, 
 
     # Get the current quota limits so we can track to poshog if it changes
     orgs_with_changes = set()
-    previously_quota_limited_team_tokens: Dict[str, Dict[str, int]] = {x.value: {} for x in QuotaResource}
+    previously_quota_limited_team_tokens: Dict[str, List[str]] = {x.value: [] for x in QuotaResource}
 
     for field in quota_limited_orgs:
         previously_quota_limited_team_tokens[field] = list_limited_team_attributes(
