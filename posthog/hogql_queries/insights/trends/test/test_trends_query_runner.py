@@ -165,7 +165,7 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
     def _create_query_runner(
         self,
         date_from: str,
-        date_to: str,
+        date_to: Optional[str],
         interval: IntervalType,
         series: Optional[List[EventsNode | ActionsNode]],
         trends_filters: Optional[TrendsFilter] = None,
