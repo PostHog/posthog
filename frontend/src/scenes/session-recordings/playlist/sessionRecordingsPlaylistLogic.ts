@@ -690,10 +690,11 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
                 if (params.advancedFilters && !equal(params.advancedFilters, values.advancedFilters)) {
                     actions.setAdvancedFilters(params.advancedFilters)
                 }
+                // support links that might still contain the old `filters` key
             } else if (params.filters) {
                 if (!equal(params.filters, values.filters)) {
                     actions.setAdvancedFilters(params.filters)
-                    actions.setSimpleFilters({})
+                    actions.setSimpleFilters(DEFAULT_SIMPLE_RECORDING_FILTERS)
                 }
             }
         }

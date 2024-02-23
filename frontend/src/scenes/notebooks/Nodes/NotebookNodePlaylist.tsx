@@ -128,7 +128,7 @@ export const Settings = ({
                 setAdvancedFilters={(filters) => updateAttributes({ filters })}
                 setSimpleFilters={(simpleFilters) => updateAttributes({ simpleFilters })}
                 showPropertyFilters
-                onReset={() => updateAttributes({ filters: undefined })}
+                onReset={() => updateAttributes({ filters: undefined, simpleFilters: undefined })}
             />
         </ErrorBoundary>
     )

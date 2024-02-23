@@ -1,9 +1,11 @@
 import { LemonButtonWithDropdown, LemonCheckbox, LemonCollapse, LemonInput } from '@posthog/lemon-ui'
+import equal from 'fast-deep-equal'
 import { useValues } from 'kea'
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
 import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { LemonLabel } from 'lib/lemon-ui/LemonLabel/LemonLabel'
+import { useMemo } from 'react'
 import { ActionFilter } from 'scenes/insights/filters/ActionFilter/ActionFilter'
 import { MathAvailability } from 'scenes/insights/filters/ActionFilter/ActionFilterRow/ActionFilterRow'
 import { TestAccountFilter } from 'scenes/insights/filters/TestAccountFilter'
@@ -11,6 +13,7 @@ import { TestAccountFilter } from 'scenes/insights/filters/TestAccountFilter'
 import { groupsModel } from '~/models/groupsModel'
 import { EntityTypes, FilterableLogLevel, RecordingDurationFilter, RecordingFilters } from '~/types'
 
+import { getDefaultFilters } from '../playlist/sessionRecordingsPlaylistLogic'
 import { DurationFilter } from './DurationFilter'
 
 export const AdvancedSessionRecordingsFilters = ({
@@ -24,17 +27,21 @@ export const AdvancedSessionRecordingsFilters = ({
 }): JSX.Element => {
     const { groupsTaxonomicTypes } = useValues(groupsModel)
 
-    const localFilters = { events: filters.events || [], actions: filters.actions || [] }
+    const initiallyOpen = useMemo(() => {
+        const defaultFilters = getDefaultFilters()
+        return !equal(filters, defaultFilters)
+    }, [])
 
     return (
         <LemonCollapse
             className="w-full rounded-none border-0 border-t"
             multiple
+            defaultActiveKeys={initiallyOpen ? ['advanced-filters'] : []}
             size="small"
             panels={[
                 {
                     key: 'advanced-filters',
-                    header: 'Show advanced filters',
+                    header: 'Advanced filters',
                     content: (
                         <div className="space-y-2 bg-side p-3">
                             <LemonLabel info="Show recordings where all of the events or actions listed below happen.">
@@ -42,7 +49,7 @@ export const AdvancedSessionRecordingsFilters = ({
                             </LemonLabel>
 
                             <ActionFilter
-                                filters={localFilters}
+                                filters={{ events: filters.events || [], actions: filters.actions || [] }}
                                 setFilters={(payload) => {
                                     setFilters({
                                         events: payload.events || [],
