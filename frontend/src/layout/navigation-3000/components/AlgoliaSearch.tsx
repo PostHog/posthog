@@ -117,27 +117,15 @@ const SearchTag = ({ type, label, active, onClick }: SearchTagProps): JSX.Elemen
     )
 }
 
-const Tags = (): JSX.Element => {
-    const { items, refine } = useRefinementList({ attribute: 'type' })
-    const [activeTag, setActiveTag] = useState('all')
-
+const Tags = ({
+    activeTag,
+    setActiveTag,
+}: {
+    activeTag: string
+    setActiveTag: React.Dispatch<React.SetStateAction<string>>
+}): JSX.Element => {
     const handleClick = (type: string): void => {
         setActiveTag(type)
-        if (type === 'all') {
-            const filteredItems = items.filter(({ value }) => tags.some(({ type }) => type === value))
-            filteredItems.forEach(({ value, isRefined }) => {
-                if (!isRefined) {
-                    refine(value)
-                }
-            })
-        } else {
-            items.forEach(({ value, isRefined }) => {
-                if (isRefined) {
-                    refine(value)
-                }
-            })
-            refine(type)
-        }
     }
 
     return (
@@ -160,10 +148,12 @@ const Tags = (): JSX.Element => {
 const Search = (): JSX.Element => {
     const { openSidePanel } = useActions(sidePanelStateLogic)
     const { hits } = useHits()
+    const { items, refine } = useRefinementList({ attribute: 'type' })
 
     const ref = useRef<HTMLDivElement>(null)
     const [searchValue, setSearchValue] = useState<string>('')
     const [activeOption, setActiveOption] = useState<undefined | number>()
+    const [activeTag, setActiveTag] = useState('all')
     const [searchOpen, setSearchOpen] = useState(false)
 
     const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>): void => {
@@ -177,6 +167,7 @@ const Search = (): JSX.Element => {
                 setActiveOption(undefined)
                 break
             case 'ArrowDown':
+                e.preventDefault()
                 setActiveOption((currOption) => {
                     if (currOption === undefined || currOption >= hits.length - 1) {
                         return 0
@@ -185,6 +176,7 @@ const Search = (): JSX.Element => {
                 })
                 break
             case 'ArrowUp':
+                e.preventDefault()
                 setActiveOption((currOption) => {
                     if (currOption !== undefined) {
                         return currOption <= 0 ? hits.length - 1 : currOption - 1
@@ -200,6 +192,25 @@ const Search = (): JSX.Element => {
     useEffect(() => {
         setSearchOpen(!!searchValue && activeOption !== undefined && activeOption >= -1)
     }, [activeOption])
+
+    useEffect(() => {
+        setActiveOption(0)
+        if (activeTag === 'all') {
+            const filteredItems = items.filter(({ value }) => tags.some(({ type }) => type === value))
+            filteredItems.forEach(({ value, isRefined }) => {
+                if (!isRefined) {
+                    refine(value)
+                }
+            })
+        } else {
+            items.forEach(({ value, isRefined }) => {
+                if (isRefined) {
+                    refine(value)
+                }
+            })
+            refine(activeTag)
+        }
+    }, [activeTag])
 
     useEffect(() => {
         const handleClick = (e: any): void => {
@@ -218,7 +229,7 @@ const Search = (): JSX.Element => {
     return (
         <div ref={ref} onKeyDown={handleKeyDown}>
             <SearchInput value={searchValue} setValue={setSearchValue} />
-            <Tags />
+            <Tags activeTag={activeTag} setActiveTag={setActiveTag} />
             {searchOpen && <Hits activeOption={activeOption} />}
         </div>
     )
