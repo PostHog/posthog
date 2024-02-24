@@ -33,25 +33,20 @@ const rowRenderer = ({ key, index, style, hits, activeOption }: any): JSX.Elemen
 const Hits = ({ activeOption }: { activeOption?: number }): JSX.Element => {
     const { hits } = useHits()
     return (
-        <div className="relative flex">
-            <ol
-                role="listbox"
-                className="list-none m-0 p-0 absolute w-full bg-white z-50 border rounded-lg mt-0.5 flex-grow h-[75vh] shadow-xl"
-            >
-                <AutoSizer>
-                    {({ height, width }: { height: number; width: number }) => (
-                        <List
-                            scrollToIndex={activeOption}
-                            width={width}
-                            height={height}
-                            rowCount={hits.length}
-                            rowHeight={50}
-                            rowRenderer={(options: any) => rowRenderer({ ...options, hits, activeOption })}
-                        />
-                    )}
-                </AutoSizer>
-            </ol>
-        </div>
+        <ol role="listbox" className="list-none m-0 p-0 h-[80vh]">
+            <AutoSizer>
+                {({ height, width }: { height: number; width: number }) => (
+                    <List
+                        scrollToIndex={activeOption}
+                        width={width}
+                        height={height}
+                        rowCount={hits.length}
+                        rowHeight={50}
+                        rowRenderer={(options: any) => rowRenderer({ ...options, hits, activeOption })}
+                    />
+                )}
+            </AutoSizer>
+        </ol>
     )
 }
 
@@ -109,7 +104,7 @@ const SearchTag = ({ type, label, active, onClick }: SearchTagProps): JSX.Elemen
     }, [])
 
     return (
-        <button className="p-0 cursor-pointer" onClick={handleClick}>
+        <button className="p-0 cursor-pointer bg-white dark:bg-[#1d1f27]" onClick={handleClick}>
             <LemonTag size="medium" type={active ? 'primary' : 'option'}>
                 {label}
             </LemonTag>
@@ -129,7 +124,7 @@ const Tags = ({
     }
 
     return (
-        <ul className="list-none m-0 p-0 flex space-x-1 mt-1 mb-0.5">
+        <ul className="list-none m-0 p-0 flex space-x-1 mt-1 mb-0.5 pb-1.5 border-b px-2">
             <li>
                 <SearchTag label="All" type="all" active={activeTag === 'all'} onClick={handleClick} />
             </li>
@@ -227,10 +222,14 @@ const Search = (): JSX.Element => {
     }, [])
 
     return (
-        <div ref={ref} onKeyDown={handleKeyDown}>
+        <div className="relative" ref={ref} onKeyDown={handleKeyDown}>
             <SearchInput value={searchValue} setValue={setSearchValue} />
-            <Tags activeTag={activeTag} setActiveTag={setActiveTag} />
-            {searchOpen && <Hits activeOption={activeOption} />}
+            {searchOpen && (
+                <div className="absolute w-full bg-white dark:bg-[#1d1f27] z-50 border rounded-lg shadow-xl mt-0.5">
+                    <Tags activeTag={activeTag} setActiveTag={setActiveTag} />
+                    <Hits activeOption={activeOption} />
+                </div>
+            )}
         </div>
     )
 }
