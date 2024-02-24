@@ -43,12 +43,6 @@ class StepErrorNoRetry extends Error {
         this.args = args
     }
 }
-
-export async function runEventPipeline(hub: Hub, event: PipelineEvent): Promise<EventPipelineResult> {
-    const runner = new EventPipelineRunner(hub, event)
-    return runner.runEventPipeline(event)
-}
-
 export class EventPipelineRunner {
     hub: Hub
     originalEvent: PipelineEvent
