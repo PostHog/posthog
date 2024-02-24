@@ -15,11 +15,15 @@ const rowRenderer = ({ key, index, style, hits, activeOption }: any): JSX.Elemen
     const { slug, title } = hits[index]
     return (
         // eslint-disable-next-line react/forbid-dom-props
-        <li key={key} style={style} role="listitem" tabIndex={-1} className="p-1">
-            <LemonButton active={activeOption === index} to={`https://posthog.com/${slug}`}>
+        <li key={key} style={style} role="listitem" tabIndex={-1} className="p-1 border-b last:border-b-0">
+            <LemonButton
+                active={activeOption === index}
+                to={`https://posthog.com/${slug}`}
+                className="[&_>span>span]:flex-col [&_>span>span]:items-start [&_>span>span]:space-y-1"
+            >
                 <span>
-                    <p className="m-0 font-bold mb-1 line-clamp-1">{title}</p>
-                    <p className="text-xs m-0 opacity-80 line-clamp-1">/{slug}</p>
+                    <p className="m-0 font-bold font-sans line-clamp-1">{title}</p>
+                    <p className="text-xs m-0 opacity-80 font-normal font-sans line-clamp-1">/{slug}</p>
                 </span>
             </LemonButton>
         </li>
@@ -32,7 +36,7 @@ const Hits = ({ activeOption }: { activeOption?: number }): JSX.Element => {
         <div className="relative flex">
             <ol
                 role="listbox"
-                className="list-none m-0 p-0 absolute w-full bg-white z-50 border rounded-lg mt-1 divide-y flex-grow h-[300px]"
+                className="list-none m-0 p-0 absolute w-full bg-white z-50 border rounded-lg mt-0.5 flex-grow h-[85vh] shadow-xl"
             >
                 <AutoSizer>
                     {({ height, width }: { height: number; width: number }) => (
