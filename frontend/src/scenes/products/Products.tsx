@@ -1,5 +1,3 @@
-import './Products.scss'
-
 import * as Icons from '@posthog/icons'
 import { Tooltip } from '@posthog/lemon-ui'
 import clsx from 'clsx'
@@ -72,21 +70,24 @@ export function ProductCard({
             }}
         >
             {onboardingCompleted && (
-                <div
-                    className="relative"
-                    onClick={(e) => {
-                        e.stopPropagation()
-                        router.actions.push(getProductUri(product.type as ProductKey, featureFlags))
-                    }}
+                <Tooltip
+                    title="You've already set up this product. Click to return to this product's page."
+                    placement="right"
                 >
-                    <Tooltip title="You've already set up this product. Click to return to this product's page.">
+                    <div
+                        className="relative"
+                        onClick={(e) => {
+                            e.stopPropagation()
+                            router.actions.push(getProductUri(product.type as ProductKey, featureFlags))
+                        }}
+                    >
                         <IconCheckCircleOutline className="absolute top-0 right-0" color="green" />
-                    </Tooltip>
-                </div>
+                    </div>
+                </Tooltip>
             )}
             <div className="grid grid-rows-[repeat(2,_48px)] justify-items-center">
                 <div className="self-center">{getProductIcon(product.name, product.icon_key, 'text-2xl')}</div>
-                <div className="font-bold text-center self-start">{product.name}</div>
+                <div className="font-bold text-center self-start text-md">{product.name}</div>
             </div>
         </LemonCard>
     )
@@ -98,18 +99,18 @@ export function Products(): JSX.Element {
     const products = billing?.products || []
 
     return (
-        <div className="flex flex-col flex-1 w-full h-full p-6 items-center justify-center bg-mid">
+        <div className="flex flex-col flex-1 w-full px-6 items-center justify-center bg-mid h-[calc(100vh-var(--breadcrumbs-height-full)-2*var(--scene-padding))]">
             <div className="mb-8">
                 {isFirstProductOnboarding ? (
-                    <h1 className="text-center text-4xl">Where do you want to start?</h1>
+                    <h2 className="text-center text-4xl">Where do you want to start?</h2>
                 ) : (
-                    <h1 className="text-center text-4xl">Welcome back. What would you like to set up?</h1>
+                    <h2 className="text-center text-4xl">Welcome back. What would you like to set up?</h2>
                 )}
                 {isFirstProductOnboarding && <p className="text-center">You can set up additional products later.</p>}
             </div>
             {products.length > 0 ? (
                 <>
-                    <div className="ProductsGrid">
+                    <div className="grid gap-4 grid-rows-[150px] grid-cols-[repeat(2,_minmax(min-content,_150px))] md:grid-cols-[repeat(4,_minmax(min-content,_150px))] ">
                         {products
                             .filter(
                                 (product) =>
