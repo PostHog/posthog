@@ -1,8 +1,8 @@
-import { LemonButton, LemonInput } from '@posthog/lemon-ui'
+import { LemonButton, LemonInput, LemonTag } from '@posthog/lemon-ui'
 import algoliasearch from 'algoliasearch/lite'
 import { useActions } from 'kea'
-import { useEffect, useState } from 'react'
-import { InstantSearch, useHits, useSearchBox } from 'react-instantsearch'
+import { useEffect, useRef, useState } from 'react'
+import { InstantSearch, useHits, useRefinementList, useSearchBox } from 'react-instantsearch'
 import { AutoSizer } from 'react-virtualized/dist/es/AutoSizer'
 import { List } from 'react-virtualized/dist/es/List'
 
@@ -36,7 +36,7 @@ const Hits = ({ activeOption }: { activeOption?: number }): JSX.Element => {
         <div className="relative flex">
             <ol
                 role="listbox"
-                className="list-none m-0 p-0 absolute w-full bg-white z-50 border rounded-lg mt-0.5 flex-grow h-[85vh] shadow-xl"
+                className="list-none m-0 p-0 absolute w-full bg-white z-50 border rounded-lg mt-0.5 flex-grow h-[75vh] shadow-xl"
             >
                 <AutoSizer>
                     {({ height, width }: { height: number; width: number }) => (
@@ -55,25 +55,116 @@ const Hits = ({ activeOption }: { activeOption?: number }): JSX.Element => {
     )
 }
 
-const Search = ({
+const SearchInput = ({
     value,
     setValue,
-    setActiveOption,
-    activeOption,
 }: {
     value: string
     setValue: React.Dispatch<React.SetStateAction<string>>
-    setActiveOption: React.Dispatch<React.SetStateAction<number | undefined>>
-    activeOption?: number
 }): JSX.Element => {
-    const { openSidePanel } = useActions(sidePanelStateLogic)
-    const { hits } = useHits()
     const { refine } = useSearchBox()
 
     const handleChange = (value: string): void => {
         setValue(value)
         refine(value)
     }
+
+    return <LemonInput onChange={handleChange} value={value} type="search" fullWidth placeholder="Search..." />
+}
+
+type Tag = {
+    type: string
+    label: string
+}
+
+const tags: Tag[] = [
+    {
+        type: 'docs',
+        label: 'Docs',
+    },
+    {
+        type: 'question',
+        label: 'Questions',
+    },
+    {
+        type: 'tutorial',
+        label: 'Tutorials',
+    },
+]
+
+type SearchTagProps = Tag & {
+    active?: boolean
+    onClick: (type: string) => void
+}
+
+const SearchTag = ({ type, label, active, onClick }: SearchTagProps): JSX.Element => {
+    const { refine } = useRefinementList({ attribute: 'type' })
+    const handleClick = (e: React.MouseEvent<HTMLButtonElement, MouseEvent>): void => {
+        e.stopPropagation()
+        onClick(type)
+    }
+
+    useEffect(() => {
+        refine(type)
+    }, [])
+
+    return (
+        <button className="p-0 cursor-pointer" onClick={handleClick}>
+            <LemonTag size="medium" type={active ? 'primary' : 'option'}>
+                {label}
+            </LemonTag>
+        </button>
+    )
+}
+
+const Tags = (): JSX.Element => {
+    const { items, refine } = useRefinementList({ attribute: 'type' })
+    const [activeTag, setActiveTag] = useState('all')
+
+    const handleClick = (type: string): void => {
+        setActiveTag(type)
+        if (type === 'all') {
+            const filteredItems = items.filter(({ value }) => tags.some(({ type }) => type === value))
+            filteredItems.forEach(({ value, isRefined }) => {
+                if (!isRefined) {
+                    refine(value)
+                }
+            })
+        } else {
+            items.forEach(({ value, isRefined }) => {
+                if (isRefined) {
+                    refine(value)
+                }
+            })
+            refine(type)
+        }
+    }
+
+    return (
+        <ul className="list-none m-0 p-0 flex space-x-1 mt-1 mb-0.5">
+            <li>
+                <SearchTag label="All" type="all" active={activeTag === 'all'} onClick={handleClick} />
+            </li>
+            {tags.map((tag) => {
+                const { type } = tag
+                return (
+                    <li key={type}>
+                        <SearchTag {...tag} active={activeTag === type} onClick={handleClick} />
+                    </li>
+                )
+            })}
+        </ul>
+    )
+}
+
+const Search = (): JSX.Element => {
+    const { openSidePanel } = useActions(sidePanelStateLogic)
+    const { hits } = useHits()
+
+    const ref = useRef<HTMLDivElement>(null)
+    const [searchValue, setSearchValue] = useState<string>('')
+    const [activeOption, setActiveOption] = useState<undefined | number>()
+    const [searchOpen, setSearchOpen] = useState(false)
 
     const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>): void => {
         switch (e.key) {
@@ -87,11 +178,8 @@ const Search = ({
                 break
             case 'ArrowDown':
                 setActiveOption((currOption) => {
-                    if (currOption === undefined) {
+                    if (currOption === undefined || currOption >= hits.length - 1) {
                         return 0
-                    }
-                    if (currOption >= hits.length - 1) {
-                        return currOption
                     }
                     return currOption + 1
                 })
@@ -99,33 +187,11 @@ const Search = ({
             case 'ArrowUp':
                 setActiveOption((currOption) => {
                     if (currOption !== undefined) {
-                        return currOption <= 0 ? undefined : currOption - 1
+                        return currOption <= 0 ? hits.length - 1 : currOption - 1
                     }
                 })
         }
     }
-
-    const handleBlur = (): void => {
-        setActiveOption(undefined)
-    }
-
-    return (
-        <LemonInput
-            onBlur={handleBlur}
-            onKeyDown={handleKeyDown}
-            onChange={handleChange}
-            value={value}
-            type="search"
-            fullWidth
-            placeholder="Search..."
-        />
-    )
-}
-
-export default function AlgoliaSearch(): JSX.Element {
-    const [searchValue, setSearchValue] = useState<string>('')
-    const [activeOption, setActiveOption] = useState<undefined | number>()
-    const [searchOpen, setSearchOpen] = useState(false)
 
     useEffect(() => {
         setSearchOpen(!!searchValue)
@@ -135,15 +201,33 @@ export default function AlgoliaSearch(): JSX.Element {
         setSearchOpen(!!searchValue && activeOption !== undefined && activeOption >= -1)
     }, [activeOption])
 
+    useEffect(() => {
+        const handleClick = (e: any): void => {
+            if (!ref?.current?.contains(e.target)) {
+                setSearchOpen(false)
+            }
+        }
+
+        window.addEventListener('click', handleClick)
+
+        return () => {
+            window.removeEventListener('click', handleClick)
+        }
+    }, [])
+
+    return (
+        <div ref={ref} onKeyDown={handleKeyDown}>
+            <SearchInput value={searchValue} setValue={setSearchValue} />
+            <Tags />
+            {searchOpen && <Hits activeOption={activeOption} />}
+        </div>
+    )
+}
+
+export default function AlgoliaSearch(): JSX.Element {
     return (
         <InstantSearch searchClient={searchClient} indexName="prod_posthog_com">
-            <Search
-                activeOption={activeOption}
-                setActiveOption={setActiveOption}
-                value={searchValue}
-                setValue={setSearchValue}
-            />
-            {searchOpen && <Hits activeOption={activeOption} />}
+            <Search />
         </InstantSearch>
     )
 }
