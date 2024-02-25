@@ -1,3 +1,4 @@
+import { IconCheckCircle } from '@posthog/icons'
 import { LemonButton, LemonInput, LemonTag } from '@posthog/lemon-ui'
 import algoliasearch from 'algoliasearch/lite'
 import { useActions } from 'kea'
@@ -12,7 +13,7 @@ import { SidePanelTab } from '~/types'
 const searchClient = algoliasearch('7VNQB5W0TX', '37f41fd37095bc85af76ed4edc85eb5a')
 
 const rowRenderer = ({ key, index, style, hits, activeOption }: any): JSX.Element => {
-    const { slug, title } = hits[index]
+    const { slug, title, type, resolved } = hits[index]
     return (
         // eslint-disable-next-line react/forbid-dom-props
         <li key={key} style={style} role="listitem" tabIndex={-1} className="p-1 border-b last:border-b-0">
@@ -21,9 +22,12 @@ const rowRenderer = ({ key, index, style, hits, activeOption }: any): JSX.Elemen
                 to={`https://posthog.com/${slug}`}
                 className="[&_>span>span]:flex-col [&_>span>span]:items-start [&_>span>span]:space-y-1"
             >
-                <span>
-                    <p className="m-0 font-bold font-sans line-clamp-1">{title}</p>
-                    <p className="text-xs m-0 opacity-80 font-normal font-sans line-clamp-1">/{slug}</p>
+                <span className="flex space-x-2 items-center">
+                    {type === 'question' && resolved && <IconCheckCircle className="text-green size-5 flex-shrink-0" />}
+                    <span>
+                        <p className="m-0 font-bold font-sans line-clamp-1">{title}</p>
+                        <p className="text-xs m-0 opacity-80 font-normal font-sans line-clamp-1">/{slug}</p>
+                    </span>
                 </span>
             </LemonButton>
         </li>
@@ -182,6 +186,7 @@ const Search = (): JSX.Element => {
 
     useEffect(() => {
         setSearchOpen(!!searchValue)
+        setActiveOption(0)
     }, [searchValue])
 
     useEffect(() => {
