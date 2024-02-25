@@ -15,10 +15,10 @@ from django.http import JsonResponse, HttpResponse
 from drf_spectacular.utils import extend_schema
 from loginas.utils import is_impersonated_session
 from rest_framework import exceptions, request, serializers, viewsets
-from rest_framework.compat import INDENT_SEPARATORS, SHORT_SEPARATORS, LONG_SEPARATORS
 from rest_framework.decorators import action
 from rest_framework.renderers import JSONRenderer
 from rest_framework.response import Response
+from rest_framework.utils.encoders import JSONEncoder
 
 from posthog.api.person import MinimalPersonSerializer
 from posthog.api.routing import TeamAndOrgViewSetMixin
@@ -63,7 +63,12 @@ SNAPSHOT_SOURCE_REQUESTED = Counter(
 )
 
 
-class CustomJSONRenderer(JSONRenderer):
+class SurrogatePairSafeJSONEncoder(JSONEncoder):
+    def encode(self, o):
+        return safe_clickhouse_string(super().encode(o))
+
+
+class SurrogatePairSafeJSONRenderer(JSONRenderer):
     """
     The realtime snapshot API returns JSON that has still been only partly ingested
     We can't be sure any data sanitization that might be applied has been applied
@@ -75,35 +80,7 @@ class CustomJSONRenderer(JSONRenderer):
     the encoder can throw
     """
 
-    def render(self, data, accepted_media_type=None, renderer_context=None):
-        """
-        Render `data` into JSON, returning a bytestring.
-        """
-        if data is None:
-            return b""
-
-        renderer_context = renderer_context or {}
-        indent = self.get_indent(accepted_media_type, renderer_context)
-
-        if indent is None:
-            separators = SHORT_SEPARATORS if self.compact else LONG_SEPARATORS
-        else:
-            separators = INDENT_SEPARATORS
-
-        ret = json.dumps(
-            data,
-            cls=self.encoder_class,
-            indent=indent,
-            ensure_ascii=self.ensure_ascii,
-            allow_nan=not self.strict,
-            separators=separators,
-        )
-
-        # We always fully escape \u2028 and \u2029 to ensure we output JSON
-        # that is a strict javascript subset.
-        # See: https://gist.github.com/damncabbage/623b879af56f850a6ddc
-        ret = ret.replace("\u2028", "\\u2028").replace("\u2029", "\\u2029")
-        return safe_clickhouse_string(ret).encode()
+    encoder_class = SurrogatePairSafeJSONEncoder
 
 
 # context manager for gathering a sequence of server timings
@@ -319,7 +296,7 @@ class SessionRecordingViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
 
         return Response({"success": True})
 
-    @action(methods=["GET"], detail=True, renderer_classes=[CustomJSONRenderer])
+    @action(methods=["GET"], detail=True, renderer_classes=[SurrogatePairSafeJSONRenderer])
     def snapshots(self, request: request.Request, **kwargs):
         """
         Snapshots can be loaded from multiple places:
