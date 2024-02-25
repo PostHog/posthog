@@ -65,19 +65,19 @@ SNAPSHOT_SOURCE_REQUESTED = Counter(
 
 class SurrogatePairSafeJSONEncoder(JSONEncoder):
     def encode(self, o):
-        return safe_clickhouse_string(super().encode(o))
+        return safe_clickhouse_string(super().encode(o), with_counter=False)
 
 
 class SurrogatePairSafeJSONRenderer(JSONRenderer):
     """
-    The realtime snapshot API returns JSON that has still been only partly ingested
-    We can't be sure any data sanitization that might be applied has been applied
-    And we can be sure that the data contains UTF-16 strings including surrogate pairs
+    Blob snapshots are compressed data which we pass through from blob storage.
+    Realtime snapshot API returns "bare" JSON from Redis.
+    We can be sure that the "bare" data could contain surrogate pairs
     from the browser's console logs.
 
-    This JSON renderer directly reimplements the DRF JSONRenderer
-    but uses our safe_clickhouse_string function to escape surrogate pairs before
-    the encoder can throw
+    This JSON renderer ensures that the stringified JSON does not have any unescaped surrogate pairs.
+
+    Because it has to override the encoder, it can't use orjson.
     """
 
     encoder_class = SurrogatePairSafeJSONEncoder
