@@ -22,12 +22,14 @@ const rowRenderer = ({ key, index, style, hits, activeOption }: any): JSX.Elemen
                 to={`https://posthog.com/${slug}`}
                 className="[&_>span>span]:flex-col [&_>span>span]:items-start [&_>span>span]:space-y-1"
             >
-                <span className="flex space-x-2 items-center">
-                    {type === 'question' && resolved && <IconCheckCircle className="text-green size-5 flex-shrink-0" />}
-                    <span>
+                <span>
+                    <span className="flex space-x-2 items-center">
                         <p className="m-0 font-bold font-sans line-clamp-1">{title}</p>
-                        <p className="text-xs m-0 opacity-80 font-normal font-sans line-clamp-1">/{slug}</p>
+                        {type === 'question' && resolved && (
+                            <IconCheckCircle className="text-green size-4 flex-shrink-0" />
+                        )}
                     </span>
+                    <p className="text-xs m-0 opacity-80 font-normal font-sans line-clamp-1">/{slug}</p>
                 </span>
             </LemonButton>
         </li>
@@ -78,6 +80,10 @@ type Tag = {
 
 const tags: Tag[] = [
     {
+        type: 'all',
+        label: 'All',
+    },
+    {
         type: 'docs',
         label: 'Docs',
     },
@@ -97,7 +103,9 @@ type SearchTagProps = Tag & {
 }
 
 const SearchTag = ({ type, label, active, onClick }: SearchTagProps): JSX.Element => {
-    const { refine } = useRefinementList({ attribute: 'type' })
+    const { refine, items } = useRefinementList({ attribute: 'type' })
+    const itemCount = type !== 'all' && items.find(({ value }) => value === type)?.count
+
     const handleClick = (e: React.MouseEvent<HTMLButtonElement, MouseEvent>): void => {
         e.stopPropagation()
         onClick(type)
@@ -110,7 +118,8 @@ const SearchTag = ({ type, label, active, onClick }: SearchTagProps): JSX.Elemen
     return (
         <button className="p-0 cursor-pointer bg-white dark:bg-[#1d1f27]" onClick={handleClick}>
             <LemonTag size="medium" type={active ? 'primary' : 'option'}>
-                {label}
+                <span>{label}</span>
+                {type !== 'all' && <span>({itemCount ?? 0})</span>}
             </LemonTag>
         </button>
     )
@@ -129,9 +138,6 @@ const Tags = ({
 
     return (
         <ul className="list-none m-0 p-0 flex space-x-1 mt-1 mb-0.5 pb-1.5 border-b px-2">
-            <li>
-                <SearchTag label="All" type="all" active={activeTag === 'all'} onClick={handleClick} />
-            </li>
             {tags.map((tag) => {
                 const { type } = tag
                 return (
@@ -157,15 +163,18 @@ const Search = (): JSX.Element => {
 
     const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>): void => {
         switch (e.key) {
-            case 'Enter':
+            case 'Enter': {
                 if (activeOption !== undefined) {
                     openSidePanel(SidePanelTab.Docs, `https://posthog.com/${hits[activeOption].slug}`)
                 }
                 break
-            case 'Escape':
+            }
+
+            case 'Escape': {
                 setActiveOption(undefined)
                 break
-            case 'ArrowDown':
+            }
+            case 'ArrowDown': {
                 e.preventDefault()
                 setActiveOption((currOption) => {
                     if (currOption === undefined || currOption >= hits.length - 1) {
@@ -174,13 +183,21 @@ const Search = (): JSX.Element => {
                     return currOption + 1
                 })
                 break
-            case 'ArrowUp':
+            }
+            case 'ArrowUp': {
                 e.preventDefault()
                 setActiveOption((currOption) => {
                     if (currOption !== undefined) {
                         return currOption <= 0 ? hits.length - 1 : currOption - 1
                     }
                 })
+                break
+            }
+            case 'Tab': {
+                e.preventDefault()
+                const currTagIndex = tags.findIndex(({ type }) => type === activeTag)
+                setActiveTag(tags[currTagIndex >= tags.length - 1 ? 0 : currTagIndex + 1].type)
+            }
         }
     }
 
