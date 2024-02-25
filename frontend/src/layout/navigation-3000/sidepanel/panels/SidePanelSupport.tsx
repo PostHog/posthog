@@ -21,6 +21,7 @@ import { SidePanelTab } from '~/types'
 
 import AlgoliaSearch from '../../components/AlgoliaSearch'
 import { SidePanelPaneHeader } from '../components/SidePanelPaneHeader'
+import { SIDE_PANEL_TABS } from '../SidePanel'
 import { sidePanelStateLogic } from '../sidePanelStateLogic'
 
 const products = [
@@ -119,7 +120,7 @@ export const SidePanelSupport = (): JSX.Element => {
 
     return (
         <>
-            <SidePanelPaneHeader title={title} />
+            <SidePanelPaneHeader title={showSupportForm ? title : SIDE_PANEL_TABS[SidePanelTab.Support].label} />
 
             <div className="overflow-y-auto" data-attr="side-panel-support-container">
                 <div className="p-3 max-w-160 w-full mx-auto">
