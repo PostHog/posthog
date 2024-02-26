@@ -3732,3 +3732,15 @@ export enum SidePanelTab {
     Status = 'status',
     Exports = 'exports',
 }
+
+export type HookConfigType = {
+    id: string
+    team_id: number
+    user_id: number
+    resource_id: number | null
+    format_text: string | null
+    event: string
+    target: string
+    created: string
+    updated: string
+}

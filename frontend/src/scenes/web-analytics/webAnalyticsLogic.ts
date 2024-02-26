@@ -25,6 +25,8 @@ import {
     InsightLogicProps,
     InsightType,
     IntervalType,
+    PluginConfigTypeNew,
+    PluginType,
     PropertyDefinition,
     PropertyFilterType,
     PropertyOperator,
@@ -1169,8 +1171,8 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                         event_names: ['$pageview'],
                         properties: ['$geoip_country_code'],
                     }),
-                    api.loadPaginatedResults('api/organizations/@current/plugins'),
-                    api.loadPaginatedResults('api/plugin_config'),
+                    api.loadPaginatedResults<PluginType>('api/organizations/@current/plugins'),
+                    api.loadPaginatedResults<PluginConfigTypeNew>('api/plugin_config'),
                 ])
 
                 const hasNonStaleCountryCodeDefinition =
@@ -1185,7 +1187,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
 
                 const geoIpPlugin =
                     pluginsResponse.status === 'fulfilled' &&
-                    pluginsResponse.value.find((plugin) => GEOIP_PLUGIN_URLS.includes(plugin.url))
+                    pluginsResponse.value.find((plugin) => plugin.url && GEOIP_PLUGIN_URLS.includes(plugin.url))
                 const geoIpPluginId = geoIpPlugin ? geoIpPlugin.id : undefined
 
                 const geoIpPluginConfig =
