@@ -1,8 +1,7 @@
 import { IconCheckCircle } from '@posthog/icons'
-import { LemonButton, LemonInput, LemonTag, Tooltip } from '@posthog/lemon-ui'
+import { LemonButton, LemonInput, LemonTag } from '@posthog/lemon-ui'
 import algoliasearch from 'algoliasearch/lite'
 import { useActions } from 'kea'
-import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
 import { useEffect, useRef, useState } from 'react'
 import { InstantSearch, useHits, useRefinementList, useSearchBox } from 'react-instantsearch'
 import { AutoSizer } from 'react-virtualized/dist/es/AutoSizer'
@@ -13,38 +12,26 @@ import { SidePanelTab } from '~/types'
 
 const searchClient = algoliasearch('7VNQB5W0TX', '37f41fd37095bc85af76ed4edc85eb5a')
 
-const ResultTooltip = ({ title, excerpt }: { title: string; excerpt: string }): JSX.Element => {
-    return (
-        <div className="p-1">
-            <h3 className="m-0 mb-2">{title}</h3>
-            <LemonMarkdown>{excerpt}</LemonMarkdown>
-        </div>
-    )
-}
-
 const rowRenderer = ({ key, index, style, hits, activeOption }: any): JSX.Element => {
     const { slug, title, type, resolved } = hits[index]
-    const active = activeOption === index
     return (
         // eslint-disable-next-line react/forbid-dom-props
         <li key={key} style={style} role="listitem" tabIndex={-1} className="p-1 border-b last:border-b-0">
-            <Tooltip visible={active} placement="left" title={() => <ResultTooltip {...hits[index]} />}>
-                <LemonButton
-                    active={active}
-                    to={`https://posthog.com/${slug}`}
-                    className="[&_>span>span]:flex-col [&_>span>span]:items-start [&_>span>span]:space-y-1"
-                >
-                    <span>
-                        <span className="flex space-x-2 items-center">
-                            <p className="m-0 font-bold font-sans line-clamp-1">{title}</p>
-                            {type === 'question' && resolved && (
-                                <IconCheckCircle className="text-green size-4 flex-shrink-0" />
-                            )}
-                        </span>
-                        <p className="text-xs m-0 opacity-80 font-normal font-sans line-clamp-1">/{slug}</p>
+            <LemonButton
+                active={activeOption === index}
+                to={`https://posthog.com/${slug}`}
+                className="[&_>span>span]:flex-col [&_>span>span]:items-start [&_>span>span]:space-y-1"
+            >
+                <span>
+                    <span className="flex space-x-2 items-center">
+                        <p className="m-0 font-bold font-sans line-clamp-1">{title}</p>
+                        {type === 'question' && resolved && (
+                            <IconCheckCircle className="text-green size-4 flex-shrink-0" />
+                        )}
                     </span>
-                </LemonButton>
-            </Tooltip>
+                    <p className="text-xs m-0 opacity-80 font-normal font-sans line-clamp-1">/{slug}</p>
+                </span>
+            </LemonButton>
         </li>
     )
 }
