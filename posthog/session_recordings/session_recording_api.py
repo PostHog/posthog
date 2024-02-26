@@ -342,7 +342,10 @@ class SessionRecordingViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                 for full_key in blob_keys:
                     # Keys are like 1619712000-1619712060
                     blob_key = full_key.replace(blob_prefix.rstrip("/") + "/", "")
-                    time_range = [datetime.fromtimestamp(int(x) / 1000, tz=timezone.utc) for x in blob_key.split("-")]
+                    blob_key_base = blob_key.split(".")[0]  # Remove the extension if it exists
+                    time_range = [
+                        datetime.fromtimestamp(int(x) / 1000, tz=timezone.utc) for x in blob_key_base.split("-")
+                    ]
 
                     sources.append(
                         {
@@ -378,7 +381,19 @@ class SessionRecordingViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             response_data["sources"] = sources
 
         elif source == "realtime":
-            snapshots = get_realtime_snapshots(team_id=self.team.pk, session_id=str(recording.session_id)) or []
+            if request.GET.get("version", None) == "3" and settings.RECORDINGS_INGESTER_URL:
+                with requests.get(
+                    url=f"{settings.RECORDINGS_INGESTER_URL}/api/projects/{self.team.pk}/session_recordings/{str(recording.session_id)}/snapshots",
+                    stream=True,
+                ) as r:
+                    if r.status_code == 404:
+                        return Response({"snapshots": []})
+
+                    response = HttpResponse(content=r.raw, content_type="application/json")
+                    response["Content-Disposition"] = "inline"
+                    return response
+            else:
+                snapshots = get_realtime_snapshots(team_id=self.team.pk, session_id=str(recording.session_id)) or []
 
             event_properties["source"] = "realtime"
             event_properties["snapshots_length"] = len(snapshots)
