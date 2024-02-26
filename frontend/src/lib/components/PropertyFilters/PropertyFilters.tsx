@@ -65,15 +65,16 @@ export function PropertyFilters({
     const logicProps = { propertyFilters, onChange, pageKey, sendAllKeyUpdates }
     const { filters, filtersWithNew } = useValues(propertyFilterLogic(logicProps))
     const { remove, setFilters } = useActions(propertyFilterLogic(logicProps))
-    const [openOnInsertAllowed, setOpenOnInsertAllowed] = useState<boolean>(false)
+    const [allowOpenOnInsert, setAllowOpenOnInsert] = useState<boolean>(false)
 
     // Update the logic's internal filters when the props change
     useEffect(() => {
         setFilters(propertyFilters ?? [])
     }, [propertyFilters])
 
+    // do not open on initial render, only open if newly inserted
     useEffect(() => {
-        setOpenOnInsertAllowed(true)
+        setAllowOpenOnInsert(true)
     }, [])
 
     return (
@@ -127,7 +128,7 @@ export function PropertyFilters({
                                         />
                                     )}
                                     errorMessage={errorMessages && errorMessages[index]}
-                                    openOnInsert={openOnInsert && openOnInsertAllowed}
+                                    openOnInsert={allowOpenOnInsert && openOnInsert}
                                 />
                             </React.Fragment>
                         )
