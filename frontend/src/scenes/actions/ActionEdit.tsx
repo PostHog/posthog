@@ -1,10 +1,9 @@
 import { IconInfo, IconPlus, IconWarning } from '@posthog/icons'
-import { LemonBanner, LemonCheckbox, LemonTextArea } from '@posthog/lemon-ui'
+import { LemonCheckbox, LemonTextArea } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
 import { combineUrl, router } from 'kea-router'
 import { EditableField } from 'lib/components/EditableField/EditableField'
-import { FlaggedFeature } from 'lib/components/FlaggedFeature'
 import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
 import { PageHeader } from 'lib/components/PageHeader'
 import { IconPlayCircle } from 'lib/lemon-ui/icons'
@@ -23,8 +22,6 @@ import { ActionStepType, AvailableFeature } from '~/types'
 
 import { actionEditLogic, ActionEditLogicProps } from './actionEditLogic'
 import { ActionStep } from './ActionStep'
-import { ActionWebhookEdit, ActionWebhooks } from './webhooks/ActionWebhooks'
-import { actionWebhooksLogic } from './webhooks/actionWebhooksLogic'
 
 export function ActionEdit({ action: loadedAction, id }: ActionEditLogicProps): JSX.Element {
     const logicProps: ActionEditLogicProps = {
@@ -33,12 +30,10 @@ export function ActionEdit({ action: loadedAction, id }: ActionEditLogicProps): 
     }
     const logic = actionEditLogic(logicProps)
     const { action, actionLoading, actionCount, actionCountLoading } = useValues(logic)
-    const { submitAction, deleteAction, setActionValue } = useActions(logic)
+    const { submitAction, deleteAction } = useActions(logic)
     const { currentTeam } = useValues(teamLogic)
     const { hasAvailableFeature } = useValues(userLogic)
     const { tags } = useValues(tagsModel)
-    const { editingWebhookId } = useValues(actionWebhooksLogic({ id: id ?? 0 }))
-    const { setEditingWebhookId } = useActions(actionWebhooksLogic({ id: id ?? 0 }))
 
     const slackEnabled = currentTeam?.slack_incoming_webhook
 
@@ -235,85 +230,38 @@ export function ActionEdit({ action: loadedAction, id }: ActionEditLogicProps): 
                         )}
                     </LemonField>
                 </div>
-                <FlaggedFeature flag="multiple-action-webhooks">
-                    <div className="my-8">
-                        <h2 className="subtitle flex items-start justify-between">Action webhooks</h2>
-                        <p>Send webhooks whenever this action is triggered.</p>
-
-                        {id ? (
-                            <div className="space-y-2">
-                                <ActionWebhooks actionId={id} />
-                                {editingWebhookId !== 'new' ? (
-                                    <LemonButton type="secondary" onClick={() => setEditingWebhookId('new')}>
-                                        Add webhook
-                                    </LemonButton>
-                                ) : (
-                                    <div className="p-4 border rounded bg-bg-light">
-                                        <h3>New action webhook</h3>
-                                        <ActionWebhookEdit actionId={id} />
-                                    </div>
-                                )}
+                <LemonField name="post_to_slack">
+                    {({ value, onChange }) => (
+                        <div className="my-4">
+                            <LemonCheckbox
+                                id="webhook-checkbox"
+                                checked={action.bytecode_error ? false : !!value}
+                                onChange={onChange}
+                                disabledReason={
+                                    !slackEnabled
+                                        ? 'Configure webhooks in project settings'
+                                        : action.bytecode_error ?? null
+                                }
+                                label={
+                                    <>
+                                        <span>Post to webhook when this action is triggered.</span>
+                                        {action.bytecode_error ? (
+                                            <IconWarning className="text-warning text-xl ml-1" />
+                                        ) : null}
+                                    </>
+                                }
+                            />
+                            <div className="mt-1 pl-6">
+                                <Link to={urls.settings('project-integrations', 'integration-webhooks')}>
+                                    {slackEnabled ? 'Configure' : 'Enable'} webhooks in project settings.
+                                </Link>
                             </div>
-                        ) : (
-                            <LemonBanner type="info">
-                                Please save your Action first and then you can configure webhooks for it.
-                            </LemonBanner>
-                        )}
-                    </div>
-                </FlaggedFeature>
-
-                <FlaggedFeature
-                    flag="multiple-action-webhooks"
-                    fallback={
-                        <LemonField name="post_to_slack">
-                            {({ value, onChange }) => (
-                                <div className="my-4">
-                                    <LemonCheckbox
-                                        id="webhook-checkbox"
-                                        checked={action.bytecode_error ? false : !!value}
-                                        onChange={onChange}
-                                        disabledReason={
-                                            !slackEnabled
-                                                ? 'Configure webhooks in project settings'
-                                                : action.bytecode_error ?? null
-                                        }
-                                        label={
-                                            <>
-                                                <span>Post to webhook when this action is triggered.</span>
-                                                {action.bytecode_error ? (
-                                                    <IconWarning className="text-warning text-xl ml-1" />
-                                                ) : null}
-                                            </>
-                                        }
-                                    />
-                                    <div className="mt-1 pl-6">
-                                        <Link to={urls.settings('project-integrations', 'integration-webhooks')}>
-                                            {slackEnabled ? 'Configure' : 'Enable'} webhooks in project settings.
-                                        </Link>
-                                    </div>
-                                </div>
-                            )}
-                        </LemonField>
-                    }
-                >
-                    <></>
-                </FlaggedFeature>
+                        </div>
+                    )}
+                </LemonField>
                 <div>
                     {action.post_to_slack && (
                         <>
-                            <FlaggedFeature flag="multiple-action-webhooks">
-                                <LemonBanner
-                                    type="warning"
-                                    className="my-4"
-                                    action={{
-                                        children: 'Remove webhook',
-                                        onClick: () => setActionValue('post_to_slack', false),
-                                    }}
-                                >
-                                    Your current webhook configuration is deprecated. We recommend removing it and
-                                    creating a new Action Webhook above.
-                                </LemonBanner>
-                            </FlaggedFeature>
                             {!action.bytecode_error && action.post_to_slack && (
                                 <>
                                     <LemonField name="slack_message_format">
