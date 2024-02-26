@@ -131,162 +131,157 @@ export const SidePanelSupport = (): JSX.Element => {
 
             <div className="overflow-y-auto" data-attr="side-panel-support-container">
                 <div className="p-3 max-w-160 w-full mx-auto">
-                    {showSupportForm ? (
-                        <SupportFormBlock onCancel={() => setShowSupportForm(false)} />
-                    ) : (
-                        <>
-                            <Section title="Search docs & community questions">
-                                <AlgoliaSearch />
-                            </Section>
+                    <Section title="Search docs & community questions">
+                        <AlgoliaSearch />
+                    </Section>
 
-                            <Section title="Explore the docs">
-                                <ul className="border rounded divide-y bg-bg-light dark:bg-transparent font-title font-medium">
-                                    {products.map((product, index) => (
-                                        <li key={index}>
-                                            <Link
-                                                to={`https://posthog.com/docs/${product.slug}`}
-                                                className="group flex items-center justify-between px-2 py-1.5"
-                                            >
-                                                <div className="flex items-center gap-1.5">
-                                                    {product.icon}
-                                                    <span className="text-default opacity-75 group-hover:opacity-100">
-                                                        {product.name}
-                                                    </span>
-                                                </div>
-                                                <div>
-                                                    <IconChevronDown className="text-default h-6 w-6 opacity-60 -rotate-90 group-hover:opacity-90" />
-                                                </div>
-                                            </Link>
-                                        </li>
-                                    ))}
-                                </ul>
-                            </Section>
+                    <Section title="Explore the docs">
+                        <ul className="border rounded divide-y bg-bg-light dark:bg-transparent font-title font-medium">
+                            {products.map((product, index) => (
+                                <li key={index}>
+                                    <Link
+                                        to={`https://posthog.com/docs/${product.slug}`}
+                                        className="group flex items-center justify-between px-2 py-1.5"
+                                    >
+                                        <div className="flex items-center gap-1.5">
+                                            {product.icon}
+                                            <span className="text-default opacity-75 group-hover:opacity-100">
+                                                {product.name}
+                                            </span>
+                                        </div>
+                                        <div>
+                                            <IconChevronDown className="text-default h-6 w-6 opacity-60 -rotate-90 group-hover:opacity-90" />
+                                        </div>
+                                    </Link>
+                                </li>
+                            ))}
+                        </ul>
+                    </Section>
 
-                            <Section title="Ask the community">
-                                <p>
-                                    Questions about features, how to's, or use cases? There are <strong>1,634</strong>{' '}
-                                    discussions in our community forums.
-                                </p>
+                    <Section title="Ask the community">
+                        <p>
+                            Questions about features, how to's, or use cases? There are <strong>1,634</strong>{' '}
+                            discussions in our community forums.
+                        </p>
+                        <LemonButton
+                            type="primary"
+                            fullWidth
+                            center
+                            to="https://posthog.com/questions"
+                            targetBlank
+                            className="mt-2"
+                        >
+                            Ask a question
+                        </LemonButton>
+                    </Section>
+
+                    <Section title="Share feedback">
+                        <ul>
+                            <li>
                                 <LemonButton
-                                    type="primary"
-                                    fullWidth
-                                    center
-                                    to="https://posthog.com/questions"
+                                    type="secondary"
+                                    status="alt"
+                                    to="https://github.com/posthog/posthog/issues"
+                                    icon={<IconBug />}
                                     targetBlank
-                                    className="mt-2"
                                 >
-                                    Ask a question
+                                    Report a bug
                                 </LemonButton>
-                            </Section>
+                            </li>
+                            <li>
+                                <LemonButton
+                                    type="secondary"
+                                    status="alt"
+                                    to="https://posthog.com/roadmap"
+                                    icon={<IconHelmet />}
+                                    targetBlank
+                                >
+                                    See what we're building
+                                </LemonButton>
+                            </li>
+                            <li>
+                                <LemonButton
+                                    type="secondary"
+                                    status="alt"
+                                    to="https://posthog.com/roadmap"
+                                    icon={<IconMap />}
+                                    targetBlank
+                                >
+                                    Vote on our roadmap
+                                </LemonButton>
+                            </li>
+                            <li>
+                                <LemonButton
+                                    type="secondary"
+                                    status="alt"
+                                    to="https://github.com/posthog/posthog/issues"
+                                    icon={<IconFeatures />}
+                                    targetBlank
+                                >
+                                    Request a feature
+                                </LemonButton>
+                            </li>
+                        </ul>
+                    </Section>
 
-                            <Section title="Share feedback">
-                                <ul>
-                                    <li>
-                                        <LemonButton
-                                            type="secondary"
-                                            status="alt"
-                                            to="https://github.com/posthog/posthog/issues"
-                                            icon={<IconBug />}
-                                            targetBlank
-                                        >
-                                            Report a bug
-                                        </LemonButton>
-                                    </li>
-                                    <li>
-                                        <LemonButton
-                                            type="secondary"
-                                            status="alt"
-                                            to="https://posthog.com/roadmap"
-                                            icon={<IconHelmet />}
-                                            targetBlank
-                                        >
-                                            See what we're building
-                                        </LemonButton>
-                                    </li>
-                                    <li>
-                                        <LemonButton
-                                            type="secondary"
-                                            status="alt"
-                                            to="https://posthog.com/roadmap"
-                                            icon={<IconMap />}
-                                            targetBlank
-                                        >
-                                            Vote on our roadmap
-                                        </LemonButton>
-                                    </li>
-                                    <li>
-                                        <LemonButton
-                                            type="secondary"
-                                            status="alt"
-                                            to="https://github.com/posthog/posthog/issues"
-                                            icon={<IconFeatures />}
-                                            targetBlank
-                                        >
-                                            Request a feature
-                                        </LemonButton>
-                                    </li>
-                                </ul>
-                            </Section>
-
-                            {/* 
+                    {/* 
                         sections below are conditional, depending on which type of support they're supposed to get.
                         See types.tsx: https://github.com/PostHog/posthog/pull/20435/commits/3a3b9f31fc1c672c63dfc8ef02108bc2ee0eb563#diff-19743365133d63884e16c2ed111a9076bb50a34785a3e624bd4abf49d49f814c
                     */}
 
-                            {/* if free ONLY */}
+                    {/* if free ONLY */}
 
-                            <Section title="Contact support">
+                    <Section title="Contact support">
+                        <p>
+                            Due to the volume of messages and our limited team size, we're unable to offer email support
+                            about account-specific issues to free plans. But we still want to help!
+                        </p>
+
+                        <ol className="pl-5">
+                            <li>
+                                <strong className="block">Search our docs</strong>
                                 <p>
-                                    Due to the volume of messages and our limited team size, we're unable to offer email
-                                    support about account-specific issues to free plans. But we still want to help!
+                                    We're constantly updating our docs and tutorials to provide the latest information
+                                    about installing, using, and troubleshooting.
                                 </p>
-
-                                <ol className="pl-5">
-                                    <li>
-                                        <strong className="block">Search our docs</strong>
-                                        <p>
-                                            We're constantly updating our docs and tutorials to provide the latest
-                                            information about installing, using, and troubleshooting.
-                                        </p>
-                                    </li>
-                                    <li>
-                                        <strong className="block">Ask a community question</strong>
-                                        <p>
-                                            Many common (and niche) questions have already been resolved. (Our own
-                                            engineers also keep an eye on the questions as they have time!){' '}
-                                            <Link to="https://posthog.com/question" className="block">
-                                                Search community questions or ask your own.
-                                            </Link>
-                                        </p>
-                                    </li>
-                                    <li>
-                                        <strong className="block">
-                                            Explore <Link to="https://posthog.com/partners">PostHog partners</Link>
-                                        </strong>
-                                        <p>
-                                            Third-party providers can help with installation and debugging of data
-                                            issues.
-                                        </p>
-                                    </li>
-                                    <li>
-                                        <strong className="block">Upgrade to a paid plan</strong>
-                                        <p>
-                                            Our paid plans offer email support.{' '}
-                                            <Link to="https://posthog.com/pricing">Explore options</Link>
-                                        </p>
-                                    </li>
-                                </ol>
-                            </Section>
-
-                            {/* if paid ONLY */}
-                            <Section title="More options">
+                            </li>
+                            <li>
+                                <strong className="block">Ask a community question</strong>
                                 <p>
-                                    Can't find what you need in the docs?{' '}
-                                    <Link onClick={() => setShowSupportForm(true)}>Email an engineer</Link>
+                                    Many common (and niche) questions have already been resolved. (Our own engineers
+                                    also keep an eye on the questions as they have time!){' '}
+                                    <Link to="https://posthog.com/question" className="block">
+                                        Search community questions or ask your own.
+                                    </Link>
                                 </p>
-                            </Section>
-                        </>
-                    )}
+                            </li>
+                            <li>
+                                <strong className="block">
+                                    Explore <Link to="https://posthog.com/partners">PostHog partners</Link>
+                                </strong>
+                                <p>Third-party providers can help with installation and debugging of data issues.</p>
+                            </li>
+                            <li>
+                                <strong className="block">Upgrade to a paid plan</strong>
+                                <p>
+                                    Our paid plans offer email support.{' '}
+                                    <Link to="https://posthog.com/pricing">Explore options</Link>
+                                </p>
+                            </li>
+                        </ol>
+                    </Section>
+
+                    {/* if paid ONLY */}
+                    <Section title="More options">
+                        {showSupportForm ? (
+                            <SupportFormBlock onCancel={() => setShowSupportForm(false)} />
+                        ) : (
+                            <p>
+                                Can't find what you need in the docs?{' '}
+                                <Link onClick={() => setShowSupportForm(true)}>Email an engineer</Link>
+                            </p>
+                        )}
+                    </Section>
                 </div>
             </div>
         </>
