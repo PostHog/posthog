@@ -77,6 +77,18 @@ export const dataWarehouseSceneLogic = kea<dataWarehouseSceneLogicType>([
                 )
             },
         ],
+        externalTablesMap: [
+            (s) => [s.externalTables],
+            (externalTables): Record<string, DataWarehouseTableType> => {
+                return externalTables.reduce(
+                    (acc: Record<string, DataWarehouseTableType>, table: DataWarehouseTableType) => {
+                        acc[table.name] = table
+                        return acc
+                    },
+                    {} as Record<string, DataWarehouseTableType>
+                )
+            },
+        ],
         posthogTables: [
             (s) => [s.filteredTables],
             (tables): DataWarehouseTableType[] => {

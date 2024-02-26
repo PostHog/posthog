@@ -28,7 +28,7 @@ import { dashboardsModel } from '~/models/dashboardsModel'
 import { groupPropertiesModel } from '~/models/groupPropertiesModel'
 import { groupsModel } from '~/models/groupsModel'
 import { updatePropertyDefinitions } from '~/models/propertyDefinitionsModel'
-import { AnyDataNode, NodeKind } from '~/queries/schema'
+import { AnyDataNode, DatabaseSchemaQueryResponseField, NodeKind } from '~/queries/schema'
 import {
     ActionType,
     CohortType,
@@ -139,6 +139,7 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
             (taxonomicFilterLogicKey) => taxonomicFilterLogicKey,
         ],
         eventNames: [() => [(_, props) => props.eventNames], (eventNames) => eventNames ?? []],
+        schemaColumns: [() => [(_, props) => props.schemaColumns], (schemaColumns) => schemaColumns ?? []],
         metadataSource: [
             () => [(_, props) => props.metadataSource],
             (metadataSource): AnyDataNode =>
@@ -158,6 +159,7 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                 s.groupAnalyticsTaxonomicGroups,
                 s.groupAnalyticsTaxonomicGroupNames,
                 s.eventNames,
+                s.schemaColumns,
                 s.metadataSource,
                 s.excludedProperties,
                 s.propertyAllowList,
@@ -167,6 +169,7 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                 groupAnalyticsTaxonomicGroups,
                 groupAnalyticsTaxonomicGroupNames,
                 eventNames,
+                schemaColumns,
                 metadataSource,
                 excludedProperties,
                 propertyAllowList
@@ -208,6 +211,16 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                         getName: (table: DataWarehouseTableType) => table.name,
                         getValue: (table: DataWarehouseTableType) => table.id,
                         getPopoverHeader: () => 'Data Warehouse Table',
+                        getIcon: () => <IconServer />,
+                    },
+                    {
+                        name: 'Data Warehouse Properties',
+                        searchPlaceholder: 'data warehouse property',
+                        type: TaxonomicFilterGroupType.DataWarehouseProperties,
+                        options: schemaColumns,
+                        getName: (col: DatabaseSchemaQueryResponseField) => col.key,
+                        getValue: (col: DatabaseSchemaQueryResponseField) => col.key,
+                        getPopoverHeader: () => 'Data Warehouse Column',
                         getIcon: () => <IconServer />,
                     },
                     {

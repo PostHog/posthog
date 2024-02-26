@@ -2,7 +2,7 @@ import Fuse from 'fuse.js'
 import { LogicWrapper } from 'kea'
 import { DataWarehouseTableType } from 'scenes/data-warehouse/types'
 
-import { AnyDataNode } from '~/queries/schema'
+import { AnyDataNode, DatabaseSchemaQueryResponseField } from '~/queries/schema'
 import {
     ActionType,
     CohortType,
@@ -26,6 +26,7 @@ export interface TaxonomicFilterProps {
     taxonomicFilterLogicKey?: string
     optionsFromProp?: Partial<Record<TaxonomicFilterGroupType, SimpleOption[]>>
     eventNames?: string[]
+    schemaColumns?: DatabaseSchemaQueryResponseField[]
     height?: number
     width?: number
     popoverEnabled?: boolean
@@ -81,6 +82,7 @@ export enum TaxonomicFilterGroupType {
     Cohorts = 'cohorts',
     CohortsWithAllUsers = 'cohorts_with_all',
     DataWarehouse = 'data_warehouse',
+    DataWarehouseProperties = 'data_warehouse_properties',
     Elements = 'elements',
     Events = 'events',
     EventProperties = 'event_properties',

@@ -56,6 +56,9 @@ export const seriesNodeToFilter = (
         math_hogql: node.math_hogql,
         math_group_type_index: node.math_group_type_index,
         properties: node.properties as any, // TODO,
+        ...(isDataWarehouseNode(node)
+            ? { table_name: node.table_name, id_field: node.id_field, timestamp_field: node.timestamp_field }
+            : {}),
     })
     return entity
 }
