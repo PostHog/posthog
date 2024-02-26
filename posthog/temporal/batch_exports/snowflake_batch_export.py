@@ -14,6 +14,7 @@ from snowflake.connector.connection import SnowflakeConnection
 from temporalio import activity, workflow
 from temporalio.common import RetryPolicy
 
+from posthog.batch_exports.models import BatchExportRun
 from posthog.batch_exports.service import BatchExportField, BatchExportSchema, SnowflakeBatchExportInputs
 from posthog.temporal.batch_exports.base import PostHogWorkflow
 from posthog.temporal.batch_exports.batch_exports import (
@@ -594,7 +595,7 @@ class SnowflakeBatchExportWorkflow(PostHogWorkflow):
 
         update_inputs = UpdateBatchExportRunStatusInputs(
             id=run_id,
-            status="Completed",
+            status=BatchExportRun.Status.COMPLETED,
             team_id=inputs.team_id,
         )
 

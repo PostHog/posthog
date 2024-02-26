@@ -11,6 +11,7 @@ from google.oauth2 import service_account
 from temporalio import activity, workflow
 from temporalio.common import RetryPolicy
 
+from posthog.batch_exports.models import BatchExportRun
 from posthog.batch_exports.service import BatchExportField, BatchExportSchema, BigQueryBatchExportInputs
 from posthog.temporal.batch_exports.base import PostHogWorkflow
 from posthog.temporal.batch_exports.batch_exports import (
@@ -393,7 +394,9 @@ class BigQueryBatchExportWorkflow(PostHogWorkflow):
             ),
         )
 
-        update_inputs = UpdateBatchExportRunStatusInputs(id=run_id, status="Completed", team_id=inputs.team_id)
+        update_inputs = UpdateBatchExportRunStatusInputs(
+            id=run_id, status=BatchExportRun.Status.COMPLETED, team_id=inputs.team_id
+        )
 
         insert_inputs = BigQueryInsertInputs(
             team_id=inputs.team_id,
