@@ -54,6 +54,7 @@ CREATE TABLE IF NOT EXISTS {table_name} ON CLUSTER '{cluster}'
     min_first_timestamp SimpleAggregateFunction(min, DateTime64(6, 'UTC')),
     max_last_timestamp SimpleAggregateFunction(max, DateTime64(6, 'UTC')),
     first_url AggregateFunction(argMin, Nullable(VARCHAR), DateTime64(6, 'UTC')),
+    urls SimpleAggregateFunction(groupUniqArrayArray, Array(VARCHAR)),
     click_count SimpleAggregateFunction(sum, Int64),
     keypress_count SimpleAggregateFunction(sum, Int64),
     mouse_activity_count SimpleAggregateFunction(sum, Int64),
@@ -129,6 +130,7 @@ max(last_timestamp) AS max_last_timestamp,
 -- this is an aggregate function, not a simple aggregate function
 -- so we have to write to argMinState, and query with argMinMerge
 argMinState(first_url, first_timestamp) as first_url,
+groupArray({database}.kafka_session_replay_events.first_url) as urls,
 sum(click_count) as click_count,
 sum(keypress_count) as keypress_count,
 sum(mouse_activity_count) as mouse_activity_count,
@@ -156,6 +158,7 @@ group by session_id, team_id
 `min_first_timestamp` DateTime64(6, 'UTC'),
 `max_last_timestamp` DateTime64(6, 'UTC'),
 `first_url` AggregateFunction(argMin, Nullable(String), DateTime64(6, 'UTC')),
+`urls` Array(String),
 `click_count` Int64, `keypress_count` Int64,
 `mouse_activity_count` Int64, `active_milliseconds` Int64,
 `console_log_count` Int64, `console_warn_count` Int64,

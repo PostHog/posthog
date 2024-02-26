@@ -114,3 +114,23 @@ ADD_SOURCE_SESSION_REPLAY_EVENTS_TABLE_SQL = lambda: ALTER_SESSION_REPLAY_ADD_SO
     table_name=SESSION_REPLAY_EVENTS_DATA_TABLE(),
     cluster=settings.CLICKHOUSE_CLUSTER,
 )
+
+ALTER_SESSION_REPLAY_ADD_URLS_COLUMN = """
+    ALTER TABLE {table_name} on CLUSTER '{cluster}'
+    ADD COLUMN IF NOT EXISTS urls SimpleAggregateFunction(groupUniqArrayArray, Array(VARCHAR))
+"""
+
+ADD_URLS_COLUMN_DISTRIBUTED_SESSION_REPLAY_EVENTS_TABLE_SQL = lambda: ALTER_SESSION_REPLAY_ADD_URLS_COLUMN.format(
+    table_name="session_replay_events",
+    cluster=settings.CLICKHOUSE_CLUSTER,
+)
+
+ADD_URLS_COLUMN_WRITABLE_SESSION_REPLAY_EVENTS_TABLE_SQL = lambda: ALTER_SESSION_REPLAY_ADD_URLS_COLUMN.format(
+    table_name="writable_session_replay_events",
+    cluster=settings.CLICKHOUSE_CLUSTER,
+)
+
+ADD_URLS_COLUMN_SESSION_REPLAY_EVENTS_TABLE_SQL = lambda: ALTER_SESSION_REPLAY_ADD_URLS_COLUMN.format(
+    table_name=SESSION_REPLAY_EVENTS_DATA_TABLE(),
+    cluster=settings.CLICKHOUSE_CLUSTER,
+)
