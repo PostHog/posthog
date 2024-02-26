@@ -17,7 +17,7 @@ from posthog.hogql.timings import HogQLTimings
 from posthog.hogql_queries.insights.funnels.funnel_query_context import FunnelQueryContext
 from posthog.hogql_queries.insights.funnels.funnel_time_to_convert import FunnelTimeToConvert
 from posthog.hogql_queries.insights.funnels.funnel_trends import FunnelTrends
-from posthog.hogql_queries.insights.funnels.utils import get_funnel_order_class
+from posthog.hogql_queries.insights.funnels.utils import get_funnel_actor_class, get_funnel_order_class
 from posthog.hogql_queries.query_runner import QueryRunner
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 from posthog.models import Team
@@ -76,6 +76,9 @@ class FunnelsQueryRunner(QueryRunner):
     def to_query(self) -> ast.SelectQuery:
         return self.funnel_class.get_query()
 
+    def to_actors_query(self) -> ast.SelectQuery | ast.SelectUnionQuery:
+        return self.funnel_actor_class.actor_query()
+
     def calculate(self):
         query = self.to_query()
         timings = []
@@ -112,6 +115,10 @@ class FunnelsQueryRunner(QueryRunner):
             return FunnelTimeToConvert(context=self.context)
         else:
             return self.funnel_order_class
+
+    @cached_property
+    def funnel_actor_class(self):
+        return get_funnel_actor_class(self.context.funnelsFilter)(context=self.context)
 
     @cached_property
     def query_date_range(self):

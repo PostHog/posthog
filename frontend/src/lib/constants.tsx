@@ -1,6 +1,6 @@
 import { LemonSelectOptions } from '@posthog/lemon-ui'
 
-import { AvailableFeature, ChartDisplayType, LicensePlan, Region, SSOProvider } from '../types'
+import { ChartDisplayType, Region, SSOProvider } from '../types'
 
 /** Display types which don't allow grouping by unit of time. Sync with backend NON_TIME_SERIES_DISPLAY_TYPES. */
 export const NON_TIME_SERIES_DISPLAY_TYPES = [
@@ -153,7 +153,7 @@ export const FEATURE_FLAGS = {
     WEB_ANALYTICS: 'web-analytics', // owner @robbie-c #team-web-analytics
     WEB_ANALYTICS_SAMPLING: 'web-analytics-sampling', // owner @robbie-c #team-web-analytics
     HIGH_FREQUENCY_BATCH_EXPORTS: 'high-frequency-batch-exports', // owner: @tomasfarias
-    // owner: team monitoring, only to be enabled for PostHog team testing
+    // owner: #team-replay, only to be enabled for PostHog team testing
     EXCEPTION_AUTOCAPTURE: 'exception-autocapture',
     DATA_WAREHOUSE: 'data-warehouse', // owner: @EDsCODE
     DATA_WAREHOUSE_VIEWS: 'data-warehouse-views', // owner: @EDsCODE
@@ -165,7 +165,6 @@ export const FEATURE_FLAGS = {
     PRODUCT_SPECIFIC_ONBOARDING: 'product-specific-onboarding', // owner: @raquelmsmith
     REDIRECT_SIGNUPS_TO_INSTANCE: 'redirect-signups-to-instance', // owner: @raquelmsmith
     APPS_AND_EXPORTS_UI: 'apps-and-exports-ui', // owner: @benjackwhite
-    SESSION_REPLAY_CORS_PROXY: 'session-replay-cors-proxy', // owner: #team-replay
     HOGQL_INSIGHTS_LIFECYCLE: 'hogql-insights-lifecycle', // owner: @mariusandra
     HOGQL_INSIGHTS_PATHS: 'hogql-insights-paths', // owner: @webjunkie
     HOGQL_INSIGHTS_RETENTION: 'hogql-insights-retention', // owner: @webjunkie
@@ -180,66 +179,32 @@ export const FEATURE_FLAGS = {
     SURVEYS_PAYGATES: 'surveys-paygates',
     PERSONS_HOGQL_QUERY: 'persons-hogql-query', // owner: @mariusandra
     PIPELINE_UI: 'pipeline-ui', // owner: #team-pipeline
-    NOTEBOOK_CANVASES: 'notebook-canvases', // owner: #team-replay
     SESSION_RECORDING_SAMPLING: 'session-recording-sampling', // owner: #team-replay
     PERSON_FEED_CANVAS: 'person-feed-canvas', // owner: #project-canvas
     MULTI_PROJECT_FEATURE_FLAGS: 'multi-project-feature-flags', // owner: @jurajmajerik #team-feature-success
-    NETWORK_PAYLOAD_CAPTURE: 'network-payload-capture', // owner: #team-replay
     FEATURE_FLAG_COHORT_CREATION: 'feature-flag-cohort-creation', // owner: @neilkakkar #team-feature-success
     INSIGHT_HORIZONTAL_CONTROLS: 'insight-horizontal-controls', // owner: @benjackwhite
     SURVEYS_WIDGETS: 'surveys-widgets', // owner: @liyiy
     SCHEDULED_CHANGES_FEATURE_FLAGS: 'scheduled-changes-feature-flags', // owner: @jurajmajerik #team-feature-success
-    ALWAYS_SHOW_SEEKBAR_PREVIEW: 'always-show-seekbar-preview', // owner: #team-replay
     SESSION_REPLAY_MOBILE: 'session-replay-mobile', // owner: #team-replay
     INVITE_TEAM_MEMBER_ONBOARDING: 'invite-team-member-onboarding', // owner: @biancayang
-    SESSION_REPLAY_IOS: 'session-replay-ios', // owner: #team-replay
     YEAR_IN_HOG: 'year-in-hog', // owner: #team-replay
     SESSION_REPLAY_EXPORT_MOBILE_DATA: 'session-replay-export-mobile-data', // owner: #team-replay
-    SESSION_REPLAY_CANVAS: 'session-replay-canvas', // owner: #team-replay
     DISCUSSIONS: 'discussions', // owner: #team-replay
     REDIRECT_WEB_PRODUCT_ANALYTICS_ONBOARDING: 'redirect-web-product-analytics-onboarding', // owner: @biancayang
     RECRUIT_ANDROID_MOBILE_BETA_TESTERS: 'recruit-android-mobile-beta-testers', // owner: #team-replay
     SIDEPANEL_STATUS: 'sidepanel-status', // owner: @benjackwhite
     NEW_FEATURE_FLAG_OPERATORS: 'new-feature-flag-operators', // owner: @neilkakkar
     AI_SESSION_SUMMARY: 'ai-session-summary', // owner: #team-replay
+    AI_SESSION_PERMISSIONS: 'ai-session-permissions', // owner: #team-replay
     PRODUCT_INTRO_PAGES: 'product-intro-pages', // owner: @raquelmsmith
     DATANODE_CONCURRENCY_LIMIT: 'datanode-concurrency-limit', // owner: @robbie-c
     SESSION_REPLAY_DOCTOR: 'session-replay-doctor', // owner: #team-replay
+    REPLAY_SIMILAR_RECORDINGS: 'session-replay-similar-recordings', // owner: #team-replay
     SAVED_NOT_PINNED: 'saved-not-pinned', // owner: #team-replay
+    EXPORTS_SIDEPANEL: 'exports-sidepanel', // owner: #team-product-analytics
 } as const
 export type FeatureFlagKey = (typeof FEATURE_FLAGS)[keyof typeof FEATURE_FLAGS]
-
-/** Which self-hosted plan's features are available with Cloud's "Standard" plan (aka card attached). */
-export const POSTHOG_CLOUD_STANDARD_PLAN = LicensePlan.Scale
-export const FEATURE_MINIMUM_PLAN: Partial<Record<AvailableFeature, LicensePlan>> = {
-    [AvailableFeature.ZAPIER]: LicensePlan.Scale,
-    [AvailableFeature.ORGANIZATIONS_PROJECTS]: LicensePlan.Scale,
-    [AvailableFeature.SOCIAL_SSO]: LicensePlan.Scale,
-    [AvailableFeature.DASHBOARD_COLLABORATION]: LicensePlan.Scale,
-    [AvailableFeature.INGESTION_TAXONOMY]: LicensePlan.Scale,
-    [AvailableFeature.PATHS_ADVANCED]: LicensePlan.Scale,
-    [AvailableFeature.CORRELATION_ANALYSIS]: LicensePlan.Scale,
-    [AvailableFeature.GROUP_ANALYTICS]: LicensePlan.Scale,
-    [AvailableFeature.MULTIVARIATE_FLAGS]: LicensePlan.Scale,
-    [AvailableFeature.EXPERIMENTATION]: LicensePlan.Scale,
-    [AvailableFeature.TAGGING]: LicensePlan.Scale,
-    [AvailableFeature.BEHAVIORAL_COHORT_FILTERING]: LicensePlan.Scale,
-    [AvailableFeature.WHITE_LABELLING]: LicensePlan.Scale,
-    [AvailableFeature.DASHBOARD_PERMISSIONING]: LicensePlan.Enterprise,
-    [AvailableFeature.PROJECT_BASED_PERMISSIONING]: LicensePlan.Enterprise,
-    [AvailableFeature.SAML]: LicensePlan.Enterprise,
-    [AvailableFeature.SSO_ENFORCEMENT]: LicensePlan.Enterprise,
-    [AvailableFeature.SUBSCRIPTIONS]: LicensePlan.Scale,
-    [AvailableFeature.APP_METRICS]: LicensePlan.Scale,
-    [AvailableFeature.RECORDINGS_PLAYLISTS]: LicensePlan.Scale,
-    [AvailableFeature.ROLE_BASED_ACCESS]: LicensePlan.Enterprise,
-    [AvailableFeature.RECORDINGS_FILE_EXPORT]: LicensePlan.Scale,
-    [AvailableFeature.RECORDINGS_PERFORMANCE]: LicensePlan.Scale,
-    [AvailableFeature.SURVEYS_STYLING]: LicensePlan.Scale,
-    [AvailableFeature.SURVEYS_MULTIPLE_QUESTIONS]: LicensePlan.Scale,
-    [AvailableFeature.SURVEYS_TEXT_HTML]: LicensePlan.Scale,
-    [AvailableFeature.DATA_PIPELINES]: LicensePlan.Scale,
-}
 
 export const ENTITY_MATCH_TYPE = 'entities'
 export const PROPERTY_MATCH_TYPE = 'properties'

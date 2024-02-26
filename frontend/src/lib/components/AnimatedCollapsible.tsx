@@ -27,7 +27,7 @@ export function AnimatedCollapsible({
             // eslint-disable-next-line react/forbid-dom-props
             style={{
                 height,
-                transition: 'height 0.3s ease-in-out',
+                transition: 'height 0.1s ease-in-out',
             }}
         >
             <div ref={collapsibleSectionRef}>{children}</div>

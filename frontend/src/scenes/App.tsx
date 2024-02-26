@@ -1,6 +1,6 @@
 import { actions, BindLogic, connect, events, kea, path, reducers, selectors, useMountedLogic, useValues } from 'kea'
 import { MOCK_NODE_PROCESS } from 'lib/constants'
-import { use3000Body } from 'lib/hooks/use3000Body'
+import { useThemedHtml } from 'lib/hooks/useThemedHtml'
 import { ToastCloseButton } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { SpinnerOverlay } from 'lib/lemon-ui/Spinner/Spinner'
 import { apiStatusLogic } from 'lib/logic/apiStatusLogic'
@@ -73,7 +73,7 @@ export function App(): JSX.Element | null {
     const { showApp, showingDelayedSpinner } = useValues(appLogic)
     useMountedLogic(sceneLogic({ scenes: appScenes }))
     useMountedLogic(apiStatusLogic)
-    use3000Body()
+    useThemedHtml()
 
     if (showApp) {
         return (

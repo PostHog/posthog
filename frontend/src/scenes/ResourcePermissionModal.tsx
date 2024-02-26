@@ -146,7 +146,7 @@ export function ResourcePermission({
                                 icon={<IconTrash />}
                                 onClick={() => deleteAssociatedRole(role.id)}
                                 tooltip="Remove custom role from feature flag"
-                                tooltipPlacement="bottomLeft"
+                                tooltipPlacement="bottom-start"
                                 size="small"
                             />
                         )}
@@ -272,7 +272,7 @@ function RoleRow({ role, deleteRole }: { role: RoleType; deleteRole?: (roleId: R
                     icon={<IconTrash />}
                     onClick={() => deleteRole(role.id)}
                     tooltip="Remove role from permission"
-                    tooltipPlacement="bottomLeft"
+                    tooltipPlacement="bottom-start"
                     size="small"
                 />
             )}

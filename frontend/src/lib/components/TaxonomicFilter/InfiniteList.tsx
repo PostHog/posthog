@@ -235,7 +235,7 @@ export function InfiniteList({ popupAnchorElement }: InfiniteListProps): JSX.Ele
                 onClick={expand}
             >
                 {group.expandLabel?.({ count: totalResultCount, expandedCount }) ??
-                    `Click here to see ${expandedCount - totalResultCount} more ${pluralize(
+                    `See ${expandedCount - totalResultCount} more ${pluralize(
                         expandedCount - totalResultCount,
                         'row',
                         'rows',

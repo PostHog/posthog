@@ -19,7 +19,6 @@
       <env name="SESSION_RECORDING_KAFKA_HOSTS" value="localhost" />
       <env name="SESSION_RECORDING_KAFKA_MAX_REQUEST_SIZE_BYTES" value="20971520" />
       <env name="SKIP_SERVICE_VERSION_REQUIREMENTS" value="1" />
-      <env name="REPLAY_EVENTS_NEW_CONSUMER_RATIO" value="1" />
     </envs>
     <option name="SDK_HOME" value="$PROJECT_DIR$/env/bin/python" />
     <option name="SDK_NAME" value="Python 3.10 (posthog)" />

@@ -1,5 +1,6 @@
 import './TaxonomicFilter.scss'
 
+import { IconKeyboard } from '@posthog/icons'
 import clsx from 'clsx'
 import { BindLogic, useActions, useValues } from 'kea'
 import {
@@ -7,7 +8,6 @@ import {
     TaxonomicFilterLogicProps,
     TaxonomicFilterProps,
 } from 'lib/components/TaxonomicFilter/types'
-import { IconKeyboard } from 'lib/lemon-ui/icons'
 import { LemonInput } from 'lib/lemon-ui/LemonInput/LemonInput'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { useEffect, useMemo, useRef } from 'react'

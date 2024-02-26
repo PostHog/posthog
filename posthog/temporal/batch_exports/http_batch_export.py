@@ -9,6 +9,7 @@ from django.conf import settings
 from temporalio import activity, workflow
 from temporalio.common import RetryPolicy
 
+from posthog.models import BatchExportRun
 from posthog.batch_exports.service import BatchExportField, BatchExportSchema, HttpBatchExportInputs
 from posthog.temporal.batch_exports.base import PostHogWorkflow
 from posthog.temporal.batch_exports.batch_exports import (
@@ -338,15 +339,13 @@ class HttpBatchExportWorkflow(PostHogWorkflow):
                 initial_interval=dt.timedelta(seconds=10),
                 maximum_interval=dt.timedelta(seconds=60),
                 maximum_attempts=0,
-                non_retryable_error_types=[
-                    "NonRetryableResponseError",
-                ],
+                non_retryable_error_types=["NotNullViolation", "IntegrityError"],
             ),
         )
 
         update_inputs = UpdateBatchExportRunStatusInputs(
             id=run_id,
-            status="Completed",
+            status=BatchExportRun.Status.COMPLETED,
             team_id=inputs.team_id,
         )
 
