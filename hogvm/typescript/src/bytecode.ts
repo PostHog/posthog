@@ -213,6 +213,12 @@ export function executeHogQLBytecode(bytecode: any[], fields: Record<string, any
                 } else if (name == 'toFloat') {
                     const value = parseFloat(args[0])
                     stack.push(isNaN(value) ? null : value)
+                } else if (name == 'ifNull') {
+                    if (args[0] != null) {
+                        stack.push(args[0])
+                    } else {
+                        stack.push(args[1])
+                    }
                 } else {
                     throw new Error(`Unsupported function call: ${name}`)
                 }
