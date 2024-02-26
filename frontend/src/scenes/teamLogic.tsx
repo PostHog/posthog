@@ -77,6 +77,14 @@ export const teamLogic = kea<teamLogicType>([
                         throw new Error('Current team has not been loaded yet, so it cannot be updated!')
                     }
 
+                    // session replay config is nested, so we need to make sure we don't overwrite config
+                    if (payload.session_replay_config) {
+                        payload.session_replay_config = {
+                            ...values.currentTeam.session_replay_config,
+                            ...payload.session_replay_config,
+                        }
+                    }
+
                     const patchedTeam = (await api.update(`api/projects/${values.currentTeam.id}`, payload)) as TeamType
                     breakpoint()
 
