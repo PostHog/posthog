@@ -29,6 +29,10 @@ export function SessionRecordingsFilters({
     onReset,
 }: SessionRecordingsFiltersProps): JSX.Element {
     const initiallyOpen = useMemo(() => {
+        // skip computation if not within Collapse component
+        if (hideSimpleFilters) {
+            return true
+        }
         const defaultFilters = getDefaultFilters()
         return !equal(advancedFilters, defaultFilters)
     }, [])

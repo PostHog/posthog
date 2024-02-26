@@ -64,7 +64,7 @@ export const defaultRecordingDurationFilter: RecordingDurationFilter = {
     operator: PropertyOperator.GreaterThan,
 }
 
-const DEFAULT_SIMPLE_RECORDING_FILTERS: RecordingFilters = {
+export const DEFAULT_SIMPLE_RECORDING_FILTERS: RecordingFilters = {
     events: [],
     properties: [],
 }
