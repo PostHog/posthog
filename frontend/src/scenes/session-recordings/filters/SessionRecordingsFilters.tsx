@@ -1,8 +1,11 @@
-import { LemonButton } from '@posthog/lemon-ui'
+import { LemonButton, LemonCollapse } from '@posthog/lemon-ui'
+import equal from 'fast-deep-equal'
 import { LemonLabel } from 'lib/lemon-ui/LemonLabel/LemonLabel'
+import { useMemo } from 'react'
 
 import { RecordingFilters } from '~/types'
 
+import { getDefaultFilters } from '../playlist/sessionRecordingsPlaylistLogic'
 import { AdvancedSessionRecordingsFilters } from './AdvancedSessionRecordingsFilters'
 import { SimpleSessionRecordingsFilters } from './SimpleSessionRecordingsFilters'
 
@@ -25,6 +28,19 @@ export function SessionRecordingsFilters({
     hideSimpleFilters,
     onReset,
 }: SessionRecordingsFiltersProps): JSX.Element {
+    const initiallyOpen = useMemo(() => {
+        const defaultFilters = getDefaultFilters()
+        return !equal(advancedFilters, defaultFilters)
+    }, [])
+
+    const AdvancedFilters = (
+        <AdvancedSessionRecordingsFilters
+            filters={advancedFilters}
+            setFilters={setAdvancedFilters}
+            showPropertyFilters={showPropertyFilters}
+        />
+    )
+
     return (
         <div className="relative flex flex-col">
             <div className="space-y-1 p-3">
@@ -45,11 +61,24 @@ export function SessionRecordingsFilters({
                 )}
             </div>
 
-            <AdvancedSessionRecordingsFilters
-                filters={advancedFilters}
-                setFilters={setAdvancedFilters}
-                showPropertyFilters={showPropertyFilters}
-            />
+            {hideSimpleFilters ? (
+                AdvancedFilters
+            ) : (
+                <LemonCollapse
+                    className="w-full rounded-none border-0 border-t"
+                    multiple
+                    defaultActiveKeys={initiallyOpen ? ['advanced-filters'] : []}
+                    size="small"
+                    panels={[
+                        {
+                            key: 'advanced-filters',
+                            header: 'Advanced filters',
+                            className: 'p-0',
+                            content: AdvancedFilters,
+                        },
+                    ]}
+                />
+            )}
         </div>
     )
 }

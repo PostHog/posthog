@@ -1,11 +1,9 @@
-import { LemonButtonWithDropdown, LemonCheckbox, LemonCollapse, LemonInput } from '@posthog/lemon-ui'
-import equal from 'fast-deep-equal'
+import { LemonButtonWithDropdown, LemonCheckbox, LemonInput } from '@posthog/lemon-ui'
 import { useValues } from 'kea'
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
 import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { LemonLabel } from 'lib/lemon-ui/LemonLabel/LemonLabel'
-import { useMemo } from 'react'
 import { ActionFilter } from 'scenes/insights/filters/ActionFilter/ActionFilter'
 import { MathAvailability } from 'scenes/insights/filters/ActionFilter/ActionFilterRow/ActionFilterRow'
 import { TestAccountFilter } from 'scenes/insights/filters/TestAccountFilter'
@@ -13,7 +11,6 @@ import { TestAccountFilter } from 'scenes/insights/filters/TestAccountFilter'
 import { groupsModel } from '~/models/groupsModel'
 import { EntityTypes, FilterableLogLevel, RecordingDurationFilter, RecordingFilters } from '~/types'
 
-import { getDefaultFilters } from '../playlist/sessionRecordingsPlaylistLogic'
 import { DurationFilter } from './DurationFilter'
 
 export const AdvancedSessionRecordingsFilters = ({
@@ -27,129 +24,97 @@ export const AdvancedSessionRecordingsFilters = ({
 }): JSX.Element => {
     const { groupsTaxonomicTypes } = useValues(groupsModel)
 
-    const initiallyOpen = useMemo(() => {
-        const defaultFilters = getDefaultFilters()
-        return !equal(filters, defaultFilters)
-    }, [])
-
     return (
-        <LemonCollapse
-            className="w-full rounded-none border-0 border-t"
-            multiple
-            defaultActiveKeys={initiallyOpen ? ['advanced-filters'] : []}
-            size="small"
-            panels={[
-                {
-                    key: 'advanced-filters',
-                    header: 'Advanced filters',
-                    className: 'p-0',
-                    content: (
-                        <div className="space-y-2 bg-light p-3">
-                            <LemonLabel info="Show recordings where all of the events or actions listed below happen.">
-                                Events and actions
-                            </LemonLabel>
+        <div className="space-y-2 bg-light p-3">
+            <LemonLabel info="Show recordings where all of the events or actions listed below happen.">
+                Events and actions
+            </LemonLabel>
 
-                            <ActionFilter
-                                filters={{ events: filters.events || [], actions: filters.actions || [] }}
-                                setFilters={(payload) => {
-                                    setFilters({
-                                        events: payload.events || [],
-                                        actions: payload.actions || [],
-                                    })
-                                }}
-                                typeKey="session-recordings"
-                                mathAvailability={MathAvailability.None}
-                                hideRename
-                                hideDuplicate
-                                showNestedArrow={false}
-                                actionsTaxonomicGroupTypes={[
-                                    TaxonomicFilterGroupType.Actions,
-                                    TaxonomicFilterGroupType.Events,
-                                ]}
-                                propertiesTaxonomicGroupTypes={[
-                                    TaxonomicFilterGroupType.EventProperties,
-                                    TaxonomicFilterGroupType.EventFeatureFlags,
-                                    TaxonomicFilterGroupType.Elements,
-                                    TaxonomicFilterGroupType.HogQLExpression,
-                                    ...groupsTaxonomicTypes,
-                                ]}
-                                propertyFiltersPopover
-                                addFilterDefaultOptions={{
-                                    id: '$pageview',
-                                    name: '$pageview',
-                                    type: EntityTypes.EVENTS,
-                                }}
-                                buttonProps={{ type: 'secondary', size: 'small' }}
-                            />
+            <ActionFilter
+                filters={{ events: filters.events || [], actions: filters.actions || [] }}
+                setFilters={(payload) => {
+                    setFilters({
+                        events: payload.events || [],
+                        actions: payload.actions || [],
+                    })
+                }}
+                typeKey="session-recordings"
+                mathAvailability={MathAvailability.None}
+                hideRename
+                hideDuplicate
+                showNestedArrow={false}
+                actionsTaxonomicGroupTypes={[TaxonomicFilterGroupType.Actions, TaxonomicFilterGroupType.Events]}
+                propertiesTaxonomicGroupTypes={[
+                    TaxonomicFilterGroupType.EventProperties,
+                    TaxonomicFilterGroupType.EventFeatureFlags,
+                    TaxonomicFilterGroupType.Elements,
+                    TaxonomicFilterGroupType.HogQLExpression,
+                    ...groupsTaxonomicTypes,
+                ]}
+                propertyFiltersPopover
+                addFilterDefaultOptions={{
+                    id: '$pageview',
+                    name: '$pageview',
+                    type: EntityTypes.EVENTS,
+                }}
+                buttonProps={{ type: 'secondary', size: 'small' }}
+            />
 
-                            <LemonLabel info="Show recordings by persons who match the set criteria">
-                                Persons and cohorts
-                            </LemonLabel>
+            <LemonLabel info="Show recordings by persons who match the set criteria">Persons and cohorts</LemonLabel>
 
-                            <TestAccountFilter
-                                filters={filters}
-                                onChange={(testFilters) =>
-                                    setFilters({ filter_test_accounts: testFilters.filter_test_accounts })
-                                }
-                            />
+            <TestAccountFilter
+                filters={filters}
+                onChange={(testFilters) => setFilters({ filter_test_accounts: testFilters.filter_test_accounts })}
+            />
 
-                            {showPropertyFilters && (
-                                <PropertyFilters
-                                    pageKey="session-recordings"
-                                    buttonText="Person or cohort"
-                                    taxonomicGroupTypes={[
-                                        TaxonomicFilterGroupType.PersonProperties,
-                                        TaxonomicFilterGroupType.Cohorts,
-                                    ]}
-                                    propertyFilters={filters.properties}
-                                    onChange={(properties) => {
-                                        setFilters({ properties })
-                                    }}
-                                />
-                            )}
+            {showPropertyFilters && (
+                <PropertyFilters
+                    pageKey="session-recordings"
+                    buttonText="Person or cohort"
+                    taxonomicGroupTypes={[TaxonomicFilterGroupType.PersonProperties, TaxonomicFilterGroupType.Cohorts]}
+                    propertyFilters={filters.properties}
+                    onChange={(properties) => {
+                        setFilters({ properties })
+                    }}
+                />
+            )}
 
-                            <LemonLabel>Time and duration</LemonLabel>
+            <LemonLabel>Time and duration</LemonLabel>
 
-                            <div className="flex flex-wrap gap-2">
-                                <DateFilter
-                                    dateFrom={filters.date_from ?? '-7d'}
-                                    dateTo={filters.date_to ?? undefined}
-                                    onChange={(changedDateFrom, changedDateTo) => {
-                                        setFilters({
-                                            date_from: changedDateFrom,
-                                            date_to: changedDateTo,
-                                        })
-                                    }}
-                                    dateOptions={[
-                                        { key: 'Custom', values: [] },
-                                        { key: 'Last 24 hours', values: ['-24h'] },
-                                        { key: 'Last 7 days', values: ['-7d'] },
-                                        { key: 'Last 30 days', values: ['-30d'] },
-                                        { key: 'All time', values: ['-90d'] },
-                                    ]}
-                                    dropdownPlacement="bottom-start"
-                                />
-                                <DurationFilter
-                                    onChange={(newRecordingDurationFilter, newDurationType) => {
-                                        setFilters({
-                                            session_recording_duration: newRecordingDurationFilter,
-                                            duration_type_filter: newDurationType,
-                                        })
-                                    }}
-                                    recordingDurationFilter={
-                                        filters.session_recording_duration as RecordingDurationFilter
-                                    }
-                                    durationTypeFilter={filters.duration_type_filter || 'duration'}
-                                    pageKey="session-recordings"
-                                />
-                            </div>
+            <div className="flex flex-wrap gap-2">
+                <DateFilter
+                    dateFrom={filters.date_from ?? '-7d'}
+                    dateTo={filters.date_to ?? undefined}
+                    onChange={(changedDateFrom, changedDateTo) => {
+                        setFilters({
+                            date_from: changedDateFrom,
+                            date_to: changedDateTo,
+                        })
+                    }}
+                    dateOptions={[
+                        { key: 'Custom', values: [] },
+                        { key: 'Last 24 hours', values: ['-24h'] },
+                        { key: 'Last 7 days', values: ['-7d'] },
+                        { key: 'Last 30 days', values: ['-30d'] },
+                        { key: 'All time', values: ['-90d'] },
+                    ]}
+                    dropdownPlacement="bottom-start"
+                />
+                <DurationFilter
+                    onChange={(newRecordingDurationFilter, newDurationType) => {
+                        setFilters({
+                            session_recording_duration: newRecordingDurationFilter,
+                            duration_type_filter: newDurationType,
+                        })
+                    }}
+                    recordingDurationFilter={filters.session_recording_duration as RecordingDurationFilter}
+                    durationTypeFilter={filters.duration_type_filter || 'duration'}
+                    pageKey="session-recordings"
+                />
+            </div>
 
-                            <ConsoleFilters filters={filters} setFilters={setFilters} />
-                        </div>
-                    ),
-                },
-            ]}
-        />
+            <ConsoleFilters filters={filters} setFilters={setFilters} />
+        </div>
     )
 }
 
