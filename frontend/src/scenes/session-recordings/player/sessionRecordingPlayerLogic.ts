@@ -16,7 +16,6 @@ import {
 } from 'kea'
 import { router } from 'kea-router'
 import { delay } from 'kea-test-utils'
-import { FEATURE_FLAGS } from 'lib/constants'
 import { now } from 'lib/dayjs'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { clamp, downloadFile, fromParamsGivenUrl } from 'lib/utils'
@@ -518,10 +517,7 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
             const plugins: ReplayPlugin[] = []
 
             // We don't want non-cloud products to talk to our proxy as it likely won't work, but we _do_ want local testing to work
-            if (
-                values.featureFlags[FEATURE_FLAGS.SESSION_REPLAY_CORS_PROXY] &&
-                (values.preflight?.cloud || window.location.hostname === 'localhost')
-            ) {
+            if (values.preflight?.cloud || window.location.hostname === 'localhost') {
                 plugins.push(CorsPlugin)
             }
 
