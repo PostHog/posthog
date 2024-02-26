@@ -238,7 +238,7 @@ async def delete_squashed_person_overrides_from_clickhouse(inputs: QueryInputs) 
     """Execute the query to delete persons from ClickHouse that have been squashed."""
     from django.conf import settings
 
-    activity.logger.info("Started to delete squashed persons from ClickHouse")
+    activity.logger.info("Starting to delete squashed persons from ClickHouse")
 
     if inputs.dry_run is True:
         activity.logger.info("This is a DRY RUN so nothing will be deleted.")
