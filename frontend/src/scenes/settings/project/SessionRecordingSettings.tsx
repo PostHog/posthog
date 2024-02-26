@@ -2,10 +2,8 @@ import { LemonButton, LemonSelect, LemonSwitch, LemonTag, Link } from '@posthog/
 import { useActions, useValues } from 'kea'
 import { AuthorizedUrlList } from 'lib/components/AuthorizedUrlList/AuthorizedUrlList'
 import { AuthorizedUrlListType } from 'lib/components/AuthorizedUrlList/authorizedUrlListLogic'
-import { FlaggedFeature } from 'lib/components/FlaggedFeature'
 import { FlagSelector } from 'lib/components/FlagSelector'
 import { FEATURE_FLAGS, SESSION_REPLAY_MINIMUM_DURATION_OPTIONS } from 'lib/constants'
-import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { IconCancel } from 'lib/lemon-ui/icons'
 import { LemonLabel } from 'lib/lemon-ui/LemonLabel/LemonLabel'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
@@ -18,7 +16,6 @@ import { AvailableFeature } from '~/types'
 export function ReplayGeneral(): JSX.Element {
     const { updateCurrentTeam } = useActions(teamLogic)
     const { currentTeam } = useValues(teamLogic)
-    const hasCanvasRecording = useFeatureFlag('SESSION_REPLAY_CANVAS')
 
     return (
         <div className="space-y-4">
@@ -74,42 +71,37 @@ export function ReplayGeneral(): JSX.Element {
                     logs will be shown in the recording player to help you debug any issues.
                 </p>
             </div>
-            {hasCanvasRecording && (
-                <div className="space-y-2">
-                    <LemonSwitch
-                        data-attr="opt-in-capture-canvas-switch"
-                        onChange={(checked) => {
-                            updateCurrentTeam({
-                                session_replay_config: {
-                                    ...currentTeam?.session_replay_config,
-                                    record_canvas: checked,
-                                },
-                            })
-                        }}
-                        label={
-                            <div className="space-x-1">
-                                <LemonTag type="success">New</LemonTag>
-                                <LemonLabel>Capture canvas elements</LemonLabel>
-                            </div>
-                        }
-                        bordered
-                        checked={
-                            currentTeam?.session_replay_config
-                                ? !!currentTeam?.session_replay_config?.record_canvas
-                                : false
-                        }
-                    />
-                    <p>
-                        This setting controls if browser canvas elements will be captured as part of recordings.{' '}
-                        <b>
-                            <i>
-                                There is no way to mask canvas elements right now so please make sure they are free of
-                                PII.
-                            </i>
-                        </b>
-                    </p>
-                </div>
-            )}
+            <div className="space-y-2">
+                <LemonSwitch
+                    data-attr="opt-in-capture-canvas-switch"
+                    onChange={(checked) => {
+                        updateCurrentTeam({
+                            session_replay_config: {
+                                ...currentTeam?.session_replay_config,
+                                record_canvas: checked,
+                            },
+                        })
+                    }}
+                    label={
+                        <div className="space-x-1">
+                            <LemonTag type="success">New</LemonTag>
+                            <LemonLabel>Capture canvas elements</LemonLabel>
+                        </div>
+                    }
+                    bordered
+                    checked={
+                        currentTeam?.session_replay_config ? !!currentTeam?.session_replay_config?.record_canvas : false
+                    }
+                />
+                <p>
+                    This setting controls if browser canvas elements will be captured as part of recordings.{' '}
+                    <b>
+                        <i>
+                            There is no way to mask canvas elements right now so please make sure they are free of PII.
+                        </i>
+                    </b>
+                </p>
+            </div>
             <div className="space-y-2">
                 <NetworkCaptureSettings />
             </div>
@@ -139,64 +131,62 @@ function NetworkCaptureSettings(): JSX.Element {
                 This setting controls if performance and network information will be captured alongside recordings. The
                 network requests and timings will be shown in the recording player to help you debug any issues.
             </p>
-            <FlaggedFeature flag={FEATURE_FLAGS.NETWORK_PAYLOAD_CAPTURE} match={true}>
-                <h5>Network payloads</h5>
-                <div className="flex flex-row space-x-2">
-                    <LemonSwitch
-                        data-attr="opt-in-capture-network-headers-switch"
-                        onChange={(checked) => {
-                            updateCurrentTeam({
-                                session_recording_network_payload_capture_config: {
-                                    ...currentTeam?.session_recording_network_payload_capture_config,
-                                    recordHeaders: checked,
-                                },
-                            })
-                        }}
-                        label="Capture headers"
-                        bordered
-                        checked={
-                            currentTeam?.session_recording_opt_in
-                                ? !!currentTeam?.session_recording_network_payload_capture_config?.recordHeaders
-                                : false
-                        }
-                        disabledReason={
-                            !currentTeam?.session_recording_opt_in || !currentTeam?.capture_performance_opt_in
-                                ? 'session and network performance capture must be enabled'
-                                : undefined
-                        }
-                    />
-                    <LemonSwitch
-                        data-attr="opt-in-capture-network-body-switch"
-                        onChange={(checked) => {
-                            updateCurrentTeam({
-                                session_recording_network_payload_capture_config: {
-                                    ...currentTeam?.session_recording_network_payload_capture_config,
-                                    recordBody: checked,
-                                },
-                            })
-                        }}
-                        label="Capture body"
-                        bordered
-                        checked={
-                            currentTeam?.session_recording_opt_in
-                                ? !!currentTeam?.session_recording_network_payload_capture_config?.recordBody
-                                : false
-                        }
-                        disabledReason={
-                            !currentTeam?.session_recording_opt_in || !currentTeam?.capture_performance_opt_in
-                                ? 'session and network performance capture must be enabled'
-                                : undefined
-                        }
-                    />
-                </div>
-                <p>
-                    When network capture is enabled, we always captured network timings. Use these switches to choose
-                    whether to capture headers and payloads of requests.{' '}
-                    <Link to="https://posthog.com/docs/session-replay/network-recording" target="blank">
-                        Learn how to mask header and payload values in our docs
-                    </Link>
-                </p>
-            </FlaggedFeature>
+            <h5>Network payloads</h5>
+            <div className="flex flex-row space-x-2">
+                <LemonSwitch
+                    data-attr="opt-in-capture-network-headers-switch"
+                    onChange={(checked) => {
+                        updateCurrentTeam({
+                            session_recording_network_payload_capture_config: {
+                                ...currentTeam?.session_recording_network_payload_capture_config,
+                                recordHeaders: checked,
+                            },
+                        })
+                    }}
+                    label="Capture headers"
+                    bordered
+                    checked={
+                        currentTeam?.session_recording_opt_in
+                            ? !!currentTeam?.session_recording_network_payload_capture_config?.recordHeaders
+                            : false
+                    }
+                    disabledReason={
+                        !currentTeam?.session_recording_opt_in || !currentTeam?.capture_performance_opt_in
+                            ? 'session and network performance capture must be enabled'
+                            : undefined
+                    }
+                />
+                <LemonSwitch
+                    data-attr="opt-in-capture-network-body-switch"
+                    onChange={(checked) => {
+                        updateCurrentTeam({
+                            session_recording_network_payload_capture_config: {
+                                ...currentTeam?.session_recording_network_payload_capture_config,
+                                recordBody: checked,
+                            },
+                        })
+                    }}
+                    label="Capture body"
+                    bordered
+                    checked={
+                        currentTeam?.session_recording_opt_in
+                            ? !!currentTeam?.session_recording_network_payload_capture_config?.recordBody
+                            : false
+                    }
+                    disabledReason={
+                        !currentTeam?.session_recording_opt_in || !currentTeam?.capture_performance_opt_in
+                            ? 'session and network performance capture must be enabled'
+                            : undefined
+                    }
+                />
+            </div>
+            <p>
+                When network capture is enabled, we always captured network timings. Use these switches to choose
+                whether to capture headers and payloads of requests.{' '}
+                <Link to="https://posthog.com/docs/session-replay/network-recording" target="blank">
+                    Learn how to mask header and payload values in our docs
+                </Link>
+            </p>
         </>
     )
 }

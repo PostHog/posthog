@@ -16,10 +16,13 @@ from drf_spectacular.utils import extend_schema
 from loginas.utils import is_impersonated_session
 from rest_framework import exceptions, request, serializers, viewsets
 from rest_framework.decorators import action
+from rest_framework.renderers import JSONRenderer
 from rest_framework.response import Response
+from rest_framework.utils.encoders import JSONEncoder
 
 from posthog.api.person import MinimalPersonSerializer
 from posthog.api.routing import TeamAndOrgViewSetMixin
+from posthog.api.utils import safe_clickhouse_string
 from posthog.auth import SharingAccessTokenAuthentication
 from posthog.cloud_utils import is_cloud
 from posthog.constants import SESSION_RECORDINGS_FILTER_IDS
@@ -58,6 +61,26 @@ SNAPSHOT_SOURCE_REQUESTED = Counter(
     "When calling the API and providing a concrete snapshot type to load.",
     labelnames=["source"],
 )
+
+
+class SurrogatePairSafeJSONEncoder(JSONEncoder):
+    def encode(self, o):
+        return safe_clickhouse_string(super().encode(o), with_counter=False)
+
+
+class SurrogatePairSafeJSONRenderer(JSONRenderer):
+    """
+    Blob snapshots are compressed data which we pass through from blob storage.
+    Realtime snapshot API returns "bare" JSON from Redis.
+    We can be sure that the "bare" data could contain surrogate pairs
+    from the browser's console logs.
+
+    This JSON renderer ensures that the stringified JSON does not have any unescaped surrogate pairs.
+
+    Because it has to override the encoder, it can't use orjson.
+    """
+
+    encoder_class = SurrogatePairSafeJSONEncoder
 
 
 # context manager for gathering a sequence of server timings
@@ -273,7 +296,7 @@ class SessionRecordingViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
 
         return Response({"success": True})
 
-    @action(methods=["GET"], detail=True)
+    @action(methods=["GET"], detail=True, renderer_classes=[SurrogatePairSafeJSONRenderer])
     def snapshots(self, request: request.Request, **kwargs):
         """
         Snapshots can be loaded from multiple places:
@@ -342,7 +365,10 @@ class SessionRecordingViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                 for full_key in blob_keys:
                     # Keys are like 1619712000-1619712060
                     blob_key = full_key.replace(blob_prefix.rstrip("/") + "/", "")
-                    time_range = [datetime.fromtimestamp(int(x) / 1000, tz=timezone.utc) for x in blob_key.split("-")]
+                    blob_key_base = blob_key.split(".")[0]  # Remove the extension if it exists
+                    time_range = [
+                        datetime.fromtimestamp(int(x) / 1000, tz=timezone.utc) for x in blob_key_base.split("-")
+                    ]
 
                     sources.append(
                         {
@@ -378,7 +404,19 @@ class SessionRecordingViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             response_data["sources"] = sources
 
         elif source == "realtime":
-            snapshots = get_realtime_snapshots(team_id=self.team.pk, session_id=str(recording.session_id)) or []
+            if request.GET.get("version", None) == "3" and settings.RECORDINGS_INGESTER_URL:
+                with requests.get(
+                    url=f"{settings.RECORDINGS_INGESTER_URL}/api/projects/{self.team.pk}/session_recordings/{str(recording.session_id)}/snapshots",
+                    stream=True,
+                ) as r:
+                    if r.status_code == 404:
+                        return Response({"snapshots": []})
+
+                    response = HttpResponse(content=r.raw, content_type="application/json")
+                    response["Content-Disposition"] = "inline"
+                    return response
+            else:
+                snapshots = get_realtime_snapshots(team_id=self.team.pk, session_id=str(recording.session_id)) or []
 
             event_properties["source"] = "realtime"
             event_properties["snapshots_length"] = len(snapshots)
