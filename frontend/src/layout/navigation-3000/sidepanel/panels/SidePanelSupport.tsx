@@ -69,20 +69,27 @@ const Section = ({ title, children }: { title: string; children: React.ReactNode
 const SupportFormBlock = ({ onCancel }: { onCancel: () => void }): JSX.Element => {
     return (
         <Section title="Email an engineer">
-            <div className="grid grid-cols-2 border [&_>*]:px-2 [&_>*]:py-0.5 mb-4">
-                <div className="col-span-full flex justify-between border-b">
-                    <div>Avg support response times</div>
+            <div className="grid grid-cols-2 border rounded [&_>*]:px-2 [&_>*]:py-0.5 mb-4 bg-bg-light">
+                <div className="col-span-full flex justify-between border-b bg-bg-white py-1">
+                    <div>
+                        <strong>Avg support response times</strong>
+                    </div>
                     <div>
                         <Link to="#">Explore options</Link>
                     </div>
                 </div>
                 <div>Free</div>
                 <div className="">Community support only</div>
+
                 <div className="font-bold">
                     Pay per use <span className="font-normal opacity-60 text-sm">(your plan)</span>
                 </div>
-                <div className="font-bold">12-24 hours</div>
+                <div className="font-bold">2-3 days</div>
+
                 <div>Teams plan</div>
+                <div>4-6 hours</div>
+
+                <div>Enterprise</div>
                 <div>4-6 hours</div>
             </div>
             <SupportForm />
