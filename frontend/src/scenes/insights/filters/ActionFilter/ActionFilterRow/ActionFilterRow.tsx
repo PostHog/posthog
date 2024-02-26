@@ -481,7 +481,11 @@ export function ActionFilterRow({
                         onChange={(properties) => updateFilterProperty({ properties, index })}
                         showNestedArrow={showNestedArrow}
                         disablePopover={!propertyFiltersPopover}
-                        taxonomicGroupTypes={propertiesTaxonomicGroupTypes}
+                        taxonomicGroupTypes={
+                            filter.type == TaxonomicFilterGroupType.DataWarehouse
+                                ? [TaxonomicFilterGroupType.DataWarehouseProperties]
+                                : propertiesTaxonomicGroupTypes
+                        }
                         eventNames={
                             filter.type === TaxonomicFilterGroupType.Events && filter.id
                                 ? [String(filter.id)]

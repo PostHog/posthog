@@ -180,21 +180,36 @@ export const entityFilterLogic = kea<entityFilterLogicType>([
         },
         updateFilter: async ({ type, index, name, id, custom_name, id_field, timestamp_field, table_name }) => {
             actions.setFilters(
-                values.localFilters.map((filter, i) =>
-                    i === index
-                        ? {
-                              ...filter,
-                              id: typeof id === 'undefined' ? filter.id : id,
-                              name: typeof name === 'undefined' ? filter.name : name,
-                              type: typeof type === 'undefined' ? filter.type : type,
-                              custom_name: typeof custom_name === 'undefined' ? filter.custom_name : custom_name,
-                              id_field: typeof id_field === 'undefined' ? filter.id_field : id_field,
-                              timestamp_field:
-                                  typeof timestamp_field === 'undefined' ? filter.timestamp_field : timestamp_field,
-                              table_name: typeof table_name === 'undefined' ? filter.table_name : table_name,
-                          }
-                        : filter
-                )
+                values.localFilters.map((filter, i) => {
+                    if (i === index) {
+                        if (type === EntityTypes.DATA_WAREHOUSE) {
+                            return {
+                                ...filter,
+                                id: typeof id === 'undefined' ? filter.id : id,
+                                name: typeof name === 'undefined' ? filter.name : name,
+                                type: typeof type === 'undefined' ? filter.type : type,
+                                custom_name: typeof custom_name === 'undefined' ? filter.custom_name : custom_name,
+                                id_field: typeof id_field === 'undefined' ? filter.id_field : id_field,
+                                timestamp_field:
+                                    typeof timestamp_field === 'undefined' ? filter.timestamp_field : timestamp_field,
+                                table_name: typeof table_name === 'undefined' ? filter.table_name : table_name,
+                            }
+                        } else {
+                            delete filter.id_field
+                            delete filter.timestamp_field
+                            delete filter.table_name
+                            return {
+                                ...filter,
+                                id: typeof id === 'undefined' ? filter.id : id,
+                                name: typeof name === 'undefined' ? filter.name : name,
+                                type: typeof type === 'undefined' ? filter.type : type,
+                                custom_name: typeof custom_name === 'undefined' ? filter.custom_name : custom_name,
+                            }
+                        }
+                    }
+
+                    return filter
+                })
             )
             !props.singleMode && actions.selectFilter(null)
         },
