@@ -256,8 +256,13 @@ export const billingLogic = kea<billingLogicType>([
                         )}% of your ${
                             productApproachingLimit.usage_key && productApproachingLimit.usage_key.toLowerCase()
                         } allocation.`,
+                        dismissKey: 'usage-limit-approaching',
                     }
                 }
+
+                lemonBannerLogic({ dismissKey: 'usage-limit-approaching' }).mount()
+                lemonBannerLogic({ dismissKey: 'usage-limit-approaching' }).actions.resetDismissKey()
+                lemonBannerLogic({ dismissKey: 'usage-limit-approaching' }).unmount()
             },
         ],
     }),
