@@ -241,7 +241,7 @@ def get_from_insights_api(exported_asset, limit, resource) -> Generator[Any, Non
         next_url = data.get("next")
 
 
-def _export_to_dict(exported_asset: ExportedAsset, limit: int) -> tuple[list, list[str]]:
+def _export_to_dict(exported_asset: ExportedAsset, limit: int) -> Any:
     resource = exported_asset.export_context
 
     columns: List[str] = resource.get("columns", [])
@@ -255,11 +255,6 @@ def _export_to_dict(exported_asset: ExportedAsset, limit: int) -> tuple[list, li
         returned_rows = get_from_insights_api(exported_asset, limit, resource)
 
     all_csv_rows = list(returned_rows)
-    return all_csv_rows, columns
-
-
-def _export_to_csv(exported_asset: ExportedAsset, limit: int) -> None:
-    all_csv_rows, columns = _export_to_dict(exported_asset, limit)
     renderer = OrderedCsvRenderer()
     render_context = {}
     if columns:
@@ -273,6 +268,12 @@ def _export_to_csv(exported_asset: ExportedAsset, limit: int) -> None:
             # If values are serialised then keep the order of the keys, else allow it to be unordered
             renderer.header = all_csv_rows[0].keys()
 
+    return renderer, all_csv_rows, render_context
+
+
+def _export_to_csv(exported_asset: ExportedAsset, limit: int) -> None:
+    renderer, all_csv_rows, render_context = _export_to_dict(exported_asset, limit)
+
     rendered_csv_content = renderer.render(all_csv_rows, renderer_context=render_context)
     save_content(exported_asset, rendered_csv_content)
 
@@ -283,16 +284,12 @@ def _export_to_excel(exported_asset: ExportedAsset, limit: int) -> None:
     workbook = xlsxwriter.Workbook(output, {"in_memory": True})
     worksheet = workbook.add_worksheet()
 
-    all_csv_rows, _columns = _export_to_dict(exported_asset, limit)
+    renderer, all_csv_rows, render_context = _export_to_dict(exported_asset, limit)
 
-    if len(all_csv_rows):
-        is_any_col_list_or_dict = [x for x in all_csv_rows[0].values() if isinstance(x, dict) or isinstance(x, list)]
-        if not is_any_col_list_or_dict:
-            for col_num, key in enumerate(all_csv_rows[0].keys()):
-                worksheet.write(0, col_num, key)
-
-    for row_num, row_data in enumerate(all_csv_rows, start=1):
-        for col_num, value in enumerate(row_data.values()):
+    for row_num, row_data in enumerate(renderer.tablize(all_csv_rows, header=render_context.get("header"))):
+        for col_num, value in enumerate(row_data):
+            if not isinstance(value, (str, int, float, bool)):
+                value = str(value)
             worksheet.write(row_num, col_num, value)
 
     workbook.close()

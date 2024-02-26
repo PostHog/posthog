@@ -239,6 +239,10 @@ export function InsightMeta({
                                         export_format: ExporterFormat.CSV,
                                         export_context: exporterResourceParams,
                                     },
+                                    {
+                                        export_format: ExporterFormat.EXCEL,
+                                        export_context: exporterResourceParams,
+                                    },
                                 ]}
                             />
                         </>

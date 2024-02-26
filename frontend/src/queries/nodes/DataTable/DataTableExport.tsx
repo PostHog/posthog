@@ -23,7 +23,11 @@ import { dataTableLogic, DataTableRow } from './dataTableLogic'
 
 export const EXPORT_MAX_LIMIT = 10000
 
-export async function startDownload(query: DataTableNode, onlySelectedColumns: boolean): Promise<void> {
+export async function startDownload(
+    query: DataTableNode,
+    onlySelectedColumns: boolean,
+    format: ExporterFormat = ExporterFormat.CSV
+): Promise<void> {
     const exportContext = isPersonsNode(query.source)
         ? { path: getPersonsEndpoint(query.source) }
         : { source: query.source }
@@ -49,7 +53,7 @@ export async function startDownload(query: DataTableNode, onlySelectedColumns: b
         }
     }
     await triggerExport({
-        export_format: ExporterFormat.CSV,
+        export_format: format,
         export_context: exportContext,
     })
 }
@@ -221,7 +225,16 @@ export function DataTableExport({ query }: DataTableExportProps): JSX.Element | 
                                       actor={isPersonsNode(query.source) ? 'persons' : 'events'}
                                       limit={EXPORT_MAX_LIMIT}
                                   >
-                                      <LemonButton fullWidth>Export all columns</LemonButton>
+                                      <LemonButton fullWidth>Export all columns (CSV)</LemonButton>
+                                  </ExportWithConfirmation>,
+                                  <ExportWithConfirmation
+                                      key={0}
+                                      placement="topRight"
+                                      onConfirm={() => void startDownload(query, false, ExporterFormat.EXCEL)}
+                                      actor={isPersonsNode(query.source) ? 'persons' : 'events'}
+                                      limit={EXPORT_MAX_LIMIT}
+                                  >
+                                      <LemonButton fullWidth>Export all columns (XLS)</LemonButton>
                                   </ExportWithConfirmation>,
                               ]
                             : []
