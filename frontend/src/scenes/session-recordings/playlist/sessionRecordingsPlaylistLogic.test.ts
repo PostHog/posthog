@@ -426,9 +426,9 @@ describe('sessionRecordingsPlaylistLogic', () => {
                 await expectLogic(logic)
                     .toDispatchActions(['setAdvancedFilters'])
                     .toMatchValues({
-                        advancedFilters: {
+                        advancedFilters: expect.objectContaining({
                             actions: [{ id: '1', type: 'actions', order: 0, name: 'View Recording' }],
-                        },
+                        }),
                         filters: {
                             actions: [{ id: '1', type: 'actions', order: 0, name: 'View Recording' }],
                             session_recording_duration: defaultRecordingDurationFilter,
@@ -452,9 +452,9 @@ describe('sessionRecordingsPlaylistLogic', () => {
                 await expectLogic(logic)
                     .toDispatchActions(['setAdvancedFilters'])
                     .toMatchValues({
-                        advancedFilters: {
+                        advancedFilters: expect.objectContaining({
                             events: [{ id: '$autocapture', type: 'events', order: 0, name: '$autocapture' }],
-                        },
+                        }),
                     })
             })
 
