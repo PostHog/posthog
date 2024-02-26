@@ -45,7 +45,11 @@ class FunnelBase(ABC):
         self._extra_event_fields: List[ColumnName] = []
         self._extra_event_properties: List[PropertyName] = []
 
-        if self.context.actorsQuery and self.context.actorsQuery.includeRecordings:
+        if (
+            hasattr(self.context, "ActorsQuery")
+            and self.context.actorsQuery is not None
+            and self.context.actorsQuery.includeRecordings
+        ):
             self._extra_event_fields = ["uuid"]
             self._extra_event_properties = ["$session_id", "$window_id"]
 
@@ -627,7 +631,11 @@ class FunnelBase(ABC):
         return ast.And(exprs=conditions)
 
     def _get_funnel_person_step_events(self) -> List[ast.Expr]:
-        if self.context.actorsQuery and self.context.actorsQuery.includeRecordings:
+        if (
+            hasattr(self.context, "ActorsQuery")
+            and self.context.actorsQuery is not None
+            and self.context.actorsQuery.includeRecordings
+        ):
             step_num = self.context.actorsQuery.funnelStep
             # if self._filter.include_final_matching_events:
             if False:  # TODO: Implement with correlations
@@ -672,7 +680,11 @@ class FunnelBase(ABC):
         return [parse_expr(f"{statement} as final_matching_event")] if statement else []
 
     def _get_matching_events(self, max_steps: int) -> List[ast.Expr]:
-        if self.context.actorsQuery and self.context.actorsQuery.includeRecordings:
+        if (
+            hasattr(self.context, "ActorsQuery")
+            and self.context.actorsQuery is not None
+            and self.context.actorsQuery.includeRecordings
+        ):
             events = []
             for i in range(0, max_steps):
                 event_fields = ["latest"] + self.extra_event_fields_and_properties
@@ -685,7 +697,11 @@ class FunnelBase(ABC):
 
     def _get_matching_event_arrays(self, max_steps: int) -> List[ast.Expr]:
         exprs: List[ast.Expr] = []
-        if self.context.actorsQuery and self.context.actorsQuery.includeRecordings:
+        if (
+            hasattr(self.context, "ActorsQuery")
+            and self.context.actorsQuery is not None
+            and self.context.actorsQuery.includeRecordings
+        ):
             for i in range(0, max_steps):
                 exprs.append(parse_expr(f"groupArray(10)(step_{i}_matching_event) as step_{i}_matching_events"))
             exprs.append(parse_expr(f"groupArray(10)(final_matching_event) as final_matching_events"))

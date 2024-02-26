@@ -40,7 +40,11 @@ class FunnelTrendsActors(FunnelTrends):
         self.entrancePeriodStart = entrancePeriodStart
 
     def _get_funnel_person_step_events(self) -> List[ast.Expr]:
-        if self.context.actorsQuery and self.context.actorsQuery.includeRecordings:
+        if (
+            hasattr(self.context, "ActorsQuery")
+            and self.context.actorsQuery is not None
+            and self.context.actorsQuery.includeRecordings
+        ):
             # Get the event that should be used to match the recording
             funnel_to_step = self.context.funnelsFilter.funnelToStep
             is_drop_off = self.dropOff

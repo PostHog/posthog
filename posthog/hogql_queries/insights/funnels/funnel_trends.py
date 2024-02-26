@@ -273,7 +273,11 @@ class FunnelTrends(FunnelBase):
         steps_per_person_query = self.funnel_order.get_step_counts_without_aggregation_query()
 
         event_select_clause: List[ast.Expr] = []
-        if self.context.actorsQuery and self.context.actorsQuery.includeRecordings:
+        if (
+            hasattr(self.context, "ActorsQuery")
+            and self.context.actorsQuery is not None
+            and self.context.actorsQuery.includeRecordings
+        ):
             event_select_clause = self._get_matching_event_arrays(max_steps)
 
         breakdown_clause = self._get_breakdown_prop_expr()
