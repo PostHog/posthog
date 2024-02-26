@@ -235,7 +235,7 @@ async def squash_events_partition(inputs: QueryInputs) -> None:
 
 @activity.defn
 async def delete_squashed_person_overrides_from_clickhouse(inputs: QueryInputs) -> None:
-    """Execute the query to delete persons from ClickHouse that have been squashed."""
+    """Execute the query to delete person overrides from ClickHouse that have been squashed."""
     from django.conf import settings
 
     activity.logger.info("Starting to delete squashed persons from ClickHouse")
