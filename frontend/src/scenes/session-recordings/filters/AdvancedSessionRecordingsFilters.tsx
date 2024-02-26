@@ -42,8 +42,9 @@ export const AdvancedSessionRecordingsFilters = ({
                 {
                     key: 'advanced-filters',
                     header: 'Advanced filters',
+                    className: 'p-0',
                     content: (
-                        <div className="space-y-2 bg-side p-3">
+                        <div className="space-y-2 bg-light p-3">
                             <LemonLabel info="Show recordings where all of the events or actions listed below happen.">
                                 Events and actions
                             </LemonLabel>

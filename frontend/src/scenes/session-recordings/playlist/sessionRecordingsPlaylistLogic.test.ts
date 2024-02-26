@@ -162,7 +162,7 @@ describe('sessionRecordingsPlaylistLogic', () => {
                 })
 
                 it('is read from the URL on the session recording page', async () => {
-                    router.actions.push('/replay', {}, { sessionRecordingId: 'abc' })
+                    router.actions.push('/replay', { sessionRecordingId: 'abc' })
                     expect(router.values.searchParams).toHaveProperty('sessionRecordingId', 'abc')
 
                     await expectLogic(logic)
@@ -266,7 +266,7 @@ describe('sessionRecordingsPlaylistLogic', () => {
 
             describe('set recording from hash param', () => {
                 it('loads the correct recording from the hash params', async () => {
-                    router.actions.push('/replay/recent', {}, { sessionRecordingId: 'abc' })
+                    router.actions.push('/replay/recent', { sessionRecordingId: 'abc' })
 
                     logic = sessionRecordingsPlaylistLogic({
                         key: 'hash-recording-tests',
@@ -415,7 +415,7 @@ describe('sessionRecordingsPlaylistLogic', () => {
             })
 
             it('reads sessionRecordingId from the URL on the person page', async () => {
-                router.actions.push('/person/123', {}, { sessionRecordingId: 'abc' })
+                router.actions.push('/person/123', { sessionRecordingId: 'abc' })
                 expect(router.values.searchParams).toHaveProperty('sessionRecordingId', 'abc')
 
                 await expectLogic(logic).toDispatchActions([logic.actionCreators.setSelectedRecordingId('abc')])

@@ -13,6 +13,7 @@ export interface LemonCollapsePanel<K extends React.Key> {
     key: K
     header: ReactNode
     content: ReactNode
+    className?: string
 }
 
 interface LemonCollapsePropsBase<K extends React.Key> {
@@ -91,9 +92,17 @@ interface LemonCollapsePanelProps {
     isExpanded: boolean
     size: LemonButtonProps['size']
     onChange: (isExpanded: boolean) => void
+    className?: string
 }
 
-function LemonCollapsePanel({ header, content, isExpanded, size, onChange }: LemonCollapsePanelProps): JSX.Element {
+function LemonCollapsePanel({
+    header,
+    content,
+    isExpanded,
+    size,
+    className,
+    onChange,
+}: LemonCollapsePanelProps): JSX.Element {
     const { height: contentHeight, ref: contentRef } = useResizeObserver({ box: 'border-box' })
 
     return (
@@ -120,7 +129,7 @@ function LemonCollapsePanel({ header, content, isExpanded, size, onChange }: Lem
                         }
                         aria-busy={status.endsWith('ing')}
                     >
-                        <div className="LemonCollapsePanel__content" ref={contentRef}>
+                        <div className={clsx('LemonCollapsePanel__content', className)} ref={contentRef}>
                             {content}
                         </div>
                     </div>
