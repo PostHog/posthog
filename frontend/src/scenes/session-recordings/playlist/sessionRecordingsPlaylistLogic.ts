@@ -361,13 +361,15 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
             },
         ],
         advancedFilters: [
-            props.advancedFilters ?? getDefaultFilters(props.personUUID),
+            props.advancedFilters ?? {},
             {
                 setAdvancedFilters: (state, { filters }) => ({
                     ...state,
                     ...filters,
                 }),
-                resetFilters: () => getDefaultFilters(props.personUUID),
+                resetFilters: () => {
+                    return {}
+                },
             },
         ],
         showFilters: [
@@ -683,6 +685,12 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
             if (!props.updateSearchParams) {
                 return
             }
+
+            const nulledSessionRecordingId = params.sessionRecordingId ?? null
+            if (nulledSessionRecordingId !== values.selectedRecordingId) {
+                actions.setSelectedRecordingId(nulledSessionRecordingId)
+            }
+
             if (params.simpleFilters || params.advancedFilters) {
                 if (params.simpleFilters && !equal(params.simpleFilters, values.simpleFilters)) {
                     actions.setSimpleFilters(params.simpleFilters)
