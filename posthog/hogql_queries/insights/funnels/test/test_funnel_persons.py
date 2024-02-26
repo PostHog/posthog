@@ -52,7 +52,11 @@ def get_actors(
         funnelTrendsEntrancePeriodStart=funnelTrendsEntrancePeriodStart,
         includeRecordings=includeRecordings,
     )
-    actors_query = ActorsQuery(source=funnel_actors_query, offset=offset)
+    actors_query = ActorsQuery(
+        source=funnel_actors_query,
+        offset=offset,
+        select=["id", "person", *(["matched_recordings"] if includeRecordings else [])],
+    )
     response = ActorsQueryRunner(query=actors_query, team=team).calculate()
     return response.results
 
@@ -538,8 +542,13 @@ class TestFunnelPersons(ClickhouseTestMixin, APIBaseTest):
         }
 
         results = get_actors(filters, self.team, funnelStep=1, includeRecordings=True)
-        self.assertEqual(results[0]["id"], p1.uuid)
-        self.assertEqual(results[0]["matched_recordings"], [])
+        # self.assertEqual(results[0]["id"], p1.uuid)
+        self.assertEqual(results[0][0], p1.uuid)
+        self.assertEqual(
+            # results[0]["matched_recordings"],
+            list(results[0][2]),
+            [],
+        )
 
         # Second event, with recording
         filters = {
@@ -556,9 +565,11 @@ class TestFunnelPersons(ClickhouseTestMixin, APIBaseTest):
         }
 
         results = get_actors(filters, self.team, funnelStep=2, includeRecordings=True)
-        self.assertEqual(results[0]["id"], p1.uuid)
+        # self.assertEqual(results[0]["id"], p1.uuid)
+        self.assertEqual(results[0][0], p1.uuid)
         self.assertEqual(
-            results[0]["matched_recordings"],
+            # results[0]["matched_recordings"],
+            list(results[0][2]),
             [
                 {
                     "session_id": "s2",
@@ -588,9 +599,11 @@ class TestFunnelPersons(ClickhouseTestMixin, APIBaseTest):
         }
 
         results = get_actors(filters, self.team, funnelStep=-3, includeRecordings=True)
-        self.assertEqual(results[0]["id"], p1.uuid)
+        # self.assertEqual(results[0]["id"], p1.uuid)
+        self.assertEqual(results[0][0], p1.uuid)
         self.assertEqual(
-            results[0]["matched_recordings"],
+            # results[0]["matched_recordings"],
+            list(results[0][2]),
             [
                 {
                     "session_id": "s2",

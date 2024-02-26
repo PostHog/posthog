@@ -40,18 +40,19 @@ class FunnelTrendsActors(FunnelTrends):
         self.entrancePeriodStart = entrancePeriodStart
 
     def _get_funnel_person_step_events(self) -> List[ast.Expr]:
-        # if self._filter.include_recordings:
-        #     # Get the event that should be used to match the recording
-        #     funnel_to_step = self._filter.funnel_to_step
-        #     is_drop_off = self._filter.drop_off
+        if self.context.actorsQuery and self.context.actorsQuery.includeRecordings:
+            # Get the event that should be used to match the recording
+            funnel_to_step = self.context.funnelsFilter.funnelToStep
+            is_drop_off = self.dropOff
 
-        #     if funnel_to_step is None or is_drop_off:
-        #         # If there is no funnel_to_step or if we are looking for drop off, we need to get the users final event
-        #         return ", final_matching_events as matching_events"
-        #     else:
-        #         # Otherwise, we return the event of the funnel_to_step
-        #         self.params.update({"matching_events_step_num": funnel_to_step})
-        #         return ", step_%(matching_events_step_num)s_matching_events as matching_events"
+            if funnel_to_step is None or is_drop_off:
+                # If there is no funnel_to_step or if we are looking for drop off, we need to get the users final event
+                return [ast.Alias(alias="matching_events", expr=ast.Field(chain=["final_matching_events"]))]
+            else:
+                # Otherwise, we return the event of the funnel_to_step
+                return [
+                    ast.Alias(alias="matching_events", expr=ast.Field(chain=[f"step_{funnel_to_step}_matching_events"]))
+                ]
         return []
 
     def actor_query(self) -> ast.SelectQuery:
