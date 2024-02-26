@@ -1,9 +1,11 @@
 import datetime
+import io
 from typing import Any, Dict, List, Optional, Tuple, Generator
 from urllib.parse import parse_qsl, quote, urlencode, urlparse, urlunparse
 
 import requests
 import structlog
+import xlsxwriter
 from django.http import QueryDict
 from sentry_sdk import capture_exception, push_scope
 from requests.exceptions import HTTPError
@@ -183,74 +185,85 @@ class UnexpectedEmptyJsonResponse(Exception):
     pass
 
 
-def _export_to_csv(exported_asset: ExportedAsset, limit: int) -> None:
+def get_from_insights_api(exported_asset, limit, resource) -> Generator[Any, None, None]:
+    path: str = resource["path"]
+    method: str = resource.get("method", "GET")
+    body = resource.get("body", None)
+    next_url = None
+    access_token = encode_jwt(
+        {"id": exported_asset.created_by_id},
+        datetime.timedelta(minutes=15),
+        PosthogJwtAudience.IMPERSONATED_USER,
+    )
+    total = 0
+    while total < CSV_EXPORT_LIMIT:
+        try:
+            response = make_api_call(access_token, body, limit, method, next_url, path)
+        except HTTPError as e:
+            if "Query size exceeded" not in e.response.text:
+                raise e
+
+            if limit <= CSV_EXPORT_BREAKDOWN_LIMIT_LOW:
+                break  # Already tried with the lowest limit, so return what we have
+
+            # If error message contains "Query size exceeded", we try again with a lower limit
+            limit = int(limit / 2)
+            logger.warning(
+                "csv_exporter.query_size_exceeded",
+                exc=e,
+                exc_info=True,
+                response_text=e.response.text,
+                limit=limit,
+            )
+            continue
+
+        # Figure out how to handle funnel polling....
+        data = response.json()
+
+        if data is None:
+            unexpected_empty_json_response = UnexpectedEmptyJsonResponse("JSON is None when calling API for data")
+            logger.error(
+                "csv_exporter.json_was_none",
+                exc=unexpected_empty_json_response,
+                exc_info=True,
+                response_text=response.text,
+            )
+
+            raise unexpected_empty_json_response
+
+        csv_rows = list(_convert_response_to_csv_data(data))
+        total += len(csv_rows)
+        yield from csv_rows
+
+        if not data.get("next") or not csv_rows:
+            break
+
+        next_url = data.get("next")
+
+
+def _export_to_dict(exported_asset: ExportedAsset, limit: int) -> tuple[list, list[str]]:
     resource = exported_asset.export_context
 
     columns: List[str] = resource.get("columns", [])
-    all_csv_rows: List[Any] = []
+    returned_rows: Generator[Any, None, None]
 
     if resource.get("source"):
         query = resource.get("source")
         query_response = process_query(team=exported_asset.team, query_json=query, limit_context=LimitContext.EXPORT)
-        all_csv_rows = list(_convert_response_to_csv_data(query_response))
-
+        returned_rows = _convert_response_to_csv_data(query_response)
     else:
-        path: str = resource["path"]
-        method: str = resource.get("method", "GET")
-        body = resource.get("body", None)
-        next_url = None
-        access_token = encode_jwt(
-            {"id": exported_asset.created_by_id},
-            datetime.timedelta(minutes=15),
-            PosthogJwtAudience.IMPERSONATED_USER,
-        )
+        returned_rows = get_from_insights_api(exported_asset, limit, resource)
 
-        while len(all_csv_rows) < CSV_EXPORT_LIMIT:
-            try:
-                response = make_api_call(access_token, body, limit, method, next_url, path)
-            except HTTPError as e:
-                if "Query size exceeded" not in e.response.text:
-                    raise e
+    all_csv_rows = list(returned_rows)
+    return all_csv_rows, columns
 
-                if limit <= CSV_EXPORT_BREAKDOWN_LIMIT_LOW:
-                    break  # Already tried with the lowest limit, so return what we have
 
-                # If error message contains "Query size exceeded", we try again with a lower limit
-                limit = int(limit / 2)
-                logger.warning(
-                    "csv_exporter.query_size_exceeded",
-                    exc=e,
-                    exc_info=True,
-                    response_text=e.response.text,
-                    limit=limit,
-                )
-                continue
-
-            # Figure out how to handle funnel polling....
-            data = response.json()
-
-            if data is None:
-                unexpected_empty_json_response = UnexpectedEmptyJsonResponse("JSON is None when calling API for data")
-                logger.error(
-                    "csv_exporter.json_was_none",
-                    exc=unexpected_empty_json_response,
-                    exc_info=True,
-                    response_text=response.text,
-                )
-
-                raise unexpected_empty_json_response
-
-            csv_rows = list(_convert_response_to_csv_data(data))
-
-            all_csv_rows = all_csv_rows + csv_rows
-
-            if not data.get("next") or not csv_rows:
-                break
-
-            next_url = data.get("next")
-
+def _export_to_csv(exported_asset: ExportedAsset, limit: int) -> None:
+    all_csv_rows, columns = _export_to_dict(exported_asset, limit)
     renderer = OrderedCsvRenderer()
     render_context = {}
+    if columns:
+        render_context["header"] = columns
 
     if len(all_csv_rows):
         # NOTE: This is not ideal as some rows _could_ have different keys
@@ -260,14 +273,30 @@ def _export_to_csv(exported_asset: ExportedAsset, limit: int) -> None:
             # If values are serialised then keep the order of the keys, else allow it to be unordered
             renderer.header = all_csv_rows[0].keys()
 
-        if columns:
-            render_context["header"] = columns
-    else:
-        # Fallback if empty to produce any CSV at all to distinguish from a failed export
-        all_csv_rows = [{}]
-
     rendered_csv_content = renderer.render(all_csv_rows, renderer_context=render_context)
     save_content(exported_asset, rendered_csv_content)
+
+
+def _export_to_excel(exported_asset: ExportedAsset, limit: int) -> None:
+    output = io.BytesIO()
+
+    workbook = xlsxwriter.Workbook(output, {"in_memory": True})
+    worksheet = workbook.add_worksheet()
+
+    all_csv_rows, _columns = _export_to_dict(exported_asset, limit)
+
+    if len(all_csv_rows):
+        is_any_col_list_or_dict = [x for x in all_csv_rows[0].values() if isinstance(x, dict) or isinstance(x, list)]
+        if not is_any_col_list_or_dict:
+            for col_num, key in enumerate(all_csv_rows[0].keys()):
+                worksheet.write(0, col_num, key)
+
+    for row_num, row_data in enumerate(all_csv_rows, start=1):
+        for col_num, value in enumerate(row_data.values()):
+            worksheet.write(row_num, col_num, value)
+
+    workbook.close()
+    save_content(exported_asset, output.getvalue())
 
 
 def get_limit_param_key(path: str) -> str:
@@ -300,18 +329,22 @@ def make_api_call(
     return response
 
 
-def export_csv(exported_asset: ExportedAsset, limit: Optional[int] = None) -> None:
+def export_tabular(exported_asset: ExportedAsset, limit: Optional[int] = None) -> None:
     if not limit:
         limit = CSV_EXPORT_BREAKDOWN_LIMIT_INITIAL
 
     try:
-        if exported_asset.export_format != "text/csv":
+        if exported_asset.export_format == ExportedAsset.ExportFormat.CSV:
+            with EXPORT_TIMER.labels(type="csv").time():
+                _export_to_csv(exported_asset, limit)
+            EXPORT_SUCCEEDED_COUNTER.labels(type="csv").inc()
+        elif exported_asset.export_format == ExportedAsset.ExportFormat.EXCEL:
+            with EXPORT_TIMER.labels(type="xlsx").time():
+                _export_to_excel(exported_asset, limit)
+            EXPORT_SUCCEEDED_COUNTER.labels(type="xlsx").inc()
+        else:
             EXPORT_ASSET_UNKNOWN_COUNTER.labels(type="csv").inc()
             raise NotImplementedError(f"Export to format {exported_asset.export_format} is not supported")
-
-        with EXPORT_TIMER.labels(type="csv").time():
-            _export_to_csv(exported_asset, limit)
-        EXPORT_SUCCEEDED_COUNTER.labels(type="csv").inc()
     except Exception as e:
         if exported_asset:
             team_id = str(exported_asset.team.id)

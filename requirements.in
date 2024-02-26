@@ -99,3 +99,4 @@ openai==1.10.0
 nh3==0.2.14
 hogql-parser==1.0.3
 urllib3[secure,socks]==1.26.18
+XlsxWriter==3.2.0

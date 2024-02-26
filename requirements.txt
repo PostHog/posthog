@@ -275,9 +275,7 @@ googleapis-common-protos==1.60.0
     #   google-api-core
     #   grpcio-status
 greenlet==3.0.3
-    # via
-    #   gevent
-    #   sqlalchemy
+    # via gevent
 grpcio==1.57.0
     # via
     #   google-api-core
@@ -707,6 +705,8 @@ wrapt==1.15.0
     # via aiobotocore
 wsproto==1.1.0
     # via trio-websocket
+xlsxwriter==3.2.0
+    # via -r requirements.in
 xmlsec==1.3.13
     # via python3-saml
 yarl==1.7.2

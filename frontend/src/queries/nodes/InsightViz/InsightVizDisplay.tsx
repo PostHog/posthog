@@ -185,6 +185,10 @@ export function InsightVizDisplay({
                                             export_format: ExporterFormat.CSV,
                                             export_context: exportContext,
                                         },
+                                        {
+                                            export_format: ExporterFormat.EXCEL,
+                                            export_context: exportContext,
+                                        },
                                     ]}
                                 />
                             </Tooltip>

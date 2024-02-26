@@ -3234,6 +3234,7 @@ export enum ExporterFormat {
     CSV = 'text/csv',
     PDF = 'application/pdf',
     JSON = 'application/json',
+    EXCEL = 'text/xlsx',
 }
 
 /** Exporting directly from the browser to a file */

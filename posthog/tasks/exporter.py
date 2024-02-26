@@ -55,9 +55,8 @@ def export_asset(exported_asset_id: int, limit: Optional[int] = None) -> None:
         pk=exported_asset_id
     )
 
-    is_csv_export = exported_asset.export_format == ExportedAsset.ExportFormat.CSV
-    if is_csv_export:
-        csv_exporter.export_csv(exported_asset, limit=limit)
+    if exported_asset.export_format in (ExportedAsset.ExportFormat.CSV, ExportedAsset.ExportFormat.EXCEL):
+        csv_exporter.export_tabular(exported_asset, limit=limit)
         EXPORT_QUEUED_COUNTER.labels(type="csv").inc()
     else:
         image_exporter.export_image(exported_asset)

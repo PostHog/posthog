@@ -44,8 +44,9 @@ class ExportedAsset(models.Model):
         PNG = "image/png", "image/png"
         PDF = "application/pdf", "application/pdf"
         CSV = "text/csv", "text/csv"
+        EXCEL = "text/xlsx", "text/xlsx"
 
-    SUPPORTED_FORMATS = [ExportFormat.PNG, ExportFormat.CSV]
+    SUPPORTED_FORMATS = [ExportFormat.PNG, ExportFormat.CSV, ExportFormat.EXCEL]
 
     # Relations
     team: models.ForeignKey = models.ForeignKey("Team", on_delete=models.CASCADE)

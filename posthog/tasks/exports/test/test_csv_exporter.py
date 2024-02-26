@@ -120,7 +120,7 @@ class TestCSVExporter(APIBaseTest):
     def test_csv_exporter_writes_to_asset_when_object_storage_is_disabled(self) -> None:
         exported_asset = self._create_asset()
         with self.settings(OBJECT_STORAGE_ENABLED=False):
-            csv_exporter.export_csv(exported_asset)
+            csv_exporter.export_tabular(exported_asset)
 
             assert (
                 exported_asset.content
@@ -134,7 +134,7 @@ class TestCSVExporter(APIBaseTest):
         mocked_uuidt.return_value = "a-guid"
 
         with self.settings(OBJECT_STORAGE_ENABLED=True, OBJECT_STORAGE_EXPORTS_FOLDER="Test-Exports"):
-            csv_exporter.export_csv(exported_asset)
+            csv_exporter.export_tabular(exported_asset)
 
             assert (
                 exported_asset.content_location
@@ -159,7 +159,7 @@ class TestCSVExporter(APIBaseTest):
         mocked_object_storage_write.side_effect = ObjectStorageError("mock write failed")
 
         with self.settings(OBJECT_STORAGE_ENABLED=True, OBJECT_STORAGE_EXPORTS_FOLDER="Test-Exports"):
-            csv_exporter.export_csv(exported_asset)
+            csv_exporter.export_tabular(exported_asset)
 
             assert exported_asset.content_location is None
 
@@ -178,7 +178,7 @@ class TestCSVExporter(APIBaseTest):
         mocked_object_storage_write.side_effect = ObjectStorageError("mock write failed")
 
         with self.settings(OBJECT_STORAGE_ENABLED=True, OBJECT_STORAGE_EXPORTS_FOLDER="Test-Exports"):
-            csv_exporter.export_csv(exported_asset)
+            csv_exporter.export_tabular(exported_asset)
 
             assert exported_asset.content_location is None
 
@@ -196,7 +196,7 @@ class TestCSVExporter(APIBaseTest):
         mocked_object_storage_write.side_effect = ObjectStorageError("mock write failed")
 
         with self.settings(OBJECT_STORAGE_ENABLED=True, OBJECT_STORAGE_EXPORTS_FOLDER="Test-Exports"):
-            csv_exporter.export_csv(exported_asset)
+            csv_exporter.export_tabular(exported_asset)
 
             assert exported_asset.content_location is None
 
@@ -213,7 +213,7 @@ class TestCSVExporter(APIBaseTest):
         mocked_object_storage_write.side_effect = ObjectStorageError("mock write failed")
 
         with self.settings(OBJECT_STORAGE_ENABLED=True, OBJECT_STORAGE_EXPORTS_FOLDER="Test-Exports"):
-            csv_exporter.export_csv(exported_asset)
+            csv_exporter.export_tabular(exported_asset)
 
             assert exported_asset.content_location is None
 
@@ -229,7 +229,7 @@ class TestCSVExporter(APIBaseTest):
         mocked_object_storage_write.side_effect = ObjectStorageError("mock write failed")
 
         with self.settings(OBJECT_STORAGE_ENABLED=True, OBJECT_STORAGE_EXPORTS_FOLDER="Test-Exports"):
-            csv_exporter.export_csv(exported_asset)
+            csv_exporter.export_tabular(exported_asset)
 
             assert exported_asset.content_location is None
 
@@ -246,7 +246,7 @@ class TestCSVExporter(APIBaseTest):
         mocked_object_storage_write.side_effect = ObjectStorageError("mock write failed")
 
         with self.settings(OBJECT_STORAGE_ENABLED=True, OBJECT_STORAGE_EXPORTS_FOLDER="Test-Exports"):
-            csv_exporter.export_csv(exported_asset)
+            csv_exporter.export_tabular(exported_asset)
 
             assert exported_asset.content_location is None
 
@@ -268,7 +268,7 @@ class TestCSVExporter(APIBaseTest):
         mocked_request.return_value = mock_response
 
         with self.settings(OBJECT_STORAGE_ENABLED=True, OBJECT_STORAGE_EXPORTS_FOLDER="Test-Exports"):
-            csv_exporter.export_csv(exported_asset)
+            csv_exporter.export_tabular(exported_asset)
 
         mocked_request.assert_called_with(
             method="get",
@@ -289,7 +289,7 @@ class TestCSVExporter(APIBaseTest):
             patched_request.return_value = mock_response
 
             with pytest.raises(Exception, match="HTTP 403 Forbidden"):
-                csv_exporter.export_csv(exported_asset)
+                csv_exporter.export_tabular(exported_asset)
 
     @patch("posthog.tasks.exports.csv_exporter.logger")
     def test_failing_export_api_is_reported_query_size_exceeded(self, _mock_logger: MagicMock) -> None:
@@ -300,7 +300,7 @@ class TestCSVExporter(APIBaseTest):
             mock_error.response.text = "Query size exceeded"
             patched_make_api_call.side_effect = mock_error
 
-            csv_exporter.export_csv(exported_asset)
+            csv_exporter.export_tabular(exported_asset)
 
             assert patched_make_api_call.call_count == 4
             patched_make_api_call.assert_called_with(mock.ANY, mock.ANY, 64, mock.ANY, mock.ANY, mock.ANY)
@@ -335,7 +335,7 @@ class TestCSVExporter(APIBaseTest):
         patched_api_call.return_value = mock_response
 
         with pytest.raises(UnexpectedEmptyJsonResponse, match="JSON is None when calling API for data"):
-            csv_exporter.export_csv(self._create_asset())
+            csv_exporter.export_tabular(self._create_asset())
 
     @patch("posthog.hogql.constants.MAX_SELECT_RETURNED_ROWS", 10)
     @patch("posthog.hogql.constants.DEFAULT_RETURNED_ROWS", 5)
@@ -366,7 +366,7 @@ class TestCSVExporter(APIBaseTest):
         mocked_uuidt.return_value = "a-guid"
 
         with self.settings(OBJECT_STORAGE_ENABLED=True, OBJECT_STORAGE_EXPORTS_FOLDER="Test-Exports"):
-            csv_exporter.export_csv(exported_asset)
+            csv_exporter.export_tabular(exported_asset)
 
             assert (
                 exported_asset.content_location
@@ -410,7 +410,7 @@ class TestCSVExporter(APIBaseTest):
         mocked_uuidt.return_value = "a-guid"
 
         with self.settings(OBJECT_STORAGE_ENABLED=True, OBJECT_STORAGE_EXPORTS_FOLDER="Test-Exports"):
-            csv_exporter.export_csv(exported_asset)
+            csv_exporter.export_tabular(exported_asset)
             content = object_storage.read(exported_asset.content_location)
             lines = (content or "").split("\r\n")
             self.assertEqual(len(lines), 12)
