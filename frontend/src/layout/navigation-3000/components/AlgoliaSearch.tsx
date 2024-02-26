@@ -184,7 +184,7 @@ const Search = (): JSX.Element => {
             }
 
             case 'Escape': {
-                setActiveOption(undefined)
+                setSearchOpen(false)
                 break
             }
             case 'ArrowDown': {
@@ -218,10 +218,6 @@ const Search = (): JSX.Element => {
         setSearchOpen(!!searchValue)
         setActiveOption(0)
     }, [searchValue])
-
-    useEffect(() => {
-        setSearchOpen(!!searchValue && activeOption !== undefined && activeOption >= -1)
-    }, [activeOption])
 
     useEffect(() => {
         setActiveOption(0)
