@@ -16,7 +16,7 @@ const searchClient = algoliasearch('7VNQB5W0TX', '37f41fd37095bc85af76ed4edc85eb
 const ResultTooltip = ({ title, excerpt }: { title: string; excerpt: string }): JSX.Element => {
     return (
         <div className="p-1">
-            <h3 className="m-0 mb-2">{title}</h3>
+            <h3 className="m-0 mb-2 text-white">{title}</h3>
             <LemonMarkdown>{excerpt}</LemonMarkdown>
         </div>
     )
