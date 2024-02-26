@@ -92,8 +92,7 @@ def get_breakdown_expr(
 
 def normalize_url_breakdown(breakdown_value, breakdown_normalize_url: bool | None):
     if breakdown_normalize_url:
-        return (
-            f"if( empty(trim(TRAILING '/?#' from {breakdown_value})), '/', trim(TRAILING '/?#' from {breakdown_value}))"
-        )
+        regex = "[\\\\/?#]*$"
+        return f"if( empty( replaceRegexpOne({breakdown_value}, '{regex}', '') ), '/', replaceRegexpOne({breakdown_value}, '{regex}', ''))"
 
     return breakdown_value
