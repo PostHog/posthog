@@ -23,7 +23,12 @@ def get_funnel_order_class(funnelsFilter: FunnelsFilter):
 
 
 def get_funnel_actor_class(funnelsFilter: FunnelsFilter):
-    from posthog.hogql_queries.insights.funnels.funnel_persons import FunnelActors
+    from posthog.hogql_queries.insights.funnels import (
+        FunnelActors,
+        FunnelStrictActors,
+        FunnelUnorderedActors,
+        FunnelTrendsActors,
+    )
 
     # if filter.correlation_person_entity and EE_AVAILABLE:
     if False:
@@ -39,15 +44,12 @@ def get_funnel_actor_class(funnelsFilter: FunnelsFilter):
                 "Funnel Correlations is not available without an enterprise license and enterprise supported deployment"
             )
     elif funnelsFilter.funnelVizType == FunnelVizType.trends:
-        return FunnelActors
-        # return FunnelTrendsActors
+        return FunnelTrendsActors
     else:
         if funnelsFilter.funnelOrderType == StepOrderValue.unordered:
-            return FunnelActors
-            # return FunnelUnorderedActors
+            return FunnelUnorderedActors
         elif funnelsFilter.funnelOrderType == StepOrderValue.strict:
-            return FunnelActors
-            # return FunnelStrictActors
+            return FunnelStrictActors
         else:
             return FunnelActors
 
@@ -90,8 +92,7 @@ def get_breakdown_expr(
 
 def normalize_url_breakdown(breakdown_value, breakdown_normalize_url: bool | None):
     if breakdown_normalize_url:
-        return (
-            f"if( empty(trim(TRAILING '/?#' from {breakdown_value})), '/', trim(TRAILING '/?#' from {breakdown_value}))"
-        )
+        regex = "[\\\\/?#]*$"
+        return f"if( empty( replaceRegexpOne({breakdown_value}, '{regex}', '') ), '/', replaceRegexpOne({breakdown_value}, '{regex}', ''))"
 
     return breakdown_value

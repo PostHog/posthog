@@ -137,7 +137,7 @@ export function EventDefinitionsTable(): JSX.Element {
                         { dateRange: { date_from: '-24h' } }
                     )}
                 >
-                    Click here!
+                    Query with SQL
                 </Link>
             </LemonBanner>
 

@@ -28,7 +28,7 @@ function CloseAllTags({ elements }: { elements: ElementType[] }): JSX.Element {
                         }}
                     >
                         <pre
-                            className="whitespace-pre-wrap break-all p-0 m-0 rounded-none text-white text-sm"
+                            className="whitespace-pre-wrap break-all p-0 m-0 rounded-none text-default text-sm"
                             key={index}
                         >
                             {indent(elements.length - index - 2)}
@@ -146,12 +146,12 @@ export function HTMLElementsDisplay({
                     )}
                 </LemonBanner>
             )}
-            <div className="px-4 rounded bg-default">
+            <div className="px-4 rounded bg-bg-3000">
                 {parsedElements.length ? (
                     <>
                         {elementsToShowDepth ? (
                             <pre
-                                className="p-1 m-0 opacity-50 text-white text-sm cursor-pointer"
+                                className="p-1 m-0 opacity-50 text-default text-sm cursor-pointer"
                                 data-attr="elements-display-show-more-of-chain"
                                 onClick={showAdditionalElements}
                             >

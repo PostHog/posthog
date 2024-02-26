@@ -4,12 +4,10 @@ import { useActions, useValues } from 'kea'
 import { AuthorizedUrlList } from 'lib/components/AuthorizedUrlList/AuthorizedUrlList'
 import { AuthorizedUrlListType } from 'lib/components/AuthorizedUrlList/authorizedUrlListLogic'
 import { EventSelect } from 'lib/components/EventSelect/EventSelect'
-import { FlaggedFeature } from 'lib/components/FlaggedFeature'
 import { FlagSelector } from 'lib/components/FlagSelector'
 import { PropertySelect } from 'lib/components/PropertySelect/PropertySelect'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { FEATURE_FLAGS, SESSION_REPLAY_MINIMUM_DURATION_OPTIONS } from 'lib/constants'
-import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { IconCancel, IconSelectEvents } from 'lib/lemon-ui/icons'
 import { LemonLabel } from 'lib/lemon-ui/LemonLabel/LemonLabel'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
@@ -48,9 +46,8 @@ function LogCaptureSettings(): JSX.Element {
 function CanvasCaptureSettings(): JSX.Element | null {
     const { updateCurrentTeam } = useActions(teamLogic)
     const { currentTeam } = useValues(teamLogic)
-    const hasCanvasRecording = useFeatureFlag('SESSION_REPLAY_CANVAS')
 
-    return hasCanvasRecording ? (
+    return (
         <div>
             <h3>Canvas capture</h3>
             <p>
@@ -84,7 +81,7 @@ function CanvasCaptureSettings(): JSX.Element | null {
                 }
             />
         </div>
-    ) : null
+    )
 }
 
 function NetworkCaptureSettings(): JSX.Element {
@@ -110,65 +107,63 @@ function NetworkCaptureSettings(): JSX.Element {
                     !currentTeam?.session_recording_opt_in ? 'session recording must be enabled' : undefined
                 }
             />
-            <FlaggedFeature flag={FEATURE_FLAGS.NETWORK_PAYLOAD_CAPTURE} match={true}>
-                <div className="mt-4">
-                    <p>
-                        When network capture is enabled, we always capture network timings. Use these switches to choose
-                        whether to also capture headers and payloads of requests.{' '}
-                        <Link to="https://posthog.com/docs/session-replay/network-recording" target="blank">
-                            Learn how to mask header and payload values in our docs
-                        </Link>
-                    </p>
-                    <div className="flex flex-row space-x-2">
-                        <LemonSwitch
-                            data-attr="opt-in-capture-network-headers-switch"
-                            onChange={(checked) => {
-                                updateCurrentTeam({
-                                    session_recording_network_payload_capture_config: {
-                                        ...currentTeam?.session_recording_network_payload_capture_config,
-                                        recordHeaders: checked,
-                                    },
-                                })
-                            }}
-                            label="Capture headers"
-                            bordered
-                            checked={
-                                currentTeam?.session_recording_opt_in
-                                    ? !!currentTeam?.session_recording_network_payload_capture_config?.recordHeaders
-                                    : false
-                            }
-                            disabledReason={
-                                !currentTeam?.session_recording_opt_in || !currentTeam?.capture_performance_opt_in
-                                    ? 'session and network performance capture must be enabled'
-                                    : undefined
-                            }
-                        />
-                        <LemonSwitch
-                            data-attr="opt-in-capture-network-body-switch"
-                            onChange={(checked) => {
-                                updateCurrentTeam({
-                                    session_recording_network_payload_capture_config: {
-                                        ...currentTeam?.session_recording_network_payload_capture_config,
-                                        recordBody: checked,
-                                    },
-                                })
-                            }}
-                            label="Capture body"
-                            bordered
-                            checked={
-                                currentTeam?.session_recording_opt_in
-                                    ? !!currentTeam?.session_recording_network_payload_capture_config?.recordBody
-                                    : false
-                            }
-                            disabledReason={
-                                !currentTeam?.session_recording_opt_in || !currentTeam?.capture_performance_opt_in
-                                    ? 'session and network performance capture must be enabled'
-                                    : undefined
-                            }
-                        />
-                    </div>
+            <div className="mt-4">
+                <p>
+                    When network capture is enabled, we always capture network timings. Use these switches to choose
+                    whether to also capture headers and payloads of requests.{' '}
+                    <Link to="https://posthog.com/docs/session-replay/network-recording" target="blank">
+                        Learn how to mask header and payload values in our docs
+                    </Link>
+                </p>
+                <div className="flex flex-row space-x-2">
+                    <LemonSwitch
+                        data-attr="opt-in-capture-network-headers-switch"
+                        onChange={(checked) => {
+                            updateCurrentTeam({
+                                session_recording_network_payload_capture_config: {
+                                    ...currentTeam?.session_recording_network_payload_capture_config,
+                                    recordHeaders: checked,
+                                },
+                            })
+                        }}
+                        label="Capture headers"
+                        bordered
+                        checked={
+                            currentTeam?.session_recording_opt_in
+                                ? !!currentTeam?.session_recording_network_payload_capture_config?.recordHeaders
+                                : false
+                        }
+                        disabledReason={
+                            !currentTeam?.session_recording_opt_in || !currentTeam?.capture_performance_opt_in
+                                ? 'session and network performance capture must be enabled'
+                                : undefined
+                        }
+                    />
+                    <LemonSwitch
+                        data-attr="opt-in-capture-network-body-switch"
+                        onChange={(checked) => {
+                            updateCurrentTeam({
+                                session_recording_network_payload_capture_config: {
+                                    ...currentTeam?.session_recording_network_payload_capture_config,
+                                    recordBody: checked,
+                                },
+                            })
+                        }}
+                        label="Capture body"
+                        bordered
+                        checked={
+                            currentTeam?.session_recording_opt_in
+                                ? !!currentTeam?.session_recording_network_payload_capture_config?.recordBody
+                                : false
+                        }
+                        disabledReason={
+                            !currentTeam?.session_recording_opt_in || !currentTeam?.capture_performance_opt_in
+                                ? 'session and network performance capture must be enabled'
+                                : undefined
+                        }
+                    />
                 </div>
-            </FlaggedFeature>
+            </div>
         </div>
     )
 }

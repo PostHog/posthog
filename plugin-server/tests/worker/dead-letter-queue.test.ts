@@ -3,7 +3,7 @@ import { PluginEvent } from '@posthog/plugin-scaffold/src/types'
 import { Hub, LogLevel } from '../../src/types'
 import { createHub } from '../../src/utils/db/hub'
 import { UUIDT } from '../../src/utils/utils'
-import { runEventPipeline } from '../../src/worker/ingestion/event-pipeline/runner'
+import { EventPipelineRunner } from '../../src/worker/ingestion/event-pipeline/runner'
 import { generateEventDeadLetterQueueMessage } from '../../src/worker/ingestion/utils'
 import { delayUntilEventIngested, resetTestDatabaseClickhouse } from '../helpers/clickhouse'
 import { resetTestDatabase } from '../helpers/sql'
@@ -59,7 +59,8 @@ describe('events dead letter queue', () => {
     })
 
     test('events get sent to dead letter queue on error', async () => {
-        const ingestResponse1 = await runEventPipeline(hub, createEvent())
+        const event = createEvent()
+        const ingestResponse1 = await new EventPipelineRunner(hub, event).runEventPipeline(event)
         expect(ingestResponse1).toEqual({
             lastStep: 'prepareEventStep',
             error: 'database unavailable',
@@ -78,7 +79,7 @@ describe('events dead letter queue', () => {
         expect(dlqEvent.team_id).toEqual(2)
         expect(dlqEvent.team_id).toEqual(2)
         expect(dlqEvent.error_location).toEqual('plugin_server_ingest_event:prepareEventStep')
-        expect(dlqEvent.error).toEqual('ingestEvent failed. Error: database unavailable')
+        expect(dlqEvent.error).toEqual('Event ingestion failed. Error: database unavailable')
         expect(dlqEvent.properties).toEqual(JSON.stringify({ key: 'value', $ip: '127.0.0.1' }))
         expect(dlqEvent.event_uuid).toEqual(EVENT_UUID)
     })
