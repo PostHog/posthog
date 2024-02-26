@@ -346,7 +346,23 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
             and validated_data["session_replay_config"] is not None
             and instance.session_replay_config is not None
         ):
-            # don't change keys that are not provided, that would be confusing
+            # for session_replay_config and its top level keys we merge existing settings with new settings
+            # this way we don't always have to receive the entire settings object to change one setting
+            # so for each key in validated_data["session_replay_config"] we merge it with the existing settings
+            # and then merge any top level keys that weren't provided
+
+            for key, value in validated_data["session_replay_config"].items():
+                if key in instance.session_replay_config:
+                    # if they're both dicts then we merge them, otherwise, the new value overwrites the old
+                    if isinstance(instance.session_replay_config[key], dict) and isinstance(
+                        validated_data["session_replay_config"][key], dict
+                    ):
+                        validated_data["session_replay_config"][key] = {
+                            **instance.session_replay_config[key],  # existing values
+                            **value,  # and new values on top
+                        }
+
+            # then also add back in any keys that exist but are not in the provided data
             validated_data["session_replay_config"] = {
                 **instance.session_replay_config,
                 **validated_data["session_replay_config"],

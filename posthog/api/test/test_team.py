@@ -972,13 +972,48 @@ class TestTeamAPI(APIBaseTest):
         self._patch_session_replay_config({"record_canvas": True})
         self._assert_replay_config_is({"record_canvas": True, "ai_config": {"opt_in": True}})
 
-    def test_can_set_replay_configs_must_send_all_nested_keys_though(self) -> None:
+    def test_can_set_replay_configs_without_providing_them_all_even_when_either_side_is_none(self) -> None:
+        # because we do some dictionary copying we need a regression test to ensure we can always set and unset keys
+        self._patch_session_replay_config({"record_canvas": True, "ai_config": {"opt_in": True}})
+        self._assert_replay_config_is({"record_canvas": True, "ai_config": {"opt_in": True}})
+
+        self._patch_session_replay_config({"record_canvas": None})
+        self._assert_replay_config_is({"record_canvas": None, "ai_config": {"opt_in": True}})
+
+        # top-level from having a value to None
+        self._patch_session_replay_config(None)
+        self._assert_replay_config_is(None)
+
+        # top-level from None to having a value
+        self._patch_session_replay_config({"ai_config": None})
+        self._assert_replay_config_is({"ai_config": None})
+
+        # next-level from None to having a value
+        self._patch_session_replay_config({"ai_config": {"opt_in": True}})
+        self._assert_replay_config_is({"ai_config": {"opt_in": True}})
+
+        # next-level from having a value to None
+        self._patch_session_replay_config({"ai_config": None})
+        self._assert_replay_config_is({"ai_config": None})
+
+    def test_can_set_replay_configs_patch_session_replay_config_one_level_deep(self) -> None:
         # can set just the opt-in
         self._patch_session_replay_config({"ai_config": {"opt_in": True}})
         self._assert_replay_config_is({"ai_config": {"opt_in": True}})
 
         self._patch_session_replay_config({"ai_config": {"included_event_properties": ["something"]}})
-        self._assert_replay_config_is({"ai_config": {"included_event_properties": ["something"]}})
+        # even though opt_in was not provided in the patch it should be preserved
+        self._assert_replay_config_is({"ai_config": {"opt_in": True, "included_event_properties": ["something"]}})
+
+        self._patch_session_replay_config({"ai_config": {"opt_in": None, "included_event_properties": ["something"]}})
+        # even though opt_in was not provided in the patch it should be preserved
+        self._assert_replay_config_is({"ai_config": {"opt_in": None, "included_event_properties": ["something"]}})
+
+        # but we don't go into the next nested level and patch that data
+        # sending a new value without the original
+        self._patch_session_replay_config({"ai_config": {"included_event_properties": ["and another"]}})
+        # and the existing second level nesting is not preserved
+        self._assert_replay_config_is({"ai_config": {"opt_in": None, "included_event_properties": ["and another"]}})
 
     def _assert_replay_config_is(self, expected: Dict[str, Any] | None) -> HttpResponse:
         get_response = self.client.get("/api/projects/@current/")
