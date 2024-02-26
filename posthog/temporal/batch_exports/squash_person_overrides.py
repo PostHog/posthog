@@ -50,7 +50,7 @@ CREATE_JOIN_TABLE_FOR_DELETES_QUERY = """
 CREATE TABLE {database}.person_overrides_to_delete
 ENGINE = Join(ANY, LEFT, team_id, distinct_id) AS
 SELECT
-    team_id, distinct_id, groupArray(_partition_id) AS partitions
+    team_id, distinct_id, groupUniqArray(_partition_id) AS partitions
 FROM
     {database}.sharded_events
 WHERE
