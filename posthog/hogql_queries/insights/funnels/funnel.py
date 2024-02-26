@@ -190,8 +190,8 @@ class Funnel(FunnelBase):
             if i < level_index:
                 exprs.append(ast.Field(chain=[f"latest_{i}"]))
 
-                # for field in self.extra_event_fields_and_properties:
-                #     exprs.append(ast.Field(chain=[f'"{field}_{i}"']))
+                for field in self.extra_event_fields_and_properties:
+                    exprs.append(ast.Field(chain=[f'"{field}_{i}"']))
 
                 for exclusion_id, exclusion in enumerate(exclusions or []):
                     if exclusion.funnelFromStep + 1 == i:
@@ -205,8 +205,13 @@ class Funnel(FunnelBase):
                     )
                 )
 
-                # for field in self.extra_event_fields_and_properties:
-                #     exprs.append(f'if({comparison}, NULL, "{field}_{i}") as "{field}_{i}"')
+                for field in self.extra_event_fields_and_properties:
+                    exprs.append(
+                        parse_expr(
+                            f'if({{comparison}}, NULL, "{field}_{i}") as "{field}_{i}"',
+                            placeholders={"comparison": comparison},
+                        )
+                    )
 
                 for exclusion_id, exclusion in enumerate(exclusions or []):
                     if exclusion.funnelFromStep + 1 == i:

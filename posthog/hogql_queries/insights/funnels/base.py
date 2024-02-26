@@ -394,12 +394,18 @@ class FunnelBase(ABC):
         )
         entities_to_use = entities or query.series
 
-        # extra_fields = []
+        extra_fields = []
 
         # for prop in self._include_properties:
         #     extra_fields.append(prop)
 
-        funnel_events_query = FunnelEventQuery(context=self.context).to_query(skip_entity_filter=skip_entity_filter)
+        funnel_events_query = FunnelEventQuery(
+            context=self.context,
+            extra_fields=[*self._extra_event_fields, *extra_fields],
+            extra_event_properties=self._extra_event_properties,
+        ).to_query(
+            skip_entity_filter=skip_entity_filter,
+        )
         # funnel_events_query, params = FunnelEventQuery(
         #     extra_fields=[*self._extra_event_fields, *extra_fields],
         #     extra_event_properties=self._extra_event_properties,
@@ -544,8 +550,10 @@ class FunnelBase(ABC):
             parse_expr(f"if({step_prefix}step_{index} = 1, timestamp, null) as {step_prefix}latest_{index}")
         )
 
-        # for field in self.extra_event_fields_and_properties:
-        #     step_cols.append(f'if({step_prefix}step_{index} = 1, "{field}", null) as "{step_prefix}{field}_{index}"')
+        for field in self.extra_event_fields_and_properties:
+            step_cols.append(
+                parse_expr(f'if({step_prefix}step_{index} = 1, "{field}", null) as "{step_prefix}{field}_{index}"')
+            )
 
         return step_cols
 
@@ -712,12 +720,18 @@ class FunnelBase(ABC):
         Returns timestamp selectors for the target step and optionally the preceding step.
         In the former case, always returns the timestamp for the first and last step as well.
         """
-        # target_step = self._filter.funnel_step # TODO: implement with actors
-        # final_step = self.context.max_steps - 1
+        # actorsQuery, max_steps = (
+        #     self.context.actorsQuery,
+        #     self.context.max_steps,
+        # )
+        # assert actorsQuery is not None
+
+        # target_step = actorsQuery.funnelStep
+        # final_step = max_steps - 1
         # first_step = 0
 
         # if not target_step:
-        #     return "", ""
+        #     return [], []
 
         # if target_step < 0:
         #     # the first valid dropoff argument for funnel_step is -2
@@ -743,7 +757,7 @@ class FunnelBase(ABC):
         #         f", argMax(latest_{target_step}, steps) as timestamp, argMax(latest_{final_step}, steps) as final_timestamp, argMax(latest_{first_step}, steps) as first_timestamp",
         #     )
         # else:
-        #     return "", ""
+        #     return [], []
         return [], []
 
     def _get_step_times(self, max_steps: int) -> List[ast.Expr]:
@@ -774,8 +788,8 @@ class FunnelBase(ABC):
             if i < level_index:
                 exprs.append(ast.Field(chain=[f"latest_{i}"]))
 
-                # for field in self.extra_event_fields_and_properties:
-                #     exprs.append(ast.Field(chain=[f'"{field}_{i}"']))
+                for field in self.extra_event_fields_and_properties:
+                    exprs.append(ast.Field(chain=[f'"{field}_{i}"']))
 
                 for exclusion_id, exclusion in enumerate(exclusions or []):
                     if cast(int, exclusion.funnelFromStep) + 1 == i:
@@ -793,10 +807,12 @@ class FunnelBase(ABC):
                     )
                 )
 
-                # for field in self.extra_event_fields_and_properties:
-                #     cols.append(
-                #         f'last_value("{field}_{i}") over (PARTITION by aggregation_target {self._get_breakdown_prop()} ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND {duplicate_event} PRECEDING) "{field}_{i}"'
-                #     )
+                for field in self.extra_event_fields_and_properties:
+                    exprs.append(
+                        parse_expr(
+                            f'last_value("{field}_{i}") over (PARTITION by aggregation_target {self._get_breakdown_prop()} ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND {duplicate_event} PRECEDING) "{field}_{i}"'
+                        )
+                    )
 
                 for exclusion_id, exclusion in enumerate(exclusions or []):
                     # exclusion starting at step i follows semantics of step i+1 in the query (since we're looking for exclusions after step i)
