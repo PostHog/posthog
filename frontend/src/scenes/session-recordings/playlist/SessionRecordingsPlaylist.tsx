@@ -64,13 +64,6 @@ function UnusableEventsWarning(props: { unusableEventsInFilter: string[] }): JSX
                         the Android SDK
                     </Link>
                 </FlaggedFeature>
-                <FlaggedFeature flag={FEATURE_FLAGS.SESSION_REPLAY_IOS} match={true}>
-                    and{' '}
-                    <Link to="https://posthog.com/docs/libraries/ios" target="_blank">
-                        the iOS SDK
-                    </Link>
-                    .
-                </FlaggedFeature>
             </p>
         </LemonBanner>
     )

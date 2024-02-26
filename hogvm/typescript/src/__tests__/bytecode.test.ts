@@ -2,7 +2,7 @@ import { executeHogQLBytecode, Operation as op } from '../bytecode'
 
 describe('HogQL Bytecode', () => {
     test('execution results', async () => {
-        const fields = { properties: { foo: 'bar' } }
+        const fields = { properties: { foo: 'bar', nullValue: null } }
         expect(await executeHogQLBytecode(['_h', op.INTEGER, 2, op.INTEGER, 1, op.PLUS], fields)).toBe(3)
         expect(await executeHogQLBytecode(['_h', op.INTEGER, 2, op.INTEGER, 1, op.MINUS], fields)).toBe(-1)
         expect(await executeHogQLBytecode(['_h', op.INTEGER, 2, op.INTEGER, 3, op.MULTIPLY], fields)).toBe(6)
@@ -62,6 +62,18 @@ describe('HogQL Bytecode', () => {
         expect(await executeHogQLBytecode(['_h', op.STRING, 'foo', op.STRING, 'properties', op.FIELD, 2], fields)).toBe(
             'bar'
         )
+        expect(
+            await executeHogQLBytecode(
+                ['_h', op.FALSE, op.STRING, 'foo', op.STRING, 'properties', op.FIELD, 2, op.CALL, 'ifNull', 2],
+                fields
+            )
+        ).toBe('bar')
+        expect(
+            await executeHogQLBytecode(
+                ['_h', op.FALSE, op.STRING, 'nullValue', op.STRING, 'properties', op.FIELD, 2, op.CALL, 'ifNull', 2],
+                fields
+            )
+        ).toBe(false)
         expect(
             await executeHogQLBytecode(['_h', op.STRING, 'another', op.STRING, 'arg', op.CALL, 'concat', 2], fields)
         ).toBe('arganother')

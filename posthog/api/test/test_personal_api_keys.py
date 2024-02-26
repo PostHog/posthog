@@ -449,6 +449,13 @@ class TestPersonalAPIKeysWithOrganizationScopeAPIAuthentication(PersonalAPIKeysB
         response = self._do_request(f"/api/projects/{self.other_team.id}/feature_flags")
         assert response.status_code == status.HTTP_403_FORBIDDEN, response.json()
 
+    def test_cant_list_all_projecs_for_current_org(self):
+        self.user.current_organization = self.organization
+        self.user.save()
+
+        response = self._do_request(f"/api/projects")
+        assert response.status_code == status.HTTP_200_OK, response.json()
+
 
 class TestPersonalAPIKeysWithTeamScopeAPIAuthentication(PersonalAPIKeysBaseTest):
     def setUp(self):
@@ -461,8 +468,14 @@ class TestPersonalAPIKeysWithTeamScopeAPIAuthentication(PersonalAPIKeysBaseTest)
     def test_allows_access_to_team_resources(self):
         response = self._do_request(f"/api/organizations/{self.organization.id}/projects/{self.team.id}")
         assert response.status_code == status.HTTP_200_OK, response.json()
+        response = self._do_request(f"/api/projects/{self.team.id}")
+        assert response.status_code == status.HTTP_200_OK, response.json()
         response = self._do_request(f"/api/projects/{self.team.id}/feature_flags")
         assert response.status_code == status.HTTP_200_OK, response.json()
+
+    def test_cant_list_all_projecs(self):
+        response = self._do_request(f"/api/projects")
+        assert response.status_code == status.HTTP_403_FORBIDDEN, response.json()
 
     def test_denies_access_to_org_resources(self):
         response = self._do_request(f"/api/organizations/{self.organization.id}/projects")
@@ -475,3 +488,5 @@ class TestPersonalAPIKeysWithTeamScopeAPIAuthentication(PersonalAPIKeysBaseTest)
         assert response.status_code == status.HTTP_403_FORBIDDEN, response.json()
         response = self._do_request(f"/api/projects/{self.other_team.id}/feature_flags")
         assert response.status_code == status.HTTP_403_FORBIDDEN, response.json()
+        assert response.status_code == status.HTTP_403_FORBIDDEN, response.json()
+        response = self._do_request(f"/api/projects/{self.other_team.id}")
