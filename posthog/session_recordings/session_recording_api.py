@@ -16,10 +16,13 @@ from drf_spectacular.utils import extend_schema
 from loginas.utils import is_impersonated_session
 from rest_framework import exceptions, request, serializers, viewsets
 from rest_framework.decorators import action
+from rest_framework.renderers import JSONRenderer
 from rest_framework.response import Response
+from rest_framework.utils.encoders import JSONEncoder
 
 from posthog.api.person import MinimalPersonSerializer
 from posthog.api.routing import TeamAndOrgViewSetMixin
+from posthog.api.utils import safe_clickhouse_string
 from posthog.auth import SharingAccessTokenAuthentication
 from posthog.cloud_utils import is_cloud
 from posthog.constants import SESSION_RECORDINGS_FILTER_IDS
@@ -58,6 +61,26 @@ SNAPSHOT_SOURCE_REQUESTED = Counter(
     "When calling the API and providing a concrete snapshot type to load.",
     labelnames=["source"],
 )
+
+
+class SurrogatePairSafeJSONEncoder(JSONEncoder):
+    def encode(self, o):
+        return safe_clickhouse_string(super().encode(o), with_counter=False)
+
+
+class SurrogatePairSafeJSONRenderer(JSONRenderer):
+    """
+    Blob snapshots are compressed data which we pass through from blob storage.
+    Realtime snapshot API returns "bare" JSON from Redis.
+    We can be sure that the "bare" data could contain surrogate pairs
+    from the browser's console logs.
+
+    This JSON renderer ensures that the stringified JSON does not have any unescaped surrogate pairs.
+
+    Because it has to override the encoder, it can't use orjson.
+    """
+
+    encoder_class = SurrogatePairSafeJSONEncoder
 
 
 # context manager for gathering a sequence of server timings
@@ -273,7 +296,7 @@ class SessionRecordingViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
 
         return Response({"success": True})
 
-    @action(methods=["GET"], detail=True)
+    @action(methods=["GET"], detail=True, renderer_classes=[SurrogatePairSafeJSONRenderer])
     def snapshots(self, request: request.Request, **kwargs):
         """
         Snapshots can be loaded from multiple places:
