@@ -54,7 +54,9 @@ export const exportsUnsubscribeTableLogic = kea<exportsUnsubscribeTableLogicType
             {} as Record<BatchExportConfiguration['id'], BatchExportConfiguration>,
             {
                 loadBatchExportConfigs: async () => {
-                    const res = await api.loadPaginatedResults(`api/organizations/@current/batch_exports`)
+                    const res = await api.loadPaginatedResults<BatchExportConfiguration>(
+                        `api/organizations/@current/batch_exports`
+                    )
                     return Object.fromEntries(
                         res
                             .filter((batchExportConfig) => !batchExportConfig.paused)

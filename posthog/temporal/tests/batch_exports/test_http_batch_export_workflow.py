@@ -61,6 +61,7 @@ class MockServer:
 
     def post(self, url, data, **kwargs):
         data = json.loads(data.read())
+        assert data["historical_migration"]
         assert data["api_key"] == TEST_TOKEN
         self.records.extend(data["batch"])
 
@@ -418,12 +419,61 @@ async def test_http_export_workflow_handles_insert_activity_errors(ateam, http_b
                     retry_policy=RetryPolicy(maximum_attempts=1),
                 )
 
-        runs = await afetch_batch_export_runs(batch_export_id=http_batch_export.id)
-        assert len(runs) == 1
+    runs = await afetch_batch_export_runs(batch_export_id=http_batch_export.id)
+    assert len(runs) == 1
 
-        run = runs[0]
-        assert run.status == "Failed"
-        assert run.latest_error == "ValueError: A useful error message"
+    run = runs[0]
+    assert run.status == "FailedRetryable"
+    assert run.latest_error == "ValueError: A useful error message"
+
+
+async def test_http_export_workflow_handles_insert_activity_non_retryable_errors(ateam, http_batch_export, interval):
+    """Test that HTTP Export Workflow can gracefully handle non-retryable errors when POSTing to HTTP Endpoint."""
+    data_interval_end = dt.datetime.fromisoformat("2023-04-25T14:30:00.000000+00:00")
+
+    workflow_id = str(uuid4())
+    inputs = HttpBatchExportInputs(
+        team_id=ateam.pk,
+        batch_export_id=str(http_batch_export.id),
+        data_interval_end=data_interval_end.isoformat(),
+        interval=interval,
+        **http_batch_export.destination.config,
+    )
+
+    @activity.defn(name="insert_into_http_activity")
+    async def insert_into_http_activity_mocked(_: HttpInsertInputs) -> str:
+        class NonRetryableResponseError(Exception):
+            pass
+
+        raise NonRetryableResponseError("A useful error message")
+
+    async with await WorkflowEnvironment.start_time_skipping() as activity_environment:
+        async with Worker(
+            activity_environment.client,
+            task_queue=settings.TEMPORAL_TASK_QUEUE,
+            workflows=[HttpBatchExportWorkflow],
+            activities=[
+                create_export_run,
+                insert_into_http_activity_mocked,
+                update_export_run_status,
+            ],
+            workflow_runner=UnsandboxedWorkflowRunner(),
+        ):
+            with pytest.raises(WorkflowFailureError):
+                await activity_environment.client.execute_workflow(
+                    HttpBatchExportWorkflow.run,
+                    inputs,
+                    id=workflow_id,
+                    task_queue=settings.TEMPORAL_TASK_QUEUE,
+                    retry_policy=RetryPolicy(maximum_attempts=1),
+                )
+
+    runs = await afetch_batch_export_runs(batch_export_id=http_batch_export.id)
+    assert len(runs) == 1
+
+    run = runs[0]
+    assert run.status == "Failed"
+    assert run.latest_error == "NonRetryableResponseError: A useful error message"
 
 
 async def test_http_export_workflow_handles_cancellation(ateam, http_batch_export, interval):
