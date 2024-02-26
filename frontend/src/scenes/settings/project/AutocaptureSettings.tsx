@@ -17,8 +17,9 @@ export function AutocaptureSettings(): JSX.Element {
     return (
         <>
             <p>
-                Automagically capture front-end interactions like pageviews, clicks, and more when using our web
-                JavaScript SDK.{' '}
+                Automagically capture frontend events, such as any <code>click</code>, <code>change of input</code>, or
+                submission associated with a <code>button</code>, <code>form</code>, <code>input</code>,{' '}
+                <code>select</code>, or <code>textarea</code>, when using our web JavaScript SDK.
             </p>
             <p>
                 Autocapture is also available for React Native, where it has to be{' '}

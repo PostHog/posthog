@@ -1,4 +1,4 @@
-import { ConsumerTopicConfig, GlobalConfig, KafkaConsumer, Message } from 'node-rdkafka'
+import { GlobalConfig, KafkaConsumer, Message } from 'node-rdkafka'
 import { exponentialBuckets, Gauge, Histogram } from 'prom-client'
 
 import { retryIfRetriable } from '../utils/retries'
@@ -23,6 +23,36 @@ export interface BatchConsumer {
 const STATUS_LOG_INTERVAL_MS = 10000
 const SLOW_BATCH_PROCESSING_LOG_THRESHOLD_MS = 10000
 
+type PartitionSummary = {
+    // number of messages received (often this can be derived from the
+    // difference between the minimum and maximum offset values + 1, but not
+    // always in case of messages deleted on the broker, or offset resets)
+    count: number
+    // minimum and maximum offsets observed
+    offsets: [number, number]
+}
+
+class BatchSummary {
+    // NOTE: ``Map`` would probably be more appropriate here, but ``Record`` is
+    // easier to JSON serialize.
+    private partitions: Record<number, PartitionSummary> = {}
+
+    public record(message: Message) {
+        let summary = this.partitions[message.partition]
+        if (summary === undefined) {
+            summary = {
+                count: 1,
+                offsets: [message.offset, message.offset],
+            }
+            this.partitions[message.partition] = summary
+        } else {
+            summary.count += 1
+            summary.offsets[0] = Math.min(summary.offsets[0], message.offset)
+            summary.offsets[1] = Math.max(summary.offsets[1], message.offset)
+        }
+    }
+}
+
 export const startBatchConsumer = async ({
     connectionConfig,
     groupId,
@@ -39,7 +69,6 @@ export const startBatchConsumer = async ({
     topicCreationTimeoutMs,
     eachBatch,
     queuedMinMessages = 100000,
-    topicConfig,
 }: {
     connectionConfig: GlobalConfig
     groupId: string
@@ -56,7 +85,6 @@ export const startBatchConsumer = async ({
     topicCreationTimeoutMs: number
     eachBatch: (messages: Message[]) => Promise<void>
     queuedMinMessages?: number
-    topicConfig?: ConsumerTopicConfig
 }): Promise<BatchConsumer> => {
     // Starts consuming from `topic` in batches of `fetchBatchSize` messages,
     // with consumer group id `groupId`. We use `connectionConfig` to connect
@@ -126,7 +154,13 @@ export const startBatchConsumer = async ({
             rebalance_cb: true,
             offset_commit_cb: true,
         },
-        topicConfig
+        {
+            // It is typically safest to roll back to the earliest offset if we
+            // find ourselves in a situation where there is no stored offset or
+            // the stored offset is invalid, compared to the default behavior of
+            // potentially jumping ahead to the latest offset.
+            'auto.offset.reset': 'earliest',
+        }
     )
 
     instrumentConsumerMetrics(consumer, groupId)
@@ -214,14 +248,17 @@ export const startBatchConsumer = async ({
                 }
 
                 const startProcessingTimeMs = new Date().valueOf()
+                const batchSummary = new BatchSummary()
 
                 consumerBatchSize.labels({ topic, groupId }).observe(messages.length)
                 for (const message of messages) {
                     consumedMessageSizeBytes.labels({ topic, groupId }).observe(message.size)
+                    batchSummary.record(message)
                 }
 
                 // NOTE: we do not handle any retries. This should be handled by
                 // the implementation of `eachBatch`.
+                status.debug('⏳', `Starting to process batch of ${messages.length} events...`, batchSummary)
                 await eachBatch(messages)
 
                 messagesProcessed += messages.length
@@ -229,11 +266,12 @@ export const startBatchConsumer = async ({
 
                 const processingTimeMs = new Date().valueOf() - startProcessingTimeMs
                 consumedBatchDuration.labels({ topic, groupId }).observe(processingTimeMs)
+
+                const logSummary = `Processed ${messages.length} events in ${Math.round(processingTimeMs / 10) / 100}s`
                 if (processingTimeMs > SLOW_BATCH_PROCESSING_LOG_THRESHOLD_MS) {
-                    status.warn(
-                        '🕒',
-                        `Slow batch: ${messages.length} events in ${Math.round(processingTimeMs / 10) / 100}s`
-                    )
+                    status.warn('🕒', `Slow batch: ${logSummary}`, batchSummary)
+                } else {
+                    status.debug('⌛️', logSummary, batchSummary)
                 }
 
                 if (autoCommit) {

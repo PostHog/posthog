@@ -9,6 +9,10 @@ import { resizerLogic, ResizerLogicProps } from 'lib/components/Resizer/resizerL
 import { useEffect, useRef } from 'react'
 import { NotebookPanel } from 'scenes/notebooks/NotebookPanel/NotebookPanel'
 
+import {
+    SidePanelExports,
+    SidePanelExportsIcon,
+} from '~/layout/navigation-3000/sidepanel/panels/exports/SidePanelExports'
 import { SidePanelTab } from '~/types'
 
 import { SidePanelActivation, SidePanelActivationIcon } from './panels/activation/SidePanelActivation'
@@ -70,6 +74,11 @@ export const SIDE_PANEL_TABS: Record<
         label: 'Discussion',
         Icon: SidePanelDiscussionIcon,
         Content: SidePanelDiscussion,
+    },
+    [SidePanelTab.Exports]: {
+        label: 'Exports',
+        Icon: SidePanelExportsIcon,
+        Content: SidePanelExports,
     },
     [SidePanelTab.Status]: {
         label: 'System status',

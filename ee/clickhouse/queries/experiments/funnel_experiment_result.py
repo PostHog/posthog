@@ -83,28 +83,40 @@ class ClickhouseFunnelExperimentResult:
         )
         self.funnel = funnel_class(query_filter, team)
 
-    def get_results(self):
+    def get_results(self, validate: bool = True):
         funnel_results = self.funnel.run()
 
-        validate_event_variants(funnel_results, self.variants)
-
-        filtered_results = [result for result in funnel_results if result[0]["breakdown_value"][0] in self.variants]
-
-        control_variant, test_variants = self.get_variants(filtered_results)
-
-        probabilities = self.calculate_results(control_variant, test_variants)
-
-        mapping = {
-            variant.key: probability for variant, probability in zip([control_variant, *test_variants], probabilities)
+        basic_result_props = {
+            # TODO: check if this can error out or not?, i.e. results don't have 0 index?
+            "insight": [result for result in funnel_results if result[0]["breakdown_value"][0] in self.variants],
+            "filters": self.funnel._filter.to_dict(),
         }
 
-        significance_code, loss = self.are_results_significant(control_variant, test_variants, probabilities)
+        try:
+            validate_event_variants(funnel_results, self.variants)
+
+            filtered_results = [result for result in funnel_results if result[0]["breakdown_value"][0] in self.variants]
+
+            control_variant, test_variants = self.get_variants(filtered_results)
+
+            probabilities = self.calculate_results(control_variant, test_variants)
+
+            mapping = {
+                variant.key: probability
+                for variant, probability in zip([control_variant, *test_variants], probabilities)
+            }
+
+            significance_code, loss = self.are_results_significant(control_variant, test_variants, probabilities)
+        except ValidationError as err:
+            if validate:
+                raise err
+            else:
+                return basic_result_props
 
         return {
-            "insight": filtered_results,
+            **basic_result_props,
             "probability": mapping,
             "significant": significance_code == ExperimentSignificanceCode.SIGNIFICANT,
-            "filters": self.funnel._filter.to_dict(),
             "significance_code": significance_code,
             "expected_loss": loss,
             "variants": [asdict(variant) for variant in [control_variant, *test_variants]],

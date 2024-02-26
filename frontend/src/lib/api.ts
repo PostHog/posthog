@@ -998,6 +998,12 @@ const api = {
             return new ApiRequest().exports(teamId).withQueryString(toParams(params)).create({ data })
         },
 
+        async list(
+            teamId: TeamType['id'] = ApiConfig.getCurrentTeamId()
+        ): Promise<PaginatedResponse<ExportedAssetType>> {
+            return new ApiRequest().exports(teamId).get()
+        },
+
         async get(id: number, teamId: TeamType['id'] = ApiConfig.getCurrentTeamId()): Promise<ExportedAssetType> {
             return new ApiRequest().export(id, teamId).get()
         },
@@ -1566,6 +1572,10 @@ const api = {
 
         async summarize(recordingId: SessionRecordingType['id']): Promise<{ content: string }> {
             return await new ApiRequest().recording(recordingId).withAction('summarize').create()
+        },
+
+        async similarRecordings(recordingId: SessionRecordingType['id']): Promise<[string, number][]> {
+            return await new ApiRequest().recording(recordingId).withAction('similar_sessions').get()
         },
 
         async delete(recordingId: SessionRecordingType['id']): Promise<{ success: boolean }> {

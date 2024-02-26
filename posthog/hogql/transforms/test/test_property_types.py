@@ -7,7 +7,8 @@ from posthog.hogql.context import HogQLContext
 from posthog.hogql.parser import parse_select
 from posthog.hogql.printer import print_ast
 from posthog.hogql.test.utils import pretty_print_in_tests
-from posthog.models import PropertyDefinition
+from posthog.models import PropertyDefinition, GroupTypeMapping
+from posthog.models.group.util import create_group
 from posthog.test.base import BaseTest
 
 
@@ -17,6 +18,13 @@ class TestPropertyTypes(BaseTest):
 
     def setUp(self):
         super().setUp()
+        GroupTypeMapping.objects.create(team=self.team, group_type="organization", group_type_index=0)
+        create_group(
+            team_id=self.team.pk,
+            group_type_index=0,
+            group_key="org:1",
+            properties={"name": "org1", "inty": 1},
+        )
         PropertyDefinition.objects.get_or_create(
             team=self.team,
             type=PropertyDefinition.Type.EVENT,
@@ -52,6 +60,12 @@ class TestPropertyTypes(BaseTest):
             type=PropertyDefinition.Type.PERSON,
             name="$initial_browser",
             defaults={"property_type": "String"},
+        )
+        PropertyDefinition.objects.get_or_create(
+            team=self.team,
+            type=PropertyDefinition.Type.GROUP,
+            name="inty",
+            defaults={"property_type": "Numeric", "group_type_index": 0},
         )
 
     @pytest.mark.usefixtures("unittest_snapshot")
@@ -91,6 +105,12 @@ class TestPropertyTypes(BaseTest):
     @override_settings(PERSON_ON_EVENTS_OVERRIDE=True, PERSON_ON_EVENTS_V2_OVERRIDE=True)
     def test_resolve_property_types_event_person_poe_on(self):
         printed = self._print_select("select person.properties.provided_timestamp from events")
+        assert printed == self.snapshot
+
+    @pytest.mark.usefixtures("unittest_snapshot")
+    @override_settings(PERSON_ON_EVENTS_OVERRIDE=False, PERSON_ON_EVENTS_V2_OVERRIDE=False)
+    def test_group_property_types(self):
+        printed = self._print_select("select organization.properties.inty from events")
         assert printed == self.snapshot
 
     def _print_select(self, select: str):

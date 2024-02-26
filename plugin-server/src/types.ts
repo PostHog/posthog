@@ -206,6 +206,7 @@ export interface PluginsServerConfig {
     RUSTY_HOOK_ROLLOUT_PERCENTAGE: number
     RUSTY_HOOK_URL: string
     SKIP_UPDATE_EVENT_AND_PROPERTIES_STEP: boolean
+    PIPELINE_STEP_STALLED_LOG_TIMEOUT: number
 
     // dump profiles to disk, covering the first N seconds of runtime
     STARTUP_PROFILE_DURATION_SECONDS: number

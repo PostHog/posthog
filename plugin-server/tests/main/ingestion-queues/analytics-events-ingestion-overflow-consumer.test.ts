@@ -4,13 +4,17 @@ import {
     IngestionOverflowMode,
 } from '../../../src/main/ingestion-queues/batch-processing/each-batch-ingestion'
 import { OverflowWarningLimiter } from '../../../src/utils/token-bucket'
-import { runEventPipeline } from './../../../src/worker/ingestion/event-pipeline/runner'
 import { captureIngestionWarning } from './../../../src/worker/ingestion/utils'
 
 jest.mock('../../../src/utils/status')
 jest.mock('./../../../src/worker/ingestion/utils')
+
+const runEventPipeline = jest.fn().mockResolvedValue('default value')
+
 jest.mock('./../../../src/worker/ingestion/event-pipeline/runner', () => ({
-    runEventPipeline: jest.fn().mockResolvedValue('default value'),
+    EventPipelineRunner: jest.fn().mockImplementation(() => ({
+        runEventPipeline: runEventPipeline,
+    })),
 }))
 
 const captureEndpointEvent1 = {

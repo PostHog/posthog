@@ -1,3 +1,4 @@
+import clsx from 'clsx'
 import { useValues } from 'kea'
 import { EntityFilterInfo } from 'lib/components/EntityFilterInfo'
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
@@ -23,32 +24,37 @@ import { funnelTooltipLogic } from './funnelTooltipLogic'
 /** The tooltip is offset horizontally by a few pixels from the bar to give it some breathing room. */
 const FUNNEL_TOOLTIP_OFFSET_PX = 4
 
-interface FunnelTooltipProps {
+export interface FunnelTooltipProps {
     showPersonsModal: boolean
     stepIndex: number
     series: FunnelStepWithConversionMetrics
     groupTypeLabel: string
     breakdownFilter: BreakdownFilter | null | undefined
+    embedded?: boolean
 }
 
-function FunnelTooltip({
+export function FunnelTooltip({
     showPersonsModal,
     stepIndex,
     series,
     groupTypeLabel,
     breakdownFilter,
+    embedded = false,
 }: FunnelTooltipProps): JSX.Element {
     const { cohorts } = useValues(cohortsModel)
     const { formatPropertyValueForDisplay } = useValues(propertyDefinitionsModel)
     return (
-        <div className="FunnelTooltip InsightTooltip p-2">
+        <div
+            className={clsx('FunnelTooltip InsightTooltip', {
+                'p-2': !embedded,
+                'border-none': embedded,
+                'shadow-none': embedded,
+            })}
+        >
             <LemonRow icon={<Lettermark name={stepIndex + 1} color={LettermarkColor.Gray} />} fullWidth>
                 <strong>
-                    <EntityFilterInfo
-                        filter={getActionFilterFromFunnelStep(series)}
-                        style={{ display: 'inline-block' }}
-                    />{' '}
-                    •{' '}
+                    <EntityFilterInfo filter={getActionFilterFromFunnelStep(series)} allowWrap />
+                    <span className="mx-1">•</span>
                     {formatBreakdownLabel(
                         cohorts,
                         formatPropertyValueForDisplay,

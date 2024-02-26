@@ -69,7 +69,6 @@ export function AppView({
                         <Tooltip
                             title={
                                 <>
-                                     
                                     {orderedIndex ? (
                                         <>
                                             Apps that react to incoming events run in order. This app runs in position{' '}
