@@ -394,7 +394,7 @@ class FunnelBase(ABC):
         )
         entities_to_use = entities or query.series
 
-        extra_fields = []
+        extra_fields: List[str] = []
 
         # for prop in self._include_properties:
         #     extra_fields.append(prop)
@@ -632,7 +632,7 @@ class FunnelBase(ABC):
             # if self._filter.include_final_matching_events:
             if False:  # TODO: Implement with correlations
                 # Always returns the user's final step of the funnel
-                return [parse_expr("final_matching_events as matching_events")]
+                return [parse_expr("final_matching_events as matching_events")]  # type: ignore
             elif step_num is None:
                 raise ValueError("Missing funnelStep actors query property")
             if step_num >= 0:
