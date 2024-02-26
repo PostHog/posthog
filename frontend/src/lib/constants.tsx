@@ -197,7 +197,7 @@ export const FEATURE_FLAGS = {
     SESSION_REPLAY_EXPORT_MOBILE_DATA: 'session-replay-export-mobile-data', // owner: #team-replay
     SESSION_REPLAY_CANVAS: 'session-replay-canvas', // owner: #team-replay
     DISCUSSIONS: 'discussions', // owner: #team-replay
-    REDIRECT_WEB_PRODUCT_ANALYTICS_ONBOARDING: 'redirect-web-product-analytics-onboarding', // owner: @biancayang
+    REDIRECT_INSIGHT_CREATION_PRODUCT_ANALYTICS_ONBOARDING: 'redirect-insight-creation-product-analytics-onboarding', // owner: @biancayang
     RECRUIT_ANDROID_MOBILE_BETA_TESTERS: 'recruit-android-mobile-beta-testers', // owner: #team-replay
     SIDEPANEL_STATUS: 'sidepanel-status', // owner: @benjackwhite
     NEW_FEATURE_FLAG_OPERATORS: 'new-feature-flag-operators', // owner: @neilkakkar
