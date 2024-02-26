@@ -144,7 +144,7 @@ export const SidePanelSupport = (): JSX.Element => {
                                     {products.map((product, index) => (
                                         <li key={index}>
                                             <Link
-                                                to={`/docs/${product.slug}`}
+                                                to={`https://posthog.com/docs/${product.slug}`}
                                                 className="group flex items-center justify-between px-2 py-1.5"
                                             >
                                                 <div className="flex items-center gap-1.5">
