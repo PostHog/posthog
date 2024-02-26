@@ -4011,14 +4011,14 @@
             day_start AS day_start
      FROM
        (SELECT 0 AS total,
-               minus(toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-27 23:59:59', 6, 'UTC'))), toIntervalDay(numbers.number)) AS day_start
-        FROM numbers(coalesce(dateDiff('day', assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-20 00:00:00', 6, 'UTC')), assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-27 23:59:59', 6, 'UTC'))), 0)) AS numbers
+               minus(toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-28 23:59:59', 6, 'UTC'))), toIntervalDay(numbers.number)) AS day_start
+        FROM numbers(coalesce(dateDiff('day', assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-21 00:00:00', 6, 'UTC')), assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-28 23:59:59', 6, 'UTC'))), 0)) AS numbers
         UNION ALL SELECT 0 AS total,
-                         toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-20 00:00:00', 6, 'UTC'))) AS day_start
+                         toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-21 00:00:00', 6, 'UTC'))) AS day_start
         UNION ALL SELECT count(e.uuid) AS total,
                          toStartOfDay(toTimeZone(e.timestamp, 'UTC')) AS day_start
         FROM events AS e SAMPLE 1
-        WHERE and(equals(e.team_id, 2), greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-20 00:00:00', 6, 'UTC')))), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-27 23:59:59', 6, 'UTC'))), equals(e.event, 'sign up'))
+        WHERE and(equals(e.team_id, 2), greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-21 00:00:00', 6, 'UTC')))), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-28 23:59:59', 6, 'UTC'))), equals(e.event, 'sign up'))
         GROUP BY day_start)
      GROUP BY day_start
      ORDER BY day_start ASC)
