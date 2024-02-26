@@ -450,7 +450,7 @@ class SessionRecordingViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                     # this is a legacy recording, we need to load the file from the old path
                     file_key = convert_original_version_lts_recording(recording)
             else:
-                blob_prefix = (settings.OBJECT_STORAGE_SESSION_RECORDING_BLOB_INGESTION_FOLDER,)
+                blob_prefix = settings.OBJECT_STORAGE_SESSION_RECORDING_BLOB_INGESTION_FOLDER
                 if use_v3_storage and settings.OBJECT_STORAGE_SESSION_RECORDING_BLOB_INGESTION_V3_FOLDER:
                     blob_prefix = settings.OBJECT_STORAGE_SESSION_RECORDING_BLOB_INGESTION_V3_FOLDER
 
