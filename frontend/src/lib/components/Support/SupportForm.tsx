@@ -8,7 +8,7 @@ import {
     Link,
 } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
-import { Field, Form } from 'kea-forms'
+import { Form } from 'kea-forms'
 import { useUploadFiles } from 'lib/hooks/useUploadFiles'
 import { IconFeedback, IconHelpOutline } from 'lib/lemon-ui/icons'
 import { LemonField } from 'lib/lemon-ui/LemonField'
@@ -127,10 +127,10 @@ export function SupportForm(): JSX.Element | null {
                         </>
                     </LemonBanner>
                 )}
-            <Field name="target_area" label="What area does this best relate to?">
+            <LemonField name="target_area" label="What area does this best relate to?">
                 <LemonSelect fullWidth type="secondary" options={TARGET_AREA_TO_NAME} />
-            </Field>
-            <Field name="severity_level" label="What is the severity of this issue?">
+            </LemonField>
+            <LemonField name="severity_level" label="What is the severity of this issue?">
                 <LemonSelect
                     fullWidth
                     options={Object.entries(SEVERITY_LEVEL_TO_NAME).map(([key, value]) => ({
@@ -138,7 +138,7 @@ export function SupportForm(): JSX.Element | null {
                         value: key,
                     }))}
                 />
-            </Field>
+            </LemonField>
             <span className="text-muted">
                 Check out the{' '}
                 <Link target="_blank" to="https://posthog.com/docs/support-options#severity-levels">
