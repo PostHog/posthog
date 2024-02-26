@@ -1741,14 +1741,14 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(
             response[1]["days"],
             [
-                "2019-12-20",  # -7d, previous period
-                "2019-12-21",  # -6d, previous period
-                "2019-12-22",  # -5d, previous period
-                "2019-12-23",  # -4d, previous period
-                "2019-12-24",  # -3d, previous period
-                "2019-12-25",  # -2d, previous period
-                "2019-12-26",  # -1d, previous period
-                "2019-12-27",  # -0d, previous period
+                "2019-12-21",  # -7d, previous period
+                "2019-12-22",  # -6d, previous period
+                "2019-12-23",  # -5d, previous period
+                "2019-12-24",  # -4d, previous period
+                "2019-12-25",  # -3d, previous period
+                "2019-12-26",  # -2d, previous period
+                "2019-12-27",  # -1d, previous period
+                "2019-12-28",  # duplicated to make weekdays align between current and previous
             ],
         )
         self.assertEqual(response[1]["label"], "sign up")
