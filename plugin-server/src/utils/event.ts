@@ -1,6 +1,7 @@
 import { PluginEvent, PostHogEvent, ProcessedPluginEvent } from '@posthog/plugin-scaffold'
 import { DateTime } from 'luxon'
 import { Message } from 'node-rdkafka'
+import UAParser from 'ua-parser-js'
 
 import { ClickHouseEvent, Element, PipelineEvent, PostIngestionEvent, RawClickHouseEvent } from '../types'
 import { chainToElements } from './db/elements-chain'
@@ -139,14 +140,45 @@ export function normalizeEvent(event: PluginEvent): PluginEvent {
     return event
 }
 
+export function enrichUserAgent(event: PluginEvent): PluginEvent {
+    const ua = event.properties?.['$user_agent'] || event.properties?.['$raw_user_agent']
+
+    if (event.properties && ua) {
+        const parser = new UAParser(ua)
+        // TODO: Check this is similar to our existing values
+        const device = parser.getDevice().model
+
+        // TODO: Capitalize these and default to desktop if not in valid list
+        const deviceType = parser.getDevice().type
+
+        const uaProperties = {
+            $os: parser.getOS().name,
+            $os_version: parser.getOS().version,
+            $browser: parser.getBrowser().name,
+            $browser_version: parser.getBrowser().version,
+            $device: device,
+            $device_type: deviceType,
+        }
+
+        event.properties = {
+            ...uaProperties,
+            // Prefer the existing properties if passed
+            ...event.properties,
+        }
+    }
+    return event
+}
+
 export function formPipelineEvent(message: Message): PipelineEvent {
     // TODO: inefficient to do this twice?
     const { data: dataStr, ...rawEvent } = JSON.parse(message.value!.toString())
     const combinedEvent = { ...JSON.parse(dataStr), ...rawEvent }
-    const event: PipelineEvent = normalizeEvent({
-        ...combinedEvent,
-        site_url: combinedEvent.site_url || null,
-    })
+    const event: PipelineEvent = enrichUserAgent(
+        normalizeEvent({
+            ...combinedEvent,
+            site_url: combinedEvent.site_url || null,
+        })
+    )
     return event
 }
 

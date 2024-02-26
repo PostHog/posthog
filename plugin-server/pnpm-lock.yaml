@@ -139,6 +139,9 @@ dependencies:
   tail:
     specifier: ^2.2.6
     version: 2.2.6
+  ua-parser-js:
+    specifier: ^1.0.37
+    version: 1.0.37
   uuid:
     specifier: ^8.3.2
     version: 8.3.2
@@ -222,6 +225,9 @@ devDependencies:
   '@types/tar-stream':
     specifier: ^2.2.0
     version: 2.2.2
+  '@types/ua-parser-js':
+    specifier: ^0.7.39
+    version: 0.7.39
   '@types/uuid':
     specifier: ^8.3.0
     version: 8.3.4
@@ -3770,6 +3776,10 @@ packages:
     resolution: {integrity: sha512-1AX+Yt3icFuU6kxwmPakaiGrJUwG44MpuiqPg4dSolRFk6jmvs4b3IbUol9wKDLIgU76gevn3EwE8y/DkSJCZQ==}
     dependencies:
       '@types/node': 16.18.25
+    dev: true
+
+  /@types/ua-parser-js@0.7.39:
+    resolution: {integrity: sha512-P/oDfpofrdtF5xw433SPALpdSchtJmY7nsJItf8h3KXqOslkbySh8zq4dSWXH2oTjRvJ5PczVEoCZPow6GicLg==}
     dev: true
 
   /@types/uuid@8.3.4:
@@ -10253,6 +10263,10 @@ packages:
     engines: {node: '>=4.2.0'}
     hasBin: true
     dev: true
+
+  /ua-parser-js@1.0.37:
+    resolution: {integrity: sha512-bhTyI94tZofjo+Dn8SN6Zv8nBDvyXTymAdM3LDI/0IboIUwTu1rEhW7v2TfiVsoYWgkQ4kOVqnI8APUFbIQIFQ==}
+    dev: false
 
   /uc.micro@1.0.6:
     resolution: {integrity: sha512-8Y75pvTYkLJW2hWQHXxoqRgV7qb9B+9vFEtidML+7koHUFapnVJAZ6cKs+Qjz5Aw3aZWHMC6u0wJE3At+nSGwA==}
