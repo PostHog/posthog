@@ -61,6 +61,7 @@ class MockServer:
 
     def post(self, url, data, **kwargs):
         data = json.loads(data.read())
+        assert data["historical_migration"]
         assert data["api_key"] == TEST_TOKEN
         self.records.extend(data["batch"])
 
