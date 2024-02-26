@@ -676,7 +676,7 @@ class FunnelBase(ABC):
             events = []
             for i in range(0, max_steps):
                 event_fields = ["latest"] + self.extra_event_fields_and_properties
-                event_fields_with_step = ", ".join([f'"{field}_{i}"' for field in event_fields])
+                event_fields_with_step = ", ".join([f"{field}_{i}" for field in event_fields])
                 event_clause = f"({event_fields_with_step}) as step_{i}_matching_event"
                 events.append(parse_expr(event_clause))
 
@@ -789,7 +789,7 @@ class FunnelBase(ABC):
                 exprs.append(ast.Field(chain=[f"latest_{i}"]))
 
                 for field in self.extra_event_fields_and_properties:
-                    exprs.append(ast.Field(chain=[f'"{field}_{i}"']))
+                    exprs.append(ast.Field(chain=[f"{field}_{i}"]))
 
                 for exclusion_id, exclusion in enumerate(exclusions or []):
                     if cast(int, exclusion.funnelFromStep) + 1 == i:

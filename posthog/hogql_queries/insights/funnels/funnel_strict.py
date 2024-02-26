@@ -110,7 +110,7 @@ class FunnelStrict(FunnelBase):
                 exprs.append(ast.Field(chain=[f"latest_{i}"]))
 
                 for field in self.extra_event_fields_and_properties:
-                    exprs.append(ast.Field(chain=[f'"{field}_{i}"']))
+                    exprs.append(ast.Field(chain=[f"{field}_{i}"]))
 
             else:
                 exprs.append(

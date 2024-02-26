@@ -191,7 +191,7 @@ class Funnel(FunnelBase):
                 exprs.append(ast.Field(chain=[f"latest_{i}"]))
 
                 for field in self.extra_event_fields_and_properties:
-                    exprs.append(ast.Field(chain=[f'"{field}_{i}"']))
+                    exprs.append(ast.Field(chain=[f"{field}_{i}"]))
 
                 for exclusion_id, exclusion in enumerate(exclusions or []):
                     if exclusion.funnelFromStep + 1 == i:
