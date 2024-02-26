@@ -375,7 +375,7 @@ export class SessionManagerV3 {
                     Bucket: this.serverConfig.OBJECT_STORAGE_BUCKET,
                     Key: dataKey,
                     ContentEncoding: 'gzip',
-                    ContentType: 'application/json',
+                    ContentType: 'application/jsonl',
                     Body: uploadStream,
                 },
             }))
