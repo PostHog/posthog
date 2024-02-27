@@ -111,6 +111,7 @@ export type QuerySchema =
     | EventsNode // never queried directly
     | ActionsNode // old actions API endpoint
     | PersonsNode // old persons API endpoint
+    | DataWarehouseNode
     | TimeToSeeDataSessionsQuery // old API
     | EventsQuery
     | ActorsQuery
@@ -366,6 +367,7 @@ export interface EventsNode extends EntityNode {
 }
 
 export interface DataWarehouseNode extends EntityNode {
+    id: string
     kind: NodeKind.DataWarehouseNode
     id_field: string
     table_name: string
