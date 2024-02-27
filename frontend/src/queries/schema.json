@@ -1459,18 +1459,11 @@
                 "correlationType": {
                     "$ref": "#/definitions/FunnelCorrelationType"
                 },
-                "funnelStep": {
-                    "description": "Index of the step for which we want to get the timestamp for, per person. Positive for converted persons, negative for dropped of persons.",
-                    "type": "integer"
-                },
-                "includeRecordings": {
-                    "type": "boolean"
-                },
                 "response": {
                     "$ref": "#/definitions/FunnelCorrelationResponse"
                 },
                 "source": {
-                    "$ref": "#/definitions/FunnelsQuery"
+                    "$ref": "#/definitions/FunnelsActorsQuery"
                 }
             },
             "required": ["source", "correlationType"],

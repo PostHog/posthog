@@ -25,7 +25,9 @@ from posthog.schema import (
     FunnelCorrelationQuery,
     FunnelCorrelationResponse,
     FunnelCorrelationResult,
+    FunnelsActorsQuery,
     FunnelsFilter,
+    FunnelsQuery,
     HogQLQueryModifiers,
 )
 
@@ -74,6 +76,8 @@ class FunnelCorrelationQueryRunner(QueryRunner):
 
     query: FunnelCorrelationQuery
     query_type = FunnelCorrelationQuery
+    funnels_query: FunnelsQuery
+    actors_query: FunnelsActorsQuery
 
     _funnel_actors_generator: FunnelActors | FunnelStrictActors | FunnelUnorderedActors
 
@@ -86,22 +90,23 @@ class FunnelCorrelationQueryRunner(QueryRunner):
         limit_context: Optional[LimitContext] = None,
     ):
         super().__init__(query, team=team, timings=timings, modifiers=modifiers, limit_context=limit_context)
+        self.actors_query = self.query.source
+        self.funnels_query = self.actors_query.source
+
+        self.context = FunnelQueryContext(
+            query=self.funnels_query, team=team, timings=timings, modifiers=modifiers, limit_context=limit_context
+        )
 
         # Funnel Step by default set to 1, to give us all people who entered the funnel
-        if self.query.funnelStep is None:
-            self.query.funnelStep = 1
+        if self.actors_query.funnelStep is None:
+            self.actors_query.funnelStep = 1
 
         # Used for generating the funnel persons cte
 
         # # NOTE: we always use the final matching event for the recording because this
         # # is the the right event for both drop off and successful funnels
         # filter_data.update({"include_final_matching_events": self._filter.include_recordings})
-        funnel_query_context = FunnelQueryContext(
-            query=self.query.source, team=team, timings=timings, modifiers=modifiers, limit_context=limit_context
-        )
-        funnel_order_actor_class = get_funnel_actor_class(self.query.source.funnelsFilter or FunnelsFilter())(
-            context=funnel_query_context
-        )
+        funnel_order_actor_class = get_funnel_actor_class(self.context.funnelsFilter)(context=self.context)
         self._funnel_actors_generator = funnel_order_actor_class
 
         # self._funnel_actors_generator = funnel_order_actor_class(
@@ -187,7 +192,7 @@ class FunnelCorrelationQueryRunner(QueryRunner):
         event, but does include the total success/failure numbers, which is enough
         for us to calculate the odds ratio.
         """
-        if not self.query.source.series:
+        if not self.funnels_query.series:
             return FunnelCorrelationResponse(result=FunnelCorrelationResult(events=[], skewed=False))
 
         query = self.to_query()
@@ -220,8 +225,8 @@ class FunnelCorrelationQueryRunner(QueryRunner):
             ],
         )
 
-        success_total = int(correct_result_for_sampling(success_total, self.query.source.samplingFactor))
-        failure_total = int(correct_result_for_sampling(failure_total, self.query.source.samplingFactor))
+        success_total = int(correct_result_for_sampling(success_total, self.funnels_query.samplingFactor))
+        failure_total = int(correct_result_for_sampling(failure_total, self.funnels_query.samplingFactor))
 
         if not success_total or not failure_total:
             return FunnelCorrelationResponse(result=FunnelCorrelationResult(events=[], skewed=True))

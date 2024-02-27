@@ -2587,20 +2587,6 @@ class PathsQuery(BaseModel):
     samplingFactor: Optional[float] = Field(default=None, description="Sampling rate")
 
 
-class FunnelCorrelationQuery(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    correlationType: FunnelCorrelationType
-    funnelStep: Optional[int] = Field(
-        default=None,
-        description="Index of the step for which we want to get the timestamp for, per person. Positive for converted persons, negative for dropped of persons.",
-    )
-    includeRecordings: Optional[bool] = None
-    response: Optional[FunnelCorrelationResponse] = None
-    source: FunnelsQuery
-
-
 class FunnelsActorsQuery(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -2650,6 +2636,15 @@ class InsightVizNode(BaseModel):
     )
     suppressSessionAnalysisWarning: Optional[bool] = None
     vizSpecificOptions: Optional[VizSpecificOptions] = None
+
+
+class FunnelCorrelationQuery(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    correlationType: FunnelCorrelationType
+    response: Optional[FunnelCorrelationResponse] = None
+    source: FunnelsActorsQuery
 
 
 class InsightActorsQuery(BaseModel):
