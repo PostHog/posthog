@@ -240,6 +240,7 @@ export class SessionRecordingIngesterV3 {
                 await runInstrumentedFunction({
                     statsKey: `recordingingester.handleEachBatch.flushAllReadySessions`,
                     func: async () => {
+                        // TODO: This can time out if it ends up being overloaded - we should have a max limit here
                         await this.flushAllReadySessions()
                     },
                 })
@@ -418,43 +419,53 @@ export class SessionRecordingIngesterV3 {
     private setupHttpRoutes() {
         // Mimic the app sever's endpoint
         expressApp.get('/api/projects/:projectId/session_recordings/:sessionId/snapshots', async (req, res) => {
-            const startTime = Date.now()
-            res.on('finish', function () {
-                status.info('⚡️', `GET ${req.url} - ${res.statusCode} - ${Date.now() - startTime}ms`)
+            await runInstrumentedFunction({
+                statsKey: `recordingingester.http.getSnapshots`,
+                func: async () => {
+                    try {
+                        const startTime = Date.now()
+                        res.on('finish', function () {
+                            status.info('⚡️', `GET ${req.url} - ${res.statusCode} - ${Date.now() - startTime}ms`)
+                        })
+
+                        // validate that projectId is a number and sessionId is UUID like
+                        const projectId = parseInt(req.params.projectId)
+                        if (isNaN(projectId)) {
+                            res.sendStatus(404)
+                            return
+                        }
+
+                        const sessionId = req.params.sessionId
+                        if (!/^[0-9a-f-]+$/.test(sessionId)) {
+                            res.sendStatus(404)
+                            return
+                        }
+
+                        status.info('🔁', 'session-replay-ingestion - fetching session', { projectId, sessionId })
+
+                        // We don't know the partition upfront so we have to recursively check all partitions
+                        const partitions = await readdir(this.rootDir).catch(() => [])
+
+                        for (const partition of partitions) {
+                            const sessionDir = this.dirForSession(parseInt(partition), projectId, sessionId)
+                            const exists = await stat(sessionDir).catch(() => null)
+
+                            if (!exists) {
+                                continue
+                            }
+
+                            const fileStream = createReadStream(path.join(sessionDir, BUFFER_FILE_NAME))
+                            fileStream.pipe(res)
+                            return
+                        }
+
+                        res.sendStatus(404)
+                    } catch (e) {
+                        status.error('🔥', 'session-replay-ingestion - failed to fetch session', e)
+                        res.sendStatus(500)
+                    }
+                },
             })
-
-            // validate that projectId is a number and sessionId is UUID like
-            const projectId = parseInt(req.params.projectId)
-            if (isNaN(projectId)) {
-                res.sendStatus(404)
-                return
-            }
-
-            const sessionId = req.params.sessionId
-            if (!/^[0-9a-f-]+$/.test(sessionId)) {
-                res.sendStatus(404)
-                return
-            }
-
-            status.info('🔁', 'session-replay-ingestion - fetching session', { projectId, sessionId })
-
-            // We don't know the partition upfront so we have to recursively check all partitions
-            const partitions = await readdir(this.rootDir).catch(() => [])
-
-            for (const partition of partitions) {
-                const sessionDir = this.dirForSession(parseInt(partition), projectId, sessionId)
-                const exists = await stat(sessionDir).catch(() => null)
-
-                if (!exists) {
-                    continue
-                }
-
-                const fileStream = createReadStream(path.join(sessionDir, BUFFER_FILE_NAME))
-                fileStream.pipe(res)
-                return
-            }
-
-            res.sendStatus(404)
         })
     }
 }
