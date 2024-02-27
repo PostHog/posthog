@@ -53,7 +53,11 @@ export const sceneLogic = kea<sceneLogicType>([
         setLoadedScene: (loadedScene: LoadedScene) => ({
             loadedScene,
         }),
-        showUpgradeModal: (featureKey: AvailableFeature, currentUsage?: number) => ({ featureKey, currentUsage }),
+        showUpgradeModal: (featureKey: AvailableFeature, currentUsage?: number, isGrandfathered?: boolean) => ({
+            featureKey,
+            currentUsage,
+            isGrandfathered,
+        }),
         guardAvailableFeature: (
             featureKey: AvailableFeature,
             featureAvailableCallback?: () => void,
@@ -66,8 +70,9 @@ export const sceneLogic = kea<sceneLogicType>([
             },
             // how much of the feature has been used (eg. number of recording playlists created),
             // which will be compared to the limit for their subscriptions
-            currentUsage?: number
-        ) => ({ featureKey, featureAvailableCallback, guardOn, currentUsage }),
+            currentUsage?: number,
+            isGrandfathered?: boolean
+        ) => ({ featureKey, featureAvailableCallback, guardOn, currentUsage, isGrandfathered }),
         hideUpgradeModal: true,
         reloadBrowserDueToImportError: true,
     }),
@@ -112,6 +117,13 @@ export const sceneLogic = kea<sceneLogicType>([
             null as number | null,
             {
                 showUpgradeModal: (_, { currentUsage }) => currentUsage ?? null,
+                hideUpgradeModal: () => null,
+            },
+        ],
+        upgradeModalIsGrandfathered: [
+            null as boolean | null,
+            {
+                showUpgradeModal: (_, { isGrandfathered }) => isGrandfathered ?? null,
                 hideUpgradeModal: () => null,
             },
         ],
@@ -162,7 +174,7 @@ export const sceneLogic = kea<sceneLogicType>([
         showUpgradeModal: ({ featureKey }) => {
             eventUsageLogic.actions.reportUpgradeModalShown(featureKey)
         },
-        guardAvailableFeature: ({ featureKey, featureAvailableCallback, guardOn, currentUsage }) => {
+        guardAvailableFeature: ({ featureKey, featureAvailableCallback, guardOn, currentUsage, isGrandfathered }) => {
             const { preflight } = preflightLogic.values
             let featureAvailable: boolean
             if (!preflight) {
@@ -177,7 +189,7 @@ export const sceneLogic = kea<sceneLogicType>([
             if (featureAvailable) {
                 featureAvailableCallback?.()
             } else {
-                actions.showUpgradeModal(featureKey, currentUsage)
+                actions.showUpgradeModal(featureKey, currentUsage, isGrandfathered)
             }
         },
         setScene: ({ scene, scrollToTop }, _, __, previousState) => {

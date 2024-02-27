@@ -5,7 +5,7 @@ import { PayGateMini } from 'lib/components/PayGateMini/PayGateMini'
 import { sceneLogic } from './sceneLogic'
 
 export function UpgradeModal(): JSX.Element {
-    const { upgradeModalFeatureKey, upgradeModalFeatureUsage } = useValues(sceneLogic)
+    const { upgradeModalFeatureKey, upgradeModalFeatureUsage, upgradeModalIsGrandfathered } = useValues(sceneLogic)
     const { hideUpgradeModal } = useActions(sceneLogic)
 
     return upgradeModalFeatureKey ? (
@@ -14,6 +14,7 @@ export function UpgradeModal(): JSX.Element {
                 <PayGateMini
                     feature={upgradeModalFeatureKey}
                     currentUsage={upgradeModalFeatureUsage ?? undefined}
+                    isGrandfathered={upgradeModalIsGrandfathered ?? undefined}
                     background={false}
                 >
                     <>

@@ -19,6 +19,7 @@ export interface PayGateMiniProps {
     overrideShouldShowGate?: boolean
     className?: string
     background?: boolean
+    isGrandfathered?: boolean
 }
 
 /** A sort of paywall for premium features.
@@ -33,6 +34,7 @@ export function PayGateMini({
     children,
     overrideShouldShowGate,
     background = true,
+    isGrandfathered,
 }: PayGateMiniProps): JSX.Element | null {
     const { preflight, isCloudOrDev } = useValues(preflightLogic)
     const { hasAvailableFeature, availableFeature } = useValues(userLogic)
@@ -104,6 +106,15 @@ export function PayGateMini({
                     )}
                     {featureInfo.description ? lowercaseFirstLetter(featureInfo.description) : 'use this feature.'}
                 </p>
+            )}
+            {isGrandfathered && (
+                <div className="flex gap-x-2 bg-side p-4 rounded text-left mb-4">
+                    <IconInfo className="text-muted text-2xl" />
+                    <p className="text-muted mb-0">
+                        Your plan does not include this feature, but previously set settings may remain. Please upgrade
+                        your plan to regain access.
+                    </p>
+                </div>
             )}
             {featureInfo.docsUrl && (
                 <div className="mb-4">
