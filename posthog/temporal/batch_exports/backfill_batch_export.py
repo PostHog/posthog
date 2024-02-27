@@ -13,6 +13,7 @@ import temporalio.exceptions
 import temporalio.workflow
 from django.conf import settings
 
+from posthog.batch_exports.models import BatchExportBackfill
 from posthog.batch_exports.service import BackfillBatchExportInputs
 from posthog.temporal.batch_exports.base import PostHogWorkflow
 from posthog.temporal.batch_exports.batch_exports import (
@@ -328,7 +329,7 @@ class BackfillBatchExportWorkflow(PostHogWorkflow):
             batch_export_id=inputs.batch_export_id,
             start_at=inputs.start_at,
             end_at=inputs.end_at,
-            status="Running",
+            status=BatchExportBackfill.Status.RUNNING,
         )
 
         backfill_id = await temporalio.workflow.execute_activity(
@@ -342,7 +343,9 @@ class BackfillBatchExportWorkflow(PostHogWorkflow):
                 non_retryable_error_types=["NotNullViolation", "IntegrityError"],
             ),
         )
-        update_inputs = UpdateBatchExportBackfillStatusInputs(id=backfill_id, status="Completed")
+        update_inputs = UpdateBatchExportBackfillStatusInputs(
+            id=backfill_id, status=BatchExportBackfill.Status.COMPLETED
+        )
 
         frequency_seconds = await temporalio.workflow.execute_activity(
             get_schedule_frequency,
@@ -380,14 +383,14 @@ class BackfillBatchExportWorkflow(PostHogWorkflow):
 
         except temporalio.exceptions.ActivityError as e:
             if isinstance(e.cause, temporalio.exceptions.CancelledError):
-                update_inputs.status = "Cancelled"
+                update_inputs.status = BatchExportBackfill.Status.CANCELLED
             else:
-                update_inputs.status = "Failed"
+                update_inputs.status = BatchExportBackfill.Status.FAILED
 
             raise
 
         except Exception:
-            update_inputs.status = "Failed"
+            update_inputs.status = BatchExportBackfill.Status.FAILED
             raise
 
         finally:

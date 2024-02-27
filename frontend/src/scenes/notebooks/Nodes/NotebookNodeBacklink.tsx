@@ -2,7 +2,7 @@ import { mergeAttributes, Node, NodeViewProps } from '@tiptap/core'
 import { NodeViewWrapper, ReactNodeViewRenderer } from '@tiptap/react'
 import { InsightModel, NotebookNodeType, NotebookTarget } from '~/types'
 import { Link } from '@posthog/lemon-ui'
-import { IconBarChart, IconFlag, IconExperiment, IconLive, IconPerson, IconCohort } from 'lib/lemon-ui/icons'
+import { IconExperiment, IconLive, IconCohort } from 'lib/lemon-ui/icons'
 import { urls } from 'scenes/urls'
 import clsx from 'clsx'
 import { router } from 'kea-router'
@@ -12,7 +12,17 @@ import { useValues } from 'kea'
 import { notebookLogic } from '../Notebook/notebookLogic'
 
 import { openNotebook } from '~/models/notebooksModel'
-import { IconChat, IconDashboard, IconLogomark, IconNotebook, IconPlaylist, IconRewindPlay } from '@posthog/icons'
+import {
+    IconChat,
+    IconDashboard,
+    IconFlag,
+    IconGraph,
+    IconLogomark,
+    IconNotebook,
+    IconPerson,
+    IconPlaylist,
+    IconRewindPlay,
+} from '@posthog/icons'
 import { useEffect } from 'react'
 
 type BackLinkMapper = {
@@ -36,7 +46,7 @@ const BACKLINK_MAP: BackLinkMapper[] = [
     {
         type: 'insights',
         regex: new RegExp(urls.insightView('(.+)' as InsightModel['short_id'])),
-        icon: <IconBarChart />,
+        icon: <IconGraph />,
         getTitle: async (path: string) => {
             const id = path.split('/')[2]
             const insight = await api.insights.loadInsight(id as InsightModel['short_id'])

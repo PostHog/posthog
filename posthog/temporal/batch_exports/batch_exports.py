@@ -16,6 +16,7 @@ from django.conf import settings
 from temporalio import activity, exceptions, workflow
 from temporalio.common import RetryPolicy
 
+from posthog.batch_exports.models import BatchExportBackfill, BatchExportRun
 from posthog.batch_exports.service import (
     BatchExportField,
     create_batch_export_backfill,
@@ -23,11 +24,11 @@ from posthog.batch_exports.service import (
     update_batch_export_backfill_status,
     update_batch_export_run_status,
 )
-from posthog.temporal.batch_exports.clickhouse import ClickHouseClient
 from posthog.temporal.batch_exports.metrics import (
     get_export_finished_metric,
     get_export_started_metric,
 )
+from posthog.temporal.common.clickhouse import ClickHouseClient
 from posthog.temporal.common.logger import bind_temporal_worker_logger
 
 SELECT_QUERY_TEMPLATE = Template(
@@ -496,7 +497,7 @@ class CreateBatchExportRunInputs:
     batch_export_id: str
     data_interval_start: str
     data_interval_end: str
-    status: str = "Starting"
+    status: str = BatchExportRun.Status.STARTING
 
 
 @activity.defn
@@ -546,10 +547,10 @@ async def update_export_run_status(inputs: UpdateBatchExportRunStatusInputs) -> 
         latest_error=inputs.latest_error,
     )
 
-    if batch_export_run.status == "Failed":
+    if batch_export_run.status in (BatchExportRun.Status.FAILED, BatchExportRun.Status.FAILED_RETRYABLE):
         logger.error("BatchExport failed with error: %s", batch_export_run.latest_error)
 
-    elif batch_export_run.status == "Cancelled":
+    elif batch_export_run.status == BatchExportRun.Status.CANCELLED:
         logger.warning("BatchExport was cancelled.")
 
     else:
@@ -612,10 +613,10 @@ async def update_batch_export_backfill_model_status(inputs: UpdateBatchExportBac
     )
     logger = await bind_temporal_worker_logger(team_id=backfill.team_id)
 
-    if backfill.status == "Failed":
+    if backfill.status == BatchExportBackfill.Status.FAILED:
         logger.error("Historical export failed")
 
-    elif backfill.status == "Cancelled":
+    elif backfill.status == BatchExportBackfill.Status.CANCELLED:
         logger.warning("Historical export was cancelled.")
 
     else:
@@ -661,6 +662,7 @@ async def execute_batch_export_insert_activity(
         maximum_attempts=maximum_attempts,
         non_retryable_error_types=non_retryable_error_types,
     )
+
     try:
         await workflow.execute_activity(
             activity,
@@ -672,15 +674,17 @@ async def execute_batch_export_insert_activity(
 
     except exceptions.ActivityError as e:
         if isinstance(e.cause, exceptions.CancelledError):
-            update_inputs.status = "Cancelled"
+            update_inputs.status = BatchExportRun.Status.CANCELLED
+        elif isinstance(e.cause, exceptions.ApplicationError) and e.cause.type not in non_retryable_error_types:
+            update_inputs.status = BatchExportRun.Status.FAILED_RETRYABLE
         else:
-            update_inputs.status = "Failed"
+            update_inputs.status = BatchExportRun.Status.FAILED
 
         update_inputs.latest_error = str(e.cause)
         raise
 
     except Exception:
-        update_inputs.status = "Failed"
+        update_inputs.status = BatchExportRun.Status.FAILED
         update_inputs.latest_error = "An unexpected error has ocurred"
         raise
 

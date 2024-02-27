@@ -531,7 +531,6 @@ def get_compare_period_dates(
     date_from_delta_mapping: Optional[Dict[str, int]],
     date_to_delta_mapping: Optional[Dict[str, int]],
     interval: str,
-    ignore_date_from_alignment: bool = False,  # New HogQL trends no longer requires the adjustment
 ) -> Tuple[datetime.datetime, datetime.datetime]:
     diff = date_to - date_from
     new_date_from = date_from - diff
@@ -550,7 +549,6 @@ def get_compare_period_dates(
             and date_from_delta_mapping.get("days", None)
             and date_from_delta_mapping["days"] % 7 == 0
             and not date_to_delta_mapping
-            and not ignore_date_from_alignment
         ):
             # KLUDGE: Unfortunately common relative date ranges such as "Last 7 days" (-7d) or "Last 14 days" (-14d)
             # are wrong because they treat the current ongoing day as an _extra_ one. This means that those ranges

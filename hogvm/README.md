@@ -85,12 +85,13 @@ execute_bytecode(to_bytecode("'user_id' in cohort 2"), {}, async_operation)
 A PostHog HogQL Bytecode Certified Parser must also implement the following function calls:
 
 ```bash
-concat(...)             # concat('test: ', 1, null, '!') == 'test: 1!'
-match(string, pattern)  # match('fish', '$fi.*') == true
-toString(val)           # toString(true) == 'true'
-toInt(val)              # toInt('123') == 123
-toFloat(val)            # toFloat('123.2') == 123.2
-toUUID(val)             # toUUID('string') == 'string'
+concat(...)              # concat('test: ', 1, null, '!') == 'test: 1!'
+match(string, pattern)   # match('fish', '$fi.*') == true
+toString(val)            # toString(true) == 'true'
+toInt(val)               # toInt('123') == 123
+toFloat(val)             # toFloat('123.2') == 123.2
+toUUID(val)              # toUUID('string') == 'string'
+ifNull(val, alternative) # ifNull('string', false) == 'string'
 ```
 
 ### Null handling
