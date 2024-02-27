@@ -251,11 +251,14 @@ const cleanProperties = (parentProperties: FilterType['properties']): InsightsQu
         return parentProperties.map(processAnyPropertyFilter)
     }
 
-    // parentProperties is accidentally a PropertyGroupFilterValue
     if (
         (parentProperties.type === FilterLogicalOperator.And || parentProperties.type === FilterLogicalOperator.Or) &&
         Array.isArray(parentProperties.values) &&
-        parentProperties.values.some((value) => typeof value !== 'object')
+        parentProperties.values.some(
+            (value) =>
+                typeof value !== 'object' ||
+                (value.type !== FilterLogicalOperator.And && value.type !== FilterLogicalOperator.Or)
+        )
     ) {
         return {
             type: FilterLogicalOperator.And,
