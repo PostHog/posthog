@@ -7,6 +7,7 @@ import { RecordingFilters } from '~/types'
 
 import { getDefaultFilters } from '../playlist/sessionRecordingsPlaylistLogic'
 import { AdvancedSessionRecordingsFilters } from './AdvancedSessionRecordingsFilters'
+import { OrderingFilters } from './OrderingFilters'
 import { SimpleSessionRecordingsFilters } from './SimpleSessionRecordingsFilters'
 
 interface SessionRecordingsFiltersProps {
@@ -45,6 +46,20 @@ export function SessionRecordingsFilters({
         />
     )
 
+    const panels = [
+        !hideSimpleFilters && {
+            key: 'advanced-filters',
+            header: 'Advanced filters',
+            className: 'p-0',
+            content: AdvancedFilters,
+        },
+        {
+            key: 'ordering',
+            header: 'Ordering',
+            content: <OrderingFilters />,
+        },
+    ]
+
     return (
         <div className="relative flex flex-col">
             <div className="space-y-1 p-3">
@@ -73,14 +88,7 @@ export function SessionRecordingsFilters({
                     multiple
                     defaultActiveKeys={initiallyOpen ? ['advanced-filters'] : []}
                     size="small"
-                    panels={[
-                        {
-                            key: 'advanced-filters',
-                            header: 'Advanced filters',
-                            className: 'p-0',
-                            content: AdvancedFilters,
-                        },
-                    ]}
+                    panels={panels}
                 />
             )}
         </div>

@@ -14,7 +14,7 @@
         "frontend/public/Inter.woff2": { "bytes": 36936, "imports": [] },
         "frontend/public/Inter.woff": { "bytes": 121716, "imports": [] },
         "frontend/src/styles/global.scss": {
-            "bytes": 669382,
+            "bytes": 669481,
             "imports": [
                 { "path": "frontend/public/Inter.woff2", "kind": "url-token", "original": "../../public/Inter.woff2" },
                 { "path": "frontend/public/Inter.woff", "kind": "url-token", "original": "../../public/Inter.woff" },
@@ -62,7 +62,7 @@
             ],
             "format": "esm"
         },
-        "frontend/src/toolbar/styles.scss": { "bytes": 90386, "imports": [] },
+        "frontend/src/toolbar/styles.scss": { "bytes": 90443, "imports": [] },
         "node_modules/.pnpm/react@18.2.0/node_modules/react/cjs/react.development.js": {
             "bytes": 87574,
             "imports": [],
@@ -569,8 +569,8 @@
             ],
             "format": "esm"
         },
-        "frontend/src/lib/lemon-ui/icons/icons.scss": { "bytes": 1498, "imports": [] },
-        "frontend/src/lib/lemon-ui/LemonBadge/LemonBadge.scss": { "bytes": 21793, "imports": [] },
+        "frontend/src/lib/lemon-ui/icons/icons.scss": { "bytes": 1518, "imports": [] },
+        "frontend/src/lib/lemon-ui/LemonBadge/LemonBadge.scss": { "bytes": 21817, "imports": [] },
         "node_modules/.pnpm/@sentry+utils@7.22.0/node_modules/@sentry/utils/esm/is.js": {
             "bytes": 4529,
             "imports": [],
@@ -2261,7 +2261,7 @@
             "format": "esm"
         },
         "frontend/src/types.ts": {
-            "bytes": 105654,
+            "bytes": 105314,
             "imports": [
                 { "path": "@posthog/plugin-scaffold", "kind": "import-statement", "external": true },
                 { "path": "@rrweb/types", "kind": "import-statement", "external": true },
@@ -2290,7 +2290,7 @@
             "format": "esm"
         },
         "frontend/src/lib/constants.tsx": {
-            "bytes": 11889,
+            "bytes": 12144,
             "imports": [
                 { "path": "@posthog/lemon-ui", "kind": "import-statement", "external": true },
                 { "path": "frontend/src/types.ts", "kind": "import-statement", "original": "../types" }
@@ -2934,7 +2934,7 @@
             "format": "esm"
         },
         "frontend/src/lib/lemon-ui/icons/icons.tsx": {
-            "bytes": 120685,
+            "bytes": 139317,
             "imports": [
                 {
                     "path": "frontend/src/lib/lemon-ui/icons/icons.scss",
@@ -2971,8 +2971,8 @@
             ],
             "format": "esm"
         },
-        "frontend/src/lib/lemon-ui/LemonButton/LemonButton.scss": { "bytes": 102693, "imports": [] },
-        "frontend/src/lib/lemon-ui/Popover/Popover.scss": { "bytes": 19389, "imports": [] },
+        "frontend/src/lib/lemon-ui/LemonButton/LemonButton.scss": { "bytes": 102713, "imports": [] },
+        "frontend/src/lib/lemon-ui/Popover/Popover.scss": { "bytes": 19409, "imports": [] },
         "node_modules/.pnpm/@floating-ui+utils@0.2.1/node_modules/@floating-ui/utils/dist/floating-ui.utils.dom.mjs": {
             "bytes": 5031,
             "imports": [],
@@ -2994,32 +2994,37 @@
             "imports": [],
             "format": "esm"
         },
-        "node_modules/.pnpm/@floating-ui+core@1.6.0/node_modules/@floating-ui/core/dist/floating-ui.core.mjs": {
-            "bytes": 34697,
+        "node_modules/.pnpm/@floating-ui+utils@0.1.1/node_modules/@floating-ui/utils/dist/floating-ui.utils.mjs": {
+            "bytes": 3915,
+            "imports": [],
+            "format": "esm"
+        },
+        "node_modules/.pnpm/@floating-ui+core@1.4.1/node_modules/@floating-ui/core/dist/floating-ui.core.mjs": {
+            "bytes": 33693,
             "imports": [
                 {
-                    "path": "node_modules/.pnpm/@floating-ui+utils@0.2.1/node_modules/@floating-ui/utils/dist/floating-ui.utils.mjs",
+                    "path": "node_modules/.pnpm/@floating-ui+utils@0.1.1/node_modules/@floating-ui/utils/dist/floating-ui.utils.mjs",
                     "kind": "import-statement",
                     "original": "@floating-ui/utils"
                 },
                 {
-                    "path": "node_modules/.pnpm/@floating-ui+utils@0.2.1/node_modules/@floating-ui/utils/dist/floating-ui.utils.mjs",
+                    "path": "node_modules/.pnpm/@floating-ui+utils@0.1.1/node_modules/@floating-ui/utils/dist/floating-ui.utils.mjs",
                     "kind": "import-statement",
                     "original": "@floating-ui/utils"
                 }
             ],
             "format": "esm"
         },
-        "node_modules/.pnpm/@floating-ui+dom@1.6.1/node_modules/@floating-ui/dom/dist/floating-ui.dom.mjs": {
-            "bytes": 23414,
+        "node_modules/.pnpm/@floating-ui+dom@1.6.3/node_modules/@floating-ui/dom/dist/floating-ui.dom.mjs": {
+            "bytes": 22928,
             "imports": [
                 {
-                    "path": "node_modules/.pnpm/@floating-ui+core@1.6.0/node_modules/@floating-ui/core/dist/floating-ui.core.mjs",
+                    "path": "node_modules/.pnpm/@floating-ui+core@1.4.1/node_modules/@floating-ui/core/dist/floating-ui.core.mjs",
                     "kind": "import-statement",
                     "original": "@floating-ui/core"
                 },
                 {
-                    "path": "node_modules/.pnpm/@floating-ui+core@1.6.0/node_modules/@floating-ui/core/dist/floating-ui.core.mjs",
+                    "path": "node_modules/.pnpm/@floating-ui+core@1.4.1/node_modules/@floating-ui/core/dist/floating-ui.core.mjs",
                     "kind": "import-statement",
                     "original": "@floating-ui/core"
                 },
@@ -3045,12 +3050,12 @@
             "bytes": 7388,
             "imports": [
                 {
-                    "path": "node_modules/.pnpm/@floating-ui+dom@1.6.1/node_modules/@floating-ui/dom/dist/floating-ui.dom.mjs",
+                    "path": "node_modules/.pnpm/@floating-ui+dom@1.6.3/node_modules/@floating-ui/dom/dist/floating-ui.dom.mjs",
                     "kind": "import-statement",
                     "original": "@floating-ui/dom"
                 },
                 {
-                    "path": "node_modules/.pnpm/@floating-ui+dom@1.6.1/node_modules/@floating-ui/dom/dist/floating-ui.dom.mjs",
+                    "path": "node_modules/.pnpm/@floating-ui+dom@1.6.3/node_modules/@floating-ui/dom/dist/floating-ui.dom.mjs",
                     "kind": "import-statement",
                     "original": "@floating-ui/dom"
                 },
@@ -3128,7 +3133,7 @@
             ],
             "format": "esm"
         },
-        "frontend/src/lib/components/ScrollableShadows/ScrollableShadows.scss": { "bytes": 9208, "imports": [] },
+        "frontend/src/lib/components/ScrollableShadows/ScrollableShadows.scss": { "bytes": 9228, "imports": [] },
         "node_modules/.pnpm/resize-observer-polyfill@1.5.1/node_modules/resize-observer-polyfill/dist/ResizeObserver.es.js": {
             "bytes": 33654,
             "imports": [],
@@ -3345,7 +3350,7 @@
             ],
             "format": "esm"
         },
-        "frontend/src/lib/lemon-ui/Link/Link.scss": { "bytes": 4689, "imports": [] },
+        "frontend/src/lib/lemon-ui/Link/Link.scss": { "bytes": 4717, "imports": [] },
         "frontend/src/lib/utils/router-utils.ts": {
             "bytes": 1367,
             "imports": [
@@ -3358,7 +3363,7 @@
             ],
             "format": "esm"
         },
-        "frontend/src/scenes/notebooks/AddToNotebook/DraggableToNotebook.scss": { "bytes": 3190, "imports": [] },
+        "frontend/src/scenes/notebooks/AddToNotebook/DraggableToNotebook.scss": { "bytes": 3214, "imports": [] },
         "frontend/src/lib/hooks/useKeyHeld.tsx": {
             "bytes": 1162,
             "imports": [
@@ -3502,7 +3507,7 @@
             ],
             "format": "esm"
         },
-        "frontend/src/lib/lemon-ui/Tooltip/Tooltip.scss": { "bytes": 1340, "imports": [] },
+        "frontend/src/lib/lemon-ui/Tooltip/Tooltip.scss": { "bytes": 1364, "imports": [] },
         "frontend/src/lib/lemon-ui/Tooltip/Tooltip.tsx": {
             "bytes": 4170,
             "imports": [
@@ -3625,9 +3630,9 @@
             ],
             "format": "esm"
         },
-        "frontend/src/lib/lemon-ui/Spinner/Spinner.scss": { "bytes": 10568, "imports": [] },
+        "frontend/src/lib/lemon-ui/Spinner/Spinner.scss": { "bytes": 10588, "imports": [] },
         "frontend/src/lib/lemon-ui/Spinner/Spinner.tsx": {
-            "bytes": 1576,
+            "bytes": 1586,
             "imports": [
                 {
                     "path": "frontend/src/lib/lemon-ui/Spinner/Spinner.scss",
@@ -3635,14 +3640,14 @@
                     "original": "./Spinner.scss"
                 },
                 {
-                    "path": "node_modules/.pnpm/@posthog+icons@0.6.3_react-dom@18.2.0_react@18.2.0/node_modules/@posthog/icons/dist/posthog-icons.es.js",
-                    "kind": "import-statement",
-                    "original": "@posthog/icons"
-                },
-                {
                     "path": "node_modules/.pnpm/clsx@1.2.1/node_modules/clsx/dist/clsx.m.js",
                     "kind": "import-statement",
                     "original": "clsx"
+                },
+                {
+                    "path": "frontend/src/lib/lemon-ui/icons/index.ts",
+                    "kind": "import-statement",
+                    "original": "lib/lemon-ui/icons"
                 },
                 {
                     "path": "node_modules/.pnpm/react@18.2.0/node_modules/react/jsx-dev-runtime.js",
@@ -3736,7 +3741,7 @@
             "format": "esm"
         },
         "frontend/src/lib/lemon-ui/LemonToast/LemonToast.tsx": {
-            "bytes": 5507,
+            "bytes": 5501,
             "imports": [
                 {
                     "path": "node_modules/.pnpm/@posthog+icons@0.6.3_react-dom@18.2.0_react@18.2.0/node_modules/@posthog/icons/dist/posthog-icons.es.js",
@@ -4009,7 +4014,7 @@
             ],
             "format": "esm"
         },
-        "frontend/src/lib/components/Fade/Fade.scss": { "bytes": 2092, "imports": [] },
+        "frontend/src/lib/components/Fade/Fade.scss": { "bytes": 2116, "imports": [] },
         "frontend/src/lib/components/Fade/Fade.tsx": {
             "bytes": 1005,
             "imports": [
@@ -4031,7 +4036,7 @@
             ],
             "format": "esm"
         },
-        "frontend/src/toolbar/bar/Toolbar.scss": { "bytes": 86609, "imports": [] },
+        "frontend/src/toolbar/bar/Toolbar.scss": { "bytes": 86657, "imports": [] },
         "frontend/src/lib/hooks/useKeyboardHotkeys.tsx": {
             "bytes": 3078,
             "imports": [
@@ -4045,7 +4050,7 @@
             ],
             "format": "esm"
         },
-        "frontend/src/layout/navigation-3000/components/KeyboardShortcut.scss": { "bytes": 6149, "imports": [] },
+        "frontend/src/layout/navigation-3000/components/KeyboardShortcut.scss": { "bytes": 6169, "imports": [] },
         "frontend/src/layout/navigation-3000/components/KeyboardShortcut.tsx": {
             "bytes": 1471,
             "imports": [
@@ -4069,7 +4074,7 @@
             ],
             "format": "esm"
         },
-        "frontend/src/lib/lemon-ui/LemonDivider/LemonDivider.scss": { "bytes": 7439, "imports": [] },
+        "frontend/src/lib/lemon-ui/LemonDivider/LemonDivider.scss": { "bytes": 7463, "imports": [] },
         "frontend/src/lib/lemon-ui/LemonDivider/LemonDivider.tsx": {
             "bytes": 1593,
             "imports": [
@@ -4166,7 +4171,7 @@
             ],
             "format": "esm"
         },
-        "frontend/src/lib/lemon-ui/LemonInput/LemonInput.scss": { "bytes": 12545, "imports": [] },
+        "frontend/src/lib/lemon-ui/LemonInput/LemonInput.scss": { "bytes": 12565, "imports": [] },
         "frontend/src/lib/lemon-ui/LemonInput/LemonInput.tsx": {
             "bytes": 6812,
             "imports": [
@@ -4254,7 +4259,7 @@
             "format": "esm"
         },
         "frontend/src/lib/lemon-ui/LemonActionableTooltip/LemonActionableTooltip.scss": {
-            "bytes": 10824,
+            "bytes": 10844,
             "imports": []
         },
         "frontend/src/lib/lemon-ui/LemonActionableTooltip/LemonActionableTooltip.tsx": {
@@ -4310,7 +4315,7 @@
             ],
             "format": "esm"
         },
-        "frontend/src/lib/lemon-ui/LemonBanner/LemonBanner.scss": { "bytes": 7253, "imports": [] },
+        "frontend/src/lib/lemon-ui/LemonBanner/LemonBanner.scss": { "bytes": 7273, "imports": [] },
         "frontend/src/lib/lemon-ui/LemonBanner/lemonBannerLogic.ts": {
             "bytes": 789,
             "imports": [
@@ -4323,7 +4328,7 @@
             "format": "esm"
         },
         "frontend/src/lib/lemon-ui/LemonBanner/LemonBanner.tsx": {
-            "bytes": 2593,
+            "bytes": 2629,
             "imports": [
                 {
                     "path": "frontend/src/lib/lemon-ui/LemonBanner/LemonBanner.scss",
@@ -4349,6 +4354,11 @@
                     "path": "frontend/src/lib/hooks/useResizeObserver.ts",
                     "kind": "import-statement",
                     "original": "lib/hooks/useResizeObserver"
+                },
+                {
+                    "path": "frontend/src/lib/lemon-ui/icons/index.ts",
+                    "kind": "import-statement",
+                    "original": "lib/lemon-ui/icons"
                 },
                 {
                     "path": "frontend/src/lib/lemon-ui/LemonButton/index.ts",
@@ -4380,7 +4390,7 @@
             ],
             "format": "esm"
         },
-        "frontend/src/lib/lemon-ui/LemonCalendar/LemonCalendar.scss": { "bytes": 9998, "imports": [] },
+        "frontend/src/lib/lemon-ui/LemonCalendar/LemonCalendar.scss": { "bytes": 10018, "imports": [] },
         "node_modules/.pnpm/fflate@0.7.4/node_modules/fflate/esm/browser.js": {
             "bytes": 84905,
             "imports": [],
@@ -4399,7 +4409,7 @@
             "format": "esm"
         },
         "frontend/src/lib/api.ts": {
-            "bytes": 84050,
+            "bytes": 84014,
             "imports": [
                 {
                     "path": "node_modules/.pnpm/fflate@0.7.4/node_modules/fflate/esm/browser.js",
@@ -4468,7 +4478,7 @@
             "format": "esm"
         },
         "frontend/src/queries/schema.ts": {
-            "bytes": 37727,
+            "bytes": 37509,
             "imports": [{ "path": "~/types", "kind": "import-statement", "external": true }],
             "format": "esm"
         },
@@ -4702,7 +4712,7 @@
             "format": "esm"
         },
         "frontend/src/scenes/teamLogic.tsx": {
-            "bytes": 11795,
+            "bytes": 11390,
             "imports": [
                 {
                     "path": "node_modules/.pnpm/kea@3.1.5_react@18.2.0/node_modules/kea/lib/index.cjs.js",
@@ -4936,7 +4946,7 @@
             ],
             "format": "esm"
         },
-        "frontend/src/lib/lemon-ui/LemonCard/LemonCard.scss": { "bytes": 1903, "imports": [] },
+        "frontend/src/lib/lemon-ui/LemonCard/LemonCard.scss": { "bytes": 1923, "imports": [] },
         "frontend/src/lib/lemon-ui/LemonCard/LemonCard.tsx": {
             "bytes": 633,
             "imports": [
@@ -4964,7 +4974,7 @@
             ],
             "format": "esm"
         },
-        "frontend/src/lib/lemon-ui/LemonCheckbox/LemonCheckbox.scss": { "bytes": 17140, "imports": [] },
+        "frontend/src/lib/lemon-ui/LemonCheckbox/LemonCheckbox.scss": { "bytes": 17164, "imports": [] },
         "frontend/src/lib/lemon-ui/LemonCheckbox/LemonCheckbox.tsx": {
             "bytes": 4113,
             "imports": [
@@ -5007,7 +5017,7 @@
             ],
             "format": "esm"
         },
-        "frontend/src/lib/lemon-ui/LemonCollapse/LemonCollapse.scss": { "bytes": 6630, "imports": [] },
+        "frontend/src/lib/lemon-ui/LemonCollapse/LemonCollapse.scss": { "bytes": 6650, "imports": [] },
         "frontend/src/lib/lemon-ui/LemonCollapse/LemonCollapse.tsx": {
             "bytes": 4734,
             "imports": [
@@ -5070,7 +5080,7 @@
             ],
             "format": "esm"
         },
-        "frontend/src/lib/lemon-ui/LemonModal/LemonModal.scss": { "bytes": 21679, "imports": [] },
+        "frontend/src/lib/lemon-ui/LemonModal/LemonModal.scss": { "bytes": 21707, "imports": [] },
         "node_modules/.pnpm/react-modal@3.16.1_react-dom@18.2.0_react@18.2.0/node_modules/react-modal/lib/helpers/tabbable.js": {
             "bytes": 2698,
             "imports": [],
@@ -5379,10 +5389,10 @@
             ],
             "format": "esm"
         },
-        "frontend/src/lib/lemon-ui/LemonFileInput/LemonFileInput.scss": { "bytes": 3714, "imports": [] },
-        "frontend/src/lib/lemon-ui/LemonTag/LemonTag.scss": { "bytes": 15699, "imports": [] },
+        "frontend/src/lib/lemon-ui/LemonFileInput/LemonFileInput.scss": { "bytes": 3734, "imports": [] },
+        "frontend/src/lib/lemon-ui/LemonTag/LemonTag.scss": { "bytes": 15727, "imports": [] },
         "frontend/src/lib/lemon-ui/LemonTag/LemonTag.tsx": {
-            "bytes": 2373,
+            "bytes": 2409,
             "imports": [
                 {
                     "path": "frontend/src/lib/lemon-ui/LemonTag/LemonTag.scss",
@@ -5398,6 +5408,11 @@
                     "path": "node_modules/.pnpm/clsx@1.2.1/node_modules/clsx/dist/clsx.m.js",
                     "kind": "import-statement",
                     "original": "clsx"
+                },
+                {
+                    "path": "frontend/src/lib/lemon-ui/icons/index.ts",
+                    "kind": "import-statement",
+                    "original": "lib/lemon-ui/icons"
                 },
                 {
                     "path": "frontend/src/lib/lemon-ui/LemonButton/index.ts",
@@ -5470,7 +5485,7 @@
             ],
             "format": "esm"
         },
-        "frontend/src/lib/lemon-ui/LemonLabel/LemonLabel.scss": { "bytes": 2265, "imports": [] },
+        "frontend/src/lib/lemon-ui/LemonLabel/LemonLabel.scss": { "bytes": 2285, "imports": [] },
         "frontend/src/lib/lemon-ui/LemonLabel/LemonLabel.tsx": {
             "bytes": 1586,
             "imports": [
@@ -5518,7 +5533,7 @@
             ],
             "format": "esm"
         },
-        "frontend/src/lib/lemon-ui/LemonRow/LemonRow.scss": { "bytes": 19565, "imports": [] },
+        "frontend/src/lib/lemon-ui/LemonRow/LemonRow.scss": { "bytes": 19585, "imports": [] },
         "frontend/src/lib/lemon-ui/LemonRow/LemonRow.tsx": {
             "bytes": 3542,
             "imports": [
@@ -5566,7 +5581,7 @@
             ],
             "format": "esm"
         },
-        "frontend/src/lib/lemon-ui/LemonSegmentedButton/LemonSegmentedButton.scss": { "bytes": 14934, "imports": [] },
+        "frontend/src/lib/lemon-ui/LemonSegmentedButton/LemonSegmentedButton.scss": { "bytes": 14954, "imports": [] },
         "frontend/src/lib/lemon-ui/LemonSegmentedButton/LemonSegmentedButton.tsx": {
             "bytes": 3899,
             "imports": [
@@ -5655,7 +5670,7 @@
             ],
             "format": "esm"
         },
-        "frontend/src/lib/lemon-ui/LemonSelectMultiple/LemonSelectMultiple.scss": { "bytes": 18905, "imports": [] },
+        "frontend/src/lib/lemon-ui/LemonSelectMultiple/LemonSelectMultiple.scss": { "bytes": 18925, "imports": [] },
         "node_modules/.pnpm/@babel+runtime@7.22.10/node_modules/@babel/runtime/helpers/esm/typeof.js": {
             "bytes": 368,
             "imports": [],
@@ -30915,7 +30930,7 @@
             ],
             "format": "esm"
         },
-        "frontend/src/lib/lemon-ui/LemonSkeleton/LemonSkeleton.scss": { "bytes": 6312, "imports": [] },
+        "frontend/src/lib/lemon-ui/LemonSkeleton/LemonSkeleton.scss": { "bytes": 6332, "imports": [] },
         "frontend/src/lib/lemon-ui/LemonSkeleton/LemonSkeleton.tsx": {
             "bytes": 2271,
             "imports": [
@@ -31036,7 +31051,7 @@
             ],
             "format": "esm"
         },
-        "frontend/src/lib/lemon-ui/LemonSwitch/LemonSwitch.scss": { "bytes": 22068, "imports": [] },
+        "frontend/src/lib/lemon-ui/LemonSwitch/LemonSwitch.scss": { "bytes": 22088, "imports": [] },
         "frontend/src/lib/lemon-ui/LemonSwitch/LemonSwitch.tsx": {
             "bytes": 3743,
             "imports": [
@@ -31079,14 +31094,14 @@
             ],
             "format": "esm"
         },
-        "frontend/src/lib/lemon-ui/LemonTable/LemonTable.scss": { "bytes": 55763, "imports": [] },
+        "frontend/src/lib/lemon-ui/LemonTable/LemonTable.scss": { "bytes": 55783, "imports": [] },
         "frontend/src/lib/lemon-ui/LemonButton/More.tsx": {
-            "bytes": 995,
+            "bytes": 999,
             "imports": [
                 {
-                    "path": "node_modules/.pnpm/@posthog+icons@0.6.3_react-dom@18.2.0_react@18.2.0/node_modules/@posthog/icons/dist/posthog-icons.es.js",
+                    "path": "frontend/src/lib/lemon-ui/icons/index.ts",
                     "kind": "import-statement",
-                    "original": "@posthog/icons"
+                    "original": "lib/lemon-ui/icons"
                 },
                 { "path": "../Popover/Popover", "kind": "import-statement", "external": true },
                 {
@@ -31103,7 +31118,7 @@
             ],
             "format": "esm"
         },
-        "frontend/src/lib/lemon-ui/PaginationControl/PaginationControl.scss": { "bytes": 2826, "imports": [] },
+        "frontend/src/lib/lemon-ui/PaginationControl/PaginationControl.scss": { "bytes": 2846, "imports": [] },
         "frontend/src/lib/lemon-ui/PaginationControl/PaginationControl.tsx": {
             "bytes": 3005,
             "imports": [
@@ -31174,7 +31189,7 @@
             ],
             "format": "esm"
         },
-        "frontend/src/lib/lemon-ui/LemonTable/LemonTableLoader.scss": { "bytes": 6753, "imports": [] },
+        "frontend/src/lib/lemon-ui/LemonTable/LemonTableLoader.scss": { "bytes": 6773, "imports": [] },
         "frontend/src/lib/lemon-ui/LemonTable/LemonTableLoader.tsx": {
             "bytes": 519,
             "imports": [
@@ -31255,17 +31270,12 @@
             "format": "esm"
         },
         "frontend/src/lib/lemon-ui/LemonTable/LemonTable.tsx": {
-            "bytes": 24023,
+            "bytes": 24027,
             "imports": [
                 {
                     "path": "frontend/src/lib/lemon-ui/LemonTable/LemonTable.scss",
                     "kind": "import-statement",
                     "original": "./LemonTable.scss"
-                },
-                {
-                    "path": "node_modules/.pnpm/@posthog+icons@0.6.3_react-dom@18.2.0_react@18.2.0/node_modules/@posthog/icons/dist/posthog-icons.es.js",
-                    "kind": "import-statement",
-                    "original": "@posthog/icons"
                 },
                 {
                     "path": "node_modules/.pnpm/clsx@1.2.1/node_modules/clsx/dist/clsx.m.js",
@@ -31286,6 +31296,11 @@
                     "path": "frontend/src/lib/components/ScrollableShadows/ScrollableShadows.tsx",
                     "kind": "import-statement",
                     "original": "lib/components/ScrollableShadows/ScrollableShadows"
+                },
+                {
+                    "path": "frontend/src/lib/lemon-ui/icons/index.ts",
+                    "kind": "import-statement",
+                    "original": "lib/lemon-ui/icons"
                 },
                 {
                     "path": "frontend/src/lib/lemon-ui/LemonButton/More.tsx",
@@ -31347,9 +31362,9 @@
             ],
             "format": "esm"
         },
-        "frontend/src/lib/lemon-ui/LemonTabs/LemonTabs.scss": { "bytes": 14281, "imports": [] },
+        "frontend/src/lib/lemon-ui/LemonTabs/LemonTabs.scss": { "bytes": 14301, "imports": [] },
         "frontend/src/lib/lemon-ui/LemonTabs/LemonTabs.tsx": {
-            "bytes": 4521,
+            "bytes": 4515,
             "imports": [
                 {
                     "path": "frontend/src/lib/lemon-ui/LemonTabs/LemonTabs.scss",
@@ -31357,16 +31372,16 @@
                     "original": "./LemonTabs.scss"
                 },
                 {
-                    "path": "node_modules/.pnpm/@posthog+icons@0.6.3_react-dom@18.2.0_react@18.2.0/node_modules/@posthog/icons/dist/posthog-icons.es.js",
-                    "kind": "import-statement",
-                    "original": "@posthog/icons"
-                },
-                {
                     "path": "node_modules/.pnpm/clsx@1.2.1/node_modules/clsx/dist/clsx.m.js",
                     "kind": "import-statement",
                     "original": "clsx"
                 },
                 { "path": "frontend/src/lib/lemon-ui/hooks.ts", "kind": "import-statement", "original": "../hooks" },
+                {
+                    "path": "frontend/src/lib/lemon-ui/icons/index.ts",
+                    "kind": "import-statement",
+                    "original": "../icons"
+                },
                 {
                     "path": "frontend/src/lib/lemon-ui/Link/index.ts",
                     "kind": "import-statement",
@@ -31407,7 +31422,7 @@
             ],
             "format": "esm"
         },
-        "frontend/src/lib/lemon-ui/LemonTextArea/LemonTextArea.scss": { "bytes": 7245, "imports": [] },
+        "frontend/src/lib/lemon-ui/LemonTextArea/LemonTextArea.scss": { "bytes": 7265, "imports": [] },
         "node_modules/.pnpm/use-isomorphic-layout-effect@1.1.2_@types+react@17.0.52_react@18.2.0/node_modules/use-isomorphic-layout-effect/dist/use-isomorphic-layout-effect.browser.esm.js": {
             "bytes": 96,
             "imports": [
@@ -31508,7 +31523,7 @@
             ],
             "format": "esm"
         },
-        "frontend/src/lib/components/Cards/TextCard/TextCard.scss": { "bytes": 2588, "imports": [] },
+        "frontend/src/lib/components/Cards/TextCard/TextCard.scss": { "bytes": 2608, "imports": [] },
         "frontend/src/lib/components/Cards/handles.tsx": {
             "bytes": 2180,
             "imports": [
@@ -31525,8 +31540,8 @@
             ],
             "format": "esm"
         },
-        "frontend/src/lib/lemon-ui/LemonMarkdown/LemonMarkdown.scss": { "bytes": 4190, "imports": [] },
-        "frontend/src/lib/components/CodeSnippet/CodeSnippet.scss": { "bytes": 5108, "imports": [] },
+        "frontend/src/lib/lemon-ui/LemonMarkdown/LemonMarkdown.scss": { "bytes": 4214, "imports": [] },
+        "frontend/src/lib/components/CodeSnippet/CodeSnippet.scss": { "bytes": 5128, "imports": [] },
         "frontend/src/lib/utils/copyToClipboard.tsx": {
             "bytes": 1204,
             "imports": [
@@ -39983,7 +39998,7 @@
         },
         "frontend/public/not-found-astrohog.png": { "bytes": 48477, "imports": [] },
         "frontend/src/lib/components/NotFound/NotFound.scss": {
-            "bytes": 4169,
+            "bytes": 4197,
             "imports": [
                 {
                     "path": "frontend/public/not-found-astrohog.png",
@@ -40058,13 +40073,8 @@
             "format": "esm"
         },
         "frontend/src/lib/components/Support/SupportForm.tsx": {
-            "bytes": 7000,
+            "bytes": 7517,
             "imports": [
-                {
-                    "path": "node_modules/.pnpm/@posthog+icons@0.6.3_react-dom@18.2.0_react@18.2.0/node_modules/@posthog/icons/dist/posthog-icons.es.js",
-                    "kind": "import-statement",
-                    "original": "@posthog/icons"
-                },
                 {
                     "path": "frontend/@posthog/lemon-ui/src/index.ts",
                     "kind": "import-statement",
@@ -40200,7 +40210,7 @@
             "format": "esm"
         },
         "frontend/src/lib/components/Support/supportLogic.ts": {
-            "bytes": 17111,
+            "bytes": 14184,
             "imports": [
                 {
                     "path": "node_modules/.pnpm/@sentry+react@7.22.0_react@18.2.0/node_modules/@sentry/react/esm/index.js",
@@ -40351,7 +40361,7 @@
             ],
             "format": "esm"
         },
-        "frontend/src/lib/lemon-ui/Lettermark/Lettermark.scss": { "bytes": 7485, "imports": [] },
+        "frontend/src/lib/lemon-ui/Lettermark/Lettermark.scss": { "bytes": 7505, "imports": [] },
         "frontend/src/lib/lemon-ui/Lettermark/Lettermark.tsx": {
             "bytes": 1462,
             "imports": [
@@ -40410,7 +40420,7 @@
             ],
             "format": "esm"
         },
-        "frontend/src/lib/lemon-ui/ProfilePicture/ProfilePicture.scss": { "bytes": 12644, "imports": [] },
+        "frontend/src/lib/lemon-ui/ProfilePicture/ProfilePicture.scss": { "bytes": 12668, "imports": [] },
         "node_modules/.pnpm/crypt@0.0.2/node_modules/crypt/crypt.js": { "bytes": 2968, "imports": [], "format": "cjs" },
         "node_modules/.pnpm/charenc@0.0.2/node_modules/charenc/charenc.js": {
             "bytes": 850,
@@ -40547,9 +40557,9 @@
             ],
             "format": "esm"
         },
-        "frontend/src/lib/components/HedgehogBuddy/HedgehogBuddy.scss": { "bytes": 2814, "imports": [] },
+        "frontend/src/lib/components/HedgehogBuddy/HedgehogBuddy.scss": { "bytes": 2834, "imports": [] },
         "frontend/src/lib/components/HedgehogBuddy/sprites/sprites.tsx": {
-            "bytes": 4238,
+            "bytes": 4240,
             "imports": [],
             "format": "esm"
         },
@@ -40733,7 +40743,7 @@
             ],
             "format": "esm"
         },
-        "frontend/src/lib/logic/newPrompt/prompt.scss": { "bytes": 3162, "imports": [] },
+        "frontend/src/lib/logic/newPrompt/prompt.scss": { "bytes": 3186, "imports": [] },
         "frontend/src/lib/components/FallbackCoverImage/FallbackCoverImage.tsx": {
             "bytes": 1151,
             "imports": [
@@ -40825,7 +40835,7 @@
             ],
             "format": "esm"
         },
-        "frontend/src/scenes/authentication/Setup2FA.scss": { "bytes": 1345, "imports": [] },
+        "frontend/src/scenes/authentication/Setup2FA.scss": { "bytes": 1369, "imports": [] },
         "frontend/src/scenes/authentication/setup2FALogic.ts": {
             "bytes": 2641,
             "imports": [
@@ -41088,7 +41098,7 @@
             ],
             "format": "esm"
         },
-        "frontend/src/scenes/settings/organization/InviteModal.scss": { "bytes": 2365, "imports": [] },
+        "frontend/src/scenes/settings/organization/InviteModal.scss": { "bytes": 2385, "imports": [] },
         "frontend/src/lib/components/CopyToClipboard.tsx": {
             "bytes": 2851,
             "imports": [
@@ -41832,7 +41842,7 @@
             "format": "esm"
         },
         "frontend/src/scenes/onboarding/onboardingLogic.tsx": {
-            "bytes": 14159,
+            "bytes": 14177,
             "imports": [
                 {
                     "path": "node_modules/.pnpm/kea@3.1.5_react@18.2.0/node_modules/kea/lib/index.cjs.js",
@@ -44168,7 +44178,7 @@
             ],
             "format": "esm"
         },
-        "frontend/src/lib/lemon-ui/LemonWidget/LemonWidget.scss": { "bytes": 3135, "imports": [] },
+        "frontend/src/lib/lemon-ui/LemonWidget/LemonWidget.scss": { "bytes": 3155, "imports": [] },
         "frontend/src/lib/lemon-ui/LemonWidget/LemonWidget.tsx": {
             "bytes": 1359,
             "imports": [
@@ -44211,7 +44221,7 @@
             ],
             "format": "esm"
         },
-        "frontend/src/lib/lemon-ui/Splotch/Splotch.scss": { "bytes": 4136, "imports": [] },
+        "frontend/src/lib/lemon-ui/Splotch/Splotch.scss": { "bytes": 4160, "imports": [] },
         "frontend/src/lib/lemon-ui/Splotch/Splotch.tsx": {
             "bytes": 577,
             "imports": [
@@ -44704,7 +44714,7 @@
             ],
             "format": "esm"
         },
-        "frontend/src/lib/components/HTMLElementsDisplay/SelectableElement.scss": { "bytes": 3369, "imports": [] },
+        "frontend/src/lib/components/HTMLElementsDisplay/SelectableElement.scss": { "bytes": 3389, "imports": [] },
         "frontend/src/lib/components/HTMLElementsDisplay/SelectableElement.tsx": {
             "bytes": 7131,
             "imports": [
@@ -44734,7 +44744,7 @@
             "format": "esm"
         },
         "frontend/src/lib/components/HTMLElementsDisplay/HTMLElementsDisplay.tsx": {
-            "bytes": 6449,
+            "bytes": 6471,
             "imports": [
                 {
                     "path": "node_modules/.pnpm/kea@3.1.5_react@18.2.0/node_modules/kea/lib/index.cjs.js",
@@ -44919,7 +44929,7 @@
             "format": "esm"
         },
         "frontend/src/toolbar/actions/ActionsEditingToolbarMenu.tsx": {
-            "bytes": 11559,
+            "bytes": 11586,
             "imports": [
                 {
                     "path": "node_modules/.pnpm/@posthog+icons@0.6.3_react-dom@18.2.0_react@18.2.0/node_modules/@posthog/icons/dist/posthog-icons.es.js",
@@ -45373,7 +45383,7 @@
             ],
             "format": "esm"
         },
-        "frontend/src/toolbar/bar/ToolbarButton.scss": { "bytes": 7434, "imports": [] },
+        "frontend/src/toolbar/bar/ToolbarButton.scss": { "bytes": 7454, "imports": [] },
         "frontend/src/toolbar/bar/ToolbarButton.tsx": {
             "bytes": 2257,
             "imports": [
@@ -45422,7 +45432,7 @@
             "format": "esm"
         },
         "frontend/src/toolbar/bar/Toolbar.tsx": {
-            "bytes": 7112,
+            "bytes": 7108,
             "imports": [
                 {
                     "path": "frontend/src/toolbar/bar/Toolbar.scss",
@@ -45507,7 +45517,7 @@
             ],
             "format": "esm"
         },
-        "frontend/src/toolbar/elements/Elements.scss": { "bytes": 1409, "imports": [] },
+        "frontend/src/toolbar/elements/Elements.scss": { "bytes": 1429, "imports": [] },
         "frontend/src/toolbar/actions/ActionAttribute.tsx": {
             "bytes": 1611,
             "imports": [
@@ -45890,7 +45900,7 @@
         }
     },
     "outputs": {
-        "frontend/dist/toolbar.js.map": { "imports": [], "exports": [], "inputs": {}, "bytes": 5085221 },
+        "frontend/dist/toolbar.js.map": { "imports": [], "exports": [], "inputs": {}, "bytes": 5107960 },
         "frontend/dist/toolbar.js": {
             "imports": [],
             "exports": [],
@@ -46093,7 +46103,7 @@
                 "node_modules/.pnpm/clsx@1.2.1/node_modules/clsx/dist/clsx.m.js": { "bytesInOutput": 609 },
                 "frontend/src/lib/lemon-ui/icons/icons.scss": { "bytesInOutput": 0 },
                 "frontend/src/lib/utils.tsx": { "bytesInOutput": 11574 },
-                "frontend/src/lib/constants.tsx": { "bytesInOutput": 7205 },
+                "frontend/src/lib/constants.tsx": { "bytesInOutput": 7476 },
                 "frontend/src/lib/dayjs.ts": { "bytesInOutput": 989 },
                 "frontend/src/lib/components/DateFilter/types.ts": { "bytesInOutput": 36 },
                 "frontend/src/lib/utils/getAppContext.ts": { "bytesInOutput": 340 },
@@ -46139,7 +46149,7 @@
                 "node_modules/.pnpm/react-transition-group@4.4.5_react-dom@18.2.0_react@18.2.0/node_modules/react-transition-group/esm/index.js": {
                     "bytesInOutput": 0
                 },
-                "frontend/src/lib/lemon-ui/icons/icons.tsx": { "bytesInOutput": 13760 },
+                "frontend/src/lib/lemon-ui/icons/icons.tsx": { "bytesInOutput": 17860 },
                 "frontend/src/lib/lemon-ui/icons/index.ts": { "bytesInOutput": 0 },
                 "frontend/src/lib/lemon-ui/LemonButton/LemonButton.scss": { "bytesInOutput": 0 },
                 "frontend/src/lib/lemon-ui/LemonButton/LemonButton.tsx": { "bytesInOutput": 10338 },
@@ -46155,13 +46165,16 @@
                     "bytesInOutput": 3325
                 },
                 "node_modules/.pnpm/@floating-ui+utils@0.2.1/node_modules/@floating-ui/utils/dist/floating-ui.utils.mjs": {
-                    "bytesInOutput": 3571
+                    "bytesInOutput": 155
                 },
-                "node_modules/.pnpm/@floating-ui+core@1.6.0/node_modules/@floating-ui/core/dist/floating-ui.core.mjs": {
-                    "bytesInOutput": 19302
+                "node_modules/.pnpm/@floating-ui+utils@0.1.1/node_modules/@floating-ui/utils/dist/floating-ui.utils.mjs": {
+                    "bytesInOutput": 3464
                 },
-                "node_modules/.pnpm/@floating-ui+dom@1.6.1/node_modules/@floating-ui/dom/dist/floating-ui.dom.mjs": {
-                    "bytesInOutput": 19908
+                "node_modules/.pnpm/@floating-ui+core@1.4.1/node_modules/@floating-ui/core/dist/floating-ui.core.mjs": {
+                    "bytesInOutput": 18575
+                },
+                "node_modules/.pnpm/@floating-ui+dom@1.6.3/node_modules/@floating-ui/dom/dist/floating-ui.dom.mjs": {
+                    "bytesInOutput": 19365
                 },
                 "node_modules/.pnpm/@floating-ui+react-dom@2.0.8_react-dom@18.2.0_react@18.2.0/node_modules/@floating-ui/react-dom/dist/floating-ui.react-dom.mjs": {
                     "bytesInOutput": 7123
@@ -46201,7 +46214,7 @@
                 "frontend/src/lib/lemon-ui/Spinner/Spinner.tsx": { "bytesInOutput": 1680 },
                 "frontend/src/lib/lemon-ui/LemonButton/index.ts": { "bytesInOutput": 0 },
                 "frontend/src/lib/lemon-ui/Spinner/index.ts": { "bytesInOutput": 0 },
-                "frontend/src/lib/lemon-ui/LemonToast/LemonToast.tsx": { "bytesInOutput": 7288 },
+                "frontend/src/lib/lemon-ui/LemonToast/LemonToast.tsx": { "bytesInOutput": 7285 },
                 "frontend/src/toolbar/ToolbarApp.tsx": { "bytesInOutput": 2722 },
                 "frontend/src/lib/hooks/useSecondRender.js": { "bytesInOutput": 349 },
                 "node_modules/.pnpm/react-shadow@20.4.0_prop-types@15.8.1_react-dom@18.2.0_react@18.2.0/node_modules/react-shadow/react-shadow.esm.js": {
@@ -46223,7 +46236,7 @@
                 "frontend/src/lib/components/Fade/Fade.scss": { "bytesInOutput": 0 },
                 "frontend/src/lib/components/Fade/Fade.tsx": { "bytesInOutput": 1055 },
                 "frontend/src/toolbar/bar/Toolbar.scss": { "bytesInOutput": 0 },
-                "frontend/src/toolbar/bar/Toolbar.tsx": { "bytesInOutput": 12022 },
+                "frontend/src/toolbar/bar/Toolbar.tsx": { "bytesInOutput": 12023 },
                 "frontend/src/lib/hooks/useKeyboardHotkeys.tsx": { "bytesInOutput": 1589 },
                 "frontend/src/lib/lemon-ui/LemonMenu/LemonMenu.tsx": { "bytesInOutput": 9312 },
                 "frontend/src/layout/navigation-3000/components/KeyboardShortcut.scss": { "bytesInOutput": 0 },
@@ -46240,11 +46253,11 @@
                 "frontend/src/scenes/urls.ts": { "bytesInOutput": 8730 },
                 "frontend/src/lib/lemon-ui/hooks.ts": { "bytesInOutput": 1286 },
                 "frontend/src/lib/lemon-ui/LemonBanner/LemonBanner.scss": { "bytesInOutput": 0 },
-                "frontend/src/lib/lemon-ui/LemonBanner/LemonBanner.tsx": { "bytesInOutput": 3958 },
+                "frontend/src/lib/lemon-ui/LemonBanner/LemonBanner.tsx": { "bytesInOutput": 3959 },
                 "frontend/src/lib/lemon-ui/LemonBanner/lemonBannerLogic.ts": { "bytesInOutput": 577 },
                 "frontend/src/lib/lemon-ui/LemonBanner/index.ts": { "bytesInOutput": 0 },
                 "node_modules/.pnpm/fflate@0.7.4/node_modules/fflate/esm/browser.js": { "bytesInOutput": 10969 },
-                "frontend/src/lib/api.ts": { "bytesInOutput": 53390 },
+                "frontend/src/lib/api.ts": { "bytesInOutput": 53441 },
                 "frontend/src/exporter/exporterViewLogic.ts": { "bytesInOutput": 445 },
                 "frontend/src/lib/lemon-ui/LemonCheckbox/LemonCheckbox.scss": { "bytesInOutput": 0 },
                 "frontend/src/lib/lemon-ui/LemonCheckbox/LemonCheckbox.tsx": { "bytesInOutput": 4693 },
@@ -46253,7 +46266,7 @@
                 "frontend/src/lib/lemon-ui/LemonModal/LemonModal.tsx": { "bytesInOutput": 9787 },
                 "frontend/src/lib/lemon-ui/LemonModal/index.ts": { "bytesInOutput": 0 },
                 "frontend/src/lib/lemon-ui/LemonTag/LemonTag.scss": { "bytesInOutput": 0 },
-                "frontend/src/lib/lemon-ui/LemonTag/LemonTag.tsx": { "bytesInOutput": 3004 },
+                "frontend/src/lib/lemon-ui/LemonTag/LemonTag.tsx": { "bytesInOutput": 3005 },
                 "frontend/src/lib/lemon-ui/LemonSegmentedButton/LemonSegmentedButton.scss": { "bytesInOutput": 0 },
                 "frontend/src/lib/lemon-ui/LemonSegmentedButton/LemonSegmentedButton.tsx": { "bytesInOutput": 3710 },
                 "frontend/src/lib/lemon-ui/LemonSwitch/LemonSwitch.scss": { "bytesInOutput": 0 },
@@ -46278,17 +46291,17 @@
                 "frontend/src/lib/components/HedgehogBuddy/HedgehogBuddy.tsx": { "bytesInOutput": 16491 },
                 "frontend/src/lib/components/HedgehogBuddy/components/AccessoryButton.tsx": { "bytesInOutput": 4123 },
                 "frontend/src/lib/components/HedgehogBuddy/hedgehogBuddyLogic.ts": { "bytesInOutput": 1459 },
-                "frontend/src/lib/components/HedgehogBuddy/sprites/sprites.tsx": { "bytesInOutput": 2968 },
+                "frontend/src/lib/components/HedgehogBuddy/sprites/sprites.tsx": { "bytesInOutput": 2969 },
                 "frontend/src/lib/components/HedgehogBuddy/HedgehogAccessories.tsx": { "bytesInOutput": 2770 },
                 "node_modules/.pnpm/fuse.js@6.6.2/node_modules/fuse.js/dist/fuse.esm.js": { "bytesInOutput": 38581 },
-                "frontend/src/toolbar/actions/ActionsEditingToolbarMenu.tsx": { "bytesInOutput": 21023 },
+                "frontend/src/toolbar/actions/ActionsEditingToolbarMenu.tsx": { "bytesInOutput": 21031 },
                 "frontend/src/toolbar/actions/actionsTabLogic.tsx": { "bytesInOutput": 10054 },
                 "frontend/src/toolbar/actions/actionsLogic.ts": { "bytesInOutput": 2033 },
                 "frontend/src/toolbar/bar/toolbarLogic.ts": { "bytesInOutput": 7621 },
                 "frontend/src/toolbar/elements/elementsLogic.ts": { "bytesInOutput": 15576 },
                 "frontend/src/toolbar/stats/currentPageLogic.ts": { "bytesInOutput": 937 },
                 "frontend/src/toolbar/elements/heatmapLogic.ts": { "bytesInOutput": 11618 },
-                "frontend/src/lib/components/HTMLElementsDisplay/HTMLElementsDisplay.tsx": { "bytesInOutput": 9117 },
+                "frontend/src/lib/components/HTMLElementsDisplay/HTMLElementsDisplay.tsx": { "bytesInOutput": 9141 },
                 "frontend/src/lib/components/HTMLElementsDisplay/htmlElementsDisplayLogic.ts": {
                     "bytesInOutput": 4354
                 },
@@ -46320,7 +46333,7 @@
                 "frontend/src/toolbar/elements/HeatmapLabel.tsx": { "bytesInOutput": 1404 },
                 "frontend/src/toolbar/hedgehog/HedgehogButton.tsx": { "bytesInOutput": 1596 }
             },
-            "bytes": 3054582
+            "bytes": 3057924
         },
         "frontend/dist/assets/Inter-YI3GW4KE.woff2": {
             "imports": [],
@@ -46340,7 +46353,7 @@
             "inputs": { "frontend/public/not-found-astrohog.png": { "bytesInOutput": 48477 } },
             "bytes": 48477
         },
-        "frontend/dist/toolbar.css.map": { "imports": [], "exports": [], "inputs": {}, "bytes": 1948341 },
+        "frontend/dist/toolbar.css.map": { "imports": [], "exports": [], "inputs": {}, "bytes": 1949239 },
         "frontend/dist/toolbar.css": {
             "imports": [
                 { "path": "#linearGradient-1", "kind": "url-token", "external": true },
@@ -46389,8 +46402,8 @@
             ],
             "inputs": {
                 "frontend/src/styles/antd.less": { "bytesInOutput": 630614 },
-                "frontend/src/styles/global.scss": { "bytesInOutput": 179883 },
-                "frontend/src/toolbar/styles.scss": { "bytesInOutput": 10769 },
+                "frontend/src/styles/global.scss": { "bytesInOutput": 179870 },
+                "frontend/src/toolbar/styles.scss": { "bytesInOutput": 10774 },
                 "frontend/src/lib/lemon-ui/icons/icons.scss": { "bytesInOutput": 81 },
                 "frontend/src/lib/lemon-ui/LemonBadge/LemonBadge.scss": { "bytesInOutput": 3109 },
                 "frontend/src/lib/lemon-ui/LemonButton/LemonButton.scss": { "bytesInOutput": 21217 },
@@ -46443,7 +46456,7 @@
                 "frontend/src/toolbar/bar/ToolbarButton.scss": { "bytesInOutput": 1055 },
                 "frontend/src/toolbar/elements/Elements.scss": { "bytesInOutput": 100 }
             },
-            "bytes": 912620
+            "bytes": 912612
         }
     }
 }

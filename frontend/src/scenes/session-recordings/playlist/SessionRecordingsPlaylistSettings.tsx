@@ -1,4 +1,4 @@
-import { LemonSelect, LemonSwitch } from '@posthog/lemon-ui'
+import { LemonSwitch } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { IconPause, IconPlay } from 'lib/lemon-ui/icons'
@@ -12,7 +12,6 @@ export function SessionRecordingsPlaylistSettings(): JSX.Element {
     const { autoplayDirection, durationTypeToShow, hideViewedRecordings } = useValues(playerSettingsLogic)
     const { toggleAutoplayDirection, setDurationTypeToShow, setHideViewedRecordings } = useActions(playerSettingsLogic)
     const { orderBy } = useValues(sessionRecordingsPlaylistLogic)
-    const { setOrderBy } = useActions(sessionRecordingsPlaylistLogic)
 
     return (
         <div className="relative flex flex-col gap-2 p-3 bg-side border-b">
@@ -52,33 +51,6 @@ export function SessionRecordingsPlaylistSettings(): JSX.Element {
                     aria-label="Autoplay next recording"
                     checked={hideViewedRecordings}
                     onChange={() => setHideViewedRecordings(!hideViewedRecordings)}
-                />
-            </div>
-            <div className="flex flex-row items-center justify-between space-x-2">
-                <span className="text-black font-medium">Order by</span>
-                <LemonSelect
-                    size="small"
-                    value={orderBy}
-                    menu={{ className: 'w-40' }}
-                    onChange={setOrderBy}
-                    options={[
-                        {
-                            value: 'start_time',
-                            label: 'Latest',
-                        },
-                        {
-                            value: 'console_error_count',
-                            label: 'Most console errors',
-                        },
-                        {
-                            value: 'duration',
-                            label: 'Longest',
-                        },
-                        {
-                            value: 'active_seconds',
-                            label: 'Most active',
-                        },
-                    ]}
                 />
             </div>
             <div className="flex flex-row items-center justify-between space-x-2">

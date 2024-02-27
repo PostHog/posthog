@@ -49,7 +49,7 @@ function RecordingDuration({
     const [hours, minutes, seconds] = formattedDuration.split(':')
 
     return (
-        <div className="flex items-center flex-1 justify-end font-semibold">
+        <div className="flex items-center flex-1 space-x-1 justify-end font-semibold">
             <IconClock className={iconClassNames} />
             <span>
                 <span className={clsx(hours === '00' && 'opacity-50 font-normal')}>{hours}:</span>
@@ -78,7 +78,7 @@ function ErrorCount({
     }
 
     return (
-        <div className="flex items-center flex-1 justify-end font-semibold">
+        <div className="flex items-center flex-1 space-x-1 justify-end font-semibold">
             <IconBug className={iconClassNames} />
             <span>{errorCount}</span>
         </div>
