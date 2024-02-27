@@ -774,6 +774,9 @@
                     },
                     "type": "array"
                 },
+                "id": {
+                    "type": "string"
+                },
                 "id_field": {
                     "type": "string"
                 },
@@ -831,7 +834,7 @@
                     "type": "string"
                 }
             },
-            "required": ["id_field", "kind", "table_name", "timestamp_field"],
+            "required": ["id", "id_field", "kind", "table_name", "timestamp_field"],
             "type": "object"
         },
         "DataWarehousePropertyFilter": {
@@ -4093,6 +4096,9 @@
                 },
                 {
                     "$ref": "#/definitions/PersonsNode"
+                },
+                {
+                    "$ref": "#/definitions/DataWarehouseNode"
                 },
                 {
                     "$ref": "#/definitions/TimeToSeeDataSessionsQuery"
