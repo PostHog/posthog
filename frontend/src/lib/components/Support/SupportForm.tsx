@@ -139,13 +139,6 @@ export function SupportForm(): JSX.Element | null {
                     }))}
                 />
             </LemonField>
-            <span className="text-muted">
-                Check out the{' '}
-                <Link target="_blank" to="https://posthog.com/docs/support-options#severity-levels">
-                    severity level definitions
-                </Link>
-                .
-            </span>
             <LemonField
                 name="message"
                 label={sendSupportRequest.kind ? SUPPORT_TICKET_KIND_TO_PROMPT[sendSupportRequest.kind] : 'Content'}
