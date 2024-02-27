@@ -1,10 +1,12 @@
 import { Message, MessageHeader } from 'node-rdkafka'
 
+import { IncomingRecordingMessage } from '../../../../src/main/ingestion-queues/session-recording/types'
 import {
     getLagMultiplier,
     maxDefined,
     minDefined,
     parseKafkaMessage,
+    reduceRecordingMessages,
 } from '../../../../src/main/ingestion-queues/session-recording/utils'
 
 describe('session-recording utils', () => {
@@ -242,5 +244,71 @@ describe('session-recording utils', () => {
         it('returns 0.1 when lag is 100 times the threshold', () => {
             expect(getLagMultiplier(threshold * 100, threshold)).toEqual(0.1)
         })
+    })
+
+    describe('reduceMessages', () => {
+        const messages: IncomingRecordingMessage[] = [
+            // Should merge
+            {
+                distinct_id: '1',
+                events: [{ timestamp: 1, type: 1, data: {} }],
+                metadata: { offset: 1, partition: 1, timestamp: 1, topic: 'the_topic' },
+                session_id: '1',
+                window_id: '1',
+                team_id: 1,
+                snapshot_source: null,
+            },
+            {
+                distinct_id: '1',
+                events: [{ timestamp: 2, type: 2, data: {} }],
+                metadata: { offset: 2, partition: 1, timestamp: 2, topic: 'the_topic' },
+                session_id: '1',
+                window_id: '1',
+                team_id: 1,
+                snapshot_source: null,
+            },
+            // different team
+            {
+                distinct_id: '1',
+                events: [{ timestamp: 2, type: 2, data: {} }],
+                metadata: { offset: 2, partition: 1, timestamp: 2, topic: 'the_topic' },
+                session_id: '1',
+                window_id: '1',
+                team_id: 2,
+                snapshot_source: null,
+            },
+            // Different session_id
+            {
+                distinct_id: '1',
+                events: [{ timestamp: 3, type: 3, data: {} }],
+                metadata: { offset: 3, partition: 1, timestamp: 3, topic: 'the_topic' },
+                session_id: '2',
+                window_id: '1',
+                team_id: 1,
+                snapshot_source: null,
+            },
+            // Different window_id
+            {
+                distinct_id: '1',
+                events: [{ timestamp: 4, type: 4, data: {} }],
+                metadata: { offset: 4, partition: 1, timestamp: 4, topic: 'the_topic' },
+                session_id: '2',
+                window_id: '2',
+                team_id: 1,
+                snapshot_source: null,
+            },
+        ]
+
+        // Call it once already to make sure that it doesn't mutate the input
+        reduceRecordingMessages(messages)
+        expect(reduceRecordingMessages(messages)).toEqual([
+            {
+                ...messages[0],
+                events: [...messages[0].events, ...messages[1].events],
+            },
+            messages[2],
+            messages[3],
+            messages[4],
+        ])
     })
 })
