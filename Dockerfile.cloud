@@ -1,5 +1,5 @@
 #
-# Extend the non-Cloud image with anything required for PostHog Cloud (app.posthog.com)
+# Extend the non-Cloud image with anything required for PostHog Cloud
 #
 ARG BASE_IMAGE
 FROM ${BASE_IMAGE}

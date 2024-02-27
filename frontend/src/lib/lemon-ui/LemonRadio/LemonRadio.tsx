@@ -50,7 +50,7 @@ export function LemonRadio<T extends React.Key>({
 
                 if (option.disabledReason) {
                     return (
-                        <Tooltip trigger="hover" key={option.value} title={option.disabledReason}>
+                        <Tooltip key={option.value} title={option.disabledReason}>
                             {content}
                         </Tooltip>
                     )

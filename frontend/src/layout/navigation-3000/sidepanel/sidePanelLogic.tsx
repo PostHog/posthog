@@ -16,6 +16,7 @@ const ALWAYS_EXTRA_TABS = [
     SidePanelTab.FeaturePreviews,
     SidePanelTab.Activity,
     SidePanelTab.Status,
+    SidePanelTab.Exports,
 ]
 
 export const sidePanelLogic = kea<sidePanelLogicType>([
@@ -56,6 +57,9 @@ export const sidePanelLogic = kea<sidePanelLogicType>([
                 }
                 if (isReady && !hasCompletedAllTasks) {
                     tabs.push(SidePanelTab.Activation)
+                }
+                if (featureflags[FEATURE_FLAGS.EXPORTS_SIDEPANEL]) {
+                    tabs.push(SidePanelTab.Exports)
                 }
                 tabs.push(SidePanelTab.FeaturePreviews)
                 tabs.push(SidePanelTab.Settings)

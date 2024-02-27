@@ -140,7 +140,9 @@ export function RenderApp({ plugin, imageSize }: RenderAppProps): JSX.Element {
                         <PluginImage plugin={plugin} size={imageSize} />
                     </Link>
                 ) : (
-                    <PluginImage plugin={plugin} size={imageSize} /> // TODO: tooltip doesn't work on this
+                    <span>
+                        <PluginImage plugin={plugin} size={imageSize} />
+                    </span>
                 )}
             </Tooltip>
         </div>

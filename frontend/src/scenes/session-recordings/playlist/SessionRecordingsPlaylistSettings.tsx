@@ -27,25 +27,23 @@ export function SessionRecordingsPlaylistSettings(): JSX.Element {
                     }
                     placement="bottom"
                 >
-                    <span>
-                        <LemonSwitch
-                            aria-label="Autoplay next recording"
-                            checked={!!autoplayDirection}
-                            onChange={toggleAutoplayDirection}
-                            handleContent={
-                                <span
-                                    className={clsx(
-                                        'transition-all flex items-center',
-                                        !autoplayDirection && 'text-border text-sm',
-                                        !!autoplayDirection && 'text-white text-xs pl-px',
-                                        autoplayDirection === 'newer' && 'rotate-180'
-                                    )}
-                                >
-                                    {autoplayDirection ? <IconPlay /> : <IconPause />}
-                                </span>
-                            }
-                        />
-                    </span>
+                    <LemonSwitch
+                        aria-label="Autoplay next recording"
+                        checked={!!autoplayDirection}
+                        onChange={toggleAutoplayDirection}
+                        handleContent={
+                            <span
+                                className={clsx(
+                                    'transition-all flex items-center',
+                                    !autoplayDirection && 'text-border text-sm',
+                                    !!autoplayDirection && 'text-white text-xs pl-px',
+                                    autoplayDirection === 'newer' && 'rotate-180'
+                                )}
+                            >
+                                {autoplayDirection ? <IconPlay /> : <IconPause />}
+                            </span>
+                        }
+                    />
                 </Tooltip>
             </div>
             <div className="flex flex-row items-center justify-between space-x-2">

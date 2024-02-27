@@ -28,7 +28,6 @@ from posthog.temporal.batch_exports.batch_exports import (
     iter_records,
     update_export_run_status,
 )
-from posthog.temporal.batch_exports.clickhouse import ClickHouseClient
 from posthog.temporal.batch_exports.s3_batch_export import (
     HeartbeatDetails,
     S3BatchExportInputs,
@@ -38,6 +37,7 @@ from posthog.temporal.batch_exports.s3_batch_export import (
     insert_into_s3_activity,
     s3_default_fields,
 )
+from posthog.temporal.common.clickhouse import ClickHouseClient
 from posthog.temporal.tests.utils.events import (
     generate_test_events_in_clickhouse,
 )
@@ -962,12 +962,64 @@ async def test_s3_export_workflow_handles_insert_activity_errors(ateam, s3_batch
                     retry_policy=RetryPolicy(maximum_attempts=1),
                 )
 
-        runs = await afetch_batch_export_runs(batch_export_id=s3_batch_export.id)
-        assert len(runs) == 1
+    runs = await afetch_batch_export_runs(batch_export_id=s3_batch_export.id)
+    assert len(runs) == 1
 
-        run = runs[0]
-        assert run.status == "Failed"
-        assert run.latest_error == "ValueError: A useful error message"
+    run = runs[0]
+    assert run.status == "FailedRetryable"
+    assert run.latest_error == "ValueError: A useful error message"
+
+
+async def test_s3_export_workflow_handles_insert_activity_non_retryable_errors(ateam, s3_batch_export, interval):
+    """Test S3BatchExport Workflow can handle non-retryable errors from executing the insert into S3 activity.
+
+    Currently, this only means we do the right updates to the BatchExportRun model.
+    """
+    data_interval_end = dt.datetime.fromisoformat("2023-04-25T14:30:00.000000+00:00")
+
+    workflow_id = str(uuid4())
+    inputs = S3BatchExportInputs(
+        team_id=ateam.pk,
+        batch_export_id=str(s3_batch_export.id),
+        data_interval_end=data_interval_end.isoformat(),
+        interval=interval,
+        **s3_batch_export.destination.config,
+    )
+
+    @activity.defn(name="insert_into_s3_activity")
+    async def insert_into_s3_activity_mocked(_: S3InsertInputs) -> str:
+        class ParamValidationError(Exception):
+            pass
+
+        raise ParamValidationError("A useful error message")
+
+    async with await WorkflowEnvironment.start_time_skipping() as activity_environment:
+        async with Worker(
+            activity_environment.client,
+            task_queue=settings.TEMPORAL_TASK_QUEUE,
+            workflows=[S3BatchExportWorkflow],
+            activities=[
+                create_export_run,
+                insert_into_s3_activity_mocked,
+                update_export_run_status,
+            ],
+            workflow_runner=UnsandboxedWorkflowRunner(),
+        ):
+            with pytest.raises(WorkflowFailureError):
+                await activity_environment.client.execute_workflow(
+                    S3BatchExportWorkflow.run,
+                    inputs,
+                    id=workflow_id,
+                    task_queue=settings.TEMPORAL_TASK_QUEUE,
+                    retry_policy=RetryPolicy(maximum_attempts=1),
+                )
+
+    runs = await afetch_batch_export_runs(batch_export_id=s3_batch_export.id)
+    assert len(runs) == 1
+
+    run = runs[0]
+    assert run.status == "Failed"
+    assert run.latest_error == "ParamValidationError: A useful error message"
 
 
 @pytest.mark.asyncio

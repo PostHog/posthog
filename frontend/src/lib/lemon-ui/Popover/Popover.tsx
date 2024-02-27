@@ -16,7 +16,7 @@ import {
 import clsx from 'clsx'
 import { ScrollableShadows } from 'lib/components/ScrollableShadows/ScrollableShadows'
 import { useEventListener } from 'lib/hooks/useEventListener'
-import { useFloatingContainerContext } from 'lib/hooks/useFloatingContainerContext'
+import { useFloatingContainer } from 'lib/hooks/useFloatingContainerContext'
 import { CLICK_OUTSIDE_BLOCK_CLASS, useOutsideClickHandler } from 'lib/hooks/useOutsideClickHandler'
 import React, { MouseEventHandler, ReactElement, useContext, useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { CSSTransition } from 'react-transition-group'
@@ -114,8 +114,7 @@ export const Popover = React.forwardRef<HTMLDivElement, PopoverProps>(function P
     const {
         x,
         y,
-        reference,
-        refs: { reference: referenceRef, floating: floatingRef },
+        refs: { reference: referenceRef, floating: floatingRef, setReference },
         strategy,
         placement: effectivePlacement,
         update,
@@ -156,7 +155,7 @@ export const Popover = React.forwardRef<HTMLDivElement, PopoverProps>(function P
 
     useLayoutEffect(() => {
         if (referenceElement) {
-            reference(referenceElement)
+            setReference(referenceElement)
         }
     }, [referenceElement])
 
@@ -190,7 +189,7 @@ export const Popover = React.forwardRef<HTMLDivElement, PopoverProps>(function P
         }
     }, [visible, referenceRef?.current, floatingElement, ...additionalRefs])
 
-    const floatingContainer = useFloatingContainerContext()?.current
+    const floatingContainer = useFloatingContainer()
 
     const _onClickInside: MouseEventHandler<HTMLDivElement> = (e): void => {
         if (e.target instanceof HTMLElement && e.target.closest(`.${CLICK_OUTSIDE_BLOCK_CLASS}`)) {

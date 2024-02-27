@@ -1,10 +1,11 @@
+import { IconCheckCircle } from '@posthog/icons'
 import { LemonInput, LemonSegmentedButton } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { combineUrl } from 'kea-router'
 import api from 'lib/api'
 import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
 import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductIntroduction'
-import { IconCheckmark, IconPlayCircle } from 'lib/lemon-ui/icons'
+import { IconPlayCircle } from 'lib/lemon-ui/icons'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { More } from 'lib/lemon-ui/LemonButton/More'
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
@@ -137,7 +138,7 @@ export function ActionsTable(): JSX.Element {
                       dataIndex: 'post_to_slack',
                       sorter: (a: ActionType, b: ActionType) => Number(a.post_to_slack) - Number(b.post_to_slack),
                       render: function RenderActions(post_to_slack): JSX.Element | null {
-                          return post_to_slack ? <IconCheckmark /> : null
+                          return post_to_slack ? <IconCheckCircle /> : null
                       },
                   } as LemonTableColumn<ActionType, keyof ActionType | undefined>,
               ]

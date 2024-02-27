@@ -998,6 +998,12 @@ const api = {
             return new ApiRequest().exports(teamId).withQueryString(toParams(params)).create({ data })
         },
 
+        async list(
+            teamId: TeamType['id'] = ApiConfig.getCurrentTeamId()
+        ): Promise<PaginatedResponse<ExportedAssetType>> {
+            return new ApiRequest().exports(teamId).get()
+        },
+
         async get(id: number, teamId: TeamType['id'] = ApiConfig.getCurrentTeamId()): Promise<ExportedAssetType> {
             return new ApiRequest().export(id, teamId).get()
         },
@@ -1578,16 +1584,19 @@ const api = {
 
         async listSnapshots(
             recordingId: SessionRecordingType['id'],
-            params: string
+            params: Record<string, any> = {}
         ): Promise<SessionRecordingSnapshotResponse> {
             return await new ApiRequest().recording(recordingId).withAction('snapshots').withQueryString(params).get()
         },
 
-        async getBlobSnapshots(recordingId: SessionRecordingType['id'], blobKey: string): Promise<string[]> {
+        async getBlobSnapshots(
+            recordingId: SessionRecordingType['id'],
+            params: Record<string, any>
+        ): Promise<string[]> {
             const response = await new ApiRequest()
                 .recording(recordingId)
                 .withAction('snapshots')
-                .withQueryString(toParams({ source: 'blob', blob_key: blobKey, version: '2' }))
+                .withQueryString(params)
                 .getResponse()
 
             const contentBuffer = new Uint8Array(await response.arrayBuffer())
@@ -2130,11 +2139,11 @@ const api = {
         return response
     },
 
-    async loadPaginatedResults(
+    async loadPaginatedResults<T extends Record<string, any>>(
         url: string | null,
         maxIterations: number = PAGINATION_DEFAULT_MAX_PAGES
-    ): Promise<any[]> {
-        let results: any[] = []
+    ): Promise<T[]> {
+        let results: T[] = []
         for (let i = 0; i <= maxIterations; ++i) {
             if (!url) {
                 break

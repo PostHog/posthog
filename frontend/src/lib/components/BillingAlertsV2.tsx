@@ -48,10 +48,13 @@ export function BillingAlertsV2(): JSX.Element | null {
             <LemonBanner
                 type={billingAlert.status}
                 action={showButton ? buttonProps : undefined}
-                onClose={() => {
-                    billingAlert.status !== 'error' ? () => setAlertHidden(true) : undefined
-                    billingAlert.onClose?.()
-                }}
+                onClose={
+                    billingAlert.status !== 'error'
+                        ? () => setAlertHidden(true)
+                        : billingAlert.onClose
+                        ? () => billingAlert.onClose?.()
+                        : undefined
+                }
                 dismissKey={billingAlert.dismissKey}
             >
                 <b>{billingAlert.title}</b>

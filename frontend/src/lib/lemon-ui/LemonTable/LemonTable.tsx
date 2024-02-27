@@ -1,10 +1,10 @@
 import './LemonTable.scss'
 
+import { IconInfo } from '@posthog/icons'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 import { ScrollableShadows } from 'lib/components/ScrollableShadows/ScrollableShadows'
-import { IconInfo } from 'lib/lemon-ui/icons'
 import { More } from 'lib/lemon-ui/LemonButton/More'
 import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
 import React, { HTMLProps, useCallback, useEffect, useMemo, useRef, useState } from 'react'
@@ -341,7 +341,6 @@ export function LemonTable<T extends Record<string, any>>({
                                                                             : null
                                                                     }
                                                                 />
-                                                                {/* this non-breaking space lets antd's tooltip work*/}{' '}
                                                             </Tooltip>
                                                         )}
                                                     </div>

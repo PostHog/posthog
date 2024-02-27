@@ -10,8 +10,8 @@ import psycopg2
 from temporalio import activity, workflow
 from temporalio.common import RetryPolicy
 
-from posthog.clickhouse.client.execute import sync_execute
 from posthog.temporal.batch_exports.base import PostHogWorkflow
+from posthog.temporal.common.clickhouse import get_client
 
 EPOCH = datetime(1970, 1, 1, 0, 0, tzinfo=timezone.utc)
 
@@ -86,6 +86,11 @@ WHERE
     AND created_at <= %(oldest_event_at)s
     AND created_at >= 0;
 """
+
+
+def parse_clickhouse_timestamp(s: str, tzinfo: timezone = timezone.utc) -> datetime:
+    """Parse a timestamp from ClickHouse."""
+    return datetime.strptime(s.strip(), "%Y-%m-%d %H:%M:%S.%f").replace(tzinfo=tzinfo)
 
 
 class PersonOverrideToDelete(NamedTuple):
@@ -232,6 +237,7 @@ class QueryInputs:
         user: Database username required to create a dictionary.
         password: Database password required to create a dictionary.
         dictionary_name: The name for a dictionary used in the join.
+        wait_for_mutations: Whether to wait for mutations to finish or not.
         _latest_merged_at: A timestamp representing an upper bound for events to squash. Obtained
             as the latest timestamp of a person merge.
     """
@@ -241,6 +247,7 @@ class QueryInputs:
     person_overrides_to_delete: list[SerializablePersonOverrideToDelete] = field(default_factory=list)
     dictionary_name: str = "person_overrides_join_dict"
     dry_run: bool = True
+    wait_for_mutations: bool = False
     _latest_created_at: str | datetime | None = None
 
     def __post_init__(self) -> None:
@@ -290,7 +297,10 @@ async def prepare_person_overrides(inputs: QueryInputs) -> None:
 
     activity.logger.info("Optimizing person_overrides")
 
-    sync_execute(optimize_query.format(database=settings.CLICKHOUSE_DATABASE, cluster=settings.CLICKHOUSE_CLUSTER))
+    async with get_client() as clickhouse_client:
+        await clickhouse_client.execute_query(
+            optimize_query.format(database=settings.CLICKHOUSE_DATABASE, cluster=settings.CLICKHOUSE_CLUSTER)
+        )
 
 
 @activity.defn
@@ -303,18 +313,24 @@ async def prepare_dictionary(inputs: QueryInputs) -> str:
     from django.conf import settings
 
     activity.logger.info("Preparing DICTIONARY %s", inputs.dictionary_name)
-    latest_created_at = sync_execute(SELECT_LATEST_CREATED_AT_QUERY.format(database=settings.CLICKHOUSE_DATABASE))[0][0]
 
-    activity.logger.info("Creating DICTIONARY %s", inputs.dictionary_name)
-    sync_execute(
-        CREATE_DICTIONARY_QUERY.format(
-            database=settings.CLICKHOUSE_DATABASE,
-            dictionary_name=inputs.dictionary_name,
-            user=settings.CLICKHOUSE_USER,
-            password=settings.CLICKHOUSE_PASSWORD,
-            cluster_name=settings.CLICKHOUSE_CLUSTER,
+    async with get_client() as clickhouse_client:
+        response = await clickhouse_client.read_query(
+            SELECT_LATEST_CREATED_AT_QUERY.format(database=settings.CLICKHOUSE_DATABASE)
         )
-    )
+        latest_created_at = parse_clickhouse_timestamp(response.decode("utf-8"))
+
+        activity.logger.info("Creating DICTIONARY %s", inputs.dictionary_name)
+
+        await clickhouse_client.execute_query(
+            CREATE_DICTIONARY_QUERY.format(
+                database=settings.CLICKHOUSE_DATABASE,
+                dictionary_name=inputs.dictionary_name,
+                user=settings.CLICKHOUSE_USER,
+                password=settings.CLICKHOUSE_PASSWORD,
+                cluster_name=settings.CLICKHOUSE_CLUSTER,
+            )
+        )
 
     return latest_created_at.isoformat()
 
@@ -325,12 +341,14 @@ async def drop_dictionary(inputs: QueryInputs) -> None:
     from django.conf import settings
 
     activity.logger.info("Dropping DICTIONARY %s", inputs.dictionary_name)
-    sync_execute(
-        DROP_DICTIONARY_QUERY.format(
-            database=settings.CLICKHOUSE_DATABASE,
-            dictionary_name=inputs.dictionary_name,
+
+    async with get_client() as clickhouse_client:
+        await clickhouse_client.execute_query(
+            DROP_DICTIONARY_QUERY.format(
+                database=settings.CLICKHOUSE_DATABASE,
+                dictionary_name=inputs.dictionary_name,
+            )
         )
-    )
 
 
 @activity.defn
@@ -352,18 +370,31 @@ async def select_persons_to_delete(inputs: QueryInputs) -> list[SerializablePers
     from django.conf import settings
 
     latest_created_at = inputs.latest_created_at.timestamp() if inputs.latest_created_at else inputs.latest_created_at
-    to_delete_rows = sync_execute(
-        SELECT_PERSONS_TO_DELETE_QUERY.format(database=settings.CLICKHOUSE_DATABASE),
-        # We pass this as a timestamp ourselves as clickhouse-driver will drop any microseconds from the datetime.
-        # This would cause the latest merge event to be ignored.
-        # See: https://github.com/mymarilyn/clickhouse-driver/issues/306
-        {"latest_created_at": latest_created_at},
-    )
 
-    if not isinstance(to_delete_rows, list):
-        # Could return None if no results or int if this were an insert.
-        # Mostly to appease type checker
-        return []
+    async with get_client() as clickhouse_client:
+        response = await clickhouse_client.read_query(
+            SELECT_PERSONS_TO_DELETE_QUERY.format(database=settings.CLICKHOUSE_DATABASE),
+            # We pass this as a timestamp ourselves as clickhouse-driver will drop any microseconds from the datetime.
+            # This would cause the latest merge event to be ignored.
+            # See: https://github.com/mymarilyn/clickhouse-driver/issues/306
+            query_parameters={"latest_created_at": latest_created_at},
+        )
+
+        if not response:
+            return []
+
+        schema = (
+            int,
+            UUID,
+            UUID,
+            parse_clickhouse_timestamp,
+            int,
+            parse_clickhouse_timestamp,
+        )
+        to_delete_rows = (
+            (schema[field_index](field_value) for field_index, field_value in enumerate(line.split("\t")))
+            for line in response.decode("utf-8").splitlines()
+        )
 
     # We need to be absolutely sure which is the oldest event for a given person
     # as we cannot delete persons that have events in the past that aren't being
@@ -374,19 +405,21 @@ async def select_persons_to_delete(inputs: QueryInputs) -> list[SerializablePers
         person_to_delete = PersonOverrideToDelete._make(row)
         person_oldest_event_at = person_to_delete.oldest_event_at
 
-        try:
-            absolute_oldest_event_at = sync_execute(
+        async with get_client() as clickhouse_client:
+            response = await clickhouse_client.read_query(
                 SELECT_CREATED_AT_FOR_PERSON_EVENT_QUERY.format(database=settings.CLICKHOUSE_DATABASE),
-                {
+                query_parameters={
                     "team_id": person_to_delete.team_id,
                     "old_person_id": person_to_delete.old_person_id,
                     "oldest_event_at": person_oldest_event_at,
                 },
-            )[0][0]
+            )
 
-        except IndexError:
-            # Let's be safe and treat this as no rows found.
-            absolute_oldest_event_at = EPOCH
+            if not response:
+                absolute_oldest_event_at = EPOCH
+
+            else:
+                absolute_oldest_event_at = parse_clickhouse_timestamp(response.decode("utf-8"))
 
         # ClickHouse min() likes to return the epoch when no rows found.
         # Granted, I'm assuming that we were not ingesting events in 1970...
@@ -437,7 +470,7 @@ async def squash_events_partition(inputs: QueryInputs) -> None:
 
     query = SQUASH_EVENTS_QUERY
 
-    latest_created_at = inputs.latest_created_at.timestamp() if inputs.latest_created_at else inputs.latest_created_at
+    latest_created_at = inputs.latest_created_at
 
     for partition_id in inputs.partition_ids:
         activity.logger.info("Executing squash query on partition %s", partition_id)
@@ -445,9 +478,6 @@ async def squash_events_partition(inputs: QueryInputs) -> None:
         parameters = {
             "partition_id": partition_id,
             "team_ids": inputs.team_ids,
-            # We pass this as a timestamp ourselves as clickhouse-driver will drop any microseconds from the datetime.
-            # This would cause the latest merge event to be ignored.
-            # See: https://github.com/mymarilyn/clickhouse-driver/issues/306
             "latest_created_at": latest_created_at,
         }
 
@@ -456,14 +486,16 @@ async def squash_events_partition(inputs: QueryInputs) -> None:
             activity.logger.info("Would have run query: %s with parameters %s", query, parameters)
             continue
 
-        sync_execute(
-            query.format(
+        async with get_client(mutations_sync=1 if inputs.wait_for_mutations is True else 0) as clickhouse_client:
+            query = query.format(
                 database=settings.CLICKHOUSE_DATABASE,
                 dictionary_name=inputs.dictionary_name,
                 team_id_filter="AND team_id in %(team_ids)s" if inputs.team_ids else "",
-            ),
-            parameters,
-        )
+            )
+            await clickhouse_client.execute_query(
+                query,
+                query_parameters=parameters,
+            )
 
 
 @activity.defn
@@ -491,7 +523,10 @@ async def delete_squashed_person_overrides_from_clickhouse(inputs: QueryInputs) 
         activity.logger.info("Would have run query: %s with parameters %s", query, parameters)
         return
 
-    sync_execute(query.format(database=settings.CLICKHOUSE_DATABASE), parameters)
+    async with get_client(mutations_sync=1 if inputs.wait_for_mutations is True else 0) as clickhouse_client:
+        await clickhouse_client.execute_query(
+            query.format(database=settings.CLICKHOUSE_DATABASE), query_parameters=parameters
+        )
 
 
 @activity.defn
@@ -501,6 +536,7 @@ async def delete_squashed_person_overrides_from_postgres(inputs: QueryInputs) ->
     We cannot use the Django ORM in an async context without enabling unsafe behavior.
     This may be a good excuse to unshackle ourselves from the ORM.
     """
+
     from django.conf import settings
 
     activity.logger.info("Deleting squashed persons from Postgres")
@@ -579,6 +615,7 @@ class SquashPersonOverridesInputs:
     dictionary_name: str = "person_overrides_join_dict"
     last_n_months: int = 1
     dry_run: bool = True
+    wait_for_mutations: bool = False
 
     def iter_partition_ids(self) -> Iterator[str]:
         """Iterate over configured partition ids.
@@ -653,6 +690,7 @@ class SquashPersonOverridesWorkflow(PostHogWorkflow):
             dictionary_name=inputs.dictionary_name,
             team_ids=inputs.team_ids,
             dry_run=inputs.dry_run,
+            wait_for_mutations=inputs.wait_for_mutations,
         )
 
         async with person_overrides_dictionary(

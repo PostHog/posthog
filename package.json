@@ -70,12 +70,12 @@
         "@dnd-kit/modifiers": "^6.0.1",
         "@dnd-kit/sortable": "^7.0.2",
         "@dnd-kit/utilities": "^3.2.1",
-        "@floating-ui/react": "^0.16.0",
+        "@floating-ui/react": "^0.26.9",
         "@lottiefiles/react-lottie-player": "^3.4.7",
         "@medv/finder": "^3.1.0",
         "@microlink/react-json-view": "^1.21.3",
         "@monaco-editor/react": "4.4.6",
-        "@posthog/icons": "0.5.1",
+        "@posthog/icons": "0.6.3",
         "@posthog/plugin-scaffold": "^1.4.4",
         "@react-hook/size": "^2.1.2",
         "@rrweb/types": "2.0.0-alpha.11",
@@ -142,7 +142,7 @@
         "pmtiles": "^2.11.0",
         "postcss": "^8.4.31",
         "postcss-preset-env": "^9.3.0",
-        "posthog-js": "1.108.0",
+        "posthog-js": "1.109.0",
         "posthog-js-lite": "2.5.0",
         "prettier": "^2.8.8",
         "prop-types": "^15.7.2",
@@ -315,6 +315,10 @@
         "*.{json,yaml,yml}": "prettier --write",
         "*.{css,scss}": [
             "stylelint --fix",
+            "prettier --write"
+        ],
+        "cypress/**/*.{js,jsx,mjs,ts,tsx}": [
+            "eslint -c .eslintrc.js --fix",
             "prettier --write"
         ],
         "frontend/src/**/*.{js,jsx,mjs,ts,tsx}": [
