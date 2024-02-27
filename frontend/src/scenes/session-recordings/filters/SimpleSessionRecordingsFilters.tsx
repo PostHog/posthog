@@ -7,7 +7,7 @@ import { useMemo } from 'react'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
-import { EntityTypes, PropertyFilterType, PropertyOperator, RecordingFilters } from '~/types'
+import { EntityTypes, EventPropertyFilter, PropertyFilterType, PropertyOperator, RecordingFilters } from '~/types'
 
 export const SimpleSessionRecordingsFilters = ({
     filters,
@@ -59,15 +59,16 @@ export const SimpleSessionRecordingsFilters = ({
     }
 
     const items = useMemo(() => {
-        const keys = personProperties.map((p) => p.key)
+        const personKeys = personProperties.map((p) => p.key)
+        const eventKeys = eventProperties.map((p: EventPropertyFilter) => p.key)
 
         const properties = [
-            !keys.includes('$geoip_country_name') && {
+            !personKeys.includes('$geoip_country_name') && {
                 label: 'Country',
                 key: '$geoip_country_name',
                 onClick: () => onClickPersonProperty('$geoip_country_name'),
             },
-            !keys.includes('') && {
+            !eventKeys.includes('$current_url') && {
                 label: 'URL',
                 key: '$current_url',
                 onClick: onClickCurrentUrl,
@@ -76,7 +77,7 @@ export const SimpleSessionRecordingsFilters = ({
 
         displayNameProperties.forEach((property) => {
             properties.push(
-                !keys.includes(property) && {
+                !personKeys.includes(property) && {
                     label: property,
                     key: property,
                     onClick: () => onClickPersonProperty(property),
@@ -123,7 +124,7 @@ export const SimpleSessionRecordingsFilters = ({
                 />
                 <LemonMenu
                     items={[
-                        {
+                        items.length > 0 && {
                             title: 'Preferred properties',
                             items: items,
                         },

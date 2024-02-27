@@ -29,7 +29,7 @@ export function SessionRecordingsFilters({
     onReset,
 }: SessionRecordingsFiltersProps): JSX.Element {
     const initiallyOpen = useMemo(() => {
-        // skip computation if not within Collapse component
+        // advanced always open if not showing simple filters, saves computation
         if (hideSimpleFilters) {
             return true
         }

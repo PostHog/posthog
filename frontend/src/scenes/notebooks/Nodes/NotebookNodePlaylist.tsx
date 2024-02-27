@@ -1,6 +1,7 @@
 import { createPostHogWidgetNode } from 'scenes/notebooks/Nodes/NodeWrapper'
 import { FilterType, NotebookNodeType, RecordingFilters, ReplayTabs } from '~/types'
 import {
+    DEFAULT_SIMPLE_RECORDING_FILTERS,
     SessionRecordingPlaylistLogicProps,
     getDefaultFilters,
     sessionRecordingsPlaylistLogic,
@@ -124,11 +125,13 @@ export const Settings = ({
         <ErrorBoundary>
             <SessionRecordingsFilters
                 advancedFilters={{ ...defaultFilters, ...filters }}
-                simpleFilters={simpleFilters ?? {}}
+                simpleFilters={simpleFilters ?? DEFAULT_SIMPLE_RECORDING_FILTERS}
                 setAdvancedFilters={(filters) => updateAttributes({ filters })}
                 setSimpleFilters={(simpleFilters) => updateAttributes({ simpleFilters })}
                 showPropertyFilters
-                onReset={() => updateAttributes({ filters: undefined, simpleFilters: undefined })}
+                onReset={() =>
+                    updateAttributes({ filters: defaultFilters, simpleFilters: DEFAULT_SIMPLE_RECORDING_FILTERS })
+                }
             />
         </ErrorBoundary>
     )
