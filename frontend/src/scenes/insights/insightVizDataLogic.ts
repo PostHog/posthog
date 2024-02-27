@@ -506,7 +506,7 @@ const handleQuerySourceUpdateSideEffects = (
     // if mixed, clear breakdown and trends filter
     if (
         kind === NodeKind.TrendsQuery &&
-        (mergedUpdate as TrendsQuery).series.length >= 0 &&
+        (mergedUpdate as TrendsQuery).series?.length >= 0 &&
         (mergedUpdate as TrendsQuery).series.some((series) => isDataWarehouseNode(series)) &&
         (mergedUpdate as TrendsQuery).series.some((series) => isActionsNode(series) || isEventsNode(series))
     ) {
