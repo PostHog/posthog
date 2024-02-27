@@ -547,7 +547,7 @@ async def update_export_run_status(inputs: UpdateBatchExportRunStatusInputs) -> 
         latest_error=inputs.latest_error,
     )
 
-    if batch_export_run.status == BatchExportRun.Status.FAILED:
+    if batch_export_run.status in (BatchExportRun.Status.FAILED, BatchExportRun.Status.FAILED_RETRYABLE):
         logger.error("BatchExport failed with error: %s", batch_export_run.latest_error)
 
     elif batch_export_run.status == BatchExportRun.Status.CANCELLED:
