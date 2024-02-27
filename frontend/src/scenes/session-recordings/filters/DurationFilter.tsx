@@ -21,11 +21,11 @@ const durationTypeMapping: Record<DurationType, string> = {
 }
 
 export const humanFriendlyDurationFilter = (
-    recordingDurationFilter: RecordingDurationFilter,
+    recordingDurationFilter: RecordingDurationFilter | undefined,
     durationTypeFilter: DurationType
 ): string => {
-    const operator = recordingDurationFilter.operator === PropertyOperator.GreaterThan ? '>' : '<'
-    const duration = convertSecondsToDuration(recordingDurationFilter.value || 0)
+    const operator = recordingDurationFilter?.operator === PropertyOperator.GreaterThan ? '>' : '<'
+    const duration = convertSecondsToDuration(recordingDurationFilter?.value || 0)
     const durationDescription = durationTypeMapping[durationTypeFilter]
     const unit = duration.timeValue === 1 ? duration.unit.slice(0, -1) : duration.unit
     return `${operator} ${duration.timeValue || 0} ${durationDescription}${unit}`
