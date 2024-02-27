@@ -1153,6 +1153,7 @@ export interface FunnelCorrelationQuery {
     /* Events */
     // funnel_correlation_type: "events"
     // funnel_correlation_exclude_event_names: []
+    funnelCorrelationExcludeEventNames?: string[]
 
     /* Events with properties */
     // funnel_correlation_type: 'event_with_properties'

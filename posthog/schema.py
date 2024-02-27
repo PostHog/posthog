@@ -2643,6 +2643,7 @@ class FunnelCorrelationQuery(BaseModel):
         extra="forbid",
     )
     correlationType: FunnelCorrelationType
+    funnelCorrelationExcludeEventNames: Optional[List[str]] = None
     response: Optional[FunnelCorrelationResponse] = None
     source: FunnelsActorsQuery
 

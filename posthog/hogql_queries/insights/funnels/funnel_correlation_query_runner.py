@@ -4,9 +4,11 @@ from typing import List, Literal, Optional, Any, Dict, Set, TypedDict, Union, ca
 from ee.clickhouse.queries.funnels.funnel_correlation import EventOddsRatioSerialized
 
 from posthog.constants import AUTOCAPTURE_EVENT, FunnelCorrelationType
+from posthog.hogql.parser import parse_select
 from posthog.hogql_queries.insights.funnels.funnel_persons import FunnelActors
 from posthog.hogql_queries.insights.funnels.funnel_strict_persons import FunnelStrictActors
 from posthog.hogql_queries.insights.funnels.funnel_unordered_persons import FunnelUnorderedActors
+from posthog.models.action.action import Action
 from posthog.models.element.element import chain_to_elements
 from posthog.models.event.util import ElementSerializer
 
@@ -21,6 +23,7 @@ from posthog.hogql_queries.query_runner import QueryRunner
 from posthog.models import Team
 from posthog.queries.util import correct_result_for_sampling
 from posthog.schema import (
+    ActionsNode,
     EventDefinition,
     FunnelCorrelationQuery,
     FunnelCorrelationResponse,
@@ -28,6 +31,7 @@ from posthog.schema import (
     FunnelsActorsQuery,
     FunnelsQuery,
     HogQLQueryModifiers,
+    NodeKind,
 )
 
 
@@ -313,17 +317,21 @@ class FunnelCorrelationQueryRunner(QueryRunner):
         return self.get_event_query()
 
     def get_event_query(self) -> ast.SelectQuery:
-        funnel_persons_query, funnel_persons_params = self.get_funnel_actors_cte()
+        funnel_persons_query = self.get_funnel_actors_cte()
 
-        event_join_query = self._get_events_join_query()
+        # event_join_query = self._get_events_join_query()
+        event_join_query = "WHERE 1=1"  # TODO: Implement
 
-        query = f"""
+        event_correlation_query = parse_select(
+            f"""
             WITH
-                funnel_actors as ({funnel_persons_query}),
-                toDateTime(%(date_to)s, %(timezone)s) AS date_to,
-                toDateTime(%(date_from)s, %(timezone)s) AS date_from,
-                %(target_step)s AS target_step,
-                %(funnel_step_names)s as funnel_step_names
+                funnel_actors AS (
+                    {{funnel_persons_query}}
+                ),
+                --toDateTime(%(date_to)s, %(timezone)s) AS date_to,
+                --toDateTime(%(date_from)s, %(timezone)s) AS date_from,
+                {self.context.max_steps} AS target_step,
+                {self._get_funnel_step_names()} as funnel_step_names
 
             SELECT
                 event.event AS name,
@@ -343,7 +351,7 @@ class FunnelCorrelationQueryRunner(QueryRunner):
 
             FROM events AS event
                 {event_join_query}
-                AND event.event NOT IN %(exclude_event_names)s
+                AND event.event NOT IN {self.query.funnelCorrelationExcludeEventNames}
             GROUP BY name
 
             -- To get the total success/failure numbers, we do an aggregation on
@@ -365,14 +373,12 @@ class FunnelCorrelationQueryRunner(QueryRunner):
                     actors.steps <> target_step
                 ) AS failure_count
             FROM funnel_actors AS actors
-        """
-        params = {
-            "funnel_step_names": self._get_funnel_step_names(),
-            "target_step": len(self._filter.entities),
-            "exclude_event_names": self._filter.correlation_event_exclude_names,
-        }
+        """,
+            placeholders={"funnel_persons_query": funnel_persons_query},
+        )
 
-        return query
+        # assert isinstance(event_correlation_query, ast.SelectQuery)
+        return event_correlation_query
 
     def get_event_property_query(self) -> ast.SelectQuery:
         if not self._filter.correlation_event_names:
@@ -604,14 +610,14 @@ class FunnelCorrelationQueryRunner(QueryRunner):
             aggregation_group_join if self._filter.aggregation_group_type_index is not None else aggregation_person_join
         )
 
-    def _get_funnel_step_names(self):
-        events: Set[Union[int, str]] = set()
-        for entity in self._filter.entities:
-            if entity.type == TREND_FILTER_TYPE_ACTIONS:
-                action = entity.get_action()
+    def _get_funnel_step_names(self) -> List[str]:
+        events: Set[str] = set()
+        for entity in self.funnels_query.series:
+            if isinstance(entity, ActionsNode):
+                action = Action.objects.get(pk=int(entity.id), team=self.context.team)
                 events.update(action.get_step_events())
-            elif entity.id is not None:
-                events.add(entity.id)
+            elif entity.event is not None:
+                events.add(entity.event)
 
         return sorted(list(events))
 
