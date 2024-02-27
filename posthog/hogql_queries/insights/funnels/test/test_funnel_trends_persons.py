@@ -71,10 +71,10 @@ class TestFunnelTrendsPersons(ClickhouseTestMixin, APIBaseTest):
         )
 
         # self.assertEqual([person[0]["id"] for person in results], [persons["user_one"].uuid])
-        self.assertEqual([person[0][0] for person in results], [persons["user_one"].uuid])
+        self.assertEqual(results[0][0], persons["user_one"].uuid)
         self.assertEqual(
             # [person["matched_recordings"][0]["session_id"] for person in results],
-            [list(person[0][2])["session_id"] for person in results],  # type: ignore
+            [list(results[0][2])[0]["session_id"]],  # type: ignore
             ["s1b"],
         )
 
@@ -121,10 +121,10 @@ class TestFunnelTrendsPersons(ClickhouseTestMixin, APIBaseTest):
         )
 
         # self.assertEqual([person[0]["id"] for person in results], [persons["user_one"].uuid])
-        self.assertEqual([person[0][0] for person in results], [persons["user_one"].uuid])
+        self.assertEqual(results[0][0], persons["user_one"].uuid)
         self.assertEqual(
             # [person["matched_recordings"][0]["session_id"] for person in results],
-            [list(person[0][2])["session_id"] for person in results],  # type: ignore
+            [list(results[0][2])[0]["session_id"]],  # type: ignore
             ["s1c"],
         )
 
@@ -160,9 +160,9 @@ class TestFunnelTrendsPersons(ClickhouseTestMixin, APIBaseTest):
         )
 
         # self.assertEqual([person[0]["id"] for person in results], [persons["user_one"].uuid])
-        self.assertEqual([person[0][0] for person in results], [persons["user_one"].uuid])
+        self.assertEqual(results[0][0], persons["user_one"].uuid)
         self.assertEqual(
             # [person["matched_recordings"][0].get("session_id") for person in results],
-            [list(person[0][2])["session_id"] for person in results],  # type: ignore
+            [list(results[0][2])[0]["session_id"]],  # type: ignore
             ["s1a"],
         )
