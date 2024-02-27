@@ -1457,7 +1457,7 @@
             "additionalProperties": false,
             "properties": {
                 "correlationType": {
-                    "$ref": "#/definitions/FunnelCorrelationType"
+                    "$ref": "#/definitions/FunnelCorrelationResultsType"
                 },
                 "funnelStep": {
                     "description": "Index of the step for which we want to get the timestamp for, per person. Positive for converted persons, negative for dropped of persons.",
@@ -1511,8 +1511,8 @@
             "required": ["events", "skewed"],
             "type": "object"
         },
-        "FunnelCorrelationType": {
-            "enum": ["success", "failure"],
+        "FunnelCorrelationResultsType": {
+            "enum": ["events", "properties", "event_with_properties"],
             "type": "string"
         },
         "FunnelExclusion": {

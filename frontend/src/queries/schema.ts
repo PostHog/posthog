@@ -9,7 +9,7 @@ import {
     EventPropertyFilter,
     EventType,
     FilterType,
-    FunnelCorrelationType,
+    FunnelCorrelationResultsType,
     FunnelsFilterType,
     GroupMathType,
     HogQLMathType,
@@ -1133,7 +1133,7 @@ export interface FunnelCorrelationResponse {
 export interface FunnelCorrelationQuery {
     source: FunnelsQuery
 
-    correlationType: FunnelCorrelationType
+    correlationType: FunnelCorrelationResultsType
 
     // # Needs to be json encoded list of `EventPattern`s
     // events: str
