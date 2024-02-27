@@ -1,15 +1,11 @@
 import dataclasses
 from datetime import timedelta
-from math import ceil
 from typing import Literal, Optional, Any, Dict, TypedDict, cast
 
-from django.utils.timezone import datetime
-from posthog.caching.insights_api import (
-    BASE_MINIMUM_INSIGHT_REFRESH_INTERVAL,
-    REDUCED_MINIMUM_INSIGHT_REFRESH_INTERVAL,
-)
-from posthog.caching.utils import is_stale
 from posthog.constants import AUTOCAPTURE_EVENT, FunnelCorrelationType
+from posthog.hogql_queries.insights.funnels.funnel_persons import FunnelActors
+from posthog.hogql_queries.insights.funnels.funnel_strict_persons import FunnelStrictActors
+from posthog.hogql_queries.insights.funnels.funnel_unordered_persons import FunnelUnorderedActors
 from posthog.models.element.element import chain_to_elements
 from posthog.models.event.util import ElementSerializer
 
@@ -19,22 +15,16 @@ from posthog.hogql.printer import to_printed_hogql
 from posthog.hogql.query import execute_hogql_query
 from posthog.hogql.timings import HogQLTimings
 from posthog.hogql_queries.insights.funnels.funnel_query_context import FunnelQueryContext
-from posthog.hogql_queries.insights.funnels.funnel_time_to_convert import FunnelTimeToConvert
-from posthog.hogql_queries.insights.funnels.funnel_trends import FunnelTrends
-from posthog.hogql_queries.insights.funnels.utils import get_funnel_actor_class, get_funnel_order_class
+from posthog.hogql_queries.insights.funnels.utils import get_funnel_actor_class
 from posthog.hogql_queries.query_runner import QueryRunner
-from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 from posthog.models import Team
-from posthog.models.filters.mixins.utils import cached_property
 from posthog.queries.util import correct_result_for_sampling
 from posthog.schema import (
     EventDefinition,
     FunnelCorrelationQuery,
     FunnelCorrelationResponse,
     FunnelCorrelationResult,
-    FunnelVizType,
-    FunnelsQuery,
-    FunnelsQueryResponse,
+    FunnelsFilter,
     HogQLQueryModifiers,
 )
 
@@ -83,7 +73,8 @@ class FunnelCorrelationQueryRunner(QueryRunner):
 
     query: FunnelCorrelationQuery
     query_type = FunnelCorrelationQuery
-    # context: FunnelQueryContext
+
+    _funnel_actors_generator: FunnelActors | FunnelStrictActors | FunnelUnorderedActors
 
     def __init__(
         self,
@@ -95,30 +86,23 @@ class FunnelCorrelationQueryRunner(QueryRunner):
     ):
         super().__init__(query, team=team, timings=timings, modifiers=modifiers, limit_context=limit_context)
 
-        # self.context = FunnelQueryContext(
-        #     query=self.query, team=team, timings=timings, modifiers=modifiers, limit_context=limit_context
-        # )
+        # Funnel Step by default set to 1, to give us all people who entered the funnel
+        if self.query.funnelStep is None:
+            self.query.funnelStep = 1
 
-        # if self._filter.funnel_step is None:
-        #     self._filter = self._filter.shallow_clone({"funnel_step": 1})
-        #     # Funnel Step by default set to 1, to give us all people who entered the funnel
+        # Used for generating the funnel persons cte
 
-        # # Used for generating the funnel persons cte
-
-        # filter_data = {
-        #     key: value
-        #     for key, value in self._filter.to_dict().items()
-        #     # NOTE: we want to filter anything about correlation, as the
-        #     # funnel persons endpoint does not understand or need these
-        #     # params.
-        #     if not key.startswith("funnel_correlation_")
-        # }
         # # NOTE: we always use the final matching event for the recording because this
         # # is the the right event for both drop off and successful funnels
         # filter_data.update({"include_final_matching_events": self._filter.include_recordings})
         # filter = Filter(data=filter_data, hogql_context=self._filter.hogql_context)
-
-        # funnel_order_actor_class = get_funnel_order_actor_class(filter)
+        funnel_query_context = FunnelQueryContext(
+            query=self.query.source, team=team, timings=timings, modifiers=modifiers, limit_context=limit_context
+        )
+        funnel_order_actor_class = get_funnel_actor_class(self.query.source.funnelsFilter or FunnelsFilter())(
+            context=funnel_query_context
+        )
+        self._funnel_actors_generator = funnel_order_actor_class
 
         # self._funnel_actors_generator = funnel_order_actor_class(
         #     filter,
@@ -133,31 +117,11 @@ class FunnelCorrelationQueryRunner(QueryRunner):
         #     include_properties=self.properties_to_include,
         # )
 
-    # def _is_stale(self, cached_result_package):
-    #     date_to = self.query_date_range.date_to()
-    #     interval = self.query_date_range.interval_name
-    #     return is_stale(self.team, date_to, interval, cached_result_package)
     def _is_stale(self, cached_result_package):
         return True
 
-    # def _refresh_frequency(self):
-    #     date_to = self.query_date_range.date_to()
-    #     date_from = self.query_date_range.date_from()
-    #     interval = self.query_date_range.interval_name
     def _refresh_frequency(self):
         return timedelta(minutes=1)
-
-    #     delta_days: Optional[int] = None
-    #     if date_from and date_to:
-    #         delta = date_to - date_from
-    #         delta_days = ceil(delta.total_seconds() / timedelta(days=1).total_seconds())
-
-    #     refresh_frequency = BASE_MINIMUM_INSIGHT_REFRESH_INTERVAL
-    #     if interval == "hour" or (delta_days is not None and delta_days <= 7):
-    #         # The interval is shorter for short-term insights
-    #         refresh_frequency = REDUCED_MINIMUM_INSIGHT_REFRESH_INTERVAL
-
-    #     return refresh_frequency
 
     def calculate(self) -> FunnelCorrelationResponse:
         """
@@ -303,17 +267,7 @@ class FunnelCorrelationQueryRunner(QueryRunner):
         event_definition = self.serialize_event_with_property(event=odds_ratio["event"])
         return {
             "success_count": odds_ratio["success_count"],
-            # "success_people_url": self.construct_people_url(
-            #     success=True,
-            #     event_definition=event_definition,
-            #     cache_invalidation_key=cache_invalidation_key,
-            # ),
             "failure_count": odds_ratio["failure_count"],
-            # "failure_people_url": self.construct_people_url(
-            #     success=False,
-            #     event_definition=event_definition,
-            #     cache_invalidation_key=cache_invalidation_key,
-            # ),
             "odds_ratio": odds_ratio["odds_ratio"],
             "correlation_type": odds_ratio["correlation_type"],
             "event": event_definition,
