@@ -96,35 +96,33 @@ class FunnelCorrelationQueryRunner(QueryRunner):
         self.actors_query = self.query.source
         self.funnels_query = self.actors_query.source
 
-        self.context = FunnelQueryContext(
-            query=self.funnels_query, team=team, timings=timings, modifiers=modifiers, limit_context=limit_context
-        )
-        self.context.actorsQuery = self.actors_query
-
         # Funnel Step by default set to 1, to give us all people who entered the funnel
         if self.actors_query.funnelStep is None:
             self.actors_query.funnelStep = 1
 
-        # Used for generating the funnel persons cte
+        self.context = FunnelQueryContext(
+            query=self.funnels_query,
+            team=team,
+            timings=timings,
+            modifiers=modifiers,
+            limit_context=limit_context,
+            # NOTE: we want to include the latest timestamp of the `target_step`,
+            # from this we can deduce if the person reached the end of the funnel,
+            # i.e. successful
+            include_timestamp=True,
+            # NOTE: we don't need these as we have all the information we need to
+            # deduce if the person was successful or not
+            include_preceding_timestamp=False,
+            include_properties=self.properties_to_include,
+            # NOTE: we always use the final matching event for the recording because this
+            # is the the right event for both drop off and successful funnels
+            include_final_matching_events=self.actors_query.includeRecordings,
+        )
+        self.context.actorsQuery = self.actors_query
 
-        # # NOTE: we always use the final matching event for the recording because this
-        # # is the the right event for both drop off and successful funnels
-        # filter_data.update({"include_final_matching_events": self._filter.include_recordings})
+        # Used for generating the funnel persons cte
         funnel_order_actor_class = get_funnel_actor_class(self.context.funnelsFilter)(context=self.context)
         self._funnel_actors_generator = funnel_order_actor_class
-
-        # self._funnel_actors_generator = funnel_order_actor_class(
-        #     filter,
-        #     self._team,
-        #     # NOTE: we want to include the latest timestamp of the `target_step`,
-        #     # from this we can deduce if the person reached the end of the funnel,
-        #     # i.e. successful
-        #     include_timestamp=True,
-        #     # NOTE: we don't need these as we have all the information we need to
-        #     # deduce if the person was successful or not
-        #     include_preceding_timestamp=False,
-        #     include_properties=self.properties_to_include,
-        # )
 
     def _is_stale(self, cached_result_package):
         return True
