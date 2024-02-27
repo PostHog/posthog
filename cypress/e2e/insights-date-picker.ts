@@ -1,17 +1,7 @@
-import { decideResponse } from '../fixtures/api/decide'
-import { urls } from 'scenes/urls'
+import {urls} from 'scenes/urls'
 
 describe('insights date picker', () => {
     beforeEach(() => {
-        cy.intercept('https://app.posthog.com/decide/*', (req) =>
-            req.reply(
-                decideResponse({
-                    hogql: true,
-                    'data-exploration-insights': true,
-                })
-            )
-        )
-
         cy.visit(urls.insightNew())
     })
 
