@@ -1,7 +1,9 @@
 import asyncio
 import collections.abc
 import contextlib
+import dataclasses
 import json
+import typing
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
 
@@ -10,6 +12,7 @@ from temporalio.common import RetryPolicy
 
 from posthog.temporal.batch_exports.base import PostHogWorkflow
 from posthog.temporal.common.clickhouse import get_client
+from posthog.temporal.common.utils import EmptyHeartbeatError, HeartbeatDetails
 
 EPOCH = datetime(1970, 1, 1, 0, 0, tzinfo=timezone.utc)
 
@@ -33,6 +36,8 @@ SYSTEM RELOAD DICTIONARY {database}.{dictionary_name}
 SQUASH_EVENTS_QUERY = """
 ALTER TABLE
     {database}.sharded_events
+ON CLUSTER
+    {cluster}
 UPDATE
     person_id = dictGet('{database}.{dictionary_name}', 'person_id', (team_id, distinct_id))
 IN PARTITION
@@ -40,6 +45,24 @@ IN PARTITION
 WHERE
     dictHas('{database}.{dictionary_name}', (team_id, distinct_id))
     {in_team_ids}
+"""
+
+SQUASH_MUTATIONS_IN_PROGRESS_QUERY = """
+SELECT mutation_id, is_done
+FROM clusterAllReplicas('{cluster}', 'system', mutations)
+WHERE table = 'sharded_events'
+AND database = '{database}'
+AND command LIKE
+    'UPDATE person_id = dictGet(''{database}.{dictionary_name}'', ''person_id'', (team_id, distinct_id)) IN PARTITION ''{partition_id}''%'
+"""
+
+KILL_SQUASH_MUTATION_IN_PROGRESS_QUERY = """
+KILL MUTATION ON CLUSTER {cluster}
+WHERE is_done = 0
+AND table = 'sharded_events'
+AND database = '{database}'
+AND command LIKE
+    'UPDATE person_id = dictGet(''{database}.{dictionary_name}'', ''person_id'', (team_id, distinct_id)) IN PARTITION '''{partition_id}''%'
 """
 
 DROP_DICTIONARY_QUERY = """
@@ -166,8 +189,36 @@ async def drop_dictionary(inputs: QueryInputs) -> None:
     activity.logger.info("Dropped dictionary %s", inputs.dictionary_name)
 
 
+@dataclasses.dataclass
+class SquashHeartbeatDetails(HeartbeatDetails):
+    """Squash heartbeat details.
+
+    Attributes:
+        partition_ids: The endpoint we are importing data from.
+    """
+
+    partition_ids: list[str]
+
+    @classmethod
+    def from_activity(cls, activity):
+        """Attempt to initialize SquashHeartbeatDetails from an activity's info."""
+        details = activity.info().heartbeat_details
+
+        if len(details) == 0:
+            raise EmptyHeartbeatError()
+
+        return cls(partition_ids=details[0], _remaining=details[1:])
+
+
+def no_details() -> None:
+    return
+
+
 @contextlib.asynccontextmanager
-async def heartbeat_every(factor: int = 2) -> collections.abc.AsyncIterator[None]:
+async def heartbeat_every(
+    factor: int = 2,
+    details_callable: collections.abc.Callable[[], collections.abc.Sequence[typing.Any] | None] = no_details,
+) -> collections.abc.AsyncIterator[None]:
     """Heartbeat every Activity heartbeat timeout / factor seconds while in context."""
     heartbeat_timeout = activity.info().heartbeat_timeout
     heartbeat_task = None
@@ -176,7 +227,7 @@ async def heartbeat_every(factor: int = 2) -> collections.abc.AsyncIterator[None
         """Heartbeat forever every delay seconds."""
         while True:
             await asyncio.sleep(delay)
-            activity.heartbeat()
+            activity.heartbeat(*details_callable())
 
     if heartbeat_timeout:
         heartbeat_task = asyncio.create_task(heartbeat_forever(heartbeat_timeout.total_seconds() / factor))
@@ -203,34 +254,88 @@ async def squash_events_partition(inputs: QueryInputs) -> None:
     """
     from django.conf import settings
 
-    for partition_id in inputs.partition_ids:
-        activity.logger.info("Updating events with person overrides in partition %s", partition_id)
+    finished_partition_ids = []
 
-        query = SQUASH_EVENTS_QUERY.format(
-            database=settings.CLICKHOUSE_DATABASE,
-            dictionary_name=inputs.dictionary_name,
-            in_team_ids="AND team_id IN %(team_ids)s" if inputs.team_ids else "",
-        )
+    if inputs.dry_run is True:
+        activity.logger.info("This is a DRY RUN so nothing will be squashed.")
+        return
 
-        parameters = {
-            "partition_id": partition_id,
-            "team_ids": inputs.team_ids,
-        }
+    async with get_client() as clickhouse_client:
+        for partition_id in inputs.partition_ids:
+            activity.logger.info("Updating events with person overrides in partition %s", partition_id)
 
-        if inputs.dry_run is True:
-            activity.logger.info("This is a DRY RUN so nothing will be squashed.")
-            activity.logger.debug("Would have run query: %s with parameters %s", query, parameters)
-            continue
+            query = SQUASH_EVENTS_QUERY.format(
+                database=settings.CLICKHOUSE_DATABASE,
+                cluster=settings.CLICKHOUSE_CLUSTER,
+                dictionary_name=inputs.dictionary_name,
+                partition_id=partition_id,
+                in_team_ids="AND team_id IN %(team_ids)s" if inputs.team_ids else "",
+            )
 
-        async with heartbeat_every():
-            async with get_client(mutations_sync=2) as clickhouse_client:
-                await clickhouse_client.execute_query(
-                    query,
-                    query_parameters=parameters,
+            parameters = {
+                "partition_id": partition_id,
+                "team_ids": inputs.team_ids,
+            }
+
+            # Best cancellation scenario: It fires off before we begin a new mutation and there is nothing to cancel.
+            activity.heartbeat(finished_partition_ids)
+
+            await clickhouse_client.execute_query(
+                query,
+                query_parameters=parameters,
+            )
+
+            activity.logger.info("Person overrides update submitted in partition %", partition_id)
+
+            try:
+                while True:
+                    activity.heartbeat(finished_partition_ids)
+
+                    response = await clickhouse_client.read_query(
+                        SQUASH_MUTATIONS_IN_PROGRESS_QUERY.format(
+                            database=settings.CLICKHOUSE_DATABASE,
+                            cluster=settings.CLICKHOUSE_CLUSTER,
+                            dictionary_name=inputs.dictionary_name,
+                            partition_id=partition_id,
+                        ),
+                    )
+                    rows = []
+                    for line in response.decode("utf-8").splitlines():
+                        mutation_id, is_done = line.strip().split("\t")
+                        rows.append((mutation_id, int(is_done)))
+
+                    total_mutations = len(rows)
+                    mutations_in_progress = sum(row[1] == 0 for row in rows)
+
+                    if mutations_in_progress == 0 and total_mutations > 0:
+                        break
+
+                    activity.logger.info("Waiting for mutation in partition %", partition_id)
+
+                    await asyncio.sleep(5)
+
+            except asyncio.CancelledError:
+                activity.logger.warning(
+                    "Squash activity has been cancelled, attempting to kill in progress mutation for partition %",
+                    partition_id,
                 )
-        activity.logger.info("Person overrides update done in partition %", partition_id)
 
-    activity.logger.info("All partitions have been updated with person overrides")
+                await clickhouse_client.execute_query(
+                    KILL_SQUASH_MUTATION_IN_PROGRESS_QUERY.format(
+                        database=settings.CLICKHOUSE_DATABASE,
+                        cluster=settings.CLICKHOUSE_CLUSTER,
+                        dictionary_name=inputs.dictionary_name,
+                        partition_id=partition_id,
+                    ),
+                )
+                raise
+
+            else:
+                finished_partition_ids.append(partition_id)
+
+                activity.logger.info("Person overrides update finished in partition %", partition_id)
+
+        activity.logger.info("All partitions have been updated with person overrides")
 
 
 @activity.defn
