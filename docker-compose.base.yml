@@ -47,6 +47,16 @@ services:
             KAFKA_CFG_ZOOKEEPER_CONNECT: zookeeper:2181
             ALLOW_PLAINTEXT_LISTENER: 'true'
 
+    kafka_ui:
+        image: provectuslabs/kafka-ui:latest
+        restart: on-failure
+        depends_on:
+            - kafka
+        environment:
+            KAFKA_CLUSTERS_0_NAME: local
+            KAFKA_CLUSTERS_0_BOOTSTRAPSERVERS: kafka:9092
+            DYNAMIC_CONFIG_ENABLED: 'true'
+
     object_storage:
         image: minio/minio:RELEASE.2022-06-25T15-50-16Z
         restart: on-failure

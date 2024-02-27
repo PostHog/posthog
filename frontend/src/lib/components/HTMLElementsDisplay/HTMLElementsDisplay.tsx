@@ -170,7 +170,7 @@ export function HTMLElementsDisplay({
                         <CloseAllTags elements={parsedElements} />
                     </>
                 ) : (
-                    <div className="text-side">No elements to display</div>
+                    <div>No elements to display</div>
                 )}
             </div>
         </div>

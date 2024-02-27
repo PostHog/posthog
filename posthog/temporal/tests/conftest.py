@@ -9,7 +9,7 @@ from django.conf import settings
 from temporalio.testing import ActivityEnvironment
 
 from posthog.models import Organization, Team
-from posthog.temporal.batch_exports.clickhouse import ClickHouseClient
+from posthog.temporal.common.clickhouse import ClickHouseClient
 from posthog.temporal.common.client import connect
 
 
@@ -72,6 +72,10 @@ def clickhouse_client():
         password=settings.CLICKHOUSE_PASSWORD,
         database=settings.CLICKHOUSE_DATABASE,
         output_format_arrow_string_as_string="true",
+        # This parameter is disabled (0) in production.
+        # Durting testing, it's useful to enable it to wait for mutations.
+        # Otherwise, tests that rely on running a mutation may become flaky.
+        mutations_sync=1,
     )
 
     yield client
