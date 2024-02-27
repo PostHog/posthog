@@ -143,7 +143,7 @@ class TestDataWarehouseQueryBuilder(ClickhouseTestMixin, BaseTest):
         trends_query = TrendsQuery(
             kind="TrendsQuery",
             dateRange=DateRange(date_from="2023-01-01"),
-            series=[DataWarehouseNode(table_name=table_name, id_field="id", timestamp_field="created")],
+            series=[DataWarehouseNode(id=table_name, table_name=table_name, id_field="id", timestamp_field="created")],
         )
 
         with freeze_time("2023-01-07"):
@@ -162,6 +162,7 @@ class TestDataWarehouseQueryBuilder(ClickhouseTestMixin, BaseTest):
             dateRange=DateRange(date_from="2023-01-01"),
             series=[
                 DataWarehouseNode(
+                    id=table_name,
                     table_name=table_name,
                     id_field="id",
                     timestamp_field="created",
@@ -184,7 +185,7 @@ class TestDataWarehouseQueryBuilder(ClickhouseTestMixin, BaseTest):
         trends_query = TrendsQuery(
             kind="TrendsQuery",
             dateRange=DateRange(date_from="2023-01-01"),
-            series=[DataWarehouseNode(table_name=table_name, id_field="id", timestamp_field="created")],
+            series=[DataWarehouseNode(id=table_name, table_name=table_name, id_field="id", timestamp_field="created")],
             properties=clean_entity_properties([{"key": "prop_1", "value": "a", "type": "data_warehouse"}]),
         )
 
@@ -202,7 +203,7 @@ class TestDataWarehouseQueryBuilder(ClickhouseTestMixin, BaseTest):
         trends_query = TrendsQuery(
             kind="TrendsQuery",
             dateRange=DateRange(date_from="2023-01-01"),
-            series=[DataWarehouseNode(table_name=table_name, id_field="id", timestamp_field="created")],
+            series=[DataWarehouseNode(id=table_name, table_name=table_name, id_field="id", timestamp_field="created")],
             breakdownFilter=BreakdownFilter(breakdown_type=BreakdownType.data_warehouse, breakdown="prop_1"),
         )
 
@@ -233,7 +234,7 @@ class TestDataWarehouseQueryBuilder(ClickhouseTestMixin, BaseTest):
         trends_query = TrendsQuery(
             kind="TrendsQuery",
             dateRange=DateRange(date_from="2023-01-01"),
-            series=[DataWarehouseNode(table_name=table_name, id_field="id", timestamp_field="created")],
+            series=[DataWarehouseNode(id=table_name, table_name=table_name, id_field="id", timestamp_field="created")],
             properties=clean_entity_properties([{"key": "prop_1", "value": "a", "type": "data_warehouse"}]),
             breakdownFilter=BreakdownFilter(breakdown_type=BreakdownType.data_warehouse, breakdown="prop_1"),
         )
@@ -256,7 +257,7 @@ class TestDataWarehouseQueryBuilder(ClickhouseTestMixin, BaseTest):
         trends_query = TrendsQuery(
             kind="TrendsQuery",
             dateRange=DateRange(date_from="2023-01-01"),
-            series=[DataWarehouseNode(table_name=table_name, id_field="id", timestamp_field="created")],
+            series=[DataWarehouseNode(id=table_name, table_name=table_name, id_field="id", timestamp_field="created")],
             trendsFilter=TrendsFilter(display=display_type),
         )
 
