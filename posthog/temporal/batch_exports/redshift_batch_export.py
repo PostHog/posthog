@@ -457,7 +457,15 @@ class RedshiftBatchExportWorkflow(PostHogWorkflow):
         await execute_batch_export_insert_activity(
             insert_into_redshift_activity,
             insert_inputs,
-            non_retryable_error_types=[],
+            non_retryable_error_types=[
+                # Raised on errors that are related to database operation.
+                # For example: unexpected disconnect, database or other object not found.
+                "OperationalError",
+                # The schema name provided is invalid (usually because it doesn't exist).
+                "InvalidSchemaName",
+                # Missing permissions to, e.g., insert into table.
+                "InsufficientPrivilege",
+            ],
             update_inputs=update_inputs,
             # Disable heartbeat timeout until we add heartbeat support.
             heartbeat_timeout_seconds=None,
