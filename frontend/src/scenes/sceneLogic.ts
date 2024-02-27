@@ -53,11 +53,9 @@ export const sceneLogic = kea<sceneLogicType>([
         setLoadedScene: (loadedScene: LoadedScene) => ({
             loadedScene,
         }),
-        showUpgradeModal: (featureName: string, featureCaption: string) => ({ featureName, featureCaption }),
+        showUpgradeModal: (featureKey: AvailableFeature, currentUsage?: number) => ({ featureKey, currentUsage }),
         guardAvailableFeature: (
             featureKey: AvailableFeature,
-            featureName: string,
-            featureCaption: string,
             featureAvailableCallback?: () => void,
             guardOn: {
                 cloud: boolean
@@ -69,7 +67,7 @@ export const sceneLogic = kea<sceneLogicType>([
             // how much of the feature has been used (eg. number of recording playlists created),
             // which will be compared to the limit for their subscriptions
             currentUsage?: number
-        ) => ({ featureKey, featureName, featureCaption, featureAvailableCallback, guardOn, currentUsage }),
+        ) => ({ featureKey, featureAvailableCallback, guardOn, currentUsage }),
         hideUpgradeModal: true,
         reloadBrowserDueToImportError: true,
     }),
@@ -103,10 +101,17 @@ export const sceneLogic = kea<sceneLogicType>([
                 setScene: () => null,
             },
         ],
-        upgradeModalFeatureNameAndCaption: [
-            null as [string, string] | null,
+        upgradeModalFeatureKey: [
+            null as AvailableFeature | null,
             {
-                showUpgradeModal: (_, { featureName, featureCaption }) => [featureName, featureCaption],
+                showUpgradeModal: (_, { featureKey }) => featureKey,
+                hideUpgradeModal: () => null,
+            },
+        ],
+        upgradeModalFeatureUsage: [
+            null as number | null,
+            {
+                showUpgradeModal: (_, { currentUsage }) => currentUsage ?? null,
                 hideUpgradeModal: () => null,
             },
         ],
@@ -154,17 +159,10 @@ export const sceneLogic = kea<sceneLogicType>([
         hashParams: [(s) => [s.sceneParams], (sceneParams): Record<string, any> => sceneParams.hashParams || {}],
     }),
     listeners(({ values, actions, props, selectors }) => ({
-        showUpgradeModal: ({ featureName }) => {
-            eventUsageLogic.actions.reportUpgradeModalShown(featureName)
+        showUpgradeModal: ({ featureKey }) => {
+            eventUsageLogic.actions.reportUpgradeModalShown(featureKey)
         },
-        guardAvailableFeature: ({
-            featureKey,
-            featureName,
-            featureCaption,
-            featureAvailableCallback,
-            guardOn,
-            currentUsage,
-        }) => {
+        guardAvailableFeature: ({ featureKey, featureAvailableCallback, guardOn, currentUsage }) => {
             const { preflight } = preflightLogic.values
             let featureAvailable: boolean
             if (!preflight) {
@@ -179,7 +177,7 @@ export const sceneLogic = kea<sceneLogicType>([
             if (featureAvailable) {
                 featureAvailableCallback?.()
             } else {
-                actions.showUpgradeModal(featureName, featureCaption)
+                actions.showUpgradeModal(featureKey, currentUsage)
             }
         },
         setScene: ({ scene, scrollToTop }, _, __, previousState) => {

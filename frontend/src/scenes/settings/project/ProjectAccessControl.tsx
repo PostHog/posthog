@@ -243,11 +243,8 @@ export function ProjectAccessControl(): JSX.Element {
             </p>
             <LemonSwitch
                 onChange={(checked) => {
-                    guardAvailableFeature(
-                        AvailableFeature.PROJECT_BASED_PERMISSIONING,
-                        'project-based permissioning',
-                        'Set permissions granularly for each project. Make sure only the right people have access to protected data.',
-                        () => updateCurrentTeam({ access_control: checked })
+                    guardAvailableFeature(AvailableFeature.PROJECT_BASED_PERMISSIONING, () =>
+                        updateCurrentTeam({ access_control: checked })
                     )
                 }}
                 checked={!!projectPermissioningEnabled}

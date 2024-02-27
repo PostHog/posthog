@@ -78,8 +78,6 @@ export function SessionsRecordings(): JSX.Element {
                                     onClick={(e) =>
                                         guardAvailableFeature(
                                             AvailableFeature.RECORDINGS_PLAYLISTS,
-                                            'recording playlists',
-                                            "Playlists allow you to save certain session recordings as a group to easily find and watch them again in the future. You've unfortunately run out of playlists on your current subscription plan.",
                                             () => {
                                                 // choose the type of playlist handler so that analytics correctly report
                                                 // whether filters have been changed before saving
@@ -110,8 +108,6 @@ export function SessionsRecordings(): JSX.Element {
                                 onClick={(e) =>
                                     guardAvailableFeature(
                                         AvailableFeature.RECORDINGS_PLAYLISTS,
-                                        'recording playlists',
-                                        "Playlists allow you to save certain session recordings as a group to easily find and watch them again in the future. You've unfortunately run out of playlists on your current subscription plan.",
                                         () => newPlaylistHandler.onEvent?.(e),
                                         undefined,
                                         playlists.count
