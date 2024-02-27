@@ -212,6 +212,35 @@ describe('ingester', () => {
         }, 10000)
     })
 
+    describe('batch event processing', () => {
+        it('should batch parse incoming events and batch them to reduce writes', async () => {
+            mockConsumer.assignments.mockImplementation(() => [createTP(1)])
+            await ingester.handleEachBatch([
+                createMessage('session_id_1', 1),
+                createMessage('session_id_1', 1),
+                createMessage('session_id_1', 1),
+                createMessage('session_id_2', 1),
+            ])
+
+            expect(ingester.sessions[`${team.id}__session_id_1`].buffer?.context.count).toBe(1)
+            expect(ingester.sessions[`${team.id}__session_id_2`].buffer?.context.count).toBe(1)
+
+            let fileContents = await fs.readFile(
+                path.join(ingester.sessions[`${team.id}__session_id_1`].context.dir, 'buffer.jsonl'),
+                'utf-8'
+            )
+
+            expect(JSON.parse(fileContents).data).toHaveLength(3)
+
+            fileContents = await fs.readFile(
+                path.join(ingester.sessions[`${team.id}__session_id_2`].context.dir, 'buffer.jsonl'),
+                'utf-8'
+            )
+
+            expect(JSON.parse(fileContents).data).toHaveLength(1)
+        })
+    })
+
     describe('simulated rebalancing', () => {
         let otherIngester: SessionRecordingIngesterV3
         jest.setTimeout(5000) // Increased to cover lock delay

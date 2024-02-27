@@ -9,35 +9,34 @@ import { MathAvailability } from 'scenes/insights/filters/ActionFilter/ActionFil
 import { TestAccountFilter } from 'scenes/insights/filters/TestAccountFilter'
 
 import { groupsModel } from '~/models/groupsModel'
-import { EntityTypes, FilterableLogLevel, FilterType, RecordingDurationFilter, RecordingFilters } from '~/types'
+import { EntityTypes, FilterableLogLevel, RecordingDurationFilter, RecordingFilters } from '~/types'
 
 import { DurationFilter } from './DurationFilter'
 
 export const AdvancedSessionRecordingsFilters = ({
     filters,
     setFilters,
-    localFilters,
-    setLocalFilters,
     showPropertyFilters,
 }: {
     filters: RecordingFilters
     setFilters: (filters: RecordingFilters) => void
-    localFilters: FilterType
-    setLocalFilters: (localFilters: FilterType) => void
     showPropertyFilters?: boolean
 }): JSX.Element => {
     const { groupsTaxonomicTypes } = useValues(groupsModel)
 
     return (
-        <div className="space-y-2">
+        <div className="space-y-2 bg-light p-3">
             <LemonLabel info="Show recordings where all of the events or actions listed below happen.">
                 Events and actions
             </LemonLabel>
 
             <ActionFilter
-                filters={localFilters}
+                filters={{ events: filters.events || [], actions: filters.actions || [] }}
                 setFilters={(payload) => {
-                    setLocalFilters(payload)
+                    setFilters({
+                        events: payload.events || [],
+                        actions: payload.actions || [],
+                    })
                 }}
                 typeKey="session-recordings"
                 mathAvailability={MathAvailability.None}
@@ -81,6 +80,7 @@ export const AdvancedSessionRecordingsFilters = ({
             )}
 
             <LemonLabel>Time and duration</LemonLabel>
+
             <div className="flex flex-wrap gap-2">
                 <DateFilter
                     dateFrom={filters.date_from ?? '-7d'}
