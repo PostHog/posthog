@@ -185,7 +185,7 @@ class UnexpectedEmptyJsonResponse(Exception):
     pass
 
 
-def get_from_insights_api(exported_asset, limit, resource) -> Generator[Any, None, None]:
+def get_from_insights_api(exported_asset: ExportedAsset, limit: int, resource: dict) -> Generator[Any, None, None]:
     path: str = resource["path"]
     method: str = resource.get("method", "GET")
     body = resource.get("body", None)

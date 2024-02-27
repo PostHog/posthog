@@ -259,7 +259,7 @@ class TestCSVExporter(APIBaseTest):
 
     @patch("posthog.models.exported_asset.UUIDT")
     @patch("posthog.models.exported_asset.object_storage.write")
-    def test_csv_exporter_excel(self, mocked_object_storage_write, mocked_uuidt) -> None:
+    def test_csv_exporter_excel(self, mocked_object_storage_write: Any, mocked_uuidt: Any) -> None:
         exported_asset = self._create_asset({"columns": ["distinct_id", "properties.$browser", "event", "tomato"]})
         exported_asset.export_format = ExportedAsset.ExportFormat.EXCEL
         mocked_uuidt.return_value = "a-guid"
@@ -365,7 +365,9 @@ class TestCSVExporter(APIBaseTest):
     @patch("posthog.hogql.constants.MAX_SELECT_RETURNED_ROWS", 10)
     @patch("posthog.hogql.constants.DEFAULT_RETURNED_ROWS", 5)
     @patch("posthog.models.exported_asset.UUIDT")
-    def test_csv_exporter_hogql_query(self, mocked_uuidt, DEFAULT_RETURNED_ROWS=5, MAX_SELECT_RETURNED_ROWS=10) -> None:
+    def test_csv_exporter_hogql_query(
+        self, mocked_uuidt: Any, DEFAULT_RETURNED_ROWS=5, MAX_SELECT_RETURNED_ROWS=10
+    ) -> None:
         random_uuid = f"RANDOM_TEST_ID::{UUIDT()}"
         for i in range(15):
             _create_event(
@@ -408,7 +410,7 @@ class TestCSVExporter(APIBaseTest):
 
     @patch("posthog.hogql.constants.MAX_SELECT_RETURNED_ROWS", 10)
     @patch("posthog.models.exported_asset.UUIDT")
-    def test_csv_exporter_events_query(self, mocked_uuidt, MAX_SELECT_RETURNED_ROWS=10) -> None:
+    def test_csv_exporter_events_query(self, mocked_uuidt: Any, MAX_SELECT_RETURNED_ROWS=10) -> None:
         random_uuid = f"RANDOM_TEST_ID::{UUIDT()}"
         for i in range(15):
             _create_event(
