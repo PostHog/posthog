@@ -155,7 +155,7 @@ class ClickHouseClient:
         Returns:
             The formatted query.
         """
-        if query_parameters is None or not query_parameters:
+        if not query_parameters:
             return query
 
         format_parameters = {k: encode_clickhouse_data(v).decode("utf-8") for k, v in query_parameters.items()}
