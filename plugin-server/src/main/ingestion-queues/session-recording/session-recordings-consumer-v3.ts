@@ -296,6 +296,7 @@ export class SessionRecordingIngesterV3 {
             eachBatch: async (messages) => {
                 return await this.scheduleWork(this.handleEachBatch(messages))
             },
+            debug: this.config.SESSION_RECORDING_KAFKA_DEBUG,
         })
 
         addSentryBreadcrumbsEventListeners(this.batchConsumer.consumer)
