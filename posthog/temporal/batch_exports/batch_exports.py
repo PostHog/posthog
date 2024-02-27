@@ -613,7 +613,7 @@ async def update_batch_export_backfill_model_status(inputs: UpdateBatchExportBac
     )
     logger = await bind_temporal_worker_logger(team_id=backfill.team_id)
 
-    if backfill.status == BatchExportBackfill.Status.FAILED:
+    if backfill.status in (BatchExportBackfill.Status.FAILED, BatchExportBackfill.Status.FAILED_RETRYABLE):
         logger.error("Historical export failed")
 
     elif backfill.status == BatchExportBackfill.Status.CANCELLED:
