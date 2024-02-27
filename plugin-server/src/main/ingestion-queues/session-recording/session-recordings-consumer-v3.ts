@@ -27,7 +27,8 @@ require('@sentry/tracing')
 
 // WARNING: Do not change this - it will essentially reset the consumer
 const KAFKA_CONSUMER_GROUP_ID = 'session-replay-ingester'
-const KAFKA_CONSUMER_SESSION_TIMEOUT_MS = 30000
+const KAFKA_CONSUMER_SESSION_TIMEOUT_MS = 60000
+const MAX_TIME_FOR_FLUSHING_SESSIONS_MS = 30000
 
 // NOTE: To remove once released
 const metricPrefix = 'v3_'
@@ -336,10 +337,21 @@ export class SessionRecordingIngesterV3 {
     }
 
     async flushAllReadySessions(): Promise<void> {
-        // TODO: Put a time limit / number limit on this function...
+        const startTime = Date.now()
         const assignedPartitions = this.assignedTopicPartitions.map((x) => x.partition)
+        const sessions = Object.entries(this.sessions)
+        let flushedCount = 0
 
-        for (const [key, sessionManager] of Object.entries(this.sessions)) {
+        // TODO: We could probably parallelize this to some extent
+        for (const [key, sessionManager] of sessions) {
+            if (Date.now() - startTime > MAX_TIME_FOR_FLUSHING_SESSIONS_MS) {
+                status.warn(
+                    '⚠️',
+                    `session-replay-ingestion - flushing sessions took too long, stopping at ${flushedCount} of ${sessions.length} sessions`
+                )
+                return
+            }
+
             if (!assignedPartitions.includes(sessionManager.context.partition)) {
                 await this.destroySession(key, sessionManager)
                 continue
@@ -365,6 +377,7 @@ export class SessionRecordingIngesterV3 {
                         await this.destroySession(key, sessionManager)
                     }
                 })
+            flushedCount++
         }
         gaugeSessionsHandled.set(Object.keys(this.sessions).length)
     }
