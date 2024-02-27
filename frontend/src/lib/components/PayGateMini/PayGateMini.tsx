@@ -1,7 +1,7 @@
-import { Link } from '@posthog/lemon-ui'
+import { Link, Tooltip } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
-import { IconPremium } from 'lib/lemon-ui/icons'
+import { IconInfo, IconPremium } from 'lib/lemon-ui/icons'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { lowercaseFirstLetter } from 'lib/utils'
 import { billingLogic } from 'scenes/billing/billingLogic'
@@ -73,7 +73,16 @@ export function PayGateMini({
             <h3>{featureInfo.name}</h3>
             {featureDetailsWithLimit?.limit && gateVariant !== 'move-to-cloud' ? (
                 <div>
-                    <p>You've reached your usage limit for {featureInfo.name}.</p>
+                    <p>
+                        You've reached your usage limit for{' '}
+                        <Tooltip title={featureInfo.description}>
+                            <span>
+                                <b>{featureInfo.name}</b>
+                                <IconInfo className="ml-0.5 text-muted" />
+                            </span>
+                        </Tooltip>
+                        .
+                    </p>
                     <p className="border border-border bg-side rounded p-4">
                         <b>Your current plan limit:</b>{' '}
                         <span>
@@ -81,7 +90,7 @@ export function PayGateMini({
                         </span>
                     </p>
                     <p>
-                        Please upgrade your <b>{product.name}</b> plan to continue using {featureInfo.name}
+                        Please upgrade your <b>{product.name}</b> plan to create more {featureInfo.name}
                     </p>
                 </div>
             ) : (
