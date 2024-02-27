@@ -2591,6 +2591,11 @@ class FunnelCorrelationQuery(BaseModel):
         extra="forbid",
     )
     correlationType: FunnelCorrelationType
+    funnelStep: Optional[int] = Field(
+        default=None,
+        description="Index of the step for which we want to get the timestamp for, per person. Positive for converted persons, negative for dropped of persons.",
+    )
+    includeRecordings: Optional[bool] = None
     response: Optional[FunnelCorrelationResponse] = None
     source: FunnelsQuery
 

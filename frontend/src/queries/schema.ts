@@ -1159,6 +1159,12 @@ export interface FunnelCorrelationQuery {
     // funnel_correlation_exclude_names: ["$initial_geoip_postal_code", "$initial_geoip_latitude", "$initial_geoip_longitude",…]
 
     response?: FunnelCorrelationResponse
+
+    // TODO: funnel actor attributes. Should this rather have a FunnelsActorsQuery as source?
+    /** Index of the step for which we want to get the timestamp for, per person.
+     * Positive for converted persons, negative for dropped of persons. */
+    funnelStep?: integer
+    includeRecordings?: boolean
 }
 
 export type BreakdownValueInt = integer
