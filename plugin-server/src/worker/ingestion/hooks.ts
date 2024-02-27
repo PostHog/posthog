@@ -8,7 +8,7 @@ import { PostgresRouter, PostgresUse } from '../../utils/db/postgres'
 import { trackedFetch } from '../../utils/fetch'
 import { status } from '../../utils/status'
 import { getPropertyValueByPath, stringify } from '../../utils/utils'
-import { AppMetrics } from './app-metrics'
+import { AppMetric, AppMetrics } from './app-metrics'
 import { OrganizationManager } from './organization-manager'
 import { TeamManager } from './team-manager'
 
@@ -32,7 +32,7 @@ export async function instrumentWebhookStep<T>(tag: string, run: () => Promise<T
 export enum WebhookType {
     Slack = 'slack',
     Discord = 'discord',
-    Teams = 'teams',
+    Other = 'other',
 }
 
 export function determineWebhookType(url: string): WebhookType {
@@ -43,7 +43,7 @@ export function determineWebhookType(url: string): WebhookType {
     if (url.includes('discord.com')) {
         return WebhookType.Discord
     }
-    return WebhookType.Teams
+    return WebhookType.Other
 }
 
 // https://api.slack.com/reference/surfaces/formatting#escaping
@@ -220,13 +220,13 @@ export function getValueOfToken(
 }
 
 export function getFormattedMessage(
+    messageFormat: string,
     action: Action,
     event: PostIngestionEvent,
     team: Team,
     siteUrl: string,
     webhookType: WebhookType
 ): [string, string] {
-    const messageFormat = action.slack_message_format || '[action.name] was triggered by [person]'
     let messageText: string
     let messageMarkdown: string
 
@@ -305,7 +305,7 @@ export class HookCommander {
             await instrumentWebhookStep('postWebhook', async () => {
                 const webhookRequests = actionMatches
                     .filter((action) => action.post_to_slack)
-                    .map((action) => this.postWebhook(webhookUrl, action, event, team))
+                    .map((action) => this.postWebhook(event, action, team))
                 await Promise.all(webhookRequests).catch((error) =>
                     captureException(error, { tags: { team_id: event.teamId } })
                 )
@@ -314,10 +314,12 @@ export class HookCommander {
 
         if (await this.organizationManager.hasAvailableFeature(team.id, 'zapier')) {
             await instrumentWebhookStep('postRestHook', async () => {
-                const restHooks = actionMatches.map(({ hooks }) => hooks).flat()
+                const restHooks = actionMatches.flatMap((action) => action.hooks.map((hook) => ({ hook, action })))
 
                 if (restHooks.length > 0) {
-                    const restHookRequests = restHooks.map((hook) => this.postRestHook(hook, event))
+                    const restHookRequests = restHooks.map(({ hook, action }) =>
+                        this.postWebhook(event, action, team, hook)
+                    )
                     await Promise.all(restHookRequests).catch((error) =>
                         captureException(error, { tags: { team_id: event.teamId } })
                     )
@@ -328,45 +330,86 @@ export class HookCommander {
 
     private formatMessage(
         webhookUrl: string,
+        messageFormat: string,
         action: Action,
         event: PostIngestionEvent,
         team: Team
     ): Record<string, any> {
-        const webhookType = determineWebhookType(webhookUrl)
-        const [messageText, messageMarkdown] = getFormattedMessage(action, event, team, this.siteUrl, webhookType)
-        if (webhookType === WebhookType.Slack) {
-            return {
-                text: messageText,
-                blocks: [{ type: 'section', text: { type: 'mrkdwn', text: messageMarkdown } }],
+        const endTimer = webhookProcessStepDuration.labels('messageFormatting').startTimer()
+        try {
+            const webhookType = determineWebhookType(webhookUrl)
+            const [messageText, messageMarkdown] = getFormattedMessage(
+                messageFormat,
+                action,
+                event,
+                team,
+                this.siteUrl,
+                webhookType
+            )
+            if (webhookType === WebhookType.Slack) {
+                return {
+                    text: messageText,
+                    blocks: [{ type: 'section', text: { type: 'mrkdwn', text: messageMarkdown } }],
+                }
             }
-        } else {
             return {
                 text: messageMarkdown,
             }
+        } finally {
+            endTimer()
         }
     }
 
-    private async postWebhook(
-        webhookUrl: string,
-        action: Action,
-        event: PostIngestionEvent,
-        team: Team
-    ): Promise<void> {
-        const end = webhookProcessStepDuration.labels('messageFormatting').startTimer()
-        const message = this.formatMessage(webhookUrl, action, event, team)
-        end()
+    public async postWebhook(event: PostIngestionEvent, action: Action, team: Team, hook?: Hook): Promise<void> {
+        // Used if no hook is provided
+        const defaultWebhookUrl = team.slack_incoming_webhook
+        // -2 is hardcoded to mean webhooks, -1 for resthooks
+        const SPECIAL_CONFIG_ID = hook ? -1 : -2
+        const partialMetric: AppMetric = {
+            teamId: event.teamId,
+            pluginConfigId: SPECIAL_CONFIG_ID,
+            category: 'webhook',
+            successes: 1,
+        }
 
-        const body = JSON.stringify(message, undefined, 4)
+        const url = hook ? hook.target : defaultWebhookUrl
+        let body: any
+
+        if (!url) {
+            // NOTE: Typically this is covered by the caller already
+            return
+        }
+
+        if (!hook) {
+            const messageFormat = action.slack_message_format || '[action.name] was triggered by [person]'
+            body = this.formatMessage(url, messageFormat, action, event, team)
+        } else {
+            let sendablePerson: Record<string, any> = {}
+            const { person_id, person_created_at, person_properties, ...data } = event
+            if (person_id) {
+                sendablePerson = {
+                    uuid: person_id,
+                    properties: person_properties,
+                    created_at: person_created_at,
+                }
+            }
+
+            body = {
+                hook: { id: hook.id, event: hook.event, target: hook.target },
+                data: { ...data, person: sendablePerson },
+            }
+        }
+
         const enqueuedInRustyHook = await this.rustyHook.enqueueIfEnabledForTeam({
             webhook: {
-                url: webhookUrl,
+                url,
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body,
+                body: JSON.stringify(body, undefined, 4),
             },
             teamId: event.teamId,
-            pluginId: -2, // -2 is hardcoded to mean webhooks
-            pluginConfigId: -2, // -2 is hardcoded to mean webhooks
+            pluginId: SPECIAL_CONFIG_ID,
+            pluginConfigId: SPECIAL_CONFIG_ID, // -2 is hardcoded to mean webhooks
         })
 
         if (enqueuedInRustyHook) {
@@ -378,26 +421,32 @@ export class HookCommander {
         const timeout = setTimeout(() => {
             status.warn(
                 '⌛',
-                `Posting Webhook slow. Timeout warning after ${
-                    slowWarningTimeout / 1000
-                } sec! url=${webhookUrl} team_id=${team.id} event_id=${event.eventUuid}`
+                `Posting Webhook slow. Timeout warning after ${slowWarningTimeout / 1000} sec! url=${url} team_id=${
+                    team.id
+                } event_id=${event.eventUuid}`
             )
         }, slowWarningTimeout)
+
+        status.debug('⚠️', `Firing webhook ${url} for team ${team.id}`)
+
         try {
             await instrumentWebhookStep('fetch', async () => {
-                const request = await trackedFetch(webhookUrl, {
+                const request = await trackedFetch(url, {
                     method: 'POST',
-                    body,
+                    body: JSON.stringify(body, null, 4),
                     headers: { 'Content-Type': 'application/json' },
                     timeout: this.EXTERNAL_REQUEST_TIMEOUT,
                 })
+                // special handling for hooks
+                if (hook && request.status === 410) {
+                    // Delete hook on our side if it's gone on Zapier's
+                    await this.deleteRestHook(hook.id)
+                }
                 if (!request.ok) {
                     status.warn('⚠️', `HTTP status ${request.status} for team ${team.id}`)
                     await this.appMetrics.queueError(
                         {
-                            teamId: event.teamId,
-                            pluginConfigId: -2, // -2 is hardcoded to mean webhooks
-                            category: 'webhook',
+                            ...partialMetric,
                             failures: 1,
                         },
                         {
@@ -407,9 +456,7 @@ export class HookCommander {
                     )
                 } else {
                     await this.appMetrics.queueMetric({
-                        teamId: event.teamId,
-                        pluginConfigId: -2, // -2 is hardcoded to mean webhooks
-                        category: 'webhook',
+                        ...partialMetric,
                         successes: 1,
                     })
                 }
@@ -417,104 +464,7 @@ export class HookCommander {
         } catch (error) {
             await this.appMetrics.queueError(
                 {
-                    teamId: event.teamId,
-                    pluginConfigId: -2, // -2 is hardcoded to mean webhooks
-                    category: 'webhook',
-                    failures: 1,
-                },
-                {
-                    error,
-                    event,
-                }
-            )
-            throw error
-        } finally {
-            clearTimeout(timeout)
-        }
-    }
-
-    public async postRestHook(hook: Hook, event: PostIngestionEvent): Promise<void> {
-        let sendablePerson: Record<string, any> = {}
-        const { person_id, person_created_at, person_properties, ...data } = event
-        if (person_id) {
-            sendablePerson = {
-                uuid: person_id,
-                properties: person_properties,
-                created_at: person_created_at,
-            }
-        }
-
-        const payload = {
-            hook: { id: hook.id, event: hook.event, target: hook.target },
-            data: { ...data, person: sendablePerson },
-        }
-
-        const body = JSON.stringify(payload, undefined, 4)
-        const enqueuedInRustyHook = await this.rustyHook.enqueueIfEnabledForTeam({
-            webhook: {
-                url: hook.target,
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body,
-            },
-            teamId: event.teamId,
-            pluginId: -1, // -1 is hardcoded to mean resthooks
-            pluginConfigId: -1, // -1 is hardcoded to mean resthooks
-        })
-
-        if (enqueuedInRustyHook) {
-            // Rusty-Hook handles it from here, so we're done.
-            return
-        }
-
-        const slowWarningTimeout = this.EXTERNAL_REQUEST_TIMEOUT * 0.7
-        const timeout = setTimeout(() => {
-            status.warn(
-                '⌛',
-                `Posting RestHook slow. Timeout warning after ${slowWarningTimeout / 1000} sec! url=${
-                    hook.target
-                } team_id=${event.teamId} event_id=${event.eventUuid}`
-            )
-        }, slowWarningTimeout)
-        try {
-            const request = await trackedFetch(hook.target, {
-                method: 'POST',
-                body,
-                headers: { 'Content-Type': 'application/json' },
-                timeout: this.EXTERNAL_REQUEST_TIMEOUT,
-            })
-            if (request.status === 410) {
-                // Delete hook on our side if it's gone on Zapier's
-                await this.deleteRestHook(hook.id)
-            }
-            if (!request.ok) {
-                status.warn('⚠️', `Rest hook failed status ${request.status} for team ${event.teamId}`)
-                await this.appMetrics.queueError(
-                    {
-                        teamId: event.teamId,
-                        pluginConfigId: -1, // -1 is hardcoded to mean resthooks
-                        category: 'webhook',
-                        failures: 1,
-                    },
-                    {
-                        error: `Request failed with HTTP status ${request.status}`,
-                        event,
-                    }
-                )
-            } else {
-                await this.appMetrics.queueMetric({
-                    teamId: event.teamId,
-                    pluginConfigId: -1, // -1 is hardcoded to mean resthooks
-                    category: 'webhook',
-                    successes: 1,
-                })
-            }
-        } catch (error) {
-            await this.appMetrics.queueError(
-                {
-                    teamId: event.teamId,
-                    pluginConfigId: -1, // -1 is hardcoded to mean resthooks
-                    category: 'webhook',
+                    ...partialMetric,
                     failures: 1,
                 },
                 {
