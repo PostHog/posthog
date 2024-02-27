@@ -91,6 +91,7 @@ ALTER TABLE
     {database}.person_distinct_id_overrides
 DELETE WHERE
     hasAll(joinGet('{database}.person_overrides_to_delete', 'partitions', team_id, distinct_id), %(partition_ids)s)
+    AND NOW() - _timestamp > %(grace_period)s
 """
 
 
@@ -107,12 +108,16 @@ class QueryInputs:
         partition_ids: Run a query only on a subset of partitions. Not supported by all queries.
         team_ids: Run a query only on a subset of teams. Not supported by all queries.
         dictionary_name: The name for a dictionary used in the join.
+        delete_grace_period_seconds: Number of seconds until an override can be deleted. This grace
+            period works on top of checking if the override was applied to all partitions. Defaults
+            to 24h.
         dry_run: Do not run the queries when True.
     """
 
     partition_ids: list[str] = field(default_factory=list)
     team_ids: list[int] = field(default_factory=list)
     dictionary_name: str = "person_overrides_join_dict"
+    delete_grace_period_seconds: int = 24 * 3600
     dry_run: bool = True
 
 
@@ -364,6 +369,7 @@ async def delete_squashed_person_overrides_from_clickhouse(inputs: QueryInputs) 
                     ),
                     query_parameters={
                         "partition_ids": inputs.partition_ids,
+                        "grace_period": inputs.delete_grace_period_seconds,
                     },
                 )
 
@@ -431,6 +437,9 @@ class SquashPersonOverridesInputs:
         partition_ids: Partitions to squash, preferred over last_n_months.
         dictionary_name: A name for the JOIN table created for the squash.
         last_n_months: Execute the squash on the partitions for the last_n_months.
+        delete_grace_period_seconds: Number of seconds until an override can be deleted. This grace
+            period works on top of checking if the override was applied to all partitions. Defaults
+            to 24h.
         dry_run: If True, queries that mutate or delete data will not execute and instead will be logged.
     """
 
@@ -438,6 +447,7 @@ class SquashPersonOverridesInputs:
     partition_ids: list[str] | None = None
     dictionary_name: str = "person_overrides_join_dict"
     last_n_months: int = 1
+    delete_grace_period_seconds: int = 24 * 3600
     dry_run: bool = True
 
     def iter_partition_ids(self) -> collections.abc.Iterator[str]:
@@ -511,6 +521,7 @@ class SquashPersonOverridesWorkflow(PostHogWorkflow):
             dictionary_name=inputs.dictionary_name,
             team_ids=inputs.team_ids,
             dry_run=inputs.dry_run,
+            delete_grace_period_seconds=inputs.delete_grace_period_seconds,
         )
 
         async with person_overrides_dictionary(
