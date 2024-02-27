@@ -27,8 +27,6 @@ from posthog.temporal.batch_exports.squash_person_overrides import (
 )
 from posthog.temporal.common.clickhouse import get_client
 
-pytestmark = [pytest.mark.asyncio(scope="session")]
-
 
 @freeze_time("2023-03-14")
 @pytest.mark.parametrize(
@@ -71,12 +69,6 @@ async def ensure_database_tables(clickhouse_client, django_db_setup):
     await clickhouse_client.execute_query(PERSON_DISTINCT_ID_OVERRIDES_TABLE_SQL())
 
     yield
-
-
-@pytest_asyncio.fixture(autouse=True)
-async def truncate_table(ensure_database_tables, clickhouse_client):
-    """Truncate person_distinct_id_overrides after every test."""
-    await clickhouse_client.execute_query("TRUNCATE TABLE person_distinct_id_overrides")
 
 
 EVENT_TIMESTAMP = datetime.fromisoformat("2020-01-02T00:00:00.123123+00:00")
