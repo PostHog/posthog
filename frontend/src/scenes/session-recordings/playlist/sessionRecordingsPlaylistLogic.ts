@@ -53,6 +53,7 @@ interface BackendEventsMatching {
 }
 
 export type MatchingEventsMatchType = NoEventsToMatch | EventNamesMatching | EventUUIDsMatching | BackendEventsMatching
+export type SimpleFiltersType = Pick<RecordingFilters, 'events' | 'properties'>
 
 export const RECORDINGS_LIMIT = 20
 export const PINNED_RECORDINGS_LIMIT = 100 // NOTE: This is high but avoids the need for pagination for now...
@@ -63,8 +64,6 @@ export const defaultRecordingDurationFilter: RecordingDurationFilter = {
     value: 1,
     operator: PropertyOperator.GreaterThan,
 }
-
-type SimpleFiltersType = Pick<RecordingFilters, 'events' | 'properties'>
 
 export const DEFAULT_SIMPLE_RECORDING_FILTERS: SimpleFiltersType = {
     events: [],
