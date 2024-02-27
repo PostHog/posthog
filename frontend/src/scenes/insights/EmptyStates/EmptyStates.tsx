@@ -263,7 +263,7 @@ export function InsightValidationError({ detail, query }: InsightValidationError
                     {/* Note that this phrasing above signals the issue is not intermittent, */}
                     {/* but rather that it's something with the definition of the query itself */}
                 </h2>
-                <p className="text-sm text-balance whitespace-pre-wrap">{detail}</p>
+                <p className="text-sm text-center text-balance whitespace-pre-wrap">{detail}</p>
                 {detail.includes('Exclusion') && (
                     <div className="mt-4">
                         <Link
