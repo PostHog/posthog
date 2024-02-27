@@ -12,7 +12,7 @@ import { PluginsServerConfig } from '../../../../types'
 import { status } from '../../../../utils/status'
 import { asyncTimeoutGuard } from '../../../../utils/timing'
 import { ObjectStorage } from '../../../services/object_storage'
-import { IncomingRecordingMessage } from '../types'
+import { IncomingRecordingMessage, IncomingRecordingMessageWithMetadata } from '../types'
 import { convertToPersistedMessage, maxDefined, minDefined, now } from '../utils'
 
 const BUCKETS_LINES_WRITTEN = [0, 10, 50, 100, 500, 1000, 2000, 5000, 10000, Infinity]

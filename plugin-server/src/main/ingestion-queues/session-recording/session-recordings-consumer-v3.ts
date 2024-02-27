@@ -19,7 +19,7 @@ import { ObjectStorage } from '../../services/object_storage'
 import { runInstrumentedFunction } from '../../utils'
 import { addSentryBreadcrumbsEventListeners } from '../kafka-metrics'
 import { BUCKETS_KB_WRITTEN, BUFFER_FILE_NAME, SessionManagerV3 } from './services/session-manager-v3'
-import { IncomingRecordingMessage } from './types'
+import { IncomingRecordingMessageWithMetadata } from './types'
 import { parseKafkaMessage } from './utils'
 
 // Must require as `tsc` strips unused `import` statements and just requiring this seems to init some globals
@@ -146,7 +146,7 @@ export class SessionRecordingIngesterV3 {
         return promise
     }
 
-    public async consume(event: IncomingRecordingMessage): Promise<void> {
+    public async consume(event: IncomingRecordingMessageWithMetadata): Promise<void> {
         const { team_id, session_id } = event
         const key = `${team_id}__${session_id}`
 
@@ -193,7 +193,7 @@ export class SessionRecordingIngesterV3 {
                 histogramKafkaBatchSize.observe(messages.length)
                 histogramKafkaBatchSizeKb.observe(messages.reduce((acc, m) => (m.value?.length ?? 0) + acc, 0) / 1024)
 
-                const recordingMessages: IncomingRecordingMessage[] = []
+                const recordingMessages: IncomingRecordingMessageWithMetadata[] = []
 
                 await runInstrumentedFunction({
                     statsKey: `recordingingester.handleEachBatch.parseKafkaMessages`,

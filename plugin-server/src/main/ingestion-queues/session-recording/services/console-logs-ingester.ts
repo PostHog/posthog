@@ -11,7 +11,7 @@ import { PluginsServerConfig } from '../../../../types'
 import { status } from '../../../../utils/status'
 import { eventDroppedCounter } from '../../metrics'
 import { ConsoleLogEntry, gatherConsoleLogEvents, RRWebEventType } from '../process-event'
-import { IncomingRecordingMessage } from '../types'
+import { IncomingRecordingMessageWithMetadata } from '../types'
 import { OffsetHighWaterMarker } from './offset-high-water-marker'
 
 const HIGH_WATERMARK_KEY = 'session_replay_console_logs_events_ingester'
@@ -52,7 +52,7 @@ export class ConsoleLogsIngester {
         this.enabled = serverConfig.SESSION_RECORDING_CONSOLE_LOGS_INGESTION_ENABLED
     }
 
-    public async consumeBatch(messages: IncomingRecordingMessage[]) {
+    public async consumeBatch(messages: IncomingRecordingMessageWithMetadata[]) {
         const pendingProduceRequests: Promise<NumberNullUndefined>[] = []
 
         for (const message of messages) {
@@ -100,7 +100,9 @@ export class ConsoleLogsIngester {
         )
     }
 
-    public async consume(event: IncomingRecordingMessage): Promise<Promise<number | null | undefined>[] | void> {
+    public async consume(
+        event: IncomingRecordingMessageWithMetadata
+    ): Promise<Promise<number | null | undefined>[] | void> {
         if (!this.enabled) {
             return
         }
