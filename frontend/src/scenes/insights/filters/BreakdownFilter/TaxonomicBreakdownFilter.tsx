@@ -29,7 +29,6 @@ export function TaxonomicBreakdownFilter({
     const logicProps: TaxonomicBreakdownFilterLogicProps = {
         insightProps,
         isTrends,
-        isMixedSeries,
         display,
         breakdownFilter: breakdownFilter || {},
         updateBreakdownFilter,
@@ -50,7 +49,7 @@ export function TaxonomicBreakdownFilter({
         <BindLogic logic={taxonomicBreakdownFilterLogic} props={logicProps}>
             <div className="flex flex-wrap gap-2 items-center">
                 {tags}
-                {!hasNonCohortBreakdown && <TaxonomicBreakdownButton />}
+                {!hasNonCohortBreakdown && <TaxonomicBreakdownButton isMixedSeries={isMixedSeries} />}
             </div>
         </BindLogic>
     )
