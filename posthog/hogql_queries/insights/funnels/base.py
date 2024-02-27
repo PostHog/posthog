@@ -736,45 +736,55 @@ class FunnelBase(ABC):
         Returns timestamp selectors for the target step and optionally the preceding step.
         In the former case, always returns the timestamp for the first and last step as well.
         """
-        # actorsQuery, max_steps = (
-        #     self.context.actorsQuery,
-        #     self.context.max_steps,
-        # )
-        # assert actorsQuery is not None
+        actorsQuery, max_steps = (
+            self.context.actorsQuery,
+            self.context.max_steps,
+        )
+        assert actorsQuery is not None
 
-        # target_step = actorsQuery.funnelStep
-        # final_step = max_steps - 1
-        # first_step = 0
+        target_step = actorsQuery.funnelStep
+        final_step = max_steps - 1
+        first_step = 0
 
-        # if not target_step:
-        #     return [], []
+        if not target_step:
+            return [], []
 
-        # if target_step < 0:
-        #     # the first valid dropoff argument for funnel_step is -2
-        #     # -2 refers to persons who performed the first step but never made it to the second
-        #     if target_step == -1:
-        #         raise ValueError("To request dropoff of initial step use -2")
+        if target_step < 0:
+            # the first valid dropoff argument for funnel_step is -2
+            # -2 refers to persons who performed the first step but never made it to the second
+            if target_step == -1:
+                raise ValueError("To request dropoff of initial step use -2")
 
-        #     target_step = abs(target_step) - 2
-        # else:
-        #     target_step -= 1
+            target_step = abs(target_step) - 2
+        else:
+            target_step -= 1
 
-        # if self._include_preceding_timestamp:
-        #     if target_step == 0:
-        #         raise ValueError("Cannot request preceding step timestamp if target funnel step is the first step")
+        if self.context.includePrecedingTimestamp:
+            if target_step == 0:
+                raise ValueError("Cannot request preceding step timestamp if target funnel step is the first step")
 
-        #     return (
-        #         f", latest_{target_step}, latest_{target_step - 1}",
-        #         f", argMax(latest_{target_step}, steps) as max_timestamp, argMax(latest_{target_step - 1}, steps) as min_timestamp",
-        #     )
-        # elif self._include_timestamp:
-        #     return (
-        #         f", latest_{target_step}, latest_{final_step}, latest_{first_step}",
-        #         f", argMax(latest_{target_step}, steps) as timestamp, argMax(latest_{final_step}, steps) as final_timestamp, argMax(latest_{first_step}, steps) as first_timestamp",
-        #     )
-        # else:
-        #     return [], []
-        return [], []
+            return (
+                [ast.Field(chain=[f"latest_{target_step}"]), ast.Field(chain=[f"latest_{target_step - 1}"])],
+                [
+                    parse_expr(f"argMax(latest_{target_step}, steps) as max_timestamp"),
+                    parse_expr(f"argMax(latest_{target_step - 1}, steps) as min_timestamp"),
+                ],
+            )
+        elif self.context.includeTimestamp:
+            return (
+                [
+                    ast.Field(chain=[f"latest_{target_step}"]),
+                    ast.Field(chain=[f"latest_{final_step}"]),
+                    ast.Field(chain=[f"latest_{first_step}"]),
+                ],
+                [
+                    parse_expr(f"argMax(latest_{target_step}, steps) as timestamp"),
+                    parse_expr(f"argMax(latest_{final_step}, steps) as final_timestamp"),
+                    parse_expr(f"argMax(latest_{first_step}, steps) as first_timestamp"),
+                ],
+            )
+        else:
+            return [], []
 
     def _get_step_times(self, max_steps: int) -> List[ast.Expr]:
         windowInterval = self.context.funnelWindowInterval
