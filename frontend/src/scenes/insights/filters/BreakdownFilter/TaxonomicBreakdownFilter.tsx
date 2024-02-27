@@ -12,6 +12,7 @@ export interface TaxonomicBreakdownFilterProps {
     breakdownFilter?: BreakdownFilter | null
     display?: ChartDisplayType | null
     isTrends: boolean
+    isMixedSeries: boolean
     updateBreakdownFilter: (breakdownFilter: BreakdownFilter) => void
     updateDisplay: (display: ChartDisplayType | undefined) => void
 }
@@ -21,12 +22,14 @@ export function TaxonomicBreakdownFilter({
     breakdownFilter,
     display,
     isTrends,
+    isMixedSeries,
     updateBreakdownFilter,
     updateDisplay,
 }: TaxonomicBreakdownFilterProps): JSX.Element {
     const logicProps: TaxonomicBreakdownFilterLogicProps = {
         insightProps,
         isTrends,
+        isMixedSeries,
         display,
         breakdownFilter: breakdownFilter || {},
         updateBreakdownFilter,

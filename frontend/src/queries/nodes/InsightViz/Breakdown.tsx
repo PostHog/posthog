@@ -5,7 +5,7 @@ import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 import { EditorFilterProps } from '~/types'
 
 export function Breakdown({ insightProps }: EditorFilterProps): JSX.Element {
-    const { breakdownFilter, display, isTrends } = useValues(insightVizDataLogic(insightProps))
+    const { breakdownFilter, display, isTrends, isMixedSeries } = useValues(insightVizDataLogic(insightProps))
     const { updateBreakdownFilter, updateDisplay } = useActions(insightVizDataLogic(insightProps))
 
     return (
@@ -14,6 +14,7 @@ export function Breakdown({ insightProps }: EditorFilterProps): JSX.Element {
             breakdownFilter={breakdownFilter}
             display={display}
             isTrends={isTrends}
+            isMixedSeries={isMixedSeries}
             updateBreakdownFilter={updateBreakdownFilter}
             updateDisplay={updateDisplay}
         />

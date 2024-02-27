@@ -23,6 +23,7 @@ export type TaxonomicBreakdownFilterLogicProps = {
     breakdownFilter: BreakdownFilter
     display?: ChartDisplayType | null
     isTrends: boolean
+    isMixedSeries: boolean
     updateBreakdownFilter: ((breakdownFilter: BreakdownFilter) => void) | null
     updateDisplay: ((display: ChartDisplayType | undefined) => void) | null
 }
@@ -101,6 +102,11 @@ export const taxonomicBreakdownFilterLogic = kea<taxonomicBreakdownFilterLogicTy
         breakdownLimit: [
             (s) => [s.breakdownFilter, s.localBreakdownLimit],
             (breakdownFilter, localBreakdownLimit) => localBreakdownLimit || breakdownFilter?.breakdown_limit || 25,
+        ],
+        breakdownDisabledReason: [
+            (_, p) => [p.isMixedSeries],
+            (isMixedSeries) =>
+                isMixedSeries ? 'Breakdowns are not available when series types are different' : undefined,
         ],
     }),
     listeners(({ props, values }) => ({

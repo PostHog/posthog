@@ -45,6 +45,9 @@ import {
 import {
     filterForQuery,
     filterKeyForQuery,
+    isActionsNode,
+    isDataWarehouseNode,
+    isEventsNode,
     isFunnelsQuery,
     isInsightQueryNode,
     isInsightVizNode,
@@ -209,6 +212,18 @@ export const insightVizDataLogic = kea<insightVizDataLogicType>([
             (s) => [s.isTrends, s.formula, s.series, s.breakdownFilter],
             (isTrends, formula, series, breakdownFilter): boolean => {
                 return ((isTrends && !!formula) || (series || []).length <= 1) && !breakdownFilter?.breakdown
+            },
+        ],
+
+        isMixedSeries: [
+            (s) => [s.isTrends, s.series],
+            (isTrends, series): boolean => {
+                return (
+                    isTrends &&
+                    (series || []).length > 1 &&
+                    !!series?.some((node) => isDataWarehouseNode(node)) &&
+                    !!series?.some((node) => isEventsNode(node) || isActionsNode(node))
+                )
             },
         ],
 

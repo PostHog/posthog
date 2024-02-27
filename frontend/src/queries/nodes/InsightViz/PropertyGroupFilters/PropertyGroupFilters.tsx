@@ -23,6 +23,7 @@ type PropertyGroupFiltersProps = {
     pageKey: string
     eventNames?: string[]
     taxonomicGroupTypes?: TaxonomicFilterGroupType[]
+    isMixedSeries?: boolean
 }
 
 export function PropertyGroupFilters({
@@ -32,6 +33,7 @@ export function PropertyGroupFilters({
     pageKey,
     eventNames = [],
     taxonomicGroupTypes,
+    isMixedSeries,
 }: PropertyGroupFiltersProps): JSX.Element {
     const logicProps = { query, setQuery, pageKey }
     const { propertyGroupFilter } = useValues(propertyGroupFilterLogic(logicProps))
@@ -45,12 +47,16 @@ export function PropertyGroupFilters({
     } = useActions(propertyGroupFilterLogic(logicProps))
 
     const showHeader = propertyGroupFilter.type && propertyGroupFilter.values.length > 1
-
+    const disabledReason = isMixedSeries ? 'Cannot add filter groups to mixed series' : undefined
     return (
         <div className="space-y-2 PropertyGroupFilters">
             {propertyGroupFilter.values && (
                 <BindLogic logic={propertyGroupFilterLogic} props={logicProps}>
-                    <TestAccountFilter query={query} setQuery={setQuery as (node: InsightQueryNode) => void} />
+                    <TestAccountFilter
+                        disabledReason={disabledReason}
+                        query={query}
+                        setQuery={setQuery as (node: InsightQueryNode) => void}
+                    />
                     {showHeader ? (
                         <>
                             <div className="flex items-center justify-between">
@@ -132,6 +138,7 @@ export function PropertyGroupFilters({
                 onClick={addFilterGroup}
                 icon={<IconPlusSmall color="var(--primary)" />}
                 sideIcon={null}
+                disabledReason={disabledReason}
             >
                 Add filter group
             </LemonButton>
