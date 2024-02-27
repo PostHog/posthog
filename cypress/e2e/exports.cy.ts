@@ -1,6 +1,6 @@
-import {urls} from 'scenes/urls'
+import { urls } from 'scenes/urls'
 
-import {decideResponse} from '../fixtures/api/decide'
+import { decideResponse } from '../fixtures/api/decide'
 
 // NOTE: As the API data is randomly generated, we are only really testing here that the overall output is correct
 // The actual graph is not under test
@@ -18,7 +18,7 @@ describe('Exporting Insights', () => {
         cy.get('[data-attr$=add-filter-group]').click()
         cy.get('[data-attr=property-select-toggle-0]').click()
         cy.get('[data-attr=taxonomic-filter-searchfield]').click()
-        cy.get('[data-attr=prop-filter-event_properties-1]').click({force: true})
+        cy.get('[data-attr=prop-filter-event_properties-1]').click({ force: true })
         cy.get('[data-attr=prop-val] input').type('not-applicable')
         cy.get('[data-attr=prop-val] input').type('{enter}')
 

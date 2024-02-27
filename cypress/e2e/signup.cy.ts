@@ -1,4 +1,4 @@
-import {decideResponse} from '../fixtures/api/decide'
+import { decideResponse } from '../fixtures/api/decide'
 
 describe('Signup', () => {
     beforeEach(() => {
@@ -88,7 +88,7 @@ describe('Signup', () => {
 
         cy.visit('/signup?maintenanceRedirect=true', {
             onLoad(win: Cypress.AUTWindow) {
-                (win as any).POSTHOG_APP_CONTEXT.preflight.cloud = true
+                ;(win as any).POSTHOG_APP_CONTEXT.preflight.cloud = true
             },
         })
 

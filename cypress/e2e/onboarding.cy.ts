@@ -1,5 +1,5 @@
-import {urls} from 'scenes/urls'
-import {decideResponse} from '../fixtures/api/decide'
+import { urls } from 'scenes/urls'
+import { decideResponse } from '../fixtures/api/decide'
 
 describe('Onboarding', () => {
     beforeEach(() => {

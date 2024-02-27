@@ -1,14 +1,13 @@
 import 'givens/setup'
 import './commands'
 import 'cypress-axe'
-import {decideResponse} from '../fixtures/api/decide'
+import { decideResponse } from '../fixtures/api/decide'
 
 try {
     // eslint-disable-next-line @typescript-eslint/no-var-requires
     require('cypress-terminal-report/src/installLogsCollector')()
     // eslint-disable-next-line no-empty
-} catch {
-}
+} catch {}
 
 const E2E_TESTING = Cypress.env('E2E_TESTING')
 
@@ -43,11 +42,11 @@ beforeEach(() => {
     // un-intercepted sometimes this doesn't work and the page gets stuck on the SpinnerOverlay
     cy.intercept(/app.posthog.com\/api\/projects\/@current\/feature_flags\/my_flags.*/, (req) => req.reply([]))
     cy.intercept('https://www.gravatar.com/avatar/**', (req) =>
-        req.reply({statusCode: 404, body: 'Cypress forced 404'})
+        req.reply({ statusCode: 404, body: 'Cypress forced 404' })
     )
 
     if (Cypress.spec.name.includes('Premium')) {
-        cy.intercept('/api/users/@me/', {fixture: 'api/user-enterprise'})
+        cy.intercept('/api/users/@me/', { fixture: 'api/user-enterprise' })
 
         cy.request('POST', '/api/login/', {
             email: 'test@posthog.com',
@@ -69,12 +68,12 @@ beforeEach(() => {
 })
 
 afterEach(function () {
-    const {state, duration} = this.currentTest
+    const { state, duration } = this.currentTest
     const event = state === 'passed' ? 'e2e_testing_test_passed' : 'e2e_testing_test_failed'
 
     if (E2E_TESTING) {
         cy.window().then((win) => {
-            ;(win as any).posthog?.capture(event, {state, duration})
+            ;(win as any).posthog?.capture(event, { state, duration })
         })
     }
 })

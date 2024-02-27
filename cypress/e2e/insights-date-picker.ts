@@ -1,4 +1,4 @@
-import {urls} from 'scenes/urls'
+import { urls } from 'scenes/urls'
 
 describe('insights date picker', () => {
     beforeEach(() => {
