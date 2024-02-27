@@ -205,8 +205,8 @@ class FunnelCorrelationQueryRunner(QueryRunner):
             ],
         )
 
-        success_total = int(correct_result_for_sampling(success_total, self._filter.sampling_factor))
-        failure_total = int(correct_result_for_sampling(failure_total, self._filter.sampling_factor))
+        success_total = int(correct_result_for_sampling(success_total, self.query.source.samplingFactor))
+        failure_total = int(correct_result_for_sampling(failure_total, self.query.source.samplingFactor))
 
         if not success_total or not failure_total:
             return FunnelCorrelationResponse(result={"events": [], "skewed": True})
