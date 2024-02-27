@@ -1,7 +1,7 @@
 import dataclasses
 from datetime import timedelta
 from math import ceil
-from typing import Optional, Any, Dict
+from typing import Literal, Optional, Any, Dict, TypedDict, cast
 
 from django.utils.timezone import datetime
 from posthog.caching.insights_api import (
@@ -9,7 +9,9 @@ from posthog.caching.insights_api import (
     REDUCED_MINIMUM_INSIGHT_REFRESH_INTERVAL,
 )
 from posthog.caching.utils import is_stale
-from posthog.constants import FunnelCorrelationType
+from posthog.constants import AUTOCAPTURE_EVENT, FunnelCorrelationType
+from posthog.models.element.element import chain_to_elements
+from posthog.models.event.util import ElementSerializer
 
 from posthog.hogql import ast
 from posthog.hogql.constants import LimitContext
@@ -26,6 +28,7 @@ from posthog.models import Team
 from posthog.models.filters.mixins.utils import cached_property
 from posthog.queries.util import correct_result_for_sampling
 from posthog.schema import (
+    EventDefinition,
     FunnelCorrelationQuery,
     FunnelCorrelationResponse,
     FunnelCorrelationResult,
@@ -34,6 +37,16 @@ from posthog.schema import (
     FunnelsQueryResponse,
     HogQLQueryModifiers,
 )
+
+
+class EventOddsRatio(TypedDict):
+    event: str
+
+    success_count: int
+    failure_count: int
+
+    odds_ratio: float
+    correlation_type: Literal["success", "failure"]
 
 
 @dataclasses.dataclass
@@ -58,13 +71,15 @@ class EventContingencyTable:
     failure_total: int
 
 
+MIN_PERSON_COUNT = 25
+MIN_PERSON_PERCENTAGE = 0.02
+PRIOR_COUNT = 1
+
+
 class FunnelCorrelationQueryRunner(QueryRunner):
     TOTAL_IDENTIFIER = "Total_Values_In_Query"
-    # ELEMENTS_DIVIDER = "__~~__"
-    # AUTOCAPTURE_EVENT_TYPE = "$event_type"
-    # MIN_PERSON_COUNT = 25
-    # MIN_PERSON_PERCENTAGE = 0.02
-    # PRIOR_COUNT = 1
+    ELEMENTS_DIVIDER = "__~~__"
+    AUTOCAPTURE_EVENT_TYPE = "$event_type"
 
     query: FunnelCorrelationQuery
     query_type = FunnelCorrelationQuery
@@ -83,7 +98,40 @@ class FunnelCorrelationQueryRunner(QueryRunner):
         # self.context = FunnelQueryContext(
         #     query=self.query, team=team, timings=timings, modifiers=modifiers, limit_context=limit_context
         # )
-        # self.kwargs = kwargs
+
+        # if self._filter.funnel_step is None:
+        #     self._filter = self._filter.shallow_clone({"funnel_step": 1})
+        #     # Funnel Step by default set to 1, to give us all people who entered the funnel
+
+        # # Used for generating the funnel persons cte
+
+        # filter_data = {
+        #     key: value
+        #     for key, value in self._filter.to_dict().items()
+        #     # NOTE: we want to filter anything about correlation, as the
+        #     # funnel persons endpoint does not understand or need these
+        #     # params.
+        #     if not key.startswith("funnel_correlation_")
+        # }
+        # # NOTE: we always use the final matching event for the recording because this
+        # # is the the right event for both drop off and successful funnels
+        # filter_data.update({"include_final_matching_events": self._filter.include_recordings})
+        # filter = Filter(data=filter_data, hogql_context=self._filter.hogql_context)
+
+        # funnel_order_actor_class = get_funnel_order_actor_class(filter)
+
+        # self._funnel_actors_generator = funnel_order_actor_class(
+        #     filter,
+        #     self._team,
+        #     # NOTE: we want to include the latest timestamp of the `target_step`,
+        #     # from this we can deduce if the person reached the end of the funnel,
+        #     # i.e. successful
+        #     include_timestamp=True,
+        #     # NOTE: we don't need these as we have all the information we need to
+        #     # deduce if the person was successful or not
+        #     include_preceding_timestamp=False,
+        #     include_properties=self.properties_to_include,
+        # )
 
     # def _is_stale(self, cached_result_package):
     #     date_to = self.query_date_range.date_to()
@@ -222,9 +270,9 @@ class FunnelCorrelationQueryRunner(QueryRunner):
             skewed_totals = True
 
         odds_ratios = [
-            get_entity_odds_ratio(event_stats, FunnelCorrelation.PRIOR_COUNT)
+            get_entity_odds_ratio(event_stats, PRIOR_COUNT)
             for event_stats in event_contingency_tables
-            if not FunnelCorrelation.are_results_insignificant(event_stats)
+            if not are_results_insignificant(event_stats)
         ]
 
         positively_correlated_events = sorted(
@@ -250,6 +298,47 @@ class FunnelCorrelationQueryRunner(QueryRunner):
             timings=response.timings,
             hogql=hogql,
         )
+
+    def serialize_event_odds_ratio(self, odds_ratio: EventOddsRatio) -> EventOddsRatioSerialized:
+        event_definition = self.serialize_event_with_property(event=odds_ratio["event"])
+        return {
+            "success_count": odds_ratio["success_count"],
+            # "success_people_url": self.construct_people_url(
+            #     success=True,
+            #     event_definition=event_definition,
+            #     cache_invalidation_key=cache_invalidation_key,
+            # ),
+            "failure_count": odds_ratio["failure_count"],
+            # "failure_people_url": self.construct_people_url(
+            #     success=False,
+            #     event_definition=event_definition,
+            #     cache_invalidation_key=cache_invalidation_key,
+            # ),
+            "odds_ratio": odds_ratio["odds_ratio"],
+            "correlation_type": odds_ratio["correlation_type"],
+            "event": event_definition,
+        }
+
+    def serialize_event_with_property(self, event: str) -> EventDefinition:
+        """
+        Format the event name for display.
+        """
+        if not self.support_autocapture_elements():
+            return EventDefinition(event=event, properties={}, elements=[])
+
+        event_name, property_name, property_value = event.split("::")
+        if event_name == AUTOCAPTURE_EVENT and property_name == "elements_chain":
+            event_type, elements_chain = property_value.split(self.ELEMENTS_DIVIDER)
+            return EventDefinition(
+                event=event,
+                properties={self.AUTOCAPTURE_EVENT_TYPE: event_type},
+                elements=cast(
+                    list,
+                    ElementSerializer(chain_to_elements(elements_chain), many=True).data,
+                ),
+            )
+
+        return EventDefinition(event=event, properties={}, elements=[])
 
     def to_query(self) -> ast.SelectQuery:
         """
@@ -325,7 +414,7 @@ class FunnelCorrelationQueryRunner(QueryRunner):
             "exclude_event_names": self._filter.correlation_event_exclude_names,
         }
 
-        return query, params
+        return query
 
     def get_event_property_query(self) -> ast.SelectQuery:
         if not self._filter.correlation_event_names:
@@ -567,3 +656,90 @@ class FunnelCorrelationQueryRunner(QueryRunner):
                 events.add(entity.id)
 
         return sorted(list(events))
+
+    @property
+    def properties_to_include(self) -> List[str]:
+        props_to_include = []
+        if (
+            self._team.person_on_events_mode != PersonOnEventsMode.DISABLED
+            and self._filter.correlation_type == FunnelCorrelationType.PROPERTIES
+        ):
+            # When dealing with properties, make sure funnel response comes with properties
+            # so we don't have to join on persons/groups to get these properties again
+            mat_event_cols = get_materialized_columns("events")
+
+            for property_name in cast(list, self._filter.correlation_property_names):
+                if self._filter.aggregation_group_type_index is not None:
+                    if not groups_on_events_querying_enabled():
+                        continue
+
+                    if "$all" == property_name:
+                        return [f"group{self._filter.aggregation_group_type_index}_properties"]
+
+                    possible_mat_col = mat_event_cols.get(
+                        (
+                            property_name,
+                            f"group{self._filter.aggregation_group_type_index}_properties",
+                        )
+                    )
+                    if possible_mat_col is not None:
+                        props_to_include.append(possible_mat_col)
+                    else:
+                        props_to_include.append(f"group{self._filter.aggregation_group_type_index}_properties")
+
+                else:
+                    if "$all" == property_name:
+                        return [f"person_properties"]
+
+                    possible_mat_col = mat_event_cols.get((property_name, "person_properties"))
+
+                    if possible_mat_col is not None:
+                        props_to_include.append(possible_mat_col)
+                    else:
+                        props_to_include.append(f"person_properties")
+
+        return props_to_include
+
+    def support_autocapture_elements(self) -> bool:
+        if (
+            self.query.correlationType == FunnelCorrelationType.EVENT_WITH_PROPERTIES
+            and AUTOCAPTURE_EVENT in self._filter.correlation_event_names
+        ):
+            return True
+        return False
+
+
+def get_entity_odds_ratio(event_contingency_table: EventContingencyTable, prior_counts: int) -> EventOddsRatio:
+    # Add 1 to all values to prevent divide by zero errors, and introduce a [prior](https://en.wikipedia.org/wiki/Prior_probability)
+    odds_ratio = (
+        (event_contingency_table.visited.success_count + prior_counts)
+        * (event_contingency_table.failure_total - event_contingency_table.visited.failure_count + prior_counts)
+    ) / (
+        (event_contingency_table.success_total - event_contingency_table.visited.success_count + prior_counts)
+        * (event_contingency_table.visited.failure_count + prior_counts)
+    )
+
+    return EventOddsRatio(
+        event=event_contingency_table.event,
+        success_count=event_contingency_table.visited.success_count,
+        failure_count=event_contingency_table.visited.failure_count,
+        odds_ratio=odds_ratio,
+        correlation_type="success" if odds_ratio > 1 else "failure",
+    )
+
+
+def are_results_insignificant(event_contingency_table: EventContingencyTable) -> bool:
+    """
+    Check if the results are insignificant, i.e. if the success/failure counts are
+    significantly different from the total counts
+    """
+
+    total_count = event_contingency_table.success_total + event_contingency_table.failure_total
+
+    if event_contingency_table.visited.success_count + event_contingency_table.visited.failure_count < min(
+        MIN_PERSON_COUNT,
+        MIN_PERSON_PERCENTAGE * total_count,
+    ):
+        return True
+
+    return False
