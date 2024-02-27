@@ -31,8 +31,6 @@ import {
     FeatureFlagReleaseConditionsLogicProps,
 } from './FeatureFlagReleaseConditionsLogic'
 
-// Lets setup a releaseconditions logic that handles all the logic required here
-// and perhaps connect to flag using key? or id?
 export function FeatureFlagReleaseConditions({
     id,
     readOnly,
@@ -40,9 +38,12 @@ export function FeatureFlagReleaseConditions({
     excludeTitle,
     filters,
     onChange,
-}: FeatureFlagReleaseConditionsLogicProps): JSX.Element {
-    // TODO: Confirm don't need usageContext for scheduling flags
-
+    hideMatchOptions,
+}: FeatureFlagReleaseConditionsLogicProps & {
+    hideMatchOptions?: boolean
+    isSuper?: boolean
+    excludeTitle?: boolean
+}): JSX.Element {
     const releaseConditionsLogic = featureFlagReleaseConditionsLogic({
         id,
         readOnly,
@@ -471,7 +472,7 @@ export function FeatureFlagReleaseConditions({
                             </LemonBanner>
                         )}
                 </div>
-                {!readOnly && showGroupsOptions && id !== 'schedule' && (
+                {!readOnly && showGroupsOptions && !hideMatchOptions && (
                     <div className="centered">
                         Match by
                         <LemonSelect

@@ -148,6 +148,7 @@ export function FeatureFlag({ id }: { id?: string } = {}): JSX.Element {
                     <div className="flex gap-4 flex-wrap">
                         <div className="flex-1">
                             <FeatureFlagRollout readOnly />
+                            {/* TODO: In a follow up, clean up super_groups and combine into regular ReleaseConditions component */}
                             {featureFlag.filters.super_groups && (
                                 <FeatureFlagReleaseConditions readOnly isSuper filters={featureFlag.filters} />
                             )}
@@ -503,7 +504,7 @@ export function FeatureFlag({ id }: { id?: string } = {}): JSX.Element {
                                                 <ObjectTags
                                                     tags={featureFlag.tags}
                                                     onChange={(_, tags) => {
-                                                        // TODO: Use an existing function instead of this new one for updates?
+                                                        // TODO: Use an existing function instead of this new one for updates
                                                         triggerFeatureFlagUpdate({ tags })
                                                     }}
                                                     saving={featureFlagLoading}

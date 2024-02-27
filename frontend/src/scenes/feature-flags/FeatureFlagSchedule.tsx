@@ -206,16 +206,14 @@ export default function FeatureFlagSchedule(): JSX.Element {
                             </div>
                         </>
                     )}
-                    {/* // TODO: There's a problem here, if you click schedule, then click back inside release conditions, the filters are old.
-                    Not sure why this is. Do we need to key releaseConditions??? */}
                     {scheduledChangeOperation === ScheduledChangeOperationType.AddReleaseCondition && (
                         <FeatureFlagReleaseConditions
                             id="schedule"
                             filters={scheduleFilters}
                             onChange={(value, errors) => setSchedulePayload(value, null, errors)}
+                            hideMatchOptions
                         />
                     )}
-                    {JSON.stringify(schedulePayloadErrors)}
                     <div className="flex items-center justify-end">
                         <LemonButton
                             type="primary"

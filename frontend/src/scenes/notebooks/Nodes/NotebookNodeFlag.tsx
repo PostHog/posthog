@@ -125,7 +125,7 @@ const Component = ({ attributes }: NotebookNodeProps<NotebookNodeFlagAttributes>
                     <>
                         <LemonDivider className="my-0" />
                         <div className="p-2">
-                            <FeatureFlagReleaseConditions readOnly />
+                            <FeatureFlagReleaseConditions readOnly filters={featureFlag.filters} />
                         </div>
                     </>
                 ) : null}

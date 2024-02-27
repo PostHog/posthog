@@ -25,9 +25,6 @@ export interface FeatureFlagReleaseConditionsLogicProps {
     filters: FeatureFlagFilters
     id?: string
     readOnly?: boolean
-    isSuper?: boolean
-    excludeTitle?: boolean
-    usageContext?: string
     // TODO: Check early access features don't break because of this refactor
     onChange?: (filters: FeatureFlagFilters, errors: any) => void
 }
@@ -47,7 +44,6 @@ export const featureFlagReleaseConditionsLogic = kea<featureFlagReleaseCondition
         ],
     }),
     actions({
-        setFilters: (filters: FeatureFlagFilters) => ({ filters }),
         setAggregationGroupTypeIndex: (value: number | null) => ({ value }),
         addConditionSet: true,
         removeConditionSet: (index: number) => ({ index }),
@@ -71,26 +67,6 @@ export const featureFlagReleaseConditionsLogic = kea<featureFlagReleaseCondition
         filters: [
             props.filters,
             {
-                // setFilters: (_, { filters }) => {
-                //     if (filters.groups) {
-                //         const groups = filters.groups.map((group) => {
-                //             if (group.properties) {
-                //                 return {
-                //                     ...group,
-                //                     properties: convertPropertyGroupToProperties(
-                //                         group.properties
-                //                     ) as AnyPropertyFilter[],
-                //                 }
-                //             }
-                //             return group
-                //         })
-                //         return { ...filters, groups }
-                //     }
-                //     // TODO: This is probably wrong, worked in old logic because some assumptions,
-                //     // check this will work well here, this will override aggregation_group_type_index and multivariate fields
-                //     // instead of merge
-                //     return filters
-                // },
                 setAggregationGroupTypeIndex: (state, { value }) => {
                     if (!state || state.aggregation_group_type_index == value) {
                         return state
@@ -159,11 +135,6 @@ export const featureFlagReleaseConditionsLogic = kea<featureFlagReleaseCondition
                     ...state,
                     [index]: count,
                 }),
-                // TODO: Find an alternative here, maybe subscribe to changing filters?
-                // OOOh maybe use setFilters as the starting point, it's called whenever we mount / props change?
-                // then that is starting function to reset things here
-                // resetFeatureFlag: () => ({ 0: -1 }),
-                // loadFeatureFlag: () => ({ 0: -1 }),
             },
         ],
         totalUsers: [

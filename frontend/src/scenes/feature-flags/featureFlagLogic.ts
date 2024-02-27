@@ -53,7 +53,7 @@ import { teamLogic } from '../teamLogic'
 import type { featureFlagLogicType } from './featureFlagLogicType'
 import { featureFlagPermissionsLogic } from './featureFlagPermissionsLogic'
 
-type ScheduleFlagPayload = Pick<FeatureFlagType, 'filters' | 'active'>
+export type ScheduleFlagPayload = Pick<FeatureFlagType, 'filters' | 'active'>
 
 const getDefaultRollbackCondition = (): FeatureFlagRollbackConditions => ({
     operator: 'gt',
