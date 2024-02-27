@@ -80,7 +80,7 @@ describe('session-manager', () => {
 
         await sessionManager.add(event)
 
-        expect(sessionManager.buffer?.context).toEqual({
+        expect(sessionManager.buffer).toEqual({
             sizeEstimate: 193,
             count: 1,
             eventsRange: { firstTimestamp: timestamp, lastTimestamp: timestamp + 1000 },
@@ -120,7 +120,7 @@ describe('session-manager', () => {
         await sessionManager.add(eventOne)
         await sessionManager.add(eventTwo)
 
-        sessionManager.buffer!.context.createdAt = now() - flushThreshold - 1
+        sessionManager.buffer!.createdAt = now() - flushThreshold - 1
 
         await sessionManager.flush()
 
@@ -270,7 +270,7 @@ describe('session-manager', () => {
 
         const sm2 = await createSessionManager('session_id_2', 2, 2)
 
-        expect(sm2.buffer?.context).toEqual({
+        expect(sm2.buffer).toEqual({
             count: 1,
             createdAt: expect.any(Number),
             eventsRange: {
@@ -280,10 +280,8 @@ describe('session-manager', () => {
             sizeEstimate: 185,
         })
 
-        expect(sm2.buffer?.context.createdAt).toBeGreaterThanOrEqual(0)
-        expect(sm2.buffer?.context.eventsRange?.firstTimestamp).toBe(sm2.buffer!.context.createdAt)
-        expect(sm2.buffer?.context.eventsRange?.lastTimestamp).toBeGreaterThanOrEqual(
-            sm2.buffer!.context.eventsRange!.firstTimestamp
-        )
+        expect(sm2.buffer?.createdAt).toBeGreaterThanOrEqual(0)
+        expect(sm2.buffer?.eventsRange?.firstTimestamp).toBe(sm2.buffer!.createdAt)
+        expect(sm2.buffer?.eventsRange?.lastTimestamp).toBeGreaterThanOrEqual(sm2.buffer!.eventsRange!.firstTimestamp)
     })
 })

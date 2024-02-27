@@ -66,20 +66,13 @@ export interface TeamIDWithConfig {
  * as the persistent volume for both blob data and the metadata around ingestion.
  */
 export class SessionRecordingIngesterV3 {
-    // redisPool: RedisPool
     sessions: Record<string, SessionManagerV3> = {}
-    // sessionHighWaterMarker: OffsetHighWaterMarker
-    // persistentHighWaterMarker: OffsetHighWaterMarker
-    // realtimeManager: RealtimeManager
     // replayEventsIngester: ReplayEventsIngester
     // consoleLogsIngester: ConsoleLogsIngester
     batchConsumer?: BatchConsumer
-    // partitionMetrics: Record<number, PartitionMetrics> = {}
     teamsRefresher: BackgroundRefresher<Record<string, TeamIDWithConfig>>
-    // latestOffsetsRefresher: BackgroundRefresher<Record<number, number | undefined>>
     config: PluginsServerConfig
     topic = KAFKA_SESSION_RECORDING_SNAPSHOT_ITEM_EVENTS
-    // totalNumPartitions = 0
 
     private promises: Set<Promise<any>> = new Set()
     // if ingestion is lagging on a single partition it is often hard to identify _why_,
@@ -98,7 +91,6 @@ export class SessionRecordingIngesterV3 {
         // NOTE: globalServerConfig contains the default pluginServer values, typically not pointing at dedicated resources like kafka or redis
         // We still connect to some of the non-dedicated resources such as postgres or the Replay events kafka.
         this.config = sessionRecordingConsumerConfig(globalServerConfig)
-        // this.redisPool = createRedisPool(this.config)
 
         // NOTE: This is the only place where we need to use the shared server config
         // TODO: Uncomment when we swap to using this service as the ingester for it
@@ -183,7 +175,6 @@ export class SessionRecordingIngesterV3 {
             sessionsHandled: Object.keys(this.sessions).length,
         })
 
-        // TODO: For all assigned partitions, load up any sessions on disk that we don't already have in memory
         // TODO: Add a timer or something to fire this "handleEachBatch" with an empty batch for quite partitions
 
         await runInstrumentedFunction({
@@ -216,8 +207,6 @@ export class SessionRecordingIngesterV3 {
                         recordingMessages = reduceRecordingMessages(recordingMessages)
                     },
                 })
-
-                // await this.reportPartitionMetrics()
 
                 await runInstrumentedFunction({
                     statsKey: `recordingingester.handleEachBatch.ensureSessionsAreLoaded`,
@@ -336,10 +325,6 @@ export class SessionRecordingIngesterV3 {
 
         const promiseResults = await Promise.allSettled(this.promises)
 
-        // Finally we clear up redis once we are sure everything else has been handled
-        // await this.redisPool.drain()
-        // await this.redisPool.clear()
-
         status.info('👍', 'session-replay-ingestion - stopped!')
 
         return promiseResults
@@ -351,6 +336,7 @@ export class SessionRecordingIngesterV3 {
     }
 
     async flushAllReadySessions(): Promise<void> {
+        // TODO: Put a time limit / number limit on this function...
         const promises: Promise<void>[] = []
         const assignedPartitions = this.assignedTopicPartitions.map((x) => x.partition)
 
@@ -407,6 +393,8 @@ export class SessionRecordingIngesterV3 {
                             dir: this.dirForSession(partition, parseInt(teamId), sessionId),
                             partition,
                         })
+
+                        // Do we await the setup here? maybe right...
                     }
                 })
             })
