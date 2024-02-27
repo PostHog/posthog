@@ -16,7 +16,7 @@ const POLL_DELAY_MS = 1000
 const MAX_PNG_POLL = 10
 const MAX_CSV_POLL = 300
 
-function downloadBlob(content: Blob, filename: string): void {
+export function downloadBlob(content: Blob, filename: string): void {
     const anchor = document.createElement('a')
     anchor.style.display = 'none'
     const objectURL = window.URL.createObjectURL(content)
