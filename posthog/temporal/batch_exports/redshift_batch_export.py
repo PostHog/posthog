@@ -25,7 +25,6 @@ from posthog.temporal.batch_exports.batch_exports import (
     get_rows_count,
     iter_records,
 )
-from posthog.temporal.batch_exports.clickhouse import get_client
 from posthog.temporal.batch_exports.metrics import get_rows_exported_metric
 from posthog.temporal.batch_exports.postgres_batch_export import (
     PostgresInsertInputs,
@@ -33,6 +32,7 @@ from posthog.temporal.batch_exports.postgres_batch_export import (
     postgres_connection,
 )
 from posthog.temporal.batch_exports.utils import peek_first_and_rewind
+from posthog.temporal.common.clickhouse import get_client
 from posthog.temporal.common.logger import bind_temporal_worker_logger
 
 
