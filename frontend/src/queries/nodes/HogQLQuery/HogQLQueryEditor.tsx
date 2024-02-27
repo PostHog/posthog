@@ -351,6 +351,7 @@ export function HogQLQueryEditor(props: HogQLQueryEditorProps): JSX.Element {
                                 suggest: {
                                     showInlineDetails: true,
                                 },
+                                quickSuggestionsDelay: 300,
                             }}
                         />
                     </div>
