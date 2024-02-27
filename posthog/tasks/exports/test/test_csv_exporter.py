@@ -2,6 +2,8 @@ from typing import Any, Dict, Optional
 from unittest import mock
 from unittest.mock import MagicMock, Mock, patch, ANY
 
+from openpyxl import load_workbook
+from io import BytesIO
 import pytest
 from boto3 import resource
 from botocore.client import Config
@@ -254,6 +256,29 @@ class TestCSVExporter(APIBaseTest):
                 exported_asset.content
                 == b"distinct_id,properties.$browser,event,tomato\r\n2,Safari,event_name,\r\n2,Safari,event_name,\r\n2,Safari,event_name,\r\n"
             )
+
+    @patch("posthog.models.exported_asset.UUIDT")
+    @patch("posthog.models.exported_asset.object_storage.write")
+    def test_csv_exporter_excel(self, mocked_object_storage_write, mocked_uuidt) -> None:
+        exported_asset = self._create_asset({"columns": ["distinct_id", "properties.$browser", "event", "tomato"]})
+        exported_asset.export_format = ExportedAsset.ExportFormat.EXCEL
+        mocked_uuidt.return_value = "a-guid"
+        mocked_object_storage_write.side_effect = ObjectStorageError("mock write failed")
+
+        with self.settings(OBJECT_STORAGE_ENABLED=True, OBJECT_STORAGE_EXPORTS_FOLDER="Test-Exports"):
+            csv_exporter.export_tabular(exported_asset)
+
+            assert exported_asset.content_location is None
+
+            wb = load_workbook(filename=BytesIO(exported_asset.content))
+            ws = wb.active
+            data = [row for row in ws.iter_rows(values_only=True)]
+            assert data == [
+                ("distinct_id", "properties.$browser", "event", "tomato"),
+                ("2", "Safari", "event_name", None),
+                ("2", "Safari", "event_name", None),
+                ("2", "Safari", "event_name", None),
+            ]
 
     @patch("posthog.models.exported_asset.UUIDT")
     @patch("posthog.models.exported_asset.object_storage.write")

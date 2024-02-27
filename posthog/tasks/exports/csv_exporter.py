@@ -5,7 +5,7 @@ from urllib.parse import parse_qsl, quote, urlencode, urlparse, urlunparse
 
 import requests
 import structlog
-import xlsxwriter
+from openpyxl import Workbook
 from django.http import QueryDict
 from sentry_sdk import capture_exception, push_scope
 from requests.exceptions import HTTPError
@@ -281,18 +281,19 @@ def _export_to_csv(exported_asset: ExportedAsset, limit: int) -> None:
 def _export_to_excel(exported_asset: ExportedAsset, limit: int) -> None:
     output = io.BytesIO()
 
-    workbook = xlsxwriter.Workbook(output, {"in_memory": True})
-    worksheet = workbook.add_worksheet()
+    workbook = Workbook()
+    worksheet = workbook.active
 
     renderer, all_csv_rows, render_context = _export_to_dict(exported_asset, limit)
 
     for row_num, row_data in enumerate(renderer.tablize(all_csv_rows, header=render_context.get("header"))):
         for col_num, value in enumerate(row_data):
-            if not isinstance(value, (str, int, float, bool)):
+            if value is not None and not isinstance(value, (str, int, float, bool)):
                 value = str(value)
-            worksheet.write(row_num, col_num, value)
+            worksheet.cell(row=row_num + 1, column=col_num + 1, value=value)
 
-    workbook.close()
+    workbook.save(output)
+    output.seek(0)
     save_content(exported_asset, output.getvalue())
 
 
