@@ -49,7 +49,9 @@ def encode_clickhouse_data(data: typing.Any, quote_char="'") -> bytes:
             return result
 
         case dict():
-            # Assume we are working with JSON data.
+            # Encode dictionaries as JSON, as it can represent a Python dictionary in a way ClickHouse understands.
+            # This means INSERT queries with dictionary data are only supported with 'FORMAT JSONEachRow', which
+            # is enough for now as most if not all of our INSERT query workloads are in unit test setup.
             encoded_data = []
 
             for key, value in data.items():
