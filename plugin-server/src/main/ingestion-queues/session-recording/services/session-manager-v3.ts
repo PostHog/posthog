@@ -147,6 +147,10 @@ export class SessionManagerV3 {
         let context: SessionManagerBufferContext | undefined
 
         if (!bufferFileExists) {
+            status.info('📦', '[session-manager] started new manager', {
+                ...this.context,
+                ...(this.buffer?.context ?? {}),
+            })
             return
         }
 
@@ -205,7 +209,7 @@ export class SessionManagerV3 {
             fileStream: this.createFileStreamFor(path.join(this.context.dir, BUFFER_FILE_NAME)),
         }
 
-        status.info('📦', '[session-manager] started new manager', {
+        status.info('📦', '[session-manager] started new manager from existing file', {
             ...this.context,
             ...(this.buffer?.context ?? {}),
         })
