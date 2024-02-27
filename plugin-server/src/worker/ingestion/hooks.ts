@@ -203,6 +203,8 @@ export function getValueOfToken(
             markdown = text = webhookEscape(event.event, webhookType)
         } else if (tokenParts[1] === 'event') {
             markdown = text = webhookEscape(event.event, webhookType)
+        } else if (tokenParts[1] === 'timestamp') {
+            markdown = text = webhookEscape(event.timestamp, webhookType)
         } else if (tokenParts[1] === 'distinct_id') {
             markdown = text = webhookEscape(event.distinctId, webhookType)
         } else if (tokenParts[1] === 'properties' && tokenParts.length > 2) {
