@@ -86,12 +86,16 @@ class FunnelCorrelationQueryRunner(QueryRunner):
     #     date_to = self.query_date_range.date_to()
     #     interval = self.query_date_range.interval_name
     #     return is_stale(self.team, date_to, interval, cached_result_package)
+    def _is_stale(self, cached_result_package):
+        return True
 
     # def _refresh_frequency(self):
     #     date_to = self.query_date_range.date_to()
     #     date_from = self.query_date_range.date_from()
     #     interval = self.query_date_range.interval_name
-
+    def _refresh_frequency(self):
+        return timedelta(minutes=1)
+    
     #     delta_days: Optional[int] = None
     #     if date_from and date_to:
     #         delta = date_to - date_from

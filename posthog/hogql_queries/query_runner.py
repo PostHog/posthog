@@ -218,6 +218,8 @@ def get_query_runner(
             modifiers=modifiers,
         )
     if kind == "FunnelCorrelationQuery":
+        from .insights.funnels.funnel_correlation_query_runner import FunnelCorrelationQueryRunner
+
         return FunnelCorrelationQueryRunner(
             query=cast(FunnelCorrelationQuery | Dict[str, Any], query),
             team=team,
