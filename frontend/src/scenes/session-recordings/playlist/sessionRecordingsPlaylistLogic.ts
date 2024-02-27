@@ -625,24 +625,27 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
         ],
 
         otherRecordings: [
-            (s) => [s.sessionRecordings, s.hideViewedRecordings, s.pinnedRecordings, s.selectedRecordingId],
+            (s) => [s.sessionRecordings, s.hideViewedRecordings, s.pinnedRecordings, s.selectedRecordingId, s.orderBy],
             (
                 sessionRecordings,
                 hideViewedRecordings,
                 pinnedRecordings,
-                selectedRecordingId
+                selectedRecordingId,
+                orderBy
             ): SessionRecordingType[] => {
-                return sessionRecordings.filter((rec) => {
-                    if (pinnedRecordings.find((pinned) => pinned.id === rec.id)) {
-                        return false
-                    }
+                return sessionRecordings
+                    .filter((rec) => {
+                        if (pinnedRecordings.find((pinned) => pinned.id === rec.id)) {
+                            return false
+                        }
 
-                    if (hideViewedRecordings && rec.viewed && rec.id !== selectedRecordingId) {
-                        return false
-                    }
+                        if (hideViewedRecordings && rec.viewed && rec.id !== selectedRecordingId) {
+                            return false
+                        }
 
-                    return true
-                })
+                        return true
+                    })
+                    .sort((a, b) => (a[orderBy] > b[orderBy] ? -1 : 1))
             },
         ],
 
