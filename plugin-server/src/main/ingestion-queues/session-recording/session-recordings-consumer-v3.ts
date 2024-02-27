@@ -28,7 +28,6 @@ require('@sentry/tracing')
 // WARNING: Do not change this - it will essentially reset the consumer
 const KAFKA_CONSUMER_GROUP_ID = 'session-replay-ingester'
 const KAFKA_CONSUMER_SESSION_TIMEOUT_MS = 60000
-const MAX_TIME_FOR_FLUSHING_SESSIONS_MS = 30000
 
 // NOTE: To remove once released
 const metricPrefix = 'v3_'
@@ -177,6 +176,12 @@ export class SessionRecordingIngesterV3 {
         })
 
         // TODO: Add a timer or something to fire this "handleEachBatch" with an empty batch for quite partitions
+        const startTime = Date.now()
+        const timeRemaining = () => {
+            // We try to force steps that can be slow to finish before the session timeout
+            const elapsed = Date.now() - startTime
+            return Math.max(KAFKA_CONSUMER_SESSION_TIMEOUT_MS * 0.9 - elapsed, 0)
+        }
 
         await runInstrumentedFunction({
             statsKey: `recordingingester.handleEachBatch`,
@@ -212,7 +217,7 @@ export class SessionRecordingIngesterV3 {
                 await runInstrumentedFunction({
                     statsKey: `recordingingester.handleEachBatch.ensureSessionsAreLoaded`,
                     func: async () => {
-                        await this.syncSessionsWithDisk()
+                        await this.syncSessionsWithDisk(timeRemaining())
                     },
                 })
 
@@ -233,7 +238,7 @@ export class SessionRecordingIngesterV3 {
                     statsKey: `recordingingester.handleEachBatch.flushAllReadySessions`,
                     func: async () => {
                         // TODO: This can time out if it ends up being overloaded - we should have a max limit here
-                        await this.flushAllReadySessions()
+                        await this.flushAllReadySessions(timeRemaining())
                     },
                 })
 
@@ -336,7 +341,7 @@ export class SessionRecordingIngesterV3 {
         return this.batchConsumer?.isHealthy()
     }
 
-    async flushAllReadySessions(): Promise<void> {
+    async flushAllReadySessions(timeLimit: number = KAFKA_CONSUMER_SESSION_TIMEOUT_MS): Promise<void> {
         const startTime = Date.now()
         const assignedPartitions = this.assignedTopicPartitions.map((x) => x.partition)
         const sessions = Object.entries(this.sessions)
@@ -344,7 +349,7 @@ export class SessionRecordingIngesterV3 {
 
         // TODO: We could probably parallelize this to some extent
         for (const [key, sessionManager] of sessions) {
-            if (Date.now() - startTime > MAX_TIME_FOR_FLUSHING_SESSIONS_MS) {
+            if (Date.now() - startTime > timeLimit) {
                 status.warn(
                     '⚠️',
                     `session-replay-ingestion - flushing sessions took too long, stopping at ${flushedCount} of ${sessions.length} sessions`
@@ -382,8 +387,9 @@ export class SessionRecordingIngesterV3 {
         gaugeSessionsHandled.set(Object.keys(this.sessions).length)
     }
 
-    private async syncSessionsWithDisk(): Promise<void> {
+    private async syncSessionsWithDisk(timeLimit: number = KAFKA_CONSUMER_SESSION_TIMEOUT_MS): Promise<void> {
         // As we may get assigned and reassigned partitions, we want to make sure that we have all sessions loaded into memory
+        const startTime = Date.now()
 
         for (const { partition } of this.assignedTopicPartitions) {
             const keys = await readdir(path.join(this.rootDir, `${partition}`)).catch(() => {
@@ -394,6 +400,14 @@ export class SessionRecordingIngesterV3 {
             const relatedKeys = keys.filter((x) => /\d+__[a-zA-Z0-9\-]+/.test(x))
 
             for (const key of relatedKeys) {
+                if (Date.now() - startTime > timeLimit) {
+                    status.warn(
+                        '⚠️',
+                        `session-replay-ingestion - syncing sessions from disk is taking too long, stopping.`
+                    )
+                    return
+                }
+
                 // TODO: Ensure sessionId can only be a uuid
                 const [teamId, sessionId] = key.split('__')
 
