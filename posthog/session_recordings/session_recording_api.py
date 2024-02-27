@@ -320,6 +320,8 @@ class SessionRecordingViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         might_have_realtime = True
         newest_timestamp = None
 
+        use_v3_storage = request.GET.get("version", None) == "3"
+
         event_properties = {
             "team_id": self.team.pk,
             "request_source": source,
@@ -359,6 +361,13 @@ class SessionRecordingViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                     might_have_realtime = False
             else:
                 blob_prefix = recording.build_blob_ingestion_storage_path()
+
+                if use_v3_storage and settings.OBJECT_STORAGE_SESSION_RECORDING_BLOB_INGESTION_V3_FOLDER:
+                    blob_prefix = blob_prefix.replace(
+                        settings.OBJECT_STORAGE_SESSION_RECORDING_BLOB_INGESTION_FOLDER,
+                        settings.OBJECT_STORAGE_SESSION_RECORDING_BLOB_INGESTION_V3_FOLDER,
+                    )
+
                 blob_keys = object_storage.list_objects(blob_prefix)
 
             if blob_keys:
@@ -441,9 +450,11 @@ class SessionRecordingViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                     # this is a legacy recording, we need to load the file from the old path
                     file_key = convert_original_version_lts_recording(recording)
             else:
-                file_key = (
-                    f"session_recordings/team_id/{self.team.pk}/session_id/{recording.session_id}/data/{blob_key}"
-                )
+                blob_prefix = settings.OBJECT_STORAGE_SESSION_RECORDING_BLOB_INGESTION_FOLDER
+                if use_v3_storage and settings.OBJECT_STORAGE_SESSION_RECORDING_BLOB_INGESTION_V3_FOLDER:
+                    blob_prefix = settings.OBJECT_STORAGE_SESSION_RECORDING_BLOB_INGESTION_V3_FOLDER
+
+                file_key = f"{blob_prefix}/team_id/{self.team.pk}/session_id/{recording.session_id}/data/{blob_key}"
             url = object_storage.get_presigned_url(file_key, expiration=60)
             if not url:
                 raise exceptions.NotFound("Snapshot file not found")

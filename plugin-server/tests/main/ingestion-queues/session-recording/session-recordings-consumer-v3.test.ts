@@ -188,6 +188,14 @@ describe('ingester', () => {
         expect(ingester.sessions['1__session_id_2']).toBeDefined()
     })
 
+    it('handles parallel ingestion of the same session', async () => {
+        const event = createIncomingRecordingMessage()
+        const event2 = createIncomingRecordingMessage()
+        await Promise.all([ingester.consume(event), ingester.consume(event2)])
+        expect(Object.keys(ingester.sessions).length).toBe(1)
+        expect(ingester.sessions['1__session_id_1']).toBeDefined()
+    })
+
     it('destroys a session manager if finished', async () => {
         const sessionId = `destroys-a-session-manager-if-finished-${randomUUID()}`
         const event = createIncomingRecordingMessage({

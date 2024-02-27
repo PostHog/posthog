@@ -13,6 +13,7 @@ from psycopg import sql
 from temporalio import activity, workflow
 from temporalio.common import RetryPolicy
 
+from posthog.batch_exports.models import BatchExportRun
 from posthog.batch_exports.service import BatchExportField, BatchExportSchema, PostgresBatchExportInputs
 from posthog.temporal.batch_exports.base import PostHogWorkflow
 from posthog.temporal.batch_exports.batch_exports import (
@@ -26,12 +27,12 @@ from posthog.temporal.batch_exports.batch_exports import (
     get_rows_count,
     iter_records,
 )
-from posthog.temporal.batch_exports.clickhouse import get_client
 from posthog.temporal.batch_exports.metrics import (
     get_bytes_exported_metric,
     get_rows_exported_metric,
 )
 from posthog.temporal.batch_exports.utils import peek_first_and_rewind
+from posthog.temporal.common.clickhouse import get_client
 from posthog.temporal.common.logger import bind_temporal_worker_logger
 
 
@@ -400,7 +401,7 @@ class PostgresBatchExportWorkflow(PostHogWorkflow):
 
         update_inputs = UpdateBatchExportRunStatusInputs(
             id=run_id,
-            status="Completed",
+            status=BatchExportRun.Status.COMPLETED,
             team_id=inputs.team_id,
         )
 
@@ -427,11 +428,11 @@ class PostgresBatchExportWorkflow(PostHogWorkflow):
             non_retryable_error_types=[
                 # Raised on errors that are related to database operation.
                 # For example: unexpected disconnect, database or other object not found.
-                "OperationalError"
+                "OperationalError",
                 # The schema name provided is invalid (usually because it doesn't exist).
-                "InvalidSchemaName"
+                "InvalidSchemaName",
                 # Missing permissions to, e.g., insert into table.
-                "InsufficientPrivilege"
+                "InsufficientPrivilege",
             ],
             update_inputs=update_inputs,
             # Disable heartbeat timeout until we add heartbeat support.

@@ -163,7 +163,8 @@ export class SessionRecordingIngesterV3 {
         if (!this.sessions[key]) {
             const { partition } = event.metadata
 
-            this.sessions[key] = await SessionManagerV3.create(this.config, this.objectStorage.s3, {
+            // NOTE: It's important that this stays sync so that parallel calls will not create multiple session managers
+            this.sessions[key] = new SessionManagerV3(this.config, this.objectStorage.s3, {
                 teamId: team_id,
                 sessionId: session_id,
                 dir: this.dirForSession(partition, team_id, session_id),
@@ -226,8 +227,12 @@ export class SessionRecordingIngesterV3 {
                 await runInstrumentedFunction({
                     statsKey: `recordingingester.handleEachBatch.consumeBatch`,
                     func: async () => {
-                        for (const message of recordingMessages) {
-                            await this.consume(message)
+                        if (this.config.SESSION_RECORDING_PARALLEL_CONSUMPTION) {
+                            await Promise.all(recordingMessages.map((x) => this.consume(x)))
+                        } else {
+                            for (const message of recordingMessages) {
+                                await this.consume(message)
+                            }
                         }
                     },
                 })
@@ -296,6 +301,7 @@ export class SessionRecordingIngesterV3 {
             eachBatch: async (messages) => {
                 return await this.scheduleWork(this.handleEachBatch(messages))
             },
+            debug: this.config.SESSION_RECORDING_KAFKA_DEBUG,
         })
 
         addSentryBreadcrumbsEventListeners(this.batchConsumer.consumer)
@@ -387,23 +393,19 @@ export class SessionRecordingIngesterV3 {
                 })
 
                 // TODO: Below regex is a little crude. We should fix it
-                await Promise.all(
-                    keys
-                        .filter((x) => /\d+__[a-zA-Z0-9\-]+/.test(x))
-                        .map(async (key) => {
-                            // TODO: Ensure sessionId can only be a uuid
-                            const [teamId, sessionId] = key.split('__')
+                keys.filter((x) => /\d+__[a-zA-Z0-9\-]+/.test(x)).forEach((key) => {
+                    // TODO: Ensure sessionId can only be a uuid
+                    const [teamId, sessionId] = key.split('__')
 
-                            if (!this.sessions[key]) {
-                                this.sessions[key] = await SessionManagerV3.create(this.config, this.objectStorage.s3, {
-                                    teamId: parseInt(teamId),
-                                    sessionId,
-                                    dir: this.dirForSession(partition, parseInt(teamId), sessionId),
-                                    partition,
-                                })
-                            }
+                    if (!this.sessions[key]) {
+                        this.sessions[key] = new SessionManagerV3(this.config, this.objectStorage.s3, {
+                            teamId: parseInt(teamId),
+                            sessionId,
+                            dir: this.dirForSession(partition, parseInt(teamId), sessionId),
+                            partition,
                         })
-                )
+                    }
+                })
             })
         )
     }

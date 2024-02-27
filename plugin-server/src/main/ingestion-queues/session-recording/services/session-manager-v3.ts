@@ -78,6 +78,12 @@ const writeStreamBlocked = new Counter({
     help: 'Number of times we get blocked by the stream backpressure',
 })
 
+const histogramBackpressureBlockedSeconds = new Histogram({
+    name: metricPrefix + 'recording_blob_ingestion_backpressure_blocked_seconds',
+    help: 'The time taken to flush a session in seconds',
+    buckets: [0, 2, 5, 10, 20, 30, 60, 120, 180, 300, Infinity],
+})
+
 export type SessionManagerBufferContext = {
     sizeEstimate: number
     count: number
@@ -108,6 +114,8 @@ export class SessionManagerV3 {
     inProgressUpload: Upload | null = null
     flushJitterMultiplier: number
 
+    readonly setupPromise: Promise<void>
+
     constructor(
         public readonly serverConfig: PluginsServerConfig,
         public readonly s3Client: ObjectStorage['s3'],
@@ -115,47 +123,42 @@ export class SessionManagerV3 {
     ) {
         // We add a jitter multiplier to the buffer age so that we don't have all sessions flush at the same time
         this.flushJitterMultiplier = 1 - Math.random() * serverConfig.SESSION_RECORDING_BUFFER_AGE_JITTER
+        this.setupPromise = this.setup()
     }
 
     private file(name: string): string {
         return path.join(this.context.dir, name)
     }
 
-    public static async create(
-        serverConfig: PluginsServerConfig,
-        s3Client: ObjectStorage['s3'],
-        context: SessionManagerContext
-    ): Promise<SessionManagerV3> {
-        const manager = new SessionManagerV3(serverConfig, s3Client, context)
-        await mkdir(context.dir, { recursive: true })
+    private async setup(): Promise<void> {
+        await mkdir(this.context.dir, { recursive: true })
 
         try {
-            const fileExists = await stat(manager.file('metadata.json')).then(
+            const fileExists = await stat(this.file('metadata.json')).then(
                 () => true,
                 () => false
             )
             if (fileExists) {
                 const bufferMetadata: SessionManagerBufferContext = JSON.parse(
-                    await readFile(manager.file('metadata.json'), 'utf-8')
+                    await readFile(this.file('metadata.json'), 'utf-8')
                 )
-                manager.buffer = {
+                this.buffer = {
                     context: bufferMetadata,
-                    fileStream: manager.createFileStreamFor(path.join(context.dir, BUFFER_FILE_NAME)),
+                    fileStream: this.createFileStreamFor(path.join(this.context.dir, BUFFER_FILE_NAME)),
                 }
             }
         } catch (error) {
             // Indicates no buffer metadata file or it's corrupted
             status.error('🧨', '[session-manager] failed to read buffer metadata', {
-                ...context,
+                ...this.context,
                 error,
             })
         }
 
         status.info('📦', '[session-manager] started new manager', {
-            ...manager.context,
-            ...(manager.buffer?.context ?? {}),
+            ...this.context,
+            ...(this.buffer?.context ?? {}),
         })
-        return manager
     }
 
     private async syncMetadata(): Promise<void> {
@@ -190,6 +193,8 @@ export class SessionManagerV3 {
             return
         }
 
+        await this.setupPromise
+
         try {
             const buffer = this.getOrCreateBuffer()
             const messageData = convertToPersistedMessage(message)
@@ -214,7 +219,10 @@ export class SessionManagerV3 {
 
             if (!buffer.fileStream.write(content, 'utf-8')) {
                 writeStreamBlocked.inc()
+
+                const stopTimer = histogramBackpressureBlockedSeconds.startTimer()
                 await new Promise((r) => buffer.fileStream.once('drain', r))
+                stopTimer()
             }
 
             await this.syncMetadata()
@@ -232,6 +240,8 @@ export class SessionManagerV3 {
         if (this.destroying) {
             return
         }
+
+        await this.setupPromise
 
         if (!force) {
             await this.maybeFlushCurrentBuffer()
@@ -375,7 +385,7 @@ export class SessionManagerV3 {
                     Bucket: this.serverConfig.OBJECT_STORAGE_BUCKET,
                     Key: dataKey,
                     ContentEncoding: 'gzip',
-                    ContentType: 'application/json',
+                    ContentType: 'application/jsonl',
                     Body: uploadStream,
                 },
             }))

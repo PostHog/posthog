@@ -1,7 +1,7 @@
+import { IconFlag } from '@posthog/icons'
 import { useActions, useValues } from 'kea'
 import { getSeriesColor } from 'lib/colors'
 import { EntityFilterInfo } from 'lib/components/EntityFilterInfo'
-import { IconFlag } from 'lib/lemon-ui/icons'
 import { LemonCheckbox } from 'lib/lemon-ui/LemonCheckbox'
 import { LemonRow } from 'lib/lemon-ui/LemonRow'
 import { LemonTable, LemonTableColumn, LemonTableColumnGroup } from 'lib/lemon-ui/LemonTable'
