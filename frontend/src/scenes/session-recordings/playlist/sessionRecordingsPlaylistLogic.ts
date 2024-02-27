@@ -330,6 +330,7 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
     reducers(({ props }) => ({
         orderBy: [
             'start_time' as SessionOrderingType,
+            { persist: true },
             {
                 setOrderBy: (_, { orderBy }) => orderBy,
             },
