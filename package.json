@@ -317,6 +317,10 @@
             "stylelint --fix",
             "prettier --write"
         ],
+        "cypress/**/*.{js,jsx,mjs,ts,tsx}": [
+            "eslint -c .eslintrc.js --fix",
+            "prettier --write"
+        ],
         "frontend/src/**/*.{js,jsx,mjs,ts,tsx}": [
             "eslint -c .eslintrc.js --fix",
             "prettier --write"
