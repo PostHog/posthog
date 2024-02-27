@@ -39,12 +39,15 @@ describe('session-manager', () => {
         teamId = 1,
         partition = 1
     ): Promise<SessionManagerV3> => {
-        return await SessionManagerV3.create(defaultConfig, mockS3Client, {
+        const manager = new SessionManagerV3(defaultConfig, mockS3Client, {
             sessionId,
             teamId,
             partition,
             dir: path.join(tmpDir, `${partition}`, `${teamId}__${sessionId}`),
         })
+
+        await manager.setupPromise
+        return manager
     }
 
     const flushThreshold = defaultConfig.SESSION_RECORDING_MAX_BUFFER_AGE_SECONDS * 1000
