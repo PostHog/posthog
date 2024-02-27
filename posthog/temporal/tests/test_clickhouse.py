@@ -3,7 +3,7 @@ import uuid
 
 import pytest
 
-from posthog.temporal.batch_exports.clickhouse import encode_clickhouse_data
+from posthog.temporal.common.clickhouse import encode_clickhouse_data
 
 
 @pytest.mark.parametrize(

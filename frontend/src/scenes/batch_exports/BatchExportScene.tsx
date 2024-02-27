@@ -1,4 +1,5 @@
 import { TZLabel } from '@posthog/apps-common'
+import { IconEllipsis } from '@posthog/icons'
 import {
     LemonButton,
     LemonCheckbox,
@@ -12,7 +13,7 @@ import { useActions, useValues } from 'kea'
 import { NotFound } from 'lib/components/NotFound'
 import { PageHeader } from 'lib/components/PageHeader'
 import { dayjs } from 'lib/dayjs'
-import { IconEllipsis, IconRefresh } from 'lib/lemon-ui/icons'
+import { IconRefresh } from 'lib/lemon-ui/icons'
 import { LemonCalendarRange } from 'lib/lemon-ui/LemonCalendarRange/LemonCalendarRange'
 import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
 import { LemonMenu } from 'lib/lemon-ui/LemonMenu'

@@ -1,6 +1,4 @@
 import { actions, connect, kea, key, listeners, path, props, selectors } from 'kea'
-import { FEATURE_FLAGS } from 'lib/constants'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
 import { funnelTitle } from 'scenes/trends/persons-modal/persons-modal-utils'
@@ -36,9 +34,7 @@ export const funnelPersonsModalLogic = kea<funnelPersonsModalLogicType>([
             insightLogic(props),
             ['isInDashboardContext', 'isInExperimentContext'],
             funnelDataLogic(props),
-            ['steps', 'querySource', 'funnelsFilter'],
-            featureFlagLogic,
-            ['featureFlags'],
+            ['hogQLInsightsFunnelsFlagEnabled', 'steps', 'querySource', 'funnelsFilter'],
         ],
     })),
 
@@ -80,12 +76,6 @@ export const funnelPersonsModalLogic = kea<funnelPersonsModalLogicType>([
             (s) => [s.funnelsFilter, s.isInDashboardContext],
             (funnelsFilter, isInDashboardContext): boolean => {
                 return !isInDashboardContext && !funnelsFilter?.funnelAggregateByHogQL
-            },
-        ],
-        hogQLInsightsFunnelsFlagEnabled: [
-            (s) => [s.featureFlags],
-            (featureFlags): boolean => {
-                return !!featureFlags[FEATURE_FLAGS.HOGQL_INSIGHTS_FUNNELS]
             },
         ],
     }),

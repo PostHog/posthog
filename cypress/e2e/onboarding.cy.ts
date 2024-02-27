@@ -3,7 +3,7 @@ import { decideResponse } from '../fixtures/api/decide'
 
 describe('Onboarding', () => {
     beforeEach(() => {
-        cy.intercept('https://app.posthog.com/decide/*', (req) =>
+        cy.intercept('https://us.i.posthog.com/decide/*', (req) =>
             req.reply(
                 decideResponse({
                     'product-intro-pages': 'test',

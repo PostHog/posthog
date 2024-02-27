@@ -39,6 +39,7 @@ export const colorForStatus = (
         case 'TimedOut':
             return 'warning'
         case 'Failed':
+        case 'FailedRetryable':
             return 'danger'
         default:
             return 'default'

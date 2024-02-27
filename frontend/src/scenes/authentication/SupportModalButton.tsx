@@ -1,7 +1,7 @@
+import { IconBug } from '@posthog/icons'
 import { LemonButton } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { supportLogic } from 'lib/components/Support/supportLogic'
-import { IconBugShield } from 'lib/lemon-ui/icons'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 
 export function SupportModalButton({ name, email }: { name?: string; email?: string }): JSX.Element | null {
@@ -20,7 +20,7 @@ export function SupportModalButton({ name, email }: { name?: string; email?: str
                             target_area: 'login',
                         })
                     }}
-                    icon={<IconBugShield />}
+                    icon={<IconBug />}
                     size="small"
                 >
                     <span className="text-muted">Report an issue</span>

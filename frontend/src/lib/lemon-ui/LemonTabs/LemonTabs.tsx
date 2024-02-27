@@ -1,9 +1,9 @@
 import './LemonTabs.scss'
 
+import { IconInfo } from '@posthog/icons'
 import clsx from 'clsx'
 
 import { useSliderPositioning } from '../hooks'
-import { IconInfo } from '../icons'
 import { Link } from '../Link'
 import { Tooltip } from '../Tooltip'
 
