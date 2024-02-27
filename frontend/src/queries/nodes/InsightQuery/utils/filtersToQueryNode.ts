@@ -251,6 +251,18 @@ const cleanProperties = (parentProperties: FilterType['properties']): InsightsQu
         return parentProperties.map(processAnyPropertyFilter)
     }
 
+    // parentProperties is accidentally a PropertyGroupFilterValue
+    if (
+        (parentProperties.type === FilterLogicalOperator.And || parentProperties.type === FilterLogicalOperator.Or) &&
+        Array.isArray(parentProperties.values) &&
+        parentProperties.values.some((value) => typeof value !== 'object')
+    ) {
+        return {
+            type: FilterLogicalOperator.And,
+            values: [processPropertyGroupFilterValue(parentProperties)],
+        }
+    }
+
     // parentProperties is PropertyGroupFilter
     const values = parentProperties.values.map(processPropertyGroupFilterValue)
     return {

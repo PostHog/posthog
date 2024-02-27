@@ -2254,7 +2254,6 @@ class RetentionQuery(BaseModel):
                 ]
             ],
             PropertyGroupFilter,
-            PropertyGroupFilterValue,
         ]
     ] = Field(default=None, description="Property filters for all series")
     response: Optional[RetentionQueryResponse] = None
@@ -2291,7 +2290,6 @@ class StickinessQuery(BaseModel):
                 ]
             ],
             PropertyGroupFilter,
-            PropertyGroupFilterValue,
         ]
     ] = Field(default=None, description="Property filters for all series")
     samplingFactor: Optional[float] = Field(default=None, description="Sampling rate")
@@ -2332,7 +2330,6 @@ class TrendsQuery(BaseModel):
                 ]
             ],
             PropertyGroupFilter,
-            PropertyGroupFilterValue,
         ]
     ] = Field(default=None, description="Property filters for all series")
     response: Optional[TrendsQueryResponse] = None
@@ -2424,7 +2421,6 @@ class FunnelsQuery(BaseModel):
                 ]
             ],
             PropertyGroupFilter,
-            PropertyGroupFilterValue,
         ]
     ] = Field(default=None, description="Property filters for all series")
     samplingFactor: Optional[float] = Field(default=None, description="Sampling rate")
@@ -2458,7 +2454,6 @@ class InsightsQueryBase(BaseModel):
                 ]
             ],
             PropertyGroupFilter,
-            PropertyGroupFilterValue,
         ]
     ] = Field(default=None, description="Property filters for all series")
     samplingFactor: Optional[float] = Field(default=None, description="Sampling rate")
@@ -2496,7 +2491,6 @@ class LifecycleQuery(BaseModel):
                 ]
             ],
             PropertyGroupFilter,
-            PropertyGroupFilterValue,
         ]
     ] = Field(default=None, description="Property filters for all series")
     response: Optional[LifecycleQueryResponse] = None
@@ -2539,7 +2533,6 @@ class PathsQuery(BaseModel):
                 ]
             ],
             PropertyGroupFilter,
-            PropertyGroupFilterValue,
         ]
     ] = Field(default=None, description="Property filters for all series")
     response: Optional[PathsQueryResponse] = None
