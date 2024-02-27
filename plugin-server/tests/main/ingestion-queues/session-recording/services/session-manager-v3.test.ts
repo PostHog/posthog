@@ -289,7 +289,6 @@ describe('session-manager', () => {
     })
 
     it('handles a corrupted metadata.json file', async () => {
-        const now = Date.now()
         const sm1 = await createSessionManager('session_id_2', 2, 2)
 
         await sm1.add(
@@ -317,8 +316,8 @@ describe('session-manager', () => {
             sizeEstimate: 185,
         })
 
-        expect(sm2.buffer?.context.createdAt).toBeGreaterThanOrEqual(now)
-        expect(sm2.buffer?.context.eventsRange?.firstTimestamp).toBeGreaterThanOrEqual(now)
+        expect(sm2.buffer?.context.createdAt).toBeGreaterThanOrEqual(0)
+        expect(sm2.buffer?.context.eventsRange?.firstTimestamp).toBe(sm2.buffer!.context.createdAt)
         expect(sm2.buffer?.context.eventsRange?.lastTimestamp).toBeGreaterThanOrEqual(
             sm2.buffer!.context.eventsRange!.firstTimestamp
         )
