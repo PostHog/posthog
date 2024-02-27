@@ -9,6 +9,7 @@ import {
     EventPropertyFilter,
     EventType,
     FilterType,
+    FunnelCorrelationType,
     FunnelsFilterType,
     GroupMathType,
     HogQLMathType,
@@ -1091,6 +1092,71 @@ export interface FunnelsActorsQuery extends InsightActorsQueryBase {
     funnelTrendsDropOff?: boolean
     /** Used together with `funnelTrendsDropOff` for funnels time conversion date for the persons modal. */
     funnelTrendsEntrancePeriodStart?: string
+}
+
+export interface EventDefinition {
+    event: string
+    properties: Record<string, any>
+    elements: any[]
+}
+
+export interface EventOddsRatioSerialized {
+    event: EventDefinition
+
+    success_count: integer
+    // success_people_url?: string
+
+    failure_count: integer
+    // failure_people_url?: string
+
+    odds_ratio: number
+    correlation_type: 'success' | 'failure'
+}
+
+export interface FunnelCorrelationResponse {
+    result: {
+        events: EventOddsRatioSerialized[]
+        skewed: boolean
+    }
+    // results: any[][]
+    // columns: any[]
+    // types: string[]
+    hogql: string
+    timings?: QueryTiming[]
+    // hasMore?: boolean
+    // limit: integer
+    // offset: integer
+    // missing_actors_count?: integer
+}
+export interface FunnelCorrelationQuery {
+    source: FunnelsQuery
+
+    correlationType: FunnelCorrelationType
+
+    // # Needs to be json encoded list of `EventPattern`s
+    // events: str
+    // date_to: str
+    // funnel_step: Optional[int] = None
+    // date_from: Optional[str] = None
+
+    // funnel_correlation_names: Optional[str] = None
+    // funnel_correlation_event_names: Optional[str] = None
+
+    /* Events */
+    // funnel_correlation_type: "events"
+    // funnel_correlation_exclude_event_names: []
+
+    /* Events with properties */
+    // funnel_correlation_type: 'event_with_properties'
+    // funnel_correlation_event_names: ['$pageleave']
+    // funnel_correlation_event_exclude_property_names: []
+
+    /* Properties */
+    // funnel_correlation_type: "properties"
+    // funnel_correlation_names: ["$all"]
+    // funnel_correlation_exclude_names: ["$initial_geoip_postal_code", "$initial_geoip_latitude", "$initial_geoip_longitude",…]
+
+    response?: FunnelCorrelationResponse
 }
 
 export type BreakdownValueInt = integer

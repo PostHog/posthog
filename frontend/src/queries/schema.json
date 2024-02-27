@@ -958,6 +958,46 @@
             "enum": ["actions", "events", "new_entity"],
             "type": "string"
         },
+        "EventDefinition": {
+            "additionalProperties": false,
+            "properties": {
+                "elements": {
+                    "items": {},
+                    "type": "array"
+                },
+                "event": {
+                    "type": "string"
+                },
+                "properties": {
+                    "type": "object"
+                }
+            },
+            "required": ["event", "properties", "elements"],
+            "type": "object"
+        },
+        "EventOddsRatioSerialized": {
+            "additionalProperties": false,
+            "properties": {
+                "correlation_type": {
+                    "enum": ["success", "failure"],
+                    "type": "string"
+                },
+                "event": {
+                    "$ref": "#/definitions/EventDefinition"
+                },
+                "failure_count": {
+                    "type": "integer"
+                },
+                "odds_ratio": {
+                    "type": "number"
+                },
+                "success_count": {
+                    "type": "integer"
+                }
+            },
+            "required": ["event", "success_count", "failure_count", "odds_ratio", "correlation_type"],
+            "type": "object"
+        },
         "EventPropertyFilter": {
             "additionalProperties": false,
             "description": "Sync with plugin-server/src/types.ts",
@@ -1411,6 +1451,58 @@
         },
         "FunnelConversionWindowTimeUnit": {
             "enum": ["second", "minute", "hour", "day", "week", "month"],
+            "type": "string"
+        },
+        "FunnelCorrelationQuery": {
+            "additionalProperties": false,
+            "properties": {
+                "correlationType": {
+                    "$ref": "#/definitions/FunnelCorrelationType"
+                },
+                "response": {
+                    "$ref": "#/definitions/FunnelCorrelationResponse"
+                },
+                "source": {
+                    "$ref": "#/definitions/FunnelsQuery"
+                }
+            },
+            "required": ["source", "correlationType"],
+            "type": "object"
+        },
+        "FunnelCorrelationResponse": {
+            "additionalProperties": false,
+            "properties": {
+                "hogql": {
+                    "type": "string"
+                },
+                "result": {
+                    "additionalProperties": false,
+                    "properties": {
+                        "events": {
+                            "items": {
+                                "$ref": "#/definitions/EventOddsRatioSerialized"
+                            },
+                            "type": "array"
+                        },
+                        "skewed": {
+                            "type": "boolean"
+                        }
+                    },
+                    "required": ["events", "skewed"],
+                    "type": "object"
+                },
+                "timings": {
+                    "items": {
+                        "$ref": "#/definitions/QueryTiming"
+                    },
+                    "type": "array"
+                }
+            },
+            "required": ["result", "hogql"],
+            "type": "object"
+        },
+        "FunnelCorrelationType": {
+            "enum": ["success", "failure"],
             "type": "string"
         },
         "FunnelExclusion": {

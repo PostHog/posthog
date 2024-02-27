@@ -208,6 +208,31 @@ class EntityType(str, Enum):
     new_entity = "new_entity"
 
 
+class EventDefinition(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    elements: List
+    event: str
+    properties: Dict[str, Any]
+
+
+class CorrelationType(str, Enum):
+    success = "success"
+    failure = "failure"
+
+
+class EventOddsRatioSerialized(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    correlation_type: CorrelationType
+    event: EventDefinition
+    failure_count: int
+    odds_ratio: float
+    success_count: int
+
+
 class Person(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -270,6 +295,19 @@ class FunnelConversionWindowTimeUnit(str, Enum):
     day = "day"
     week = "week"
     month = "month"
+
+
+class Result(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    events: List[EventOddsRatioSerialized]
+    skewed: bool
+
+
+class FunnelCorrelationType(str, Enum):
+    success = "success"
+    failure = "failure"
 
 
 class FunnelExclusionLegacy(BaseModel):
@@ -1114,6 +1152,15 @@ class FeaturePropertyFilter(BaseModel):
     operator: PropertyOperator
     type: Literal["feature"] = Field(default="feature", description='Event property with "$feature/" prepended')
     value: Optional[Union[str, float, List[Union[str, float]]]] = None
+
+
+class FunnelCorrelationResponse(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    hogql: str
+    result: Result
+    timings: Optional[List[QueryTiming]] = None
 
 
 class FunnelsFilterLegacy(BaseModel):
@@ -2537,6 +2584,15 @@ class PathsQuery(BaseModel):
     ] = Field(default=None, description="Property filters for all series")
     response: Optional[PathsQueryResponse] = None
     samplingFactor: Optional[float] = Field(default=None, description="Sampling rate")
+
+
+class FunnelCorrelationQuery(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    correlationType: FunnelCorrelationType
+    response: Optional[FunnelCorrelationResponse] = None
+    source: FunnelsQuery
 
 
 class FunnelsActorsQuery(BaseModel):
