@@ -217,16 +217,6 @@ export const featureFlagReleaseConditionsLogic = kea<featureFlagReleaseCondition
         },
     })),
     selectors({
-        // TODO: Decide if this should be here or not? Since flag needs this too for other places
-        // aggregationTargetName: [
-        //     (s) => [s.featureFlag, s.aggregationLabel],
-        //     (featureFlag, aggregationLabel): string => {
-        //         if (featureFlag && featureFlag.filters.aggregation_group_type_index != null) {
-        //             return aggregationLabel(featureFlag.filters.aggregation_group_type_index).plural
-        //         }
-        //         return 'users'
-        //     },
-        // ],
         taxonomicGroupTypes: [
             (s) => [s.filters, s.groupsTaxonomicTypes, s.enabledFeatures],
             (filters, groupsTaxonomicTypes, enabledFeatures): TaxonomicFilterGroupType[] => {
@@ -253,8 +243,7 @@ export const featureFlagReleaseConditionsLogic = kea<featureFlagReleaseCondition
                 return [...baseGroupTypes, ...additionalGroupTypes]
             },
         ],
-        // TODO: rename to filtersTaxonomicOptions
-        featureFlagTaxonomicOptions: [
+        filtersTaxonomicOptions: [
             (s) => [s.filters],
             (filters) => {
                 if (filters && filters.aggregation_group_type_index != null) {

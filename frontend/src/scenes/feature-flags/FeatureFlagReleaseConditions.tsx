@@ -58,7 +58,7 @@ export function FeatureFlagReleaseConditions({
         computeBlastRadiusPercentage,
         affectedUsers,
         totalUsers,
-        featureFlagTaxonomicOptions,
+        filtersTaxonomicOptions,
         enabledFeatures,
     } = useValues(releaseConditionsLogic)
 
@@ -234,7 +234,7 @@ export function FeatureFlagReleaseConditions({
                                 addText="Add condition"
                                 onChange={(properties) => updateConditionSet(index, undefined, properties)}
                                 taxonomicGroupTypes={taxonomicGroupTypes}
-                                taxonomicFilterOptionsFromProp={featureFlagTaxonomicOptions}
+                                taxonomicFilterOptionsFromProp={filtersTaxonomicOptions}
                                 hasRowOperator={false}
                                 sendAllKeyUpdates
                                 allowRelativeDateOptions={!!enabledFeatures[FEATURE_FLAGS.NEW_FEATURE_FLAG_OPERATORS]}

@@ -44,7 +44,6 @@ export default function SurveyEdit(): JSX.Element {
         selectedSection,
         isEditingSurvey,
         targetingFlagFilters,
-        flagPropertyErrors,
     } = useValues(surveyLogic)
     const {
         setSurveyValue,
@@ -562,8 +561,6 @@ export default function SurveyEdit(): JSX.Element {
                                                     )}
                                                     {targetingFlagFilters && (
                                                         <>
-                                                            {JSON.stringify(targetingFlagFilters)}
-                                                            errors: {JSON.stringify(flagPropertyErrors)}
                                                             <div className="mt-2">
                                                                 <FeatureFlagReleaseConditions
                                                                     id={String(survey.targeting_flag?.id) || 'new'}

@@ -116,9 +116,8 @@ export function validateFeatureFlagKey(key: string): string | undefined {
         : undefined
 }
 
-// TODO: Remove schedule, check if we need 'link' at all
 export interface FeatureFlagLogicProps {
-    id: number | 'new' | 'link' | 'schedule'
+    id: number | 'new' | 'link'
 }
 
 // KLUDGE: Payloads are returned in a <variant-key>: <payload> mapping.
@@ -455,7 +454,7 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
     loaders(({ values, props, actions }) => ({
         featureFlag: {
             loadFeatureFlag: async () => {
-                if (props.id && props.id !== 'new' && props.id !== 'link' && props.id !== 'schedule') {
+                if (props.id && props.id !== 'new' && props.id !== 'link') {
                     try {
                         const retrievedFlag: FeatureFlagType = await api.featureFlags.get(props.id)
                         return variantKeyToIndexFeatureFlagPayloads(retrievedFlag)
@@ -556,7 +555,7 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
             null as CohortType | null,
             {
                 createStaticCohort: async () => {
-                    if (props.id && props.id !== 'new' && props.id !== 'link' && props.id !== 'schedule') {
+                    if (props.id && props.id !== 'new' && props.id !== 'link') {
                         return (await api.featureFlags.createStaticCohort(props.id)).cohort
                     }
                     return null
@@ -816,25 +815,6 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                 { key: [Scene.FeatureFlag, featureFlag.id || 'unknown'], name: featureFlag.key || 'Unnamed' },
             ],
         ],
-        // propertySelectErrors: [
-        //     (s) => [s.featureFlag],
-        //     (featureFlag) => {
-        //         return featureFlag?.filters?.groups?.map(
-        //             ({ properties, rollout_percentage }: FeatureFlagGroupType) => ({
-        //                 properties: properties?.map((property: AnyPropertyFilter) => ({
-        //                     value:
-        //                         property.value === null ||
-        //                         property.value === undefined ||
-        //                         (Array.isArray(property.value) && property.value.length === 0)
-        //                             ? "Property filters can't be empty"
-        //                             : undefined,
-        //                 })),
-        //                 rollout_percentage:
-        //                     rollout_percentage === undefined ? 'You need to set a rollout % value' : undefined,
-        //             })
-        //         )
-        //     },
-        // ],
         filteredDashboards: [
             (s) => [s.dashboards, s.featureFlag],
             (dashboards, featureFlag) => {
@@ -959,7 +939,7 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
             actions.setFeatureFlag(formatPayloads)
             actions.loadRelatedInsights()
             actions.loadAllInsightsForFlag()
-        } else if (props.id !== 'new' && props.id !== 'schedule') {
+        } else if (props.id !== 'new') {
             actions.loadFeatureFlag()
         }
         actions.loadSentryStats()

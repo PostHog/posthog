@@ -6,6 +6,7 @@ import { actionToUrl, router, urlToAction } from 'kea-router'
 import api from 'lib/api'
 import { dayjs } from 'lib/dayjs'
 import { featureFlagLogic as enabledFlagLogic } from 'lib/logic/featureFlagLogic'
+import { hasFormErrors } from 'lib/utils'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { Scene } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
@@ -399,7 +400,7 @@ export const surveyLogic = kea<surveyLogicType>([
             },
         },
     })),
-    listeners(({ actions }) => ({
+    listeners(({ actions, values }) => ({
         createSurveySuccess: ({ survey }) => {
             lemonToast.success(<>Survey {survey.name} created</>)
             actions.loadSurveys()
@@ -441,9 +442,14 @@ export const surveyLogic = kea<surveyLogicType>([
         },
         submitSurveyFailure: async () => {
             // When errors occur, scroll to the error, but wait for errors to be set in the DOM first
+            if (hasFormErrors(values.flagPropertyErrors) || values.urlMatchTypeValidationError) {
+                actions.setSelectedSection(SurveyEditSection.Targeting)
+            } else {
+                actions.setSelectedSection(SurveyEditSection.Steps)
+            }
             setTimeout(
                 () => document.querySelector(`.Field--error`)?.scrollIntoView({ block: 'center', behavior: 'smooth' }),
-                1
+                5
             )
         },
     })),
@@ -694,6 +700,8 @@ export const surveyLogic = kea<surveyLogicType>([
         survey: {
             defaults: { ...NEW_SURVEY } as NewSurvey | Survey,
             errors: ({ name, questions }) => ({
+                // NOTE: When more validation errors are added, the submitSurveyFailure listener should be updated
+                // to scroll to the right error section
                 name: !name && 'Please enter a name.',
                 questions: questions.map((question) => ({
                     question: !question.question && 'Please enter a question.',
@@ -710,23 +718,10 @@ export const surveyLogic = kea<surveyLogicType>([
                 urlMatchType: values.urlMatchTypeValidationError,
             }),
             submit: (surveyPayload) => {
-                const surveyPayloadWithTargetingFlagFilters = surveyPayload
-                // TODO: This is so convoluted, because the releaseconditions update the flag, and then we use
-                // the current value in the flag as input to survey
-                // and then the survey API backend actually makes the update for the flag and survey smh
-                // confirm removing this doesn't bork things
-                // const flagLogic = featureFlagLogic({ id: values.survey.targeting_flag?.id || 'new' })
-                // if (values.hasTargetingFlag) {
-                //     const targetingFlag = flagLogic.values.featureFlag
-                //     surveyPayloadWithTargetingFlagFilters = {
-                //         ...surveyPayload,
-                //         ...{ targeting_flag_filters: targetingFlag.filters },
-                //     }
-                // }
                 if (props.id && props.id !== 'new') {
-                    actions.updateSurvey(surveyPayloadWithTargetingFlagFilters)
+                    actions.updateSurvey(surveyPayload)
                 } else {
-                    actions.createSurvey(surveyPayloadWithTargetingFlagFilters)
+                    actions.createSurvey(surveyPayload)
                 }
             },
         },

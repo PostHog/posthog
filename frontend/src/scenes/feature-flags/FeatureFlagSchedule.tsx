@@ -10,18 +10,17 @@ import {
     LemonTagType,
 } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
-import { Form } from 'kea-forms'
 import { DatePicker } from 'lib/components/DatePicker'
 import { dayjs } from 'lib/dayjs'
 import { More } from 'lib/lemon-ui/LemonButton/More'
 import { atColumn, createdAtColumn, createdByColumn } from 'lib/lemon-ui/LemonTable/columnUtils'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
+import { hasFormErrors } from 'lib/utils'
 import { useEffect } from 'react'
 
 import { groupsModel } from '~/models/groupsModel'
 import { ScheduledChangeOperationType, ScheduledChangeType } from '~/types'
 
-import { hasErrors } from './FeatureFlag'
 import { featureFlagLogic } from './featureFlagLogic'
 import { FeatureFlagReleaseConditions } from './FeatureFlagReleaseConditions'
 import { groupFilters } from './FeatureFlags'
@@ -185,52 +184,44 @@ export default function FeatureFlagSchedule(): JSX.Element {
             </div>
 
             <div className="space-y-4">
-                <Form
-                    id="feature-flag"
-                    logic={featureFlagLogic}
-                    props={{ id: 'schedule' }}
-                    formKey="featureFlag"
-                    className="space-y-4"
-                >
-                    {scheduledChangeOperation === ScheduledChangeOperationType.UpdateStatus && (
-                        <>
-                            <div className="border rounded p-4">
-                                <LemonCheckbox
-                                    id="flag-enabled-checkbox"
-                                    label="Enable feature flag"
-                                    onChange={(value) => {
-                                        setSchedulePayload(null, value)
-                                    }}
-                                    checked={schedulePayload.active}
-                                />
-                            </div>
-                        </>
-                    )}
-                    {scheduledChangeOperation === ScheduledChangeOperationType.AddReleaseCondition && (
-                        <FeatureFlagReleaseConditions
-                            id="schedule"
-                            filters={scheduleFilters}
-                            onChange={(value, errors) => setSchedulePayload(value, null, errors)}
-                            hideMatchOptions
-                        />
-                    )}
-                    <div className="flex items-center justify-end">
-                        <LemonButton
-                            type="primary"
-                            onClick={createScheduledChange}
-                            disabledReason={
-                                !scheduleDateMarker
-                                    ? 'Select the scheduled date and time'
-                                    : hasErrors(schedulePayloadErrors)
-                                    ? 'Fix release condition errors'
-                                    : undefined
-                            }
-                        >
-                            Schedule
-                        </LemonButton>
-                    </div>
-                    <LemonDivider className="" />
-                </Form>
+                {scheduledChangeOperation === ScheduledChangeOperationType.UpdateStatus && (
+                    <>
+                        <div className="border rounded p-4">
+                            <LemonCheckbox
+                                id="flag-enabled-checkbox"
+                                label="Enable feature flag"
+                                onChange={(value) => {
+                                    setSchedulePayload(null, value)
+                                }}
+                                checked={schedulePayload.active}
+                            />
+                        </div>
+                    </>
+                )}
+                {scheduledChangeOperation === ScheduledChangeOperationType.AddReleaseCondition && (
+                    <FeatureFlagReleaseConditions
+                        id="schedule"
+                        filters={scheduleFilters}
+                        onChange={(value, errors) => setSchedulePayload(value, null, errors)}
+                        hideMatchOptions
+                    />
+                )}
+                <div className="flex items-center justify-end">
+                    <LemonButton
+                        type="primary"
+                        onClick={createScheduledChange}
+                        disabledReason={
+                            !scheduleDateMarker
+                                ? 'Select the scheduled date and time'
+                                : hasFormErrors(schedulePayloadErrors)
+                                ? 'Fix release condition errors'
+                                : undefined
+                        }
+                    >
+                        Schedule
+                    </LemonButton>
+                </div>
+                <LemonDivider className="" />
             </div>
             <LemonTable
                 rowClassName={(record) => (record.executed_at ? 'opacity-75' : '')}

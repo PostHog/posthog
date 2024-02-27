@@ -1068,12 +1068,3 @@ function FeatureFlagRollout({ readOnly }: { readOnly?: boolean }): JSX.Element {
         </>
     )
 }
-
-export function hasErrors(object: any): boolean {
-    if (Array.isArray(object)) {
-        return object.some(hasErrors)
-    } else if (typeof object === 'object' && object !== null) {
-        return Object.values(object).some(hasErrors)
-    }
-    return !!object
-}
