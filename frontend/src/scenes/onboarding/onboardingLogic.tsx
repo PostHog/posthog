@@ -64,8 +64,9 @@ export type OnboardingStep = JSX.Element
 export const getProductUri = (productKey: ProductKey, featureFlags?: FeatureFlagsSet): string => {
     switch (productKey) {
         case ProductKey.PRODUCT_ANALYTICS:
-            return featureFlags && featureFlags[FEATURE_FLAGS.REDIRECT_WEB_PRODUCT_ANALYTICS_ONBOARDING] === 'test'
-                ? combineUrl(urls.webAnalytics(), {}, { panel: 'activation' }).url
+            return featureFlags &&
+                featureFlags[FEATURE_FLAGS.REDIRECT_INSIGHT_CREATION_PRODUCT_ANALYTICS_ONBOARDING] === 'test'
+                ? urls.insightNew()
                 : combineUrl(urls.insights(), {}, { panel: 'activation' }).url
         case ProductKey.SESSION_REPLAY:
             return urls.replay()
