@@ -1077,14 +1077,3 @@ export function hasErrors(object: any): boolean {
     }
     return !!object
 }
-
-export function getFirstError(object: any): string | undefined {
-    if (Array.isArray(object)) {
-        return object.map(getFirstError).find((error) => !!error)
-    } else if (typeof object === 'object' && object !== null) {
-        return Object.values(object)
-            .map(getFirstError)
-            .find((error) => !!error)
-    }
-    return object
-}
