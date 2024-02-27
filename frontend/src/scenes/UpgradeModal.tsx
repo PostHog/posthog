@@ -1,8 +1,11 @@
 import { LemonButton, LemonModal } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
+import { FEATURE_FLAGS } from 'lib/constants'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { capitalizeFirstLetter } from 'lib/utils'
 import posthog from 'posthog-js'
 
+import { billingLogic } from './billing/billingLogic'
 import { sceneLogic } from './sceneLogic'
 import { urls } from './urls'
 
@@ -11,6 +14,8 @@ export function UpgradeModal(): JSX.Element {
     const { hideUpgradeModal } = useActions(sceneLogic)
 
     const [featureName, featureCaption] = upgradeModalFeatureNameAndCaption ?? []
+    const { featureFlags } = useValues(featureFlagLogic)
+    const { billing } = useValues(billingLogic)
 
     return (
         <LemonModal
@@ -39,7 +44,14 @@ export function UpgradeModal(): JSX.Element {
                 <b>{featureName && capitalizeFirstLetter(featureName)}</b> is an advanced PostHog feature.
             </p>
             {featureCaption && <p>{featureCaption}</p>}
-            <p className="mb-0">Upgrade and get access to this, as well as to other powerful enhancements.</p>
+            <p className="mb-0">
+                {featureFlags[FEATURE_FLAGS.BILLING_UPGRADE_LANGUAGE] === 'subscribe'
+                    ? 'Subscribe'
+                    : featureFlags[FEATURE_FLAGS.BILLING_UPGRADE_LANGUAGE] === 'credit_card' && !billing?.customer_id
+                    ? 'Add credit card'
+                    : 'Upgrade'}{' '}
+                to get access to this and other powerful enhancements.
+            </p>
         </LemonModal>
     )
 }

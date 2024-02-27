@@ -2,6 +2,7 @@ import { IconPlus } from '@posthog/icons'
 import { LemonButton, LemonSelectOptions, LemonTable, LemonTag, Link } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { useResizeBreakpoints } from 'lib/hooks/useResizeObserver'
 import {
     IconArticle,
@@ -221,6 +222,7 @@ export const BillingProduct = ({ product }: { product: BillingProductV2Type }): 
     } = useActions(billingProductLogic({ product, productRef }))
     const { reportBillingUpgradeClicked } = useActions(eventUsageLogic)
 
+    const { featureFlags } = useValues(featureFlagLogic)
     const showUpgradeCTA = !product.subscribed && !product.contact_support && product.plans?.length
     const upgradePlan = currentAndUpgradePlans?.upgradePlan
     const currentPlan = currentAndUpgradePlans?.currentPlan
@@ -615,7 +617,15 @@ export const BillingProduct = ({ product }: { product: BillingProductV2Type }): 
                             {additionalFeaturesOnUpgradedPlan?.length > 0 ? (
                                 <>
                                     <p className="ml-0 max-w-200">
-                                        {product.subscribed ? 'You now' : 'Upgrade to'} get sweet features such as:
+                                        {product.subscribed
+                                            ? 'You now'
+                                            : featureFlags[FEATURE_FLAGS.BILLING_UPGRADE_LANGUAGE] === 'subscribe'
+                                            ? 'Subscribe'
+                                            : featureFlags[FEATURE_FLAGS.BILLING_UPGRADE_LANGUAGE] === 'credit_card' &&
+                                              !billing?.customer_id
+                                            ? 'Add credit card to'
+                                            : 'Upgrade to'}{' '}
+                                        get sweet features such as:
                                     </p>
                                     <div>
                                         {additionalFeaturesOnUpgradedPlan?.map((feature, i) => {
@@ -697,7 +707,12 @@ export const BillingProduct = ({ product }: { product: BillingProductV2Type }): 
                                         className="grow"
                                         center
                                     >
-                                        Upgrade
+                                        {featureFlags[FEATURE_FLAGS.BILLING_UPGRADE_LANGUAGE] === 'subscribe'
+                                            ? 'Subscribe'
+                                            : featureFlags[FEATURE_FLAGS.BILLING_UPGRADE_LANGUAGE] === 'credit_card' &&
+                                              !billing?.customer_id
+                                            ? 'Add credit card'
+                                            : 'Upgrade'}
                                     </LemonButton>
                                 </div>
                             </div>

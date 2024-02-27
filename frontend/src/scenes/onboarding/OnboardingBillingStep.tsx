@@ -1,8 +1,10 @@
 import { LemonBanner, LemonButton } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { StarHog } from 'lib/components/hedgehogs'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { IconCheckCircleOutline } from 'lib/lemon-ui/icons'
 import { Spinner } from 'lib/lemon-ui/Spinner'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { useState } from 'react'
 import { getUpgradeProductLink } from 'scenes/billing/billing-utils'
@@ -29,6 +31,7 @@ export const OnboardingBillingStep = ({
     const { reportBillingUpgradeClicked } = useActions(eventUsageLogic)
     const plan = currentAndUpgradePlans?.upgradePlan
     const currentPlan = currentAndUpgradePlans?.currentPlan
+    const { featureFlags } = useValues(featureFlagLogic)
 
     const [showPlanComp, setShowPlanComp] = useState(false)
 
@@ -50,7 +53,12 @@ export const OnboardingBillingStep = ({
                             reportBillingUpgradeClicked(product.type)
                         }}
                     >
-                        Subscribe to Paid Plan
+                        {featureFlags[FEATURE_FLAGS.BILLING_UPGRADE_LANGUAGE] === 'subscribe'
+                            ? 'Subscribe to paid plan'
+                            : featureFlags[FEATURE_FLAGS.BILLING_UPGRADE_LANGUAGE] === 'credit_card' &&
+                              !billing?.customer_id
+                            ? 'Add credit card to get paid features'
+                            : 'Upgrade to paid plan'}
                     </LemonButton>
                 )
             }
@@ -63,7 +71,14 @@ export const OnboardingBillingStep = ({
                                 <div className="flex gap-x-4">
                                     <IconCheckCircleOutline className="text-success text-3xl mb-6" />
                                     <div>
-                                        <h3 className="text-lg font-bold mb-1 text-left">Subscribe successful</h3>
+                                        <h3 className="text-lg font-bold mb-1 text-left">
+                                            {featureFlags[FEATURE_FLAGS.BILLING_UPGRADE_LANGUAGE] === 'subscribe'
+                                                ? 'Subscribe successful'
+                                                : featureFlags[FEATURE_FLAGS.BILLING_UPGRADE_LANGUAGE] ===
+                                                      'credit_card' && !billing?.customer_id
+                                                ? 'Successfully added credit card'
+                                                : 'Upgrade successful'}
+                                        </h3>
                                         <p className="mx-0 mb-0">You're all ready to use {product.name}.</p>
                                     </div>
                                 </div>

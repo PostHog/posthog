@@ -4,8 +4,10 @@ import { IconWarning, IconX } from '@posthog/icons'
 import { LemonButton, LemonModal, LemonTag, Link } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { IconCheckmark } from 'lib/lemon-ui/icons'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import React from 'react'
 import { getProductIcon } from 'scenes/products/Products'
@@ -113,6 +115,7 @@ export const PlanComparison = ({
     const { billing, redirectPath } = useValues(billingLogic)
     const { width, ref: planComparisonRef } = useResizeObserver()
     const { reportBillingUpgradeClicked } = useActions(eventUsageLogic)
+    const { featureFlags } = useValues(featureFlagLogic)
 
     const upgradeButtons = plans?.map((plan) => {
         return (
@@ -131,7 +134,14 @@ export const PlanComparison = ({
                         }
                     }}
                 >
-                    {plan.current_plan ? 'Current plan' : 'Subscribe'}
+                    {plan.current_plan
+                        ? 'Current plan'
+                        : featureFlags[FEATURE_FLAGS.BILLING_UPGRADE_LANGUAGE] === 'subscribe'
+                        ? 'Subscribe'
+                        : featureFlags[FEATURE_FLAGS.BILLING_UPGRADE_LANGUAGE] === 'credit_card' &&
+                          !billing?.customer_id
+                        ? 'Add credit card'
+                        : 'Upgrade'}
                 </LemonButton>
                 {!plan.current_plan && !plan.free_allocation && includeAddons && product.addons?.length > 0 && (
                     <p className="text-center ml-0 mt-2 mb-0">
@@ -140,7 +150,14 @@ export const PlanComparison = ({
                             className="text-muted text-xs"
                             disableClientSideRouting
                         >
-                            or subscribe without addons
+                            or{' '}
+                            {featureFlags[FEATURE_FLAGS.BILLING_UPGRADE_LANGUAGE] === 'subscribe'
+                                ? 'subscribe'
+                                : featureFlags[FEATURE_FLAGS.BILLING_UPGRADE_LANGUAGE] === 'credit_card' &&
+                                  !billing?.customer_id
+                                ? 'add credit card'
+                                : 'upgrade'}{' '}
+                            without addons
                         </Link>
                     </p>
                 )}
