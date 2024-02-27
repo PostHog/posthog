@@ -4,7 +4,6 @@ import { useActions, useValues } from 'kea'
 import { downloadExportedAsset } from 'lib/components/ExportButton/exporter'
 import { dayjs } from 'lib/dayjs'
 import { IconRefresh } from 'lib/lemon-ui/icons'
-import { useEffect } from 'react'
 
 import { SidePanelPaneHeader } from '../../components/SidePanelPaneHeader'
 import { sidePanelExportsLogic } from './sidePanelExportsLogic'
@@ -16,10 +15,6 @@ export const SidePanelExportsIcon = (): JSX.Element => {
 const ExportsContent = (): JSX.Element => {
     const { exports } = useValues(sidePanelExportsLogic)
     const { loadExports } = useActions(sidePanelExportsLogic)
-
-    useEffect(() => {
-        loadExports()
-    }, [])
 
     return (
         <div className="flex flex-col flex-1 overflow-hidden">
@@ -50,9 +45,13 @@ const ExportsContent = (): JSX.Element => {
                                         {asset.export_format}
                                     </LemonTag>
                                 </span>
+                                {asset.created_at && (
+                                    <span className="text-xs mt-1">{dayjs(asset.created_at).fromNow()}</span>
+                                )}
                                 {asset.expires_after && (
                                     <span className="text-xs text-muted mt-1">
-                                        Expires {dayjs(asset.expires_after).fromNow()}
+                                        {' '}
+                                        · expires {dayjs(asset.expires_after).fromNow()}
                                     </span>
                                 )}
                             </div>

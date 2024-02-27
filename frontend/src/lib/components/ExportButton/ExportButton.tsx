@@ -3,11 +3,10 @@ import { LemonButton, LemonButtonProps, LemonButtonWithDropdown } from 'lib/lemo
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
 import { forwardRef } from 'react'
 
-import { sidePanelExportsLogic } from '~/layout/navigation-3000/sidepanel/panels/exports/sidePanelExportsLogic'
-import { sidePanelLogic } from '~/layout/navigation-3000/sidepanel/sidePanelLogic'
-import { ExporterFormat, OnlineExportContext, SidePanelTab } from '~/types'
+import { exportsLogic } from '~/layout/navigation-3000/sidepanel/panels/exports/exportsLogic'
+import { ExporterFormat, OnlineExportContext } from '~/types'
 
-import { triggerExport, TriggerExportProps } from './exporter'
+import { TriggerExportProps } from './exporter'
 
 export interface ExportButtonItem {
     title?: string | React.ReactNode
@@ -23,17 +22,11 @@ export interface ExportButtonProps extends Pick<LemonButtonProps, 'icon' | 'type
 
 export const ExportButton: React.FunctionComponent<ExportButtonProps & React.RefAttributes<HTMLButtonElement>> =
     forwardRef(function ExportButton({ items, ...buttonProps }, ref): JSX.Element {
-        useMountedLogic(sidePanelLogic)
-        useMountedLogic(sidePanelExportsLogic)
+        useMountedLogic(exportsLogic)
 
-        const { actions } = sidePanelLogic
-        const { loadExports } = sidePanelExportsLogic.actions
-
+        const { actions } = exportsLogic
         const onExportClick = async (triggerExportProps: TriggerExportProps): Promise<void> => {
-            actions.openSidePanel(SidePanelTab.Exports)
-            loadExports()
-            await triggerExport(triggerExportProps)
-            loadExports()
+            actions.createExport(triggerExportProps)
         }
 
         return (

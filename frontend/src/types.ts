@@ -3274,6 +3274,7 @@ export interface ExportedAssetType {
     export_context?: ExportContext
     has_content: boolean
     filename: string
+    created_at: string
     expires_after?: string
 }
 
