@@ -381,19 +381,17 @@ async def person_overrides_dictionary(workflow, query_inputs: QueryInputs) -> co
 
     Managing the dictionary involves setup activities necessary to ensure accurate values land in the
     dictionary:
-    - Prepare the underlying table:
-        - Detaching kafka_person_distinct_id_overrides to stop overrides from being ingested while running.
-        - Optimizing the table to remove any duplicates.
+    - Optimizing the table to remove any duplicates.
 
     At exciting the context manager, we run clean-up activities:
     - Dropping the dictionary.
-    - Re-attaching the kafka_person_distinct_id_overrides table to resume ingestion of overrides.
 
     It's important that we account for possible cancellations with a try/finally block. However, if the
     squash workflow is terminated instead of cancelled, we may not have a chance to run the aforementioned
-    clean-up activies. This could leave the dictionary lingering around, or worse, leave
-    kafka_person_distinct_id_overrides detached. There is nothing we can do about this as termination
-    leaves us no time to clean-up.
+    clean-up activies. This could leave the dictionary lingering around. There is nothing we can do
+    about this as termination leaves us no time to clean-up.
+
+    TODO: Get rid of this and instead use a migration to add a permanent dictionary.
     """
     await workflow.execute_activity(
         optimize_person_distinct_id_overrides,

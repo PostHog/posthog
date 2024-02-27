@@ -14,11 +14,7 @@ from temporalio.client import Client
 from temporalio.testing import ActivityEnvironment
 from temporalio.worker import UnsandboxedWorkflowRunner, Worker
 
-from posthog.models.person.sql import (
-    KAFKA_PERSON_DISTINCT_ID_OVERRIDES_TABLE_SQL,
-    PERSON_DISTINCT_ID_OVERRIDES_MV_SQL,
-    PERSON_DISTINCT_ID_OVERRIDES_TABLE_SQL,
-)
+from posthog.models.person.sql import PERSON_DISTINCT_ID_OVERRIDES_TABLE_SQL
 from posthog.temporal.batch_exports.squash_person_overrides import (
     QueryInputs,
     SquashPersonOverridesInputs,
@@ -73,8 +69,6 @@ async def ensure_database_tables(clickhouse_client, django_db_setup):
     person_distinct_id_overrides table in one way or another.
     """
     await clickhouse_client.execute_query(PERSON_DISTINCT_ID_OVERRIDES_TABLE_SQL())
-    await clickhouse_client.execute_query(KAFKA_PERSON_DISTINCT_ID_OVERRIDES_TABLE_SQL())
-    await clickhouse_client.execute_query(PERSON_DISTINCT_ID_OVERRIDES_MV_SQL)
 
     yield
 
