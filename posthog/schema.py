@@ -297,7 +297,7 @@ class FunnelConversionWindowTimeUnit(str, Enum):
     month = "month"
 
 
-class Result(BaseModel):
+class FunnelCorrelationResult(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -1158,8 +1158,8 @@ class FunnelCorrelationResponse(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
-    hogql: str
-    result: Result
+    hogql: Optional[str] = None
+    result: FunnelCorrelationResult
     timings: Optional[List[QueryTiming]] = None
 
 

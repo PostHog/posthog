@@ -1113,15 +1113,17 @@ export interface EventOddsRatioSerialized {
     correlation_type: 'success' | 'failure'
 }
 
+export interface FunnelCorrelationResult {
+    events: EventOddsRatioSerialized[]
+    skewed: boolean
+}
+
 export interface FunnelCorrelationResponse {
-    result: {
-        events: EventOddsRatioSerialized[]
-        skewed: boolean
-    }
+    result: FunnelCorrelationResult
     // results: any[][]
     // columns: any[]
     // types: string[]
-    hogql: string
+    hogql?: string
     timings?: QueryTiming[]
     // hasMore?: boolean
     // limit: integer

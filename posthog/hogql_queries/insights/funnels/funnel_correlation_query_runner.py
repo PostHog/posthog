@@ -28,11 +28,13 @@ from posthog.queries.util import correct_result_for_sampling
 from posthog.schema import (
     FunnelCorrelationQuery,
     FunnelCorrelationResponse,
+    FunnelCorrelationResult,
     FunnelVizType,
     FunnelsQuery,
     FunnelsQueryResponse,
     HogQLQueryModifiers,
 )
+
 
 @dataclasses.dataclass
 class EventStats:
@@ -54,6 +56,7 @@ class EventContingencyTable:
 
     success_total: int
     failure_total: int
+
 
 class FunnelCorrelationQueryRunner(QueryRunner):
     TOTAL_IDENTIFIER = "Total_Values_In_Query"
@@ -95,7 +98,7 @@ class FunnelCorrelationQueryRunner(QueryRunner):
     #     interval = self.query_date_range.interval_name
     def _refresh_frequency(self):
         return timedelta(minutes=1)
-    
+
     #     delta_days: Optional[int] = None
     #     if date_from and date_to:
     #         delta = date_to - date_from
@@ -172,8 +175,8 @@ class FunnelCorrelationQueryRunner(QueryRunner):
         event, but does include the total success/failure numbers, which is enough
         for us to calculate the odds ratio.
         """
-        if not self._filter.entities:
-            return FunnelCorrelationResponse(result={events=[], skewed=False})
+        if not self.query.source.series:
+            return FunnelCorrelationResponse(result=FunnelCorrelationResult(events=[], skewed=False))
 
         query = self.to_query()
 
@@ -209,7 +212,7 @@ class FunnelCorrelationQueryRunner(QueryRunner):
         failure_total = int(correct_result_for_sampling(failure_total, self.query.source.samplingFactor))
 
         if not success_total or not failure_total:
-            return FunnelCorrelationResponse(result={"events": [], "skewed": True})
+            return FunnelCorrelationResponse(result=FunnelCorrelationResult(events=[], skewed=True))
 
         skewed_totals = False
 
@@ -240,10 +243,10 @@ class FunnelCorrelationQueryRunner(QueryRunner):
         events = positively_correlated_events[:10] + negatively_correlated_events[:10]
 
         return FunnelCorrelationResponse(
-            result={
-                "events": [self.serialize_event_odds_ratio(odds_ratio=odds_ratio) for odds_ratio in events],
-                "skewed": skewed_totals,
-            },
+            result=FunnelCorrelationResult(
+                events=[self.serialize_event_odds_ratio(odds_ratio=odds_ratio) for odds_ratio in events],
+                skewed=skewed_totals,
+            ),
             timings=response.timings,
             hogql=hogql,
         )
