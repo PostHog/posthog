@@ -25,6 +25,7 @@ const metricPrefix = 'v3_'
 export const FILE_EXTENSION = '.jsonl'
 export const BUFFER_FILE_NAME = `buffer${FILE_EXTENSION}`
 export const FLUSH_FILE_EXTENSION = `.flush${FILE_EXTENSION}`
+export const METADATA_FILE_NAME = `metadata2.json`
 
 const counterS3FilesWritten = new Counter({
     name: metricPrefix + 'recording_s3_files_written',
@@ -35,6 +36,11 @@ const counterS3FilesWritten = new Counter({
 const counterS3WriteErrored = new Counter({
     name: metricPrefix + 'recording_s3_write_errored',
     help: 'Indicates that we failed to flush to S3 without recovering',
+})
+
+const bufferLoadFailedCounter = new Counter({
+    name: metricPrefix + 'recording_load_from_file_failed',
+    help: 'Indicates that we failed to load the file from disk',
 })
 
 const histogramS3LinesWritten = new Histogram({
@@ -133,26 +139,70 @@ export class SessionManagerV3 {
     private async setup(): Promise<void> {
         await mkdir(this.context.dir, { recursive: true })
 
+        const bufferFileExists = await stat(this.file(BUFFER_FILE_NAME))
+            .then(() => true)
+            .catch(() => false)
+
+        let metadataFileContent: string | undefined
+        let context: SessionManagerBufferContext | undefined
+
+        if (!bufferFileExists) {
+            return
+        }
+
         try {
-            const fileExists = await stat(this.file('metadata.json')).then(
-                () => true,
-                () => false
-            )
-            if (fileExists) {
-                const bufferMetadata: SessionManagerBufferContext = JSON.parse(
-                    await readFile(this.file('metadata.json'), 'utf-8')
-                )
-                this.buffer = {
-                    context: bufferMetadata,
-                    fileStream: this.createFileStreamFor(path.join(this.context.dir, BUFFER_FILE_NAME)),
-                }
-            }
+            metadataFileContent = await readFile(this.file(METADATA_FILE_NAME), 'utf-8')
+            context = JSON.parse(metadataFileContent)
         } catch (error) {
             // Indicates no buffer metadata file or it's corrupted
-            status.error('🧨', '[session-manager] failed to read buffer metadata', {
+            status.error('🧨', '[session-manager] failed to read buffer metadata.json', {
                 ...this.context,
                 error,
             })
+
+            this.captureMessage('Failed to read buffer metadata.json', { error })
+
+            // NOTE: This is not ideal... we fallback to loading the buffer.jsonl and deriving metadata from that as best as possible
+            // If that still fails then we have to bail out and drop the buffer.jsonl (data loss...)
+
+            try {
+                const stats = await stat(this.file(BUFFER_FILE_NAME))
+
+                context = {
+                    sizeEstimate: stats.size,
+                    count: 1, // We can't afford to load the whole file into memory so we assume 1 line
+                    eventsRange: {
+                        firstTimestamp: Math.round(stats.birthtimeMs),
+                        // This is really less than ideal but we don't have much choice
+                        lastTimestamp: Date.now(),
+                    },
+                    createdAt: Math.round(stats.birthtimeMs),
+                }
+            } catch (error) {
+                status.error('🧨', '[session-manager] failed to determine metadata from buffer file', {
+                    ...this.context,
+                    error,
+                })
+            }
+        }
+
+        if (!context) {
+            // Indicates we couldn't successfully read the metadata file
+            await unlink(this.file(METADATA_FILE_NAME)).catch(() => null)
+            await unlink(this.file(BUFFER_FILE_NAME)).catch(() => null)
+
+            bufferLoadFailedCounter.inc()
+
+            this.captureException(new Error('Failed to read buffer metadata. Resorted to hard deletion'), {
+                metadataFileContent,
+            })
+
+            return
+        }
+
+        this.buffer = {
+            context,
+            fileStream: this.createFileStreamFor(path.join(this.context.dir, BUFFER_FILE_NAME)),
         }
 
         status.info('📦', '[session-manager] started new manager', {
@@ -163,9 +213,9 @@ export class SessionManagerV3 {
 
     private async syncMetadata(): Promise<void> {
         if (this.buffer) {
-            await writeFile(this.file('metadata.json'), JSON.stringify(this.buffer?.context), 'utf-8')
+            await writeFile(this.file(METADATA_FILE_NAME), JSON.stringify(this.buffer?.context), 'utf-8')
         } else {
-            await unlink(this.file('metadata.json'))
+            await unlink(this.file(METADATA_FILE_NAME))
         }
     }
 
