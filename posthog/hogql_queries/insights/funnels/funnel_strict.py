@@ -28,7 +28,7 @@ class FunnelStrict(FunnelBase):
         max_steps = self.context.max_steps
         breakdown_exprs = self._get_breakdown_prop_expr()
         inner_timestamps, outer_timestamps = self._get_timestamp_selects()
-        person_and_group_properties = self._get_person_and_group_properties()
+        person_and_group_properties = self._get_person_and_group_properties(aggregate=True)
 
         group_by_columns: List[ast.Expr] = [
             ast.Field(chain=["aggregation_target"]),

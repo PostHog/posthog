@@ -954,10 +954,10 @@ class FunnelBase(ABC):
             ],
         )
 
-    def _get_person_and_group_properties(self) -> List[ast.Expr]:
+    def _get_person_and_group_properties(self, aggregate: bool = False) -> List[ast.Expr]:
         exprs: List[ast.Expr] = []
 
-        # for prop in self._include_properties:
-        #     exprs.append(f"any({prop}) as {prop}" if aggregate else prop)
+        for prop in self.context.includeProperties:
+            exprs.append(parse_expr(f"any({prop}) as {prop}") if aggregate else parse_expr("prop"))
 
         return exprs
