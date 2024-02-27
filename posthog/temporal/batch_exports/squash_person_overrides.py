@@ -215,14 +215,15 @@ class SquashHeartbeatDetails(HeartbeatDetails):
         return cls(partition_ids=details[0], _remaining=details[1:])
 
 
-def no_details() -> None:
-    return
+def no_details() -> tuple:
+    """No heartbeat details."""
+    return ()
 
 
 @contextlib.asynccontextmanager
 async def heartbeat_every(
     factor: int = 2,
-    details_callable: collections.abc.Callable[[], collections.abc.Sequence[typing.Any] | None] = no_details,
+    details_callable: collections.abc.Callable[[], tuple[typing.Any]] = no_details,
 ) -> collections.abc.AsyncIterator[None]:
     """Heartbeat every Activity heartbeat timeout / factor seconds while in context."""
     heartbeat_timeout = activity.info().heartbeat_timeout
@@ -259,7 +260,7 @@ async def squash_events_partition(inputs: QueryInputs) -> None:
     """
     from django.conf import settings
 
-    finished_partition_ids = []
+    finished_partition_ids: list[str] = []
 
     if inputs.dry_run is True:
         activity.logger.info("This is a DRY RUN so nothing will be squashed.")
