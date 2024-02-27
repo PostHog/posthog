@@ -71,7 +71,7 @@ export function PayGateMini({
         >
             <div className="flex text-xl text-warning">{getProductIcon(featureInfo.icon_key) || <IconPremium />}</div>
             <h3>{featureInfo.name}</h3>
-            {featureDetailsWithLimit?.limit ? (
+            {featureDetailsWithLimit?.limit && gateVariant !== 'move-to-cloud' ? (
                 <div>
                     <p>You've reached your usage limit for {featureInfo.name}.</p>
                     <p className="border border-border bg-side rounded p-4">
