@@ -228,7 +228,7 @@ describe('session-manager', () => {
                 Bucket: 'posthog',
                 Key: `session_recordings/team_id/1/session_id/${sessionManager.context.sessionId}/data/170000000-170000000.jsonl`,
                 ContentEncoding: 'gzip',
-                ContentType: 'application/json',
+                ContentType: 'application/jsonl',
             },
         })
         const uploadBody = mockUploadCalls[0][0].params.Body

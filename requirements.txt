@@ -391,7 +391,7 @@ openapi-spec-validator==0.7.1
     # via -r requirements.in
 openpyxl==3.1.2
     # via -r requirements.in
-orjson==3.9.13
+orjson==3.9.15
     # via
     #   -r requirements.in
     #   dlt

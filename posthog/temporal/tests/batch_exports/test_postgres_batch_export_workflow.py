@@ -437,12 +437,63 @@ async def test_postgres_export_workflow_handles_insert_activity_errors(ateam, po
                     retry_policy=RetryPolicy(maximum_attempts=1),
                 )
 
-        runs = await afetch_batch_export_runs(batch_export_id=postgres_batch_export.id)
-        assert len(runs) == 1
+    runs = await afetch_batch_export_runs(batch_export_id=postgres_batch_export.id)
+    assert len(runs) == 1
 
-        run = runs[0]
-        assert run.status == "Failed"
-        assert run.latest_error == "ValueError: A useful error message"
+    run = runs[0]
+    assert run.status == "FailedRetryable"
+    assert run.latest_error == "ValueError: A useful error message"
+
+
+async def test_postgres_export_workflow_handles_insert_activity_non_retryable_errors(
+    ateam, postgres_batch_export, interval
+):
+    """Test that Postgres Export Workflow can gracefully handle non-retryable errors when inserting Postgres data."""
+    data_interval_end = dt.datetime.fromisoformat("2023-04-25T14:30:00.000000+00:00")
+
+    workflow_id = str(uuid4())
+    inputs = PostgresBatchExportInputs(
+        team_id=ateam.pk,
+        batch_export_id=str(postgres_batch_export.id),
+        data_interval_end=data_interval_end.isoformat(),
+        interval=interval,
+        **postgres_batch_export.destination.config,
+    )
+
+    @activity.defn(name="insert_into_postgres_activity")
+    async def insert_into_postgres_activity_mocked(_: PostgresInsertInputs) -> str:
+        class InsufficientPrivilege(Exception):
+            pass
+
+        raise InsufficientPrivilege("A useful error message")
+
+    async with await WorkflowEnvironment.start_time_skipping() as activity_environment:
+        async with Worker(
+            activity_environment.client,
+            task_queue=settings.TEMPORAL_TASK_QUEUE,
+            workflows=[PostgresBatchExportWorkflow],
+            activities=[
+                create_export_run,
+                insert_into_postgres_activity_mocked,
+                update_export_run_status,
+            ],
+            workflow_runner=UnsandboxedWorkflowRunner(),
+        ):
+            with pytest.raises(WorkflowFailureError):
+                await activity_environment.client.execute_workflow(
+                    PostgresBatchExportWorkflow.run,
+                    inputs,
+                    id=workflow_id,
+                    task_queue=settings.TEMPORAL_TASK_QUEUE,
+                    retry_policy=RetryPolicy(maximum_attempts=1),
+                )
+
+    runs = await afetch_batch_export_runs(batch_export_id=postgres_batch_export.id)
+    assert len(runs) == 1
+
+    run = runs[0]
+    assert run.status == "Failed"
+    assert run.latest_error == "InsufficientPrivilege: A useful error message"
 
 
 async def test_postgres_export_workflow_handles_cancellation(ateam, postgres_batch_export, interval):
