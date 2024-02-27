@@ -86,7 +86,7 @@ export const SimpleSessionRecordingsFilters = ({
         })
 
         return properties.filter(Boolean)
-    }, [displayNameProperties, personProperties])
+    }, [displayNameProperties, personProperties, eventProperties])
 
     return (
         <div className="space-y-3">
