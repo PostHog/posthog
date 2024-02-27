@@ -1,6 +1,6 @@
 import dataclasses
 from datetime import timedelta
-from typing import List, Literal, Optional, Any, Dict, Set, Tuple, TypedDict, Union, cast
+from typing import List, Literal, Optional, Any, Dict, Set, TypedDict, Union, cast
 from ee.clickhouse.queries.funnels.funnel_correlation import EventOddsRatioSerialized
 
 from posthog.constants import AUTOCAPTURE_EVENT, FunnelCorrelationType
@@ -26,7 +26,6 @@ from posthog.schema import (
     FunnelCorrelationResponse,
     FunnelCorrelationResult,
     FunnelsActorsQuery,
-    FunnelsFilter,
     FunnelsQuery,
     HogQLQueryModifiers,
 )
@@ -96,6 +95,7 @@ class FunnelCorrelationQueryRunner(QueryRunner):
         self.context = FunnelQueryContext(
             query=self.funnels_query, team=team, timings=timings, modifiers=modifiers, limit_context=limit_context
         )
+        self.context.actorsQuery = self.actors_query
 
         # Funnel Step by default set to 1, to give us all people who entered the funnel
         if self.actors_query.funnelStep is None:

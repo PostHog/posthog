@@ -22,7 +22,7 @@ from posthog.models.filters import Filter
 from posthog.models.group.util import create_group
 from posthog.models.group_type_mapping import GroupTypeMapping
 from posthog.models.instance_setting import override_instance_config
-from posthog.schema import FunnelCorrelationQuery, FunnelsQuery, FunnelCorrelationType
+from posthog.schema import FunnelCorrelationQuery, FunnelsActorsQuery, FunnelsQuery, FunnelCorrelationType
 from posthog.test.base import (
     APIBaseTest,
     ClickhouseTestMixin,
@@ -136,7 +136,8 @@ class TestClickhouseFunnelCorrelation(ClickhouseTestMixin, APIBaseTest):
         # result = correlation._run()[0]
 
         funnels_query = cast(FunnelsQuery, filter_to_query(filters))
-        correlation_query = FunnelCorrelationQuery(source=funnels_query, correlationType=FunnelCorrelationType.events)
+        actors_query = FunnelsActorsQuery(source=funnels_query)
+        correlation_query = FunnelCorrelationQuery(source=actors_query, correlationType=FunnelCorrelationType.events)
         result = FunnelCorrelationQueryRunner(query=correlation_query, team=self.team).calculate().result
 
         odds_ratios = [item.pop("odds_ratio") for item in result]  # type: ignore
