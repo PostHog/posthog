@@ -18,7 +18,7 @@ from posthog.hogql.printer import to_printed_hogql
 from posthog.hogql.query import execute_hogql_query
 from posthog.hogql.timings import HogQLTimings
 from posthog.hogql_queries.insights.funnels.funnel_query_context import FunnelQueryContext
-from posthog.hogql_queries.insights.funnels.utils import get_funnel_actor_class
+from posthog.hogql_queries.insights.funnels.utils import funnel_window_interval_unit_to_sql, get_funnel_actor_class
 from posthog.hogql_queries.query_runner import QueryRunner
 from posthog.models import Team
 from posthog.queries.util import correct_result_for_sampling
@@ -319,8 +319,7 @@ class FunnelCorrelationQueryRunner(QueryRunner):
     def get_event_query(self) -> ast.SelectQuery:
         funnel_persons_query = self.get_funnel_actors_cte()
 
-        # event_join_query = self._get_events_join_query()
-        event_join_query = "WHERE 1=1"  # TODO: Implement
+        event_join_query = self._get_events_join_query()
 
         event_correlation_query = parse_select(
             f"""
@@ -328,8 +327,8 @@ class FunnelCorrelationQueryRunner(QueryRunner):
                 funnel_actors AS (
                     {{funnel_persons_query}}
                 ),
-                --toDateTime(%(date_to)s, %(timezone)s) AS date_to,
-                --toDateTime(%(date_from)s, %(timezone)s) AS date_from,
+                toDateTime(%(date_to)s, %(timezone)s) AS date_to,
+                toDateTime(%(date_from)s, %(timezone)s) AS date_from,
                 {self.context.max_steps} AS target_step,
                 {self._get_funnel_step_names()} as funnel_step_names
 
@@ -553,6 +552,8 @@ class FunnelCorrelationQueryRunner(QueryRunner):
             - date_from
             - funnel_step_names
         """
+        windowInterval = self.context.funnelWindowInterval
+        windowIntervalUnit = funnel_window_interval_unit_to_sql(self.context.funnelWindowIntervalUnit)
 
         return f"""
             {self._get_aggregation_target_join_query()}
@@ -565,7 +566,7 @@ class FunnelCorrelationQueryRunner(QueryRunner):
                 toTimeZone(toDateTime(event.timestamp), 'UTC') >= date_from
                 AND toTimeZone(toDateTime(event.timestamp), 'UTC') < date_to
 
-                AND event.team_id = {self._team.pk}
+                AND event.team_id = {self.context.team.pk}
 
                 -- Add in per actor filtering on event time range. We just want
                 -- to include events that happened within the bounds of the
@@ -573,7 +574,7 @@ class FunnelCorrelationQueryRunner(QueryRunner):
                 AND toTimeZone(toDateTime(event.timestamp), 'UTC') > actors.first_timestamp
                 AND toTimeZone(toDateTime(event.timestamp), 'UTC') < COALESCE(
                     actors.final_timestamp,
-                    actors.first_timestamp + INTERVAL {self._funnel_actors_generator._filter.funnel_window_interval} {self._funnel_actors_generator._filter.funnel_window_interval_unit_ch()},
+                    actors.first_timestamp + INTERVAL {windowInterval} {windowIntervalUnit},
                     date_to)
                     -- Ensure that the event is not outside the bounds of the funnel conversion window
 
@@ -582,32 +583,39 @@ class FunnelCorrelationQueryRunner(QueryRunner):
         """
 
     def _get_aggregation_target_join_query(self) -> str:
-        if self._team.person_on_events_mode == PersonOnEventsMode.V1_ENABLED:
-            aggregation_person_join = f"""
-                JOIN funnel_actors as actors
-                    ON event.person_id = actors.actor_id
-            """
+        # if self._team.person_on_events_mode == PersonOnEventsMode.V1_ENABLED:
+        #     aggregation_person_join = f"""
+        #         JOIN funnel_actors as actors
+        #             ON event.person_id = actors.actor_id
+        #     """
 
-        else:
-            aggregation_person_join = f"""
-                JOIN ({get_team_distinct_ids_query(self._team.pk)}) AS pdi
-                        ON pdi.distinct_id = events.distinct_id
+        # else:
+        #     aggregation_person_join = f"""
+        #         JOIN ({get_team_distinct_ids_query(self._team.pk)}) AS pdi
+        #                 ON pdi.distinct_id = events.distinct_id
 
-                    -- NOTE: I would love to right join here, so we count get total
-                    -- success/failure numbers in one pass, but this causes out of memory
-                    -- error mentioning issues with right filling. I'm sure there's a way
-                    -- to do it but lifes too short.
-                    JOIN funnel_actors AS actors
-                        ON pdi.person_id = actors.actor_id
-                """
+        #             -- NOTE: I would love to right join here, so we count get total
+        #             -- success/failure numbers in one pass, but this causes out of memory
+        #             -- error mentioning issues with right filling. I'm sure there's a way
+        #             -- to do it but lifes too short.
+        #             JOIN funnel_actors AS actors
+        #                 ON pdi.person_id = actors.actor_id
+        #         """
+
+        aggregation_person_join = f"""
+            JOIN funnel_actors as actors
+                ON event.person_id = actors.actor_id
+        """
 
         aggregation_group_join = f"""
             JOIN funnel_actors AS actors
-                ON actors.actor_id = events.$group_{self._filter.aggregation_group_type_index}
+                ON actors.actor_id = events.$group_{self.funnels_query.aggregation_group_type_index}
             """
 
         return (
-            aggregation_group_join if self._filter.aggregation_group_type_index is not None else aggregation_person_join
+            aggregation_group_join
+            if self.funnels_query.aggregation_group_type_index is not None
+            else aggregation_person_join
         )
 
     def _get_funnel_step_names(self) -> List[str]:
