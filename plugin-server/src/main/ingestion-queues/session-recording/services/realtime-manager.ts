@@ -7,7 +7,7 @@ import { PluginsServerConfig, RedisPool } from '../../../../types'
 import { timeoutGuard } from '../../../../utils/db/utils'
 import { status } from '../../../../utils/status'
 import { createRedis } from '../../../../utils/utils'
-import { IncomingRecordingMessageWithMetadata } from '../types'
+import { IncomingRecordingMessage } from '../types'
 import { convertToPersistedMessage } from '../utils'
 
 const Keys = {
@@ -87,7 +87,7 @@ export class RealtimeManager extends EventEmitter {
         }
     }
 
-    public async addMessage(message: IncomingRecordingMessageWithMetadata): Promise<void> {
+    public async addMessage(message: IncomingRecordingMessage): Promise<void> {
         const key = Keys.snapshots(
             this.serverConfig.SESSION_RECORDING_REDIS_PREFIX,
             message.team_id,

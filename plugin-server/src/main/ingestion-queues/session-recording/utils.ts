@@ -8,7 +8,7 @@ import { PipelineEvent, RawEventMessage, RRWebEvent } from '../../../types'
 import { status } from '../../../utils/status'
 import { eventDroppedCounter } from '../metrics'
 import { TeamIDWithConfig } from './session-recordings-consumer'
-import { IncomingRecordingMessage, IncomingRecordingMessageWithMetadata, PersistedRecordingMessage } from './types'
+import { IncomingRecordingMessage, PersistedRecordingMessage } from './types'
 
 export const convertToPersistedMessage = (message: IncomingRecordingMessage): PersistedRecordingMessage => {
     return {
@@ -137,7 +137,7 @@ export async function readTokenFromHeaders(
 export const parseKafkaMessage = async (
     message: Message,
     getTeamFn: (s: string) => Promise<TeamIDWithConfig | null>
-): Promise<IncomingRecordingMessageWithMetadata | void> => {
+): Promise<IncomingRecordingMessage | void> => {
     const dropMessage = (reason: string, extra?: Record<string, any>) => {
         eventDroppedCounter
             .labels({
@@ -243,4 +243,19 @@ export const parseKafkaMessage = async (
         events: events,
         snapshot_source: $snapshot_source,
     }
+}
+
+export const reduceRecordingMessages = (messages: IncomingRecordingMessage[]): IncomingRecordingMessage[] => {
+    const reducedMessages: Record<string, IncomingRecordingMessage> = {}
+
+    for (const message of messages) {
+        const key = `${message.team_id}-${message.session_id}-${message.window_id}`
+        if (!reducedMessages[key]) {
+            reducedMessages[key] = message
+        } else {
+            reducedMessages[key].events.push(...message.events)
+        }
+    }
+
+    return Object.values(reducedMessages)
 }

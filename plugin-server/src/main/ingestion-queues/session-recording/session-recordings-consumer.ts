@@ -23,7 +23,7 @@ import { OffsetHighWaterMarker } from './services/offset-high-water-marker'
 import { RealtimeManager } from './services/realtime-manager'
 import { ReplayEventsIngester } from './services/replay-events-ingester'
 import { BUCKETS_KB_WRITTEN, SessionManager } from './services/session-manager'
-import { IncomingRecordingMessageWithMetadata } from './types'
+import { IncomingRecordingMessage } from './types'
 import { bufferFileDir, getPartitionsForTopic, now, parseKafkaMessage, queryWatermarkOffsets } from './utils'
 
 // Must require as `tsc` strips unused `import` statements and just requiring this seems to init some globals
@@ -221,7 +221,7 @@ export class SessionRecordingIngester {
         return promise
     }
 
-    public async consume(event: IncomingRecordingMessageWithMetadata): Promise<void> {
+    public async consume(event: IncomingRecordingMessage): Promise<void> {
         // we have to reset this counter once we're consuming messages since then we know we're not re-balancing
         // otherwise the consumer continues to report however many sessions were revoked at the last re-balance forever
         gaugeSessionsRevoked.reset()
@@ -296,7 +296,7 @@ export class SessionRecordingIngester {
                 histogramKafkaBatchSize.observe(messages.length)
                 histogramKafkaBatchSizeKb.observe(messages.reduce((acc, m) => (m.value?.length ?? 0) + acc, 0) / 1024)
 
-                const recordingMessages: IncomingRecordingMessageWithMetadata[] = []
+                const recordingMessages: IncomingRecordingMessage[] = []
 
                 await runInstrumentedFunction({
                     statsKey: `recordingingester.handleEachBatch.parseKafkaMessages`,

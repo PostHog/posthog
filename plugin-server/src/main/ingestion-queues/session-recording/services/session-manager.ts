@@ -16,7 +16,7 @@ import { timeoutGuard } from '../../../../utils/db/utils'
 import { status } from '../../../../utils/status'
 import { asyncTimeoutGuard } from '../../../../utils/timing'
 import { ObjectStorage } from '../../../services/object_storage'
-import { IncomingRecordingMessageWithMetadata } from '../types'
+import { IncomingRecordingMessage } from '../types'
 import { bufferFileDir, convertToPersistedMessage, getLagMultiplier, maxDefined, minDefined, now } from '../utils'
 import { OffsetHighWaterMarker } from './offset-high-water-marker'
 import { RealtimeManager } from './realtime-manager'
@@ -155,7 +155,7 @@ export class SessionManager {
         })
     }
 
-    public async add(message: IncomingRecordingMessageWithMetadata): Promise<void> {
+    public async add(message: IncomingRecordingMessage): Promise<void> {
         if (this.destroying) {
             return
         }
@@ -474,7 +474,7 @@ export class SessionManager {
         }
     }
 
-    private setEventsRangeFrom(message: IncomingRecordingMessageWithMetadata) {
+    private setEventsRangeFrom(message: IncomingRecordingMessage) {
         const start = message.events.at(0)?.timestamp
         const end = message.events.at(-1)?.timestamp ?? start
 
