@@ -39,7 +39,7 @@ export function Paths(): JSX.Element {
     }, [paths, !insightDataLoading, canvasWidth, canvasHeight])
 
     if (insightDataError) {
-        return <InsightErrorState excludeDetail />
+        return <InsightErrorState query={insight.query} excludeDetail />
     }
 
     return (

@@ -47,6 +47,7 @@ export function isDataNode(node?: Node | null): node is EventsQuery | PersonsNod
         isTimeToSeeDataSessionsQuery(node) ||
         isEventsQuery(node) ||
         isActorsQuery(node) ||
+        isInsightActorsQuery(node) ||
         isHogQLQuery(node) ||
         isHogQLMetadata(node)
     )

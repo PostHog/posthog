@@ -2,7 +2,7 @@ import './EmptyStates.scss'
 
 // eslint-disable-next-line no-restricted-imports
 import { PlusCircleOutlined, ThunderboltFilled } from '@ant-design/icons'
-import { IconPlus, IconWarning } from '@posthog/icons'
+import { IconPlus } from '@posthog/icons'
 import { LemonButton } from '@posthog/lemon-ui'
 import { Empty } from 'antd'
 import { useActions, useValues } from 'kea'
@@ -21,7 +21,7 @@ import { urls } from 'scenes/urls'
 
 import { actionsAndEventsToSeries } from '~/queries/nodes/InsightQuery/utils/filtersToQueryNode'
 import { seriesToActionsAndEvents } from '~/queries/nodes/InsightQuery/utils/queryNodeToFilter'
-import { FunnelsQuery } from '~/queries/schema'
+import { FunnelsQuery, Node } from '~/queries/schema'
 import { FilterType, InsightLogicProps, SavedInsightsTabs } from '~/types'
 
 import { samplingFilterLogic } from '../EditorFilters/samplingFilterLogic'
@@ -139,10 +139,11 @@ export function InsightTimeoutState({
 export interface InsightErrorStateProps {
     excludeDetail?: boolean
     title?: string
+    query?: Node | null
     queryId?: string | null
 }
 
-export function InsightErrorState({ excludeDetail, title, queryId }: InsightErrorStateProps): JSX.Element {
+export function InsightErrorState({ excludeDetail, title, query, queryId }: InsightErrorStateProps): JSX.Element {
     const { preflight } = useValues(preflightLogic)
     const { openSupportForm } = useActions(supportLogic)
 
@@ -153,10 +154,13 @@ export function InsightErrorState({ excludeDetail, title, queryId }: InsightErro
     return (
         <div className="insight-empty-state error">
             <div className="empty-state-inner">
-                <div className="illustration-main">
-                    <IconErrorOutline />
-                </div>
-                <h2 className="text-xl leading-tight">{title || 'There was a problem completing this query'}</h2>
+                <h2 className="text-xl leading-tight">
+                    {query ? (
+                        <Link to={urls.debugQuery(query)}>{title || 'There was a problem completing this query'}</Link>
+                    ) : (
+                        <>{title || 'There was a problem completing this query'}</>
+                    )}
+                </h2>
                 {/* Note that this default phrasing above signals the issue is intermittent, */}
                 {/* and that perhaps the query will complete on retry */}
                 {!excludeDetail && (
@@ -242,20 +246,24 @@ export function FunnelSingleStepState({ actionable = true }: FunnelSingleStepSta
         </div>
     )
 }
-
-export function InsightValidationError({ detail }: { detail: string }): JSX.Element {
+export interface InsightValidationErrorProps {
+    detail: string
+    query?: Node | null
+}
+export function InsightValidationError({ detail, query }: InsightValidationErrorProps): JSX.Element {
     return (
         <div className="insight-empty-state warning">
             <div className="empty-state-inner">
-                <div className="illustration-main">
-                    <IconWarning />
-                </div>
                 <h2 className="text-xl leading-tight">
-                    There is a problem with this query
+                    {query ? (
+                        <Link to={urls.debugQuery(query)}>There is a problem with this query</Link>
+                    ) : (
+                        <>There is a problem with this query</>
+                    )}
                     {/* Note that this phrasing above signals the issue is not intermittent, */}
                     {/* but rather that it's something with the definition of the query itself */}
                 </h2>
-                <p className="text-sm text-center text-balance">{detail}</p>
+                <p className="text-sm text-balance whitespace-pre-wrap">{detail}</p>
                 {detail.includes('Exclusion') && (
                     <div className="mt-4">
                         <Link

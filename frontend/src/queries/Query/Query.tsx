@@ -14,7 +14,6 @@ import { DataTableVisualization } from '../nodes/DataVisualization/DataVisualiza
 import { SavedInsight } from '../nodes/SavedInsight/SavedInsight'
 import { TimeToSeeData } from '../nodes/TimeToSeeData/TimeToSeeData'
 import {
-    isDataNode,
     isDataTableNode,
     isDataVisualizationNode,
     isInsightVizNode,
@@ -88,8 +87,6 @@ export function Query(props: QueryProps): JSX.Element | null {
                 context={queryContext}
             />
         )
-    } else if (isDataNode(query)) {
-        component = <DataNode query={query} cachedResults={props.cachedResults} />
     } else if (isSavedInsightNode(query)) {
         component = <SavedInsight query={query} context={queryContext} />
     } else if (isInsightVizNode(query)) {
@@ -106,6 +103,8 @@ export function Query(props: QueryProps): JSX.Element | null {
         component = <TimeToSeeData query={query} cachedResults={props.cachedResults} />
     } else if (isWebOverviewQuery(query)) {
         component = <WebOverview query={query} cachedResults={props.cachedResults} context={queryContext} />
+    } else {
+        component = <DataNode query={query} cachedResults={props.cachedResults} />
     }
 
     if (component) {

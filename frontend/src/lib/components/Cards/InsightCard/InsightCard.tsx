@@ -214,13 +214,13 @@ export function FilterBasedCardContent({
                 {tooFewFunnelSteps ? (
                     <FunnelSingleStepState actionable={false} />
                 ) : validationError ? (
-                    <InsightValidationError detail={validationError} />
+                    <InsightValidationError detail={validationError} query={query} />
                 ) : empty ? (
                     <InsightEmptyState heading={context?.emptyStateHeading} detail={context?.emptyStateDetail} />
                 ) : !loading && timedOut ? (
                     <InsightTimeoutState isLoading={false} insightProps={{ dashboardItemId: undefined }} />
                 ) : apiErrored && !loading ? (
-                    <InsightErrorState excludeDetail />
+                    <InsightErrorState query={query} excludeDetail />
                 ) : (
                     !apiErrored && <VizComponent inCardView={true} showPersonsModal={false} context={context} />
                 )}
@@ -345,6 +345,7 @@ function InsightCardInternal(
                     <div className="flex justify-between items-center h-full">
                         <InsightErrorState
                             excludeDetail
+                            query={insight.query}
                             title="Missing 'filters.insight' property, can't display insight"
                         />
                     </div>

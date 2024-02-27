@@ -511,6 +511,7 @@ export function DataTable({
                                     sourceFeatures.has(QueryFeature.displayResponseError) ? (
                                         <InsightErrorState
                                             excludeDetail
+                                            query={query}
                                             title={
                                                 queryCancelled
                                                     ? 'The query was cancelled'
@@ -520,7 +521,7 @@ export function DataTable({
                                             }
                                         />
                                     ) : (
-                                        <InsightErrorState />
+                                        <InsightErrorState query={query} />
                                     )
                                 ) : (
                                     <InsightEmptyState

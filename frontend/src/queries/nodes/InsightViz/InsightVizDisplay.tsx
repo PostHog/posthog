@@ -75,7 +75,7 @@ export function InsightVizDisplay({
         timedOutQueryId,
         vizSpecificOptions,
     } = useValues(insightVizDataLogic(insightProps))
-    const { exportContext } = useValues(insightDataLogic(insightProps))
+    const { exportContext, query } = useValues(insightDataLogic(insightProps))
 
     // Empty states that completely replace the graph
     const BlockingEmptyState = (() => {
@@ -91,7 +91,7 @@ export function InsightVizDisplay({
         }
 
         if (validationError) {
-            return <InsightValidationError detail={validationError} />
+            return <InsightValidationError detail={validationError} query={query} />
         }
 
         // Insight specific empty states - note order is important here
@@ -106,7 +106,7 @@ export function InsightVizDisplay({
 
         // Insight agnostic empty states
         if (erroredQueryId) {
-            return <InsightErrorState queryId={erroredQueryId} />
+            return <InsightErrorState query={query} queryId={erroredQueryId} />
         }
         if (timedOutQueryId) {
             return (
