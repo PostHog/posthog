@@ -136,6 +136,8 @@ export const PlanComparison = ({
                 >
                     {plan.current_plan
                         ? 'Current plan'
+                        : plan.free_allocation && !plan.tiers
+                        ? 'Select' // Free plan
                         : featureFlags[FEATURE_FLAGS.BILLING_UPGRADE_LANGUAGE] === 'subscribe'
                         ? 'Subscribe'
                         : featureFlags[FEATURE_FLAGS.BILLING_UPGRADE_LANGUAGE] === 'credit_card' &&

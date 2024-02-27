@@ -9,6 +9,7 @@ import { router } from 'kea-router'
 import { SurprisedHog } from 'lib/components/hedgehogs'
 import { PageHeader } from 'lib/components/PageHeader'
 import { supportLogic } from 'lib/components/Support/supportLogic'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
 import { useResizeBreakpoints } from 'lib/hooks/useResizeObserver'
 import { IconCheckCircleOutline } from 'lib/lemon-ui/icons'
@@ -16,6 +17,7 @@ import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { LemonLabel } from 'lib/lemon-ui/LemonLabel/LemonLabel'
 import { SpinnerOverlay } from 'lib/lemon-ui/Spinner/Spinner'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { useEffect } from 'react'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { SceneExport } from 'scenes/sceneTypes'
@@ -49,6 +51,7 @@ export function Billing(): JSX.Element {
     const { reportBillingV2Shown } = useActions(billingLogic)
     const { preflight, isCloudOrDev } = useValues(preflightLogic)
     const { openSupportForm } = useActions(supportLogic)
+    const { featureFlags } = useValues(featureFlagLogic)
 
     if (preflight && !isCloudOrDev) {
         router.actions.push(urls.default())
@@ -317,7 +320,12 @@ export function Billing(): JSX.Element {
                         to={upgradeAllProductsLink}
                         disableClientSideRouting
                     >
-                        Upgrade all
+                        {featureFlags[FEATURE_FLAGS.BILLING_UPGRADE_LANGUAGE] === 'subscribe'
+                            ? 'Subscribe to all'
+                            : featureFlags[FEATURE_FLAGS.BILLING_UPGRADE_LANGUAGE] === 'credit_card' &&
+                              !billing?.customer_id
+                            ? 'Add credit card to all products'
+                            : 'Upgrade to all'}{' '}
                     </LemonButton>
                 )}
             </div>

@@ -33,7 +33,13 @@ export function UpgradeModal(): JSX.Element {
                             posthog.capture('upgrade modal pricing interaction')
                         }}
                     >
-                        Upgrade now
+                        {featureFlags[FEATURE_FLAGS.BILLING_UPGRADE_LANGUAGE] === 'subscribe'
+                            ? 'Subscribe'
+                            : featureFlags[FEATURE_FLAGS.BILLING_UPGRADE_LANGUAGE] === 'credit_card' &&
+                              !billing?.customer_id
+                            ? 'Add credit card'
+                            : 'Upgrade'}{' '}
+                        now
                     </LemonButton>
                 </>
             }
