@@ -1,5 +1,6 @@
 import operator
 import random
+import string
 from collections import defaultdict
 from datetime import datetime
 from typing import NamedTuple, TypedDict
@@ -65,7 +66,7 @@ def activity_environment():
 
 
 @pytest_asyncio.fixture(scope="module", autouse=True)
-async def ensure_database_tables(clickhouse_client):
+async def ensure_database_tables(clickhouse_client, django_db_setup):
     """Ensure necessary person_distinct_id_overrides table and related exist.
 
     This is a module scoped fixture as most if not all tests in this module require the
@@ -496,13 +497,18 @@ async def overrides_dictionary(optimized_person_overrides, query_inputs, activit
 
 
 @pytest.mark.django_db
-@pytest.mark.parametrize("dictionary_name", ["squash_events_partition_dictionary"], indirect=True)
+@pytest.mark.parametrize(
+    "dictionary_name",
+    [f"squash_events_partition_dictionary_{''.join(random.choices(string.ascii_letters, k=6))}"],
+    indirect=True,
+)
 async def test_squash_events_partition(
     overrides_dictionary,
     query_inputs,
     activity_environment,
     person_overrides_data,
     events_to_override,
+    clickhouse_client,
 ):
     """Test events are properly squashed by running squash_events_partition.
 
@@ -510,10 +516,15 @@ async def test_squash_events_partition(
     events_to_override and check the person_id associated with each of them. It should
     match the override_person_id associated with the old_person_id they used to be set to.
     """
+
     query_inputs.dictionary_name = overrides_dictionary
     query_inputs.partition_ids = ["202001"]
     query_inputs.dry_run = False
     query_inputs.wait_for_mutations = True
+
+    await clickhouse_client.execute_query(
+        f"SYSTEM RELOAD DICTIONARY {overrides_dictionary}",
+    )
 
     await activity_environment.run(squash_events_partition, query_inputs)
 
@@ -521,7 +532,11 @@ async def test_squash_events_partition(
 
 
 @pytest.mark.django_db
-@pytest.mark.parametrize("dictionary_name", ["squash_events_partition_dictionary_dry_run"], indirect=True)
+@pytest.mark.parametrize(
+    "dictionary_name",
+    [f"squash_events_partition_dictionary_dry_run_{''.join(random.choices(string.ascii_letters, k=6))}"],
+    indirect=True,
+)
 async def test_squash_events_partition_dry_run(
     overrides_dictionary,
     query_inputs,
@@ -535,6 +550,10 @@ async def test_squash_events_partition_dry_run(
     query_inputs.partition_ids = ["202001"]
     query_inputs.wait_for_mutations = True
     query_inputs.dry_run = True
+
+    await clickhouse_client.execute_query(
+        f"SYSTEM RELOAD DICTIONARY {overrides_dictionary}",
+    )
 
     await activity_environment.run(squash_events_partition, query_inputs)
 
@@ -558,7 +577,11 @@ async def test_squash_events_partition_dry_run(
 
 
 @pytest.mark.django_db
-@pytest.mark.parametrize("dictionary_name", ["squash_events_partition_dictionary_older"], indirect=True)
+@pytest.mark.parametrize(
+    "dictionary_name",
+    [f"squash_events_partition_dictionary_older_{''.join(random.choices(string.ascii_letters, k=6))}"],
+    indirect=True,
+)
 async def test_squash_events_partition_with_older_overrides(
     query_inputs,
     dictionary_name,
@@ -591,7 +614,11 @@ async def test_squash_events_partition_with_older_overrides(
 
 
 @pytest.mark.django_db
-@pytest.mark.parametrize("dictionary_name", ["squash_events_partition_dictionary_newer"], indirect=True)
+@pytest.mark.parametrize(
+    "dictionary_name",
+    [f"squash_events_partition_dictionary_newer_{''.join(random.choices(string.ascii_letters, k=6))}"],
+    indirect=True,
+)
 async def test_squash_events_partition_with_newer_overrides(
     query_inputs,
     activity_environment,
@@ -599,6 +626,7 @@ async def test_squash_events_partition_with_newer_overrides(
     person_overrides_data,
     events_to_override,
     newer_overrides,
+    clickhouse_client,
 ):
     """Test events are properly squashed even in the prescence of newer overrides.
 
@@ -613,15 +641,28 @@ async def test_squash_events_partition_with_newer_overrides(
     query_inputs.dry_run = False
     query_inputs.wait_for_mutations = True
 
+    await clickhouse_client.execute_query(
+        f"SYSTEM RELOAD DICTIONARY {overrides_dictionary}",
+    )
+
     await activity_environment.run(squash_events_partition, query_inputs)
 
     await assert_events_have_been_overriden(events_to_override, newer_overrides)
 
 
 @pytest.mark.django_db
-@pytest.mark.parametrize("dictionary_name", ["squash_events_partition_dictionary_limited"], indirect=True)
+@pytest.mark.parametrize(
+    "dictionary_name",
+    [f"squash_events_partition_dictionary_limited_{''.join(random.choices(string.ascii_letters, k=6))}"],
+    indirect=True,
+)
 async def test_squash_events_partition_with_limited_team_ids(
-    query_inputs, overrides_dictionary, activity_environment, person_overrides_data, events_to_override
+    query_inputs,
+    overrides_dictionary,
+    activity_environment,
+    person_overrides_data,
+    events_to_override,
+    clickhouse_client,
 ):
     """Test events are properly squashed when we specify team_ids."""
     random_team = random.choice(list(person_overrides_data.keys()))
@@ -630,6 +671,10 @@ async def test_squash_events_partition_with_limited_team_ids(
     query_inputs.dry_run = False
     query_inputs.team_ids = [random_team]
     query_inputs.wait_for_mutations = True
+
+    await clickhouse_client.execute_query(
+        f"SYSTEM RELOAD DICTIONARY {overrides_dictionary}",
+    )
 
     await activity_environment.run(squash_events_partition, query_inputs)
 
