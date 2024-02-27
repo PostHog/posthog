@@ -203,7 +203,7 @@ describe('ingester', () => {
         })
         await ingester.consume(event)
         expect(ingester.sessions[`1__${sessionId}`]).toBeDefined()
-        ingester.sessions[`1__${sessionId}`].buffer!.context.createdAt = 0
+        ingester.sessions[`1__${sessionId}`].buffer!.createdAt = 0
 
         await ingester.flushAllReadySessions()
 
@@ -222,8 +222,8 @@ describe('ingester', () => {
                 createMessage('session_id_2', 1),
             ])
 
-            expect(ingester.sessions[`${team.id}__session_id_1`].buffer?.context.count).toBe(1)
-            expect(ingester.sessions[`${team.id}__session_id_2`].buffer?.context.count).toBe(1)
+            expect(ingester.sessions[`${team.id}__session_id_1`].buffer?.count).toBe(1)
+            expect(ingester.sessions[`${team.id}__session_id_2`].buffer?.count).toBe(1)
 
             let fileContents = await fs.readFile(
                 path.join(ingester.sessions[`${team.id}__session_id_1`].context.dir, 'buffer.jsonl'),
@@ -257,7 +257,7 @@ describe('ingester', () => {
         const getSessions = (
             ingester: SessionRecordingIngesterV3
         ): (SessionManagerContext & SessionManagerBufferContext)[] =>
-            Object.values(ingester.sessions).map((x) => ({ ...x.context, ...x.buffer!.context }))
+            Object.values(ingester.sessions).map((x) => ({ ...x.context, ...x.buffer! }))
 
         /**
          * It is really hard to actually do rebalance tests against kafka, so we instead simulate the various methods and ensure the correct logic occurs
