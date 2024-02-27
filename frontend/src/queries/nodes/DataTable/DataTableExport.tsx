@@ -1,6 +1,7 @@
 import { LemonButtonWithDropdown, LemonDivider, lemonToast } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { TriggerExportProps } from 'lib/components/ExportButton/exporter'
+import { exportsLogic } from 'lib/components/ExportButton/exportsLogic'
 import { IconExport } from 'lib/lemon-ui/icons'
 import { LemonButton, LemonButtonWithDropdown } from 'lib/lemon-ui/LemonButton'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
@@ -8,7 +9,6 @@ import Papa from 'papaparse'
 import { asDisplay } from 'scenes/persons/person-utils'
 import { urls } from 'scenes/urls'
 
-import { exportsLogic } from '~/layout/navigation-3000/sidepanel/panels/exports/exportsLogic'
 import { ExportWithConfirmation } from '~/queries/nodes/DataTable/ExportWithConfirmation'
 import {
     defaultDataTableColumns,

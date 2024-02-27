@@ -1,9 +1,9 @@
 import { useMountedLogic } from 'kea'
+import { exportsLogic } from 'lib/components/ExportButton/exportsLogic'
 import { LemonButton, LemonButtonProps, LemonButtonWithDropdown } from 'lib/lemon-ui/LemonButton'
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
 import { forwardRef } from 'react'
 
-import { exportsLogic } from '~/layout/navigation-3000/sidepanel/panels/exports/exportsLogic'
 import { ExporterFormat, OnlineExportContext } from '~/types'
 
 import { TriggerExportProps } from './exporter'

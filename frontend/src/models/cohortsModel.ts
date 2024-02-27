@@ -2,6 +2,7 @@ import Fuse from 'fuse.js'
 import { actions, afterMount, beforeUnmount, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import api from 'lib/api'
+import { exportsLogic } from 'lib/components/ExportButton/exportsLogic'
 import { deleteWithUndo } from 'lib/utils/deleteWithUndo'
 import { permanentlyMount } from 'lib/utils/kea-logic-builders'
 import { BehavioralFilterKey } from 'scenes/cohorts/CohortFilters/types'
@@ -9,7 +10,6 @@ import { personsLogic } from 'scenes/persons/personsLogic'
 import { isAuthenticatedTeam, teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
-import { exportsLogic } from '~/layout/navigation-3000/sidepanel/panels/exports/exportsLogic'
 import {
     AnyCohortCriteriaType,
     BehavioralCohortType,

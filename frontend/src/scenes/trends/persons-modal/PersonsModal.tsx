@@ -15,6 +15,7 @@ import {
 } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { CopyToClipboardInline } from 'lib/components/CopyToClipboard'
+import { exportsLogic } from 'lib/components/ExportButton/exportsLogic'
 import { PropertiesTable } from 'lib/components/PropertiesTable'
 import { PropertiesTimeline } from 'lib/components/PropertiesTimeline'
 import { IconPlayCircle } from 'lib/lemon-ui/icons'
@@ -35,7 +36,6 @@ import { SessionPlayerModal } from 'scenes/session-recordings/player/modal/Sessi
 import { sessionPlayerModalLogic } from 'scenes/session-recordings/player/modal/sessionPlayerModalLogic'
 import { teamLogic } from 'scenes/teamLogic'
 
-import { exportsLogic } from '~/layout/navigation-3000/sidepanel/panels/exports/exportsLogic'
 import { Noun } from '~/models/groupsModel'
 import {
     ActorType,

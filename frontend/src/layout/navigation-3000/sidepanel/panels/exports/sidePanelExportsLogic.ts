@@ -1,7 +1,7 @@
 import { afterMount, connect, kea, path } from 'kea'
+import { exportsLogic } from 'lib/components/ExportButton/exportsLogic'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
-import { exportsLogic } from '~/layout/navigation-3000/sidepanel/panels/exports/exportsLogic'
 import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
 
 import { activityForSceneLogic } from '../activity/activityForSceneLogic'
