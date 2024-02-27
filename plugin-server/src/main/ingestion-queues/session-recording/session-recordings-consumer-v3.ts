@@ -337,16 +337,15 @@ export class SessionRecordingIngesterV3 {
 
     async flushAllReadySessions(): Promise<void> {
         // TODO: Put a time limit / number limit on this function...
-        const promises: Promise<void>[] = []
         const assignedPartitions = this.assignedTopicPartitions.map((x) => x.partition)
 
         for (const [key, sessionManager] of Object.entries(this.sessions)) {
             if (!assignedPartitions.includes(sessionManager.context.partition)) {
-                promises.push(this.destroySession(key, sessionManager))
+                await this.destroySession(key, sessionManager)
                 continue
             }
 
-            const flushPromise = sessionManager
+            await sessionManager
                 .flush()
                 .catch((err) => {
                     status.error(
@@ -366,39 +365,37 @@ export class SessionRecordingIngesterV3 {
                         await this.destroySession(key, sessionManager)
                     }
                 })
-            promises.push(flushPromise)
         }
-        await Promise.allSettled(promises)
         gaugeSessionsHandled.set(Object.keys(this.sessions).length)
     }
 
     private async syncSessionsWithDisk(): Promise<void> {
         // As we may get assigned and reassigned partitions, we want to make sure that we have all sessions loaded into memory
-        await Promise.all(
-            this.assignedTopicPartitions.map(async ({ partition }) => {
-                const keys = await readdir(path.join(this.rootDir, `${partition}`)).catch(() => {
-                    // This happens if there are no files on disk for that partition yet
-                    return []
-                })
 
-                // TODO: Below regex is a little crude. We should fix it
-                keys.filter((x) => /\d+__[a-zA-Z0-9\-]+/.test(x)).forEach((key) => {
-                    // TODO: Ensure sessionId can only be a uuid
-                    const [teamId, sessionId] = key.split('__')
-
-                    if (!this.sessions[key]) {
-                        this.sessions[key] = new SessionManagerV3(this.config, this.objectStorage.s3, {
-                            teamId: parseInt(teamId),
-                            sessionId,
-                            dir: this.dirForSession(partition, parseInt(teamId), sessionId),
-                            partition,
-                        })
-
-                        // Do we await the setup here? maybe right...
-                    }
-                })
+        for (const { partition } of this.assignedTopicPartitions) {
+            const keys = await readdir(path.join(this.rootDir, `${partition}`)).catch(() => {
+                // This happens if there are no files on disk for that partition yet
+                return []
             })
-        )
+
+            const relatedKeys = keys.filter((x) => /\d+__[a-zA-Z0-9\-]+/.test(x))
+
+            for (const key of relatedKeys) {
+                // TODO: Ensure sessionId can only be a uuid
+                const [teamId, sessionId] = key.split('__')
+
+                if (!this.sessions[key]) {
+                    this.sessions[key] = new SessionManagerV3(this.config, this.objectStorage.s3, {
+                        teamId: parseInt(teamId),
+                        sessionId,
+                        dir: this.dirForSession(partition, parseInt(teamId), sessionId),
+                        partition,
+                    })
+
+                    await this.sessions[key].setupPromise
+                }
+            }
+        }
     }
 
     private async destroySession(key: string, sessionManager: SessionManagerV3): Promise<void> {
