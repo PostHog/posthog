@@ -249,11 +249,12 @@ export const reduceRecordingMessages = (messages: IncomingRecordingMessage[]): I
     const reducedMessages: Record<string, IncomingRecordingMessage> = {}
 
     for (const message of messages) {
-        const key = `${message.team_id}-${message.session_id}-${message.window_id}`
+        const clonedMessage = { ...message }
+        const key = `${clonedMessage.team_id}-${clonedMessage.session_id}-${clonedMessage.window_id}`
         if (!reducedMessages[key]) {
-            reducedMessages[key] = message
+            reducedMessages[key] = clonedMessage
         } else {
-            reducedMessages[key].events.push(...message.events)
+            reducedMessages[key].events = [...reducedMessages[key].events, ...clonedMessage.events]
         }
     }
 
