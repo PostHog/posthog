@@ -20,6 +20,7 @@ import {
     PathsFilterType,
     PersonPropertyFilter,
     PropertyGroupFilter,
+    PropertyGroupFilterValue,
     PropertyMathType,
     RetentionFilterType,
     StickinessFilterType,
@@ -591,7 +592,7 @@ export interface InsightsQueryBase extends Node {
     /** Exclude internal and test users by applying the respective filters */
     filterTestAccounts?: boolean
     /** Property filters for all series */
-    properties?: AnyPropertyFilter[] | PropertyGroupFilter
+    properties?: AnyPropertyFilter[] | PropertyGroupFilter | PropertyGroupFilterValue
     /**
      * Groups aggregation
      **/

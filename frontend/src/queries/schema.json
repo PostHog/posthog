@@ -1887,6 +1887,9 @@
                         },
                         {
                             "$ref": "#/definitions/PropertyGroupFilter"
+                        },
+                        {
+                            "$ref": "#/definitions/PropertyGroupFilterValue"
                         }
                     ],
                     "description": "Property filters for all series"
@@ -2690,6 +2693,9 @@
                         },
                         {
                             "$ref": "#/definitions/PropertyGroupFilter"
+                        },
+                        {
+                            "$ref": "#/definitions/PropertyGroupFilterValue"
                         }
                     ],
                     "description": "Property filters for all series"
@@ -2770,6 +2776,9 @@
                         },
                         {
                             "$ref": "#/definitions/PropertyGroupFilter"
+                        },
+                        {
+                            "$ref": "#/definitions/PropertyGroupFilterValue"
                         }
                     ],
                     "description": "Property filters for all series"
@@ -3067,6 +3076,9 @@
                         },
                         {
                             "$ref": "#/definitions/PropertyGroupFilter"
+                        },
+                        {
+                            "$ref": "#/definitions/PropertyGroupFilterValue"
                         }
                     ],
                     "description": "Property filters for all series"
@@ -4269,6 +4281,9 @@
                         },
                         {
                             "$ref": "#/definitions/PropertyGroupFilter"
+                        },
+                        {
+                            "$ref": "#/definitions/PropertyGroupFilterValue"
                         }
                     ],
                     "description": "Property filters for all series"
@@ -4652,6 +4667,9 @@
                         },
                         {
                             "$ref": "#/definitions/PropertyGroupFilter"
+                        },
+                        {
+                            "$ref": "#/definitions/PropertyGroupFilterValue"
                         }
                     ],
                     "description": "Property filters for all series"
@@ -4971,6 +4989,9 @@
                         },
                         {
                             "$ref": "#/definitions/PropertyGroupFilter"
+                        },
+                        {
+                            "$ref": "#/definitions/PropertyGroupFilterValue"
                         }
                     ],
                     "description": "Property filters for all series"

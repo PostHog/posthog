@@ -275,7 +275,7 @@ export const filtersToQueryNode = (filters: Partial<FilterType>): InsightQueryNo
         kind: reverseInsightMap[filters.insight],
         properties: cleanProperties(filters.properties),
         filterTestAccounts: filters.filter_test_accounts,
-        samplingFactor: filters.sampling_factor,
+        samplingFactor: !filters.sampling_factor ? null : filters.sampling_factor,
     }
 
     // date range
