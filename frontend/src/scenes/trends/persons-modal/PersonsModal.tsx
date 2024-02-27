@@ -3,18 +3,18 @@ import './PersonsModal.scss'
 import { IconCollapse, IconExpand } from '@posthog/icons'
 import {
     LemonBadge,
+    LemonBanner,
     LemonButton,
     LemonDivider,
     LemonInput,
     LemonModal,
+    LemonModalProps,
     LemonSelect,
     LemonSkeleton,
     Link,
 } from '@posthog/lemon-ui'
-import { LemonModalProps } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { CopyToClipboardInline } from 'lib/components/CopyToClipboard'
-import { triggerExport } from 'lib/components/ExportButton/exporter'
 import { PropertiesTable } from 'lib/components/PropertiesTable'
 import { PropertiesTimeline } from 'lib/components/PropertiesTimeline'
 import { IconPlayCircle } from 'lib/lemon-ui/icons'
@@ -35,6 +35,7 @@ import { SessionPlayerModal } from 'scenes/session-recordings/player/modal/Sessi
 import { sessionPlayerModalLogic } from 'scenes/session-recordings/player/modal/sessionPlayerModalLogic'
 import { teamLogic } from 'scenes/teamLogic'
 
+import { exportsLogic } from '~/layout/navigation-3000/sidepanel/panels/exports/exportsLogic'
 import { Noun } from '~/models/groupsModel'
 import {
     ActorType,
@@ -99,6 +100,8 @@ export function PersonsModal({
         useActions(logic)
     const { openSessionPlayer } = useActions(sessionPlayerModalLogic)
     const { currentTeam } = useValues(teamLogic)
+    const { createExport } = useActions(exportsLogic)
+
     const totalActorsCount = missingActorsCount + actors.length
 
     const getTitle = useCallback(() => {
@@ -246,7 +249,7 @@ export function PersonsModal({
                             <LemonButton
                                 type="secondary"
                                 onClick={() => {
-                                    void triggerExport({
+                                    createExport({
                                         export_format: ExporterFormat.CSV,
                                         export_context: query
                                             ? { source: actorsQuery as Record<string, any> }

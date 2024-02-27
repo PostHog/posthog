@@ -3,7 +3,6 @@ import './RetentionTable.scss'
 import { LemonButton, LemonModal } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
-import { triggerExport } from 'lib/components/ExportButton/exporter'
 import { dayjs } from 'lib/dayjs'
 import { SpinnerOverlay } from 'lib/lemon-ui/Spinner/Spinner'
 import { capitalizeFirstLetter, isGroupType, percentage } from 'lib/utils'
@@ -14,6 +13,7 @@ import { RetentionTableAppearanceType } from 'scenes/retention/types'
 import { MissingPersonsAlert } from 'scenes/trends/persons-modal/PersonsModal'
 import { urls } from 'scenes/urls'
 
+import { exportsLogic } from '~/layout/navigation-3000/sidepanel/panels/exports/exportsLogic'
 import { EXPORT_MAX_LIMIT, startDownload } from '~/queries/nodes/DataTable/DataTableExport'
 import { ExportWithConfirmation } from '~/queries/nodes/DataTable/ExportWithConfirmation'
 import { DataTableNode, NodeKind } from '~/queries/schema'
@@ -32,6 +32,7 @@ export function RetentionModal(): JSX.Element | null {
         retentionModalLogic(insightProps)
     )
     const { closeModal } = useActions(retentionModalLogic(insightProps))
+    const { createExport } = useActions(exportsLogic)
 
     const dataTableNodeQuery: DataTableNode | undefined = actorsQuery
         ? {
@@ -57,7 +58,7 @@ export function RetentionModal(): JSX.Element | null {
                             <LemonButton
                                 type="secondary"
                                 onClick={() =>
-                                    void triggerExport({
+                                    createExport({
                                         export_format: ExporterFormat.CSV,
                                         export_context: {
                                             path: row?.people_url,
@@ -73,7 +74,7 @@ export function RetentionModal(): JSX.Element | null {
                                 key={1}
                                 placement="topRight"
                                 onConfirm={() => {
-                                    dataTableNodeQuery && void startDownload(dataTableNodeQuery, true)
+                                    dataTableNodeQuery && void startDownload(dataTableNodeQuery, true, createExport)
                                 }}
                                 actor="persons"
                                 limit={EXPORT_MAX_LIMIT}
