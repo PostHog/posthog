@@ -20,7 +20,7 @@ import { runInstrumentedFunction } from '../../utils'
 import { addSentryBreadcrumbsEventListeners } from '../kafka-metrics'
 import { BUCKETS_KB_WRITTEN, BUFFER_FILE_NAME, SessionManagerV3 } from './services/session-manager-v3'
 import { IncomingRecordingMessage } from './types'
-import { parseKafkaMessage } from './utils'
+import { parseKafkaMessage, reduceRecordingMessages } from './utils'
 
 // Must require as `tsc` strips unused `import` statements and just requiring this seems to init some globals
 require('@sentry/tracing')
@@ -193,7 +193,7 @@ export class SessionRecordingIngesterV3 {
                 histogramKafkaBatchSize.observe(messages.length)
                 histogramKafkaBatchSizeKb.observe(messages.reduce((acc, m) => (m.value?.length ?? 0) + acc, 0) / 1024)
 
-                const recordingMessages: IncomingRecordingMessage[] = []
+                let recordingMessages: IncomingRecordingMessage[] = []
 
                 await runInstrumentedFunction({
                     statsKey: `recordingingester.handleEachBatch.parseKafkaMessages`,
@@ -212,6 +212,8 @@ export class SessionRecordingIngesterV3 {
                                 recordingMessages.push(recordingMessage)
                             }
                         }
+
+                        recordingMessages = reduceRecordingMessages(recordingMessages)
                     },
                 })
 
