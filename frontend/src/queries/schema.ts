@@ -9,7 +9,6 @@ import {
     EventPropertyFilter,
     EventType,
     FilterType,
-    FunnelCorrelationResultsType,
     FunnelsFilterType,
     GroupMathType,
     HogQLMathType,
@@ -1130,10 +1129,17 @@ export interface FunnelCorrelationResponse {
     // offset: integer
     // missing_actors_count?: integer
 }
+
+export enum FunnelCorrelationType {
+    Events = 'events',
+    Properties = 'properties',
+    EventWithProperties = 'event_with_properties',
+}
+
 export interface FunnelCorrelationQuery {
     source: FunnelsQuery
 
-    correlationType: FunnelCorrelationResultsType
+    correlationType: FunnelCorrelationType
 
     // # Needs to be json encoded list of `EventPattern`s
     // events: str

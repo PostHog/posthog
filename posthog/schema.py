@@ -305,7 +305,7 @@ class FunnelCorrelationResult(BaseModel):
     skewed: bool
 
 
-class FunnelCorrelationResultsType(str, Enum):
+class FunnelCorrelationType(str, Enum):
     events = "events"
     properties = "properties"
     event_with_properties = "event_with_properties"
@@ -2591,7 +2591,7 @@ class FunnelCorrelationQuery(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
-    correlationType: FunnelCorrelationResultsType
+    correlationType: FunnelCorrelationType
     funnelStep: Optional[int] = Field(
         default=None,
         description="Index of the step for which we want to get the timestamp for, per person. Positive for converted persons, negative for dropped of persons.",

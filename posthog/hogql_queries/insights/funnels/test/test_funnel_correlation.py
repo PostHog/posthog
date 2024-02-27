@@ -1,3 +1,4 @@
+from typing import cast
 import unittest
 
 from rest_framework.exceptions import ValidationError
@@ -11,6 +12,9 @@ from ee.clickhouse.queries.funnels.funnel_correlation_persons import (
     FunnelCorrelationActors,
 )
 from posthog.constants import INSIGHT_FUNNELS
+from posthog.hogql_queries.insights.funnels.funnel_correlation_query_runner import FunnelCorrelationQueryRunner
+from posthog.hogql_queries.insights.funnels.funnels_query_runner import FunnelsQueryRunner
+from posthog.hogql_queries.legacy_compatibility.filter_to_query import filter_to_query
 from posthog.models.action import Action
 from posthog.models.action_step import ActionStep
 from posthog.models.element import Element
@@ -18,6 +22,7 @@ from posthog.models.filters import Filter
 from posthog.models.group.util import create_group
 from posthog.models.group_type_mapping import GroupTypeMapping
 from posthog.models.instance_setting import override_instance_config
+from posthog.schema import FunnelCorrelationQuery, FunnelsQuery, FunnelCorrelationType
 from posthog.test.base import (
     APIBaseTest,
     ClickhouseTestMixin,
@@ -88,9 +93,6 @@ class TestClickhouseFunnelCorrelation(ClickhouseTestMixin, APIBaseTest):
             "funnel_correlation_type": "events",
         }
 
-        filter = Filter(data=filters)
-        correlation = FunnelCorrelation(filter, self.team)
-
         for i in range(10):
             _create_person(distinct_ids=[f"user_{i}"], team_id=self.team.pk)
             _create_event(
@@ -129,7 +131,13 @@ class TestClickhouseFunnelCorrelation(ClickhouseTestMixin, APIBaseTest):
                     timestamp="2020-01-03T14:00:00Z",
                 )
 
-        result = correlation._run()[0]
+        # filter = Filter(data=filters)
+        # correlation = FunnelCorrelation(filter, self.team)
+        # result = correlation._run()[0]
+
+        funnels_query = cast(FunnelsQuery, filter_to_query(filters))
+        correlation_query = FunnelCorrelationQuery(source=funnels_query, correlationType=FunnelCorrelationType.events)
+        result = FunnelCorrelationQueryRunner(query=correlation_query, team=self.team).calculate().result
 
         odds_ratios = [item.pop("odds_ratio") for item in result]  # type: ignore
         expected_odds_ratios = [11, 1 / 11]
@@ -157,16 +165,16 @@ class TestClickhouseFunnelCorrelation(ClickhouseTestMixin, APIBaseTest):
             ],
         )
 
-        self.assertEqual(len(self._get_actors_for_event(filter, "positively_related")), 5)
+        self.assertEqual(len(self._get_actors_for_event(filters, "positively_related")), 5)
         self.assertEqual(
-            len(self._get_actors_for_event(filter, "positively_related", success=False)),
+            len(self._get_actors_for_event(filters, "positively_related", success=False)),
             0,
         )
         self.assertEqual(
-            len(self._get_actors_for_event(filter, "negatively_related", success=False)),
+            len(self._get_actors_for_event(filters, "negatively_related", success=False)),
             5,
         )
-        self.assertEqual(len(self._get_actors_for_event(filter, "negatively_related")), 0)
+        self.assertEqual(len(self._get_actors_for_event(filters, "negatively_related")), 0)
 
         # Now exclude positively_related
         filter = filter.shallow_clone({"funnel_correlation_exclude_event_names": ["positively_related"]})
