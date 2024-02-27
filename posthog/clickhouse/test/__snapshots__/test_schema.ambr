@@ -278,6 +278,21 @@
   
   '''
 # ---
+# name: test_create_kafka_table_with_different_kafka_host[kafka_person_distinct_id_overrides]
+  '''
+  
+  CREATE TABLE IF NOT EXISTS kafka_person_distinct_id_overrides ON CLUSTER 'posthog'
+  (
+      team_id Int64,
+      distinct_id VARCHAR,
+      person_id UUID,
+      is_deleted Int8,
+      version Int64
+      
+  ) ENGINE = Kafka('test.kafka.broker:9092', 'clickhouse_person_distinct_id_test', 'clickhouse-person-distinct-id-overrides', 'JSONEachRow')
+  
+  '''
+# ---
 # name: test_create_kafka_table_with_different_kafka_host[kafka_person_overrides]
   '''
   
@@ -910,6 +925,21 @@
   
   '''
 # ---
+# name: test_create_table_query[kafka_person_distinct_id_overrides]
+  '''
+  
+  CREATE TABLE IF NOT EXISTS kafka_person_distinct_id_overrides ON CLUSTER 'posthog'
+  (
+      team_id Int64,
+      distinct_id VARCHAR,
+      person_id UUID,
+      is_deleted Int8,
+      version Int64
+      
+  ) ENGINE = Kafka('kafka:9092', 'clickhouse_person_distinct_id_test', 'clickhouse-person-distinct-id-overrides', 'JSONEachRow')
+  
+  '''
+# ---
 # name: test_create_table_query[kafka_person_overrides]
   '''
   
@@ -1260,6 +1290,25 @@
       ORDER BY (team_id, distinct_id)
       SETTINGS index_granularity = 512
       
+  '''
+# ---
+# name: test_create_table_query[person_distinct_id_overrides_mv]
+  '''
+  
+  CREATE MATERIALIZED VIEW IF NOT EXISTS person_distinct_id_overrides_mv ON CLUSTER 'posthog'
+  TO posthog_test.person_distinct_id_overrides
+  AS SELECT
+  team_id,
+  distinct_id,
+  person_id,
+  is_deleted,
+  version,
+  _timestamp,
+  _offset,
+  _partition
+  FROM posthog_test.kafka_person_distinct_id_overrides
+  WHERE version > 0 -- only store updated rows, not newly inserted ones
+  
   '''
 # ---
 # name: test_create_table_query[person_mv]
