@@ -46,7 +46,7 @@ class FunnelBase(ABC):
         self._extra_event_properties: List[PropertyName] = []
 
         if (
-            hasattr(self.context, "ActorsQuery")
+            hasattr(self.context, "actorsQuery")
             and self.context.actorsQuery is not None
             and self.context.actorsQuery.includeRecordings
         ):
@@ -632,7 +632,7 @@ class FunnelBase(ABC):
 
     def _get_funnel_person_step_events(self) -> List[ast.Expr]:
         if (
-            hasattr(self.context, "ActorsQuery")
+            hasattr(self.context, "actorsQuery")
             and self.context.actorsQuery is not None
             and self.context.actorsQuery.includeRecordings
         ):
@@ -681,7 +681,7 @@ class FunnelBase(ABC):
 
     def _get_matching_events(self, max_steps: int) -> List[ast.Expr]:
         if (
-            hasattr(self.context, "ActorsQuery")
+            hasattr(self.context, "actorsQuery")
             and self.context.actorsQuery is not None
             and self.context.actorsQuery.includeRecordings
         ):
@@ -698,7 +698,7 @@ class FunnelBase(ABC):
     def _get_matching_event_arrays(self, max_steps: int) -> List[ast.Expr]:
         exprs: List[ast.Expr] = []
         if (
-            hasattr(self.context, "ActorsQuery")
+            hasattr(self.context, "actorsQuery")
             and self.context.actorsQuery is not None
             and self.context.actorsQuery.includeRecordings
         ):

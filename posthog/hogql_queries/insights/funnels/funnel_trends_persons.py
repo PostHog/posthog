@@ -41,7 +41,7 @@ class FunnelTrendsActors(FunnelTrends):
 
     def _get_funnel_person_step_events(self) -> List[ast.Expr]:
         if (
-            hasattr(self.context, "ActorsQuery")
+            hasattr(self.context, "actorsQuery")
             and self.context.actorsQuery is not None
             and self.context.actorsQuery.includeRecordings
         ):

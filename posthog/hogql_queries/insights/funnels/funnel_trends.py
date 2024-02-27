@@ -274,7 +274,7 @@ class FunnelTrends(FunnelBase):
 
         event_select_clause: List[ast.Expr] = []
         if (
-            hasattr(self.context, "ActorsQuery")
+            hasattr(self.context, "actorsQuery")
             and self.context.actorsQuery is not None
             and self.context.actorsQuery.includeRecordings
         ):

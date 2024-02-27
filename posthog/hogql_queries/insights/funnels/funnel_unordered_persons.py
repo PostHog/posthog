@@ -10,7 +10,7 @@ class FunnelUnorderedActors(FunnelUnordered):
         # Unordered funnels does not support matching events (and thereby recordings),
         # but it simplifies the logic if we return an empty array for matching events
         if (
-            hasattr(self.context, "ActorsQuery")
+            hasattr(self.context, "actorsQuery")
             and self.context.actorsQuery is not None
             and self.context.actorsQuery.includeRecordings
         ):
