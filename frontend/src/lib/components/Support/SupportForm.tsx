@@ -1,3 +1,4 @@
+import { IconBug } from '@posthog/icons'
 import {
     LemonBanner,
     LemonInput,
@@ -9,7 +10,7 @@ import {
 import { useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
 import { useUploadFiles } from 'lib/hooks/useUploadFiles'
-import { IconBugReport, IconFeedback, IconHelpOutline } from 'lib/lemon-ui/icons'
+import { IconFeedback, IconHelpOutline } from 'lib/lemon-ui/icons'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { LemonFileInput } from 'lib/lemon-ui/LemonFileInput/LemonFileInput'
 import { LemonSelect } from 'lib/lemon-ui/LemonSelect/LemonSelect'
@@ -35,7 +36,7 @@ const SUPPORT_TICKET_OPTIONS: LemonSegmentedButtonOption<SupportTicketKind>[] = 
     {
         value: 'bug',
         label: 'Bug',
-        icon: <IconBugReport />,
+        icon: <IconBug />,
     },
 ]
 

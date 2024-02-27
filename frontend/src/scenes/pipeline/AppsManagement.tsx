@@ -1,8 +1,7 @@
-import { IconLock, IconTrash, IconUnlock } from '@posthog/icons'
+import { IconDownload, IconLock, IconRedo, IconTrash, IconUnlock } from '@posthog/icons'
 import { LemonBanner, LemonDivider, LemonMenu, LemonTable, LemonTag, Tooltip } from '@posthog/lemon-ui'
 import { Popconfirm } from 'antd'
 import { useActions, useValues } from 'kea'
-import { IconCloudDownload, IconRefresh } from 'lib/lemon-ui/icons'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonInput } from 'lib/lemon-ui/LemonInput'
 import { Link } from 'lib/lemon-ui/Link'
@@ -93,7 +92,7 @@ function AppsToUpdate(): JSX.Element {
             {updatablePlugins && (
                 <LemonButton
                     type="secondary"
-                    icon={<IconRefresh />}
+                    icon={<IconRedo />}
                     onClick={checkForUpdates}
                     loading={checkingForUpdates}
                 >
@@ -179,7 +178,7 @@ function AppsTable({ plugins }: RenderAppsTable): JSX.Element {
                                         <LemonButton
                                             type="secondary"
                                             size="small"
-                                            icon={<IconCloudDownload />}
+                                            icon={<IconDownload />}
                                             onClick={() => updatePlugin(plugin.id)}
                                         >
                                             Update
