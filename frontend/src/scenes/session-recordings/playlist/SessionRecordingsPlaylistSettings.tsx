@@ -53,19 +53,16 @@ export function SessionRecordingsPlaylistSettings(): JSX.Element {
                     onChange={() => setHideViewedRecordings(!hideViewedRecordings)}
                 />
             </div>
-            <div className="flex flex-row items-center justify-between space-x-2">
-                <span className="text-black font-medium">Show</span>
-                <DurationTypeSelect
-                    value={orderBy !== 'console_error_count' ? orderBy : durationTypeToShow}
-                    onChange={(value) => setDurationTypeToShow(value)}
-                    onChangeEventDescription="session recording list duration type to show selected"
-                    disabledReason={
-                        orderBy !== 'console_error_count'
-                            ? 'Not configurable because of the time based ordering'
-                            : undefined
-                    }
-                />
-            </div>
+            {orderBy === 'start_time' && (
+                <div className="flex flex-row items-center justify-between space-x-2">
+                    <span className="text-black font-medium">Show</span>
+                    <DurationTypeSelect
+                        value={durationTypeToShow}
+                        onChange={(value) => setDurationTypeToShow(value)}
+                        onChangeEventDescription="session recording list duration type to show selected"
+                    />
+                </div>
+            )}
         </div>
     )
 }
