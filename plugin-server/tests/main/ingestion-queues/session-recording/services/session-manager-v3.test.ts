@@ -253,42 +253,6 @@ describe('session-manager', () => {
     })
 
     it('handles a corrupted metadata.json file', async () => {
-        const now = Date.now()
-        const sm1 = await createSessionManager('session_id_2', 2, 2)
-
-        await sm1.add(
-            createIncomingRecordingMessage({
-                events: [
-                    { timestamp: 170000000, type: 4, data: { href: 'http://localhost:3001/' } },
-                    { timestamp: 170000000 + 1000, type: 4, data: { href: 'http://localhost:3001/' } },
-                ],
-            })
-        )
-
-        await sm1.stop()
-
-        await fs.writeFile(`${sm1.context.dir}/metadata.json`, 'CORRUPTEDDD', 'utf-8')
-
-        const sm2 = await createSessionManager('session_id_2', 2, 2)
-
-        expect(sm2.buffer?.context).toEqual({
-            count: 1,
-            createdAt: expect.any(Number),
-            eventsRange: {
-                firstTimestamp: expect.any(Number),
-                lastTimestamp: expect.any(Number),
-            },
-            sizeEstimate: 185,
-        })
-
-        expect(sm2.buffer?.context.createdAt).toBeGreaterThanOrEqual(now)
-        expect(sm2.buffer?.context.eventsRange?.firstTimestamp).toBeGreaterThanOrEqual(now)
-        expect(sm2.buffer?.context.eventsRange?.lastTimestamp).toBeGreaterThanOrEqual(
-            sm2.buffer!.context.eventsRange!.firstTimestamp
-        )
-    })
-
-    it('handles a corrupted metadata.json file', async () => {
         const sm1 = await createSessionManager('session_id_2', 2, 2)
 
         await sm1.add(
