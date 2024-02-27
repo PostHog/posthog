@@ -25,7 +25,7 @@ const metricPrefix = 'v3_'
 export const FILE_EXTENSION = '.jsonl'
 export const BUFFER_FILE_NAME = `buffer${FILE_EXTENSION}`
 export const FLUSH_FILE_EXTENSION = `.flush${FILE_EXTENSION}`
-export const METADATA_FILE_NAME = `metadata2.json`
+export const METADATA_FILE_NAME = `metadata.json`
 
 const counterS3FilesWritten = new Counter({
     name: metricPrefix + 'recording_s3_files_written',
