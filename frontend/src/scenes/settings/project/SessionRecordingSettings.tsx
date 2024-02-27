@@ -260,7 +260,7 @@ function LinkedFlagSelector(): JSX.Element | null {
                     <>
                         <LemonLabel className="text-base">Link to a specific flag variant</LemonLabel>
                         <LemonSegmentedButton
-                            className="min-w-1/2"
+                            className="min-w-1/3"
                             value={currentTeam?.session_recording_linked_flag?.variant ?? 'any'}
                             options={variantOptions(linkedFlag?.filters.multivariate)}
                             onChange={(variant) => {
