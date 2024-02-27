@@ -92,37 +92,37 @@ export const TARGET_AREA_TO_NAME = [
         ],
     },
     {
-        title: 'Individual Product',
+        title: 'Individual product',
         options: [
             {
                 value: 'experiments',
                 'data-attr': `support-form-target-area-experiments`,
-                label: 'A/B Testing',
+                label: 'A/B testing',
             },
             {
                 value: 'data_warehouse',
                 'data-attr': `support-form-target-area-data_warehouse`,
-                label: 'Data Warehouse (beta)',
+                label: 'Data warehouse (beta)',
             },
             {
                 value: 'feature_flags',
                 'data-attr': `support-form-target-area-feature_flags`,
-                label: 'Feature Flags',
+                label: 'Feature flags',
             },
             {
                 value: 'analytics',
                 'data-attr': `support-form-target-area-analytics`,
-                label: 'Product Analytics (incl. insights, dashboards, annotations)',
+                label: 'Product analytics (incl. insights, dashboards, annotations)',
             },
             {
                 value: 'session_replay',
                 'data-attr': `support-form-target-area-session_replay`,
-                label: 'Session Replay (incl. recordings)',
+                label: 'Session replay (incl. recordings)',
             },
             {
                 value: 'toolbar',
                 'data-attr': `support-form-target-area-toolbar`,
-                label: 'Toolbar & Heatmaps',
+                label: 'Toolbar (incl. heatmaps)',
             },
             {
                 value: 'surveys',
