@@ -330,7 +330,10 @@ export function SessionRecordingPreview({
                         ) : (
                             <RecordingDuration
                                 iconClassNames={iconClassnames}
-                                recordingDuration={durationToShow(recording, durationTypeToShow)}
+                                recordingDuration={durationToShow(
+                                    recording,
+                                    orderBy === 'start_time' ? durationTypeToShow : orderBy
+                                )}
                             />
                         )}
                     </div>

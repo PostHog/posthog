@@ -58,7 +58,7 @@ export function SessionRecordingsFilters({
             header: 'Ordering',
             content: <OrderingFilters />,
         },
-    ]
+    ].filter(Boolean)
 
     return (
         <div className="relative flex flex-col">
@@ -80,17 +80,15 @@ export function SessionRecordingsFilters({
                 )}
             </div>
 
-            {hideSimpleFilters ? (
-                AdvancedFilters
-            ) : (
-                <LemonCollapse
-                    className="w-full rounded-none border-0 border-t"
-                    multiple
-                    defaultActiveKeys={initiallyOpen ? ['advanced-filters'] : []}
-                    size="small"
-                    panels={panels}
-                />
-            )}
+            {hideSimpleFilters && AdvancedFilters}
+
+            <LemonCollapse
+                className="w-full rounded-none border-0 border-t"
+                multiple
+                defaultActiveKeys={initiallyOpen ? ['advanced-filters'] : []}
+                size="small"
+                panels={panels}
+            />
         </div>
     )
 }
