@@ -400,8 +400,8 @@ class FunnelBase(ABC):
 
         extra_fields: List[str] = []
 
-        # for prop in self._include_properties:
-        #     extra_fields.append(prop)
+        for prop in self.context.includeProperties:
+            extra_fields.append(prop)
 
         funnel_events_query = FunnelEventQuery(
             context=self.context,
@@ -587,13 +587,12 @@ class FunnelBase(ABC):
             return event_expr
 
     def _get_timestamp_outer_select(self) -> List[ast.Expr]:
-        return []
-        # if self._include_preceding_timestamp:
-        #     return ", max_timestamp, min_timestamp"
-        # elif self._include_timestamp:
-        #     return ", timestamp"
-        # else:
-        #     return ""
+        if self.context.includePrecedingTimestamp:
+            return [ast.Field(chain=["max_timestamp"]), ast.Field(chain=["min_timestamp"])]
+        elif self.context.includeTimestamp:
+            return [ast.Field(chain=["timestamp"])]
+        else:
+            return []
 
     def _get_funnel_person_step_condition(self) -> ast.Expr:
         actorsQuery, breakdownType, max_steps = (
@@ -637,10 +636,9 @@ class FunnelBase(ABC):
             and self.context.actorsQuery.includeRecordings
         ):
             step_num = self.context.actorsQuery.funnelStep
-            # if self._filter.include_final_matching_events:
-            if False:  # TODO: Implement with correlations
+            if self.context.includeFinalMatchingEvents:
                 # Always returns the user's final step of the funnel
-                return [parse_expr("final_matching_events as matching_events")]  # type: ignore
+                return [parse_expr("final_matching_events as matching_events")]
             elif step_num is None:
                 raise ValueError("Missing funnelStep actors query property")
             if step_num >= 0:
