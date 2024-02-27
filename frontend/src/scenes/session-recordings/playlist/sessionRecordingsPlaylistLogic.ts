@@ -64,7 +64,9 @@ export const defaultRecordingDurationFilter: RecordingDurationFilter = {
     operator: PropertyOperator.GreaterThan,
 }
 
-export const DEFAULT_SIMPLE_RECORDING_FILTERS: RecordingFilters = {
+type SimpleFiltersType = Pick<RecordingFilters, 'events' | 'properties'>
+
+export const DEFAULT_SIMPLE_RECORDING_FILTERS: SimpleFiltersType = {
     events: [],
     properties: [],
 }
@@ -196,7 +198,7 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
     }),
     actions({
         setAdvancedFilters: (filters: Partial<RecordingFilters>) => ({ filters }),
-        setSimpleFilters: (filters: Partial<RecordingFilters>) => ({ filters }),
+        setSimpleFilters: (filters: SimpleFiltersType) => ({ filters }),
         setShowFilters: (showFilters: boolean) => ({ showFilters }),
         setShowSettings: (showSettings: boolean) => ({ showSettings }),
         resetFilters: true,
