@@ -49,7 +49,7 @@ jobs:
                         - stylelint*
 
     frontend-code-quality:
-        name: Code quality checks
+        name: Code quality checks potato
         needs: changes
         # kea typegen and typescript:check need some more oomph
         runs-on: ubuntu-latest
