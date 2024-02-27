@@ -24,6 +24,7 @@ if (typeof window !== 'undefined') {
 }
 
 function renderApp(): void {
+    // plz run cypress tests in CI plz
     const root = document.getElementById('root')
     if (root) {
         createRoot(root).render(
