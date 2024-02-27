@@ -78,6 +78,12 @@ const writeStreamBlocked = new Counter({
     help: 'Number of times we get blocked by the stream backpressure',
 })
 
+const histogramBackpressureBlockedSeconds = new Histogram({
+    name: metricPrefix + 'recording_blob_ingestion_backpressure_blocked_seconds',
+    help: 'The time taken to flush a session in seconds',
+    buckets: [0, 2, 5, 10, 20, 30, 60, 120, 180, 300, Infinity],
+})
+
 export type SessionManagerBufferContext = {
     sizeEstimate: number
     count: number
@@ -214,7 +220,10 @@ export class SessionManagerV3 {
 
             if (!buffer.fileStream.write(content, 'utf-8')) {
                 writeStreamBlocked.inc()
+
+                const stopTimer = histogramBackpressureBlockedSeconds.startTimer()
                 await new Promise((r) => buffer.fileStream.once('drain', r))
+                stopTimer()
             }
 
             await this.syncMetadata()
