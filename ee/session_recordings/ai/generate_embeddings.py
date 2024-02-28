@@ -1,3 +1,4 @@
+from django.conf import settings
 from openai import OpenAI
 
 from typing import Dict, Any, List
@@ -35,16 +36,26 @@ SESSION_EMBEDDINGS_GENERATED = Counter(
     "Number of session embeddings generated",
 )
 
+SESSION_EMBEDDINGS_FAILED = Counter(
+    "posthog_session_recordings_embeddings_failed",
+    "Number of session embeddings failed",
+)
+
 SESSION_EMBEDDINGS_WRITTEN_TO_CLICKHOUSE = Counter(
     "posthog_session_recordings_embeddings_written_to_clickhouse",
     "Number of session embeddings written to Clickhouse",
 )
 
+SESSION_EMBEDDINGS_FAILED_TO_CLICKHOUSE = Counter(
+    "posthog_session_recordings_embeddings_failed_to_clickhouse",
+    "Number of session embeddings failed to Clickhouse",
+)
+
 logger = get_logger(__name__)
 
-# TODO move these to settings
-BATCH_FLUSH_SIZE = 10
-MIN_DURATION_INCLUDE_SECONDS = 120
+
+BATCH_FLUSH_SIZE = settings.REPLAY_EMBEDDINGS_BATCH_SIZE
+MIN_DURATION_INCLUDE_SECONDS = settings.REPLAY_EMBEDDINGS_MIN_DURATION_SECONDS
 
 
 def fetch_recordings_without_embeddings(team: Team | int, offset=0) -> List[str]:
@@ -138,12 +149,19 @@ def embed_batch_of_recordings(recordings: List[str], team: Team | int) -> None:
             if len(batched_embeddings) > 0:
                 flush_embeddings_to_clickhouse(embeddings=batched_embeddings)
     except Exception as e:
+        SESSION_EMBEDDINGS_FAILED.inc()
         logger.error(f"embed recordings error", flow="embeddings", error=e)
+        raise e
 
 
 def flush_embeddings_to_clickhouse(embeddings: List[Dict[str, Any]]) -> None:
-    sync_execute("INSERT INTO session_replay_embeddings (session_id, team_id, embeddings) VALUES", embeddings)
-    SESSION_EMBEDDINGS_WRITTEN_TO_CLICKHOUSE.inc(len(embeddings))
+    try:
+        sync_execute("INSERT INTO session_replay_embeddings (session_id, team_id, embeddings) VALUES", embeddings)
+        SESSION_EMBEDDINGS_WRITTEN_TO_CLICKHOUSE.inc(len(embeddings))
+    except Exception as e:
+        logger.error(f"flush embeddings error", flow="embeddings", error=e)
+        SESSION_EMBEDDINGS_FAILED_TO_CLICKHOUSE.inc(len(embeddings))
+        raise e
 
 
 def generate_recording_embeddings(session_id: str, team: Team | int) -> List[float] | None:
