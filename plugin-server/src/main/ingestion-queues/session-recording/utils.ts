@@ -266,8 +266,7 @@ export const allSettledWithConcurrency = async <T, Q>(
     arr: T[],
     fn: (item: T, index: number) => Promise<Q>
 ): Promise<{ error?: any; result?: Q }[]> => {
-    // This function processes promises in parallel, but with a maximum concurrency
-    // It's a bit like Promise.all, but with a concurrency limit
+    // This function processes promises in parallel like Promise.allSettled, but with a maximum concurrency
 
     return new Promise<{ error?: any; result?: Q }[]>((resolve) => {
         const results: { error?: any; result?: Q }[] = []
