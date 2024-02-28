@@ -367,7 +367,7 @@ class TrendsQueryRunner(QueryRunner):
                         )
                         for item in get_value("date", val)
                     ]
-                    if "date" in response.columns
+                    if response.columns and "date" in response.columns
                     else [],
                     "count": 0,
                     "aggregated_value": get_value("total", val),
@@ -615,7 +615,7 @@ class TrendsQueryRunner(QueryRunner):
                     new_result["label"] = f"Formula ({formula})"
                     res.append(new_result)
                 else:
-                    series_data = map(lambda s: s["data"], group_list)
+                    series_data = list(map(lambda s: s["data"], group_list))
                     new_series_data = FormulaAST(series_data).call(formula)
 
                     new_result = group_list[0]
@@ -635,7 +635,7 @@ class TrendsQueryRunner(QueryRunner):
             new_result["count"] = 0
             new_result["label"] = f"Formula ({formula})"
         else:
-            series_data = map(lambda s: s["data"], results)
+            series_data = list(map(lambda s: s["data"], results))
             new_series_data = FormulaAST(series_data).call(formula)
 
             new_result = results[0]

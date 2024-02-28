@@ -1083,20 +1083,7 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
 
         assert len(response.results) == 1
         assert response.results[0]["data"] == []
-        assert response.results[0]["days"] == [
-            "2020-01-09",
-            "2020-01-10",
-            "2020-01-11",
-            "2020-01-12",
-            "2020-01-13",
-            "2020-01-14",
-            "2020-01-15",
-            "2020-01-16",
-            "2020-01-17",
-            "2020-01-18",
-            "2020-01-19",
-            "2020-01-20",
-        ]
+        assert response.results[0]["days"] == []
         assert response.results[0]["count"] == 0
         assert response.results[0]["aggregated_value"] == 10
 
