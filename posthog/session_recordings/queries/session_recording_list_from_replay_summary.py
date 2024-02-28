@@ -179,6 +179,10 @@ class ActorsQuery(EventQuery):
     """
 
     def get_query(self) -> Tuple[str, Dict[str, Any]]:
+        # we don't support PoE V1 - hopefully that's ok
+        if self._team.person_on_events_mode == PersonOnEventsMode.V2_ENABLED:
+            return "", {}
+
         prop_query, prop_params = self._get_prop_groups(
             PropertyGroup(
                 type=PropertyOperatorType.AND,
@@ -267,7 +271,20 @@ class SessionIdEventsQuery(EventQuery):
             )
             > 0
         )
-        return filters_by_event_or_action or has_event_property_filters
+
+        has_poe_filters = (
+            self._team.person_on_events_mode == PersonOnEventsMode.V2_ENABLED
+            and len(
+                [
+                    pg
+                    for pg in self._filter.property_groups.flat
+                    if pg.type == "person" or (pg.type == "hogql" and "person.properties" in pg.key)
+                ]
+            )
+            > 0
+        )
+
+        return filters_by_event_or_action or has_event_property_filters or has_poe_filters
 
     def __init__(
         self,
@@ -326,7 +343,9 @@ class SessionIdEventsQuery(EventQuery):
             prepend=prepend,
             allow_denormalized_props=True,
             has_person_id_joined=True,
-            person_properties_mode=PersonPropertiesMode.USING_PERSON_PROPERTIES_COLUMN,
+            person_properties_mode=PersonPropertiesMode.DIRECT_ON_EVENTS_WITH_POE_V2
+            if self._team.person_on_events_mode == PersonOnEventsMode.V2_ENABLED
+            else PersonPropertiesMode.USING_PERSON_PROPERTIES_COLUMN,
             hogql_context=self._filter.hogql_context,
         )
         filter_sql += f" {filters}"
@@ -437,8 +456,11 @@ class SessionIdEventsQuery(EventQuery):
                 values=[
                     g
                     for g in self._filter.property_groups.flat
-                    if (g.type == "hogql" and "person.properties" not in g.key)
-                    or (g.type != "hogql" and "cohort" not in g.type and g.type != "person")
+                    if (self._team.person_on_events_mode == PersonOnEventsMode.V2_ENABLED and g.type == "person")
+                    or (
+                        (g.type == "hogql" and "person.properties" not in g.key)
+                        or (g.type != "hogql" and "cohort" not in g.type and g.type != "person")
+                    )
                 ],
             ),
             person_id_joined_alias=f"{self.DISTINCT_ID_TABLE_ALIAS}.person_id",
@@ -447,6 +469,9 @@ class SessionIdEventsQuery(EventQuery):
             # it is likely this can be returned to the default of True in future
             # but would need careful monitoring
             allow_denormalized_props=settings.ALLOW_DENORMALIZED_PROPS_IN_LISTING,
+            person_properties_mode=PersonPropertiesMode.DIRECT_ON_EVENTS_WITH_POE_V2
+            if self._team.person_on_events_mode == PersonOnEventsMode.V2_ENABLED
+            else PersonPropertiesMode.USING_PERSON_PROPERTIES_COLUMN,
         )
 
         (
@@ -609,7 +634,7 @@ class SessionRecordingListFromReplaySummary(EventQuery):
 
     def run(self) -> SessionRecordingQueryResult:
         try:
-            self._filter.hogql_context.modifiers.personsOnEventsMode = PersonOnEventsMode.DISABLED
+            self._filter.hogql_context.modifiers.personsOnEventsMode = self._team.person_on_events_mode
             query, query_params = self.get_query()
             query_results = sync_execute(query, {**query_params, **self._filter.hogql_context.values})
             session_recordings = self._data_to_return(query_results)
