@@ -175,7 +175,6 @@ export const startBatchConsumer = async ({
     instrumentConsumerMetrics(consumer, groupId)
 
     let isShuttingDown = false
-    // let lastHeartbeatTime = 0
     let lastHeartbeatTime = 0
 
     // Before subscribing, we need to ensure that the topic exists. We don't
