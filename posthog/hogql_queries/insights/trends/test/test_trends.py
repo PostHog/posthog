@@ -6422,22 +6422,10 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
                 self.team,
             )
 
-        self.assertEqual(response[0]["aggregated_value"], 2)  # the events without breakdown value
+        self.assertEqual(response[0]["aggregated_value"], 1)
         self.assertEqual(response[1]["aggregated_value"], 1)
-        self.assertEqual(response[2]["aggregated_value"], 1)
-        self.assertEqual(
-            response[0]["days"],
-            [
-                "2019-12-28",
-                "2019-12-29",
-                "2019-12-30",
-                "2019-12-31",
-                "2020-01-01",
-                "2020-01-02",
-                "2020-01-03",
-                "2020-01-04",
-            ],
-        )
+        self.assertEqual(response[2]["aggregated_value"], 2)  # the events without breakdown value
+        self.assertEqual(response[0]["days"], [])
 
     @also_test_with_materialized_columns(person_properties=["key", "key_2"], verify_no_jsonextract=False)
     def test_breakdown_multiple_cohorts(self):
