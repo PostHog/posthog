@@ -380,7 +380,7 @@ async def delete_squashed_person_overrides_from_clickhouse(inputs: QueryInputs) 
                     DROP_JOIN_TABLE_FOR_DELETES_QUERY.format(database=settings.CLICKHOUSE_DATABASE),
                 )
 
-    activity.logger.info("Deleted squashed persons from ClickHouse")
+    activity.logger.info("Deleted squashed person overrides from ClickHouse")
 
 
 @contextlib.asynccontextmanager
