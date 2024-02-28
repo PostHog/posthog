@@ -1,3 +1,4 @@
+from django.conf import settings
 from openai import OpenAI
 
 from typing import Dict, Any, List
@@ -47,9 +48,9 @@ SESSION_EMBEDDINGS_FAILED_TO_CLICKHOUSE = Counter(
 
 logger = get_logger(__name__)
 
-# TODO move these to settings
-BATCH_FLUSH_SIZE = 10
-MIN_DURATION_INCLUDE_SECONDS = 120
+
+BATCH_FLUSH_SIZE = settings.REPLAY_EMBEDDINGS_BATCH_SIZE
+MIN_DURATION_INCLUDE_SECONDS = settings.REPLAY_EMBEDDINGS_MIN_DURATION_SECONDS
 
 
 def fetch_recordings_without_embeddings(team: Team | int, offset=0) -> List[str]:
