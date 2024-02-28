@@ -48,7 +48,7 @@ describe('sessionRecordingsPlaylistLogic', () => {
                                 results: ["List of specific user's recordings from server"],
                             },
                         ]
-                    } else if (searchParams.get('offset') === `${listOfSessionRecordings.length}`) {
+                    } else if (searchParams.get('offset') !== null) {
                         return [
                             200,
                             {
