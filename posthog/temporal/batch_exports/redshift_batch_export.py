@@ -25,7 +25,6 @@ from posthog.temporal.batch_exports.batch_exports import (
     get_rows_count,
     iter_records,
 )
-from posthog.temporal.batch_exports.clickhouse import get_client
 from posthog.temporal.batch_exports.metrics import get_rows_exported_metric
 from posthog.temporal.batch_exports.postgres_batch_export import (
     PostgresInsertInputs,
@@ -33,6 +32,7 @@ from posthog.temporal.batch_exports.postgres_batch_export import (
     postgres_connection,
 )
 from posthog.temporal.batch_exports.utils import peek_first_and_rewind
+from posthog.temporal.common.clickhouse import get_client
 from posthog.temporal.common.logger import bind_temporal_worker_logger
 
 
@@ -457,7 +457,15 @@ class RedshiftBatchExportWorkflow(PostHogWorkflow):
         await execute_batch_export_insert_activity(
             insert_into_redshift_activity,
             insert_inputs,
-            non_retryable_error_types=[],
+            non_retryable_error_types=[
+                # Raised on errors that are related to database operation.
+                # For example: unexpected disconnect, database or other object not found.
+                "OperationalError",
+                # The schema name provided is invalid (usually because it doesn't exist).
+                "InvalidSchemaName",
+                # Missing permissions to, e.g., insert into table.
+                "InsufficientPrivilege",
+            ],
             update_inputs=update_inputs,
             # Disable heartbeat timeout until we add heartbeat support.
             heartbeat_timeout_seconds=None,

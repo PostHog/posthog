@@ -1,5 +1,6 @@
+import { IconCode } from '@posthog/icons'
 import { Tooltip } from '@posthog/lemon-ui'
-import { IconAdsClick, IconCode, IconExclamation, IconEyeHidden, IconEyeVisible } from 'lib/lemon-ui/icons'
+import { IconAdsClick, IconExclamation, IconEyeHidden, IconEyeVisible } from 'lib/lemon-ui/icons'
 import { CORE_FILTER_DEFINITIONS_BY_GROUP } from 'lib/taxonomy'
 
 import { EventType } from '~/types'
@@ -7,7 +8,7 @@ import { EventType } from '~/types'
 type EventIconProps = { event: EventType }
 
 export const EventIcon = ({ event }: EventIconProps): JSX.Element => {
-    let Component: React.ComponentType<{ className: string }>
+    let Component
     switch (event.event) {
         case '$pageview':
             Component = IconEyeVisible
