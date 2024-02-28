@@ -262,12 +262,15 @@ def get_decide(request: HttpRequest):
 
                 linked_flag = team.session_recording_linked_flag or None
                 if isinstance(linked_flag, Dict):
-                    linked_flag_key = linked_flag.get("key", None)
-                    linked_flag_variant = linked_flag.get("variant", None)
-                    if linked_flag_variant is not None:
-                        linked_flag = {"flag": linked_flag_key, "variant": linked_flag_variant}
-                    else:
-                        linked_flag = linked_flag_key
+                    linked_flag = linked_flag.get("key")
+                    # the below was merged in https://github.com/PostHog/posthog/pull/20543
+                    # might have caused an incident, so commenting out for now
+                    # linked_flag_key = linked_flag.get("key", None)
+                    # linked_flag_variant = linked_flag.get("variant", None)
+                    # if linked_flag_variant is not None:
+                    #     linked_flag = {"flag": linked_flag_key, "variant": linked_flag_variant}
+                    # else:
+                    #     linked_flag = linked_flag_key
 
                 session_recording_response = {
                     "endpoint": "/s/",
