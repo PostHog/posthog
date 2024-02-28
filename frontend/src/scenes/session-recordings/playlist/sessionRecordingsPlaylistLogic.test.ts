@@ -174,7 +174,7 @@ describe('sessionRecordingsPlaylistLogic', () => {
                 expect(logic.values.otherRecordings.map((r) => r.console_error_count)).toEqual([100, 50])
             })
 
-            it('adds an offset for subsequent loads when not', async () => {
+            it('adds an offset when not using latest ordering', async () => {
                 await expectLogic(logic, () => {
                     logic.actions.setOrderBy('console_error_count')
                 })
