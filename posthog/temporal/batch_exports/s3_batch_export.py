@@ -573,8 +573,6 @@ class S3BatchExportWorkflow(PostHogWorkflow):
                 "ParamValidationError",
                 # This error usually indicates credentials are incorrect or permissions are missing.
                 "ClientError",
-                # An S3 bucket doesn't exist.
-                "NoSuchBucket",
             ],
             update_inputs=update_inputs,
         )
