@@ -27,10 +27,14 @@ export const BUFFER_FILE_NAME = `buffer${FILE_EXTENSION}`
 export const FLUSH_FILE_EXTENSION = `.flush${FILE_EXTENSION}`
 export const METADATA_FILE_NAME = `metadata.json`
 
+const writeStreamBlocked = new Counter({
+    name: metricPrefix + 'recording_blob_ingestion_write_stream_blocked',
+    help: 'Number of times we get blocked by the stream backpressure',
+})
+
 const counterS3FilesWritten = new Counter({
     name: metricPrefix + 'recording_s3_files_written',
     help: 'A single file flushed to S3',
-    labelNames: ['flushReason'],
 })
 
 const counterS3WriteErrored = new Counter({
@@ -79,11 +83,6 @@ const histogramSessionSize = new Histogram({
     buckets: BUCKETS_LINES_WRITTEN,
 })
 
-const writeStreamBlocked = new Counter({
-    name: metricPrefix + 'recording_blob_ingestion_write_stream_blocked',
-    help: 'Number of times we get blocked by the stream backpressure',
-})
-
 const histogramBackpressureBlockedSeconds = new Histogram({
     name: metricPrefix + 'recording_blob_ingestion_backpressure_blocked_seconds',
     help: 'The time taken to flush a session in seconds',
@@ -100,11 +99,6 @@ export type SessionManagerBufferContext = {
     createdAt: number
 }
 
-export type SessionBuffer = {
-    context: SessionManagerBufferContext
-    fileStream: WriteStream
-}
-
 // Context that is updated and persisted to disk so must be serializable
 export type SessionManagerContext = {
     dir: string
@@ -114,7 +108,9 @@ export type SessionManagerContext = {
 }
 
 export class SessionManagerV3 {
-    buffer?: SessionBuffer
+    buffer?: SessionManagerBufferContext
+    bufferWriteStream?: WriteStream
+
     flushPromise?: Promise<void>
     destroying = false
     inProgressUpload: Upload | null = null
@@ -149,7 +145,7 @@ export class SessionManagerV3 {
         if (!bufferFileExists) {
             status.info('📦', '[session-manager] started new manager', {
                 ...this.context,
-                ...(this.buffer?.context ?? {}),
+                ...(this.buffer ?? {}),
             })
             return
         }
@@ -204,20 +200,17 @@ export class SessionManagerV3 {
             return
         }
 
-        this.buffer = {
-            context,
-            fileStream: this.createFileStreamFor(path.join(this.context.dir, BUFFER_FILE_NAME)),
-        }
+        this.buffer = context
 
         status.info('📦', '[session-manager] started new manager from existing file', {
             ...this.context,
-            ...(this.buffer?.context ?? {}),
+            ...(this.buffer ?? {}),
         })
     }
 
     private async syncMetadata(): Promise<void> {
         if (this.buffer) {
-            await writeFile(this.file(METADATA_FILE_NAME), JSON.stringify(this.buffer?.context), 'utf-8')
+            await writeFile(this.file(METADATA_FILE_NAME), JSON.stringify(this.buffer), 'utf-8')
         } else {
             await unlink(this.file(METADATA_FILE_NAME))
         }
@@ -262,23 +255,22 @@ export class SessionManagerV3 {
                 return
             }
 
-            buffer.context.eventsRange = {
-                firstTimestamp: minDefined(start, buffer.context.eventsRange?.firstTimestamp) ?? start,
-                lastTimestamp: maxDefined(end, buffer.context.eventsRange?.lastTimestamp) ?? end,
+            buffer.eventsRange = {
+                firstTimestamp: minDefined(start, buffer.eventsRange?.firstTimestamp) ?? start,
+                lastTimestamp: maxDefined(end, buffer.eventsRange?.lastTimestamp) ?? end,
             }
 
             const content = JSON.stringify(messageData) + '\n'
-            buffer.context.count += 1
-            buffer.context.sizeEstimate += content.length
+            buffer.count += 1
+            buffer.sizeEstimate += content.length
 
-            if (!buffer.fileStream.write(content, 'utf-8')) {
+            if (!this.bufferWriteStream!.write(content, 'utf-8')) {
                 writeStreamBlocked.inc()
 
                 const stopTimer = histogramBackpressureBlockedSeconds.startTimer()
-                await new Promise((r) => buffer.fileStream.once('drain', r))
+                await new Promise((r) => this.bufferWriteStream!.once('drain', r))
                 stopTimer()
             }
-
             await this.syncMetadata()
         } catch (error) {
             this.captureException(error, { message })
@@ -287,7 +279,7 @@ export class SessionManagerV3 {
     }
 
     public async isEmpty(): Promise<boolean> {
-        return !this.buffer?.context.count && !(await this.getFlushFiles()).length
+        return !this.buffer?.count && !(await this.getFlushFiles()).length
     }
 
     public async flush(force = false): Promise<void> {
@@ -301,7 +293,7 @@ export class SessionManagerV3 {
             await this.maybeFlushCurrentBuffer()
         } else {
             // This is mostly used by tests
-            await this.markCurrentBufferForFlush('rebalance')
+            await this.markCurrentBufferForFlush()
         }
 
         await this.flushFiles()
@@ -312,8 +304,8 @@ export class SessionManagerV3 {
             return
         }
 
-        if (this.buffer.context.sizeEstimate >= this.serverConfig.SESSION_RECORDING_MAX_BUFFER_SIZE_KB * 1024) {
-            return this.markCurrentBufferForFlush('buffer_size')
+        if (this.buffer.sizeEstimate >= this.serverConfig.SESSION_RECORDING_MAX_BUFFER_SIZE_KB * 1024) {
+            return this.markCurrentBufferForFlush()
         }
 
         const flushThresholdMs = this.serverConfig.SESSION_RECORDING_MAX_BUFFER_AGE_SECONDS * 1000
@@ -325,12 +317,12 @@ export class SessionManagerV3 {
             flushThresholdJitteredMs,
         }
 
-        if (!this.buffer.context.count) {
+        if (!this.buffer.count) {
             status.warn('🚽', `[session-manager] buffer has no items yet`, { logContext })
             return
         }
 
-        const bufferAgeInMemoryMs = now() - this.buffer.context.createdAt
+        const bufferAgeInMemoryMs = now() - this.buffer.createdAt
 
         // check the in-memory age against a larger value than the flush threshold,
         // otherwise we'll flap between reasons for flushing when close to real-time processing
@@ -340,22 +332,22 @@ export class SessionManagerV3 {
         logContext['isSessionAgeOverThreshold'] = isSessionAgeOverThreshold
 
         histogramSessionAgeSeconds.observe(bufferAgeInMemoryMs / 1000)
-        histogramSessionSize.observe(this.buffer.context.count)
-        histogramSessionSizeKb.observe(this.buffer.context.sizeEstimate / 1024)
+        histogramSessionSize.observe(this.buffer.count)
+        histogramSessionSizeKb.observe(this.buffer.sizeEstimate / 1024)
 
         if (isSessionAgeOverThreshold) {
-            return this.markCurrentBufferForFlush('buffer_age')
+            return this.markCurrentBufferForFlush()
         }
     }
 
-    private async markCurrentBufferForFlush(reason: 'buffer_size' | 'buffer_age' | 'rebalance'): Promise<void> {
+    private async markCurrentBufferForFlush(): Promise<void> {
         const buffer = this.buffer
         if (!buffer) {
             // TODO: maybe error properly here?
             return
         }
 
-        if (!buffer.context.eventsRange || !buffer.context.count) {
+        if (!buffer.eventsRange || !buffer.count) {
             // Indicates some issue with the buffer so we can close out
             this.buffer = undefined
             return
@@ -363,15 +355,13 @@ export class SessionManagerV3 {
 
         // ADD FLUSH METRICS HERE
 
-        const { firstTimestamp, lastTimestamp } = buffer.context.eventsRange
+        const { firstTimestamp, lastTimestamp } = buffer.eventsRange
         const fileName = `${firstTimestamp}-${lastTimestamp}${FLUSH_FILE_EXTENSION}`
 
-        counterS3FilesWritten.labels(reason).inc(1)
-        histogramS3LinesWritten.observe(buffer.context.count)
-        histogramS3KbWritten.observe(buffer.context.sizeEstimate / 1024)
+        histogramS3LinesWritten.observe(buffer.count)
+        histogramS3KbWritten.observe(buffer.sizeEstimate / 1024)
 
-        // NOTE: We simplify everything by keeping the files as the same name for S3
-        await new Promise((resolve) => buffer.fileStream.end(resolve))
+        await new Promise<void>((resolve) => (this.bufferWriteStream ? this.bufferWriteStream.end(resolve) : resolve()))
         await rename(this.file(BUFFER_FILE_NAME), this.file(fileName))
         this.buffer = undefined
 
@@ -453,6 +443,8 @@ export class SessionManagerV3 {
                     await inProgressUpload.done()
                 }
             )
+
+            counterS3FilesWritten.inc(1)
         } catch (error: any) {
             // TRICKY: error can for some reason sometimes be undefined...
             error = error || new Error('Unknown Error')
@@ -480,18 +472,14 @@ export class SessionManagerV3 {
         }
     }
 
-    private getOrCreateBuffer(): SessionBuffer {
+    private getOrCreateBuffer(): SessionManagerBufferContext {
         if (!this.buffer) {
             try {
-                const context: SessionManagerBufferContext = {
+                const buffer: SessionManagerBufferContext = {
                     sizeEstimate: 0,
                     count: 0,
                     eventsRange: null,
                     createdAt: now(),
-                }
-                const buffer: SessionBuffer = {
-                    context,
-                    fileStream: this.createFileStreamFor(this.file(BUFFER_FILE_NAME)),
                 }
 
                 this.buffer = buffer
@@ -501,7 +489,11 @@ export class SessionManagerV3 {
             }
         }
 
-        return this.buffer as SessionBuffer
+        if (this.buffer && !this.bufferWriteStream) {
+            this.bufferWriteStream = this.createFileStreamFor(path.join(this.context.dir, BUFFER_FILE_NAME))
+        }
+
+        return this.buffer
     }
 
     protected createFileStreamFor(file: string): WriteStream {
@@ -525,10 +517,7 @@ export class SessionManagerV3 {
             this.inProgressUpload = null
         }
 
-        const buffer = this.buffer
-        if (buffer) {
-            await new Promise((resolve) => buffer.fileStream.end(resolve))
-        }
+        await new Promise<void>((resolve) => (this.bufferWriteStream ? this.bufferWriteStream.end(resolve) : resolve()))
 
         if (await this.isEmpty()) {
             status.info('🧨', '[session-manager] removing empty session directory', {

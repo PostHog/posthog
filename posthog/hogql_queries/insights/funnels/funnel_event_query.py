@@ -1,33 +1,48 @@
 from typing import List, Set, Union
+from posthog.clickhouse.materialized_columns.column import ColumnName
 from posthog.hogql import ast
 from posthog.hogql.parser import parse_expr
 from posthog.hogql_queries.insights.funnels.funnel_query_context import FunnelQueryContext
 from posthog.hogql_queries.insights.utils.properties import Properties
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 from posthog.models.action.action import Action
+from posthog.models.property.property import PropertyName
 from posthog.schema import ActionsNode, EventsNode, FunnelExclusionActionsNode, FunnelExclusionEventsNode
 from rest_framework.exceptions import ValidationError
 
 
 class FunnelEventQuery:
     context: FunnelQueryContext
+    _extra_fields: List[ColumnName]
+    _extra_event_properties: List[PropertyName]
 
     EVENT_TABLE_ALIAS = "e"
 
     def __init__(
         self,
         context: FunnelQueryContext,
+        extra_fields: List[ColumnName] = [],
+        extra_event_properties: List[PropertyName] = [],
     ):
         self.context = context
+
+        self._extra_fields = extra_fields
+        self._extra_event_properties = extra_event_properties
 
     def to_query(
         self,
         # entities=None, # TODO: implement passed in entities when needed
         skip_entity_filter=False,
     ) -> ast.SelectQuery:
+        _extra_fields: List[ast.Expr] = [
+            ast.Alias(alias=field, expr=ast.Field(chain=[self.EVENT_TABLE_ALIAS, field]))
+            for field in self._extra_fields
+        ]
+
         select: List[ast.Expr] = [
             ast.Alias(alias="timestamp", expr=ast.Field(chain=[self.EVENT_TABLE_ALIAS, "timestamp"])),
             ast.Alias(alias="aggregation_target", expr=self._aggregation_target_expr()),
+            *_extra_fields,
         ]
 
         select_from = ast.JoinExpr(

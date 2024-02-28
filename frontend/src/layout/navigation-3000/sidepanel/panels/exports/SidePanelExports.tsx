@@ -44,12 +44,7 @@ const ExportsContent = (): JSX.Element => {
                     >
                         <div className="flex items-center justify-between flex-auto p-2">
                             <div>
-                                <span className="text-link font-medium block">
-                                    {asset.filename}
-                                    <LemonTag size="small" className="ml-2">
-                                        {asset.export_format}
-                                    </LemonTag>
-                                </span>
+                                <span className="text-link font-medium block">{asset.filename}</span>
                                 {asset.expires_after && (
                                     <span className="text-xs text-muted mt-1">
                                         Expires {dayjs(asset.expires_after).fromNow()}
