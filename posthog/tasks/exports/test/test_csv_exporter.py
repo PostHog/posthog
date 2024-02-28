@@ -261,7 +261,7 @@ class TestCSVExporter(APIBaseTest):
     @patch("posthog.models.exported_asset.object_storage.write")
     def test_csv_exporter_excel(self, mocked_object_storage_write: Any, mocked_uuidt: Any) -> None:
         exported_asset = self._create_asset({"columns": ["distinct_id", "properties.$browser", "event", "tomato"]})
-        exported_asset.export_format = ExportedAsset.ExportFormat.EXCEL
+        exported_asset.export_format = ExportedAsset.ExportFormat.XLSX
         mocked_uuidt.return_value = "a-guid"
         mocked_object_storage_write.side_effect = ObjectStorageError("mock write failed")
 

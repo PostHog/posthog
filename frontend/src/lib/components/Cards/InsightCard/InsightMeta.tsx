@@ -240,7 +240,7 @@ export function InsightMeta({
                                         export_context: exporterResourceParams,
                                     },
                                     {
-                                        export_format: ExporterFormat.EXCEL,
+                                        export_format: ExporterFormat.XLSX,
                                         export_context: exporterResourceParams,
                                     },
                                 ]}

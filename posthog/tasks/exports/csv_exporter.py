@@ -336,7 +336,7 @@ def export_tabular(exported_asset: ExportedAsset, limit: Optional[int] = None) -
             with EXPORT_TIMER.labels(type="csv").time():
                 _export_to_csv(exported_asset, limit)
             EXPORT_SUCCEEDED_COUNTER.labels(type="csv").inc()
-        elif exported_asset.export_format == ExportedAsset.ExportFormat.EXCEL:
+        elif exported_asset.export_format == ExportedAsset.ExportFormat.XLSX:
             with EXPORT_TIMER.labels(type="xlsx").time():
                 _export_to_excel(exported_asset, limit)
             EXPORT_SUCCEEDED_COUNTER.labels(type="xlsx").inc()

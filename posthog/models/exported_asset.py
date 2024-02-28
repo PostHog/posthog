@@ -44,9 +44,12 @@ class ExportedAsset(models.Model):
         PNG = "image/png", "image/png"
         PDF = "application/pdf", "application/pdf"
         CSV = "text/csv", "text/csv"
-        EXCEL = "text/xlsx", "text/xlsx"
+        XLSX = (
+            "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        )
 
-    SUPPORTED_FORMATS = [ExportFormat.PNG, ExportFormat.CSV, ExportFormat.EXCEL]
+    SUPPORTED_FORMATS = [ExportFormat.PNG, ExportFormat.CSV, ExportFormat.XLSX]
 
     # Relations
     team: models.ForeignKey = models.ForeignKey("Team", on_delete=models.CASCADE)
@@ -54,7 +57,7 @@ class ExportedAsset(models.Model):
     insight = models.ForeignKey("posthog.Insight", on_delete=models.CASCADE, null=True)
 
     # Content related fields
-    export_format: models.CharField = models.CharField(max_length=16, choices=ExportFormat.choices)
+    export_format: models.CharField = models.CharField(max_length=100, choices=ExportFormat.choices)
     content: models.BinaryField = models.BinaryField(null=True)
     created_at: models.DateTimeField = models.DateTimeField(auto_now_add=True, blank=True)
     # DateTime after the created_at after which this asset should be deleted

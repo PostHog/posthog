@@ -186,7 +186,7 @@ export function InsightVizDisplay({
                                             export_context: exportContext,
                                         },
                                         {
-                                            export_format: ExporterFormat.EXCEL,
+                                            export_format: ExporterFormat.XLSX,
                                             export_context: exportContext,
                                         },
                                     ]}

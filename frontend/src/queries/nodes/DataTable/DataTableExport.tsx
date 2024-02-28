@@ -230,7 +230,7 @@ export function DataTableExport({ query }: DataTableExportProps): JSX.Element | 
                                   <ExportWithConfirmation
                                       key={0}
                                       placement="topRight"
-                                      onConfirm={() => void startDownload(query, false, ExporterFormat.EXCEL)}
+                                      onConfirm={() => void startDownload(query, false, ExporterFormat.XLSX)}
                                       actor={isPersonsNode(query.source) ? 'persons' : 'events'}
                                       limit={EXPORT_MAX_LIMIT}
                                   >

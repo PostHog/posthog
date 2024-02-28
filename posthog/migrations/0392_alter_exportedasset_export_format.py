@@ -17,9 +17,12 @@ class Migration(migrations.Migration):
                     ("image/png", "image/png"),
                     ("application/pdf", "application/pdf"),
                     ("text/csv", "text/csv"),
-                    ("text/xlsx", "text/xlsx"),
+                    (
+                        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                    ),
                 ],
-                max_length=16,
+                max_length=100,
             ),
         ),
     ]
