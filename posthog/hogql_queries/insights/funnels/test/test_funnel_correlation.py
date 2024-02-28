@@ -139,8 +139,9 @@ class TestClickhouseFunnelCorrelation(ClickhouseTestMixin, APIBaseTest):
         actors_query = FunnelsActorsQuery(source=funnels_query)
         correlation_query = FunnelCorrelationQuery(source=actors_query, correlationType=FunnelCorrelationType.events)
         result = FunnelCorrelationQueryRunner(query=correlation_query, team=self.team).calculate().result
+        result = result.events  # TODO: check expected outcome in e2e test
 
-        odds_ratios = [item.pop("odds_ratio") for item in result]  # type: ignore
+        odds_ratios = [item.odds_ratio for item in result]  # type: ignore
         expected_odds_ratios = [11, 1 / 11]
 
         for odds, expected_odds in zip(odds_ratios, expected_odds_ratios):

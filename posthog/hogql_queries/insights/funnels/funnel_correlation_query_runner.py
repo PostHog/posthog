@@ -210,22 +210,22 @@ class FunnelCorrelationQueryRunner(QueryRunner):
         )
 
         # Get the total success/failure counts from the results
-        results = [result for result in response if result[0] != self.TOTAL_IDENTIFIER]
-        _, success_total, failure_total = [result for result in response if result[0] == self.TOTAL_IDENTIFIER][0]
+        results = [result for result in response.results if result[0] != self.TOTAL_IDENTIFIER]
+        _, success_total, failure_total = [result for result in response.results if result[0] == self.TOTAL_IDENTIFIER][
+            0
+        ]
 
         # Add a little structure, and keep it close to the query definition so it's
         # obvious what's going on with result indices.
-        event_contingency_tables = (
-            [
-                EventContingencyTable(
-                    event=result[0],
-                    visited=EventStats(success_count=result[1], failure_count=result[2]),
-                    success_total=success_total,
-                    failure_total=failure_total,
-                )
-                for result in results
-            ],
-        )
+        event_contingency_tables = [
+            EventContingencyTable(
+                event=result[0],
+                visited=EventStats(success_count=result[1], failure_count=result[2]),
+                success_total=success_total,
+                failure_total=failure_total,
+            )
+            for result in results
+        ]
 
         success_total = int(correct_result_for_sampling(success_total, self.funnels_query.samplingFactor))
         failure_total = int(correct_result_for_sampling(failure_total, self.funnels_query.samplingFactor))
@@ -301,7 +301,7 @@ class FunnelCorrelationQueryRunner(QueryRunner):
 
         return EventDefinition(event=event, properties={}, elements=[])
 
-    def to_query(self) -> ast.SelectQuery:
+    def to_query(self) -> ast.SelectQuery | ast.SelectUnionQuery:
         """
         Returns a query string and params, which are used to generate the contingency table.
         The query returns success and failure count for event / property values, along with total success and failure counts.
@@ -314,7 +314,7 @@ class FunnelCorrelationQueryRunner(QueryRunner):
 
         return self.get_event_query()
 
-    def get_event_query(self) -> ast.SelectQuery:
+    def get_event_query(self) -> ast.SelectQuery | ast.SelectUnionQuery:
         funnel_persons_query = self.get_funnel_actors_cte()
 
         event_join_query = self._get_events_join_query()
@@ -390,10 +390,9 @@ class FunnelCorrelationQueryRunner(QueryRunner):
             },
         )
 
-        # assert isinstance(event_correlation_query, ast.SelectQuery)
         return event_correlation_query
 
-    def get_event_property_query(self) -> ast.SelectQuery:
+    def get_event_property_query(self) -> ast.SelectQuery | ast.SelectUnionQuery:
         if not self._filter.correlation_event_names:
             raise ValidationError("Event Property Correlation expects atleast one event name to run correlation on")
 
@@ -482,7 +481,7 @@ class FunnelCorrelationQueryRunner(QueryRunner):
 
         return query, params
 
-    def get_properties_query(self) -> ast.SelectQuery:
+    def get_properties_query(self) -> ast.SelectQuery | ast.SelectUnionQuery:
         if not self._filter.correlation_property_names:
             raise ValidationError("Property Correlation expects atleast one Property to run correlation on")
 
