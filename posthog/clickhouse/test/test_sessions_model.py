@@ -2,6 +2,7 @@ from posthog.clickhouse.client import sync_execute, query_with_columns
 from posthog.test.base import (
     _create_event,
     BaseTest,
+    ClickhouseTestMixin,
 )
 
 distinct_id_counter = 0
@@ -20,7 +21,7 @@ def create_session_id():
     return f"s{session_id_counter}"
 
 
-class TestSessionsModel(BaseTest):
+class TestSessionsModel(ClickhouseTestMixin, BaseTest):
     def select_by_session_id(self, session_id):
         return query_with_columns(
             """
