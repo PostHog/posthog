@@ -1,5 +1,6 @@
 import { LemonButton, LemonCollapse } from '@posthog/lemon-ui'
 import equal from 'fast-deep-equal'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonLabel } from 'lib/lemon-ui/LemonLabel/LemonLabel'
 import { useMemo } from 'react'
 
@@ -37,6 +38,7 @@ export function SessionRecordingsFilters({
         const defaultFilters = getDefaultFilters()
         return !equal(advancedFilters, defaultFilters)
     }, [])
+    const hasFilterOrdering = useFeatureFlag('SESSION_REPLAY_FILTER_ORDERING')
 
     const AdvancedFilters = (
         <AdvancedSessionRecordingsFilters
@@ -53,7 +55,7 @@ export function SessionRecordingsFilters({
             className: 'p-0',
             content: AdvancedFilters,
         },
-        {
+        hasFilterOrdering && {
             key: 'ordering',
             header: 'Ordering',
             content: <OrderingFilters />,
@@ -82,13 +84,15 @@ export function SessionRecordingsFilters({
 
             {hideSimpleFilters && AdvancedFilters}
 
-            <LemonCollapse
-                className="w-full rounded-none border-0 border-t"
-                multiple
-                defaultActiveKeys={initiallyOpen ? ['advanced-filters'] : []}
-                size="small"
-                panels={panels}
-            />
+            {panels.length > 0 && (
+                <LemonCollapse
+                    className="w-full rounded-none border-0 border-t"
+                    multiple
+                    defaultActiveKeys={initiallyOpen ? ['advanced-filters'] : []}
+                    size="small"
+                    panels={panels}
+                />
+            )}
         </div>
     )
 }
