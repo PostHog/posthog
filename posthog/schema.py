@@ -548,6 +548,7 @@ class NodeKind(str, Enum):
     LifecycleQuery = "LifecycleQuery"
     InsightActorsQuery = "InsightActorsQuery"
     InsightActorsQueryOptions = "InsightActorsQueryOptions"
+    FunnelCorrelationQuery = "FunnelCorrelationQuery"
     WebOverviewQuery = "WebOverviewQuery"
     WebTopClicksQuery = "WebTopClicksQuery"
     WebStatsTableQuery = "WebStatsTableQuery"
@@ -1160,7 +1161,7 @@ class FunnelCorrelationResponse(BaseModel):
         extra="forbid",
     )
     hogql: Optional[str] = None
-    result: FunnelCorrelationResult
+    results: FunnelCorrelationResult
     timings: Optional[List[QueryTiming]] = None
 
 
@@ -1477,6 +1478,15 @@ class QueryResponseAlternative13(BaseModel):
     last_refresh: Optional[str] = None
     next_allowed_client_refresh: Optional[str] = None
     results: List[Dict[str, Any]]
+    timings: Optional[List[QueryTiming]] = None
+
+
+class QueryResponseAlternative17(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    hogql: Optional[str] = None
+    results: FunnelCorrelationResult
     timings: Optional[List[QueryTiming]] = None
 
 
@@ -2112,6 +2122,7 @@ class QueryResponseAlternative(
             QueryResponseAlternative12,
             QueryResponseAlternative13,
             QueryResponseAlternative14,
+            QueryResponseAlternative17,
             Dict[str, List[DatabaseSchemaQueryResponseField]],
         ]
     ]
@@ -2132,6 +2143,7 @@ class QueryResponseAlternative(
         QueryResponseAlternative12,
         QueryResponseAlternative13,
         QueryResponseAlternative14,
+        QueryResponseAlternative17,
         Dict[str, List[DatabaseSchemaQueryResponseField]],
     ]
 
@@ -2644,6 +2656,7 @@ class FunnelCorrelationQuery(BaseModel):
     )
     correlationType: FunnelCorrelationType
     funnelCorrelationExcludeEventNames: Optional[List[str]] = None
+    kind: Literal["FunnelCorrelationQuery"] = "FunnelCorrelationQuery"
     response: Optional[FunnelCorrelationResponse] = None
     source: FunnelsActorsQuery
 
@@ -2857,6 +2870,7 @@ class QueryRequest(BaseModel):
         PathsQuery,
         StickinessQuery,
         LifecycleQuery,
+        FunnelCorrelationQuery,
         DatabaseSchemaQuery,
     ] = Field(
         ...,
@@ -2894,6 +2908,7 @@ class QuerySchemaRoot(
             PathsQuery,
             StickinessQuery,
             LifecycleQuery,
+            FunnelCorrelationQuery,
             DatabaseSchemaQuery,
         ]
     ]
@@ -2924,6 +2939,7 @@ class QuerySchemaRoot(
         PathsQuery,
         StickinessQuery,
         LifecycleQuery,
+        FunnelCorrelationQuery,
         DatabaseSchemaQuery,
     ] = Field(..., discriminator="kind")
 

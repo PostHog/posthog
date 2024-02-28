@@ -1465,6 +1465,10 @@
                     },
                     "type": "array"
                 },
+                "kind": {
+                    "const": "FunnelCorrelationQuery",
+                    "type": "string"
+                },
                 "response": {
                     "$ref": "#/definitions/FunnelCorrelationResponse"
                 },
@@ -1472,7 +1476,7 @@
                     "$ref": "#/definitions/FunnelsActorsQuery"
                 }
             },
-            "required": ["source", "correlationType"],
+            "required": ["kind", "source", "correlationType"],
             "type": "object"
         },
         "FunnelCorrelationResponse": {
@@ -1481,7 +1485,7 @@
                 "hogql": {
                     "type": "string"
                 },
-                "result": {
+                "results": {
                     "$ref": "#/definitions/FunnelCorrelationResult"
                 },
                 "timings": {
@@ -1491,7 +1495,7 @@
                     "type": "array"
                 }
             },
-            "required": ["result"],
+            "required": ["results"],
             "type": "object"
         },
         "FunnelCorrelationResult": {
@@ -2972,6 +2976,7 @@
                 "LifecycleQuery",
                 "InsightActorsQuery",
                 "InsightActorsQueryOptions",
+                "FunnelCorrelationQuery",
                 "WebOverviewQuery",
                 "WebTopClicksQuery",
                 "WebStatsTableQuery",
@@ -4074,6 +4079,25 @@
                     "type": "object"
                 },
                 {
+                    "additionalProperties": false,
+                    "properties": {
+                        "hogql": {
+                            "type": "string"
+                        },
+                        "results": {
+                            "$ref": "#/definitions/FunnelCorrelationResult"
+                        },
+                        "timings": {
+                            "items": {
+                                "$ref": "#/definitions/QueryTiming"
+                            },
+                            "type": "array"
+                        }
+                    },
+                    "required": ["results"],
+                    "type": "object"
+                },
+                {
                     "additionalProperties": {
                         "items": {
                             "$ref": "#/definitions/DatabaseSchemaQueryResponseField"
@@ -4163,6 +4187,9 @@
                 },
                 {
                     "$ref": "#/definitions/LifecycleQuery"
+                },
+                {
+                    "$ref": "#/definitions/FunnelCorrelationQuery"
                 },
                 {
                     "$ref": "#/definitions/DatabaseSchemaQuery"

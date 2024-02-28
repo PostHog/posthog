@@ -69,6 +69,7 @@ export enum NodeKind {
     LifecycleQuery = 'LifecycleQuery',
     InsightActorsQuery = 'InsightActorsQuery',
     InsightActorsQueryOptions = 'InsightActorsQueryOptions',
+    FunnelCorrelationQuery = 'FunnelCorrelationQuery',
 
     // Web analytics queries
     WebOverviewQuery = 'WebOverviewQuery',
@@ -136,6 +137,7 @@ export type QuerySchema =
     | PathsQuery
     | StickinessQuery
     | LifecycleQuery
+    | FunnelCorrelationQuery
 
     // Misc
     | DatabaseSchemaQuery
@@ -1118,7 +1120,7 @@ export interface FunnelCorrelationResult {
 }
 
 export interface FunnelCorrelationResponse {
-    result: FunnelCorrelationResult
+    results: FunnelCorrelationResult
     // results: any[][]
     // columns: any[]
     // types: string[]
@@ -1137,8 +1139,8 @@ export enum FunnelCorrelationType {
 }
 
 export interface FunnelCorrelationQuery {
+    kind: NodeKind.FunnelCorrelationQuery
     source: FunnelsActorsQuery
-
     correlationType: FunnelCorrelationType
 
     // # Needs to be json encoded list of `EventPattern`s

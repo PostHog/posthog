@@ -15,6 +15,7 @@ from posthog.models import Team
 from posthog.queries.time_to_see_data.serializers import SessionEventsQuerySerializer, SessionsQuerySerializer
 from posthog.queries.time_to_see_data.sessions import get_session_events, get_sessions
 from posthog.schema import (
+    FunnelCorrelationQuery,
     FunnelsQuery,
     HogQLAutocomplete,
     HogQLMetadata,
@@ -46,6 +47,7 @@ QUERY_WITH_RUNNER = (
     | PathsQuery
     | StickinessQuery
     | LifecycleQuery
+    | FunnelCorrelationQuery
     | WebOverviewQuery
     | WebTopClicksQuery
     | WebStatsTableQuery

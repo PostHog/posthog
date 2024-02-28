@@ -195,7 +195,7 @@ class FunnelCorrelationQueryRunner(QueryRunner):
         for us to calculate the odds ratio.
         """
         if not self.funnels_query.series:
-            return FunnelCorrelationResponse(result=FunnelCorrelationResult(events=[], skewed=False))
+            return FunnelCorrelationResponse(results=FunnelCorrelationResult(events=[], skewed=False))
 
         query = self.to_query()
 
@@ -231,7 +231,7 @@ class FunnelCorrelationQueryRunner(QueryRunner):
         failure_total = int(correct_result_for_sampling(failure_total, self.funnels_query.samplingFactor))
 
         if not success_total or not failure_total:
-            return FunnelCorrelationResponse(result=FunnelCorrelationResult(events=[], skewed=True))
+            return FunnelCorrelationResponse(results=FunnelCorrelationResult(events=[], skewed=True))
 
         skewed_totals = False
 
@@ -262,7 +262,7 @@ class FunnelCorrelationQueryRunner(QueryRunner):
         events = positively_correlated_events[:10] + negatively_correlated_events[:10]
 
         return FunnelCorrelationResponse(
-            result=FunnelCorrelationResult(
+            results=FunnelCorrelationResult(
                 events=[self.serialize_event_odds_ratio(odds_ratio=odds_ratio) for odds_ratio in events],
                 skewed=skewed_totals,
             ),
