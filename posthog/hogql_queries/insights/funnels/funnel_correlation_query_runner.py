@@ -197,6 +197,18 @@ class FunnelCorrelationQueryRunner(QueryRunner):
         if not self.funnels_query.series:
             return FunnelCorrelationResponse(results=FunnelCorrelationResult(events=[], skewed=False))
 
+        events, skewed_totals, hogql, response = self._calculate()
+
+        return FunnelCorrelationResponse(
+            results=FunnelCorrelationResult(
+                events=[self.serialize_event_odds_ratio(odds_ratio=odds_ratio) for odds_ratio in events],
+                skewed=skewed_totals,
+            ),
+            timings=response.timings,
+            hogql=hogql,
+        )
+
+    def _calculate(self):
         query = self.to_query()
 
         hogql = to_printed_hogql(query, self.team)
@@ -260,15 +272,7 @@ class FunnelCorrelationQueryRunner(QueryRunner):
 
         # Return the top ten positively correlated events, and top then negatively correlated events
         events = positively_correlated_events[:10] + negatively_correlated_events[:10]
-
-        return FunnelCorrelationResponse(
-            results=FunnelCorrelationResult(
-                events=[self.serialize_event_odds_ratio(odds_ratio=odds_ratio) for odds_ratio in events],
-                skewed=skewed_totals,
-            ),
-            timings=response.timings,
-            hogql=hogql,
-        )
+        return events, skewed_totals, hogql, response
 
     def serialize_event_odds_ratio(self, odds_ratio: EventOddsRatio) -> EventOddsRatioSerialized:
         event_definition = self.serialize_event_with_property(event=odds_ratio["event"])
