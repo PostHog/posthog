@@ -24,7 +24,12 @@ CREATE OR REPLACE DICTIONARY {database}.{dictionary_name} ON CLUSTER {cluster_na
     `person_id` UUID
 )
 PRIMARY KEY team_id, distinct_id
-SOURCE(CLICKHOUSE(USER '{user}' PASSWORD '{password}' TABLE 'person_distinct_id_overrides' DB '{database}'))
+SOURCE(CLICKHOUSE(
+    USER '{user}'
+    PASSWORD '{password}'
+    DB '{database}'
+    QUERY 'SELECT team_id, distinct_id, argMax(person_id, version) AS person_id FROM {database}.person_distinct_id_overrides GROUP BY team_id, distinct_id'
+))
 LAYOUT(complex_key_hashed())
 LIFETIME(MIN 0 MAX 0)
 """
@@ -146,11 +151,7 @@ async def optimize_person_distinct_id_overrides(inputs: QueryInputs) -> None:
 
 @activity.defn
 async def prepare_dictionary(inputs: QueryInputs) -> None:
-    """Prepare the dictionary to be used in the squash workflow.
-
-    We also lock in the latest merged_at to ensure we do not process overrides that arrive after
-    we have started the job.
-    """
+    """Prepare the DICTIONARY to be used in the squash workflow."""
     from django.conf import settings
 
     async with heartbeat_every():
