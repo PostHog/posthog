@@ -11,7 +11,7 @@ logger = structlog.get_logger(__name__)
 
 
 class AsyncDeletionProcess(ABC):
-    CLICKHOUSE_CHUNK_SIZE = 1000
+    CLICKHOUSE_CHUNK_SIZE = 1_000_000
     DELETION_TYPES: List[DeletionType] = []
 
     def __init__(self) -> None:
