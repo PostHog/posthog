@@ -154,6 +154,7 @@ def flush_embeddings_to_clickhouse(embeddings: List[Dict[str, Any]]) -> None:
     except Exception as e:
         logger.error(f"flush embeddings error", flow="embeddings", error=e)
         SESSION_EMBEDDINGS_FAILED_TO_CLICKHOUSE.inc(len(embeddings))
+        raise e
 
 
 def generate_recording_embeddings(session_id: str, team: Team | int) -> List[float] | None:
