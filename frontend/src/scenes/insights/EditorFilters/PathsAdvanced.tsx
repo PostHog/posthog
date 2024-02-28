@@ -64,24 +64,26 @@ export function PathsAdvanced({ insightProps, ...rest }: EditorFilterProps): JSX
                         type="number"
                         min={0}
                         max={100000}
-                        onChange={(value): void =>
+                        onChange={(value): void => {
                             setLocalEdgeParameters((state) => ({
                                 ...state,
                                 minEdgeWeight: Number(value),
                             }))
-                        }
+                            updateEdgeParameters()
+                        }}
                         onBlur={updateEdgeParameters}
                         onPressEnter={updateEdgeParameters}
                     />
                     <span className="mx-2">and</span>
                     <LemonInput
                         type="number"
-                        onChange={(value): void =>
+                        onChange={(value): void => {
                             setLocalEdgeParameters((state) => ({
                                 ...state,
                                 maxEdgeWeight: Number(value),
                             }))
-                        }
+                            updateEdgeParameters()
+                        }}
                         min={0}
                         max={100000}
                         onBlur={updateEdgeParameters}

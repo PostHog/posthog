@@ -20,7 +20,7 @@ import { runInstrumentedFunction } from '../../utils'
 import { addSentryBreadcrumbsEventListeners } from '../kafka-metrics'
 import { BUCKETS_KB_WRITTEN, BUFFER_FILE_NAME, SessionManagerV3 } from './services/session-manager-v3'
 import { IncomingRecordingMessage } from './types'
-import { parseKafkaMessage, reduceRecordingMessages } from './utils'
+import { allSettledWithConcurrency, parseKafkaMessage, reduceRecordingMessages } from './utils'
 
 // Must require as `tsc` strips unused `import` statements and just requiring this seems to init some globals
 require('@sentry/tracing')
@@ -127,6 +127,10 @@ export class SessionRecordingIngesterV3 {
         return this.connectedBatchConsumer?.assignments() ?? []
     }
 
+    private get assignedPartitions(): TopicPartition['partition'][] {
+        return this.assignedTopicPartitions.map((x) => x.partition)
+    }
+
     private scheduleWork<T>(promise: Promise<T>): Promise<T> {
         /**
          * Helper to handle graceful shutdowns. Every time we do some work we add a promise to this array and remove it when finished.
@@ -167,21 +171,13 @@ export class SessionRecordingIngesterV3 {
         await this.sessions[key]?.add(event)
     }
 
-    public async handleEachBatch(messages: Message[]): Promise<void> {
+    public async handleEachBatch(messages: Message[], heartbeat: () => void): Promise<void> {
         status.info('🔁', `session-replay-ingestion - handling batch`, {
             size: messages.length,
             partitionsInBatch: [...new Set(messages.map((x) => x.partition))],
             assignedPartitions: this.assignedTopicPartitions.map((x) => x.partition),
             sessionsHandled: Object.keys(this.sessions).length,
         })
-
-        // TODO: Add a timer or something to fire this "handleEachBatch" with an empty batch for quite partitions
-        const startTime = Date.now()
-        const timeRemaining = () => {
-            // We try to force steps that can be slow to finish before the session timeout
-            const elapsed = Date.now() - startTime
-            return Math.max(KAFKA_CONSUMER_SESSION_TIMEOUT_MS * 0.9 - elapsed, 0)
-        }
 
         await runInstrumentedFunction({
             statsKey: `recordingingester.handleEachBatch`,
@@ -214,18 +210,22 @@ export class SessionRecordingIngesterV3 {
                     },
                 })
 
+                heartbeat()
+
                 await runInstrumentedFunction({
                     statsKey: `recordingingester.handleEachBatch.ensureSessionsAreLoaded`,
                     func: async () => {
-                        await this.syncSessionsWithDisk(timeRemaining())
+                        await this.syncSessionsWithDisk(heartbeat)
                     },
                 })
+
+                heartbeat()
 
                 await runInstrumentedFunction({
                     statsKey: `recordingingester.handleEachBatch.consumeBatch`,
                     func: async () => {
                         if (this.config.SESSION_RECORDING_PARALLEL_CONSUMPTION) {
-                            await Promise.all(recordingMessages.map((x) => this.consume(x)))
+                            await Promise.all(recordingMessages.map((x) => this.consume(x).then(heartbeat)))
                         } else {
                             for (const message of recordingMessages) {
                                 await this.consume(message)
@@ -234,11 +234,13 @@ export class SessionRecordingIngesterV3 {
                     },
                 })
 
+                heartbeat()
+
                 await runInstrumentedFunction({
                     statsKey: `recordingingester.handleEachBatch.flushAllReadySessions`,
                     func: async () => {
                         // TODO: This can time out if it ends up being overloaded - we should have a max limit here
-                        await this.flushAllReadySessions(timeRemaining())
+                        await this.flushAllReadySessions(heartbeat)
                     },
                 })
 
@@ -296,9 +298,10 @@ export class SessionRecordingIngesterV3 {
             fetchBatchSize: this.config.SESSION_RECORDING_KAFKA_BATCH_SIZE,
             batchingTimeoutMs: this.config.KAFKA_CONSUMPTION_BATCHING_TIMEOUT_MS,
             topicCreationTimeoutMs: this.config.KAFKA_TOPIC_CREATION_TIMEOUT_MS,
-            eachBatch: async (messages) => {
-                return await this.scheduleWork(this.handleEachBatch(messages))
+            eachBatch: async (messages, { heartbeat }) => {
+                return await this.scheduleWork(this.handleEachBatch(messages, heartbeat))
             },
+            callEachBatchWhenEmpty: true, // Useful as we will still want to account for flushing sessions
             debug: this.config.SESSION_RECORDING_KAFKA_DEBUG,
         })
 
@@ -341,57 +344,56 @@ export class SessionRecordingIngesterV3 {
         return this.batchConsumer?.isHealthy()
     }
 
-    async flushAllReadySessions(timeLimit: number = KAFKA_CONSUMER_SESSION_TIMEOUT_MS): Promise<void> {
-        const startTime = Date.now()
-        const assignedPartitions = this.assignedTopicPartitions.map((x) => x.partition)
+    async flushAllReadySessions(heartbeat: () => void): Promise<void> {
         const sessions = Object.entries(this.sessions)
-        let flushedCount = 0
 
-        // TODO: We could probably parallelize this to some extent
-        for (const [key, sessionManager] of sessions) {
-            if (Date.now() - startTime > timeLimit) {
-                status.warn(
-                    '⚠️',
-                    `session-replay-ingestion - flushing sessions took too long, stopping at ${flushedCount} of ${sessions.length} sessions`
-                )
-                return
-            }
+        // NOTE: We want to avoid flushing too many sessions at once as it can cause a lot of disk backpressure stalling the consumer
+        await allSettledWithConcurrency(
+            this.config.SESSION_RECORDING_MAX_PARALLEL_FLUSHES,
+            sessions,
+            async ([key, sessionManager]) => {
+                heartbeat()
 
-            if (!assignedPartitions.includes(sessionManager.context.partition)) {
-                await this.destroySession(key, sessionManager)
-                continue
-            }
+                if (!this.assignedPartitions.includes(sessionManager.context.partition)) {
+                    await this.destroySession(key, sessionManager)
+                    return
+                }
 
-            await sessionManager
-                .flush()
-                .catch((err) => {
-                    status.error(
-                        '🚽',
-                        'session-replay-ingestion - failed trying to flush on idle session: ' +
-                            sessionManager.context.sessionId,
-                        {
-                            err,
-                            session_id: sessionManager.context.sessionId,
+                await sessionManager
+                    .flush()
+                    .catch((err) => {
+                        status.error(
+                            '🚽',
+                            'session-replay-ingestion - failed trying to flush on idle session: ' +
+                                sessionManager.context.sessionId,
+                            {
+                                err,
+                                session_id: sessionManager.context.sessionId,
+                            }
+                        )
+                        captureException(err, { tags: { session_id: sessionManager.context.sessionId } })
+                    })
+                    .then(async () => {
+                        // If the SessionManager is done (flushed and with no more queued events) then we remove it to free up memory
+                        if (await sessionManager.isEmpty()) {
+                            await this.destroySession(key, sessionManager)
                         }
-                    )
-                    captureException(err, { tags: { session_id: sessionManager.context.sessionId } })
-                })
-                .then(async () => {
-                    // If the SessionManager is done (flushed and with no more queued events) then we remove it to free up memory
-                    if (await sessionManager.isEmpty()) {
-                        await this.destroySession(key, sessionManager)
-                    }
-                })
-            flushedCount++
-        }
+                    })
+            }
+        )
+
         gaugeSessionsHandled.set(Object.keys(this.sessions).length)
     }
 
-    private async syncSessionsWithDisk(timeLimit: number = KAFKA_CONSUMER_SESSION_TIMEOUT_MS): Promise<void> {
-        // As we may get assigned and reassigned partitions, we want to make sure that we have all sessions loaded into memory
-        const startTime = Date.now()
+    private async syncSessionsWithDisk(heartbeat: () => void): Promise<void> {
+        // NOTE: With a lot of files on disk this can take a long time
+        // We need to ensure that as we loop we double check that we are still in charge of the partitions
 
-        for (const { partition } of this.assignedTopicPartitions) {
+        // TODO: Implement that (and also for flushing) it sync the assigned partitions with the current state of the consumer
+
+        // As we may get assigned and reassigned partitions, we want to make sure that we have all sessions loaded into memory
+
+        for (const partition of this.assignedPartitions) {
             const keys = await readdir(path.join(this.rootDir, `${partition}`)).catch(() => {
                 // This happens if there are no files on disk for that partition yet
                 return []
@@ -400,16 +402,13 @@ export class SessionRecordingIngesterV3 {
             const relatedKeys = keys.filter((x) => /\d+__[a-zA-Z0-9\-]+/.test(x))
 
             for (const key of relatedKeys) {
-                if (Date.now() - startTime > timeLimit) {
-                    status.warn(
-                        '⚠️',
-                        `session-replay-ingestion - syncing sessions from disk is taking too long, stopping.`
-                    )
-                    return
-                }
-
                 // TODO: Ensure sessionId can only be a uuid
                 const [teamId, sessionId] = key.split('__')
+
+                if (!this.assignedPartitions.includes(partition)) {
+                    // Account for rebalances
+                    continue
+                }
 
                 if (!this.sessions[key]) {
                     this.sessions[key] = new SessionManagerV3(this.config, this.objectStorage.s3, {
@@ -421,6 +420,7 @@ export class SessionRecordingIngesterV3 {
 
                     await this.sessions[key].setupPromise
                 }
+                heartbeat()
             }
         }
     }

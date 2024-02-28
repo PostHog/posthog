@@ -1,7 +1,7 @@
 import { Upload } from '@aws-sdk/lib-storage'
 import { captureException, captureMessage } from '@sentry/node'
 import { createReadStream, createWriteStream, WriteStream } from 'fs'
-import { appendFile, mkdir, readdir, readFile, rename, rmdir, stat, unlink, writeFile } from 'fs/promises'
+import { mkdir, readdir, readFile, rename, rmdir, stat, unlink, writeFile } from 'fs/promises'
 import path from 'path'
 import { Counter, Histogram } from 'prom-client'
 import { PassThrough } from 'stream'
@@ -27,10 +27,14 @@ export const BUFFER_FILE_NAME = `buffer${FILE_EXTENSION}`
 export const FLUSH_FILE_EXTENSION = `.flush${FILE_EXTENSION}`
 export const METADATA_FILE_NAME = `metadata.json`
 
+const writeStreamBlocked = new Counter({
+    name: metricPrefix + 'recording_blob_ingestion_write_stream_blocked',
+    help: 'Number of times we get blocked by the stream backpressure',
+})
+
 const counterS3FilesWritten = new Counter({
     name: metricPrefix + 'recording_s3_files_written',
     help: 'A single file flushed to S3',
-    labelNames: ['flushReason'],
 })
 
 const counterS3WriteErrored = new Counter({
@@ -105,6 +109,8 @@ export type SessionManagerContext = {
 
 export class SessionManagerV3 {
     buffer?: SessionManagerBufferContext
+    bufferWriteStream?: WriteStream
+
     flushPromise?: Promise<void>
     destroying = false
     inProgressUpload: Upload | null = null
@@ -258,9 +264,13 @@ export class SessionManagerV3 {
             buffer.count += 1
             buffer.sizeEstimate += content.length
 
-            const stopTimer = histogramBackpressureBlockedSeconds.startTimer()
-            await appendFile(this.file(BUFFER_FILE_NAME), content, 'utf-8')
-            stopTimer()
+            if (!this.bufferWriteStream!.write(content, 'utf-8')) {
+                writeStreamBlocked.inc()
+
+                const stopTimer = histogramBackpressureBlockedSeconds.startTimer()
+                await new Promise((r) => this.bufferWriteStream!.once('drain', r))
+                stopTimer()
+            }
             await this.syncMetadata()
         } catch (error) {
             this.captureException(error, { message })
@@ -283,7 +293,7 @@ export class SessionManagerV3 {
             await this.maybeFlushCurrentBuffer()
         } else {
             // This is mostly used by tests
-            await this.markCurrentBufferForFlush('rebalance')
+            await this.markCurrentBufferForFlush()
         }
 
         await this.flushFiles()
@@ -295,7 +305,7 @@ export class SessionManagerV3 {
         }
 
         if (this.buffer.sizeEstimate >= this.serverConfig.SESSION_RECORDING_MAX_BUFFER_SIZE_KB * 1024) {
-            return this.markCurrentBufferForFlush('buffer_size')
+            return this.markCurrentBufferForFlush()
         }
 
         const flushThresholdMs = this.serverConfig.SESSION_RECORDING_MAX_BUFFER_AGE_SECONDS * 1000
@@ -326,11 +336,11 @@ export class SessionManagerV3 {
         histogramSessionSizeKb.observe(this.buffer.sizeEstimate / 1024)
 
         if (isSessionAgeOverThreshold) {
-            return this.markCurrentBufferForFlush('buffer_age')
+            return this.markCurrentBufferForFlush()
         }
     }
 
-    private async markCurrentBufferForFlush(reason: 'buffer_size' | 'buffer_age' | 'rebalance'): Promise<void> {
+    private async markCurrentBufferForFlush(): Promise<void> {
         const buffer = this.buffer
         if (!buffer) {
             // TODO: maybe error properly here?
@@ -348,10 +358,10 @@ export class SessionManagerV3 {
         const { firstTimestamp, lastTimestamp } = buffer.eventsRange
         const fileName = `${firstTimestamp}-${lastTimestamp}${FLUSH_FILE_EXTENSION}`
 
-        counterS3FilesWritten.labels(reason).inc(1)
         histogramS3LinesWritten.observe(buffer.count)
         histogramS3KbWritten.observe(buffer.sizeEstimate / 1024)
 
+        await new Promise<void>((resolve) => (this.bufferWriteStream ? this.bufferWriteStream.end(resolve) : resolve()))
         await rename(this.file(BUFFER_FILE_NAME), this.file(fileName))
         this.buffer = undefined
 
@@ -433,6 +443,8 @@ export class SessionManagerV3 {
                     await inProgressUpload.done()
                 }
             )
+
+            counterS3FilesWritten.inc(1)
         } catch (error: any) {
             // TRICKY: error can for some reason sometimes be undefined...
             error = error || new Error('Unknown Error')
@@ -477,6 +489,10 @@ export class SessionManagerV3 {
             }
         }
 
+        if (this.buffer && !this.bufferWriteStream) {
+            this.bufferWriteStream = this.createFileStreamFor(path.join(this.context.dir, BUFFER_FILE_NAME))
+        }
+
         return this.buffer
     }
 
@@ -500,6 +516,8 @@ export class SessionManagerV3 {
             })
             this.inProgressUpload = null
         }
+
+        await new Promise<void>((resolve) => (this.bufferWriteStream ? this.bufferWriteStream.end(resolve) : resolve()))
 
         if (await this.isEmpty()) {
             status.info('🧨', '[session-manager] removing empty session directory', {

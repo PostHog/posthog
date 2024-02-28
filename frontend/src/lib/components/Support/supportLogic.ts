@@ -89,6 +89,11 @@ export const TARGET_AREA_TO_NAME = [
                 'data-attr': `support-form-target-area-notebooks`,
                 label: 'Notebooks',
             },
+            {
+                value: 'mobile',
+                'data-attr': `support-form-target-area-mobile`,
+                label: 'Mobile',
+            },
         ],
     },
     {

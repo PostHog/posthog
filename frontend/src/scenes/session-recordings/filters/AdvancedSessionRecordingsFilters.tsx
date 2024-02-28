@@ -7,9 +7,10 @@ import { LemonLabel } from 'lib/lemon-ui/LemonLabel/LemonLabel'
 import { ActionFilter } from 'scenes/insights/filters/ActionFilter/ActionFilter'
 import { MathAvailability } from 'scenes/insights/filters/ActionFilter/ActionFilterRow/ActionFilterRow'
 import { TestAccountFilter } from 'scenes/insights/filters/TestAccountFilter'
+import { defaultRecordingDurationFilter } from 'scenes/session-recordings/playlist/sessionRecordingsPlaylistLogic'
 
 import { groupsModel } from '~/models/groupsModel'
-import { EntityTypes, FilterableLogLevel, RecordingDurationFilter, RecordingFilters } from '~/types'
+import { EntityTypes, FilterableLogLevel, RecordingFilters } from '~/types'
 
 import { DurationFilter } from './DurationFilter'
 
@@ -107,7 +108,7 @@ export const AdvancedSessionRecordingsFilters = ({
                             duration_type_filter: newDurationType,
                         })
                     }}
-                    recordingDurationFilter={filters.session_recording_duration as RecordingDurationFilter}
+                    recordingDurationFilter={filters.session_recording_duration || defaultRecordingDurationFilter}
                     durationTypeFilter={filters.duration_type_filter || 'duration'}
                     pageKey="session-recordings"
                 />
