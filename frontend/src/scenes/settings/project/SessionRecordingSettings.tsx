@@ -283,7 +283,8 @@ function LinkedFlagSelector(): JSX.Element | null {
                         </p>
                         <p>
                             Alternatively, you can link to a specific variant of the flag, and recordings will only
-                            start when the user has that specific variant enabled.
+                            start when the user has that specific variant enabled. Variant targeting support requires
+                            posthog-js v1.110.0 or greater
                         </p>
                     </>
                 )}
