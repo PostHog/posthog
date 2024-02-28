@@ -578,6 +578,7 @@ HOGQL_AGGREGATIONS: Dict[str, HogQLFunctionMeta] = {
     "count": HogQLFunctionMeta("count", 0, 1, aggregate=True),
     "COUNT": HogQLFunctionMeta("count", 0, 1, aggregate=True),
     "countIf": HogQLFunctionMeta("countIf", 1, 2, aggregate=True),
+    "countDistinctIf": HogQLFunctionMeta("countIf", 1, 2, aggregate=True),
     "min": HogQLFunctionMeta("min", 1, 1, aggregate=True),
     "minIf": HogQLFunctionMeta("minIf", 2, 2, aggregate=True),
     "max": HogQLFunctionMeta("max", 1, 1, aggregate=True),

@@ -93,7 +93,7 @@ class FunnelEventQuery:
         else:
             return ast.SampleExpr(sample_value=ast.RatioExpr(left=ast.Constant(value=query.samplingFactor)))
 
-    def _date_range_expr(self) -> ast.Expr:
+    def _date_range(self) -> QueryDateRange:
         team, query, now = self.context.team, self.context.query, self.context.now
 
         date_range = QueryDateRange(
@@ -103,17 +103,20 @@ class FunnelEventQuery:
             now=now,
         )
 
+        return date_range
+
+    def _date_range_expr(self) -> ast.Expr:
         return ast.And(
             exprs=[
                 ast.CompareOperation(
                     op=ast.CompareOperationOp.GtEq,
                     left=ast.Field(chain=[self.EVENT_TABLE_ALIAS, "timestamp"]),
-                    right=ast.Constant(value=date_range.date_from()),
+                    right=ast.Constant(value=self._date_range().date_from()),
                 ),
                 ast.CompareOperation(
                     op=ast.CompareOperationOp.LtEq,
                     left=ast.Field(chain=[self.EVENT_TABLE_ALIAS, "timestamp"]),
-                    right=ast.Constant(value=date_range.date_to()),
+                    right=ast.Constant(value=self._date_range().date_to()),
                 ),
             ]
         )

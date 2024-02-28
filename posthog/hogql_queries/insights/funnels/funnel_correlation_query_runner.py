@@ -5,6 +5,7 @@ from ee.clickhouse.queries.funnels.funnel_correlation import EventOddsRatioSeria
 
 from posthog.constants import AUTOCAPTURE_EVENT, FunnelCorrelationType
 from posthog.hogql.parser import parse_select
+from posthog.hogql_queries.insights.funnels.funnel_event_query import FunnelEventQuery
 from posthog.hogql_queries.insights.funnels.funnel_persons import FunnelActors
 from posthog.hogql_queries.insights.funnels.funnel_strict_persons import FunnelStrictActors
 from posthog.hogql_queries.insights.funnels.funnel_unordered_persons import FunnelUnorderedActors
@@ -319,16 +320,20 @@ class FunnelCorrelationQueryRunner(QueryRunner):
 
         event_join_query = self._get_events_join_query()
 
+        funnel_event_query = FunnelEventQuery(context=self.context)
+        date_from = funnel_event_query._date_range().date_from_as_hogql()
+        date_to = funnel_event_query._date_range().date_to_as_hogql()
+
         event_correlation_query = parse_select(
             f"""
             WITH
                 funnel_actors AS (
                     {{funnel_persons_query}}
                 ),
-                toDateTime(%(date_to)s, %(timezone)s) AS date_to,
-                toDateTime(%(date_from)s, %(timezone)s) AS date_from,
+                {{date_from}} AS date_from,
+                {{date_to}} AS date_to,
                 {self.context.max_steps} AS target_step,
-                {self._get_funnel_step_names()} as funnel_step_names
+                {self._get_funnel_step_names()} AS funnel_step_names
 
             SELECT
                 event.event AS name,
@@ -348,7 +353,7 @@ class FunnelCorrelationQueryRunner(QueryRunner):
 
             FROM events AS event
                 {event_join_query}
-                AND event.event NOT IN {self.query.funnelCorrelationExcludeEventNames}
+                AND event.event NOT IN {self.query.funnelCorrelationExcludeEventNames or []}
             GROUP BY name
 
             -- To get the total success/failure numbers, we do an aggregation on
@@ -371,7 +376,11 @@ class FunnelCorrelationQueryRunner(QueryRunner):
                 ) AS failure_count
             FROM funnel_actors AS actors
         """,
-            placeholders={"funnel_persons_query": funnel_persons_query},
+            placeholders={
+                "funnel_persons_query": funnel_persons_query,
+                "date_from": date_from,
+                "date_to": date_to,
+            },
         )
 
         # assert isinstance(event_correlation_query, ast.SelectQuery)
