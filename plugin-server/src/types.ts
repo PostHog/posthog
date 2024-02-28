@@ -173,7 +173,6 @@ export interface PluginsServerConfig {
     PISCINA_ATOMICS_TIMEOUT: number // (advanced) corresponds to the length of time a piscina worker should block for when looking for tasks
     SITE_URL: string | null
     KAFKA_PARTITIONS_CONSUMED_CONCURRENTLY: number // (advanced) how many kafka partitions the plugin server should consume from concurrently
-    RECORDING_PARTITIONS_CONSUMED_CONCURRENTLY: number
     CONVERSION_BUFFER_ENABLED: boolean
     CONVERSION_BUFFER_ENABLED_TEAMS: string
     CONVERSION_BUFFER_TOPIC_ENABLED_TEAMS: string
@@ -236,6 +235,8 @@ export interface PluginsServerConfig {
     SESSION_RECORDING_KAFKA_SECURITY_PROTOCOL: KafkaSecurityProtocol | undefined
     SESSION_RECORDING_KAFKA_BATCH_SIZE: number
     SESSION_RECORDING_KAFKA_QUEUE_SIZE: number
+    SESSION_RECORDING_KAFKA_DEBUG: string | undefined
+    SESSION_RECORDING_MAX_PARALLEL_FLUSHES: number
 
     POSTHOG_SESSION_RECORDING_REDIS_HOST: string | undefined
     POSTHOG_SESSION_RECORDING_REDIS_PORT: number | undefined

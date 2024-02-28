@@ -5,7 +5,7 @@ import random
 import typing
 import uuid
 
-from posthog.temporal.batch_exports.clickhouse import ClickHouseClient
+from posthog.temporal.common.clickhouse import ClickHouseClient
 from posthog.temporal.tests.utils.datetimes import date_range
 
 

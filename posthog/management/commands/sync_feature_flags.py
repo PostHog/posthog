@@ -4,7 +4,12 @@ from django.core.management.base import BaseCommand
 
 from posthog.models import FeatureFlag, Team, User
 
-INACTIVE_FLAGS = ["cloud-announcement", "session-reset-on-load", "posthog-3000-nav"]
+INACTIVE_FLAGS = [
+    "cloud-announcement",
+    "session-reset-on-load",
+    "posthog-3000-nav",
+    "session-replay-v3-ingestion-playback",
+]
 
 
 class Command(BaseCommand):

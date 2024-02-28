@@ -2,7 +2,7 @@ import { IconPencil, IconPlus, IconTrash, IconX } from '@posthog/icons'
 import { LemonDivider, LemonTag } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { Field, Form, Group } from 'kea-forms'
-import { IconMagnifier, IconMinusOutlined } from 'lib/lemon-ui/icons'
+import { IconMagnifier } from 'lib/lemon-ui/icons'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonInput } from 'lib/lemon-ui/LemonInput'
 
@@ -90,7 +90,7 @@ export const ActionsEditingToolbarMenu = (): JSX.Element => {
                                                     actionForm.steps?.filter((_, i) => i !== index)
                                                 )
                                             }
-                                            sideIcon={<IconMinusOutlined />}
+                                            sideIcon={<IconTrash />}
                                         >
                                             Remove
                                         </LemonButton>

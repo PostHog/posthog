@@ -32,7 +32,7 @@ from posthog.temporal.batch_exports.bigquery_batch_export import (
     get_bigquery_fields_from_record_schema,
     insert_into_bigquery_activity,
 )
-from posthog.temporal.batch_exports.clickhouse import ClickHouseClient
+from posthog.temporal.common.clickhouse import ClickHouseClient
 from posthog.temporal.tests.utils.events import generate_test_events_in_clickhouse
 from posthog.temporal.tests.utils.models import (
     acreate_batch_export,

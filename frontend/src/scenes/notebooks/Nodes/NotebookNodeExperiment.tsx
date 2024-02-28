@@ -1,7 +1,7 @@
 import { createPostHogWidgetNode } from 'scenes/notebooks/Nodes/NodeWrapper'
 import { NotebookNodeType } from '~/types'
 import { BindLogic, useActions, useValues } from 'kea'
-import { IconFlag, IconExperiment } from 'lib/lemon-ui/icons'
+import { IconExperiment } from 'lib/lemon-ui/icons'
 import { LemonDivider } from '@posthog/lemon-ui'
 import { urls } from 'scenes/urls'
 import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
@@ -18,6 +18,7 @@ import { trendsDataLogic } from 'scenes/trends/trendsDataLogic'
 import { ExperimentResult } from 'scenes/experiments/ExperimentResult'
 import { ResultsTag, StatusTag } from 'scenes/experiments/Experiment'
 import { NotFound } from 'lib/components/NotFound'
+import { IconFlag } from '@posthog/icons'
 
 const Component = ({ attributes }: NotebookNodeProps<NotebookNodeExperimentAttributes>): JSX.Element => {
     const { id } = attributes

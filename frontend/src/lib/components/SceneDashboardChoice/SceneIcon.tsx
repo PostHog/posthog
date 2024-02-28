@@ -1,6 +1,7 @@
+import { IconPerson } from '@posthog/icons'
 import clsx from 'clsx'
 import { DashboardCompatibleScenes } from 'lib/components/SceneDashboardChoice/sceneDashboardChoiceModalLogic'
-import { IconCottage, IconPerson } from 'lib/lemon-ui/icons'
+import { IconCottage } from 'lib/lemon-ui/icons'
 import { Scene } from 'scenes/sceneTypes'
 
 export function SceneIcon(props: { scene: DashboardCompatibleScenes; size: 'small' | 'large' }): JSX.Element | null {
