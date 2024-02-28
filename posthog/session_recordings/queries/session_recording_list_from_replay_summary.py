@@ -45,6 +45,11 @@ def _get_recording_start_time_clause(recording_filters: SessionRecordingsFilter)
     return start_time_clause, start_time_params
 
 
+def _get_order_by_clause(filter_order: str | None) -> str:
+    order_by = filter_order or "start_time"
+    return f"ORDER BY {order_by} DESC"
+
+
 def _get_filter_by_log_text_session_ids_clause(
     team: Team, recording_filters: SessionRecordingsFilter, column_name="session_id"
 ) -> Tuple[str, Dict[str, Any]]:
@@ -569,7 +574,7 @@ class SessionRecordingListFromReplaySummary(EventQuery):
     {log_matching_session_ids_clause}
     GROUP BY session_id
         HAVING 1=1 {duration_clause} {console_log_clause}
-    ORDER BY %(order_by)s DESC
+    {order_by_clause}
     LIMIT %(limit)s OFFSET %(offset)s
     """
 
@@ -611,6 +616,7 @@ class SessionRecordingListFromReplaySummary(EventQuery):
         try:
             self._filter.hogql_context.modifiers.personsOnEventsMode = PersonOnEventsMode.DISABLED
             query, query_params = self.get_query()
+
             query_results = sync_execute(query, {**query_params, **self._filter.hogql_context.values})
             session_recordings = self._data_to_return(query_results)
             return self._paginate_results(session_recordings)
@@ -625,13 +631,11 @@ class SessionRecordingListFromReplaySummary(EventQuery):
 
     def get_query(self) -> Tuple[str, Dict[str, Any]]:
         offset = self._filter.offset or 0
-        order_by = self._filter.target_entity_order or "start_time"
 
         base_params = {
             "team_id": self._team_id,
             "limit": self.limit + 1,
             "offset": offset,
-            "order_by": order_by,
             "clamped_to_storage_ttl": (datetime.now() - timedelta(days=self.ttl_days)),
         }
 
@@ -645,6 +649,8 @@ class SessionRecordingListFromReplaySummary(EventQuery):
             log_matching_session_ids_clause,
             log_matching_session_ids_params,
         ) = _get_filter_by_log_text_session_ids_clause(team=self._team, recording_filters=self._filter)
+
+        order_by_clause = _get_order_by_clause(self._filter.target_entity_order)
 
         duration_clause, duration_params = self.duration_clause(self._filter.duration_type_filter)
         console_log_clause = self._get_console_log_clause(self._filter.console_logs_filter)
@@ -670,6 +676,7 @@ class SessionRecordingListFromReplaySummary(EventQuery):
                 persons_sub_query=persons_select,
                 events_sub_query=events_select,
                 log_matching_session_ids_clause=log_matching_session_ids_clause,
+                order_by_clause=order_by_clause,
             ),
             {
                 **base_params,
