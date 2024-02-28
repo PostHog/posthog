@@ -43,7 +43,7 @@ def generate_recordings_embeddings_batch() -> None:
                 f"[generate_recordings_embeddings_batch] Fetched {len(recordings)} recordings",
                 recordings=recordings,
                 flow="embeddings",
-                team_id=team.pk,
+                team_id=team,
             )
             embed_batch_of_recordings_task.si(recordings, int(team)).apply_async()
         except Team.DoesNotExist:
