@@ -39,12 +39,15 @@ describe('session-manager', () => {
         teamId = 1,
         partition = 1
     ): Promise<SessionManagerV3> => {
-        return await SessionManagerV3.create(defaultConfig, mockS3Client, {
+        const manager = new SessionManagerV3(defaultConfig, mockS3Client, {
             sessionId,
             teamId,
             partition,
             dir: path.join(tmpDir, `${partition}`, `${teamId}__${sessionId}`),
         })
+
+        await manager.setupPromise
+        return manager
     }
 
     const flushThreshold = defaultConfig.SESSION_RECORDING_MAX_BUFFER_AGE_SECONDS * 1000
@@ -77,7 +80,7 @@ describe('session-manager', () => {
 
         await sessionManager.add(event)
 
-        expect(sessionManager.buffer?.context).toEqual({
+        expect(sessionManager.buffer).toEqual({
             sizeEstimate: 193,
             count: 1,
             eventsRange: { firstTimestamp: timestamp, lastTimestamp: timestamp + 1000 },
@@ -117,7 +120,7 @@ describe('session-manager', () => {
         await sessionManager.add(eventOne)
         await sessionManager.add(eventTwo)
 
-        sessionManager.buffer!.context.createdAt = now() - flushThreshold - 1
+        sessionManager.buffer!.createdAt = now() - flushThreshold - 1
 
         await sessionManager.flush()
 
@@ -247,5 +250,38 @@ describe('session-manager', () => {
         expect(uncompressed).toEqual(
             '{"window_id":"window_id_1","data":[{"timestamp":170000000,"type":4,"data":{"href":"http://localhost:3001/"}}]}\n'
         )
+    })
+
+    it('handles a corrupted metadata.json file', async () => {
+        const sm1 = await createSessionManager('session_id_2', 2, 2)
+
+        await sm1.add(
+            createIncomingRecordingMessage({
+                events: [
+                    { timestamp: 170000000, type: 4, data: { href: 'http://localhost:3001/' } },
+                    { timestamp: 170000000 + 1000, type: 4, data: { href: 'http://localhost:3001/' } },
+                ],
+            })
+        )
+
+        await sm1.stop()
+
+        await fs.writeFile(`${sm1.context.dir}/metadata.json`, 'CORRUPTEDDD', 'utf-8')
+
+        const sm2 = await createSessionManager('session_id_2', 2, 2)
+
+        expect(sm2.buffer).toEqual({
+            count: 1,
+            createdAt: expect.any(Number),
+            eventsRange: {
+                firstTimestamp: expect.any(Number),
+                lastTimestamp: expect.any(Number),
+            },
+            sizeEstimate: 185,
+        })
+
+        expect(sm2.buffer?.createdAt).toBeGreaterThanOrEqual(0)
+        expect(sm2.buffer?.eventsRange?.firstTimestamp).toBe(sm2.buffer!.createdAt)
+        expect(sm2.buffer?.eventsRange?.lastTimestamp).toBeGreaterThanOrEqual(sm2.buffer!.eventsRange!.firstTimestamp)
     })
 })

@@ -47,12 +47,7 @@ const ExportsContent = (): JSX.Element => {
                         >
                             <div className="flex items-center justify-between flex-auto p-2">
                                 <div>
-                                    <span className="text-link font-medium block">
-                                        {asset.filename}
-                                        <LemonTag size="small" className="ml-2">
-                                            {asset.export_format}
-                                        </LemonTag>
-                                    </span>
+                                    <span className="text-link font-medium block">{asset.filename}</span>
                                     {asset.created_at && (
                                         <span className="text-xs mt-1">{dayjs(asset.created_at).fromNow()}</span>
                                     )}

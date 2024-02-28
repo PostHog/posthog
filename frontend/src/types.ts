@@ -874,10 +874,6 @@ export interface RecordingFilters {
     filter_test_accounts?: boolean
 }
 
-export interface LocalRecordingFilters extends RecordingFilters {
-    new_entity?: Record<string, any>[]
-}
-
 export interface SessionRecordingsResponse {
     results: SessionRecordingType[]
     has_next: boolean
@@ -3242,6 +3238,7 @@ export enum ExporterFormat {
     CSV = 'text/csv',
     PDF = 'application/pdf',
     JSON = 'application/json',
+    XLSX = 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
 }
 
 /** Exporting directly from the browser to a file */
