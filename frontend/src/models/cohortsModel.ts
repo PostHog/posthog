@@ -2,7 +2,7 @@ import Fuse from 'fuse.js'
 import { actions, afterMount, beforeUnmount, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import api from 'lib/api'
-import { exportsLogic } from 'lib/components/ExportButton/exportsLogic'
+import { triggerExport } from 'lib/components/ExportButton/exporter'
 import { deleteWithUndo } from 'lib/utils/deleteWithUndo'
 import { permanentlyMount } from 'lib/utils/kea-logic-builders'
 import { BehavioralFilterKey } from 'scenes/cohorts/CohortFilters/types'
@@ -62,7 +62,6 @@ export const cohortsModel = kea<cohortsModelType>([
     path(['models', 'cohortsModel']),
     connect({
         values: [teamLogic, ['currentTeam']],
-        actions: [exportsLogic, ['startExport']],
     }),
     actions(() => ({
         setPollTimeout: (pollTimeout: number | null) => ({ pollTimeout }),
@@ -148,7 +147,7 @@ export const cohortsModel = kea<cohortsModelType>([
             if (columns && columns.length > 0) {
                 exportCommand.export_context['columns'] = columns
             }
-            actions.startExport(exportCommand)
+            await triggerExport(exportCommand)
         },
         deleteCohort: async ({ cohort }) => {
             await deleteWithUndo({

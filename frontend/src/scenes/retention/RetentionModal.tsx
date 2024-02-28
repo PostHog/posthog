@@ -3,7 +3,7 @@ import './RetentionTable.scss'
 import { LemonButton, LemonModal } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
-import { exportsLogic } from 'lib/components/ExportButton/exportsLogic'
+import { triggerExport } from 'lib/components/ExportButton/exporter'
 import { dayjs } from 'lib/dayjs'
 import { SpinnerOverlay } from 'lib/lemon-ui/Spinner/Spinner'
 import { capitalizeFirstLetter, isGroupType, percentage } from 'lib/utils'
@@ -32,7 +32,6 @@ export function RetentionModal(): JSX.Element | null {
         retentionModalLogic(insightProps)
     )
     const { closeModal } = useActions(retentionModalLogic(insightProps))
-    const { startExport } = useActions(exportsLogic)
 
     const dataTableNodeQuery: DataTableNode | undefined = actorsQuery
         ? {
@@ -58,7 +57,7 @@ export function RetentionModal(): JSX.Element | null {
                             <LemonButton
                                 type="secondary"
                                 onClick={() =>
-                                    startExport({
+                                    void triggerExport({
                                         export_format: ExporterFormat.CSV,
                                         export_context: {
                                             path: row?.people_url,
@@ -74,7 +73,7 @@ export function RetentionModal(): JSX.Element | null {
                                 key={1}
                                 placement="topRight"
                                 onConfirm={() => {
-                                    dataTableNodeQuery && void startDownload(dataTableNodeQuery, true, startExport)
+                                    dataTableNodeQuery && void startDownload(dataTableNodeQuery, true)
                                 }}
                                 actor="persons"
                                 limit={EXPORT_MAX_LIMIT}

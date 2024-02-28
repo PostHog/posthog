@@ -1,8 +1,8 @@
-import { LemonButton, LemonButtonWithDropdown, LemonDivider, lemonToast } from '@posthog/lemon-ui'
-import { useActions, useValues } from 'kea'
-import { TriggerExportProps } from 'lib/components/ExportButton/exporter'
-import { exportsLogic } from 'lib/components/ExportButton/exportsLogic'
+import { LemonDivider, lemonToast } from '@posthog/lemon-ui'
+import { useValues } from 'kea'
+import { triggerExport } from 'lib/components/ExportButton/exporter'
 import { IconExport } from 'lib/lemon-ui/icons'
+import { LemonButton, LemonButtonWithDropdown } from 'lib/lemon-ui/LemonButton'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import Papa from 'papaparse'
 import { asDisplay } from 'scenes/persons/person-utils'
@@ -26,7 +26,6 @@ export const EXPORT_MAX_LIMIT = 10000
 export async function startDownload(
     query: DataTableNode,
     onlySelectedColumns: boolean,
-    exportCall: (exportData: TriggerExportProps) => void,
     format: ExporterFormat = ExporterFormat.CSV
 ): Promise<void> {
     const exportContext = isPersonsNode(query.source)
@@ -53,7 +52,7 @@ export async function startDownload(
             )
         }
     }
-    exportCall({
+    await triggerExport({
         export_format: format,
         export_context: exportContext,
     })
@@ -189,7 +188,6 @@ interface DataTableExportProps {
 
 export function DataTableExport({ query }: DataTableExportProps): JSX.Element | null {
     const { dataTableRows, columnsInResponse, columnsInQuery, queryWithDefaults, response } = useValues(dataTableLogic)
-    const { startExport } = useActions(exportsLogic)
 
     const source: DataNode = query.source
     const filterCount =
@@ -209,7 +207,7 @@ export function DataTableExport({ query }: DataTableExportProps): JSX.Element | 
                         key={1}
                         placement="topRight"
                         onConfirm={() => {
-                            void startDownload(query, true, startExport)
+                            void startDownload(query, true)
                         }}
                         actor={isPersonsNode(query.source) ? 'persons' : 'events'}
                         limit={EXPORT_MAX_LIMIT}
@@ -223,7 +221,7 @@ export function DataTableExport({ query }: DataTableExportProps): JSX.Element | 
                                   <ExportWithConfirmation
                                       key={0}
                                       placement="topRight"
-                                      onConfirm={() => void startDownload(query, false, startExport)}
+                                      onConfirm={() => void startDownload(query, false)}
                                       actor={isPersonsNode(query.source) ? 'persons' : 'events'}
                                       limit={EXPORT_MAX_LIMIT}
                                   >
@@ -232,9 +230,7 @@ export function DataTableExport({ query }: DataTableExportProps): JSX.Element | 
                                   <ExportWithConfirmation
                                       key={0}
                                       placement="topRight"
-                                      onConfirm={() =>
-                                          void startDownload(query, false, startExport, ExporterFormat.XLSX)
-                                      }
+                                      onConfirm={() => void startDownload(query, false, ExporterFormat.XLSX)}
                                       actor={isPersonsNode(query.source) ? 'persons' : 'events'}
                                       limit={EXPORT_MAX_LIMIT}
                                   >
