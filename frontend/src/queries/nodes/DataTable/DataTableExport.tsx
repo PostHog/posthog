@@ -1,8 +1,8 @@
-import { LemonDivider, lemonToast } from '@posthog/lemon-ui'
-import { useValues } from 'kea'
-import { triggerExport } from 'lib/components/ExportButton/exporter'
+import { LemonButton, LemonButtonWithDropdown, LemonDivider, lemonToast } from '@posthog/lemon-ui'
+import { useActions, useValues } from 'kea'
+import { TriggerExportProps } from 'lib/components/ExportButton/exporter'
+import { exportsLogic } from 'lib/components/ExportButton/exportsLogic'
 import { IconExport } from 'lib/lemon-ui/icons'
-import { LemonButton, LemonButtonWithDropdown } from 'lib/lemon-ui/LemonButton'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import Papa from 'papaparse'
 import { asDisplay } from 'scenes/persons/person-utils'
@@ -23,7 +23,12 @@ import { dataTableLogic, DataTableRow } from './dataTableLogic'
 
 export const EXPORT_MAX_LIMIT = 10000
 
-export async function startDownload(query: DataTableNode, onlySelectedColumns: boolean): Promise<void> {
+export async function startDownload(
+    query: DataTableNode,
+    onlySelectedColumns: boolean,
+    exportCall: (exportData: TriggerExportProps) => void,
+    format: ExporterFormat = ExporterFormat.CSV
+): Promise<void> {
     const exportContext = isPersonsNode(query.source)
         ? { path: getPersonsEndpoint(query.source) }
         : { source: query.source }
@@ -48,8 +53,8 @@ export async function startDownload(query: DataTableNode, onlySelectedColumns: b
             )
         }
     }
-    await triggerExport({
-        export_format: ExporterFormat.CSV,
+    exportCall({
+        export_format: format,
         export_context: exportContext,
     })
 }
@@ -184,6 +189,7 @@ interface DataTableExportProps {
 
 export function DataTableExport({ query }: DataTableExportProps): JSX.Element | null {
     const { dataTableRows, columnsInResponse, columnsInQuery, queryWithDefaults, response } = useValues(dataTableLogic)
+    const { startExport } = useActions(exportsLogic)
 
     const source: DataNode = query.source
     const filterCount =
@@ -203,7 +209,7 @@ export function DataTableExport({ query }: DataTableExportProps): JSX.Element | 
                         key={1}
                         placement="topRight"
                         onConfirm={() => {
-                            void startDownload(query, true)
+                            void startDownload(query, true, startExport)
                         }}
                         actor={isPersonsNode(query.source) ? 'persons' : 'events'}
                         limit={EXPORT_MAX_LIMIT}
@@ -217,11 +223,22 @@ export function DataTableExport({ query }: DataTableExportProps): JSX.Element | 
                                   <ExportWithConfirmation
                                       key={0}
                                       placement="topRight"
-                                      onConfirm={() => void startDownload(query, false)}
+                                      onConfirm={() => void startDownload(query, false, startExport)}
                                       actor={isPersonsNode(query.source) ? 'persons' : 'events'}
                                       limit={EXPORT_MAX_LIMIT}
                                   >
-                                      <LemonButton fullWidth>Export all columns</LemonButton>
+                                      <LemonButton fullWidth>Export all columns (CSV)</LemonButton>
+                                  </ExportWithConfirmation>,
+                                  <ExportWithConfirmation
+                                      key={0}
+                                      placement="topRight"
+                                      onConfirm={() =>
+                                          void startDownload(query, false, startExport, ExporterFormat.XLSX)
+                                      }
+                                      actor={isPersonsNode(query.source) ? 'persons' : 'events'}
+                                      limit={EXPORT_MAX_LIMIT}
+                                  >
+                                      <LemonButton fullWidth>Export all columns (XLS)</LemonButton>
                                   </ExportWithConfirmation>,
                               ]
                             : []
