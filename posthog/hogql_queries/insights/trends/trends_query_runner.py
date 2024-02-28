@@ -553,8 +553,10 @@ class TrendsQueryRunner(QueryRunner):
             updated_series = []
             if isinstance(self.query.breakdownFilter.breakdown, List):
                 cohort_ids = self.query.breakdownFilter.breakdown
-            else:
+            elif self.query.breakdownFilter.breakdown is not None:
                 cohort_ids = [self.query.breakdownFilter.breakdown]
+            else:
+                cohort_ids = []
 
             for cohort_id in cohort_ids:
                 for series in series_with_extras:
