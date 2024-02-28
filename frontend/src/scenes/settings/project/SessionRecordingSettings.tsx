@@ -13,6 +13,7 @@ import { useActions, useValues } from 'kea'
 import { AuthorizedUrlList } from 'lib/components/AuthorizedUrlList/AuthorizedUrlList'
 import { AuthorizedUrlListType } from 'lib/components/AuthorizedUrlList/authorizedUrlListLogic'
 import { EventSelect } from 'lib/components/EventSelect/EventSelect'
+import { FlaggedFeature } from 'lib/components/FlaggedFeature'
 import { FlagSelector } from 'lib/components/FlagSelector'
 import { PropertySelect } from 'lib/components/PropertySelect/PropertySelect'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
@@ -256,38 +257,40 @@ function LinkedFlagSelector(): JSX.Element | null {
                         />
                     )}
                 </div>
-                {flagHasVariants && (
-                    <>
-                        <LemonLabel className="text-base">Link to a specific flag variant</LemonLabel>
-                        <LemonSegmentedButton
-                            className="min-w-1/3"
-                            value={currentTeam?.session_recording_linked_flag?.variant ?? 'any'}
-                            options={variantOptions(linkedFlag?.filters.multivariate)}
-                            onChange={(variant) => {
-                                if (!linkedFlag) {
-                                    return
-                                }
+                <FlaggedFeature match={true} flag={FEATURE_FLAGS.SESSION_REPLAY_LINKED_VARIANTS}>
+                    {flagHasVariants && (
+                        <>
+                            <LemonLabel className="text-base">Link to a specific flag variant</LemonLabel>
+                            <LemonSegmentedButton
+                                className="min-w-1/3"
+                                value={currentTeam?.session_recording_linked_flag?.variant ?? 'any'}
+                                options={variantOptions(linkedFlag?.filters.multivariate)}
+                                onChange={(variant) => {
+                                    if (!linkedFlag) {
+                                        return
+                                    }
 
-                                updateCurrentTeam({
-                                    session_recording_linked_flag: {
-                                        id: linkedFlag?.id,
-                                        key: linkedFlag?.key,
-                                        variant: variant === 'any' ? null : variant,
-                                    },
-                                })
-                            }}
-                        />
-                        <p>
-                            This is a multi-variant flag. You can link to "any" variant of the flag, and recordings will
-                            start whenever the flag is enabled for a user.
-                        </p>
-                        <p>
-                            Alternatively, you can link to a specific variant of the flag, and recordings will only
-                            start when the user has that specific variant enabled. Variant targeting support requires
-                            posthog-js v1.110.0 or greater
-                        </p>
-                    </>
-                )}
+                                    updateCurrentTeam({
+                                        session_recording_linked_flag: {
+                                            id: linkedFlag?.id,
+                                            key: linkedFlag?.key,
+                                            variant: variant === 'any' ? null : variant,
+                                        },
+                                    })
+                                }}
+                            />
+                            <p>
+                                This is a multi-variant flag. You can link to "any" variant of the flag, and recordings
+                                will start whenever the flag is enabled for a user.
+                            </p>
+                            <p>
+                                Alternatively, you can link to a specific variant of the flag, and recordings will only
+                                start when the user has that specific variant enabled. Variant targeting support
+                                requires posthog-js v1.110.0 or greater
+                            </p>
+                        </>
+                    )}
+                </FlaggedFeature>
             </div>
         </>
     )
