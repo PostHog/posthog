@@ -11,7 +11,7 @@ aiobotocore[boto3]==2.7.0
     #   aioboto3
     #   aiobotocore
     #   s3fs
-aiohttp==3.9.2
+aiohttp==3.9.3
     # via
     #   -r requirements.in
     #   aiobotocore
@@ -275,7 +275,9 @@ googleapis-common-protos==1.60.0
     #   google-api-core
     #   grpcio-status
 greenlet==3.0.3
-    # via gevent
+    # via
+    #   gevent
+    #   sqlalchemy
 grpcio==1.57.0
     # via
     #   google-api-core
@@ -348,7 +350,7 @@ kombu==5.3.2
     #   celery
 lazy-object-proxy==1.10.0
     # via openapi-spec-validator
-lxml==4.9.1
+lxml==5.1.0
     # via
     #   python3-saml
     #   toronado
@@ -457,7 +459,7 @@ pyasn1-modules==0.3.0
     # via google-auth
 pycparser==2.20
     # via cffi
-pycryptodomex==3.18.0
+pycryptodomex==3.19.1
     # via snowflake-connector-python
 pydantic==2.5.3
     # via
