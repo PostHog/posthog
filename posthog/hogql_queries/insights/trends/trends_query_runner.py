@@ -247,17 +247,17 @@ class TrendsQueryRunner(QueryRunner):
         queries = self.to_queries()
 
         if len(queries) == 1:
-            response_hogql_query = queries[0]
+            resonse_hogql_query = queries[0]
         else:
-            response_hogql_query = ast.SelectUnionQuery(select_queries=[])
+            resonse_hogql_query = ast.SelectUnionQuery(select_queries=[])
             for query in queries:
                 if isinstance(query, ast.SelectQuery):
-                    response_hogql_query.select_queries.append(query)
+                    resonse_hogql_query.select_queries.append(query)
                 else:
-                    response_hogql_query.select_queries.extend(query.select_queries)
+                    resonse_hogql_query.select_queries.extend(query.select_queries)
 
         with self.timings.measure("printing_hogql_for_response"):
-            response_hogql = to_printed_hogql(response_hogql_query, self.team, self.modifiers)
+            response_hogql = to_printed_hogql(resonse_hogql_query, self.team, self.modifiers)
 
         res_matrix: List[List[Any] | Any | None] = [None] * len(queries)
         timings_matrix: List[List[QueryTiming] | None] = [None] * len(queries)
@@ -366,9 +366,7 @@ class TrendsQueryRunner(QueryRunner):
                             "%Y-%m-%d{}".format(" %H:%M:%S" if self.query_date_range.interval_name == "hour" else "")
                         )
                         for item in get_value("date", val)
-                    ]
-                    if response.columns and "date" in response.columns
-                    else [],
+                    ],
                     "count": 0,
                     "aggregated_value": get_value("total", val),
                     "label": "All events" if series_label is None else series_label,
@@ -553,16 +551,13 @@ class TrendsQueryRunner(QueryRunner):
             updated_series = []
             if isinstance(self.query.breakdownFilter.breakdown, List):
                 cohort_ids = self.query.breakdownFilter.breakdown
-            elif self.query.breakdownFilter.breakdown is not None:
-                cohort_ids = [self.query.breakdownFilter.breakdown]
             else:
-                cohort_ids = []
+                cohort_ids = [self.query.breakdownFilter.breakdown]
 
             for cohort_id in cohort_ids:
                 for series in series_with_extras:
                     copied_query = deepcopy(self.query)
-                    if copied_query.breakdownFilter is not None:
-                        copied_query.breakdownFilter.breakdown = cohort_id
+                    copied_query.breakdownFilter.breakdown = cohort_id
 
                     updated_series.append(
                         SeriesWithExtras(
@@ -607,44 +602,24 @@ class TrendsQueryRunner(QueryRunner):
             for _, group in groupby(sorted_results, key=itemgetter("compare_label")):
                 group_list = list(group)
 
-                if self._trends_display.should_aggregate_values():
-                    series_data = list(map(lambda s: [s["aggregated_value"]], group_list))
-                    new_series_data = FormulaAST(series_data).call(formula)
+                series_data = map(lambda s: s["data"], group_list)
+                new_series_data = FormulaAST(series_data).call(formula)
 
-                    new_result = group_list[0]
-                    new_result["aggregated_value"] = float(sum(new_series_data))
-                    new_result["data"] = None
-                    new_result["count"] = 0
-                    new_result["label"] = f"Formula ({formula})"
-                    res.append(new_result)
-                else:
-                    series_data = list(map(lambda s: s["data"], group_list))
-                    new_series_data = FormulaAST(series_data).call(formula)
+                new_result = group_list[0]
+                new_result["data"] = new_series_data
+                new_result["count"] = float(sum(new_series_data))
+                new_result["label"] = f"Formula ({formula})"
 
-                    new_result = group_list[0]
-                    new_result["data"] = new_series_data
-                    new_result["count"] = float(sum(new_series_data))
-                    new_result["label"] = f"Formula ({formula})"
-                    res.append(new_result)
+                res.append(new_result)
             return res
 
-        if self._trends_display.should_aggregate_values():
-            series_data = list(map(lambda s: [s["aggregated_value"]], results))
-            new_series_data = FormulaAST(series_data).call(formula)
+        series_data = map(lambda s: s["data"], results)
+        new_series_data = FormulaAST(series_data).call(formula)
+        new_result = results[0]
 
-            new_result = results[0]
-            new_result["aggregated_value"] = float(sum(new_series_data))
-            new_result["data"] = None
-            new_result["count"] = 0
-            new_result["label"] = f"Formula ({formula})"
-        else:
-            series_data = list(map(lambda s: s["data"], results))
-            new_series_data = FormulaAST(series_data).call(formula)
-
-            new_result = results[0]
-            new_result["data"] = new_series_data
-            new_result["count"] = float(sum(new_series_data))
-            new_result["label"] = f"Formula ({formula})"
+        new_result["data"] = new_series_data
+        new_result["count"] = float(sum(new_series_data))
+        new_result["label"] = f"Formula ({formula})"
 
         return [new_result]
 
