@@ -5,6 +5,7 @@ from posthog.clickhouse.table_engines import (
     ReplicationScheme,
     AggregatingMergeTree,
 )
+from posthog.models.property.util import get_property_string_expr
 
 TABLE_BASE_NAME = "sessions"
 SESSIONS_DATA_TABLE = lambda: f"sharded_{TABLE_BASE_NAME}"
@@ -75,11 +76,7 @@ SETTINGS index_granularity=512
 
 
 def source_column(column_name: str) -> str:
-    # I'm not sure what this condition should be, I'm not actually sure it's possible as materialized columns are not
-    # part of migrations, so it's not possible to guarantee that a materialized column exists when a migration is run
-    # if EE_AVAILABLE:
-    #     return f"mat_{column_name}"
-    return f"JSONExtractString(properties, '{column_name}')"
+    return get_property_string_expr("events", property_name=column_name, var=f"'{column_name}'", column="properties")[0]
 
 
 SESSIONS_TABLE_MV_SQL = (
@@ -160,7 +157,6 @@ DISTRIBUTED_SESSIONS_TABLE_SQL = lambda: SESSIONS_TABLE_BASE_SQL.format(
 # This is the view that can be queried directly, that handles aggregation of potentially multiple rows per session.
 # Most queries won't use this directly as they will want to pre-filter rows before aggregation, but it's useful for
 # debugging
-
 SESSIONS_VIEW_SQL = (
     lambda: f"""
 CREATE OR REPLACE VIEW {TABLE_BASE_NAME}_v ON CLUSTER '{settings.CLICKHOUSE_CLUSTER}' AS
