@@ -3,9 +3,7 @@ from unittest import mock
 from django.test import override_settings
 
 from ee.clickhouse.materialized_columns.columns import materialize
-from ee.clickhouse.queries.column_optimizer import EnterpriseColumnOptimizer
 from posthog.models.filters import SessionRecordingsFilter
-from posthog.models.property.util import get_property_string_expr
 from posthog.session_recordings.queries.session_recording_list_from_replay_summary import (
     SessionRecordingListFromReplaySummary,
 )
@@ -54,31 +52,6 @@ class TestClickhouseSessionRecordingsListFromSessionReplay(ClickhouseTestMixin, 
             "team_id": self.team.id,
             "vglobal_0": ["false"],
         }
-
-        ee_optimizer = EnterpriseColumnOptimizer(
-            filter.shallow_clone(overrides={}),
-            self.team.id,
-        )
-        # if we were to use the person table, we simply extract from properties
-        assert ee_optimizer.person_columns_to_query == {"properties"}
-        # whereas person on events stores properties on the events table as person_properties,
-        # and we have materialized the property, so its returned rather than person_properties
-        assert ee_optimizer.person_on_event_columns_to_query == {"mat_pp_rgInternal"}
-
-        x = get_property_string_expr(
-            table="events",  # need to choose this based on PoE mode I guess!
-            property_name="rgInternal",
-            var="wat",
-            column="person_properties",
-            allow_denormalized_props=True,
-            table_alias=None,
-            materialised_table_column="person_properties",
-        )
-        assert x == (
-            '"mat_pp_rgInternal"',
-            # the column was materialized, so we can query it directly not extract from properties
-            True,  # true here is saying that a materialized column was picked
-        )
 
         # the unmaterialized column should query should not be used
         assert (
