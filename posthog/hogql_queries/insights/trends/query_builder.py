@@ -47,17 +47,16 @@ class TrendsQueryBuilder:
 
         if self._trends_display.should_aggregate_values():
             events_query = self._get_events_subquery(False, is_actors_query=False, breakdown=breakdown)
-            return events_query
         else:
             date_subqueries = self._get_date_subqueries(breakdown=breakdown)
             event_query = self._get_events_subquery(False, is_actors_query=False, breakdown=breakdown)
 
             events_query = ast.SelectUnionQuery(select_queries=[*date_subqueries, event_query])
 
-            inner_select = self._inner_select_query(inner_query=events_query, breakdown=breakdown)
-            full_query = self._outer_select_query(inner_query=inner_select, breakdown=breakdown)
+        inner_select = self._inner_select_query(inner_query=events_query, breakdown=breakdown)
+        full_query = self._outer_select_query(inner_query=inner_select, breakdown=breakdown)
 
-            return full_query
+        return full_query
 
     def build_actors_query(
         self, time_frame: Optional[str | int] = None, breakdown_filter: Optional[str | int] = None
