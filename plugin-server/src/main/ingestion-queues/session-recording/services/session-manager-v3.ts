@@ -34,7 +34,7 @@ const writeStreamBlocked = new Counter({
 
 const counterS3FilesWritten = new Counter({
     name: metricPrefix + 'recording_s3_files_written',
-    help: 'A single file flushed to S3'
+    help: 'A single file flushed to S3',
 })
 
 const counterS3WriteErrored = new Counter({
@@ -242,7 +242,6 @@ export class SessionManagerV3 {
 
         await this.setupPromise
 
-
         try {
             const buffer = this.getOrCreateBuffer()
             const messageData = convertToPersistedMessage(message)
@@ -294,7 +293,7 @@ export class SessionManagerV3 {
             await this.maybeFlushCurrentBuffer()
         } else {
             // This is mostly used by tests
-            await this.markCurrentBufferForFlush('rebalance')
+            await this.markCurrentBufferForFlush()
         }
 
         await this.flushFiles()
@@ -306,7 +305,7 @@ export class SessionManagerV3 {
         }
 
         if (this.buffer.sizeEstimate >= this.serverConfig.SESSION_RECORDING_MAX_BUFFER_SIZE_KB * 1024) {
-            return this.markCurrentBufferForFlush('buffer_size')
+            return this.markCurrentBufferForFlush()
         }
 
         const flushThresholdMs = this.serverConfig.SESSION_RECORDING_MAX_BUFFER_AGE_SECONDS * 1000
@@ -337,7 +336,7 @@ export class SessionManagerV3 {
         histogramSessionSizeKb.observe(this.buffer.sizeEstimate / 1024)
 
         if (isSessionAgeOverThreshold) {
-            return this.markCurrentBufferForFlush('buffer_age')
+            return this.markCurrentBufferForFlush()
         }
     }
 
@@ -362,7 +361,7 @@ export class SessionManagerV3 {
         histogramS3LinesWritten.observe(buffer.count)
         histogramS3KbWritten.observe(buffer.sizeEstimate / 1024)
 
-        await new Promise<void>((resolve) => this.bufferWriteStream ? this.bufferWriteStream.end(resolve) : resolve())
+        await new Promise<void>((resolve) => (this.bufferWriteStream ? this.bufferWriteStream.end(resolve) : resolve()))
         await rename(this.file(BUFFER_FILE_NAME), this.file(fileName))
         this.buffer = undefined
 
@@ -446,7 +445,6 @@ export class SessionManagerV3 {
             )
 
             counterS3FilesWritten.inc(1)
-
         } catch (error: any) {
             // TRICKY: error can for some reason sometimes be undefined...
             error = error || new Error('Unknown Error')
