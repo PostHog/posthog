@@ -561,7 +561,8 @@ class TrendsQueryRunner(QueryRunner):
             for cohort_id in cohort_ids:
                 for series in series_with_extras:
                     copied_query = deepcopy(self.query)
-                    copied_query.breakdownFilter.breakdown = cohort_id
+                    if copied_query.breakdownFilter is not None:
+                        copied_query.breakdownFilter.breakdown = cohort_id
 
                     updated_series.append(
                         SeriesWithExtras(
