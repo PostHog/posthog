@@ -96,6 +96,7 @@ export function FeatureFlag({ id }: { id?: string } = {}): JSX.Element {
         isEditingFlag,
         recordingFilterForFlag,
         newCohortLoading,
+        activeTab,
     } = useValues(featureFlagLogic)
     const { featureFlags } = useValues(enabledFeaturesLogic)
     const {
@@ -105,6 +106,7 @@ export function FeatureFlag({ id }: { id?: string } = {}): JSX.Element {
         triggerFeatureFlagUpdate,
         createStaticCohort,
         setFeatureFlagFilters,
+        setActiveTab,
     } = useActions(featureFlagLogic)
 
     const { addableRoles, unfilteredAddableRolesLoading, rolesToAdd, derivedRoles } = useValues(
@@ -120,7 +122,6 @@ export function FeatureFlag({ id }: { id?: string } = {}): JSX.Element {
     // whether the key for an existing flag is being changed
     const [hasKeyChanged, setHasKeyChanged] = useState(false)
 
-    const [activeTab, setActiveTab] = useState(FeatureFlagsTab.OVERVIEW)
     const [advancedSettingsExpanded, setAdvancedSettingsExpanded] = useState(false)
 
     const isNewFeatureFlag = id === 'new' || id === undefined
@@ -601,7 +602,11 @@ export function FeatureFlag({ id }: { id?: string } = {}): JSX.Element {
                                 </>
                             }
                         />
-                        <LemonTabs activeKey={activeTab} onChange={setActiveTab} tabs={tabs} />
+                        <LemonTabs
+                            activeKey={activeTab}
+                            onChange={(tab) => tab !== activeTab && setActiveTab(tab)}
+                            tabs={tabs}
+                        />
                     </>
                 )}
             </div>

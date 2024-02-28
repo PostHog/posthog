@@ -13,7 +13,7 @@ import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { dashboardsLogic } from 'scenes/dashboard/dashboards/dashboardsLogic'
 import { newDashboardLogic } from 'scenes/dashboard/newDashboardLogic'
 import { NEW_EARLY_ACCESS_FEATURE } from 'scenes/early-access-features/earlyAccessFeatureLogic'
-import { featureFlagsLogic } from 'scenes/feature-flags/featureFlagsLogic'
+import { featureFlagsLogic, FeatureFlagsTab } from 'scenes/feature-flags/featureFlagsLogic'
 import { filterTrendsClientSideParams } from 'scenes/insights/sharedUtils'
 import { cleanFilters } from 'scenes/insights/utils/cleanFilters'
 import { Scene } from 'scenes/sceneTypes'
@@ -201,6 +201,7 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
     actions({
         setFeatureFlag: (featureFlag: FeatureFlagType) => ({ featureFlag }),
         setFeatureFlagFilters: (filters: FeatureFlagType['filters'], errors: any) => ({ filters, errors }),
+        setActiveTab: (tab: FeatureFlagsTab) => ({ tab }),
         setFeatureFlagMissing: true,
         addRollbackCondition: true,
         removeRollbackCondition: (index: number) => ({ index }),
@@ -394,6 +395,12 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                 },
             },
         ],
+        activeTab: [
+            FeatureFlagsTab.OVERVIEW as FeatureFlagsTab,
+            {
+                setActiveTab: (_, { tab }) => tab,
+            },
+        ],
         featureFlagMissing: [false, { setFeatureFlagMissing: () => true }],
         isEditingFlag: [
             false,
@@ -439,8 +446,8 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
         schedulePayloadErrors: [
             null as any,
             {
-                setSchedulePayload: (_, { errors }) => {
-                    return errors
+                setSchedulePayload: (state, { errors }) => {
+                    return errors === null ? state : errors
                 },
             },
         ],
@@ -759,9 +766,20 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
         createScheduledChangeSuccess: ({ scheduledChange }) => {
             if (scheduledChange) {
                 lemonToast.success('Change scheduled successfully')
+                actions.setSchedulePayload(NEW_FLAG.filters, NEW_FLAG.active, {})
                 actions.loadScheduledChanges()
-                actions.setSchedulePayload(NEW_FLAG.filters, NEW_FLAG.active)
                 eventUsageLogic.actions.reportFeatureFlagScheduleSuccess()
+            }
+        },
+        setScheduledChangeOperation: () => {
+            // reset filters when operation changes
+            actions.setSchedulePayload(NEW_FLAG.filters, NEW_FLAG.active, {})
+        },
+        setActiveTab: ({ tab }) => {
+            // reset filters when opening schedule tab, and load scheduled changes
+            if (tab === FeatureFlagsTab.SCHEDULE) {
+                actions.setSchedulePayload(NEW_FLAG.filters, NEW_FLAG.active, {})
+                actions.loadScheduledChanges()
             }
         },
         createScheduledChangeFailure: ({ error }) => {

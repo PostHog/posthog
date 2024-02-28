@@ -2,6 +2,7 @@ import './FeatureFlag.scss'
 
 import { IconCopy, IconPlus, IconTrash } from '@posthog/icons'
 import { LemonInput, LemonSelect, Link } from '@posthog/lemon-ui'
+import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 import { allOperatorsToHumanName } from 'lib/components/DefinitionPopover/utils'
@@ -280,7 +281,7 @@ export function FeatureFlagReleaseConditions({
                         </LemonTag>
                     ) : (
                         <div className="feature-flag-form-row gap-2">
-                            <div className="flex items-center gap-1">
+                            <div className="flex flex-wrap items-center gap-1">
                                 Roll out to{' '}
                                 <LemonSlider
                                     value={group.rollout_percentage !== null ? group.rollout_percentage : 100}
@@ -292,7 +293,7 @@ export function FeatureFlagReleaseConditions({
                                     step={1}
                                     className="ml-1.5 w-20"
                                 />
-                                <LemonField.Pure error={propertySelectErrors?.[index]?.rollout_percentage}>
+                                <LemonField.Pure error={propertySelectErrors?.[index]?.rollout_percentage} inline>
                                     <LemonInput
                                         data-attr="rollout-percentage"
                                         type="number"
@@ -307,10 +308,10 @@ export function FeatureFlagReleaseConditions({
                                         suffix={<span>%</span>}
                                     />
                                 </LemonField.Pure>{' '}
-                                of <b>{aggregationTargetName}</b> in this set.{' '}
-                            </div>
-                            <div>
-                                Will match approximately{' '}
+                                <div
+                                    className={clsx(propertySelectErrors?.[index]?.rollout_percentage ? 'break' : '')}
+                                />
+                                of <b>{aggregationTargetName}</b> in this set. Will match approximately{' '}
                                 {affectedUsers[index] !== undefined ? (
                                     <b>
                                         {`${
@@ -496,11 +497,9 @@ export function FeatureFlagReleaseConditions({
                                 ...Array.from(groupTypes.values()).map((groupType) => ({
                                     value: groupType.group_type_index,
                                     label: capitalizeFirstLetter(aggregationLabel(groupType.group_type_index).plural),
-                                    disabledReason:
-                                        // TODO: The first part of old condition seemed a bit wonky check if we do need it
-                                        hasEarlyAccessFeatures
-                                            ? 'This feature flag cannot be group-based, because it is linked to an early access feature.'
-                                            : null,
+                                    disabledReason: hasEarlyAccessFeatures
+                                        ? 'This feature flag cannot be group-based, because it is linked to an early access feature.'
+                                        : null,
                                 })),
                                 ...(includeGroupsIntroductionOption()
                                     ? [

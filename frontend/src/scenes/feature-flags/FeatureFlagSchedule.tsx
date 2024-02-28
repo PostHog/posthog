@@ -16,7 +16,6 @@ import { More } from 'lib/lemon-ui/LemonButton/More'
 import { atColumn, createdAtColumn, createdByColumn } from 'lib/lemon-ui/LemonTable/columnUtils'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { hasFormErrors } from 'lib/utils'
-import { useEffect } from 'react'
 
 import { groupsModel } from '~/models/groupsModel'
 import { ScheduledChangeOperationType, ScheduledChangeType } from '~/types'
@@ -37,7 +36,6 @@ export default function FeatureFlagSchedule(): JSX.Element {
         schedulePayloadErrors,
     } = useValues(featureFlagLogic)
     const {
-        loadScheduledChanges,
         deleteScheduledChange,
         setScheduleDateMarker,
         setSchedulePayload,
@@ -49,10 +47,6 @@ export default function FeatureFlagSchedule(): JSX.Element {
     const aggregationGroupTypeIndex = featureFlag.filters.aggregation_group_type_index
 
     const scheduleFilters = { ...schedulePayload.filters, aggregation_group_type_index: aggregationGroupTypeIndex }
-
-    useEffect(() => {
-        loadScheduledChanges()
-    }, [])
 
     const columns: LemonTableColumns<ScheduledChangeType> = [
         {
@@ -200,7 +194,7 @@ export default function FeatureFlagSchedule(): JSX.Element {
                 )}
                 {scheduledChangeOperation === ScheduledChangeOperationType.AddReleaseCondition && (
                     <FeatureFlagReleaseConditions
-                        id="schedule"
+                        id={`schedule-${JSON.stringify(scheduleFilters)}`}
                         filters={scheduleFilters}
                         onChange={(value, errors) => setSchedulePayload(value, null, errors)}
                         hideMatchOptions
