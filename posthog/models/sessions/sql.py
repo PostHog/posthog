@@ -5,7 +5,6 @@ from posthog.clickhouse.table_engines import (
     ReplicationScheme,
     AggregatingMergeTree,
 )
-from posthog.settings import EE_AVAILABLE
 
 TABLE_BASE_NAME = "sessions"
 SESSIONS_DATA_TABLE = lambda: f"sharded_{TABLE_BASE_NAME}"
@@ -76,10 +75,11 @@ SETTINGS index_granularity=512
 
 
 def source_column(column_name: str) -> str:
-    if EE_AVAILABLE:
-        return f"mat_{column_name}"
-    else:
-        return f"JSONExtractString(properties, '{column_name}')"
+    # I'm not sure what this condition should be, I'm not actually sure it's possible as materialized columns are not
+    # part of migrations, so it's not possible to guarantee that a materialized column exists when a migration is run
+    # if EE_AVAILABLE:
+    #     return f"mat_{column_name}"
+    return f"JSONExtractString(properties, '{column_name}')"
 
 
 SESSIONS_TABLE_MV_SQL = (
