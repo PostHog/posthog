@@ -40,6 +40,11 @@ SESSION_EMBEDDINGS_WRITTEN_TO_CLICKHOUSE = Counter(
     "Number of session embeddings written to Clickhouse",
 )
 
+SESSION_EMBEDDINGS_FAILED_TO_CLICKHOUSE = Counter(
+    "posthog_session_recordings_embeddings_failed_to_clickhouse",
+    "Number of session embeddings failed to Clickhouse",
+)
+
 logger = get_logger(__name__)
 
 # TODO move these to settings
@@ -142,8 +147,12 @@ def embed_batch_of_recordings(recordings: List[str], team: Team | int) -> None:
 
 
 def flush_embeddings_to_clickhouse(embeddings: List[Dict[str, Any]]) -> None:
-    sync_execute("INSERT INTO session_replay_embeddings (session_id, team_id, embeddings) VALUES", embeddings)
-    SESSION_EMBEDDINGS_WRITTEN_TO_CLICKHOUSE.inc(len(embeddings))
+    try:
+        sync_execute("INSERT INTO session_replay_embeddings (session_id, team_id, embeddings) VALUES", embeddings)
+        SESSION_EMBEDDINGS_WRITTEN_TO_CLICKHOUSE.inc(len(embeddings))
+    except Exception as e:
+        logger.error(f"flush embeddings error", flow="embeddings", error=e)
+        SESSION_EMBEDDINGS_FAILED_TO_CLICKHOUSE.inc(len(embeddings))
 
 
 def generate_recording_embeddings(session_id: str, team: Team | int) -> List[float] | None:
