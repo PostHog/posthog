@@ -56,7 +56,7 @@ export const exportsLogic = kea<exportsLogicType>([
     }),
 
     listeners(({ actions, values }) => ({
-        createExport: async ({ exportData }) => {
+        createExport: async ({ exportData }, breakpoint) => {
             if (isLocalExport(exportData.export_context)) {
                 try {
                     downloadBlob(
@@ -77,12 +77,14 @@ export const exportsLogic = kea<exportsLogicType>([
                 export_context: exportData.export_context,
                 expires_after: dayjs().add(6, 'hour').toJSON(),
             })
+            breakpoint()
             if (values.featureFlags[FEATURE_FLAGS.EXPORTS_SIDEPANEL]) {
                 actions.openSidePanel(SidePanelTab.Exports)
+                actions.loadExports()
             }
             actions.pollExportStatus(newExportedAsset)
         },
-        pollExportStatus: async ({ exportedAsset }) => {
+        pollExportStatus: async ({ exportedAsset }, breakpoint) => {
             // eslint-disable-next-line no-async-promise-executor,@typescript-eslint/no-misused-promises
             const poller = new Promise<string>(async (resolve, reject) => {
                 const trackingProperties = {
@@ -125,6 +127,7 @@ export const exportsLogic = kea<exportsLogicType>([
                         // Example: `NetworkError when attempting to fetch resource`
                         try {
                             updatedAsset = await api.exports.get(exportedAsset.id)
+                            breakpoint()
                         } catch (e: any) {
                             if (e.name === 'NetworkError' || e.message?.message?.startsWith('NetworkError')) {
                                 continue
@@ -153,7 +156,6 @@ export const exportsLogic = kea<exportsLogicType>([
                 loadExports: async (_, breakpoint) => {
                     await breakpoint(100)
                     const response = await api.exports.list()
-
                     breakpoint()
 
                     return response.results
