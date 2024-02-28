@@ -10,7 +10,6 @@ import {
     DEFAULT_RECORDING_FILTERS,
     DEFAULT_SIMPLE_RECORDING_FILTERS,
     defaultRecordingDurationFilter,
-    RECORDINGS_LIMIT,
     sessionRecordingsPlaylistLogic,
 } from './sessionRecordingsPlaylistLogic'
 
@@ -49,11 +48,11 @@ describe('sessionRecordingsPlaylistLogic', () => {
                                 results: ["List of specific user's recordings from server"],
                             },
                         ]
-                    } else if (searchParams.get('offset') === `${RECORDINGS_LIMIT}`) {
+                    } else if (searchParams.get('offset') === `${listOfSessionRecordings.length}`) {
                         return [
                             200,
                             {
-                                results: [`List of recordings offset by ${RECORDINGS_LIMIT}`],
+                                results: [`List of recordings offset by ${listOfSessionRecordings.length}`],
                             },
                         ]
                     } else if (
@@ -163,7 +162,7 @@ describe('sessionRecordingsPlaylistLogic', () => {
         })
 
         describe('ordering', () => {
-            it('is set by setAdvancedFilters and loads filtered results and sets the url', async () => {
+            it('is set by setOrderBy, loads filtered results and orders the non pinned recordings', async () => {
                 await expectLogic(logic, () => {
                     logic.actions.setOrderBy('console_error_count')
                 })
@@ -173,6 +172,24 @@ describe('sessionRecordingsPlaylistLogic', () => {
                     })
 
                 expect(logic.values.otherRecordings.map((r) => r.console_error_count)).toEqual([100, 50])
+            })
+
+            it('adds an offset for subsequent loads when not', async () => {
+                await expectLogic(logic, () => {
+                    logic.actions.setOrderBy('console_error_count')
+                })
+                    .toDispatchActionsInAnyOrder(['loadSessionRecordingsSuccess'])
+                    .toMatchValues({
+                        sessionRecordings: listOfSessionRecordings,
+                    })
+
+                await expectLogic(logic, () => {
+                    logic.actions.maybeLoadSessionRecordings('newer')
+                })
+                    .toDispatchActions(['loadSessionRecordingsSuccess'])
+                    .toMatchValues({
+                        sessionRecordings: [...listOfSessionRecordings, 'List of recordings offset by 2'],
+                    })
             })
         })
 

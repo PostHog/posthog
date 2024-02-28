@@ -270,12 +270,23 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
                         limit: RECORDINGS_LIMIT,
                     }
 
-                    if (direction === 'older') {
-                        params['date_to'] = values.sessionRecordings[values.sessionRecordings.length - 1]?.start_time
-                    }
+                    if (values.orderBy === 'start_time') {
+                        if (direction === 'older') {
+                            params['date_to'] =
+                                values.sessionRecordings[values.sessionRecordings.length - 1]?.start_time
+                        }
 
-                    if (direction === 'newer') {
-                        params['date_from'] = values.sessionRecordings[0]?.start_time
+                        if (direction === 'newer') {
+                            params['date_from'] = values.sessionRecordings[0]?.start_time
+                        }
+                    } else {
+                        if (direction === 'older') {
+                            params['offset'] = values.sessionRecordings.length
+                        }
+
+                        if (direction === 'newer') {
+                            params['offset'] = 0
+                        }
                     }
 
                     await breakpoint(400) // Debounce for lots of quick filter changes
