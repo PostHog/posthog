@@ -16,9 +16,9 @@ export const sidePanelExportsLogic = kea<sidePanelExportsLogicType>([
             activityForSceneLogic,
             ['sceneActivityFilters'],
             exportsLogic,
-            ['exports'],
+            ['exports', 'freshUndownloadedExports'],
         ],
-        actions: [sidePanelStateLogic, ['openSidePanel'], exportsLogic, ['loadExports']],
+        actions: [sidePanelStateLogic, ['openSidePanel'], exportsLogic, ['loadExports', 'removeFresh']],
     }),
     afterMount(({ actions }) => {
         actions.loadExports()

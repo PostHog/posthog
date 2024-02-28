@@ -29,6 +29,8 @@ export const exportsLogic = kea<exportsLogicType>([
         createExport: (exportData: TriggerExportProps) => ({ exportData }),
         checkExportStatus: (exportedAsset: ExportedAssetType) => ({ exportedAsset }),
         pollExportStatus: (exportedAsset: ExportedAssetType) => ({ exportedAsset }),
+        addFresh: (exportedAsset: ExportedAssetType) => ({ exportedAsset }),
+        removeFresh: (exportedAsset: ExportedAssetType) => ({ exportedAsset }),
     }),
 
     connect({
@@ -41,6 +43,14 @@ export const exportsLogic = kea<exportsLogicType>([
             [] as ExportedAssetType[],
             {
                 loadExportsSuccess: (_, { exports }) => exports,
+            },
+        ],
+        freshUndownloadedExports: [
+            [] as ExportedAssetType[],
+            {
+                addFresh: (state, { exportedAsset }) =>
+                    state.some((asset) => asset.id === exportedAsset.id) ? state : [...state, exportedAsset],
+                removeFresh: (state, { exportedAsset }) => state.filter((asset) => asset.id !== exportedAsset.id),
             },
         ],
     }),
@@ -97,9 +107,10 @@ export const exportsLogic = kea<exportsLogicType>([
                             if (values.featureFlags[FEATURE_FLAGS.EXPORTS_SIDEPANEL]) {
                                 actions.loadExports()
                             }
-                            // Download immediately if created within the last 5 seconds
-                            if (dayjs().diff(dayjs(updatedAsset.created_at), 'second') < 5) {
+                            if (dayjs().diff(dayjs(updatedAsset.created_at), 'second') < 3) {
                                 void downloadExportedAsset(updatedAsset)
+                            } else {
+                                actions.addFresh(updatedAsset)
                             }
 
                             trackingProperties.total_time_ms = performance.now() - startTime
