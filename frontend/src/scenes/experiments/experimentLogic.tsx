@@ -1002,6 +1002,8 @@ export const experimentLogic = kea<experimentLogicType>([
     }),
     forms(({ actions, values }) => ({
         experiment: {
+            alwaysShowErrors: true,
+            showErrorsOnTouch: true,
             defaults: { ...NEW_EXPERIMENT } as Experiment,
             errors: ({ name, feature_flag_key, parameters }) => ({
                 name: !name && 'You have to enter a name.',

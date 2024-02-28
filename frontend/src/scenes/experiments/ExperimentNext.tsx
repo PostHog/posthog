@@ -58,11 +58,10 @@ const StepInfo = (): JSX.Element => {
     return (
         <>
             <Form
-                id="experiment-step-info"
+                id="experiment-step"
                 logic={experimentLogic}
                 formKey="experiment"
                 props={props}
-                enableFormOnSubmit
                 className="space-y-6 experiment-form"
             >
                 <div className="space-y-6 max-w-120">
@@ -165,7 +164,7 @@ const StepInfo = (): JSX.Element => {
                         </div>
                     </div>
                 </div>
-                <LemonButton type="primary" data-attr="save-experiment" htmlType="submit" form="experiment-step-info">
+                <LemonButton form="experiment-step" type="primary" onClick={() => {}}>
                     Continue
                 </LemonButton>
             </Form>
