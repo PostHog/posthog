@@ -29,6 +29,7 @@ from posthog.hogql_queries.insights.trends.breakdown_values import (
     BREAKDOWN_OTHER_STRING_LABEL,
 )
 from posthog.hogql_queries.insights.trends.display import TrendsDisplay
+from posthog.hogql_queries.insights.trends.trends_query_builder_abstract import TrendsQueryBuilderAbstract
 from posthog.hogql_queries.insights.trends.trends_query_builder import TrendsQueryBuilder
 from posthog.hogql_queries.insights.trends.data_warehouse_trends_query_builder import DataWarehouseTrendsQueryBuilder
 from posthog.hogql_queries.insights.trends.series_with_extras import SeriesWithExtras
@@ -121,7 +122,7 @@ class TrendsQueryRunner(QueryRunner):
                 else:
                     query_date_range = self.query_previous_date_range
 
-                query_builder: TrendsQueryBuilder | DataWarehouseTrendsQueryBuilder
+                query_builder: TrendsQueryBuilderAbstract
 
                 if isinstance(series.series, DataWarehouseNode):
                     query_builder = DataWarehouseTrendsQueryBuilder(
