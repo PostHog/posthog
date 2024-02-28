@@ -20,7 +20,7 @@ import { runInstrumentedFunction } from '../../utils'
 import { addSentryBreadcrumbsEventListeners } from '../kafka-metrics'
 import { BUCKETS_KB_WRITTEN, BUFFER_FILE_NAME, SessionManagerV3 } from './services/session-manager-v3'
 import { IncomingRecordingMessage } from './types'
-import { parseKafkaMessage, reduceRecordingMessages } from './utils'
+import { allSettledWithConcurrency, parseKafkaMessage, reduceRecordingMessages } from './utils'
 
 // Must require as `tsc` strips unused `import` statements and just requiring this seems to init some globals
 require('@sentry/tracing')
@@ -28,6 +28,8 @@ require('@sentry/tracing')
 // WARNING: Do not change this - it will essentially reset the consumer
 const KAFKA_CONSUMER_GROUP_ID = 'session-replay-ingester'
 const KAFKA_CONSUMER_SESSION_TIMEOUT_MS = 60000
+// NOTE: This is to stop getting into a memory or pressure situation - it likely wants to be externalised and monitored for efficiency
+const MAX_CONCURRENT_FLUSHES = 10
 
 // NOTE: To remove once released
 const metricPrefix = 'v3_'
@@ -347,11 +349,12 @@ export class SessionRecordingIngesterV3 {
     async flushAllReadySessions(heartbeat: () => void): Promise<void> {
         const sessions = Object.entries(this.sessions)
 
-        // TODO: We could probably parallelize this to some extent
-        for (const [key, sessionManager] of sessions) {
+        await allSettledWithConcurrency(MAX_CONCURRENT_FLUSHES, sessions, async ([key, sessionManager]) => {
+            heartbeat()
+
             if (!this.assignedPartitions.includes(sessionManager.context.partition)) {
                 await this.destroySession(key, sessionManager)
-                continue
+                return
             }
 
             await sessionManager
@@ -374,8 +377,8 @@ export class SessionRecordingIngesterV3 {
                         await this.destroySession(key, sessionManager)
                     }
                 })
-            heartbeat()
-        }
+        })
+
         gaugeSessionsHandled.set(Object.keys(this.sessions).length)
     }
 
