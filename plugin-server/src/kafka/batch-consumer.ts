@@ -69,6 +69,7 @@ export const startBatchConsumer = async ({
     topicCreationTimeoutMs,
     eachBatch,
     queuedMinMessages = 100000,
+    callEachBatchWhenEmpty = false,
     debug,
 }: {
     connectionConfig: GlobalConfig
@@ -84,8 +85,9 @@ export const startBatchConsumer = async ({
     fetchBatchSize: number
     batchingTimeoutMs: number
     topicCreationTimeoutMs: number
-    eachBatch: (messages: Message[]) => Promise<void>
+    eachBatch: (messages: Message[], context: { heartbeat: () => void }) => Promise<void>
     queuedMinMessages?: number
+    callEachBatchWhenEmpty?: boolean
     debug?: string
 }): Promise<BatchConsumer> => {
     // Starts consuming from `topic` in batches of `fetchBatchSize` messages,
@@ -173,7 +175,7 @@ export const startBatchConsumer = async ({
     instrumentConsumerMetrics(consumer, groupId)
 
     let isShuttingDown = false
-    let lastConsumeTime = 0
+    let lastHeartbeatTime = 0
 
     // Before subscribing, we need to ensure that the topic exists. We don't
     // currently have a way to manage topic creation elsewhere (we handle this
@@ -217,7 +219,7 @@ export const startBatchConsumer = async ({
             status.info('🔁', 'main_loop', {
                 messagesPerSecond: messagesProcessed / (STATUS_LOG_INTERVAL_MS / 1000),
                 batchesProcessed: batchesProcessed,
-                lastConsumeTime: new Date(lastConsumeTime).toISOString(),
+                lastHeartbeatTime: new Date(lastHeartbeatTime).toISOString(),
             })
 
             messagesProcessed = 0
@@ -231,11 +233,11 @@ export const startBatchConsumer = async ({
                     return await consumeMessages(consumer, fetchBatchSize)
                 })
 
-                // It's important that we only set the `lastConsumeTime` after a successful consume
+                // It's important that we only set the `lastHeartbeatTime` after a successful consume
                 // call. Even if we received 0 messages, a successful call means we are actually
                 // subscribed and didn't receive, for example, an error about an inconsistent group
                 // protocol. If we never manage to consume, we don't want our health checks to pass.
-                lastConsumeTime = Date.now()
+                lastHeartbeatTime = Date.now()
 
                 for (const [topic, count] of countPartitionsPerTopic(consumer.assignments())) {
                     kafkaAbsolutePartitionCount.labels({ topic }).set(count)
@@ -248,7 +250,7 @@ export const startBatchConsumer = async ({
                 }
 
                 status.debug('🔁', 'main_loop_consumed', { messagesLength: messages.length })
-                if (!messages.length) {
+                if (!messages.length && !callEachBatchWhenEmpty) {
                     status.debug('🔁', 'main_loop_empty_batch', { cause: 'empty' })
                     consumerBatchSize.labels({ topic, groupId }).observe(0)
                     continue
@@ -266,7 +268,11 @@ export const startBatchConsumer = async ({
                 // NOTE: we do not handle any retries. This should be handled by
                 // the implementation of `eachBatch`.
                 status.debug('⏳', `Starting to process batch of ${messages.length} events...`, batchSummary)
-                await eachBatch(messages)
+                await eachBatch(messages, {
+                    heartbeat: () => {
+                        lastHeartbeatTime = Date.now()
+                    },
+                })
 
                 messagesProcessed += messages.length
                 batchesProcessed += 1
@@ -304,7 +310,7 @@ export const startBatchConsumer = async ({
     const isHealthy = () => {
         // We define health as the last consumer loop having run in the last
         // minute. This might not be bullet-proof, let's see.
-        return Date.now() - lastConsumeTime < 60000
+        return Date.now() - lastHeartbeatTime < 60000
     }
 
     const stop = async () => {

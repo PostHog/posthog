@@ -2,6 +2,7 @@ import { Message, MessageHeader } from 'node-rdkafka'
 
 import { IncomingRecordingMessage } from '../../../../src/main/ingestion-queues/session-recording/types'
 import {
+    allSettledWithConcurrency,
     getLagMultiplier,
     maxDefined,
     minDefined,
@@ -310,5 +311,62 @@ describe('session-recording utils', () => {
             messages[3],
             messages[4],
         ])
+    })
+
+    describe('allSettledWithConcurrency', () => {
+        jest.setTimeout(1000)
+        it('should resolve promises in parallel with a max consumption', async () => {
+            let counter = 0
+            const ids = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]
+            const waiters = {}
+
+            const promise = allSettledWithConcurrency(4, ids, (id) => {
+                return new Promise<any>((resolve, reject) => {
+                    waiters[id] = { resolve, reject }
+                }).finally(() => {
+                    delete waiters[id]
+                    counter++
+                })
+            })
+
+            expect(Object.keys(waiters)).toEqual(['1', '2', '3', '4'])
+
+            // Check less than the max concurrency
+            waiters['1'].resolve(1)
+            await new Promise((resolve) => setTimeout(resolve, 1))
+            expect(Object.keys(waiters)).toEqual(['2', '3', '4', '5'])
+
+            // check multiple resolves
+            waiters['4'].resolve(4)
+            waiters['2'].resolve(2)
+            waiters['3'].resolve(3)
+            await new Promise((resolve) => setTimeout(resolve, 1))
+            expect(Object.keys(waiters)).toEqual(['5', '6', '7', '8'])
+
+            // Check rejections
+            waiters['5'].reject(5)
+            waiters['6'].reject(6)
+            waiters['7'].reject(7)
+            waiters['8'].reject(8)
+            await new Promise((resolve) => setTimeout(resolve, 1))
+            expect(Object.keys(waiters)).toEqual(['9', '10'])
+            waiters['9'].reject(9)
+            waiters['10'].resolve(10)
+
+            await expect(promise).resolves.toEqual([
+                { result: 1 },
+                { result: 2 },
+                { result: 3 },
+                { result: 4 },
+                { error: 5 },
+                { error: 6 },
+                { error: 7 },
+                { error: 8 },
+                { error: 9 },
+                { result: 10 },
+            ])
+
+            expect(counter).toEqual(10)
+        })
     })
 })

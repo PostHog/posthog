@@ -26,7 +26,7 @@ def encode_clickhouse_data(data: typing.Any, quote_char="'") -> bytes:
         case uuid.UUID():
             return f"{quote_char}{data}{quote_char}".encode("utf-8")
 
-        case int():
+        case int() | float():
             return b"%d" % data
 
         case dt.datetime():
@@ -53,15 +53,13 @@ def encode_clickhouse_data(data: typing.Any, quote_char="'") -> bytes:
             # This means INSERT queries with dictionary data are only supported with 'FORMAT JSONEachRow', which
             # is enough for now as most if not all of our INSERT query workloads are in unit test setup.
             encoded_data = []
+            quote_char = '"'  # JSON requires double quotes.
 
             for key, value in data.items():
                 if isinstance(value, dt.datetime):
-                    value = value.timestamp()
+                    value = str(value.timestamp())
                 elif isinstance(value, uuid.UUID) or isinstance(value, str):
                     value = str(value)
-                    quote_char = '"'  # JSON requires double quotes.
-                else:
-                    quote_char = "'"
 
                 encoded_data.append(
                     f'"{str(key)}"'.encode("utf-8") + b":" + encode_clickhouse_data(value, quote_char=quote_char)
@@ -178,7 +176,7 @@ class ClickHouseClient:
             request_data = None
         return request_data
 
-    async def acheck_response(self, response, query) -> None:
+    async def acheck_response(self, response, query, request_data) -> None:
         """Asynchronously check the HTTP response received from ClickHouse.
 
         Raises:
@@ -229,7 +227,7 @@ class ClickHouseClient:
             request_data = query.encode("utf-8")
 
         async with self.session.post(url=self.url, params=params, headers=self.headers, data=request_data) as response:
-            await self.acheck_response(response, query)
+            await self.acheck_response(response, query, request_data)
             yield response
 
     @contextlib.contextmanager
@@ -340,7 +338,9 @@ class ClickHouseClient:
 
 
 @contextlib.asynccontextmanager
-async def get_client(**kwargs) -> collections.abc.AsyncIterator[ClickHouseClient]:
+async def get_client(
+    *, team_id: typing.Optional[int] = None, **kwargs
+) -> collections.abc.AsyncIterator[ClickHouseClient]:
     """
     Returns a ClickHouse client based on the aiochclient library. This is an
     async context manager.
@@ -371,6 +371,14 @@ async def get_client(**kwargs) -> collections.abc.AsyncIterator[ClickHouseClient
     #    elif ssl_context.verify_mode is ssl.CERT_REQUIRED:
     #        ssl_context.load_default_certs(ssl.Purpose.SERVER_AUTH)
     timeout = aiohttp.ClientTimeout(total=None, connect=None, sock_connect=None, sock_read=None)
+
+    if team_id is None:
+        max_block_size = settings.CLICKHOUSE_MAX_BLOCK_SIZE_DEFAULT
+    else:
+        max_block_size = settings.CLICKHOUSE_MAX_BLOCK_SIZE_OVERRIDES.get(
+            team_id, settings.CLICKHOUSE_MAX_BLOCK_SIZE_DEFAULT
+        )
+
     with aiohttp.TCPConnector(ssl=False) as connector:
         async with aiohttp.ClientSession(connector=connector, timeout=timeout) as session:
             async with ClickHouseClient(
@@ -379,9 +387,8 @@ async def get_client(**kwargs) -> collections.abc.AsyncIterator[ClickHouseClient
                 user=settings.CLICKHOUSE_USER,
                 password=settings.CLICKHOUSE_PASSWORD,
                 database=settings.CLICKHOUSE_DATABASE,
-                # TODO: make this a setting.
-                max_execution_time=0,
-                max_block_size=10000,
+                max_execution_time=settings.CLICKHOUSE_MAX_EXECUTION_TIME,
+                max_block_size=max_block_size,
                 output_format_arrow_string_as_string="true",
                 **kwargs,
             ) as client:

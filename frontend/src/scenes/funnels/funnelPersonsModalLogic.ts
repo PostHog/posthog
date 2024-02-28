@@ -102,8 +102,9 @@ export const funnelPersonsModalLogic = kea<funnelPersonsModalLogicType>([
                     kind: NodeKind.InsightActorsQuery,
                     source: values.querySource!,
                     funnelStep: converted ? stepNo : -stepNo,
+                    includeRecordings: true,
                 }
-                openPersonsModal({ title, query })
+                openPersonsModal({ title, query, additionalSelect: { matched_recordings: 'matched_recordings' } })
             } else {
                 openPersonsModal({
                     url: generateBaselineConversionUrl(converted ? step.converted_people_url : step.dropped_people_url),
@@ -134,8 +135,9 @@ export const funnelPersonsModalLogic = kea<funnelPersonsModalLogicType>([
                     source: values.querySource!,
                     funnelStep: converted ? stepNo : -stepNo,
                     funnelStepBreakdown: series.breakdown_value,
+                    includeRecordings: true,
                 }
-                openPersonsModal({ title, query })
+                openPersonsModal({ title, query, additionalSelect: { matched_recordings: 'matched_recordings' } })
             } else {
                 openPersonsModal({
                     url: converted ? series.converted_people_url : series.dropped_people_url,
