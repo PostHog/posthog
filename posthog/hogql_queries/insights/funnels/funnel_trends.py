@@ -268,14 +268,17 @@ class FunnelTrends(FunnelBase):
     def get_step_counts_without_aggregation_query(
         self, *, specific_entrance_period_start: Optional[datetime] = None
     ) -> ast.SelectQuery:
-        team, interval = self.context.team, self.context.interval
+        team, interval, max_steps = self.context.team, self.context.interval, self.context.max_steps
 
         steps_per_person_query = self.funnel_order.get_step_counts_without_aggregation_query()
 
-        # event_select_clause = ""
-        # if self._filter.include_recordings:
-        #     max_steps = len(self._filter.entities)
-        #     event_select_clause = self._get_matching_event_arrays(max_steps)
+        event_select_clause: List[ast.Expr] = []
+        if (
+            hasattr(self.context, "actorsQuery")
+            and self.context.actorsQuery is not None
+            and self.context.actorsQuery.includeRecordings
+        ):
+            event_select_clause = self._get_matching_event_arrays(max_steps)
 
         breakdown_clause = self._get_breakdown_prop_expr()
 
@@ -283,7 +286,7 @@ class FunnelTrends(FunnelBase):
             ast.Field(chain=["aggregation_target"]),
             ast.Alias(alias="entrance_period_start", expr=get_start_of_interval_hogql(interval.value, team=team)),
             parse_expr("max(steps) AS steps_completed"),
-            # {event_select_clause}
+            *event_select_clause,
             *breakdown_clause,
         ]
         select_from = ast.JoinExpr(table=steps_per_person_query)
