@@ -431,6 +431,10 @@ posthog/hogql_queries/insights/trends/trends_query_runner.py:0: note: def to_act
 posthog/hogql_queries/insights/trends/trends_query_runner.py:0: note: Subclass:
 posthog/hogql_queries/insights/trends/trends_query_runner.py:0: note: def to_actors_query(self, time_frame: str | int | None, series_index: int, breakdown_value: str | int | None = ..., compare: Compare | None = ...) -> SelectQuery | SelectUnionQuery
 posthog/hogql_queries/insights/trends/trends_query_runner.py:0: error: Statement is unreachable  [unreachable]
+posthog/hogql_queries/insights/trends/trends_query_runner.py:0: error: List item 0 has incompatible type "str | float | None"; expected "str | float"  [list-item]
+posthog/hogql_queries/insights/trends/trends_query_runner.py:0: error: Item "None" of "BreakdownFilter | None" has no attribute "breakdown"  [union-attr]
+posthog/hogql_queries/insights/trends/trends_query_runner.py:0: error: Argument 1 to "FormulaAST" has incompatible type "map[Any]"; expected "list[list[float]]"  [arg-type]
+posthog/hogql_queries/insights/trends/trends_query_runner.py:0: error: Argument 1 to "FormulaAST" has incompatible type "map[Any]"; expected "list[list[float]]"  [arg-type]
 posthog/hogql_queries/insights/trends/trends_query_runner.py:0: error: Argument 1 to "_event_property" of "TrendsQueryRunner" has incompatible type "str | float | list[str | float] | None"; expected "str"  [arg-type]
 posthog/hogql_queries/legacy_compatibility/process_insight.py:0: error: Incompatible types in assignment (expression has type "PathFilter", variable has type "RetentionFilter")  [assignment]
 posthog/hogql_queries/legacy_compatibility/process_insight.py:0: error: Incompatible types in assignment (expression has type "StickinessFilter", variable has type "RetentionFilter")  [assignment]
