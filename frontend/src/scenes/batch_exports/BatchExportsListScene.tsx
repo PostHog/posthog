@@ -1,7 +1,7 @@
+import { IconEllipsis } from '@posthog/icons'
 import { LemonButton, LemonTable, Link } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { PageHeader } from 'lib/components/PageHeader'
-import { IconEllipsis } from 'lib/lemon-ui/icons'
 import { LemonMenu, LemonMenuItems } from 'lib/lemon-ui/LemonMenu'
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'

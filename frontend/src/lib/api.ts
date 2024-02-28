@@ -1584,16 +1584,19 @@ const api = {
 
         async listSnapshots(
             recordingId: SessionRecordingType['id'],
-            params: string
+            params: Record<string, any> = {}
         ): Promise<SessionRecordingSnapshotResponse> {
             return await new ApiRequest().recording(recordingId).withAction('snapshots').withQueryString(params).get()
         },
 
-        async getBlobSnapshots(recordingId: SessionRecordingType['id'], blobKey: string): Promise<string[]> {
+        async getBlobSnapshots(
+            recordingId: SessionRecordingType['id'],
+            params: Record<string, any>
+        ): Promise<string[]> {
             const response = await new ApiRequest()
                 .recording(recordingId)
                 .withAction('snapshots')
-                .withQueryString(toParams({ source: 'blob', blob_key: blobKey, version: '2' }))
+                .withQueryString(params)
                 .getResponse()
 
             const contentBuffer = new Uint8Array(await response.arrayBuffer())

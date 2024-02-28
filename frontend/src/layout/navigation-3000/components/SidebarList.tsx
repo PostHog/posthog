@@ -1,11 +1,10 @@
 import { Link, TZLabel } from '@posthog/apps-common'
-import { IconX } from '@posthog/icons'
+import { IconCheckCircle, IconEllipsis, IconX } from '@posthog/icons'
 import { LemonButton, LemonTag, lemonToast } from '@posthog/lemon-ui'
 import { captureException } from '@sentry/react'
 import clsx from 'clsx'
 import { useActions, useAsyncActions, useValues } from 'kea'
 import { isDayjs } from 'lib/dayjs'
-import { IconCheckmark, IconEllipsis } from 'lib/lemon-ui/icons'
 import { LemonMenu } from 'lib/lemon-ui/LemonMenu'
 import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
 import React, { useEffect, useMemo, useRef, useState } from 'react'
@@ -381,7 +380,7 @@ function SidebarListItem({ item, validateName, active, style }: SidebarListItemP
                     <LemonButton // This has no onClick, as the action is actually handled in the input's onBlur
                         size="small"
                         noPadding
-                        icon={<IconCheckmark />}
+                        icon={<IconCheckCircle />}
                         tooltip={
                             !isSaving ? (
                                 <>

@@ -30,7 +30,6 @@ from posthog.temporal.batch_exports.batch_exports import (
     iter_records,
     update_export_run_status,
 )
-from posthog.temporal.batch_exports.clickhouse import ClickHouseClient
 from posthog.temporal.batch_exports.snowflake_batch_export import (
     SnowflakeBatchExportInputs,
     SnowflakeBatchExportWorkflow,
@@ -38,6 +37,7 @@ from posthog.temporal.batch_exports.snowflake_batch_export import (
     insert_into_snowflake_activity,
     snowflake_default_fields,
 )
+from posthog.temporal.common.clickhouse import ClickHouseClient
 from posthog.temporal.tests.utils.events import generate_test_events_in_clickhouse
 from posthog.temporal.tests.utils.models import (
     acreate_batch_export,

@@ -203,6 +203,7 @@ export const FEATURE_FLAGS = {
     REPLAY_SIMILAR_RECORDINGS: 'session-replay-similar-recordings', // owner: #team-replay
     SAVED_NOT_PINNED: 'saved-not-pinned', // owner: #team-replay
     EXPORTS_SIDEPANEL: 'exports-sidepanel', // owner: #team-product-analytics
+    SESSION_REPLAY_V3_INGESTION_PLAYBACK: 'session-replay-v3-ingestion-playback', // owner: @benjackwhite
 } as const
 export type FeatureFlagKey = (typeof FEATURE_FLAGS)[keyof typeof FEATURE_FLAGS]
 
@@ -239,7 +240,7 @@ export const DOMAIN_REGEX = /^([a-z0-9]+(-[a-z0-9]+)*\.)+[a-z]{2,}$/
 export const SECURE_URL_REGEX = /^(?:http(s)?:\/\/)[\w.-]+(?:\.[\w.-]+)+[\w\-._~:/?#[\]@!$&'()*+,;=]+$/gi
 
 export const CLOUD_HOSTNAMES = {
-    [Region.US]: 'app.posthog.com',
+    [Region.US]: 'us.posthog.com',
     [Region.EU]: 'eu.posthog.com',
 }
 

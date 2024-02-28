@@ -28,7 +28,6 @@ from posthog.temporal.batch_exports.batch_exports import (
     iter_records,
     update_export_run_status,
 )
-from posthog.temporal.batch_exports.clickhouse import ClickHouseClient
 from posthog.temporal.batch_exports.s3_batch_export import (
     HeartbeatDetails,
     S3BatchExportInputs,
@@ -38,6 +37,7 @@ from posthog.temporal.batch_exports.s3_batch_export import (
     insert_into_s3_activity,
     s3_default_fields,
 )
+from posthog.temporal.common.clickhouse import ClickHouseClient
 from posthog.temporal.tests.utils.events import (
     generate_test_events_in_clickhouse,
 )
