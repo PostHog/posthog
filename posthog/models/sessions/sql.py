@@ -111,7 +111,6 @@ argMinState({gclid_property}, timestamp) as initial_gclid,
 argMinState({gad_source_property}, timestamp) as initial_gad_source,
 
 sumMapState(([event], [toInt64(1)])) as event_count_map,
-count(*) as event_count,
 sumIf(1, event='$pageview') as pageview_count,
 sumIf(1, event='$autocapture') as autocapture_count
 
@@ -156,4 +155,36 @@ DISTRIBUTED_SESSIONS_TABLE_SQL = lambda: SESSIONS_TABLE_BASE_SQL.format(
         data_table=SESSIONS_DATA_TABLE(),
         sharding_key="sipHash64(session_id)",
     ),
+)
+
+# This is the view that can be queried directly, that handles aggregation of potentially multiple rows per session.
+# Most queries won't use this directly as they will want to pre-filter rows before aggregation, but it's useful for
+# debugging
+
+SESSIONS_VIEW_SQL = (
+    lambda: f"""
+CREATE OR REPLACE VIEW {TABLE_BASE_NAME}_v ON CLUSTER '{settings.CLICKHOUSE_CLUSTER}' AS
+SELECT
+    session_id,
+    team_id,
+    any(distinct_id) as distinct_id,
+    min(min_first_timestamp) as min_first_timestamp,
+    max(max_last_timestamp) as max_last_timestamp,
+    arrayDistinct(arrayFlatten(groupArray(urls)) )AS urls,
+    argMinMerge(entry_url) as entry_url,
+    argMaxMerge(exit_url) as exit_url,
+    argMinMerge(initial_utm_source) as initial_utm_source,
+    argMinMerge(initial_utm_campaign) as initial_utm_campaign,
+    argMinMerge(initial_utm_medium) as initial_utm_medium,
+    argMinMerge(initial_utm_term) as initial_utm_term,
+    argMinMerge(initial_utm_content) as initial_utm_content,
+    argMinMerge(initial_referring_domain) as initial_referring_domain,
+    argMinMerge(initial_gclid) as initial_gclid,
+    argMinMerge(initial_gad_source) as initial_gad_source,
+    CAST(sumMapMerge(event_count_map), 'Map(String, Int64)') as event_count_map,
+    sum(pageview_count) as pageview_count,
+    sum(autocapture_count) as autocapture_count
+FROM sessions
+GROUP BY session_id, team_id
+"""
 )
