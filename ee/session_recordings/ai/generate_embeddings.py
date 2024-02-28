@@ -36,6 +36,11 @@ SESSION_EMBEDDINGS_GENERATED = Counter(
     "Number of session embeddings generated",
 )
 
+SESSION_EMBEDDINGS_FAILED = Counter(
+    "posthog_session_recordings_embeddings_failed",
+    "Number of session embeddings failed",
+)
+
 SESSION_EMBEDDINGS_WRITTEN_TO_CLICKHOUSE = Counter(
     "posthog_session_recordings_embeddings_written_to_clickhouse",
     "Number of session embeddings written to Clickhouse",
@@ -144,6 +149,7 @@ def embed_batch_of_recordings(recordings: List[str], team: Team | int) -> None:
             if len(batched_embeddings) > 0:
                 flush_embeddings_to_clickhouse(embeddings=batched_embeddings)
     except Exception as e:
+        SESSION_EMBEDDINGS_FAILED.inc()
         logger.error(f"embed recordings error", flow="embeddings", error=e)
         raise e
 
