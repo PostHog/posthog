@@ -34,8 +34,7 @@ const writeStreamBlocked = new Counter({
 
 const counterS3FilesWritten = new Counter({
     name: metricPrefix + 'recording_s3_files_written',
-    help: 'A single file flushed to S3',
-    labelNames: ['flushReason'],
+    help: 'A single file flushed to S3'
 })
 
 const counterS3WriteErrored = new Counter({
@@ -342,7 +341,7 @@ export class SessionManagerV3 {
         }
     }
 
-    private async markCurrentBufferForFlush(reason: 'buffer_size' | 'buffer_age' | 'rebalance'): Promise<void> {
+    private async markCurrentBufferForFlush(): Promise<void> {
         const buffer = this.buffer
         if (!buffer) {
             // TODO: maybe error properly here?
@@ -360,7 +359,6 @@ export class SessionManagerV3 {
         const { firstTimestamp, lastTimestamp } = buffer.eventsRange
         const fileName = `${firstTimestamp}-${lastTimestamp}${FLUSH_FILE_EXTENSION}`
 
-        counterS3FilesWritten.labels(reason).inc(1)
         histogramS3LinesWritten.observe(buffer.count)
         histogramS3KbWritten.observe(buffer.sizeEstimate / 1024)
 
@@ -446,6 +444,9 @@ export class SessionManagerV3 {
                     await inProgressUpload.done()
                 }
             )
+
+            counterS3FilesWritten.inc(1)
+
         } catch (error: any) {
             // TRICKY: error can for some reason sometimes be undefined...
             error = error || new Error('Unknown Error')
