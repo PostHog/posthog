@@ -234,7 +234,9 @@ def generate_recording_embeddings(session_id: str, team: Team | int) -> List[flo
     token_count = num_tokens_for_input(input)
     RECORDING_EMBEDDING_TOKEN_COUNT.observe(token_count)
     if token_count > MAX_TOKENS_FOR_MODEL:
-        logger.error(f"embedding input exceeds max token count for model", flow="embeddings", session_id=session_id)
+        logger.error(
+            f"embedding input exceeds max token count for model", flow="embeddings", session_id=session_id, input=input
+        )
         SESSION_SKIPPED_WHEN_GENERATING_EMBEDDINGS.inc()
         return None
 
