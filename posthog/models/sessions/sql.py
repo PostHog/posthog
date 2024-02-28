@@ -5,6 +5,7 @@ from posthog.clickhouse.table_engines import (
     ReplicationScheme,
     AggregatingMergeTree,
 )
+from posthog.settings import EE_AVAILABLE
 
 TABLE_BASE_NAME = "sessions"
 SESSIONS_DATA_TABLE = lambda: f"sharded_{TABLE_BASE_NAME}"
@@ -73,6 +74,14 @@ SETTINGS index_granularity=512
     engine=SESSIONS_DATA_TABLE_ENGINE(),
 )
 
+
+def source_column(column_name: str) -> str:
+    if EE_AVAILABLE:
+        return f"mat_{column_name}"
+    else:
+        return f"JSONExtractString(properties, '{column_name}')"
+
+
 SESSIONS_TABLE_MV_SQL = (
     lambda: """
 CREATE MATERIALIZED VIEW IF NOT EXISTS {table_name} ON CLUSTER '{cluster}'
@@ -88,18 +97,18 @@ any(distinct_id) as distinct_id,
 min(timestamp) AS min_first_timestamp,
 max(timestamp) AS max_last_timestamp,
 
-groupUniqArray(JSONExtractString(properties, '$current_url')) AS urls,
-argMinState(JSONExtractString(properties, '$current_url'), timestamp) as entry_url,
-argMaxState(JSONExtractString(properties, '$current_url'), timestamp) as exit_url,
+groupUniqArray({current_url_property}) AS urls,
+argMinState({current_url_property}, timestamp) as entry_url,
+argMaxState({current_url_property}, timestamp) as exit_url,
 
-argMinState(JSONExtractString(properties, '$referring_domain'), timestamp) as initial_referring_domain,
-argMinState(JSONExtractString(properties, 'utm_source'), timestamp) as initial_utm_source,
-argMinState(JSONExtractString(properties, 'utm_campaign'), timestamp) as initial_utm_campaign,
-argMinState(JSONExtractString(properties, 'utm_medium'), timestamp) as initial_utm_medium,
-argMinState(JSONExtractString(properties, 'utm_term'), timestamp) as initial_utm_term,
-argMinState(JSONExtractString(properties, 'utm_content'), timestamp) as initial_utm_content,
-argMinState(JSONExtractString(properties, 'gclid'), timestamp) as initial_gclid,
-argMinState(JSONExtractString(properties, 'gad_source'), timestamp) as initial_gad_source,
+argMinState({referring_domain_property}, timestamp) as initial_referring_domain,
+argMinState({utm_source_property}, timestamp) as initial_utm_source,
+argMinState({utm_campaign_property}, timestamp) as initial_utm_campaign,
+argMinState({utm_medium_property}, timestamp) as initial_utm_medium,
+argMinState({utm_term_property}, timestamp) as initial_utm_term,
+argMinState({utm_content_property}, timestamp) as initial_utm_content,
+argMinState({gclid_property}, timestamp) as initial_gclid,
+argMinState({gad_source_property}, timestamp) as initial_gad_source,
 
 sumMapState(([event], [toInt64(1)])) as event_count_map,
 count(*) as event_count,
@@ -114,6 +123,15 @@ GROUP BY `$session_id`, team_id
         target_table=f"writable_{TABLE_BASE_NAME}",
         cluster=settings.CLICKHOUSE_CLUSTER,
         database=settings.CLICKHOUSE_DATABASE,
+        current_url_property=source_column("$current_url"),
+        referring_domain_property=source_column("$referring_domain"),
+        utm_source_property=source_column("utm_source"),
+        utm_campaign_property=source_column("utm_campaign"),
+        utm_medium_property=source_column("utm_medium"),
+        utm_term_property=source_column("utm_term"),
+        utm_content_property=source_column("utm_content"),
+        gclid_property=source_column("gclid"),
+        gad_source_property=source_column("gad_source"),
     )
 )
 
