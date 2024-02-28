@@ -340,4 +340,15 @@ describe('ingester', () => {
             expect(ingester.sessions).toEqual({})
         })
     })
+
+    describe('heartbeats', () => {
+        it('it should send them whilst processing', async () => {
+            const heartbeat = jest.fn()
+            // non-zero offset because the code can't commit offset 0
+            const partitionMsgs1 = [createMessage('session_id_1', 1), createMessage('session_id_2', 1)]
+            await ingester.handleEachBatch(partitionMsgs1, heartbeat)
+
+            expect(heartbeat).toBeCalledTimes(5)
+        })
+    })
 })
