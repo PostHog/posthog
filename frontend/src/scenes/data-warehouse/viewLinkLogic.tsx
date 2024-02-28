@@ -1,11 +1,12 @@
 import { actions, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { forms } from 'kea-forms'
+import { subscriptions } from 'kea-subscriptions'
 import api from 'lib/api'
-import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { databaseTableListLogic } from 'scenes/data-management/database/databaseTableListLogic'
 
 import { DataWarehouseViewLink } from '~/types'
 
+import { dataWarehouseJoinsLogic } from './external/dataWarehouseJoinsLogic'
 import { dataWarehouseSavedQueriesLogic } from './saved_queries/dataWarehouseSavedQueriesLogic'
 import { DataWarehouseRowType, DataWarehouseTableType } from './types'
 import type { viewLinkLogicType } from './viewLinkLogicType'
@@ -32,30 +33,55 @@ export const viewLinkLogic = kea<viewLinkLogicType>([
             dataWarehouseSavedQueriesLogic,
             ['savedQueries'],
             databaseTableListLogic,
-            ['tableOptions', 'filteredTables', 'dataWarehouse'],
+            ['filteredTables', 'dataWarehouse'],
         ],
-        actions: [databaseTableListLogic, ['loadDatabase']],
+        actions: [databaseTableListLogic, ['loadDatabase'], dataWarehouseJoinsLogic, ['loadJoins']],
     }),
     actions({
         selectJoiningTable: (selectedTableName: string) => ({ selectedTableName }),
         selectSourceTable: (selectedTableName: string) => ({ selectedTableName }),
         toggleJoinTableModal: true,
+        toggleEditJoinModal: (join: DataWarehouseViewLink) => ({ join }),
+        toggleNewJoinModal: true,
         saveViewLink: (viewLink) => ({ viewLink }),
         deleteViewLink: (table, column) => ({ table, column }),
         setError: (error: string) => ({ error }),
         setFieldName: (fieldName: string) => ({ fieldName }),
+        clearModalFields: true,
     }),
     reducers({
+        joinToEdit: [
+            null as DataWarehouseViewLink | null,
+            {
+                submitViewLinkSuccess: () => null,
+                clearModalFields: () => null,
+                toggleEditJoinModal: (_, { join }) => join,
+            },
+        ],
+        isNewJoin: [
+            false as boolean,
+            {
+                submitViewLinkSuccess: () => false,
+                toggleJoinTableModal: () => false,
+                toggleEditJoinModal: () => false,
+                toggleNewJoinModal: () => true,
+                clearModalFields: () => false,
+            },
+        ],
         selectedSourceTableName: [
             null as string | null,
             {
                 selectSourceTable: (_, { selectedTableName }) => selectedTableName,
+                toggleEditJoinModal: (_, { join }) => join.source_table_name ?? null,
+                clearModalFields: () => null,
             },
         ],
         selectedJoiningTableName: [
             null as string | null,
             {
                 selectJoiningTable: (_, { selectedTableName }) => selectedTableName,
+                toggleEditJoinModal: (_, { join }) => join.joining_table_name ?? null,
+                clearModalFields: () => null,
             },
         ],
         fieldName: [
@@ -63,25 +89,30 @@ export const viewLinkLogic = kea<viewLinkLogicType>([
             {
                 setFieldName: (_, { fieldName }) => fieldName,
                 selectJoiningTable: (_, { selectedTableName }) => selectedTableName,
+                toggleEditJoinModal: (_, { join }) => join.field_name ?? '',
+                clearModalFields: () => '',
             },
         ],
         isJoinTableModalOpen: [
             false,
             {
                 toggleJoinTableModal: (state) => !state,
+                toggleEditJoinModal: () => true,
+                toggleNewJoinModal: () => true,
             },
         ],
         error: [
             null as null | string,
             {
                 setError: (_, { error }) => error,
+                clearModalFields: () => null,
             },
         ],
     }),
     forms(({ actions, values }) => ({
         viewLink: {
             defaults: NEW_VIEW_LINK,
-            errors: ({ joining_table_name, joining_table_key, source_table_key }) => {
+            errors: ({ source_table_name, joining_table_name, joining_table_key, source_table_key }) => {
                 let joining_table_key_err: string | undefined = undefined
                 let source_table_key_err: string | undefined = undefined
 
@@ -104,16 +135,18 @@ export const viewLinkLogic = kea<viewLinkLogicType>([
                 }
 
                 return {
+                    source_table_name: values.isNewJoin && !source_table_name ? 'Must select a table' : undefined,
                     joining_table_name: !joining_table_name ? 'Must select a table' : undefined,
-                    to_join_key: joining_table_key_err,
-                    from_join_key: source_table_key_err,
+                    source_table_key: source_table_key_err,
+                    joining_table_key: joining_table_key_err,
                 }
             },
-            submit: async ({ joining_table_name, source_table_key, joining_table_key }) => {
-                if (values.selectedSourceTable) {
+            submit: async ({ joining_table_name, source_table_name, source_table_key, joining_table_key }) => {
+                if (values.joinToEdit?.id && values.selectedSourceTable) {
+                    // Edit join
                     try {
-                        await api.dataWarehouseViewLinks.create({
-                            source_table_name: values.selectedSourceTable.name,
+                        await api.dataWarehouseViewLinks.update(values.joinToEdit.id, {
+                            source_table_name: source_table_name ?? values.selectedSourceTable.name,
                             source_table_key,
                             joining_table_name,
                             joining_table_key,
@@ -121,6 +154,24 @@ export const viewLinkLogic = kea<viewLinkLogicType>([
                         })
 
                         actions.toggleJoinTableModal()
+                        actions.loadJoins()
+                        // actions.loadDatabase()
+                    } catch (error: any) {
+                        actions.setError(error.detail)
+                    }
+                } else if (values.selectedSourceTable) {
+                    // Create join
+                    try {
+                        await api.dataWarehouseViewLinks.create({
+                            source_table_name: source_table_name ?? values.selectedSourceTable.name,
+                            source_table_key,
+                            joining_table_name,
+                            joining_table_key,
+                            field_name: values.fieldName,
+                        })
+
+                        actions.toggleJoinTableModal()
+                        actions.loadJoins()
                         // actions.loadDatabase()
                     } catch (error: any) {
                         actions.setError(error.detail)
@@ -129,20 +180,9 @@ export const viewLinkLogic = kea<viewLinkLogicType>([
             },
         },
     })),
-    listeners(({ values, actions }) => ({
-        deleteViewLink: async ({ table, column }) => {
-            // const matchedSavedQuery = values.savedQueries.find((savedQuery) => {
-            //     return savedQuery.name === column
-            // })
-            // const matchedViewLink = values.viewLinks.find((viewLink) => {
-            //     return viewLink.table === table && matchedSavedQuery && matchedSavedQuery.id === viewLink.saved_query
-            // })
-            // if (!matchedViewLink) {
-            //     lemonToast.error(`Error deleting view link`)
-            //     return
-            // }
-            // await api.dataWarehouseViewLinks.delete(matchedViewLink.id)
-            // actions.loadDatabase()
+    listeners(({ actions }) => ({
+        toggleEditJoinModal: ({ join }) => {
+            actions.setViewLinkValues(join)
         },
     })),
     selectors({
@@ -182,7 +222,7 @@ export const viewLinkLogic = kea<viewLinkLogicType>([
             (s) => [s.selectedJoiningTableName, s.tables],
             (selectedJoiningTableName, tables) => tables.find((row) => row.name === selectedJoiningTableName),
         ],
-        joiningTableOptions: [
+        tableOptions: [
             (s) => [s.tables],
             (tables) =>
                 tables.map((table) => ({
@@ -230,4 +270,12 @@ export const viewLinkLogic = kea<viewLinkLogicType>([
             },
         ],
     }),
+    subscriptions(({ actions }) => ({
+        isJoinTableModalOpen: (isOpen) => {
+            if (!isOpen) {
+                actions.clearModalFields()
+                actions.resetViewLink()
+            }
+        },
+    })),
 ])

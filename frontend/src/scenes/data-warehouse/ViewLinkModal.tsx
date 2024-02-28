@@ -10,7 +10,7 @@ import { viewLinkLogic } from 'scenes/data-warehouse/viewLinkLogic'
 
 import { DatabaseSchemaQueryResponseField } from '~/queries/schema'
 
-export function ViewLinkModal({ tableSelectable }: { tableSelectable: boolean }): JSX.Element {
+export function ViewLinkModal(): JSX.Element {
     const { isJoinTableModalOpen } = useValues(viewLinkLogic)
     const { toggleJoinTableModal } = useActions(viewLinkLogic)
 
@@ -27,18 +27,13 @@ export function ViewLinkModal({ tableSelectable }: { tableSelectable: boolean })
             onClose={toggleJoinTableModal}
             width={600}
         >
-            <ViewLinkForm tableSelectable={tableSelectable} />
+            <ViewLinkForm />
         </LemonModal>
     )
 }
 
-interface ViewLinkFormProps {
-    tableSelectable: boolean
-}
-
-export function ViewLinkForm({ tableSelectable }: ViewLinkFormProps): JSX.Element {
+export function ViewLinkForm(): JSX.Element {
     const {
-        joiningTableOptions,
         tableOptions,
         selectedJoiningTable,
         selectedJoiningTableName,
@@ -48,6 +43,7 @@ export function ViewLinkForm({ tableSelectable }: ViewLinkFormProps): JSX.Elemen
         sqlCodeSnippet,
         error,
         fieldName,
+        isNewJoin,
     } = useValues(viewLinkLogic)
     const { selectJoiningTable, toggleJoinTableModal, selectSourceTable, setFieldName } = useActions(viewLinkLogic)
 
@@ -55,17 +51,17 @@ export function ViewLinkForm({ tableSelectable }: ViewLinkFormProps): JSX.Elemen
         <Form logic={viewLinkLogic} formKey="viewLink" enableFormOnSubmit>
             <div className="flex flex-col w-full justify-between items-center">
                 <div className="flex flex-row w-full justify-between">
-                    <div className="flex flex-col">
+                    <div className={isNewJoin ? 'w-50' : 'flex flex-col'}>
                         <span className="l4">Source Table</span>
-                        {tableSelectable ? (
-                            <LemonSelect
-                                value={selectedSourceTableName}
-                                fullWidth
-                                allowClear
-                                options={tableOptions}
-                                onSelect={selectSourceTable}
-                                placeholder="Select a table"
-                            />
+                        {isNewJoin ? (
+                            <Field name="source_table_name">
+                                <LemonSelect
+                                    fullWidth
+                                    options={tableOptions}
+                                    onSelect={selectSourceTable}
+                                    placeholder="Select a table"
+                                />
+                            </Field>
                         ) : (
                             selectedSourceTableName ?? ''
                         )}
@@ -75,7 +71,7 @@ export function ViewLinkForm({ tableSelectable }: ViewLinkFormProps): JSX.Elemen
                         <Field name="joining_table_name">
                             <LemonSelect
                                 fullWidth
-                                options={joiningTableOptions}
+                                options={tableOptions}
                                 onSelect={selectJoiningTable}
                                 placeholder="Select a table"
                             />
@@ -86,7 +82,12 @@ export function ViewLinkForm({ tableSelectable }: ViewLinkFormProps): JSX.Elemen
                     <div className="w-50">
                         <span className="l4">Source Table Key</span>
                         <Field name="source_table_key">
-                            <LemonSelect fullWidth options={sourceTableKeys} placeholder="Select a key" />
+                            <LemonSelect
+                                fullWidth
+                                disabledReason={selectedSourceTableName ? '' : 'Select a table to choose join key'}
+                                options={sourceTableKeys}
+                                placeholder="Select a key"
+                            />
                         </Field>
                     </div>
                     <div className="mt-5">

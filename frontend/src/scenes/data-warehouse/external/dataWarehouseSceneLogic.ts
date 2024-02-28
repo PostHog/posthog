@@ -6,7 +6,7 @@ import { userLogic } from 'scenes/userLogic'
 import { DataWarehouseTable } from '~/types'
 
 import { dataWarehouseSavedQueriesLogic } from '../saved_queries/dataWarehouseSavedQueriesLogic'
-import { DatabaseTableListRow, DataWarehouseRowType, DataWarehouseTableType } from '../types'
+import { DatabaseTableListRow, DataWarehouseRowType, DataWarehouseSceneTab, DataWarehouseTableType } from '../types'
 import type { dataWarehouseSceneLogicType } from './dataWarehouseSceneLogicType'
 
 export const dataWarehouseSceneLogic = kea<dataWarehouseSceneLogicType>([
@@ -30,6 +30,7 @@ export const dataWarehouseSceneLogic = kea<dataWarehouseSceneLogicType>([
     actions({
         toggleSourceModal: (isOpen?: boolean) => ({ isOpen }),
         selectRow: (row: DataWarehouseTableType | null) => ({ row }),
+        setSceneTab: (tab: DataWarehouseSceneTab) => ({ tab }),
     }),
     reducers({
         isSourceModalOpen: [
@@ -42,6 +43,12 @@ export const dataWarehouseSceneLogic = kea<dataWarehouseSceneLogicType>([
             null as DataWarehouseTableType | null,
             {
                 selectRow: (_, { row }) => row,
+            },
+        ],
+        activeSceneTab: [
+            DataWarehouseSceneTab.Tables as DataWarehouseSceneTab,
+            {
+                setSceneTab: (_state, { tab }) => tab,
             },
         ],
     }),

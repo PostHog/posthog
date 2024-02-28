@@ -50,7 +50,7 @@ export function DatabaseTablesContainer(): JSX.Element {
                     )
                 }}
             />
-            <ViewLinkModal tableSelectable={false} />
+            <ViewLinkModal />
         </>
     )
 }

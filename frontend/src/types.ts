@@ -3490,6 +3490,8 @@ export interface DataWarehouseViewLink {
     joining_table_name?: string
     joining_table_key?: string
     field_name?: string
+    created_by?: UserBasicType | null
+    created_at?: string | null
 }
 
 export type ExternalDataSourceType = 'Stripe' | 'Hubspot' | 'Postgres'

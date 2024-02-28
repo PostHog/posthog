@@ -33,7 +33,7 @@ class DataWarehouseJoin(CreatedMetaFields, UUIDModel, DeletedMetaFields):
 
             join_expr = ast.JoinExpr(
                 table=ast.Field(chain=[self.joining_table_name]),
-                join_type="INNER JOIN",
+                join_type="LEFT JOIN",
                 alias=to_table,
                 constraint=ast.JoinConstraint(
                     expr=ast.CompareOperation(
