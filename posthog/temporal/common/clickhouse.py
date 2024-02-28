@@ -26,7 +26,7 @@ def encode_clickhouse_data(data: typing.Any, quote_char="'") -> bytes:
         case uuid.UUID():
             return f"{quote_char}{data}{quote_char}".encode("utf-8")
 
-        case int():
+        case int() | float():
             return b"%d" % data
 
         case dt.datetime():
@@ -53,15 +53,13 @@ def encode_clickhouse_data(data: typing.Any, quote_char="'") -> bytes:
             # This means INSERT queries with dictionary data are only supported with 'FORMAT JSONEachRow', which
             # is enough for now as most if not all of our INSERT query workloads are in unit test setup.
             encoded_data = []
+            quote_char = '"'  # JSON requires double quotes.
 
             for key, value in data.items():
                 if isinstance(value, dt.datetime):
-                    value = value.timestamp()
+                    value = str(value.timestamp())
                 elif isinstance(value, uuid.UUID) or isinstance(value, str):
                     value = str(value)
-                    quote_char = '"'  # JSON requires double quotes.
-                else:
-                    quote_char = "'"
 
                 encoded_data.append(
                     f'"{str(key)}"'.encode("utf-8") + b":" + encode_clickhouse_data(value, quote_char=quote_char)
@@ -178,7 +176,7 @@ class ClickHouseClient:
             request_data = None
         return request_data
 
-    async def acheck_response(self, response, query) -> None:
+    async def acheck_response(self, response, query, request_data) -> None:
         """Asynchronously check the HTTP response received from ClickHouse.
 
         Raises:
@@ -229,7 +227,7 @@ class ClickHouseClient:
             request_data = query.encode("utf-8")
 
         async with self.session.post(url=self.url, params=params, headers=self.headers, data=request_data) as response:
-            await self.acheck_response(response, query)
+            await self.acheck_response(response, query, request_data)
             yield response
 
     @contextlib.contextmanager
