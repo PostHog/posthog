@@ -242,7 +242,7 @@ function LinkedFlagSelector(): JSX.Element | null {
                         value={currentTeam?.session_recording_linked_flag?.id ?? undefined}
                         onChange={(id, key, flag) => {
                             selectFeatureFlag(flag)
-                            updateCurrentTeam({ session_recording_linked_flag: { id, key } })
+                            updateCurrentTeam({ session_recording_linked_flag: { id, key, variant: null } })
                         }}
                     />
                     {currentTeam?.session_recording_linked_flag && (
