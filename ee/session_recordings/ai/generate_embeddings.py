@@ -145,6 +145,7 @@ def embed_batch_of_recordings(recordings: List[str], team: Team | int) -> None:
                 flush_embeddings_to_clickhouse(embeddings=batched_embeddings)
     except Exception as e:
         logger.error(f"embed recordings error", flow="embeddings", error=e)
+        raise e
 
 
 def flush_embeddings_to_clickhouse(embeddings: List[Dict[str, Any]]) -> None:
