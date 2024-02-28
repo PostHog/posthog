@@ -364,7 +364,7 @@ export class SessionManagerV3 {
         histogramS3LinesWritten.observe(buffer.count)
         histogramS3KbWritten.observe(buffer.sizeEstimate / 1024)
 
-        await new Promise((resolve) => this.bufferWriteStream?.end(resolve))
+        await new Promise<void>((resolve) => this.bufferWriteStream ? this.bufferWriteStream.end(resolve) : resolve())
         await rename(this.file(BUFFER_FILE_NAME), this.file(fileName))
         this.buffer = undefined
 
@@ -518,9 +518,7 @@ export class SessionManagerV3 {
             this.inProgressUpload = null
         }
 
-        if (this.bufferWriteStream) {
-            await new Promise((resolve) => this.bufferWriteStream!.end(resolve))
-        }
+        await new Promise<void>((resolve) => (this.bufferWriteStream ? this.bufferWriteStream.end(resolve) : resolve()))
 
         if (await this.isEmpty()) {
             status.info('🧨', '[session-manager] removing empty session directory', {
