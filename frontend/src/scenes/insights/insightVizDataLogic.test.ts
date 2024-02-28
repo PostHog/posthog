@@ -79,26 +79,28 @@ describe('insightVizDataLogic', () => {
     })
 
     describe('updateDateRange', () => {
-        it('updates the date range', () => {
+        it('updates the date range', async () => {
             // when dateRange is empty
-            expectLogic(builtInsightDataLogic, () => {
+            await expectLogic(builtInsightDataLogic, () => {
                 builtInsightVizDataLogic.actions.updateDateRange({
                     date_from: '-7d',
                     date_to: null,
                 })
-            }).toMatchValues({
-                query: {
-                    kind: NodeKind.InsightVizNode,
-                    source: {
-                        ...trendsQueryDefault,
-                        interval: 'day', // side effect
-                        dateRange: {
-                            date_from: '-7d',
-                            date_to: null,
+            })
+                .toFinishAllListeners()
+                .toMatchValues({
+                    query: {
+                        kind: NodeKind.InsightVizNode,
+                        source: {
+                            ...trendsQueryDefault,
+                            interval: 'day', // side effect
+                            dateRange: {
+                                date_from: '-7d',
+                                date_to: null,
+                            },
                         },
                     },
-                },
-            })
+                })
 
             expect(builtInsightVizDataLogic.values.dateRange).toEqual({
                 date_from: '-7d',
@@ -106,23 +108,25 @@ describe('insightVizDataLogic', () => {
             })
 
             // merges with existing dateRange
-            expectLogic(builtInsightDataLogic, () => {
+            await expectLogic(builtInsightDataLogic, () => {
                 builtInsightVizDataLogic.actions.updateDateRange({
                     date_to: '-3d',
                 })
-            }).toMatchValues({
-                query: {
-                    kind: NodeKind.InsightVizNode,
-                    source: {
-                        ...trendsQueryDefault,
-                        interval: 'day', // side effect
-                        dateRange: {
-                            date_from: '-7d',
-                            date_to: '-3d',
+            })
+                .toFinishAllListeners()
+                .toMatchValues({
+                    query: {
+                        kind: NodeKind.InsightVizNode,
+                        source: {
+                            ...trendsQueryDefault,
+                            interval: 'day', // side effect
+                            dateRange: {
+                                date_from: '-7d',
+                                date_to: '-3d',
+                            },
                         },
                     },
-                },
-            })
+                })
 
             expect(builtInsightVizDataLogic.values.dateRange).toEqual({
                 date_from: '-7d',
@@ -132,25 +136,27 @@ describe('insightVizDataLogic', () => {
     })
 
     describe('updateBreakdownFilter', () => {
-        it('updates the breakdown', () => {
+        it('updates the breakdown', async () => {
             // when breakdown is empty
-            expectLogic(builtInsightDataLogic, () => {
+            await expectLogic(builtInsightDataLogic, () => {
                 builtInsightVizDataLogic.actions.updateBreakdownFilter({
                     breakdown_type: 'event',
                     breakdown: '$current_url',
                 })
-            }).toMatchValues({
-                query: {
-                    kind: NodeKind.InsightVizNode,
-                    source: {
-                        ...trendsQueryDefault,
-                        breakdownFilter: {
-                            breakdown_type: 'event',
-                            breakdown: '$current_url',
+            })
+                .toFinishAllListeners()
+                .toMatchValues({
+                    query: {
+                        kind: NodeKind.InsightVizNode,
+                        source: {
+                            ...trendsQueryDefault,
+                            breakdownFilter: {
+                                breakdown_type: 'event',
+                                breakdown: '$current_url',
+                            },
                         },
                     },
-                },
-            })
+                })
 
             expect(builtInsightVizDataLogic.values.breakdownFilter).toEqual({
                 breakdown_type: 'event',
@@ -158,22 +164,24 @@ describe('insightVizDataLogic', () => {
             })
 
             // merges with existing breakdown
-            expectLogic(builtInsightDataLogic, () => {
+            await expectLogic(builtInsightDataLogic, () => {
                 builtInsightVizDataLogic.actions.updateBreakdownFilter({
                     breakdown: '$browser',
                 })
-            }).toMatchValues({
-                query: {
-                    kind: NodeKind.InsightVizNode,
-                    source: {
-                        ...trendsQueryDefault,
-                        breakdownFilter: {
-                            breakdown_type: 'event',
-                            breakdown: '$browser',
+            })
+                .toFinishAllListeners()
+                .toMatchValues({
+                    query: {
+                        kind: NodeKind.InsightVizNode,
+                        source: {
+                            ...trendsQueryDefault,
+                            breakdownFilter: {
+                                breakdown_type: 'event',
+                                breakdown: '$browser',
+                            },
                         },
                     },
-                },
-            })
+                })
 
             expect(builtInsightVizDataLogic.values.breakdownFilter).toEqual({
                 breakdown_type: 'event',
@@ -183,41 +191,45 @@ describe('insightVizDataLogic', () => {
     })
 
     describe('updateInsightFilter', () => {
-        it('updates the insight filter', () => {
+        it('updates the insight filter', async () => {
             // when insight filter is empty
-            expectLogic(builtInsightDataLogic, () => {
+            await expectLogic(builtInsightDataLogic, () => {
                 builtInsightVizDataLogic.actions.updateInsightFilter({ display: ChartDisplayType.ActionsAreaGraph })
-            }).toMatchValues({
-                query: {
-                    kind: NodeKind.InsightVizNode,
-                    source: {
-                        ...trendsQueryDefault,
-                        trendsFilter: {
-                            display: 'ActionsAreaGraph',
+            })
+                .toFinishAllListeners()
+                .toMatchValues({
+                    query: {
+                        kind: NodeKind.InsightVizNode,
+                        source: {
+                            ...trendsQueryDefault,
+                            trendsFilter: {
+                                display: 'ActionsAreaGraph',
+                            },
                         },
                     },
-                },
-            })
+                })
 
             expect(builtInsightVizDataLogic.values.insightFilter).toEqual({ display: 'ActionsAreaGraph' })
 
             // merges with existing insight filter
-            expectLogic(builtInsightDataLogic, () => {
+            await expectLogic(builtInsightDataLogic, () => {
                 builtInsightVizDataLogic.actions.updateInsightFilter({
                     showValuesOnSeries: true,
                 })
-            }).toMatchValues({
-                query: {
-                    kind: NodeKind.InsightVizNode,
-                    source: {
-                        ...trendsQueryDefault,
-                        trendsFilter: {
-                            display: 'ActionsAreaGraph',
-                            showValuesOnSeries: true,
+            })
+                .toFinishAllListeners()
+                .toMatchValues({
+                    query: {
+                        kind: NodeKind.InsightVizNode,
+                        source: {
+                            ...trendsQueryDefault,
+                            trendsFilter: {
+                                display: 'ActionsAreaGraph',
+                                showValuesOnSeries: true,
+                            },
                         },
                     },
-                },
-            })
+                })
 
             expect(builtInsightVizDataLogic.values.insightFilter).toEqual({
                 display: 'ActionsAreaGraph',
@@ -225,26 +237,28 @@ describe('insightVizDataLogic', () => {
             })
         })
 
-        it('updates the insight filter for other insight query kinds', () => {
+        it('updates the insight filter for other insight query kinds', async () => {
             builtInsightVizDataLogic.actions.updateQuerySource(funnelsQueryDefault)
 
-            expectLogic(builtInsightDataLogic, () => {
+            await expectLogic(builtInsightDataLogic, () => {
                 builtInsightVizDataLogic.actions.updateInsightFilter({
                     layout: FunnelLayout.horizontal,
                 })
-            }).toMatchValues({
-                query: {
-                    kind: NodeKind.InsightVizNode,
-                    source: {
-                        ...funnelsQueryDefault,
-                        funnelsFilter: {
-                            ...funnelsQueryDefault.funnelsFilter,
-                            layout: FunnelLayout.horizontal,
-                        },
-                        trendsFilter: {}, // we currently don't remove insight filters of previous query kinds
-                    },
-                },
             })
+                .toFinishAllListeners()
+                .toMatchValues({
+                    query: {
+                        kind: NodeKind.InsightVizNode,
+                        source: {
+                            ...funnelsQueryDefault,
+                            funnelsFilter: {
+                                ...funnelsQueryDefault.funnelsFilter,
+                                layout: FunnelLayout.horizontal,
+                            },
+                            trendsFilter: {}, // we currently don't remove insight filters of previous query kinds
+                        },
+                    },
+                })
 
             expect(builtInsightVizDataLogic.values.insightFilter).toMatchObject({
                 ...funnelsQueryDefault.funnelsFilter,

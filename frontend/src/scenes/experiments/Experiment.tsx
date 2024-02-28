@@ -718,6 +718,7 @@ export function Experiment(): JSX.Element {
                                 {
                                     key: 'experiment-details',
                                     header: 'Experiment details',
+                                    className: 'bg-bg-light',
                                     content: (
                                         <div>
                                             <div className={isExperimentRunning ? 'w-1/2' : 'w-full'}>

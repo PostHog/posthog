@@ -60,6 +60,10 @@ class TestBytecode(BaseTest):
             to_bytecode("concat('arg', 'another')"),
             [_H, op.STRING, "another", op.STRING, "arg", op.CALL, "concat", 2],
         )
+        self.assertEqual(
+            to_bytecode("ifNull(properties.email, false)"),
+            [_H, op.FALSE, op.STRING, "email", op.STRING, "properties", op.FIELD, 2, op.CALL, "ifNull", 2],
+        )
         self.assertEqual(to_bytecode("1 = 2"), [_H, op.INTEGER, 2, op.INTEGER, 1, op.EQ])
         self.assertEqual(to_bytecode("1 == 2"), [_H, op.INTEGER, 2, op.INTEGER, 1, op.EQ])
         self.assertEqual(to_bytecode("1 != 2"), [_H, op.INTEGER, 2, op.INTEGER, 1, op.NOT_EQ])

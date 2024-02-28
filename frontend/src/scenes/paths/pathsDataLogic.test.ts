@@ -33,13 +33,15 @@ describe('pathsDataLogic', () => {
             logic.actions.updateInsightFilter({
                 includeEventTypes: [PathType.PageView, PathType.Screen, PathType.CustomEvent],
             })
-        }).toMatchValues(logic, {
-            taxonomicGroupTypes: [
-                TaxonomicFilterGroupType.PageviewUrls,
-                TaxonomicFilterGroupType.Screens,
-                TaxonomicFilterGroupType.CustomEvents,
-                TaxonomicFilterGroupType.Wildcards,
-            ],
         })
+            .toFinishAllListeners()
+            .toMatchValues(logic, {
+                taxonomicGroupTypes: [
+                    TaxonomicFilterGroupType.PageviewUrls,
+                    TaxonomicFilterGroupType.Screens,
+                    TaxonomicFilterGroupType.CustomEvents,
+                    TaxonomicFilterGroupType.Wildcards,
+                ],
+            })
     })
 })

@@ -20,7 +20,7 @@ export function generateEventDeadLetterQueueMessage(
     teamId: number,
     errorLocation = 'plugin_server_ingest_event'
 ): ProducerRecord {
-    let errorMessage = 'ingestEvent failed. '
+    let errorMessage = 'Event ingestion failed. '
     if (error instanceof Error) {
         errorMessage += `Error: ${error.message}`
     }

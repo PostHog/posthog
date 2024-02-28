@@ -399,6 +399,14 @@ export interface CorrelationConfigType {
     excluded_event_names?: string[]
 }
 
+export interface SessionRecordingAIConfig {
+    opt_in: boolean
+    preferred_events: string[]
+    excluded_events: string[]
+    included_event_properties: string[]
+    important_user_properties: string[]
+}
+
 export interface TeamType extends TeamBasicType {
     created_at: string
     updated_at: string
@@ -413,12 +421,12 @@ export interface TeamType extends TeamBasicType {
     // a string representation of the decimal value between 0 and 1
     session_recording_sample_rate: string
     session_recording_minimum_duration_milliseconds: number | null
-    session_recording_linked_flag: Pick<FeatureFlagBasicType, 'id' | 'key'> | null
+    session_recording_linked_flag: ({ variant?: string | null } & Pick<FeatureFlagBasicType, 'id' | 'key'>) | null
     session_recording_network_payload_capture_config:
         | { recordHeaders?: boolean; recordBody?: boolean }
         | undefined
         | null
-    session_replay_config: { record_canvas?: boolean } | undefined | null
+    session_replay_config: { record_canvas?: boolean; ai_config?: SessionRecordingAIConfig } | undefined | null
     autocapture_exceptions_opt_in: boolean
     surveys_opt_in?: boolean
     autocapture_exceptions_errors_to_ignore: string[]
@@ -871,10 +879,6 @@ export interface RecordingFilters {
     console_search_query?: string
     console_logs?: FilterableLogLevel[]
     filter_test_accounts?: boolean
-}
-
-export interface LocalRecordingFilters extends RecordingFilters {
-    new_entity?: Record<string, any>[]
 }
 
 export interface SessionRecordingsResponse {
@@ -3242,6 +3246,7 @@ export enum ExporterFormat {
     CSV = 'text/csv',
     PDF = 'application/pdf',
     JSON = 'application/json',
+    XLSX = 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
 }
 
 /** Exporting directly from the browser to a file */
@@ -3274,6 +3279,7 @@ export interface ExportedAssetType {
     export_context?: ExportContext
     has_content: boolean
     filename: string
+    created_at: string
     expires_after?: string
 }
 
@@ -3640,7 +3646,16 @@ export type BatchExportConfiguration = {
 
 export type BatchExportRun = {
     id: string
-    status: 'Cancelled' | 'Completed' | 'ContinuedAsNew' | 'Failed' | 'Terminated' | 'TimedOut' | 'Running' | 'Starting'
+    status:
+        | 'Cancelled'
+        | 'Completed'
+        | 'ContinuedAsNew'
+        | 'Failed'
+        | 'FailedRetryable'
+        | 'Terminated'
+        | 'TimedOut'
+        | 'Running'
+        | 'Starting'
     created_at: Dayjs
     data_interval_start: Dayjs
     data_interval_end: Dayjs

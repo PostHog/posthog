@@ -65,6 +65,13 @@ services:
         ports:
             - '9092:9092'
 
+    kafka_ui:
+        extends:
+            file: docker-compose.base.yml
+            service: kafka_ui
+        ports:
+            - '9093:8080'
+
     object_storage:
         extends:
             file: docker-compose.base.yml

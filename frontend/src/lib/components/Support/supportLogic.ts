@@ -50,32 +50,104 @@ const SUPPORT_TICKET_KIND_TO_TITLE: Record<SupportTicketKind, string> = {
     bug: 'Report a bug',
 }
 
-export const TARGET_AREA_TO_NAME = {
-    app_performance: 'App Performance',
-    apps: 'Apps',
-    login: 'Authentication (Login / Sign-up / Invites)',
-    billing: 'Billing',
-    onboarding: 'Onboarding',
-    cohorts: 'Cohorts',
-    data_integrity: 'Data Integrity',
-    data_management: 'Data Management',
-    data_warehouse: 'Data Warehouse',
-    ingestion: 'Event Ingestion',
-    experiments: 'A/B Testing',
-    feature_flags: 'Feature Flags',
-    analytics: 'Product Analytics (Insights, Dashboards, Annotations)',
-    session_replay: 'Session Replay (Recordings)',
-    toolbar: 'Toolbar & Heatmaps',
-    surveys: 'Surveys',
-    web_analytics: 'Web Analytics',
-    'posthog-3000': 'PostHog 3000',
-}
+export const TARGET_AREA_TO_NAME = [
+    {
+        title: 'General',
+        options: [
+            {
+                value: 'apps',
+                'data-attr': `support-form-target-area-apps`,
+                label: 'Apps',
+            },
+            {
+                value: 'login',
+                'data-attr': `support-form-target-area-login`,
+                label: 'Authentication (incl. login, sign-up, invites)',
+            },
+            {
+                value: 'billing',
+                'data-attr': `support-form-target-area-billing`,
+                label: 'Billing',
+            },
+            {
+                value: 'onboarding',
+                'data-attr': `support-form-target-area-onboarding`,
+                label: 'Onboarding',
+            },
+            {
+                value: 'cohorts',
+                'data-attr': `support-form-target-area-cohorts`,
+                label: 'Cohorts',
+            },
+            {
+                value: 'data_management',
+                'data-attr': `support-form-target-area-data_management`,
+                label: 'Data management (incl. events, actions, properties)',
+            },
+            {
+                value: 'notebooks',
+                'data-attr': `support-form-target-area-notebooks`,
+                label: 'Notebooks',
+            },
+            {
+                value: 'mobile',
+                'data-attr': `support-form-target-area-mobile`,
+                label: 'Mobile',
+            },
+        ],
+    },
+    {
+        title: 'Individual product',
+        options: [
+            {
+                value: 'experiments',
+                'data-attr': `support-form-target-area-experiments`,
+                label: 'A/B testing',
+            },
+            {
+                value: 'data_warehouse',
+                'data-attr': `support-form-target-area-data_warehouse`,
+                label: 'Data warehouse (beta)',
+            },
+            {
+                value: 'feature_flags',
+                'data-attr': `support-form-target-area-feature_flags`,
+                label: 'Feature flags',
+            },
+            {
+                value: 'analytics',
+                'data-attr': `support-form-target-area-analytics`,
+                label: 'Product analytics (incl. insights, dashboards, annotations)',
+            },
+            {
+                value: 'session_replay',
+                'data-attr': `support-form-target-area-session_replay`,
+                label: 'Session replay (incl. recordings)',
+            },
+            {
+                value: 'toolbar',
+                'data-attr': `support-form-target-area-toolbar`,
+                label: 'Toolbar (incl. heatmaps)',
+            },
+            {
+                value: 'surveys',
+                'data-attr': `support-form-target-area-surveys`,
+                label: 'Surveys',
+            },
+            {
+                value: 'web_analytics',
+                'data-attr': `support-form-target-area-web_analytics`,
+                label: 'Web Analytics (beta)',
+            },
+        ],
+    },
+]
 
 export const SEVERITY_LEVEL_TO_NAME = {
-    critical: 'Outage / data loss / breach',
-    high: 'Feature unavailable / Significant impact',
-    medium: 'Feature not working as expected',
-    low: 'Feature request or Question',
+    critical: 'Product outage / data loss / data breach',
+    high: 'Specific feature not working at all',
+    medium: 'Feature functioning but not as expected',
+    low: 'General question or feature request',
 }
 
 export const SUPPORT_KIND_TO_SUBJECT = {
@@ -84,9 +156,35 @@ export const SUPPORT_KIND_TO_SUBJECT = {
     support: 'Support Ticket',
 }
 
-export type SupportTicketTargetArea = keyof typeof TARGET_AREA_TO_NAME
+export type SupportTicketTargetArea =
+    | 'experiments'
+    | 'apps'
+    | 'login'
+    | 'billing'
+    | 'onboarding'
+    | 'cohorts'
+    | 'data_management'
+    | 'notebooks'
+    | 'data_warehouse'
+    | 'feature_flags'
+    | 'analytics'
+    | 'session_replay'
+    | 'toolbar'
+    | 'surveys'
+    | 'web_analytics'
 export type SupportTicketSeverityLevel = keyof typeof SEVERITY_LEVEL_TO_NAME
 export type SupportTicketKind = keyof typeof SUPPORT_KIND_TO_SUBJECT
+
+export const getLabelBasedOnTargetArea = (target_area: SupportTicketTargetArea): null | string => {
+    for (const category of TARGET_AREA_TO_NAME) {
+        for (const option of category.options) {
+            if (option.value === target_area) {
+                return option.label
+            }
+        }
+    }
+    return null // Return null if the value is not found
+}
 
 export const URL_PATH_TO_TARGET_AREA: Record<string, SupportTicketTargetArea> = {
     insights: 'analytics',
@@ -100,8 +198,8 @@ export const URL_PATH_TO_TARGET_AREA: Record<string, SupportTicketTargetArea> = 
     'data-management': 'data_management',
     cohorts: 'cohorts',
     annotations: 'analytics',
-    persons: 'data_integrity',
-    groups: 'data_integrity',
+    persons: 'analytics',
+    groups: 'analytics',
     app: 'apps',
     toolbar: 'session_replay',
     warehouse: 'data_warehouse',
@@ -226,7 +324,9 @@ export const supportLogic = kea<supportLogicType>([
             const subject =
                 SUPPORT_KIND_TO_SUBJECT[kind ?? 'support'] +
                 ': ' +
-                (target_area ? TARGET_AREA_TO_NAME[target_area] ?? `${target_area} (feature preview)` : 'General') +
+                (target_area
+                    ? getLabelBasedOnTargetArea(target_area) ?? `${target_area} (feature preview)`
+                    : 'General') +
                 ' (' +
                 zendesk_ticket_uuid +
                 ')'

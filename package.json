@@ -142,7 +142,7 @@
         "pmtiles": "^2.11.0",
         "postcss": "^8.4.31",
         "postcss-preset-env": "^9.3.0",
-        "posthog-js": "1.108.2",
+        "posthog-js": "1.110.0",
         "posthog-js-lite": "2.5.0",
         "prettier": "^2.8.8",
         "prop-types": "^15.7.2",
@@ -315,6 +315,10 @@
         "*.{json,yaml,yml}": "prettier --write",
         "*.{css,scss}": [
             "stylelint --fix",
+            "prettier --write"
+        ],
+        "cypress/**/*.{js,jsx,mjs,ts,tsx}": [
+            "eslint -c .eslintrc.js --fix",
             "prettier --write"
         ],
         "frontend/src/**/*.{js,jsx,mjs,ts,tsx}": [

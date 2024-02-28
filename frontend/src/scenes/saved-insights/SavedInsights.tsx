@@ -3,8 +3,10 @@ import './SavedInsights.scss'
 import {
     IconBrackets,
     IconFunnels,
+    IconGraph,
     IconHogQL,
     IconLifecycle,
+    IconPerson,
     IconPlusSmall,
     IconRetention,
     IconStar,
@@ -22,12 +24,10 @@ import { PageHeader } from 'lib/components/PageHeader'
 import { TZLabel } from 'lib/components/TZLabel'
 import {
     IconAction,
-    IconBarChart,
     IconCoffee,
     IconEvent,
     IconGridView,
     IconListView,
-    IconPerson,
     IconSelectEvents,
     IconTableChart,
 } from 'lib/lemon-ui/icons'
@@ -223,13 +223,13 @@ export const QUERY_TYPES_METADATA: Record<NodeKind, InsightTypeMetadata> = {
     [NodeKind.SavedInsightNode]: {
         name: 'Insight visualization by short id',
         description: 'View your insights',
-        icon: IconBarChart,
+        icon: IconGraph,
         inMenu: true,
     },
     [NodeKind.InsightVizNode]: {
         name: 'Insight visualization',
         description: 'View your insights',
-        icon: IconBarChart,
+        icon: IconGraph,
         inMenu: true,
     },
     [NodeKind.TimeToSeeDataSessionsQuery]: {

@@ -480,7 +480,7 @@ def prop_filter_json_extract(
             params,
         )
     elif operator in ("regex", "not_regex"):
-        if not is_valid_regex(prop.value):
+        if not is_valid_regex(str(prop.value)):
             # If OR'ing, shouldn't be a problem since nothing will match this specific clause
             return f"{property_operator} 1 = 2", {}
 
