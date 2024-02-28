@@ -360,12 +360,14 @@ async def delete_squashed_person_overrides_from_clickhouse(inputs: QueryInputs) 
 
     async with heartbeat_every():
         async with get_client(mutations_sync=2) as clickhouse_client:
-            await clickhouse_client.execute_query(
+            _ = await clickhouse_client.read_query(
                 CREATE_JOIN_TABLE_FOR_DELETES_QUERY.format(
                     database=settings.CLICKHOUSE_DATABASE, dictionary_name=inputs.dictionary_name
                 ),
             )
 
+    async with heartbeat_every():
+        async with get_client(mutations_sync=2) as clickhouse_client:
             try:
                 await clickhouse_client.execute_query(
                     DELETE_SQUASHED_PERSON_OVERRIDES_QUERY.format(
