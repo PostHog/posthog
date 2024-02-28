@@ -1,8 +1,8 @@
 from posthog.clickhouse.client import sync_execute, query_with_columns
 from posthog.test.base import (
     _create_event,
-    BaseTest,
     ClickhouseTestMixin,
+    BaseTest,
 )
 
 distinct_id_counter = 0
