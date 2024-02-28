@@ -10,6 +10,18 @@ from posthog.models.property.util import get_property_string_expr
 TABLE_BASE_NAME = "sessions"
 SESSIONS_DATA_TABLE = lambda: f"sharded_{TABLE_BASE_NAME}"
 
+TRUNCATE_SESSIONS_TABLE_SQL = (
+    lambda: f"TRUNCATE TABLE IF EXISTS {SESSIONS_DATA_TABLE()} ON CLUSTER '{settings.CLICKHOUSE_CLUSTER}'"
+)
+DROP_SESSION_TABLE_SQL = (
+    lambda: f"DROP TABLE IF EXISTS {SESSIONS_DATA_TABLE()} ON CLUSTER '{settings.CLICKHOUSE_CLUSTER}'"
+)
+DROP_SESSION_MATERIALIZED_VIEW_SQL = (
+    lambda: f"DROP MATERIALISED VIEW IF EXISTS {TABLE_BASE_NAME}_mv ON CLUSTER '{settings.CLICKHOUSE_CLUSTER}'"
+)
+DROP_SESSION_VIEW_SQL = lambda: f"DROP VIEW IF EXISTS {TABLE_BASE_NAME}_v ON CLUSTER '{settings.CLICKHOUSE_CLUSTER}'"
+
+
 # if updating these column definitions
 # you'll need to update the explicit column definitions in the materialized view creation statement below
 SESSIONS_TABLE_BASE_SQL = """

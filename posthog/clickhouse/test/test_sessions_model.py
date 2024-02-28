@@ -1,11 +1,11 @@
 from posthog.clickhouse.client import sync_execute
 from posthog.test.base import (
-    ClickhouseDestroyTablesMixin,
     _create_event,
+    BaseTest,
 )
 
 
-class TestSessionsModel(ClickhouseDestroyTablesMixin):
+class TestSessionsModel(BaseTest):
     def test_it_creates_session_when_creating_event(self):
         _create_event(
             team=self.team,
@@ -16,13 +16,17 @@ class TestSessionsModel(ClickhouseDestroyTablesMixin):
 
         response = sync_execute(
             """
-            select *
-            from sessions
+            select
+                session_id,
+                distinct_id
+            from sessions_v
             where
-                distinct_id = %(distinct_id)s
+                distinct_id = %(distinct_id)s AND
+                team_id = %(team_id)s
                 """,
             {
                 "distinct_id": "d1",
+                "team_id": self.team.id,
             },
         )
 
