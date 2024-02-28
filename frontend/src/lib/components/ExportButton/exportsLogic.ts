@@ -72,12 +72,12 @@ export const exportsLogic = kea<exportsLogicType>([
 
             actions.createExport({ exportData })
         },
-        createExportSuccess: ({ exports }) => {
+        createExportSuccess: ({ pollingExports }) => {
             if (values.featureFlags[FEATURE_FLAGS.EXPORTS_SIDEPANEL]) {
                 actions.openSidePanel(SidePanelTab.Exports)
                 actions.loadExports()
             }
-            exports.map((exportedAsset) => actions.pollExportStatus(exportedAsset))
+            actions.pollExportStatus(pollingExports[0])
         },
         pollExportStatus: async ({ exportedAsset }, breakpoint) => {
             // eslint-disable-next-line no-async-promise-executor,@typescript-eslint/no-misused-promises
@@ -157,16 +157,20 @@ export const exportsLogic = kea<exportsLogicType>([
 
                     return response.results
                 },
+            },
+        ],
+        pollingExports: [
+            [] as ExportedAssetType[],
+            {
                 createExport: async ({ exportData }) => {
-                    return [
-                        await api.exports.create({
-                            export_format: exportData.export_format,
-                            dashboard: exportData.dashboard,
-                            insight: exportData.insight,
-                            export_context: exportData.export_context,
-                            expires_after: dayjs().add(6, 'hour').toJSON(),
-                        }),
-                    ]
+                    const newExport = await api.exports.create({
+                        export_format: exportData.export_format,
+                        dashboard: exportData.dashboard,
+                        insight: exportData.insight,
+                        export_context: exportData.export_context,
+                        expires_after: dayjs().add(6, 'hour').toJSON(),
+                    })
+                    return [newExport]
                 },
             },
         ],
