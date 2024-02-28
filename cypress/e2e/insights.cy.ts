@@ -1,6 +1,4 @@
 import { urls } from 'scenes/urls'
-
-import { decideResponse } from '../fixtures/api/decide'
 import { createInsight, insight, savedInsights } from '../productAnalytics'
 import { randomString } from '../support/random'
 
@@ -8,15 +6,6 @@ import { randomString } from '../support/random'
 // insight tests were split up because Cypress was struggling with this many tests in one file🙈
 describe('Insights', () => {
     beforeEach(() => {
-        cy.intercept('https://app.posthog.com/decide/*', (req) =>
-            req.reply(
-                decideResponse({
-                    hogql: true,
-                    'data-exploration-insights': true,
-                })
-            )
-        )
-
         cy.visit(urls.insightNew())
     })
 

@@ -1,4 +1,4 @@
-import { GlobalConfig, KafkaConsumer, Message } from 'node-rdkafka'
+import { ConsumerGlobalConfig, GlobalConfig, KafkaConsumer, Message } from 'node-rdkafka'
 import { exponentialBuckets, Gauge, Histogram } from 'prom-client'
 
 import { retryIfRetriable } from '../utils/retries'
@@ -23,6 +23,36 @@ export interface BatchConsumer {
 const STATUS_LOG_INTERVAL_MS = 10000
 const SLOW_BATCH_PROCESSING_LOG_THRESHOLD_MS = 10000
 
+type PartitionSummary = {
+    // number of messages received (often this can be derived from the
+    // difference between the minimum and maximum offset values + 1, but not
+    // always in case of messages deleted on the broker, or offset resets)
+    count: number
+    // minimum and maximum offsets observed
+    offsets: [number, number]
+}
+
+class BatchSummary {
+    // NOTE: ``Map`` would probably be more appropriate here, but ``Record`` is
+    // easier to JSON serialize.
+    private partitions: Record<number, PartitionSummary> = {}
+
+    public record(message: Message) {
+        let summary = this.partitions[message.partition]
+        if (summary === undefined) {
+            summary = {
+                count: 1,
+                offsets: [message.offset, message.offset],
+            }
+            this.partitions[message.partition] = summary
+        } else {
+            summary.count += 1
+            summary.offsets[0] = Math.min(summary.offsets[0], message.offset)
+            summary.offsets[1] = Math.max(summary.offsets[1], message.offset)
+        }
+    }
+}
+
 export const startBatchConsumer = async ({
     connectionConfig,
     groupId,
@@ -39,6 +69,7 @@ export const startBatchConsumer = async ({
     topicCreationTimeoutMs,
     eachBatch,
     queuedMinMessages = 100000,
+    debug,
 }: {
     connectionConfig: GlobalConfig
     groupId: string
@@ -55,6 +86,7 @@ export const startBatchConsumer = async ({
     topicCreationTimeoutMs: number
     eachBatch: (messages: Message[]) => Promise<void>
     queuedMinMessages?: number
+    debug?: string
 }): Promise<BatchConsumer> => {
     // Starts consuming from `topic` in batches of `fetchBatchSize` messages,
     // with consumer group id `groupId`. We use `connectionConfig` to connect
@@ -76,62 +108,67 @@ export const startBatchConsumer = async ({
     //
     // We also instrument the consumer with Prometheus metrics, which are
     // exposed on the /_metrics endpoint by the global prom-client registry.
-    const consumer = await createKafkaConsumer(
-        {
-            ...connectionConfig,
-            'group.id': groupId,
-            'session.timeout.ms': sessionTimeout,
-            'max.poll.interval.ms': maxPollIntervalMs,
-            'enable.auto.commit': autoCommit,
-            'enable.auto.offset.store': false,
-            /**
-             * max.partition.fetch.bytes
-             * The maximum amount of data per-partition the server will return.
-             * Records are fetched in batches by the consumer.
-             * If the first record batch in the first non-empty partition of the fetch is larger than this limit,
-             * the batch will still be returned to ensure that the consumer can make progress.
-             * The maximum record batch size accepted by the broker is defined via message.max.bytes (broker config)
-             * or max.message.bytes (topic config).
-             * https://docs.confluent.io/platform/current/installation/configuration/consumer-configs.html#:~:text=max.partition.fetch.bytes,the%20consumer%20can%20make%20progress.
-             */
-            'max.partition.fetch.bytes': consumerMaxBytesPerPartition,
-            // https://github.com/confluentinc/librdkafka/blob/e75de5be191b6b8e9602efc969f4af64071550de/CONFIGURATION.md?plain=1#L122
-            // Initial maximum number of bytes per topic+partition to request when fetching messages from the broker. If the client encounters a message larger than this value it will gradually try to increase it until the entire message can be fetched.
-            'fetch.message.max.bytes': consumerMaxBytes,
-            'fetch.wait.max.ms': consumerMaxWaitMs,
-            'fetch.error.backoff.ms': consumerErrorBackoffMs,
-            'enable.partition.eof': true,
-            // https://github.com/confluentinc/librdkafka/blob/e75de5be191b6b8e9602efc969f4af64071550de/CONFIGURATION.md?plain=1#L118
-            // Minimum number of messages per topic+partition librdkafka tries to maintain in the local consumer queue
-            'queued.min.messages': queuedMinMessages, // 100000 is the default
-            'queued.max.messages.kbytes': 102400, // 1048576 is the default, we go smaller to reduce mem usage.
-            // Use cooperative-sticky rebalancing strategy, which is the
-            // [default](https://kafka.apache.org/documentation/#consumerconfigs_partition.assignment.strategy)
-            // in the Java Kafka Client. There its actually
-            // RangeAssignor,CooperativeStickyAssignor i.e. it mixes eager and
-            // cooperative strategies. This is however explicitly mentioned to not
-            // be supported in the [librdkafka library config
-            // docs](https://github.com/confluentinc/librdkafka/blob/master/CONFIGURATION.md#partitionassignmentstrategy)
-            // so we just use cooperative-sticky. If there are other consumer
-            // members with other strategies already running, you'll need to delete
-            // e.g. the replicaset for them if on k8s.
-            //
-            // See
-            // https://www.confluent.io/en-gb/blog/incremental-cooperative-rebalancing-in-kafka/
-            // for details on the advantages of this rebalancing strategy as well as
-            // how it works.
-            'partition.assignment.strategy': 'cooperative-sticky',
-            rebalance_cb: true,
-            offset_commit_cb: true,
-        },
-        {
-            // It is typically safest to roll back to the earliest offset if we
-            // find ourselves in a situation where there is no stored offset or
-            // the stored offset is invalid, compared to the default behavior of
-            // potentially jumping ahead to the latest offset.
-            'auto.offset.reset': 'earliest',
-        }
-    )
+
+    const consumerConfig: ConsumerGlobalConfig = {
+        ...connectionConfig,
+        'group.id': groupId,
+        'session.timeout.ms': sessionTimeout,
+        'max.poll.interval.ms': maxPollIntervalMs,
+        'enable.auto.commit': autoCommit,
+        'enable.auto.offset.store': false,
+        /**
+         * max.partition.fetch.bytes
+         * The maximum amount of data per-partition the server will return.
+         * Records are fetched in batches by the consumer.
+         * If the first record batch in the first non-empty partition of the fetch is larger than this limit,
+         * the batch will still be returned to ensure that the consumer can make progress.
+         * The maximum record batch size accepted by the broker is defined via message.max.bytes (broker config)
+         * or max.message.bytes (topic config).
+         * https://docs.confluent.io/platform/current/installation/configuration/consumer-configs.html#:~:text=max.partition.fetch.bytes,the%20consumer%20can%20make%20progress.
+         */
+        'max.partition.fetch.bytes': consumerMaxBytesPerPartition,
+        // https://github.com/confluentinc/librdkafka/blob/e75de5be191b6b8e9602efc969f4af64071550de/CONFIGURATION.md?plain=1#L122
+        // Initial maximum number of bytes per topic+partition to request when fetching messages from the broker. If the client encounters a message larger than this value it will gradually try to increase it until the entire message can be fetched.
+        'fetch.message.max.bytes': consumerMaxBytes,
+        'fetch.wait.max.ms': consumerMaxWaitMs,
+        'fetch.error.backoff.ms': consumerErrorBackoffMs,
+        'enable.partition.eof': true,
+        // https://github.com/confluentinc/librdkafka/blob/e75de5be191b6b8e9602efc969f4af64071550de/CONFIGURATION.md?plain=1#L118
+        // Minimum number of messages per topic+partition librdkafka tries to maintain in the local consumer queue
+        'queued.min.messages': queuedMinMessages, // 100000 is the default
+        'queued.max.messages.kbytes': 102400, // 1048576 is the default, we go smaller to reduce mem usage.
+        // Use cooperative-sticky rebalancing strategy, which is the
+        // [default](https://kafka.apache.org/documentation/#consumerconfigs_partition.assignment.strategy)
+        // in the Java Kafka Client. There its actually
+        // RangeAssignor,CooperativeStickyAssignor i.e. it mixes eager and
+        // cooperative strategies. This is however explicitly mentioned to not
+        // be supported in the [librdkafka library config
+        // docs](https://github.com/confluentinc/librdkafka/blob/master/CONFIGURATION.md#partitionassignmentstrategy)
+        // so we just use cooperative-sticky. If there are other consumer
+        // members with other strategies already running, you'll need to delete
+        // e.g. the replicaset for them if on k8s.
+        //
+        // See
+        // https://www.confluent.io/en-gb/blog/incremental-cooperative-rebalancing-in-kafka/
+        // for details on the advantages of this rebalancing strategy as well as
+        // how it works.
+        'partition.assignment.strategy': 'cooperative-sticky',
+        rebalance_cb: true,
+        offset_commit_cb: true,
+    }
+
+    if (debug) {
+        // NOTE: If the key exists with value undefined the consumer will throw which is annoying so we define it here instead
+        consumerConfig.debug = debug
+    }
+
+    const consumer = await createKafkaConsumer(consumerConfig, {
+        // It is typically safest to roll back to the earliest offset if we
+        // find ourselves in a situation where there is no stored offset or
+        // the stored offset is invalid, compared to the default behavior of
+        // potentially jumping ahead to the latest offset.
+        'auto.offset.reset': 'earliest',
+    })
 
     instrumentConsumerMetrics(consumer, groupId)
 
@@ -218,14 +255,17 @@ export const startBatchConsumer = async ({
                 }
 
                 const startProcessingTimeMs = new Date().valueOf()
+                const batchSummary = new BatchSummary()
 
                 consumerBatchSize.labels({ topic, groupId }).observe(messages.length)
                 for (const message of messages) {
                     consumedMessageSizeBytes.labels({ topic, groupId }).observe(message.size)
+                    batchSummary.record(message)
                 }
 
                 // NOTE: we do not handle any retries. This should be handled by
                 // the implementation of `eachBatch`.
+                status.debug('⏳', `Starting to process batch of ${messages.length} events...`, batchSummary)
                 await eachBatch(messages)
 
                 messagesProcessed += messages.length
@@ -233,11 +273,12 @@ export const startBatchConsumer = async ({
 
                 const processingTimeMs = new Date().valueOf() - startProcessingTimeMs
                 consumedBatchDuration.labels({ topic, groupId }).observe(processingTimeMs)
+
+                const logSummary = `Processed ${messages.length} events in ${Math.round(processingTimeMs / 10) / 100}s`
                 if (processingTimeMs > SLOW_BATCH_PROCESSING_LOG_THRESHOLD_MS) {
-                    status.warn(
-                        '🕒',
-                        `Slow batch: ${messages.length} events in ${Math.round(processingTimeMs / 10) / 100}s`
-                    )
+                    status.warn('🕒', `Slow batch: ${logSummary}`, batchSummary)
+                } else {
+                    status.debug('⌛️', logSummary, batchSummary)
                 }
 
                 if (autoCommit) {

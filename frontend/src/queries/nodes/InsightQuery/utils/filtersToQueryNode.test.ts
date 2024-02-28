@@ -225,6 +225,46 @@ describe('filtersToQueryNode', () => {
             expect(result).toEqual(query)
         })
 
+        it('converts broken grouped properties', () => {
+            const filters: Partial<FilterType> = {
+                insight: InsightType.RETENTION,
+                properties: {
+                    type: FilterLogicalOperator.And,
+                    values: [
+                        {
+                            key: 'email',
+                            type: PropertyFilterType.Person,
+                            value: 'is_set',
+                            operator: PropertyOperator.IsSet,
+                        },
+                    ] as any,
+                },
+            }
+
+            const result = filtersToQueryNode(filters)
+
+            const query: InsightQueryNode = {
+                kind: NodeKind.RetentionQuery,
+                properties: {
+                    type: FilterLogicalOperator.And,
+                    values: [
+                        {
+                            type: FilterLogicalOperator.And,
+                            values: [
+                                {
+                                    key: 'email',
+                                    type: PropertyFilterType.Person,
+                                    value: 'is_set',
+                                    operator: PropertyOperator.IsSet,
+                                },
+                            ],
+                        },
+                    ],
+                },
+            } as InsightQueryNode
+            expect(result).toEqual(query)
+        })
+
         it('converts date range', () => {
             const filters: Partial<FilterType> = {
                 insight: InsightType.RETENTION,

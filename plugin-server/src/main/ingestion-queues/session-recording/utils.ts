@@ -244,3 +244,19 @@ export const parseKafkaMessage = async (
         snapshot_source: $snapshot_source,
     }
 }
+
+export const reduceRecordingMessages = (messages: IncomingRecordingMessage[]): IncomingRecordingMessage[] => {
+    const reducedMessages: Record<string, IncomingRecordingMessage> = {}
+
+    for (const message of messages) {
+        const clonedMessage = { ...message }
+        const key = `${clonedMessage.team_id}-${clonedMessage.session_id}-${clonedMessage.window_id}`
+        if (!reducedMessages[key]) {
+            reducedMessages[key] = clonedMessage
+        } else {
+            reducedMessages[key].events = [...reducedMessages[key].events, ...clonedMessage.events]
+        }
+    }
+
+    return Object.values(reducedMessages)
+}

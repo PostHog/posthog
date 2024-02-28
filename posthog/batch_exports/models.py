@@ -74,8 +74,9 @@ class BatchExportRun(UUIDModel):
 
         CANCELLED = "Cancelled"
         COMPLETED = "Completed"
-        CONTINUEDASNEW = "ContinuedAsNew"
+        CONTINUED_AS_NEW = "ContinuedAsNew"
         FAILED = "Failed"
+        FAILED_RETRYABLE = "FailedRetryable"
         TERMINATED = "Terminated"
         TIMEDOUT = "TimedOut"
         RUNNING = "Running"
@@ -269,8 +270,9 @@ class BatchExportBackfill(UUIDModel):
 
         CANCELLED = "Cancelled"
         COMPLETED = "Completed"
-        CONTINUEDASNEW = "ContinuedAsNew"
+        CONTINUED_AS_NEW = "ContinuedAsNew"
         FAILED = "Failed"
+        FAILED_RETRYABLE = "FailedRetryable"
         TERMINATED = "Terminated"
         TIMEDOUT = "TimedOut"
         RUNNING = "Running"
