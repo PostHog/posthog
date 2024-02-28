@@ -100,7 +100,7 @@ export function PersonsModal({
         useActions(logic)
     const { openSessionPlayer } = useActions(sessionPlayerModalLogic)
     const { currentTeam } = useValues(teamLogic)
-    const { createExport } = useActions(exportsLogic)
+    const { startExport } = useActions(exportsLogic)
 
     const totalActorsCount = missingActorsCount + actors.length
 
@@ -249,7 +249,7 @@ export function PersonsModal({
                             <LemonButton
                                 type="secondary"
                                 onClick={() => {
-                                    createExport({
+                                    startExport({
                                         export_format: ExporterFormat.CSV,
                                         export_context: query
                                             ? { source: actorsQuery as Record<string, any> }

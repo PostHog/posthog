@@ -26,7 +26,7 @@ export const exportsLogic = kea<exportsLogicType>([
 
     actions({
         loadExports: true,
-        createExport: (exportData: TriggerExportProps) => ({ exportData }),
+        startExport: (exportData: TriggerExportProps) => ({ exportData }),
         checkExportStatus: (exportedAsset: ExportedAssetType) => ({ exportedAsset }),
         pollExportStatus: (exportedAsset: ExportedAssetType) => ({ exportedAsset }),
         addFresh: (exportedAsset: ExportedAssetType) => ({ exportedAsset }),
@@ -56,7 +56,7 @@ export const exportsLogic = kea<exportsLogicType>([
     }),
 
     listeners(({ actions, values }) => ({
-        createExport: async ({ exportData }, breakpoint) => {
+        startExport: async ({ exportData }) => {
             if (isLocalExport(exportData.export_context)) {
                 try {
                     downloadBlob(
@@ -70,19 +70,14 @@ export const exportsLogic = kea<exportsLogicType>([
                 return
             }
 
-            const newExportedAsset = await api.exports.create({
-                export_format: exportData.export_format,
-                dashboard: exportData.dashboard,
-                insight: exportData.insight,
-                export_context: exportData.export_context,
-                expires_after: dayjs().add(6, 'hour').toJSON(),
-            })
-            breakpoint()
+            actions.createExport({ exportData })
+        },
+        createExportSuccess: ({ exports }) => {
             if (values.featureFlags[FEATURE_FLAGS.EXPORTS_SIDEPANEL]) {
                 actions.openSidePanel(SidePanelTab.Exports)
                 actions.loadExports()
             }
-            actions.pollExportStatus(newExportedAsset)
+            exports.map((exportedAsset) => actions.pollExportStatus(exportedAsset))
         },
         pollExportStatus: async ({ exportedAsset }, breakpoint) => {
             // eslint-disable-next-line no-async-promise-executor,@typescript-eslint/no-misused-promises
@@ -106,13 +101,15 @@ export const exportsLogic = kea<exportsLogicType>([
                         attempts++
 
                         if (updatedAsset.has_content) {
-                            if (values.featureFlags[FEATURE_FLAGS.EXPORTS_SIDEPANEL]) {
-                                actions.loadExports()
-                            }
-                            if (dayjs().diff(dayjs(updatedAsset.created_at), 'second') < 3) {
+                            if (!values.featureFlags[FEATURE_FLAGS.EXPORTS_SIDEPANEL]) {
                                 void downloadExportedAsset(updatedAsset)
                             } else {
-                                actions.addFresh(updatedAsset)
+                                actions.loadExports()
+                                if (dayjs().diff(dayjs(updatedAsset.created_at), 'second') < 3) {
+                                    void downloadExportedAsset(updatedAsset)
+                                } else {
+                                    actions.addFresh(updatedAsset)
+                                }
                             }
 
                             trackingProperties.total_time_ms = performance.now() - startTime
@@ -159,6 +156,17 @@ export const exportsLogic = kea<exportsLogicType>([
                     breakpoint()
 
                     return response.results
+                },
+                createExport: async ({ exportData }) => {
+                    return [
+                        await api.exports.create({
+                            export_format: exportData.export_format,
+                            dashboard: exportData.dashboard,
+                            insight: exportData.insight,
+                            export_context: exportData.export_context,
+                            expires_after: dayjs().add(6, 'hour').toJSON(),
+                        }),
+                    ]
                 },
             },
         ],

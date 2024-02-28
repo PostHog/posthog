@@ -32,7 +32,7 @@ export function RetentionModal(): JSX.Element | null {
         retentionModalLogic(insightProps)
     )
     const { closeModal } = useActions(retentionModalLogic(insightProps))
-    const { createExport } = useActions(exportsLogic)
+    const { startExport } = useActions(exportsLogic)
 
     const dataTableNodeQuery: DataTableNode | undefined = actorsQuery
         ? {
@@ -58,7 +58,7 @@ export function RetentionModal(): JSX.Element | null {
                             <LemonButton
                                 type="secondary"
                                 onClick={() =>
-                                    createExport({
+                                    startExport({
                                         export_format: ExporterFormat.CSV,
                                         export_context: {
                                             path: row?.people_url,
@@ -74,7 +74,7 @@ export function RetentionModal(): JSX.Element | null {
                                 key={1}
                                 placement="topRight"
                                 onConfirm={() => {
-                                    dataTableNodeQuery && void startDownload(dataTableNodeQuery, true, createExport)
+                                    dataTableNodeQuery && void startDownload(dataTableNodeQuery, true, startExport)
                                 }}
                                 actor="persons"
                                 limit={EXPORT_MAX_LIMIT}

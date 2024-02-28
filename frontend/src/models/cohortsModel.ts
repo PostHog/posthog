@@ -62,7 +62,7 @@ export const cohortsModel = kea<cohortsModelType>([
     path(['models', 'cohortsModel']),
     connect({
         values: [teamLogic, ['currentTeam']],
-        actions: [exportsLogic, ['createExport']],
+        actions: [exportsLogic, ['startExport']],
     }),
     actions(() => ({
         setPollTimeout: (pollTimeout: number | null) => ({ pollTimeout }),
@@ -148,7 +148,7 @@ export const cohortsModel = kea<cohortsModelType>([
             if (columns && columns.length > 0) {
                 exportCommand.export_context['columns'] = columns
             }
-            actions.createExport(exportCommand)
+            actions.startExport(exportCommand)
         },
         deleteCohort: async ({ cohort }) => {
             await deleteWithUndo({

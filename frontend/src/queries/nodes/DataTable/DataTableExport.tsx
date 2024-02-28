@@ -190,7 +190,7 @@ interface DataTableExportProps {
 
 export function DataTableExport({ query }: DataTableExportProps): JSX.Element | null {
     const { dataTableRows, columnsInResponse, columnsInQuery, queryWithDefaults, response } = useValues(dataTableLogic)
-    const { createExport } = useActions(exportsLogic)
+    const { startExport } = useActions(exportsLogic)
 
     const source: DataNode = query.source
     const filterCount =
@@ -210,7 +210,7 @@ export function DataTableExport({ query }: DataTableExportProps): JSX.Element | 
                         key={1}
                         placement="topRight"
                         onConfirm={() => {
-                            void startDownload(query, true, createExport)
+                            void startDownload(query, true, startExport)
                         }}
                         actor={isPersonsNode(query.source) ? 'persons' : 'events'}
                         limit={EXPORT_MAX_LIMIT}
@@ -224,7 +224,7 @@ export function DataTableExport({ query }: DataTableExportProps): JSX.Element | 
                                   <ExportWithConfirmation
                                       key={0}
                                       placement="topRight"
-                                      onConfirm={() => void startDownload(query, false, createExport)}
+                                      onConfirm={() => void startDownload(query, false, startExport)}
                                       actor={isPersonsNode(query.source) ? 'persons' : 'events'}
                                       limit={EXPORT_MAX_LIMIT}
                                   >
@@ -234,7 +234,7 @@ export function DataTableExport({ query }: DataTableExportProps): JSX.Element | 
                                       key={0}
                                       placement="topRight"
                                       onConfirm={() =>
-                                          void startDownload(query, false, createExport, ExporterFormat.XLSX)
+                                          void startDownload(query, false, startExport, ExporterFormat.XLSX)
                                       }
                                       actor={isPersonsNode(query.source) ? 'persons' : 'events'}
                                       limit={EXPORT_MAX_LIMIT}
