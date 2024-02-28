@@ -107,7 +107,8 @@ sumIf(1, event='$pageview') as pageview_count,
 sumIf(1, event='$autocapture') as autocapture_count
 
 FROM {database}.sharded_events
-group by session_id, team_id
+WHERE `$session_id` IS NOT NULL AND `$session_id` != ''
+GROUP BY `$session_id`, team_id
 """.format(
         table_name=f"{TABLE_BASE_NAME}_mv",
         target_table=f"writable_{TABLE_BASE_NAME}",
