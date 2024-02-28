@@ -212,8 +212,8 @@ dependencies:
     specifier: ^3.1.4
     version: 3.1.4(kea@3.1.5)
   kea-subscriptions:
-    specifier: ^3.0.0
-    version: 3.0.0(kea@3.1.5)
+    specifier: ^3.0.1
+    version: 3.0.1(kea@3.1.5)
   kea-test-utils:
     specifier: ^0.2.4
     version: 0.2.4(kea@3.1.5)
@@ -347,7 +347,7 @@ dependencies:
 optionalDependencies:
   fsevents:
     specifier: ^2.3.2
-    version: 2.3.3
+    version: 2.3.2
 
 devDependencies:
   '@babel/core':
@@ -12723,7 +12723,6 @@ packages:
     engines: {node: ^8.16.0 || ^10.6.0 || >=11.0.0}
     os: [darwin]
     requiresBuild: true
-    dev: true
     optional: true
 
   /fsevents@2.3.3:
@@ -14928,8 +14927,8 @@ packages:
       url-pattern: 1.0.3
     dev: false
 
-  /kea-subscriptions@3.0.0(kea@3.1.5):
-    resolution: {integrity: sha512-26iEvvAV6+s1YtFajjDndP/ht32Rx2IuElr8O6yUsOuMSPLn55/EpRIMEyeFu0Amim7BOVfn9MoKFsSSlr/Ilw==}
+  /kea-subscriptions@3.0.1(kea@3.1.5):
+    resolution: {integrity: sha512-uBJ0L+oPlthV2FBPpB+gUmZj8p0tdFH6cSLWTEBRkDgruOTmQjKXWsSRN5cxL8MUq2naihMBL8MSqK8IY6f8/g==}
     peerDependencies:
       kea: '>= 3'
     dependencies:
