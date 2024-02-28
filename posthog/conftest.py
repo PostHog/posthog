@@ -81,7 +81,7 @@ def reset_clickhouse_tables():
         TRUNCATE_APP_METRICS_TABLE_SQL,
         TRUNCATE_PERFORMANCE_EVENTS_TABLE_SQL,
         TRUNCATE_CHANNEL_DEFINITION_TABLE_SQL,
-        TRUNCATE_SESSIONS_TABLE_SQL,
+        TRUNCATE_SESSIONS_TABLE_SQL(),
     ]
 
     run_clickhouse_statement_in_parallel(TABLES_TO_CREATE_DROP)
