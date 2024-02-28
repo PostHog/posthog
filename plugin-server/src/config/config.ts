@@ -161,6 +161,7 @@ export function getDefaultConfig(): PluginsServerConfig {
         SESSION_RECORDING_CONSOLE_LOGS_INGESTION_ENABLED: true,
         SESSION_RECORDING_DEBUG_PARTITION: undefined,
         SESSION_RECORDING_KAFKA_DEBUG: undefined,
+        SESSION_RECORDING_MAX_PARALLEL_FLUSHES: 10,
     }
 }
 

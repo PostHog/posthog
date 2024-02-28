@@ -28,8 +28,6 @@ require('@sentry/tracing')
 // WARNING: Do not change this - it will essentially reset the consumer
 const KAFKA_CONSUMER_GROUP_ID = 'session-replay-ingester'
 const KAFKA_CONSUMER_SESSION_TIMEOUT_MS = 60000
-// NOTE: This is to stop getting into a memory or pressure situation - it likely wants to be externalised and monitored for efficiency
-const MAX_CONCURRENT_FLUSHES = 10
 
 // NOTE: To remove once released
 const metricPrefix = 'v3_'
@@ -349,35 +347,40 @@ export class SessionRecordingIngesterV3 {
     async flushAllReadySessions(heartbeat: () => void): Promise<void> {
         const sessions = Object.entries(this.sessions)
 
-        await allSettledWithConcurrency(MAX_CONCURRENT_FLUSHES, sessions, async ([key, sessionManager]) => {
-            heartbeat()
+        // NOTE: We want to avoid flushing too many sessions at once as it can cause a lot of disk backpressure stalling the consumer
+        await allSettledWithConcurrency(
+            this.config.SESSION_RECORDING_MAX_PARALLEL_FLUSHES,
+            sessions,
+            async ([key, sessionManager]) => {
+                heartbeat()
 
-            if (!this.assignedPartitions.includes(sessionManager.context.partition)) {
-                await this.destroySession(key, sessionManager)
-                return
-            }
+                if (!this.assignedPartitions.includes(sessionManager.context.partition)) {
+                    await this.destroySession(key, sessionManager)
+                    return
+                }
 
-            await sessionManager
-                .flush()
-                .catch((err) => {
-                    status.error(
-                        '🚽',
-                        'session-replay-ingestion - failed trying to flush on idle session: ' +
-                            sessionManager.context.sessionId,
-                        {
-                            err,
-                            session_id: sessionManager.context.sessionId,
+                await sessionManager
+                    .flush()
+                    .catch((err) => {
+                        status.error(
+                            '🚽',
+                            'session-replay-ingestion - failed trying to flush on idle session: ' +
+                                sessionManager.context.sessionId,
+                            {
+                                err,
+                                session_id: sessionManager.context.sessionId,
+                            }
+                        )
+                        captureException(err, { tags: { session_id: sessionManager.context.sessionId } })
+                    })
+                    .then(async () => {
+                        // If the SessionManager is done (flushed and with no more queued events) then we remove it to free up memory
+                        if (await sessionManager.isEmpty()) {
+                            await this.destroySession(key, sessionManager)
                         }
-                    )
-                    captureException(err, { tags: { session_id: sessionManager.context.sessionId } })
-                })
-                .then(async () => {
-                    // If the SessionManager is done (flushed and with no more queued events) then we remove it to free up memory
-                    if (await sessionManager.isEmpty()) {
-                        await this.destroySession(key, sessionManager)
-                    }
-                })
-        })
+                    })
+            }
+        )
 
         gaugeSessionsHandled.set(Object.keys(this.sessions).length)
     }
