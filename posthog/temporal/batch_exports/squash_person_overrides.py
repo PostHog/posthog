@@ -254,10 +254,12 @@ async def squash_events_partition(inputs: QueryInputs) -> None:
     As ClickHouse doesn't support an UPDATE ... FROM statement ala PostgreSQL, we must
     do this in 4 basic steps:
 
-    1. Stop ingesting data into person_overrides.
-    2. Build a DICTIONARY from person_overrides.
-    3. Perform ALTER TABLE UPDATE using dictGet to query the DICTIONARY.
+    1. Build a DICTIONARY from person_distinct_id_overrides.
+    2. Perform ALTER TABLE UPDATE using dictGet to query the DICTIONARY.
+    3. Clean up any person_distinct_id_overrides that were squashed and are past the grace period.
     4. Clean up the DICTIONARY once done.
+
+    This activity corresponds to step number 2.
     """
     from django.conf import settings
 
@@ -491,15 +493,14 @@ class SquashPersonOverridesWorkflow(PostHogWorkflow):
     The persons associated with existing events can change as a result of
     actions such as person merges. To account for this, we keep a record of what
     new person ID should be used in place of (or "override") a previously used
-    person ID. The ``posthog_flatpersonoverride`` table is the primary
-    representation of this data in Postgres. The ``person_overrides`` table in
-    ClickHouse contains a replica of the data stored in Postgres, and can be
-    joined onto the events table to get the most up-to-date person for an event.
+    person ID.  The 'person_distinct_id_overrides' table in ClickHouse contains
+    the overrides as they are read from Postgres, and can be joined onto the
+    events table to get the most up-to-date person for an event.
 
-    This process must be done regularly to control the size of the person
-    overrides tables -- both to reduce the amount of storage required for these
-    tables, as well as ensuring that the join mentioned previously does not
-    become prohibitively large to evaluate.
+    This process must be done regularly to control the size of the
+    person_distinct_id_overrides table: both to reduce the amount of storage
+    required for these tables, as well as ensuring that the join mentioned
+    previously does not become prohibitively large to evaluate.
     """
 
     @staticmethod
