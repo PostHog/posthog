@@ -130,7 +130,7 @@ class QueryInputs:
 async def optimize_person_distinct_id_overrides(inputs: QueryInputs) -> None:
     """Prepare the person_overrides table to be used in a squash.
 
-    This activity executes an OPTIMIZE TABLE query to ensure we assign the latest overrides for each old_person_id.
+    This activity executes an OPTIMIZE TABLE query to ensure we assign the latest overrides for each distinct_id.
     """
     from django.conf import settings
 
