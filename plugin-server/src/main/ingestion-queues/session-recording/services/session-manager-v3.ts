@@ -1,7 +1,7 @@
 import { Upload } from '@aws-sdk/lib-storage'
 import { captureException, captureMessage } from '@sentry/node'
 import { createReadStream, createWriteStream, WriteStream } from 'fs'
-import { appendFile, mkdir, readdir, readFile, rename, rmdir, stat, unlink, writeFile } from 'fs/promises'
+import { mkdir, readdir, readFile, rename, rmdir, stat, unlink, writeFile } from 'fs/promises'
 import path from 'path'
 import { Counter, Histogram } from 'prom-client'
 import { PassThrough } from 'stream'
@@ -26,6 +26,11 @@ export const FILE_EXTENSION = '.jsonl'
 export const BUFFER_FILE_NAME = `buffer${FILE_EXTENSION}`
 export const FLUSH_FILE_EXTENSION = `.flush${FILE_EXTENSION}`
 export const METADATA_FILE_NAME = `metadata.json`
+
+const writeStreamBlocked = new Counter({
+    name: metricPrefix + 'recording_blob_ingestion_write_stream_blocked',
+    help: 'Number of times we get blocked by the stream backpressure',
+})
 
 const counterS3FilesWritten = new Counter({
     name: metricPrefix + 'recording_s3_files_written',
@@ -105,6 +110,8 @@ export type SessionManagerContext = {
 
 export class SessionManagerV3 {
     buffer?: SessionManagerBufferContext
+    bufferWriteStream?: WriteStream
+
     flushPromise?: Promise<void>
     destroying = false
     inProgressUpload: Upload | null = null
@@ -236,6 +243,7 @@ export class SessionManagerV3 {
 
         await this.setupPromise
 
+
         try {
             const buffer = this.getOrCreateBuffer()
             const messageData = convertToPersistedMessage(message)
@@ -258,9 +266,13 @@ export class SessionManagerV3 {
             buffer.count += 1
             buffer.sizeEstimate += content.length
 
-            const stopTimer = histogramBackpressureBlockedSeconds.startTimer()
-            await appendFile(this.file(BUFFER_FILE_NAME), content, 'utf-8')
-            stopTimer()
+            if (!this.bufferWriteStream!.write(content, 'utf-8')) {
+                writeStreamBlocked.inc()
+
+                const stopTimer = histogramBackpressureBlockedSeconds.startTimer()
+                await new Promise((r) => this.bufferWriteStream!.once('drain', r))
+                stopTimer()
+            }
             await this.syncMetadata()
         } catch (error) {
             this.captureException(error, { message })
@@ -352,6 +364,7 @@ export class SessionManagerV3 {
         histogramS3LinesWritten.observe(buffer.count)
         histogramS3KbWritten.observe(buffer.sizeEstimate / 1024)
 
+        await new Promise((resolve) => this.bufferWriteStream?.end(resolve))
         await rename(this.file(BUFFER_FILE_NAME), this.file(fileName))
         this.buffer = undefined
 
@@ -477,6 +490,10 @@ export class SessionManagerV3 {
             }
         }
 
+        if (this.buffer && !this.bufferWriteStream) {
+            this.bufferWriteStream = this.createFileStreamFor(path.join(this.context.dir, BUFFER_FILE_NAME))
+        }
+
         return this.buffer
     }
 
@@ -499,6 +516,10 @@ export class SessionManagerV3 {
                 this.captureException(error)
             })
             this.inProgressUpload = null
+        }
+
+        if (this.bufferWriteStream) {
+            await new Promise((resolve) => this.bufferWriteStream!.end(resolve))
         }
 
         if (await this.isEmpty()) {
