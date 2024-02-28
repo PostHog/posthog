@@ -137,7 +137,7 @@ async def optimize_person_distinct_id_overrides(inputs: QueryInputs) -> None:
     optimize_query = "OPTIMIZE TABLE {database}.person_distinct_id_overrides ON CLUSTER {cluster} FINAL"
 
     if inputs.dry_run is True:
-        activity.logger.info("This is a DRY RUN so nothing will be detached or optimized.")
+        activity.logger.info("This is a DRY RUN so nothing will be optimized.")
         activity.logger.debug("Optimize query: %s", optimize_query)
         return
 
