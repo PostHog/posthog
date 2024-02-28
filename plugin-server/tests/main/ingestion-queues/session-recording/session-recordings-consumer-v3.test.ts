@@ -20,6 +20,8 @@ const SESSION_RECORDING_REDIS_PREFIX = '@posthog-tests/replay/'
 
 const tmpDir = path.join(__dirname, '../../../../.tmp/test_session_recordings')
 
+const noop = () => undefined
+
 const config: PluginsServerConfig = {
     ...defaultConfig,
     SESSION_RECORDING_PARTITION_REVOKE_OPTIMIZATION: true,
@@ -205,7 +207,7 @@ describe('ingester', () => {
         expect(ingester.sessions[`1__${sessionId}`]).toBeDefined()
         ingester.sessions[`1__${sessionId}`].buffer!.createdAt = 0
 
-        await ingester.flushAllReadySessions()
+        await ingester.flushAllReadySessions(() => undefined)
 
         await waitForExpect(() => {
             expect(ingester.sessions[`1__${sessionId}`]).not.toBeDefined()
@@ -215,12 +217,15 @@ describe('ingester', () => {
     describe('batch event processing', () => {
         it('should batch parse incoming events and batch them to reduce writes', async () => {
             mockConsumer.assignments.mockImplementation(() => [createTP(1)])
-            await ingester.handleEachBatch([
-                createMessage('session_id_1', 1),
-                createMessage('session_id_1', 1),
-                createMessage('session_id_1', 1),
-                createMessage('session_id_2', 1),
-            ])
+            await ingester.handleEachBatch(
+                [
+                    createMessage('session_id_1', 1),
+                    createMessage('session_id_1', 1),
+                    createMessage('session_id_1', 1),
+                    createMessage('session_id_2', 1),
+                ],
+                noop
+            )
 
             expect(ingester.sessions[`${team.id}__session_id_1`].buffer?.count).toBe(1)
             expect(ingester.sessions[`${team.id}__session_id_2`].buffer?.count).toBe(1)
@@ -268,7 +273,7 @@ describe('ingester', () => {
             const partitionMsgs2 = [createMessage('session_id_3', 2), createMessage('session_id_4', 2)]
 
             mockConsumer.assignments.mockImplementation(() => [createTP(1), createTP(2), createTP(3)])
-            await ingester.handleEachBatch([...partitionMsgs1, ...partitionMsgs2])
+            await ingester.handleEachBatch([...partitionMsgs1, ...partitionMsgs2], noop)
 
             expect(getSessions(ingester)).toMatchObject([
                 { sessionId: 'session_id_1', partition: 1, count: 1 },
@@ -280,9 +285,12 @@ describe('ingester', () => {
             // Call handleEachBatch with both consumers - we simulate the assignments which
             // is what is responsible for the actual syncing of the sessions
             mockConsumer.assignments.mockImplementation(() => [createTP(2), createTP(3)])
-            await otherIngester.handleEachBatch([createMessage('session_id_4', 2), createMessage('session_id_5', 2)])
+            await otherIngester.handleEachBatch(
+                [createMessage('session_id_4', 2), createMessage('session_id_5', 2)],
+                noop
+            )
             mockConsumer.assignments.mockImplementation(() => [createTP(1)])
-            await ingester.handleEachBatch([createMessage('session_id_1', 1)])
+            await ingester.handleEachBatch([createMessage('session_id_1', 1)], noop)
 
             // Should still have the partition 1 sessions that didnt move with added events
             expect(getSessions(ingester)).toMatchObject([
@@ -300,7 +308,7 @@ describe('ingester', () => {
     describe('stop()', () => {
         const setup = async (): Promise<void> => {
             const partitionMsgs1 = [createMessage('session_id_1', 1), createMessage('session_id_2', 1)]
-            await ingester.handleEachBatch(partitionMsgs1)
+            await ingester.handleEachBatch(partitionMsgs1, noop)
         }
 
         // TODO: Unskip when we add back in the replay and console ingestion
@@ -321,10 +329,13 @@ describe('ingester', () => {
     describe('when a team is disabled', () => {
         it('ignores invalid teams', async () => {
             // non-zero offset because the code can't commit offset 0
-            await ingester.handleEachBatch([
-                createKafkaMessage('invalid_token', { offset: 12 }),
-                createKafkaMessage('invalid_token', { offset: 13 }),
-            ])
+            await ingester.handleEachBatch(
+                [
+                    createKafkaMessage('invalid_token', { offset: 12 }),
+                    createKafkaMessage('invalid_token', { offset: 13 }),
+                ],
+                noop
+            )
 
             expect(ingester.sessions).toEqual({})
         })
