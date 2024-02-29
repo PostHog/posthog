@@ -83,7 +83,7 @@ class ExportedAsset(models.Model):
 
     @property
     def filename(self):
-        ext = self.export_format.split("/")[1]
+        ext = self.ExportFormat(self.export_format).name.lower()
         filename = "export"
 
         if self.export_context and self.export_context.get("filename"):
