@@ -1,11 +1,9 @@
 import './PlanComparison.scss'
 
-import { IconWarning, IconX } from '@posthog/icons'
+import { IconCheckCircle, IconWarning, IconX } from '@posthog/icons'
 import { LemonButton, LemonModal, LemonTag, Link } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
-import { FEATURE_FLAGS } from 'lib/constants'
-import { IconCheckmark } from 'lib/lemon-ui/icons'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
@@ -44,7 +42,7 @@ export function PlanIcon({
                 </>
             ) : (
                 <>
-                    <IconCheckmark className={clsx('text-success mx-4 shrink-0', className)} />
+                    <IconCheckCircle className={clsx('text-success mx-4 shrink-0', className)} />
                     {feature.note}
                 </>
             )}

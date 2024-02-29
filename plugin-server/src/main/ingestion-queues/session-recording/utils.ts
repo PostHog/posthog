@@ -244,3 +244,60 @@ export const parseKafkaMessage = async (
         snapshot_source: $snapshot_source,
     }
 }
+
+export const reduceRecordingMessages = (messages: IncomingRecordingMessage[]): IncomingRecordingMessage[] => {
+    const reducedMessages: Record<string, IncomingRecordingMessage> = {}
+
+    for (const message of messages) {
+        const clonedMessage = { ...message }
+        const key = `${clonedMessage.team_id}-${clonedMessage.session_id}-${clonedMessage.window_id}`
+        if (!reducedMessages[key]) {
+            reducedMessages[key] = clonedMessage
+        } else {
+            reducedMessages[key].events = [...reducedMessages[key].events, ...clonedMessage.events]
+        }
+    }
+
+    return Object.values(reducedMessages)
+}
+
+export const allSettledWithConcurrency = async <T, Q>(
+    concurrency: number,
+    arr: T[],
+    fn: (item: T, index: number) => Promise<Q>
+): Promise<{ error?: any; result?: Q }[]> => {
+    // This function processes promises in parallel like Promise.allSettled, but with a maximum concurrency
+
+    return new Promise<{ error?: any; result?: Q }[]>((resolve) => {
+        const results: { error?: any; result?: Q }[] = []
+        const remaining = [...arr]
+        let runningCount = 0
+
+        const run = () => {
+            while (remaining.length && runningCount < concurrency) {
+                const item = remaining.shift()
+                if (item) {
+                    const arrIndex = arr.indexOf(item)
+                    runningCount += 1
+                    fn(item, arr.length - remaining.length - 1)
+                        .then((result) => {
+                            results[arrIndex] = { result: result }
+                        })
+                        .catch((err) => {
+                            results[arrIndex] = { error: err }
+                        })
+                        .finally(() => {
+                            runningCount -= 1
+                            run()
+                        })
+                }
+            }
+
+            if (remaining.length === 0 && !runningCount) {
+                return resolve(results)
+            }
+        }
+
+        run()
+    })
+}

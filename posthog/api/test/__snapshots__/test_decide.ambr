@@ -89,6 +89,22 @@
   LIMIT 21 /*controller='team-detail',route='api/projects/%28%3FP%3Cid%3E%5B%5E/.%5D%2B%29/%3F%24'*/
   '''
 # ---
+# name: TestDecide.test_decide_doesnt_error_out_when_database_is_down.10
+  '''
+  SELECT "posthog_pluginconfig"."id",
+         "posthog_pluginconfig"."web_token",
+         "posthog_pluginsourcefile"."updated_at",
+         "posthog_plugin"."updated_at",
+         "posthog_pluginconfig"."updated_at"
+  FROM "posthog_pluginconfig"
+  INNER JOIN "posthog_plugin" ON ("posthog_pluginconfig"."plugin_id" = "posthog_plugin"."id")
+  INNER JOIN "posthog_pluginsourcefile" ON ("posthog_plugin"."id" = "posthog_pluginsourcefile"."plugin_id")
+  WHERE ("posthog_pluginconfig"."enabled"
+         AND "posthog_pluginsourcefile"."filename" = 'site.ts'
+         AND "posthog_pluginsourcefile"."status" = 'TRANSPILED'
+         AND "posthog_pluginconfig"."team_id" = 2)
+  '''
+# ---
 # name: TestDecide.test_decide_doesnt_error_out_when_database_is_down.2
   '''
   SELECT "posthog_organizationmembership"."id",

@@ -43,14 +43,11 @@ function deduplicateConsoleLogEvents(consoleLogEntries: ConsoleLogEntry[]): Cons
 // am going to leave this duplication and then collapse it when/if we add a performance events ingester
 export class ConsoleLogsIngester {
     producer?: RdKafkaProducer
-    enabled: boolean
 
     constructor(
         private readonly serverConfig: PluginsServerConfig,
-        private readonly persistentHighWaterMarker: OffsetHighWaterMarker
-    ) {
-        this.enabled = serverConfig.SESSION_RECORDING_CONSOLE_LOGS_INGESTION_ENABLED
-    }
+        private readonly persistentHighWaterMarker?: OffsetHighWaterMarker
+    ) {}
 
     public async consumeBatch(messages: IncomingRecordingMessage[]) {
         const pendingProduceRequests: Promise<NumberNullUndefined>[] = []
@@ -94,17 +91,17 @@ export class ConsoleLogsIngester {
             }
         }
 
-        const topicPartitionOffsets = findOffsetsToCommit(messages.map((message) => message.metadata))
-        await Promise.all(
-            topicPartitionOffsets.map((tpo) => this.persistentHighWaterMarker.add(tpo, HIGH_WATERMARK_KEY, tpo.offset))
-        )
+        if (this.persistentHighWaterMarker) {
+            const topicPartitionOffsets = findOffsetsToCommit(messages.map((message) => message.metadata))
+            await Promise.all(
+                topicPartitionOffsets.map((tpo) =>
+                    this.persistentHighWaterMarker!.add(tpo, HIGH_WATERMARK_KEY, tpo.offset)
+                )
+            )
+        }
     }
 
     public async consume(event: IncomingRecordingMessage): Promise<Promise<number | null | undefined>[] | void> {
-        if (!this.enabled) {
-            return
-        }
-
         const drop = (reason: string) => {
             eventDroppedCounter
                 .labels({
@@ -121,7 +118,7 @@ export class ConsoleLogsIngester {
         }
 
         if (
-            await this.persistentHighWaterMarker.isBelowHighWaterMark(
+            await this.persistentHighWaterMarker?.isBelowHighWaterMark(
                 event.metadata,
                 HIGH_WATERMARK_KEY,
                 event.metadata.offset

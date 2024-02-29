@@ -1,17 +1,10 @@
-import { IconPlus } from '@posthog/icons'
+import { IconCheckCircle, IconChevronDown, IconInfo, IconPlus } from '@posthog/icons'
 import { LemonButton, LemonSelectOptions, LemonTable, LemonTag, Link } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { useResizeBreakpoints } from 'lib/hooks/useResizeObserver'
-import {
-    IconArticle,
-    IconCheckCircleOutline,
-    IconCheckmark,
-    IconChevronRight,
-    IconExpandMore,
-    IconInfo,
-} from 'lib/lemon-ui/icons'
+import { IconArticle, IconCheckCircleOutline, IconChevronRight } from 'lib/lemon-ui/icons'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { More } from 'lib/lemon-ui/LemonButton/More'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
@@ -111,7 +104,7 @@ export const BillingProductAddon = ({ addon }: { addon: BillingProductV2AddonTyp
                             <h4 className="leading-5 mb-1 font-bold">{addon.name}</h4>
                             {addon.subscribed && (
                                 <div>
-                                    <LemonTag type="primary" icon={<IconCheckmark />}>
+                                    <LemonTag type="primary" icon={<IconCheckCircle />}>
                                         Subscribed
                                     </LemonTag>
                                 </div>
@@ -156,7 +149,7 @@ export const BillingProductAddon = ({ addon }: { addon: BillingProductV2AddonTyp
                             />
                         </>
                     ) : addon.included_with_main_product ? (
-                        <LemonTag type="completion" icon={<IconCheckmark />}>
+                        <LemonTag type="completion" icon={<IconCheckCircle />}>
                             Included with plan
                         </LemonTag>
                     ) : (
@@ -459,7 +452,9 @@ export const BillingProduct = ({ product }: { product: BillingProductV2Type }): 
                                         <>
                                             {product.subscribed && (
                                                 <LemonButton
-                                                    icon={showTierBreakdown ? <IconExpandMore /> : <IconChevronRight />}
+                                                    icon={
+                                                        showTierBreakdown ? <IconChevronDown /> : <IconChevronRight />
+                                                    }
                                                     onClick={() => setShowTierBreakdown(!showTierBreakdown)}
                                                 />
                                             )}

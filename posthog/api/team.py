@@ -227,8 +227,33 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
         if not isinstance(value, Dict):
             raise exceptions.ValidationError("Must provide a dictionary or None.")
 
-        if not all(key in ["record_canvas"] for key in value.keys()):
-            raise exceptions.ValidationError("Must provide a dictionary with only 'record_canvas' key.")
+        known_keys = ["record_canvas", "ai_config"]
+        if not all(key in known_keys for key in value.keys()):
+            raise exceptions.ValidationError(
+                f"Must provide a dictionary with only known keys. One or more of {', '.join(known_keys)}."
+            )
+
+        if "ai_config" in value:
+            self.validate_session_replay_ai_summary_config(value["ai_config"])
+
+        return value
+
+    def validate_session_replay_ai_summary_config(self, value: Dict | None) -> Dict | None:
+        if value is not None:
+            if not isinstance(value, Dict):
+                raise exceptions.ValidationError("Must provide a dictionary or None.")
+
+            allowed_keys = [
+                "included_event_properties",
+                "opt_in",
+                "preferred_events",
+                "excluded_events",
+                "important_user_properties",
+            ]
+            if not all(key in allowed_keys for key in value.keys()):
+                raise exceptions.ValidationError(
+                    f"Must provide a dictionary with only allowed keys: {', '.join(allowed_keys)}."
+                )
 
         return value
 
@@ -315,6 +340,33 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
 
         if "timezone" in validated_data and validated_data["timezone"] != instance.timezone:
             self._handle_timezone_update(instance)
+
+        if (
+            "session_replay_config" in validated_data
+            and validated_data["session_replay_config"] is not None
+            and instance.session_replay_config is not None
+        ):
+            # for session_replay_config and its top level keys we merge existing settings with new settings
+            # this way we don't always have to receive the entire settings object to change one setting
+            # so for each key in validated_data["session_replay_config"] we merge it with the existing settings
+            # and then merge any top level keys that weren't provided
+
+            for key, value in validated_data["session_replay_config"].items():
+                if key in instance.session_replay_config:
+                    # if they're both dicts then we merge them, otherwise, the new value overwrites the old
+                    if isinstance(instance.session_replay_config[key], dict) and isinstance(
+                        validated_data["session_replay_config"][key], dict
+                    ):
+                        validated_data["session_replay_config"][key] = {
+                            **instance.session_replay_config[key],  # existing values
+                            **value,  # and new values on top
+                        }
+
+            # then also add back in any keys that exist but are not in the provided data
+            validated_data["session_replay_config"] = {
+                **instance.session_replay_config,
+                **validated_data["session_replay_config"],
+            }
 
         updated_team = super().update(instance, validated_data)
         changes = dict_changes_between("Team", before_update, updated_team.__dict__, use_field_exclusions=True)

@@ -576,7 +576,7 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
         return response.Response({"success": True}, status=201)
 
-    @action(methods=["GET"], detail=False)
+    @action(methods=["GET"], detail=False, required_scopes=["person:read", "cohort:read"])
     def cohorts(self, request: request.Request) -> response.Response:
         from posthog.api.cohort import CohortSerializer
 
