@@ -4,6 +4,7 @@ from uuid import uuid4
 from dateutil.relativedelta import relativedelta
 from django.test import override_settings
 from django.utils.timezone import now
+from freezegun import freeze_time
 from parameterized import parameterized
 
 from ee.clickhouse.materialized_columns.columns import materialize
@@ -23,6 +24,7 @@ from posthog.test.base import (
 from posthog.utils import PersonOnEventsMode
 
 
+@freeze_time("2021-01-01T13:46:23")
 class TestClickhouseSessionRecordingsListFromSessionReplay(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
     @property
     def base_time(self):
