@@ -923,6 +923,9 @@ export interface DataWarehouseFilter extends ActionFilter {
     table_name: string
 }
 
+export const isDataWarehouseFilter = (filter: EntityFilter): filter is DataWarehouseFilter =>
+    filter.type === EntityTypes.DATA_WAREHOUSE
+
 export interface FunnelExclusionLegacy extends Partial<EntityFilter> {
     funnel_from_step: number
     funnel_to_step: number

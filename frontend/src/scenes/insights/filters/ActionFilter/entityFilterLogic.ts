@@ -19,7 +19,11 @@ import type { entityFilterLogicType } from './entityFilterLogicType'
 export type LocalFilter = ActionFilter & {
     order: number
     uuid: string
+    id_field?: string
+    timestamp_field?: string
+    table_name?: string
 }
+
 export type BareEntity = Pick<Entity, 'id' | 'name'>
 
 export function toLocalFilters(filters: Partial<FilterType>): LocalFilter[] {
@@ -84,16 +88,12 @@ export const entityFilterLogic = kea<entityFilterLogicType>([
             math_group_type_index: filter.math_group_type_index,
         }),
         updateFilter: (
-            filter:
-                | (EntityFilter & {
-                      index: number
-                  })
-                | (ActionFilter & {
-                      index: number
-                  })
-                | (DataWarehouseFilter & {
-                      index: number
-                  })
+            filter: (EntityFilter | ActionFilter | DataWarehouseFilter) & {
+                index: number
+                id_field?: string
+                timestamp_field?: string
+                table_name?: string
+            }
         ) => ({
             ...filter,
         }),

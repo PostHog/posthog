@@ -14,7 +14,7 @@ interface TaxonomicBreakdownButtonProps {
 export function TaxonomicBreakdownButton({ isMixedSeries }: TaxonomicBreakdownButtonProps): JSX.Element {
     const [open, setOpen] = useState(false)
 
-    const { taxonomicBreakdownType, breakdownDisabledReason } = useValues(taxonomicBreakdownFilterLogic)
+    const { taxonomicBreakdownType } = useValues(taxonomicBreakdownFilterLogic)
 
     return (
         <TaxonomicBreakdownPopover open={open} setOpen={setOpen}>
@@ -24,9 +24,7 @@ export function TaxonomicBreakdownButton({ isMixedSeries }: TaxonomicBreakdownBu
                 data-attr="add-breakdown-button"
                 onClick={() => setOpen(!open)}
                 sideIcon={null}
-                disabledReason={
-                    isMixedSeries ? 'Breakdowns are not available for mixed series' : breakdownDisabledReason
-                }
+                disabledReason={isMixedSeries ? 'Breakdowns are not available for mixed series' : undefined}
             >
                 {taxonomicBreakdownType === TaxonomicFilterGroupType.CohortsWithAllUsers
                     ? 'Add cohort'

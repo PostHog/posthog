@@ -51,6 +51,7 @@ import {
     GroupMathType,
     HogQLMathType,
     InsightType,
+    isDataWarehouseFilter,
     PathsFilterType,
     PropertyFilterType,
     PropertyGroupFilterValue,
@@ -92,9 +93,18 @@ export const legacyEntityToNode = (
     let shared: Partial<EventsNode | ActionsNode | DataWarehouseNode> = {
         name: entity.name || undefined,
         custom_name: entity.custom_name || undefined,
-        id_field: entity.id_field || undefined,
-        timestamp_field: entity.timestamp_field || undefined,
-        table_name: entity.table_name || undefined,
+        id_field: 'id_field' in entity ? entity.id_field : undefined,
+        timestamp_field: 'timestamp_field' in entity ? entity.timestamp_field : undefined,
+        table_name: 'table_name' in entity ? entity.table_name : undefined,
+    }
+
+    if (isDataWarehouseFilter(entity)) {
+        shared = {
+            ...shared,
+            id_field: entity.id_field || undefined,
+            timestamp_field: entity.timestamp_field || undefined,
+            table_name: entity.table_name || undefined,
+        }
     }
 
     if (includeProperties) {
@@ -144,7 +154,9 @@ export const legacyEntityToNode = (
 export const exlusionEntityToNode = (
     entity: FunnelExclusionLegacy
 ): FunnelExclusionEventsNode | FunnelExclusionActionsNode => {
-    const baseEntity = legacyEntityToNode(entity as ActionFilter, false, MathAvailability.None)
+    const baseEntity = legacyEntityToNode(entity as ActionFilter, false, MathAvailability.None) as
+        | EventsNode
+        | ActionsNode
     return {
         ...baseEntity,
         funnelFromStep: entity.funnel_from_step,
