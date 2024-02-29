@@ -56,8 +56,11 @@ export const OnboardingBillingStep = ({
                         {featureFlags[FEATURE_FLAGS.BILLING_UPGRADE_LANGUAGE] === 'subscribe'
                             ? 'Subscribe to paid plan'
                             : featureFlags[FEATURE_FLAGS.BILLING_UPGRADE_LANGUAGE] === 'credit_card' &&
-                              !billing?.customer_id
+                              !billing?.has_active_subscription
                             ? 'Add credit card to get paid features'
+                            : featureFlags[FEATURE_FLAGS.BILLING_UPGRADE_LANGUAGE] === 'credit_card' &&
+                              billing?.has_active_subscription
+                            ? 'Add paid plan'
                             : 'Upgrade to paid plan'}
                     </LemonButton>
                 )
@@ -75,8 +78,11 @@ export const OnboardingBillingStep = ({
                                             {featureFlags[FEATURE_FLAGS.BILLING_UPGRADE_LANGUAGE] === 'subscribe'
                                                 ? 'Subscribe successful'
                                                 : featureFlags[FEATURE_FLAGS.BILLING_UPGRADE_LANGUAGE] ===
-                                                      'credit_card' && !billing?.customer_id
+                                                      'credit_card' && !billing?.has_active_subscription
                                                 ? 'Successfully added credit card'
+                                                : featureFlags[FEATURE_FLAGS.BILLING_UPGRADE_LANGUAGE] ===
+                                                      'credit_card' && !billing?.has_active_subscription
+                                                ? 'Successfully added paid plan'
                                                 : 'Upgrade successful'}
                                         </h3>
                                         <p className="mx-0 mb-0">You're all ready to use {product.name}.</p>

@@ -617,8 +617,11 @@ export const BillingProduct = ({ product }: { product: BillingProductV2Type }): 
                                             : featureFlags[FEATURE_FLAGS.BILLING_UPGRADE_LANGUAGE] === 'subscribe'
                                             ? 'Subscribe to'
                                             : featureFlags[FEATURE_FLAGS.BILLING_UPGRADE_LANGUAGE] === 'credit_card' &&
-                                              !billing?.customer_id
-                                            ? 'Add credit card to'
+                                              !billing?.has_active_subscription
+                                            ? 'Add a credit card to'
+                                            : featureFlags[FEATURE_FLAGS.BILLING_UPGRADE_LANGUAGE] === 'credit_card' &&
+                                              billing?.has_active_subscription
+                                            ? 'Add paid plan'
                                             : 'Upgrade to'}{' '}
                                         get sweet features such as:
                                     </p>
@@ -705,8 +708,11 @@ export const BillingProduct = ({ product }: { product: BillingProductV2Type }): 
                                         {featureFlags[FEATURE_FLAGS.BILLING_UPGRADE_LANGUAGE] === 'subscribe'
                                             ? 'Subscribe'
                                             : featureFlags[FEATURE_FLAGS.BILLING_UPGRADE_LANGUAGE] === 'credit_card' &&
-                                              !billing?.customer_id
+                                              !billing?.has_active_subscription
                                             ? 'Add credit card'
+                                            : featureFlags[FEATURE_FLAGS.BILLING_UPGRADE_LANGUAGE] === 'credit_card' &&
+                                              billing?.has_active_subscription
+                                            ? 'Add paid plan'
                                             : 'Upgrade'}
                                     </LemonButton>
                                 </div>

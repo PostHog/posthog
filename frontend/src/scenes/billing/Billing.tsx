@@ -323,8 +323,11 @@ export function Billing(): JSX.Element {
                         {featureFlags[FEATURE_FLAGS.BILLING_UPGRADE_LANGUAGE] === 'subscribe'
                             ? 'Subscribe to all'
                             : featureFlags[FEATURE_FLAGS.BILLING_UPGRADE_LANGUAGE] === 'credit_card' &&
-                              !billing?.customer_id
+                              !billing?.has_active_subscription
                             ? 'Add credit card to all products'
+                            : featureFlags[FEATURE_FLAGS.BILLING_UPGRADE_LANGUAGE] === 'credit_card' &&
+                              billing?.has_active_subscription
+                            ? 'Add all products to plan'
                             : 'Upgrade to all'}{' '}
                     </LemonButton>
                 )}

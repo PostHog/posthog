@@ -36,8 +36,11 @@ export function UpgradeModal(): JSX.Element {
                         {featureFlags[FEATURE_FLAGS.BILLING_UPGRADE_LANGUAGE] === 'subscribe'
                             ? 'Subscribe'
                             : featureFlags[FEATURE_FLAGS.BILLING_UPGRADE_LANGUAGE] === 'credit_card' &&
-                              !billing?.customer_id
+                              !billing?.has_active_subscription
                             ? 'Add credit card'
+                            : featureFlags[FEATURE_FLAGS.BILLING_UPGRADE_LANGUAGE] === 'credit_card' &&
+                              billing?.has_active_subscription
+                            ? 'Add paid plan'
                             : 'Upgrade'}{' '}
                         now
                     </LemonButton>
@@ -53,8 +56,12 @@ export function UpgradeModal(): JSX.Element {
             <p className="mb-0">
                 {featureFlags[FEATURE_FLAGS.BILLING_UPGRADE_LANGUAGE] === 'subscribe'
                     ? 'Subscribe'
-                    : featureFlags[FEATURE_FLAGS.BILLING_UPGRADE_LANGUAGE] === 'credit_card' && !billing?.customer_id
-                    ? 'Add credit card'
+                    : featureFlags[FEATURE_FLAGS.BILLING_UPGRADE_LANGUAGE] === 'credit_card' &&
+                      !billing?.has_active_subscription
+                    ? 'Add a credit card'
+                    : featureFlags[FEATURE_FLAGS.BILLING_UPGRADE_LANGUAGE] === 'credit_card' &&
+                      billing?.has_active_subscription
+                    ? 'Add paid plan'
                     : 'Upgrade'}{' '}
                 to get access to this and other powerful enhancements.
             </p>

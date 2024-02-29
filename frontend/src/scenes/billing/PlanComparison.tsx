@@ -4,6 +4,7 @@ import { IconCheckCircle, IconWarning, IconX } from '@posthog/icons'
 import { LemonButton, LemonModal, LemonTag, Link } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
@@ -139,8 +140,11 @@ export const PlanComparison = ({
                         : featureFlags[FEATURE_FLAGS.BILLING_UPGRADE_LANGUAGE] === 'subscribe'
                         ? 'Subscribe'
                         : featureFlags[FEATURE_FLAGS.BILLING_UPGRADE_LANGUAGE] === 'credit_card' &&
-                          !billing?.customer_id
+                          !billing?.has_active_subscription
                         ? 'Add credit card'
+                        : featureFlags[FEATURE_FLAGS.BILLING_UPGRADE_LANGUAGE] === 'credit_card' &&
+                          billing?.has_active_subscription
+                        ? 'Add paid plan'
                         : 'Upgrade'}
                 </LemonButton>
                 {!plan.current_plan && !plan.free_allocation && includeAddons && product.addons?.length > 0 && (
@@ -154,8 +158,11 @@ export const PlanComparison = ({
                             {featureFlags[FEATURE_FLAGS.BILLING_UPGRADE_LANGUAGE] === 'subscribe'
                                 ? 'subscribe'
                                 : featureFlags[FEATURE_FLAGS.BILLING_UPGRADE_LANGUAGE] === 'credit_card' &&
-                                  !billing?.customer_id
+                                  !billing?.has_active_subscription
                                 ? 'add credit card'
+                                : featureFlags[FEATURE_FLAGS.BILLING_UPGRADE_LANGUAGE] === 'credit_card' &&
+                                  !billing?.has_active_subscription
+                                ? 'add paid plan'
                                 : 'upgrade'}{' '}
                             without addons
                         </Link>
