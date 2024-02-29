@@ -33,7 +33,7 @@ beforeAll(async () => {
     // Setup connections to kafka, clickhouse, and postgres
     postgres = new PostgresRouter({ ...defaultConfig, POSTGRES_CONNECTION_POOL_SIZE: 1 }, null)
     graphileWorker = await makeWorkerUtils({
-        pgPool: createPostgresPool(defaultConfig.DATABASE_URL!, 1),
+        pgPool: createPostgresPool(defaultConfig.DATABASE_URL!, 1, 'functional_tests'),
     })
     clickHouseClient = new ClickHouse({
         host: defaultConfig.CLICKHOUSE_HOST,
