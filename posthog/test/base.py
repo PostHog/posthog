@@ -921,6 +921,7 @@ class ClickhouseDestroyTablesMixin(BaseTest):
                 SESSION_REPLAY_EVENTS_TABLE_SQL(),
                 CHANNEL_DEFINITION_TABLE_SQL(),
                 CHANNEL_DEFINITION_DICTIONARY_SQL,
+                SESSIONS_TABLE_SQL(),
             ]
         )
         run_clickhouse_statement_in_parallel(
@@ -928,6 +929,7 @@ class ClickhouseDestroyTablesMixin(BaseTest):
                 DISTRIBUTED_EVENTS_TABLE_SQL(),
                 DISTRIBUTED_SESSION_RECORDING_EVENTS_TABLE_SQL(),
                 DISTRIBUTED_SESSION_REPLAY_EVENTS_TABLE_SQL(),
+                DISTRIBUTED_SESSIONS_TABLE_SQL(),
                 CHANNEL_DEFINITION_DATA_SQL,
             ]
         )
