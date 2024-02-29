@@ -1,19 +1,21 @@
+from typing import Dict
 from unittest import mock
 from uuid import uuid4
 
 from dateutil.relativedelta import relativedelta
-from django.test import override_settings
 from django.utils.timezone import now
 from freezegun import freeze_time
 from parameterized import parameterized
 
 from ee.clickhouse.materialized_columns.columns import materialize
+from posthog.clickhouse.client import sync_execute
 from posthog.models import Person
 from posthog.models.filters import SessionRecordingsFilter
 from posthog.session_recordings.queries.session_recording_list_from_replay_summary import (
     SessionRecordingListFromReplaySummary,
 )
 from posthog.session_recordings.queries.test.session_replay_sql import produce_replay_summary
+from posthog.session_recordings.sql.session_replay_event_sql import TRUNCATE_SESSION_REPLAY_EVENTS_TABLE_SQL
 from posthog.test.base import (
     APIBaseTest,
     ClickhouseTestMixin,
@@ -26,6 +28,9 @@ from posthog.utils import PersonOnEventsMode
 
 @freeze_time("2021-01-01T13:46:23")
 class TestClickhouseSessionRecordingsListFromSessionReplay(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
+    def tearDown(self) -> None:
+        sync_execute(TRUNCATE_SESSION_REPLAY_EVENTS_TABLE_SQL())
+
     @property
     def base_time(self):
         return (now() - relativedelta(hours=1)).replace(microsecond=0, second=0)
@@ -50,183 +55,128 @@ class TestClickhouseSessionRecordingsListFromSessionReplay(ClickhouseTestMixin, 
             properties=properties,
         )
 
-    @override_settings(
-        PERSON_ON_EVENTS_OVERRIDE=True, PERSON_ON_EVENTS_V2_OVERRIDE=False, ALLOW_DENORMALIZED_PROPS_IN_LISTING=False
+    @parameterized.expand(
+        [
+            [
+                "test_poe_v1_still_falls_back_to_person_subquery",
+                True,
+                False,
+                False,
+                PersonOnEventsMode.V1_ENABLED,
+                {
+                    "kperson_filter_pre__0": "rgInternal",
+                    "kpersonquery_person_filter_fin__0": "rgInternal",
+                    "person_uuid": None,
+                    "vperson_filter_pre__0": ["false"],
+                    "vpersonquery_person_filter_fin__0": ["false"],
+                },
+                True,
+                False,
+            ],
+            [
+                "test_poe_being_unavailable_we_fall_back_to_person_subquery",
+                False,
+                False,
+                False,
+                PersonOnEventsMode.DISABLED,
+                {
+                    "kperson_filter_pre__0": "rgInternal",
+                    "kpersonquery_person_filter_fin__0": "rgInternal",
+                    "person_uuid": None,
+                    "vperson_filter_pre__0": ["false"],
+                    "vpersonquery_person_filter_fin__0": ["false"],
+                },
+                True,
+                False,
+            ],
+            [
+                "test_allow_denormalised_props_fix_does_not_stop_all_poe_processing",
+                False,
+                True,
+                False,
+                PersonOnEventsMode.V2_ENABLED,
+                {
+                    "event_names": [],
+                    "event_start_time": mock.ANY,
+                    "event_end_time": mock.ANY,
+                    "kglobal_0": "rgInternal",
+                    "vglobal_0": ["false"],
+                },
+                False,
+                True,
+            ],
+            [
+                "test_poe_v2_available_person_properties_are_used_in_replay_listing",
+                False,
+                True,
+                True,
+                PersonOnEventsMode.V2_ENABLED,
+                {
+                    "event_end_time": mock.ANY,
+                    "event_names": [],
+                    "event_start_time": mock.ANY,
+                    "kglobal_0": "rgInternal",
+                    "vglobal_0": ["false"],
+                },
+                False,
+                True,
+            ],
+        ]
     )
-    def test_poe_v1_still_falls_back_to_person_subquery(self) -> None:
-        assert self.team.person_on_events_mode == PersonOnEventsMode.V1_ENABLED
-        materialize("events", "rgInternal", table_column="person_properties")
+    def test_effect_of_poe_settings_on_query_generated(
+        self,
+        _name: str,
+        poe_v1: bool,
+        poe_v2: bool,
+        allow_denormalized_props: bool,
+        expected_poe_mode: PersonOnEventsMode,
+        expected_query_params: Dict,
+        unmaterialized_person_column_used: bool,
+        materialized_event_column_used: bool,
+    ) -> None:
+        with self.settings(
+            PERSON_ON_EVENTS_OVERRIDE=poe_v1,
+            PERSON_ON_EVENTS_V2_OVERRIDE=poe_v2,
+            ALLOW_DENORMALIZED_PROPS_IN_LISTING=allow_denormalized_props,
+        ):
+            assert self.team.person_on_events_mode == expected_poe_mode
+            materialize("events", "rgInternal", table_column="person_properties")
 
-        filter = SessionRecordingsFilter(
-            team=self.team,
-            data={
-                "properties": [
-                    {
-                        "key": "rgInternal",
-                        "value": ["false"],
-                        "operator": "exact",
-                        "type": "person",
-                    }
-                ]
-            },
-        )
-        session_recording_list_instance = SessionRecordingListFromReplaySummary(filter=filter, team=self.team)
-        [generated_query, query_params] = session_recording_list_instance.get_query()
-        assert query_params == {
-            "clamped_to_storage_ttl": mock.ANY,
-            "end_time": mock.ANY,
-            "kperson_filter_pre__0": "rgInternal",
-            "kpersonquery_person_filter_fin__0": "rgInternal",
-            "limit": 51,
-            "offset": 0,
-            "person_uuid": None,
-            "start_time": mock.ANY,
-            "team_id": self.team.id,
-            "vperson_filter_pre__0": ["false"],
-            "vpersonquery_person_filter_fin__0": ["false"],
-        }
+            filter = SessionRecordingsFilter(
+                team=self.team,
+                data={
+                    "properties": [
+                        {
+                            "key": "rgInternal",
+                            "value": ["false"],
+                            "operator": "exact",
+                            "type": "person",
+                        }
+                    ]
+                },
+            )
+            session_recording_list_instance = SessionRecordingListFromReplaySummary(filter=filter, team=self.team)
+            [generated_query, query_params] = session_recording_list_instance.get_query()
+            assert query_params == {
+                "clamped_to_storage_ttl": mock.ANY,
+                "end_time": mock.ANY,
+                "limit": 51,
+                "offset": 0,
+                "start_time": mock.ANY,
+                "team_id": self.team.id,
+                **expected_query_params,
+            }
 
-        # the unmaterialized column should query should be used
-        assert (
-            "has(%(vperson_filter_pre__0)s, replaceRegexpAll(JSONExtractRaw(properties, %(kperson_filter_pre__0)s)"
-            in generated_query
-        )
-        # materialized column should not be used
-        assert 'AND (  has(%(vglobal_0)s, "mat_pp_rgInternal"))' not in generated_query
-        self.assertQueryMatchesSnapshot(generated_query)
-
-    @override_settings(
-        PERSON_ON_EVENTS_OVERRIDE=False, PERSON_ON_EVENTS_V2_OVERRIDE=False, ALLOW_DENORMALIZED_PROPS_IN_LISTING=False
-    )
-    def test_poe_being_unavailable_we_fall_back_to_person_subquery(self) -> None:
-        assert self.team.person_on_events_mode == PersonOnEventsMode.DISABLED
-        materialize("events", "rgInternal", table_column="person_properties")
-
-        filter = SessionRecordingsFilter(
-            team=self.team,
-            data={
-                "properties": [
-                    {
-                        "key": "rgInternal",
-                        "value": ["false"],
-                        "operator": "exact",
-                        "type": "person",
-                    }
-                ]
-            },
-        )
-        session_recording_list_instance = SessionRecordingListFromReplaySummary(filter=filter, team=self.team)
-        [generated_query, query_params] = session_recording_list_instance.get_query()
-        assert query_params == {
-            "clamped_to_storage_ttl": mock.ANY,
-            "end_time": mock.ANY,
-            "kperson_filter_pre__0": "rgInternal",
-            "kpersonquery_person_filter_fin__0": "rgInternal",
-            "limit": 51,
-            "offset": 0,
-            "person_uuid": None,
-            "start_time": mock.ANY,
-            "team_id": self.team.id,
-            "vperson_filter_pre__0": ["false"],
-            "vpersonquery_person_filter_fin__0": ["false"],
-        }
-
-        # the unmaterialized column should query should be used
-        assert (
-            "has(%(vperson_filter_pre__0)s, replaceRegexpAll(JSONExtractRaw(properties, %(kperson_filter_pre__0)s)"
-            in generated_query
-        )
-        # materialized column should not be used
-        assert 'AND (  has(%(vglobal_0)s, "mat_pp_rgInternal"))' not in generated_query
-        self.assertQueryMatchesSnapshot(generated_query)
-
-    @override_settings(
-        PERSON_ON_EVENTS_OVERRIDE=False, PERSON_ON_EVENTS_V2_OVERRIDE=True, ALLOW_DENORMALIZED_PROPS_IN_LISTING=False
-    )
-    def test_allow_denormalised_props_fix_does_not_stop_all_poe_processing(self) -> None:
-        assert self.team.person_on_events_mode == PersonOnEventsMode.V2_ENABLED
-        materialize("events", "rgInternal", table_column="person_properties")
-
-        filter = SessionRecordingsFilter(
-            team=self.team,
-            data={
-                "properties": [
-                    {
-                        "key": "rgInternal",
-                        "value": ["false"],
-                        "operator": "exact",
-                        "type": "person",
-                    }
-                ]
-            },
-        )
-        session_recording_list_instance = SessionRecordingListFromReplaySummary(filter=filter, team=self.team)
-        [generated_query, query_params] = session_recording_list_instance.get_query()
-        assert query_params == {
-            "clamped_to_storage_ttl": mock.ANY,
-            "end_time": mock.ANY,
-            "event_end_time": mock.ANY,
-            "event_names": [],
-            "event_start_time": mock.ANY,
-            "kglobal_0": "rgInternal",
-            "limit": 51,
-            "offset": 0,
-            "start_time": mock.ANY,
-            "team_id": self.team.id,
-            "vglobal_0": ["false"],
-        }
-
-        # the unmaterialized column should query should not be used
-        assert (
-            "has(%(vperson_filter_pre__0)s, replaceRegexpAll(JSONExtractRaw(properties, %(kperson_filter_pre__0)s)"
-            not in generated_query
-        )
-        assert 'AND (  has(%(vglobal_0)s, "mat_pp_rgInternal"))' in generated_query
-        self.assertQueryMatchesSnapshot(generated_query)
-
-    @override_settings(
-        PERSON_ON_EVENTS_OVERRIDE=False, PERSON_ON_EVENTS_V2_OVERRIDE=True, ALLOW_DENORMALIZED_PROPS_IN_LISTING=True
-    )
-    def test_poe_v2_available_person_properties_are_used_in_replay_listing(self) -> None:
-        assert self.team.person_on_events_mode == PersonOnEventsMode.V2_ENABLED
-        materialize("events", "rgInternal", table_column="person_properties")
-
-        filter = SessionRecordingsFilter(
-            team=self.team,
-            data={
-                "properties": [
-                    {
-                        "key": "rgInternal",
-                        "value": ["false"],
-                        "operator": "exact",
-                        "type": "person",
-                    }
-                ]
-            },
-        )
-        session_recording_list_instance = SessionRecordingListFromReplaySummary(filter=filter, team=self.team)
-        [generated_query, query_params] = session_recording_list_instance.get_query()
-        assert query_params == {
-            "clamped_to_storage_ttl": mock.ANY,
-            "end_time": mock.ANY,
-            "event_end_time": mock.ANY,
-            "event_names": [],
-            "event_start_time": mock.ANY,
-            "kglobal_0": "rgInternal",
-            "limit": 51,
-            "offset": 0,
-            "start_time": mock.ANY,
-            "team_id": self.team.id,
-            "vglobal_0": ["false"],
-        }
-
-        # the unmaterialized column should query should not be used
-        assert (
-            "has(%(vperson_filter_pre__0)s, replaceRegexpAll(JSONExtractRaw(properties, %(kperson_filter_pre__0)s)"
-            not in generated_query
-        )
-        assert 'AND (  has(%(vglobal_0)s, "mat_pp_rgInternal"))' in generated_query
-        self.assertQueryMatchesSnapshot(generated_query)
+            # the unmaterialized person column
+            assert (
+                "has(%(vperson_filter_pre__0)s, replaceRegexpAll(JSONExtractRaw(properties, %(kperson_filter_pre__0)s)"
+                in generated_query
+            ) is unmaterialized_person_column_used
+            # materialized event column
+            assert (
+                'AND (  has(%(vglobal_0)s, "mat_pp_rgInternal"))' in generated_query
+            ) is materialized_event_column_used
+            self.assertQueryMatchesSnapshot(generated_query)
 
     @parameterized.expand(
         [
