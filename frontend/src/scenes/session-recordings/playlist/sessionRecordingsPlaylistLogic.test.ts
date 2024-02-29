@@ -10,14 +10,14 @@ import {
     DEFAULT_RECORDING_FILTERS,
     DEFAULT_SIMPLE_RECORDING_FILTERS,
     defaultRecordingDurationFilter,
-    RECORDINGS_LIMIT,
     sessionRecordingsPlaylistLogic,
 } from './sessionRecordingsPlaylistLogic'
 
 describe('sessionRecordingsPlaylistLogic', () => {
     let logic: ReturnType<typeof sessionRecordingsPlaylistLogic.build>
-    const aRecording = { id: 'abc', viewed: false, recording_duration: 10 }
-    const listOfSessionRecordings = [aRecording]
+    const aRecording = { id: 'abc', viewed: false, recording_duration: 10, console_error_count: 50 }
+    const bRecording = { id: 'def', viewed: false, recording_duration: 10, console_error_count: 100 }
+    const listOfSessionRecordings = [aRecording, bRecording]
 
     beforeEach(() => {
         useMocks({
@@ -48,11 +48,11 @@ describe('sessionRecordingsPlaylistLogic', () => {
                                 results: ["List of specific user's recordings from server"],
                             },
                         ]
-                    } else if (searchParams.get('offset') === `${RECORDINGS_LIMIT}`) {
+                    } else if (searchParams.get('offset') !== null) {
                         return [
                             200,
                             {
-                                results: [`List of recordings offset by ${RECORDINGS_LIMIT}`],
+                                results: [`List of recordings offset by ${listOfSessionRecordings.length}`],
                             },
                         ]
                     } else if (
@@ -158,6 +158,38 @@ describe('sessionRecordingsPlaylistLogic', () => {
                     activeSessionRecording: listOfSessionRecordings[0],
                 })
                 expect(router.values.searchParams).not.toHaveProperty('sessionRecordingId', 'not-in-list')
+            })
+        })
+
+        describe('ordering', () => {
+            it('is set by setOrderBy, loads filtered results and orders the non pinned recordings', async () => {
+                await expectLogic(logic, () => {
+                    logic.actions.setOrderBy('console_error_count')
+                })
+                    .toDispatchActions(['setOrderBy', 'loadSessionRecordings', 'loadSessionRecordingsSuccess'])
+                    .toMatchValues({
+                        orderBy: 'console_error_count',
+                    })
+
+                expect(logic.values.otherRecordings.map((r) => r.console_error_count)).toEqual([100, 50])
+            })
+
+            it('adds an offset when not using latest ordering', async () => {
+                await expectLogic(logic, () => {
+                    logic.actions.setOrderBy('console_error_count')
+                })
+                    .toDispatchActionsInAnyOrder(['loadSessionRecordingsSuccess'])
+                    .toMatchValues({
+                        sessionRecordings: listOfSessionRecordings,
+                    })
+
+                await expectLogic(logic, () => {
+                    logic.actions.maybeLoadSessionRecordings('newer')
+                })
+                    .toDispatchActions(['loadSessionRecordingsSuccess'])
+                    .toMatchValues({
+                        sessionRecordings: [...listOfSessionRecordings, 'List of recordings offset by 2'],
+                    })
             })
         })
 
@@ -295,14 +327,10 @@ describe('sessionRecordingsPlaylistLogic', () => {
                     .toFinishAllListeners()
                     .toMatchValues({
                         sessionRecordingsResponse: {
-                            results: [{ ...aRecording }],
+                            results: listOfSessionRecordings,
                             has_next: undefined,
                         },
-                        sessionRecordings: [
-                            {
-                                ...aRecording,
-                            },
-                        ],
+                        sessionRecordings: listOfSessionRecordings,
                     })
 
                 await expectLogic(logic, () => {
@@ -317,6 +345,7 @@ describe('sessionRecordingsPlaylistLogic', () => {
                                     // at this point the view hasn't updated this object
                                     viewed: false,
                                 },
+                                { ...bRecording, viewed: false },
                             ],
                         },
                         sessionRecordings: [
@@ -324,6 +353,7 @@ describe('sessionRecordingsPlaylistLogic', () => {
                                 ...aRecording,
                                 viewed: true,
                             },
+                            { ...bRecording, viewed: false },
                         ],
                     })
             })
