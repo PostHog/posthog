@@ -455,6 +455,8 @@ export class SessionRecordingIngesterV3 {
                             return
                         }
 
+                        const ifNoneMatch = req.headers['if-none-match']
+
                         status.info('🔁', 'session-replay-ingestion - fetching session', { projectId, sessionId })
 
                         // We don't know the partition upfront so we have to recursively check all partitions
@@ -468,8 +470,19 @@ export class SessionRecordingIngesterV3 {
                                 continue
                             }
 
+                            const etag = exists.mtimeMs.toString()
+
+                            // Set a weak etag header so that subsequent requests can be short circuited
+                            res.setHeader('ETag', `W/${etag}`)
+
+                            if (etag && ifNoneMatch === etag) {
+                                res.sendStatus(304)
+                                return
+                            }
+
                             const fileStream = createReadStream(path.join(sessionDir, BUFFER_FILE_NAME))
                             fileStream.pipe(res)
+                            status.info('⚡️', `Took ${Date.now() - startTime}ms to find the file`)
                             return
                         }
 

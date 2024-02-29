@@ -1,5 +1,4 @@
 import { lemonToast } from '@posthog/lemon-ui'
-import { eventWithTime } from '@rrweb/types'
 import { BuiltLogic, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import { beforeUnload } from 'kea-router'
@@ -11,51 +10,15 @@ import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { Scene } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
-import { Breadcrumb, PersonType, RecordingSnapshot, ReplayTabs, SessionRecordingType } from '~/types'
+import { Breadcrumb, ReplayTabs } from '~/types'
 
 import {
+    dedupeRecordingSnapshots,
     parseEncodedSnapshots,
-    prepareRecordingSnapshots,
     sessionRecordingDataLogic,
 } from '../player/sessionRecordingDataLogic'
-import type { sessionRecordingDataLogicType } from '../player/sessionRecordingDataLogicType'
 import type { sessionRecordingFilePlaybackLogicType } from './sessionRecordingFilePlaybackLogicType'
-
-export type ExportedSessionRecordingFileV1 = {
-    version: '2022-12-02'
-    data: {
-        person: PersonType | null
-        snapshotsByWindowId: Record<string, eventWithTime[]>
-    }
-}
-
-export type ExportedSessionRecordingFileV2 = {
-    version: '2023-04-28'
-    data: {
-        id: SessionRecordingType['id']
-        person: SessionRecordingType['person']
-        snapshots: RecordingSnapshot[]
-    }
-}
-
-export const createExportedSessionRecording = (
-    logic: BuiltLogic<sessionRecordingDataLogicType>,
-    // DEBUG signal only, to be removed before release
-    exportUntransformedMobileSnapshotData: boolean
-): ExportedSessionRecordingFileV2 => {
-    const { sessionPlayerMetaData, sessionPlayerSnapshotData } = logic.values
-
-    return {
-        version: '2023-04-28',
-        data: {
-            id: sessionPlayerMetaData?.id ?? '',
-            person: sessionPlayerMetaData?.person,
-            snapshots: exportUntransformedMobileSnapshotData
-                ? sessionPlayerSnapshotData?.untransformed_snapshots || []
-                : sessionPlayerSnapshotData?.snapshots || [],
-        },
-    }
-}
+import { ExportedSessionRecordingFileV1, ExportedSessionRecordingFileV2 } from './types'
 
 export const parseExportedSessionRecording = (fileData: string): ExportedSessionRecordingFileV2 => {
     const data = JSON.parse(fileData) as ExportedSessionRecordingFileV1 | ExportedSessionRecordingFileV2
@@ -177,7 +140,7 @@ export const sessionRecordingFilePlaybackLogic = kea<sessionRecordingFilePlaybac
                 return
             }
 
-            const snapshots = prepareRecordingSnapshots(
+            const snapshots = dedupeRecordingSnapshots(
                 await parseEncodedSnapshots(
                     values.sessionRecording.snapshots,
                     values.sessionRecording.id,
@@ -185,6 +148,7 @@ export const sessionRecordingFilePlaybackLogic = kea<sessionRecordingFilePlaybac
                 )
             )
 
+            // TODO: Change to `receiveFilePlaybackData`
             dataLogic.actions.loadRecordingSnapshotsSuccess({
                 snapshots,
             })

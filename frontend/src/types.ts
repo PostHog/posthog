@@ -785,7 +785,12 @@ export interface SessionRecordingSnapshotSource {
     start_timestamp?: string
     end_timestamp?: string
     blob_key?: string
-    loaded: boolean
+}
+
+export interface SessionRecordingSnapshotSourceResponse {
+    source: Pick<SessionRecordingSnapshotSource, 'source' | 'blob_key'>
+    snapshots?: RecordingSnapshot[]
+    untransformed_snapshots?: RecordingSnapshot[]
 }
 
 export interface SessionRecordingSnapshotResponse {

@@ -154,7 +154,7 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
             [
                 'sessionPlayerData',
                 'sessionPlayerMetaDataLoading',
-                'sessionPlayerSnapshotDataLoading',
+                'snapshotsLoading',
                 'sessionEventsData',
                 'sessionEventsDataLoading',
                 'windowIds',
@@ -796,7 +796,7 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
             (s) => [
                 s.sessionEventsDataLoading,
                 s.sessionPlayerMetaDataLoading,
-                s.sessionPlayerSnapshotDataLoading,
+                s.snapshotsLoading,
                 s.sessionEventsData,
                 s.consoleLogs,
                 s.allPerformanceEvents,
@@ -805,7 +805,7 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
             (
                 sessionEventsDataLoading,
                 sessionPlayerMetaDataLoading,
-                sessionPlayerSnapshotDataLoading,
+                snapshotsLoading,
                 events,
                 logs,
                 performanceEvents,
@@ -813,19 +813,19 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
             ): Record<SessionRecordingPlayerTab, 'loading' | 'ready' | 'empty'> => {
                 const tabEventsState = sessionEventsDataLoading ? 'loading' : events?.length ? 'ready' : 'empty'
                 const tabConsoleState =
-                    sessionPlayerMetaDataLoading || sessionPlayerSnapshotDataLoading || !logs
+                    sessionPlayerMetaDataLoading || snapshotsLoading || !logs
                         ? 'loading'
                         : logs.length
                         ? 'ready'
                         : 'empty'
                 const tabNetworkState =
-                    sessionPlayerMetaDataLoading || sessionPlayerSnapshotDataLoading || !performanceEvents
+                    sessionPlayerMetaDataLoading || snapshotsLoading || !performanceEvents
                         ? 'loading'
                         : performanceEvents.length
                         ? 'ready'
                         : 'empty'
                 const tabDoctorState =
-                    sessionPlayerMetaDataLoading || sessionPlayerSnapshotDataLoading || !performanceEvents
+                    sessionPlayerMetaDataLoading || snapshotsLoading || !performanceEvents
                         ? 'loading'
                         : doctorEvents.length
                         ? 'ready'

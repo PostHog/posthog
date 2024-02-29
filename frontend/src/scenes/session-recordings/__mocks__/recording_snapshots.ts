@@ -1,5 +1,5 @@
 import { eventWithTime } from '@rrweb/types'
-import { prepareRecordingSnapshots } from 'scenes/session-recordings/player/sessionRecordingDataLogic'
+import { dedupeRecordingSnapshots } from 'scenes/session-recordings/player/sessionRecordingDataLogic'
 
 import { RecordingSnapshot } from '~/types'
 
@@ -27,7 +27,7 @@ export const convertSnapshotsResponse = (
     snapshotsByWindowId: { [key: string]: eventWithTime[] },
     existingSnapshots?: RecordingSnapshot[]
 ): RecordingSnapshot[] => {
-    return prepareRecordingSnapshots(convertSnapshotsByWindowId(snapshotsByWindowId), existingSnapshots)
+    return dedupeRecordingSnapshots([...convertSnapshotsByWindowId(snapshotsByWindowId), ...(existingSnapshots ?? [])])
 }
 
 export const sortedRecordingSnapshots = (): { snapshot_data_by_window_id: Record<string, RecordingSnapshot[]> } => {
