@@ -1141,31 +1141,18 @@ export enum FunnelCorrelationType {
 export interface FunnelCorrelationQuery {
     kind: NodeKind.FunnelCorrelationQuery
     source: FunnelsActorsQuery
-    correlationType: FunnelCorrelationType
-
-    // # Needs to be json encoded list of `EventPattern`s
-    // events: str
-    // date_to: str
-    // funnel_step: Optional[int] = None
-    // date_from: Optional[str] = None
-
-    // funnel_correlation_names: Optional[str] = None
-    // funnel_correlation_event_names: Optional[str] = None
+    funnelCorrelationType: FunnelCorrelationType
 
     /* Events */
-    // funnel_correlation_type: "events"
-    // funnel_correlation_exclude_event_names: []
     funnelCorrelationExcludeEventNames?: string[]
 
     /* Events with properties */
-    // funnel_correlation_type: 'event_with_properties'
-    // funnel_correlation_event_names: ['$pageleave']
-    // funnel_correlation_event_exclude_property_names: []
+    funnelCorrelationEventNames?: string[]
+    funnelCorrelationEventExcludePropertyNames?: string[]
 
     /* Properties */
-    // funnel_correlation_type: "properties"
-    // funnel_correlation_names: ["$all"]
-    // funnel_correlation_exclude_names: ["$initial_geoip_postal_code", "$initial_geoip_latitude", "$initial_geoip_longitude",…]
+    funnelCorrelationNames?: string[]
+    funnelCorrelationExcludeNames?: string[]
 
     response?: FunnelCorrelationResponse
 }

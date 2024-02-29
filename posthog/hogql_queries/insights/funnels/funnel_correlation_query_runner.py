@@ -12,6 +12,7 @@ from posthog.hogql_queries.insights.funnels.funnel_unordered_persons import Funn
 from posthog.models.action.action import Action
 from posthog.models.element.element import chain_to_elements
 from posthog.models.event.util import ElementSerializer
+from rest_framework.exceptions import ValidationError
 
 from posthog.hogql import ast
 from posthog.hogql.constants import LimitContext
@@ -22,6 +23,7 @@ from posthog.hogql_queries.insights.funnels.funnel_query_context import FunnelQu
 from posthog.hogql_queries.insights.funnels.utils import funnel_window_interval_unit_to_sql, get_funnel_actor_class
 from posthog.hogql_queries.query_runner import QueryRunner
 from posthog.models import Team
+from posthog.models.property.util import get_property_string_expr
 from posthog.queries.util import correct_result_for_sampling
 from posthog.schema import (
     ActionsNode,
@@ -310,19 +312,19 @@ class FunnelCorrelationQueryRunner(QueryRunner):
         Returns a query string and params, which are used to generate the contingency table.
         The query returns success and failure count for event / property values, along with total success and failure counts.
         """
-        if self.query.correlationType == FunnelCorrelationType.PROPERTIES:
+        if self.query.funnelCorrelationType == FunnelCorrelationType.PROPERTIES:
             return self.get_properties_query()
 
-        if self.query.correlationType == FunnelCorrelationType.EVENT_WITH_PROPERTIES:
+        if self.query.funnelCorrelationType == FunnelCorrelationType.EVENT_WITH_PROPERTIES:
             return self.get_event_property_query()
 
         return self.get_event_query()
 
     def get_event_query(self) -> ast.SelectQuery | ast.SelectUnionQuery:
         funnel_persons_query = self.get_funnel_actors_cte()
-
         event_join_query = self._get_events_join_query()
-
+        target_step = self.context.max_steps
+        funnel_step_names = self._get_funnel_step_names()
         funnel_event_query = FunnelEventQuery(context=self.context)
         date_from = funnel_event_query._date_range().date_from_as_hogql()
         date_to = funnel_event_query._date_range().date_to_as_hogql()
@@ -335,8 +337,8 @@ class FunnelCorrelationQueryRunner(QueryRunner):
                 ),
                 {{date_from}} AS date_from,
                 {{date_to}} AS date_to,
-                {self.context.max_steps} AS target_step,
-                {self._get_funnel_step_names()} AS funnel_step_names
+                {target_step} AS target_step,
+                {funnel_step_names} AS funnel_step_names
 
             SELECT
                 event.event AS name,
@@ -369,7 +371,7 @@ class FunnelCorrelationQueryRunner(QueryRunner):
                 funnel_actors AS (
                     {{funnel_persons_query}}
                 ),
-                {self.context.max_steps} AS target_step
+                {target_step} AS target_step
 
             SELECT
                 -- We're not using WITH TOTALS because the resulting queries are
@@ -397,12 +399,18 @@ class FunnelCorrelationQueryRunner(QueryRunner):
         return event_correlation_query
 
     def get_event_property_query(self) -> ast.SelectQuery | ast.SelectUnionQuery:
-        if not self._filter.correlation_event_names:
+        if not self.query.funnelCorrelationEventNames:
             raise ValidationError("Event Property Correlation expects atleast one event name to run correlation on")
 
-        funnel_persons_query, funnel_persons_params = self.get_funnel_actors_cte()
-
+        funnel_persons_query = self.get_funnel_actors_cte()
         event_join_query = self._get_events_join_query()
+        target_step = self.context.max_steps
+        funnel_step_names = self._get_funnel_step_names()
+        funnel_event_query = FunnelEventQuery(context=self.context)
+        date_from = funnel_event_query._date_range().date_from_as_hogql()
+        date_to = funnel_event_query._date_range().date_to_as_hogql()
+        event_names = self.query.funnelCorrelationEventNames
+        exclude_property_names = self.query.funnelCorrelationEventExcludePropertyNames
 
         if self.support_autocapture_elements():
             event_type_expression, _ = get_property_string_expr(
@@ -421,13 +429,16 @@ class FunnelCorrelationQueryRunner(QueryRunner):
                 arrayJoin(JSONExtractKeysAndValues(properties, 'String')) as prop
             """
 
-        query = f"""
+        query = parse_select(
+            f"""
             WITH
-                funnel_actors as ({funnel_persons_query}),
-                toDateTime(%(date_to)s, %(timezone)s) AS date_to,
-                toDateTime(%(date_from)s, %(timezone)s) AS date_from,
-                %(target_step)s AS target_step,
-                %(funnel_step_names)s as funnel_step_names
+                funnel_actors AS (
+                    {{funnel_persons_query}}
+                ),
+                {{date_from}} AS date_from,
+                {{date_to}} AS date_to,
+                {target_step} AS target_step,
+                {funnel_step_names} AS funnel_step_names
 
             SELECT concat(event_name, '::', prop.1, '::', prop.2) as name,
                    countDistinctIf(actor_id, steps = target_step) as success_count,
@@ -441,13 +452,13 @@ class FunnelCorrelationQueryRunner(QueryRunner):
                     {array_join_query}
                 FROM events AS event
                     {event_join_query}
-                    AND event.event IN %(event_names)s
+                    AND event.event IN {event_names}
             )
             GROUP BY name
             -- Discard high cardinality / low hits properties
             -- This removes the long tail of random properties with empty, null, or very small values
             HAVING (success_count + failure_count) > 2
-            AND prop.1 NOT IN %(exclude_property_names)s
+            AND prop.1 NOT IN {exclude_property_names}
 
             UNION ALL
             -- To get the total success/failure numbers, we do an aggregation on
@@ -459,7 +470,7 @@ class FunnelCorrelationQueryRunner(QueryRunner):
                 funnel_actors AS (
                     {{funnel_persons_query}}
                 ),
-                {self.context.max_steps} AS target_step
+                {target_step} AS target_step
 
             SELECT
                 '{self.TOTAL_IDENTIFIER}' as name,
@@ -474,34 +485,35 @@ class FunnelCorrelationQueryRunner(QueryRunner):
                     funnel_actors.steps <> target_step
                 ) AS failure_count
             FROM funnel_actors
-        """
-        params = {
-            **funnel_persons_params,
-            "funnel_step_names": self._get_funnel_step_names(),
-            "target_step": len(self._filter.entities),
-            "event_names": self._filter.correlation_event_names,
-            "exclude_property_names": self._filter.correlation_event_exclude_property_names,
-        }
+        """,
+            placeholders={
+                "funnel_persons_query": funnel_persons_query,
+                "date_from": date_from,
+                "date_to": date_to,
+            },
+        )
 
-        return query, params
+        return query
 
     def get_properties_query(self) -> ast.SelectQuery | ast.SelectUnionQuery:
-        if not self._filter.correlation_property_names:
+        if not self.query.funnelCorrelationNames:
             raise ValidationError("Property Correlation expects atleast one Property to run correlation on")
 
-        funnel_actors_query, funnel_actors_params = self.get_funnel_actors_cte()
+        funnel_persons_query = self.get_funnel_actors_cte()
+        target_step = self.context.max_steps
+        exclude_property_names = self.query.funnelCorrelationExcludeNames
 
-        person_prop_query, person_prop_params = self._get_properties_prop_clause()
+        person_prop_query = self._get_properties_prop_clause()
+        # "property_names": self._filter.correlation_property_names,
+        aggregation_join_query = self._get_aggregation_join_query()
 
-        (
-            aggregation_join_query,
-            aggregation_join_params,
-        ) = self._get_aggregation_join_query()
-
-        query = f"""
+        query = parse_select(
+            f"""
             WITH
-                funnel_actors as ({funnel_actors_query}),
-                %(target_step)s AS target_step
+                funnel_actors AS (
+                    {{funnel_persons_query}}
+                ),
+                {target_step} AS target_step
             SELECT
                 concat(prop.1, '::', prop.2) as name,
                 -- We generate a unique identifier for each property value as: PropertyName::Value
@@ -542,7 +554,7 @@ class FunnelCorrelationQueryRunner(QueryRunner):
             ) aggregation_target_with_props
             -- Group by the tuple items: (property_name, property_value) generated by zip
             GROUP BY prop.1, prop.2
-            HAVING prop.1 NOT IN %(exclude_property_names)s
+            HAVING prop.1 NOT IN {exclude_property_names}
 
             UNION ALL
 
@@ -552,24 +564,20 @@ class FunnelCorrelationQueryRunner(QueryRunner):
                 funnel_actors AS (
                     {{funnel_persons_query}}
                 ),
-                {self.context.max_steps} AS target_step
+                {target_step} AS target_step
 
             SELECT
                 '{self.TOTAL_IDENTIFIER}' as name,
                 countDistinctIf(actor_id, steps = target_step) AS success_count,
                 countDistinctIf(actor_id, steps <> target_step) AS failure_count
             FROM funnel_actors
-        """
-        params = {
-            **funnel_actors_params,
-            **person_prop_params,
-            **aggregation_join_params,
-            "target_step": len(self._filter.entities),
-            "property_names": self._filter.correlation_property_names,
-            "exclude_property_names": self._filter.correlation_property_exclude_names,
-        }
+        """,
+            placeholders={
+                "funnel_persons_query": funnel_persons_query,
+            },
+        )
 
-        return query, params
+        return query
 
     def get_funnel_actors_cte(self) -> ast.SelectQuery:
         extra_fields = ["steps", "final_timestamp", "first_timestamp"]
@@ -709,9 +717,8 @@ class FunnelCorrelationQueryRunner(QueryRunner):
         return props_to_include
 
     def support_autocapture_elements(self) -> bool:
-        if (
-            self.query.correlationType == FunnelCorrelationType.EVENT_WITH_PROPERTIES
-            and AUTOCAPTURE_EVENT in self._filter.correlation_event_names
+        if self.query.funnelCorrelationType == FunnelCorrelationType.EVENT_WITH_PROPERTIES and AUTOCAPTURE_EVENT in (
+            self.query.funnelCorrelationEventNames or []
         ):
             return True
         return False

@@ -54,12 +54,14 @@ def _create_action(**kwargs):
 class TestClickhouseFunnelCorrelation(ClickhouseTestMixin, APIBaseTest):
     maxDiff = None
 
-    def _get_events_for_filters(self, filters, funnelCorrelationExcludeEventNames=None):
+    def _get_events_for_filters(
+        self, filters, funnelCorrelationType=FunnelCorrelationType.events, funnelCorrelationExcludeEventNames=None
+    ):
         funnels_query = cast(FunnelsQuery, filter_to_query(filters))
         actors_query = FunnelsActorsQuery(source=funnels_query)
         correlation_query = FunnelCorrelationQuery(
             source=actors_query,
-            correlationType=FunnelCorrelationType.events,
+            funnelCorrelationType=funnelCorrelationType,
             funnelCorrelationExcludeEventNames=funnelCorrelationExcludeEventNames,
         )
         result, _, _, _ = FunnelCorrelationQueryRunner(query=correlation_query, team=self.team)._calculate()
@@ -568,7 +570,7 @@ class TestClickhouseFunnelCorrelation(ClickhouseTestMixin, APIBaseTest):
             timestamp="2020-01-04T14:00:00Z",
         )
 
-        result = self._get_events_for_filters(filters)
+        result = self._get_events_for_filters(filters, funnelCorrelationType=FunnelCorrelationType.properties)
 
         odds_ratios = [item.pop("odds_ratio") for item in result]  # type: ignore
 

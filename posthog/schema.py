@@ -2654,8 +2654,12 @@ class FunnelCorrelationQuery(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
-    correlationType: FunnelCorrelationType
+    funnelCorrelationEventExcludePropertyNames: Optional[List[str]] = None
+    funnelCorrelationEventNames: Optional[List[str]] = None
     funnelCorrelationExcludeEventNames: Optional[List[str]] = None
+    funnelCorrelationExcludeNames: Optional[List[str]] = None
+    funnelCorrelationNames: Optional[List[str]] = None
+    funnelCorrelationType: FunnelCorrelationType
     kind: Literal["FunnelCorrelationQuery"] = "FunnelCorrelationQuery"
     response: Optional[FunnelCorrelationResponse] = None
     source: FunnelsActorsQuery

@@ -1456,14 +1456,38 @@
         "FunnelCorrelationQuery": {
             "additionalProperties": false,
             "properties": {
-                "correlationType": {
-                    "$ref": "#/definitions/FunnelCorrelationType"
+                "funnelCorrelationEventExcludePropertyNames": {
+                    "items": {
+                        "type": "string"
+                    },
+                    "type": "array"
+                },
+                "funnelCorrelationEventNames": {
+                    "items": {
+                        "type": "string"
+                    },
+                    "type": "array"
                 },
                 "funnelCorrelationExcludeEventNames": {
                     "items": {
                         "type": "string"
                     },
                     "type": "array"
+                },
+                "funnelCorrelationExcludeNames": {
+                    "items": {
+                        "type": "string"
+                    },
+                    "type": "array"
+                },
+                "funnelCorrelationNames": {
+                    "items": {
+                        "type": "string"
+                    },
+                    "type": "array"
+                },
+                "funnelCorrelationType": {
+                    "$ref": "#/definitions/FunnelCorrelationType"
                 },
                 "kind": {
                     "const": "FunnelCorrelationQuery",
@@ -1476,7 +1500,7 @@
                     "$ref": "#/definitions/FunnelsActorsQuery"
                 }
             },
-            "required": ["kind", "source", "correlationType"],
+            "required": ["kind", "source", "funnelCorrelationType"],
             "type": "object"
         },
         "FunnelCorrelationResponse": {
