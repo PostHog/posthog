@@ -277,6 +277,9 @@ class TestDecide(BaseTest, QueryMatchingTest):
         response = self._post_decide().json()
         self.assertEqual(response["sessionRecording"]["linkedFlag"], "my-flag")
 
+    @pytest.mark.skip(
+        reason="functionality was implicated in an incident, re-releasing without the decide change at first"
+    )
     def test_session_recording_linked_flag_variant(self, *args):
         # :TRICKY: Test for regression around caching
 
