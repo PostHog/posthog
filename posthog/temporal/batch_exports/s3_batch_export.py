@@ -399,7 +399,7 @@ async def insert_into_s3_activity(inputs: S3InsertInputs):
         inputs.data_interval_end,
     )
 
-    async with get_client() as client:
+    async with get_client(team_id=inputs.team_id) as client:
         if not await client.is_alive():
             raise ConnectionError("Cannot establish connection to ClickHouse")
 
@@ -573,6 +573,8 @@ class S3BatchExportWorkflow(PostHogWorkflow):
                 "ParamValidationError",
                 # This error usually indicates credentials are incorrect or permissions are missing.
                 "ClientError",
+                # An S3 bucket doesn't exist.
+                "NoSuchBucket",
             ],
             update_inputs=update_inputs,
         )

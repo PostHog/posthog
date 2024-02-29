@@ -805,58 +805,32 @@ class TestTeamAPI(APIBaseTest):
                 "invalid_input",
                 "Must provide a dictionary or None.",
             ],
-            ["numeric string", "-1", "invalid_input", "Must provide a dictionary or None."],
-            ["numeric", 1, "invalid_input", "Must provide a dictionary or None."],
-            ["numeric positive string", "1", "invalid_input", "Must provide a dictionary or None."],
+            ["numeric", "-1", "invalid_input", "Must provide a dictionary or None."],
             [
                 "unexpected json - no id",
                 {"key": "something"},
                 "invalid_input",
-                "Must provide a dictionary with only 'id' and 'key' keys. _or_ only 'id', 'key', and 'variant' keys.",
+                "Must provide a dictionary with only 'id' and 'key' keys.",
             ],
             [
                 "unexpected json - no key",
                 {"id": 1},
                 "invalid_input",
-                "Must provide a dictionary with only 'id' and 'key' keys. _or_ only 'id', 'key', and 'variant' keys.",
-            ],
-            [
-                "unexpected json - only variant",
-                {"variant": "1"},
-                "invalid_input",
-                "Must provide a dictionary with only 'id' and 'key' keys. _or_ only 'id', 'key', and 'variant' keys.",
-            ],
-            [
-                "unexpected json - variant must be string",
-                {"variant": 1},
-                "invalid_input",
-                "Must provide a dictionary with only 'id' and 'key' keys. _or_ only 'id', 'key', and 'variant' keys.",
-            ],
-            [
-                "unexpected json - missing id",
-                {"key": "one", "variant": "1"},
-                "invalid_input",
-                "Must provide a dictionary with only 'id' and 'key' keys. _or_ only 'id', 'key', and 'variant' keys.",
-            ],
-            [
-                "unexpected json - missing key",
-                {"id": "one", "variant": "1"},
-                "invalid_input",
-                "Must provide a dictionary with only 'id' and 'key' keys. _or_ only 'id', 'key', and 'variant' keys.",
+                "Must provide a dictionary with only 'id' and 'key' keys.",
             ],
             [
                 "unexpected json - neither",
                 {"wat": "wat"},
                 "invalid_input",
-                "Must provide a dictionary with only 'id' and 'key' keys. _or_ only 'id', 'key', and 'variant' keys.",
+                "Must provide a dictionary with only 'id' and 'key' keys.",
             ],
         ]
     )
     def test_invalid_session_recording_linked_flag(
-        self, _name: str, provided_value: Any, expected_code: str, expected_error: str
+        self, _name: str, provided_value: str, expected_code: str, expected_error: str
     ) -> None:
-        response = self._patch_linked_flag_config(provided_value, expected_status=status.HTTP_400_BAD_REQUEST)
-
+        response = self.client.patch("/api/projects/@current/", {"session_recording_linked_flag": provided_value})
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
         assert response.json() == {
             "attr": "session_recording_linked_flag",
             "code": expected_code,
@@ -865,18 +839,21 @@ class TestTeamAPI(APIBaseTest):
         }
 
     def test_can_set_and_unset_session_recording_linked_flag(self) -> None:
-        self._patch_linked_flag_config({"id": 1, "key": "provided_value"})
-        self._assert_linked_flag_config({"id": 1, "key": "provided_value"})
+        first_patch_response = self.client.patch(
+            "/api/projects/@current/",
+            {"session_recording_linked_flag": {"id": 1, "key": "provided_value"}},
+        )
+        assert first_patch_response.status_code == status.HTTP_200_OK
+        get_response = self.client.get("/api/projects/@current/")
+        assert get_response.json()["session_recording_linked_flag"] == {
+            "id": 1,
+            "key": "provided_value",
+        }
 
-        self._patch_linked_flag_config(None)
-        self._assert_linked_flag_config(None)
-
-    def test_can_set_and_unset_session_recording_linked_flag_variant(self) -> None:
-        self._patch_linked_flag_config({"id": 1, "key": "provided_value", "variant": "test"})
-        self._assert_linked_flag_config({"id": 1, "key": "provided_value", "variant": "test"})
-
-        self._patch_linked_flag_config(None)
-        self._assert_linked_flag_config(None)
+        response = self.client.patch("/api/projects/@current/", {"session_recording_linked_flag": None})
+        assert response.status_code == status.HTTP_200_OK
+        second_get_response = self.client.get("/api/projects/@current/")
+        assert second_get_response.json()["session_recording_linked_flag"] is None
 
     @parameterized.expand(
         [
@@ -1055,17 +1032,6 @@ class TestTeamAPI(APIBaseTest):
         assert patch_response.status_code == expected_status, patch_response.json()
 
         return patch_response
-
-    def _assert_linked_flag_config(self, expected_config: Dict | None) -> HttpResponse:
-        response = self.client.get("/api/projects/@current/")
-        assert response.status_code == status.HTTP_200_OK
-        assert response.json()["session_recording_linked_flag"] == expected_config
-        return response
-
-    def _patch_linked_flag_config(self, config: Dict | None, expected_status: int = status.HTTP_200_OK) -> HttpResponse:
-        response = self.client.patch("/api/projects/@current/", {"session_recording_linked_flag": config})
-        assert response.status_code == expected_status, response.json()
-        return response
 
 
 def create_team(organization: Organization, name: str = "Test team") -> Team:

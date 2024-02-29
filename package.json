@@ -131,7 +131,7 @@
         "kea-loaders": "^3.0.0",
         "kea-localstorage": "^3.1.0",
         "kea-router": "^3.1.4",
-        "kea-subscriptions": "^3.0.0",
+        "kea-subscriptions": "^3.0.1",
         "kea-test-utils": "^0.2.4",
         "kea-waitfor": "^0.2.1",
         "kea-window-values": "^3.0.0",

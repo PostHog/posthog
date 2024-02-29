@@ -31,11 +31,11 @@ SOURCE(CLICKHOUSE(
     QUERY 'SELECT team_id, distinct_id, argMax(person_id, version) AS person_id FROM {database}.person_distinct_id_overrides GROUP BY team_id, distinct_id'
 ))
 LAYOUT(complex_key_hashed())
-LIFETIME(MIN 0 MAX 0)
+LIFETIME(0)
 """
 
 RELOAD_DICTIONARY_QUERY = """
-SYSTEM RELOAD DICTIONARY {database}.{dictionary_name}
+SYSTEM RELOAD DICTIONARY {database}.{dictionary_name} ON CLUSTER {cluster_name}
 """
 
 SQUASH_EVENTS_QUERY = """
@@ -75,7 +75,7 @@ DROP DICTIONARY {database}.{dictionary_name};
 """
 
 CREATE_JOIN_TABLE_FOR_DELETES_QUERY = """
-CREATE TABLE {database}.person_overrides_to_delete
+CREATE TABLE {database}.person_overrides_to_delete ON CLUSTER {cluster}
 ENGINE = Join(ANY, LEFT, team_id, distinct_id) AS
 SELECT
     team_id, distinct_id, groupUniqArray(_partition_id) AS partitions
@@ -173,6 +173,7 @@ async def prepare_dictionary(inputs: QueryInputs) -> None:
                 RELOAD_DICTIONARY_QUERY.format(
                     database=settings.CLICKHOUSE_DATABASE,
                     dictionary_name=inputs.dictionary_name,
+                    cluster_name=settings.CLICKHOUSE_CLUSTER,
                 )
             )
 
@@ -360,12 +361,16 @@ async def delete_squashed_person_overrides_from_clickhouse(inputs: QueryInputs) 
 
     async with heartbeat_every():
         async with get_client(mutations_sync=2) as clickhouse_client:
-            await clickhouse_client.execute_query(
+            _ = await clickhouse_client.read_query(
                 CREATE_JOIN_TABLE_FOR_DELETES_QUERY.format(
-                    database=settings.CLICKHOUSE_DATABASE, dictionary_name=inputs.dictionary_name
+                    database=settings.CLICKHOUSE_DATABASE,
+                    dictionary_name=inputs.dictionary_name,
+                    cluster=settings.CLICKHOUSE_CLUSTER,
                 ),
             )
 
+    async with heartbeat_every():
+        async with get_client(mutations_sync=2) as clickhouse_client:
             try:
                 await clickhouse_client.execute_query(
                     DELETE_SQUASHED_PERSON_OVERRIDES_QUERY.format(
