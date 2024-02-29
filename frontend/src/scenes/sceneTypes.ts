@@ -126,6 +126,8 @@ export interface SceneConfig {
     layout?: 'app' | 'app-raw' | 'app-container' | 'plain'
     /** Hides project notice (ProjectNotice.tsx). */
     hideProjectNotice?: boolean
+    /** Hides billing notice (BillingAlertsV2.tsx). */
+    hideBillingNotice?: boolean
     /** Personal account management (used e.g. by breadcrumbs) */
     personal?: boolean
     /** Instance management (used e.g. by breadcrumbs) */

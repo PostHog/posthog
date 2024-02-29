@@ -2,7 +2,7 @@ import './LemonModal.scss'
 
 import { IconX } from '@posthog/icons'
 import clsx from 'clsx'
-import { useFloatingContainerContext } from 'lib/hooks/useFloatingContainerContext'
+import { useFloatingContainer } from 'lib/hooks/useFloatingContainerContext'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { useEffect, useRef, useState } from 'react'
 import Modal from 'react-modal'
@@ -153,7 +153,7 @@ export function LemonModal({
 
     width = !fullScreen ? width : undefined
 
-    const floatingContainer = useFloatingContainerContext()?.current
+    const floatingContainer = useFloatingContainer()
 
     return inline ? (
         // eslint-disable-next-line react/forbid-dom-props

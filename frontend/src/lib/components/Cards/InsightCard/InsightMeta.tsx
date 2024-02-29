@@ -105,7 +105,7 @@ export function InsightMeta({
                             {loading && (
                                 <Tooltip
                                     title="This insight is queued to check for newer results. It will be updated soon."
-                                    placement="topRight"
+                                    placement="top-end"
                                 >
                                     <span className="text-primary text-sm font-medium">
                                         <Spinner className="mx-1" />
@@ -237,6 +237,10 @@ export function InsightMeta({
                                     },
                                     {
                                         export_format: ExporterFormat.CSV,
+                                        export_context: exporterResourceParams,
+                                    },
+                                    {
+                                        export_format: ExporterFormat.XLSX,
                                         export_context: exporterResourceParams,
                                     },
                                 ]}

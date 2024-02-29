@@ -2,6 +2,8 @@ from typing import Any, Dict, Optional
 from unittest import mock
 from unittest.mock import MagicMock, Mock, patch, ANY
 
+from openpyxl import load_workbook
+from io import BytesIO
 import pytest
 from boto3 import resource
 from botocore.client import Config
@@ -120,7 +122,7 @@ class TestCSVExporter(APIBaseTest):
     def test_csv_exporter_writes_to_asset_when_object_storage_is_disabled(self) -> None:
         exported_asset = self._create_asset()
         with self.settings(OBJECT_STORAGE_ENABLED=False):
-            csv_exporter.export_csv(exported_asset)
+            csv_exporter.export_tabular(exported_asset)
 
             assert (
                 exported_asset.content
@@ -134,7 +136,7 @@ class TestCSVExporter(APIBaseTest):
         mocked_uuidt.return_value = "a-guid"
 
         with self.settings(OBJECT_STORAGE_ENABLED=True, OBJECT_STORAGE_EXPORTS_FOLDER="Test-Exports"):
-            csv_exporter.export_csv(exported_asset)
+            csv_exporter.export_tabular(exported_asset)
 
             assert (
                 exported_asset.content_location
@@ -159,7 +161,7 @@ class TestCSVExporter(APIBaseTest):
         mocked_object_storage_write.side_effect = ObjectStorageError("mock write failed")
 
         with self.settings(OBJECT_STORAGE_ENABLED=True, OBJECT_STORAGE_EXPORTS_FOLDER="Test-Exports"):
-            csv_exporter.export_csv(exported_asset)
+            csv_exporter.export_tabular(exported_asset)
 
             assert exported_asset.content_location is None
 
@@ -178,7 +180,7 @@ class TestCSVExporter(APIBaseTest):
         mocked_object_storage_write.side_effect = ObjectStorageError("mock write failed")
 
         with self.settings(OBJECT_STORAGE_ENABLED=True, OBJECT_STORAGE_EXPORTS_FOLDER="Test-Exports"):
-            csv_exporter.export_csv(exported_asset)
+            csv_exporter.export_tabular(exported_asset)
 
             assert exported_asset.content_location is None
 
@@ -196,7 +198,7 @@ class TestCSVExporter(APIBaseTest):
         mocked_object_storage_write.side_effect = ObjectStorageError("mock write failed")
 
         with self.settings(OBJECT_STORAGE_ENABLED=True, OBJECT_STORAGE_EXPORTS_FOLDER="Test-Exports"):
-            csv_exporter.export_csv(exported_asset)
+            csv_exporter.export_tabular(exported_asset)
 
             assert exported_asset.content_location is None
 
@@ -204,6 +206,36 @@ class TestCSVExporter(APIBaseTest):
                 exported_asset.content
                 == b"distinct_id,properties.$browser,event\r\n2,Safari,event_name\r\n2,Safari,event_name\r\n2,Safari,event_name\r\n"
             )
+
+    @patch("posthog.models.exported_asset.UUIDT")
+    @patch("posthog.models.exported_asset.object_storage.write")
+    def test_csv_exporter_includes_whole_dict(self, mocked_object_storage_write, mocked_uuidt) -> None:
+        exported_asset = self._create_asset({"columns": ["distinct_id", "properties"]})
+        mocked_uuidt.return_value = "a-guid"
+        mocked_object_storage_write.side_effect = ObjectStorageError("mock write failed")
+
+        with self.settings(OBJECT_STORAGE_ENABLED=True, OBJECT_STORAGE_EXPORTS_FOLDER="Test-Exports"):
+            csv_exporter.export_tabular(exported_asset)
+
+            assert exported_asset.content_location is None
+
+            assert exported_asset.content == b"distinct_id,properties.$browser\r\n2,Safari\r\n2,Safari\r\n2,Safari\r\n"
+
+    @patch("posthog.models.exported_asset.UUIDT")
+    @patch("posthog.models.exported_asset.object_storage.write")
+    def test_csv_exporter_includes_whole_dict_alternative_order(
+        self, mocked_object_storage_write, mocked_uuidt
+    ) -> None:
+        exported_asset = self._create_asset({"columns": ["properties", "distinct_id"]})
+        mocked_uuidt.return_value = "a-guid"
+        mocked_object_storage_write.side_effect = ObjectStorageError("mock write failed")
+
+        with self.settings(OBJECT_STORAGE_ENABLED=True, OBJECT_STORAGE_EXPORTS_FOLDER="Test-Exports"):
+            csv_exporter.export_tabular(exported_asset)
+
+            assert exported_asset.content_location is None
+
+            assert exported_asset.content == b"properties.$browser,distinct_id\r\nSafari,2\r\nSafari,2\r\nSafari,2\r\n"
 
     @patch("posthog.models.exported_asset.UUIDT")
     @patch("posthog.models.exported_asset.object_storage.write")
@@ -216,7 +248,7 @@ class TestCSVExporter(APIBaseTest):
         mocked_object_storage_write.side_effect = ObjectStorageError("mock write failed")
 
         with self.settings(OBJECT_STORAGE_ENABLED=True, OBJECT_STORAGE_EXPORTS_FOLDER="Test-Exports"):
-            csv_exporter.export_csv(exported_asset)
+            csv_exporter.export_tabular(exported_asset)
 
             assert exported_asset.content_location is None
 
@@ -224,6 +256,30 @@ class TestCSVExporter(APIBaseTest):
                 exported_asset.content
                 == b"distinct_id,properties.$browser,event,tomato\r\n2,Safari,event_name,\r\n2,Safari,event_name,\r\n2,Safari,event_name,\r\n"
             )
+
+    @patch("posthog.models.exported_asset.UUIDT")
+    @patch("posthog.models.exported_asset.object_storage.write")
+    def test_csv_exporter_excel(self, mocked_object_storage_write: Any, mocked_uuidt: Any) -> None:
+        exported_asset = self._create_asset({"columns": ["distinct_id", "properties.$browser", "event", "tomato"]})
+        exported_asset.export_format = ExportedAsset.ExportFormat.XLSX
+        mocked_uuidt.return_value = "a-guid"
+        mocked_object_storage_write.side_effect = ObjectStorageError("mock write failed")
+
+        with self.settings(OBJECT_STORAGE_ENABLED=True, OBJECT_STORAGE_EXPORTS_FOLDER="Test-Exports"):
+            csv_exporter.export_tabular(exported_asset)
+
+            assert exported_asset.filename == "export.xlsx"
+            assert exported_asset.content_location is None
+
+            wb = load_workbook(filename=BytesIO(exported_asset.content))
+            ws = wb.active
+            data = [row for row in ws.iter_rows(values_only=True)]
+            assert data == [
+                ("distinct_id", "properties.$browser", "event", "tomato"),
+                ("2", "Safari", "event_name", None),
+                ("2", "Safari", "event_name", None),
+                ("2", "Safari", "event_name", None),
+            ]
 
     @patch("posthog.models.exported_asset.UUIDT")
     @patch("posthog.models.exported_asset.object_storage.write")
@@ -238,7 +294,7 @@ class TestCSVExporter(APIBaseTest):
         mocked_request.return_value = mock_response
 
         with self.settings(OBJECT_STORAGE_ENABLED=True, OBJECT_STORAGE_EXPORTS_FOLDER="Test-Exports"):
-            csv_exporter.export_csv(exported_asset)
+            csv_exporter.export_tabular(exported_asset)
 
         mocked_request.assert_called_with(
             method="get",
@@ -259,7 +315,7 @@ class TestCSVExporter(APIBaseTest):
             patched_request.return_value = mock_response
 
             with pytest.raises(Exception, match="HTTP 403 Forbidden"):
-                csv_exporter.export_csv(exported_asset)
+                csv_exporter.export_tabular(exported_asset)
 
     @patch("posthog.tasks.exports.csv_exporter.logger")
     def test_failing_export_api_is_reported_query_size_exceeded(self, _mock_logger: MagicMock) -> None:
@@ -270,7 +326,7 @@ class TestCSVExporter(APIBaseTest):
             mock_error.response.text = "Query size exceeded"
             patched_make_api_call.side_effect = mock_error
 
-            csv_exporter.export_csv(exported_asset)
+            csv_exporter.export_tabular(exported_asset)
 
             assert patched_make_api_call.call_count == 4
             patched_make_api_call.assert_called_with(mock.ANY, mock.ANY, 64, mock.ANY, mock.ANY, mock.ANY)
@@ -305,12 +361,14 @@ class TestCSVExporter(APIBaseTest):
         patched_api_call.return_value = mock_response
 
         with pytest.raises(UnexpectedEmptyJsonResponse, match="JSON is None when calling API for data"):
-            csv_exporter.export_csv(self._create_asset())
+            csv_exporter.export_tabular(self._create_asset())
 
     @patch("posthog.hogql.constants.MAX_SELECT_RETURNED_ROWS", 10)
     @patch("posthog.hogql.constants.DEFAULT_RETURNED_ROWS", 5)
     @patch("posthog.models.exported_asset.UUIDT")
-    def test_csv_exporter_hogql_query(self, mocked_uuidt, DEFAULT_RETURNED_ROWS=5, MAX_SELECT_RETURNED_ROWS=10) -> None:
+    def test_csv_exporter_hogql_query(
+        self, mocked_uuidt: Any, DEFAULT_RETURNED_ROWS=5, MAX_SELECT_RETURNED_ROWS=10
+    ) -> None:
         random_uuid = f"RANDOM_TEST_ID::{UUIDT()}"
         for i in range(15):
             _create_event(
@@ -336,7 +394,7 @@ class TestCSVExporter(APIBaseTest):
         mocked_uuidt.return_value = "a-guid"
 
         with self.settings(OBJECT_STORAGE_ENABLED=True, OBJECT_STORAGE_EXPORTS_FOLDER="Test-Exports"):
-            csv_exporter.export_csv(exported_asset)
+            csv_exporter.export_tabular(exported_asset)
 
             assert (
                 exported_asset.content_location
@@ -353,7 +411,7 @@ class TestCSVExporter(APIBaseTest):
 
     @patch("posthog.hogql.constants.MAX_SELECT_RETURNED_ROWS", 10)
     @patch("posthog.models.exported_asset.UUIDT")
-    def test_csv_exporter_events_query(self, mocked_uuidt, MAX_SELECT_RETURNED_ROWS=10) -> None:
+    def test_csv_exporter_events_query(self, mocked_uuidt: Any, MAX_SELECT_RETURNED_ROWS=10) -> None:
         random_uuid = f"RANDOM_TEST_ID::{UUIDT()}"
         for i in range(15):
             _create_event(
@@ -380,7 +438,7 @@ class TestCSVExporter(APIBaseTest):
         mocked_uuidt.return_value = "a-guid"
 
         with self.settings(OBJECT_STORAGE_ENABLED=True, OBJECT_STORAGE_EXPORTS_FOLDER="Test-Exports"):
-            csv_exporter.export_csv(exported_asset)
+            csv_exporter.export_tabular(exported_asset)
             content = object_storage.read(exported_asset.content_location)
             lines = (content or "").split("\r\n")
             self.assertEqual(len(lines), 12)

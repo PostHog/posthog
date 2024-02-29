@@ -204,7 +204,9 @@ export function EditableField({
                                 <div className="EditableField__actions">
                                     {markdown && (
                                         <Tooltip title="Markdown formatting support">
-                                            <IconMarkdown className="text-muted text-2xl" />
+                                            <span className="flex items-center">
+                                                <IconMarkdown className="text-muted text-2xl" />
+                                            </span>
                                         </Tooltip>
                                     )}
                                     <LemonButton
@@ -243,7 +245,7 @@ export function EditableField({
                             ) : (
                                 <Tooltip
                                     title={isDisplayTooltipNeeded ? localTentativeValue : undefined}
-                                    placement="bottomLeft"
+                                    placement="bottom-start"
                                     delayMs={0}
                                 >
                                     <span className="EditableField__display" ref={displayRef}>
@@ -273,10 +275,12 @@ export function EditableField({
             </Tooltip>
             {!isEditing && notice && (
                 <Tooltip title={notice.tooltip} placement="right">
-                    {React.cloneElement(notice.icon, {
-                        ...notice.icon.props,
-                        className: clsx(notice.icon.props.className, 'EditableField__notice'),
-                    })}
+                    <span className="flex items-center">
+                        {React.cloneElement(notice.icon, {
+                            ...notice.icon.props,
+                            className: clsx(notice.icon.props.className, 'EditableField__notice'),
+                        })}
+                    </span>
                 </Tooltip>
             )}
         </div>

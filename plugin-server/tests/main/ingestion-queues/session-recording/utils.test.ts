@@ -1,10 +1,13 @@
 import { Message, MessageHeader } from 'node-rdkafka'
 
+import { IncomingRecordingMessage } from '../../../../src/main/ingestion-queues/session-recording/types'
 import {
+    allSettledWithConcurrency,
     getLagMultiplier,
     maxDefined,
     minDefined,
     parseKafkaMessage,
+    reduceRecordingMessages,
 } from '../../../../src/main/ingestion-queues/session-recording/utils'
 
 describe('session-recording utils', () => {
@@ -241,6 +244,129 @@ describe('session-recording utils', () => {
 
         it('returns 0.1 when lag is 100 times the threshold', () => {
             expect(getLagMultiplier(threshold * 100, threshold)).toEqual(0.1)
+        })
+    })
+
+    describe('reduceMessages', () => {
+        const messages: IncomingRecordingMessage[] = [
+            // Should merge
+            {
+                distinct_id: '1',
+                events: [{ timestamp: 1, type: 1, data: {} }],
+                metadata: { offset: 1, partition: 1, timestamp: 1, topic: 'the_topic' },
+                session_id: '1',
+                window_id: '1',
+                team_id: 1,
+                snapshot_source: null,
+            },
+            {
+                distinct_id: '1',
+                events: [{ timestamp: 2, type: 2, data: {} }],
+                metadata: { offset: 2, partition: 1, timestamp: 2, topic: 'the_topic' },
+                session_id: '1',
+                window_id: '1',
+                team_id: 1,
+                snapshot_source: null,
+            },
+            // different team
+            {
+                distinct_id: '1',
+                events: [{ timestamp: 2, type: 2, data: {} }],
+                metadata: { offset: 2, partition: 1, timestamp: 2, topic: 'the_topic' },
+                session_id: '1',
+                window_id: '1',
+                team_id: 2,
+                snapshot_source: null,
+            },
+            // Different session_id
+            {
+                distinct_id: '1',
+                events: [{ timestamp: 3, type: 3, data: {} }],
+                metadata: { offset: 3, partition: 1, timestamp: 3, topic: 'the_topic' },
+                session_id: '2',
+                window_id: '1',
+                team_id: 1,
+                snapshot_source: null,
+            },
+            // Different window_id
+            {
+                distinct_id: '1',
+                events: [{ timestamp: 4, type: 4, data: {} }],
+                metadata: { offset: 4, partition: 1, timestamp: 4, topic: 'the_topic' },
+                session_id: '2',
+                window_id: '2',
+                team_id: 1,
+                snapshot_source: null,
+            },
+        ]
+
+        // Call it once already to make sure that it doesn't mutate the input
+        reduceRecordingMessages(messages)
+        expect(reduceRecordingMessages(messages)).toEqual([
+            {
+                ...messages[0],
+                events: [...messages[0].events, ...messages[1].events],
+            },
+            messages[2],
+            messages[3],
+            messages[4],
+        ])
+    })
+
+    describe('allSettledWithConcurrency', () => {
+        jest.setTimeout(1000)
+        it('should resolve promises in parallel with a max consumption', async () => {
+            let counter = 0
+            const ids = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]
+            const waiters = {}
+
+            const promise = allSettledWithConcurrency(4, ids, (id) => {
+                return new Promise<any>((resolve, reject) => {
+                    waiters[id] = { resolve, reject }
+                }).finally(() => {
+                    delete waiters[id]
+                    counter++
+                })
+            })
+
+            expect(Object.keys(waiters)).toEqual(['1', '2', '3', '4'])
+
+            // Check less than the max concurrency
+            waiters['1'].resolve(1)
+            await new Promise((resolve) => setTimeout(resolve, 1))
+            expect(Object.keys(waiters)).toEqual(['2', '3', '4', '5'])
+
+            // check multiple resolves
+            waiters['4'].resolve(4)
+            waiters['2'].resolve(2)
+            waiters['3'].resolve(3)
+            await new Promise((resolve) => setTimeout(resolve, 1))
+            expect(Object.keys(waiters)).toEqual(['5', '6', '7', '8'])
+
+            // Check rejections
+            waiters['5'].reject(5)
+            waiters['6'].reject(6)
+            waiters['7'].reject(7)
+            waiters['8'].reject(8)
+            await new Promise((resolve) => setTimeout(resolve, 1))
+            expect(Object.keys(waiters)).toEqual(['9', '10'])
+            waiters['9'].reject(9)
+            waiters['10'].resolve(10)
+
+            await expect(promise).resolves.toEqual([
+                { result: 1 },
+                { result: 2 },
+                { result: 3 },
+                { result: 4 },
+                { error: 5 },
+                { error: 6 },
+                { error: 7 },
+                { error: 8 },
+                { error: 9 },
+                { result: 10 },
+            ])
+
+            expect(counter).toEqual(10)
         })
     })
 })

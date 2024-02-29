@@ -184,7 +184,7 @@ export function SelectableElement({
     return (
         <pre
             className={clsx(
-                'p-0 m-0 rounded whitespace-pre-wrap break-all text-white text-sm',
+                'p-0 m-0 rounded whitespace-pre-wrap break-all text-default text-sm',
                 isDeepestChild && highlight ? 'bg-brand-red' : 'bg-transparent'
             )}
         >

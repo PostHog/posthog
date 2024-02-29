@@ -192,9 +192,11 @@ export class GraphileWorker {
                 }
             }
 
+            const role_name = this.hub.PLUGIN_SERVER_MODE ?? 'unknown'
             const pool = createPostgresPool(
                 this.hub.JOB_QUEUE_GRAPHILE_URL,
                 this.hub.POSTGRES_CONNECTION_POOL_SIZE,
+                `${role_name}-graphile`,
                 onError
             )
             try {

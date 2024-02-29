@@ -44,7 +44,7 @@ ul {
 }
 
 input[type='radio'] {
-    accent-color: var(--primary);
+    accent-color: var(--primary-3000);
 }
 
 .page-title-row {
@@ -493,11 +493,11 @@ body {
     touch-action: manipulation; // Disable double-tap-to-zoom on mobile, making taps slightly snappier
     background: var(--bg-3000);
 
-    &.posthog-3000[theme='light'] {
+    &[theme='light'] {
         @include light-mode-3000-variables;
     }
 
-    &.posthog-3000[theme='dark'] {
+    &[theme='dark'] {
         .ant-empty-img-simple-path {
             fill: var(--border-3000);
         }
@@ -697,7 +697,7 @@ body {
         background: inherit;
     }
 
-    @include posthog-3000-variables;
+    @include common-variables;
 }
 
 .storybook-test-runner {

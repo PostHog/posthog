@@ -1,16 +1,8 @@
-import { IconTerminal, IconX } from '@posthog/icons'
+import { IconBug, IconClock, IconDashboard, IconInfo, IconPause, IconTerminal, IconX } from '@posthog/icons'
 import { LemonButton, LemonCheckbox, LemonInput, LemonSelect, Tooltip } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { FEATURE_FLAGS } from 'lib/constants'
-import {
-    IconBugShield,
-    IconGauge,
-    IconInfo,
-    IconPause,
-    IconPlayCircle,
-    IconSchedule,
-    IconUnverifiedEvent,
-} from 'lib/lemon-ui/icons'
+import { IconPlayCircle, IconUnverifiedEvent } from 'lib/lemon-ui/icons'
 import { Spinner } from 'lib/lemon-ui/Spinner/Spinner'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { capitalizeFirstLetter } from 'lib/utils'
@@ -31,8 +23,8 @@ const TabToIcon = {
     [SessionRecordingPlayerTab.ALL]: undefined,
     [SessionRecordingPlayerTab.EVENTS]: IconUnverifiedEvent,
     [SessionRecordingPlayerTab.CONSOLE]: IconTerminal,
-    [SessionRecordingPlayerTab.NETWORK]: IconGauge,
-    [SessionRecordingPlayerTab.DOCTOR]: IconBugShield,
+    [SessionRecordingPlayerTab.NETWORK]: IconDashboard,
+    [SessionRecordingPlayerTab.DOCTOR]: IconBug,
 }
 
 function TabButtons({
@@ -193,7 +185,7 @@ export function PlayerInspectorControls({ onClose }: { onClose: () => void }): J
                     >
                         <span className="p-1 flex items-center gap-1">
                             <span className=" text-xs">{capitalizeFirstLetter(timestampMode)}</span>{' '}
-                            <IconSchedule className="text-lg" />
+                            <IconClock className="text-lg" />
                         </span>
                     </LemonButton>
 

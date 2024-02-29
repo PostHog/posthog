@@ -55,7 +55,7 @@ SELECT counts AS total, timestamp AS day_start FROM (
         /* We generate a table of periods to match events against. This has to be synthesized from `numbers`
            and not `events`, because we cannot rely on there being an event for each period (this assumption previously
            caused active user counts to be off for sparse events). */
-        SELECT toDateTime({date_to_truncated} - {interval_func}(number)) AS timestamp
+        SELECT toDateTime({date_to_truncated} - {interval_func}(number), %(timezone)s) AS timestamp
         FROM numbers(dateDiff(%(interval)s, {date_from_active_users_adjusted_truncated}, toDateTime(%(date_to)s, %(timezone)s)))
     ) d
     /* In Postgres we'd be able to do a non-cross join with multiple inequalities (in this case, <= along with >),

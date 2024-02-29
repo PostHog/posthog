@@ -1,10 +1,9 @@
 import './PlanComparison.scss'
 
-import { IconWarning, IconX } from '@posthog/icons'
+import { IconCheckCircle, IconWarning, IconX } from '@posthog/icons'
 import { LemonButton, LemonModal, LemonTag, Link } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
-import { IconCheckmark } from 'lib/lemon-ui/icons'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import React from 'react'
@@ -42,7 +41,7 @@ export function PlanIcon({
                 </>
             ) : (
                 <>
-                    <IconCheckmark className={clsx('text-success mx-4 shrink-0', className)} />
+                    <IconCheckCircle className={clsx('text-success mx-4 shrink-0', className)} />
                     {feature.note}
                 </>
             )}
@@ -235,7 +234,9 @@ export const PlanComparison = ({
                                 i == fullyFeaturedPlan?.features?.length - 1 && 'PlanTable__th__last-feature'
                             )}
                         >
-                            <Tooltip title={feature.description}>{feature.name}</Tooltip>
+                            <Tooltip title={feature.description}>
+                                <span>{feature.name}</span>
+                            </Tooltip>
                         </th>
                         {plans?.map((plan) => (
                             <td key={`${plan.plan_key}-${feature.key}`}>
@@ -255,7 +256,7 @@ export const PlanComparison = ({
                             <th colSpan={1} className="PlanTable__th__section rounded text-left">
                                 <h3 className="mt-6 mb-2">
                                     <Tooltip title="Organizations with any paid subscription get access to additional features.">
-                                        Included platform features:
+                                        <span>Included platform features:</span>
                                     </Tooltip>
                                 </h3>
                             </th>
@@ -298,7 +299,9 @@ export const PlanComparison = ({
                                                             : ''
                                                     )}
                                                 >
-                                                    <Tooltip title={feature.description}>{feature.name}</Tooltip>
+                                                    <Tooltip title={feature.description}>
+                                                        <span>{feature.name}</span>
+                                                    </Tooltip>
                                                 </th>
                                                 {includedProduct.plans?.map((plan) => (
                                                     <React.Fragment key={`${plan.plan_key}-${feature.key}`}>
