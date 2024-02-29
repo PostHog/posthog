@@ -1,6 +1,7 @@
 import { LemonButton, LemonCollapse } from '@posthog/lemon-ui'
 import equal from 'fast-deep-equal'
 import { useActions, useValues } from 'kea'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonLabel } from 'lib/lemon-ui/LemonLabel/LemonLabel'
 import { useMemo } from 'react'
 
@@ -9,6 +10,7 @@ import { RecordingFilters } from '~/types'
 import { playerSettingsLogic } from '../player/playerSettingsLogic'
 import { getDefaultFilters } from '../playlist/sessionRecordingsPlaylistLogic'
 import { AdvancedSessionRecordingsFilters } from './AdvancedSessionRecordingsFilters'
+import { OrderingFilters } from './OrderingFilters'
 import { SimpleSessionRecordingsFilters } from './SimpleSessionRecordingsFilters'
 
 interface SessionRecordingsFiltersProps {
@@ -41,6 +43,7 @@ export function SessionRecordingsFilters({
         const defaultFilters = getDefaultFilters()
         return prefersAdvancedFilters || !equal(advancedFilters, defaultFilters)
     }, [])
+    const hasFilterOrdering = useFeatureFlag('SESSION_REPLAY_FILTER_ORDERING')
 
     const AdvancedFilters = (
         <AdvancedSessionRecordingsFilters
@@ -49,6 +52,20 @@ export function SessionRecordingsFilters({
             showPropertyFilters={showPropertyFilters}
         />
     )
+
+    const panels = [
+        !hideSimpleFilters && {
+            key: 'advanced-filters',
+            header: 'Advanced filters',
+            className: 'p-0',
+            content: AdvancedFilters,
+        },
+        hasFilterOrdering && {
+            key: 'ordering',
+            header: 'Ordering',
+            content: <OrderingFilters />,
+        },
+    ].filter(Boolean)
 
     return (
         <div className="relative flex flex-col">
@@ -70,25 +87,18 @@ export function SessionRecordingsFilters({
                 )}
             </div>
 
-            {hideSimpleFilters ? (
-                AdvancedFilters
-            ) : (
+            {hideSimpleFilters && AdvancedFilters}
+
+            {panels.length > 0 && (
                 <LemonCollapse
                     className="w-full rounded-none border-0 border-t"
                     multiple
                     defaultActiveKeys={initiallyOpen ? ['advanced-filters'] : []}
                     size="small"
+                    panels={panels}
                     onChange={(activeKeys) => {
                         setPrefersAdvancedFilters(activeKeys.includes('advanced-filters'))
                     }}
-                    panels={[
-                        {
-                            key: 'advanced-filters',
-                            header: 'Advanced filters',
-                            className: 'p-0',
-                            content: AdvancedFilters,
-                        },
-                    ]}
                 />
             )}
         </div>

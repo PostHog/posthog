@@ -1,3 +1,4 @@
+from typing import Union
 from copy import deepcopy
 from datetime import timedelta
 from itertools import groupby
@@ -28,7 +29,9 @@ from posthog.hogql_queries.insights.trends.breakdown_values import (
     BREAKDOWN_OTHER_STRING_LABEL,
 )
 from posthog.hogql_queries.insights.trends.display import TrendsDisplay
-from posthog.hogql_queries.insights.trends.query_builder import TrendsQueryBuilder
+from posthog.hogql_queries.insights.trends.trends_query_builder_abstract import TrendsQueryBuilderAbstract
+from posthog.hogql_queries.insights.trends.trends_query_builder import TrendsQueryBuilder
+from posthog.hogql_queries.insights.trends.data_warehouse_trends_query_builder import DataWarehouseTrendsQueryBuilder
 from posthog.hogql_queries.insights.trends.series_with_extras import SeriesWithExtras
 from posthog.hogql_queries.query_runner import QueryRunner
 from posthog.hogql_queries.utils.formula_ast import FormulaAST
@@ -49,6 +52,7 @@ from posthog.schema import (
     CompareItem,
     DayItem,
     EventsNode,
+    DataWarehouseNode,
     HogQLQueryResponse,
     InCohortVia,
     InsightActorsQueryOptionsResponse,
@@ -118,14 +122,27 @@ class TrendsQueryRunner(QueryRunner):
                 else:
                     query_date_range = self.query_previous_date_range
 
-                query_builder = TrendsQueryBuilder(
-                    trends_query=series.overriden_query or self.query,
-                    team=self.team,
-                    query_date_range=query_date_range,
-                    series=series.series,
-                    timings=self.timings,
-                    modifiers=self.modifiers,
-                )
+                query_builder: TrendsQueryBuilderAbstract
+
+                if isinstance(series.series, DataWarehouseNode):
+                    query_builder = DataWarehouseTrendsQueryBuilder(
+                        trends_query=series.overriden_query or self.query,
+                        team=self.team,
+                        query_date_range=query_date_range,
+                        series=series.series,
+                        timings=self.timings,
+                        modifiers=self.modifiers,
+                    )
+                else:
+                    query_builder = TrendsQueryBuilder(
+                        trends_query=series.overriden_query or self.query,
+                        team=self.team,
+                        query_date_range=query_date_range,
+                        series=series.series,
+                        timings=self.timings,
+                        modifiers=self.modifiers,
+                    )
+
                 queries.append(query_builder.build_query())
 
         return queries
@@ -139,6 +156,10 @@ class TrendsQueryRunner(QueryRunner):
     ) -> ast.SelectQuery | ast.SelectUnionQuery:
         with self.timings.measure("trends_to_actors_query"):
             series = self.query.series[series_index]
+
+            # TODO: Add support for DataWarehouseNode
+            if isinstance(series, DataWarehouseNode):
+                raise Exception("DataWarehouseNode is not supported for actors query")
 
             if compare == Compare.previous:
                 query_date_range = self.query_previous_date_range
@@ -187,6 +208,10 @@ class TrendsQueryRunner(QueryRunner):
 
         # Breakdowns
         for series in self.query.series:
+            # TODO: Add support for DataWarehouseNode
+            if isinstance(series, DataWarehouseNode):
+                continue
+
             # TODO: Work out if we will have issues only getting breakdown values for
             # the "current" period and not "previous" period for when "compare" is turned on
             query_date_range = self.query_date_range
@@ -513,13 +538,17 @@ class TrendsQueryRunner(QueryRunner):
             now=datetime.now(),
         )
 
-    def series_event(self, series: EventsNode | ActionsNode) -> str | None:
+    def series_event(self, series: Union[EventsNode, ActionsNode, DataWarehouseNode]) -> str | None:
         if isinstance(series, EventsNode):
             return series.event
         if isinstance(series, ActionsNode):
             # TODO: Can we load the Action in more efficiently?
             action = Action.objects.get(pk=int(series.id), team=self.team)
             return action.name
+
+        if isinstance(series, DataWarehouseNode):
+            return series.table_name
+
         return None
 
     def update_hogql_modifiers(self) -> None:

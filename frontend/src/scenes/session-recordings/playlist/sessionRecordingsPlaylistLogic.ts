@@ -11,6 +11,7 @@ import posthog from 'posthog-js'
 
 import {
     AnyPropertyFilter,
+    DurationType,
     PropertyFilterType,
     PropertyOperator,
     RecordingDurationFilter,
@@ -25,6 +26,7 @@ import { sessionRecordingsListPropertiesLogic } from './sessionRecordingsListPro
 import type { sessionRecordingsPlaylistLogicType } from './sessionRecordingsPlaylistLogicType'
 
 export type PersonUUID = string
+export type SessionOrderingType = DurationType | 'start_time' | 'console_error_count'
 
 interface Params {
     filters?: RecordingFilters
@@ -200,6 +202,7 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
         setSimpleFilters: (filters: SimpleFiltersType) => ({ filters }),
         setShowFilters: (showFilters: boolean) => ({ showFilters }),
         setShowSettings: (showSettings: boolean) => ({ showSettings }),
+        setOrderBy: (orderBy: SessionOrderingType) => ({ orderBy }),
         resetFilters: true,
         setSelectedRecordingId: (id: SessionRecordingType['id'] | null) => ({
             id,
@@ -263,15 +266,27 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
                     const params = {
                         ...values.filters,
                         person_uuid: props.personUUID ?? '',
+                        target_entity_order: values.orderBy,
                         limit: RECORDINGS_LIMIT,
                     }
 
-                    if (direction === 'older') {
-                        params['date_to'] = values.sessionRecordings[values.sessionRecordings.length - 1]?.start_time
-                    }
+                    if (values.orderBy === 'start_time') {
+                        if (direction === 'older') {
+                            params['date_to'] =
+                                values.sessionRecordings[values.sessionRecordings.length - 1]?.start_time
+                        }
 
-                    if (direction === 'newer') {
-                        params['date_from'] = values.sessionRecordings[0]?.start_time
+                        if (direction === 'newer') {
+                            params['date_from'] = values.sessionRecordings[0]?.start_time
+                        }
+                    } else {
+                        if (direction === 'older') {
+                            params['offset'] = values.sessionRecordings.length
+                        }
+
+                        if (direction === 'newer') {
+                            params['offset'] = 0
+                        }
                     }
 
                     await breakpoint(400) // Debounce for lots of quick filter changes
@@ -324,6 +339,13 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
         ],
     })),
     reducers(({ props }) => ({
+        orderBy: [
+            'start_time' as SessionOrderingType,
+            { persist: true },
+            {
+                setOrderBy: (_, { orderBy }) => orderBy,
+            },
+        ],
         sessionBeingSummarized: [
             null as null | SessionRecordingType['id'],
             {
@@ -477,6 +499,10 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
             actions.loadEventsHaveSessionId()
         },
 
+        setOrderBy: () => {
+            actions.loadSessionRecordings()
+        },
+
         resetFilters: () => {
             actions.loadSessionRecordings()
             props.onFiltersChange?.(values.filters)
@@ -610,24 +636,27 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
         ],
 
         otherRecordings: [
-            (s) => [s.sessionRecordings, s.hideViewedRecordings, s.pinnedRecordings, s.selectedRecordingId],
+            (s) => [s.sessionRecordings, s.hideViewedRecordings, s.pinnedRecordings, s.selectedRecordingId, s.orderBy],
             (
                 sessionRecordings,
                 hideViewedRecordings,
                 pinnedRecordings,
-                selectedRecordingId
+                selectedRecordingId,
+                orderBy
             ): SessionRecordingType[] => {
-                return sessionRecordings.filter((rec) => {
-                    if (pinnedRecordings.find((pinned) => pinned.id === rec.id)) {
-                        return false
-                    }
+                return sessionRecordings
+                    .filter((rec) => {
+                        if (pinnedRecordings.find((pinned) => pinned.id === rec.id)) {
+                            return false
+                        }
 
-                    if (hideViewedRecordings && rec.viewed && rec.id !== selectedRecordingId) {
-                        return false
-                    }
+                        if (hideViewedRecordings && rec.viewed && rec.id !== selectedRecordingId) {
+                            return false
+                        }
 
-                    return true
-                })
+                        return true
+                    })
+                    .sort((a, b) => (a[orderBy] > b[orderBy] ? -1 : 1))
             },
         ],
 
