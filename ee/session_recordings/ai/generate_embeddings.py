@@ -1,4 +1,6 @@
+from django.conf import settings
 from openai import OpenAI
+import tiktoken
 
 from typing import Dict, Any, List
 
@@ -25,6 +27,11 @@ GENERATE_RECORDING_EMBEDDING_TIMING = Histogram(
     buckets=[0.1, 0.2, 0.3, 0.4, 0.5, 1, 1.5, 2, 2.5, 3, 3.5, 4, 5, 6, 7, 8, 9, 10, 12, 14, 16, 18, 20],
 )
 
+RECORDING_EMBEDDING_TOKEN_COUNT = Histogram(
+    "posthog_session_recordings_recording_embedding_token_count",
+    "Token count for individual recordings generated during embedding",
+)
+
 SESSION_SKIPPED_WHEN_GENERATING_EMBEDDINGS = Counter(
     "posthog_session_recordings_skipped_when_generating_embeddings",
     "Number of sessions skipped when generating embeddings",
@@ -35,16 +42,30 @@ SESSION_EMBEDDINGS_GENERATED = Counter(
     "Number of session embeddings generated",
 )
 
+SESSION_EMBEDDINGS_FAILED = Counter(
+    "posthog_session_recordings_embeddings_failed",
+    "Number of session embeddings failed",
+)
+
 SESSION_EMBEDDINGS_WRITTEN_TO_CLICKHOUSE = Counter(
     "posthog_session_recordings_embeddings_written_to_clickhouse",
     "Number of session embeddings written to Clickhouse",
 )
 
+SESSION_EMBEDDINGS_FAILED_TO_CLICKHOUSE = Counter(
+    "posthog_session_recordings_embeddings_failed_to_clickhouse",
+    "Number of session embeddings failed to Clickhouse",
+)
+
 logger = get_logger(__name__)
 
-# TODO move these to settings
-BATCH_FLUSH_SIZE = 10
-MIN_DURATION_INCLUDE_SECONDS = 120
+# tiktoken.encoding_for_model(model_name) specifies encoder
+# model_name = "text-embedding-3-small" for this usecase
+encoding = tiktoken.get_encoding("cl100k_base")
+
+BATCH_FLUSH_SIZE = settings.REPLAY_EMBEDDINGS_BATCH_SIZE
+MIN_DURATION_INCLUDE_SECONDS = settings.REPLAY_EMBEDDINGS_MIN_DURATION_SECONDS
+MAX_TOKENS_FOR_MODEL = 8191
 
 
 def fetch_recordings_without_embeddings(team: Team | int, offset=0) -> List[str]:
@@ -138,16 +159,23 @@ def embed_batch_of_recordings(recordings: List[str], team: Team | int) -> None:
             if len(batched_embeddings) > 0:
                 flush_embeddings_to_clickhouse(embeddings=batched_embeddings)
     except Exception as e:
+        SESSION_EMBEDDINGS_FAILED.inc()
         logger.error(f"embed recordings error", flow="embeddings", error=e)
+        raise e
 
 
 def flush_embeddings_to_clickhouse(embeddings: List[Dict[str, Any]]) -> None:
-    sync_execute("INSERT INTO session_replay_embeddings (session_id, team_id, embeddings) VALUES", embeddings)
-    SESSION_EMBEDDINGS_WRITTEN_TO_CLICKHOUSE.inc(len(embeddings))
+    try:
+        sync_execute("INSERT INTO session_replay_embeddings (session_id, team_id, embeddings) VALUES", embeddings)
+        SESSION_EMBEDDINGS_WRITTEN_TO_CLICKHOUSE.inc(len(embeddings))
+    except Exception as e:
+        logger.error(f"flush embeddings error", flow="embeddings", error=e)
+        SESSION_EMBEDDINGS_FAILED_TO_CLICKHOUSE.inc(len(embeddings))
+        raise e
 
 
 def generate_recording_embeddings(session_id: str, team: Team | int) -> List[float] | None:
-    logger.error(f"generating embedding for session", flow="embeddings", session_id=session_id)
+    logger.info(f"generating embedding for session", flow="embeddings", session_id=session_id)
     if isinstance(team, int):
         team = Team.objects.get(id=team)
 
@@ -182,7 +210,7 @@ def generate_recording_embeddings(session_id: str, team: Team | int) -> List[flo
         )
     )
 
-    logger.error(f"collapsed events for session", flow="embeddings", session_id=session_id)
+    logger.info(f"collapsed events for session", flow="embeddings", session_id=session_id)
 
     processed_sessions_index = processed_sessions.column_index("event")
     current_url_index = processed_sessions.column_index("$current_url")
@@ -201,7 +229,16 @@ def generate_recording_embeddings(session_id: str, team: Team | int) -> List[flo
         )
     )
 
-    logger.error(f"generating embedding input for session", flow="embeddings", session_id=session_id)
+    logger.info(f"generating embedding input for session", flow="embeddings", session_id=session_id)
+
+    token_count = num_tokens_for_input(input)
+    RECORDING_EMBEDDING_TOKEN_COUNT.observe(token_count)
+    if token_count > MAX_TOKENS_FOR_MODEL:
+        logger.error(
+            f"embedding input exceeds max token count for model", flow="embeddings", session_id=session_id, input=input
+        )
+        SESSION_SKIPPED_WHEN_GENERATING_EMBEDDINGS.inc()
+        return None
 
     embeddings = (
         client.embeddings.create(
@@ -212,9 +249,14 @@ def generate_recording_embeddings(session_id: str, team: Team | int) -> List[flo
         .embedding
     )
 
-    logger.error(f"generated embedding input for session", flow="embeddings", session_id=session_id)
+    logger.info(f"generated embedding input for session", flow="embeddings", session_id=session_id)
 
     return embeddings
+
+
+def num_tokens_for_input(string: str) -> int:
+    """Returns the number of tokens in a text string."""
+    return len(encoding.encode(string))
 
 
 def compact_result(event_name: str, current_url: int, elements_chain: Dict[str, str] | str) -> str:

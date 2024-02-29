@@ -201,15 +201,8 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
 
         if not isinstance(value, Dict):
             raise exceptions.ValidationError("Must provide a dictionary or None.")
-        received_keys = value.keys()
-        valid_keys = [
-            {"id", "key"},
-            {"id", "key", "variant"},
-        ]
-        if received_keys not in valid_keys:
-            raise exceptions.ValidationError(
-                "Must provide a dictionary with only 'id' and 'key' keys. _or_ only 'id', 'key', and 'variant' keys."
-            )
+        if value.keys() != {"id", "key"}:
+            raise exceptions.ValidationError("Must provide a dictionary with only 'id' and 'key' keys.")
 
         return value
 
