@@ -278,148 +278,6 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
             },
         ],
     })),
-    listeners(({ values, actions, cache, props }) => ({
-        loadSnapshots: () => {
-            // This kicks off the loading chain
-            if (!values.snapshotSourcesLoading) {
-                actions.loadSnapshotSources()
-            }
-        },
-        maybeLoadRecordingMeta: () => {
-            if (!values.sessionPlayerMetaDataLoading) {
-                actions.loadRecordingMeta()
-            }
-        },
-        loadSnapshotSources: () => {
-            // We only load events once we actually start loading the recording
-            actions.loadEvents()
-        },
-        loadRecordingMetaSuccess: () => {
-            cache.metadataLoadDuration = Math.round(performance.now() - cache.metaStartTime)
-            actions.reportUsageIfFullyLoaded()
-        },
-        loadRecordingMetaFailure: () => {
-            cache.metadataLoadDuration = Math.round(performance.now() - cache.metaStartTime)
-        },
-
-        loadSnapshotSourcesSuccess: () => {
-            // When we receive the list of sources we can kick off the loading chain
-            actions.loadNextSnapshotSource()
-        },
-
-        loadSnapshotsForSourceSuccess: ({ snapshotsForSource }) => {
-            const sources = values.snapshotSources
-            const snapshots = snapshotsForSource.snapshots
-
-            // Cache the last response count to detect if we're getting the same data over and over
-            const newSnapshotsCount = snapshots.length
-
-            if ((cache.lastSnapshotsCount ?? newSnapshotsCount) === newSnapshotsCount) {
-                cache.lastSnapshotsUnchangedCount = (cache.lastSnapshotsUnchangedCount ?? 0) + 1
-            } else {
-                cache.lastSnapshotsUnchangedCount = 0
-            }
-            cache.lastSnapshotsCount = newSnapshotsCount
-
-            if (!snapshots.length && sources?.length === 1) {
-                // We got only a single source to load, loaded it successfully, but it had no snapshots.
-                posthog.capture('recording_snapshots_v2_empty_response', {
-                    source: sources[0],
-                })
-            } else if (!cache.firstPaintDuration) {
-                cache.firstPaintDuration = Math.round(performance.now() - cache.snapshotsStartTime)
-                actions.reportViewed()
-            }
-
-            actions.loadNextSnapshotSource()
-        },
-
-        loadNextSnapshotSource: () => {
-            const nextSourceToLoad = values.snapshotSources?.find((s) => {
-                const sourceKey = getSourceKey(s)
-                return !values.snapshotsBySource?.[sourceKey]
-            })
-
-            if (nextSourceToLoad) {
-                return actions.loadSnapshotsForSource(nextSourceToLoad)
-            }
-
-            // TODO: Move this to a one time check - only report once per recording
-            cache.snapshotsLoadDuration = Math.round(performance.now() - cache.snapshotsStartTime)
-            actions.reportUsageIfFullyLoaded()
-
-            // If we have a realtime source, start polling it
-            const realTimeSource = values.snapshotSources?.find((s) => s.source === SnapshotSourceType.realtime)
-            if (realTimeSource) {
-                actions.pollRealtimeSnapshots()
-            }
-        },
-        loadSnapshotsForSourceFailure: () => {
-            cache.snapshotsLoadDuration = Math.round(performance.now() - cache.snapshotsStartTime)
-        },
-        pollRealtimeSnapshots: () => {
-            // always make sure we've cleared up the last timeout
-            clearTimeout(cache.realTimePollingTimeoutID)
-            cache.realTimePollingTimeoutID = null
-
-            // ten is an arbitrary limit to try to avoid sending requests to our backend unnecessarily
-            // we could change this or add to it e.g. only poll if browser is visible to user
-
-            if ((cache.lastSnapshotsUnchangedCount ?? 0) <= 10) {
-                cache.realTimePollingTimeoutID = setTimeout(() => {
-                    actions.loadSnapshotsForSource({ source: SnapshotSourceType.realtime })
-                }, props.realTimePollingIntervalMilliseconds || DEFAULT_REALTIME_POLLING_MILLIS)
-            }
-        },
-        loadEventsSuccess: () => {
-            cache.eventsLoadDuration = Math.round(performance.now() - cache.eventsStartTime)
-            actions.reportUsageIfFullyLoaded()
-        },
-        loadEventsFailure: () => {
-            cache.eventsLoadDuration = Math.round(performance.now() - cache.eventsStartTime)
-        },
-        reportUsageIfFullyLoaded: (_, breakpoint) => {
-            breakpoint()
-            if (values.fullyLoaded) {
-                eventUsageLogic.actions.reportRecording(
-                    values.sessionPlayerData,
-                    generateRecordingReportDurations(cache),
-                    SessionRecordingUsageType.LOADED,
-                    0
-                )
-                // Reset cache now that final usage report has been sent
-                resetTimingsCache(cache)
-            }
-        },
-        reportViewed: async (_, breakpoint) => {
-            const durations = generateRecordingReportDurations(cache)
-            breakpoint()
-            // Triggered on first paint
-            eventUsageLogic.actions.reportRecording(
-                values.sessionPlayerData,
-                durations,
-                SessionRecordingUsageType.VIEWED,
-                0
-            )
-            await breakpoint(IS_TEST_MODE ? 1 : 10000)
-            eventUsageLogic.actions.reportRecording(
-                values.sessionPlayerData,
-                durations,
-                SessionRecordingUsageType.ANALYZED,
-                10
-            )
-        },
-
-        maybePersistRecording: () => {
-            if (values.sessionPlayerMetaDataLoading) {
-                return
-            }
-
-            if (values.sessionPlayerMetaData?.storage === 'object_storage') {
-                actions.persistRecording()
-            }
-        },
-    })),
     loaders(({ values, props, cache }) => ({
         sessionPlayerMetaData: {
             loadRecordingMeta: async (_, breakpoint) => {
@@ -486,6 +344,8 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
                     if (source.source === SnapshotSourceType.blob && !source.blob_key) {
                         throw new Error('Missing key')
                     }
+
+                    throw new Error('what')
 
                     const blobResponseType = source.source === SnapshotSourceType.blob || params.version === '3'
 
@@ -630,6 +490,148 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
                 },
             },
         ],
+    })),
+    listeners(({ values, actions, cache, props }) => ({
+        loadSnapshots: () => {
+            // This kicks off the loading chain
+            if (!values.snapshotSourcesLoading) {
+                actions.loadSnapshotSources()
+            }
+        },
+        maybeLoadRecordingMeta: () => {
+            if (!values.sessionPlayerMetaDataLoading) {
+                actions.loadRecordingMeta()
+            }
+        },
+        loadSnapshotSources: () => {
+            // We only load events once we actually start loading the recording
+            actions.loadEvents()
+        },
+        loadRecordingMetaSuccess: () => {
+            cache.metadataLoadDuration = Math.round(performance.now() - cache.metaStartTime)
+            actions.reportUsageIfFullyLoaded()
+        },
+        loadRecordingMetaFailure: () => {
+            cache.metadataLoadDuration = Math.round(performance.now() - cache.metaStartTime)
+        },
+
+        loadSnapshotSourcesSuccess: () => {
+            // When we receive the list of sources we can kick off the loading chain
+            actions.loadNextSnapshotSource()
+        },
+
+        loadSnapshotsForSourceSuccess: ({ snapshotsForSource }) => {
+            const sources = values.snapshotSources
+            const snapshots = snapshotsForSource.snapshots
+
+            // Cache the last response count to detect if we're getting the same data over and over
+            const newSnapshotsCount = snapshots.length
+
+            if ((cache.lastSnapshotsCount ?? newSnapshotsCount) === newSnapshotsCount) {
+                cache.lastSnapshotsUnchangedCount = (cache.lastSnapshotsUnchangedCount ?? 0) + 1
+            } else {
+                cache.lastSnapshotsUnchangedCount = 0
+            }
+            cache.lastSnapshotsCount = newSnapshotsCount
+
+            if (!snapshots.length && sources?.length === 1) {
+                // We got only a single source to load, loaded it successfully, but it had no snapshots.
+                posthog.capture('recording_snapshots_v2_empty_response', {
+                    source: sources[0],
+                })
+            } else if (!cache.firstPaintDuration) {
+                cache.firstPaintDuration = Math.round(performance.now() - cache.snapshotsStartTime)
+                actions.reportViewed()
+            }
+
+            actions.loadNextSnapshotSource()
+        },
+
+        loadNextSnapshotSource: () => {
+            const nextSourceToLoad = values.snapshotSources?.find((s) => {
+                const sourceKey = getSourceKey(s)
+                return !values.snapshotsBySource?.[sourceKey]
+            })
+
+            if (nextSourceToLoad) {
+                return actions.loadSnapshotsForSource(nextSourceToLoad)
+            }
+
+            // TODO: Move this to a one time check - only report once per recording
+            cache.snapshotsLoadDuration = Math.round(performance.now() - cache.snapshotsStartTime)
+            actions.reportUsageIfFullyLoaded()
+
+            // If we have a realtime source, start polling it
+            const realTimeSource = values.snapshotSources?.find((s) => s.source === SnapshotSourceType.realtime)
+            if (realTimeSource) {
+                actions.pollRealtimeSnapshots()
+            }
+        },
+        loadSnapshotsForSourceFailure: () => {
+            cache.snapshotsLoadDuration = Math.round(performance.now() - cache.snapshotsStartTime)
+        },
+        pollRealtimeSnapshots: () => {
+            // always make sure we've cleared up the last timeout
+            clearTimeout(cache.realTimePollingTimeoutID)
+            cache.realTimePollingTimeoutID = null
+
+            // ten is an arbitrary limit to try to avoid sending requests to our backend unnecessarily
+            // we could change this or add to it e.g. only poll if browser is visible to user
+
+            if ((cache.lastSnapshotsUnchangedCount ?? 0) <= 10) {
+                cache.realTimePollingTimeoutID = setTimeout(() => {
+                    actions.loadSnapshotsForSource({ source: SnapshotSourceType.realtime })
+                }, props.realTimePollingIntervalMilliseconds || DEFAULT_REALTIME_POLLING_MILLIS)
+            }
+        },
+        loadEventsSuccess: () => {
+            cache.eventsLoadDuration = Math.round(performance.now() - cache.eventsStartTime)
+            actions.reportUsageIfFullyLoaded()
+        },
+        loadEventsFailure: () => {
+            cache.eventsLoadDuration = Math.round(performance.now() - cache.eventsStartTime)
+        },
+        reportUsageIfFullyLoaded: (_, breakpoint) => {
+            breakpoint()
+            if (values.fullyLoaded) {
+                eventUsageLogic.actions.reportRecording(
+                    values.sessionPlayerData,
+                    generateRecordingReportDurations(cache),
+                    SessionRecordingUsageType.LOADED,
+                    0
+                )
+                // Reset cache now that final usage report has been sent
+                resetTimingsCache(cache)
+            }
+        },
+        reportViewed: async (_, breakpoint) => {
+            const durations = generateRecordingReportDurations(cache)
+            breakpoint()
+            // Triggered on first paint
+            eventUsageLogic.actions.reportRecording(
+                values.sessionPlayerData,
+                durations,
+                SessionRecordingUsageType.VIEWED,
+                0
+            )
+            await breakpoint(IS_TEST_MODE ? 1 : 10000)
+            eventUsageLogic.actions.reportRecording(
+                values.sessionPlayerData,
+                durations,
+                SessionRecordingUsageType.ANALYZED,
+                10
+            )
+        },
+
+        maybePersistRecording: () => {
+            if (values.sessionPlayerMetaDataLoading) {
+                return
+            }
+
+            if (values.sessionPlayerMetaData?.storage === 'object_storage') {
+                actions.persistRecording()
+            }
+        },
     })),
     selectors({
         sessionPlayerData: [

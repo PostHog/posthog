@@ -327,7 +327,9 @@ describe('sessionRecordingDataLogic', () => {
                 },
             ]
             // we call this multiple times and pass existing data in, so we need to make sure it doesn't change
-            expect(dedupeRecordingSnapshots(verySimilarSnapshots, verySimilarSnapshots)).toEqual(verySimilarSnapshots)
+            expect(dedupeRecordingSnapshots([...verySimilarSnapshots, ...verySimilarSnapshots])).toEqual(
+                verySimilarSnapshots
+            )
         })
 
         it('should match snapshot', () => {

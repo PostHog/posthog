@@ -14,11 +14,9 @@ import { SessionPlayerState } from '~/types'
 import { PlayerUpNext } from './PlayerUpNext'
 import { SimilarRecordings } from './SimilarRecordings'
 
-const PlayerFrameOverlayContent = ({
-    currentPlayerState,
-}: {
-    currentPlayerState: SessionPlayerState
-}): JSX.Element | null => {
+const PlayerFrameOverlayContent = (): JSX.Element | null => {
+    const { currentPlayerState } = useValues(sessionRecordingPlayerLogic)
+
     let content = null
     const pausedState =
         currentPlayerState === SessionPlayerState.PAUSE || currentPlayerState === SessionPlayerState.READY
@@ -80,7 +78,7 @@ const PlayerFrameOverlayContent = ({
 }
 
 export function PlayerFrameOverlay(): JSX.Element {
-    const { currentPlayerState, playlistLogic } = useValues(sessionRecordingPlayerLogic)
+    const { playlistLogic } = useValues(sessionRecordingPlayerLogic)
     const { togglePlayPause } = useActions(sessionRecordingPlayerLogic)
     const hasSimilarRecordings = useFeatureFlag('REPLAY_SIMILAR_RECORDINGS')
 
@@ -93,7 +91,7 @@ export function PlayerFrameOverlay(): JSX.Element {
             onMouseMove={() => setInterrupted(true)}
             onMouseOut={() => setInterrupted(false)}
         >
-            <PlayerFrameOverlayContent currentPlayerState={currentPlayerState} />
+            <PlayerFrameOverlayContent />
             {hasSimilarRecordings && <SimilarRecordings />}
             {playlistLogic ? (
                 <PlayerUpNext

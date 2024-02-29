@@ -664,6 +664,12 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                 actions.setErrorPlayerState(true)
             }
         },
+        loadSnapshotSourcesFailure: () => {
+            if (Object.keys(values.sessionPlayerData.snapshotsByWindowId).length === 0) {
+                console.error('PostHog Recording Playback Error: No snapshots loaded')
+                actions.setErrorPlayerState(true)
+            }
+        },
         setPlay: () => {
             if (!values.snapshotsLoaded) {
                 actions.loadSnapshots()

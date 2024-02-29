@@ -421,17 +421,20 @@ class SessionRecordingViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                         "if-none-match": request.headers.get("If-None-Match", ""),
                     },
                 ) as r:
+                    etag = r.headers.get("ETag")
                     if r.status_code == 404:
                         raise exceptions.NotFound("Realtime snapshots not found")
 
                     if r.status_code == 304:
                         response = HttpResponse(status=304)
-                        response["ETag"] = r.headers.get("ETag")
+                        if etag:
+                            response["ETag"] = etag
                         return response
 
                     response = HttpResponse(content=r.raw, content_type="application/json")
                     response["Content-Disposition"] = "inline"
-                    response["ETag"] = r.headers.get("ETag")
+                    if etag:
+                        response["ETag"] = etag
                     return response
             else:
                 snapshots = get_realtime_snapshots(team_id=self.team.pk, session_id=str(recording.session_id)) or []
