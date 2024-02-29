@@ -25,6 +25,7 @@ from posthog.constants import (
     BREAKDOWNS,
     CLIENT_QUERY_ID,
     COMPARE,
+    DATA_WAREHOUSE_ENTITIES,
     DATE_FROM,
     DATE_TO,
     DISPLAY,
@@ -44,6 +45,7 @@ from posthog.constants import (
     SHOWN_AS,
     SMOOTHING_INTERVALS,
     TREND_FILTER_TYPE_ACTIONS,
+    TREND_FILTER_TYPE_DATA_WAREHOUSE,
     TREND_FILTER_TYPE_EVENTS,
     TRENDS_WORLD_MAP,
     BreakdownAttributionType,
@@ -467,6 +469,14 @@ class EntitiesMixin(BaseParamMixin):
             if isinstance(events, str):
                 events = json.loads(events)
             processed_entities.extend([Entity({**entity, "type": TREND_FILTER_TYPE_EVENTS}) for entity in events])
+        if self._data.get(DATA_WAREHOUSE_ENTITIES):
+            data_warehouse_entities = self._data.get(DATA_WAREHOUSE_ENTITIES, [])
+            if isinstance(data_warehouse_entities, str):
+                data_warehouse_entities = json.loads(data_warehouse_entities)
+            processed_entities.extend(
+                [Entity({**entity, "type": TREND_FILTER_TYPE_DATA_WAREHOUSE}) for entity in data_warehouse_entities]
+            )
+
         processed_entities.sort(key=lambda entity: entity.order if entity.order else -1)
         # Set sequential index values on entities
         for index, entity in enumerate(processed_entities):
@@ -484,6 +494,10 @@ class EntitiesMixin(BaseParamMixin):
     @cached_property
     def events(self) -> List[Entity]:
         return [entity for entity in self.entities if entity.type == TREND_FILTER_TYPE_EVENTS]
+
+    @cached_property
+    def data_warehouse_entities(self) -> List[Entity]:
+        return [entity for entity in self.entities if entity.type == TREND_FILTER_TYPE_DATA_WAREHOUSE]
 
     @cached_property
     def exclusions(self) -> List[ExclusionEntity]:
