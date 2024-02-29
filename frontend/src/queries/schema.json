@@ -1487,7 +1487,7 @@
                     "type": "array"
                 },
                 "funnelCorrelationType": {
-                    "$ref": "#/definitions/FunnelCorrelationType"
+                    "$ref": "#/definitions/FunnelCorrelationResultsType"
                 },
                 "kind": {
                     "const": "FunnelCorrelationQuery",
@@ -1538,7 +1538,7 @@
             "required": ["events", "skewed"],
             "type": "object"
         },
-        "FunnelCorrelationType": {
+        "FunnelCorrelationResultsType": {
             "enum": ["events", "properties", "event_with_properties"],
             "type": "string"
         },

@@ -1132,7 +1132,7 @@ export interface FunnelCorrelationResponse {
     // missing_actors_count?: integer
 }
 
-export enum FunnelCorrelationType {
+export enum FunnelCorrelationResultsType {
     Events = 'events',
     Properties = 'properties',
     EventWithProperties = 'event_with_properties',
@@ -1141,7 +1141,7 @@ export enum FunnelCorrelationType {
 export interface FunnelCorrelationQuery {
     kind: NodeKind.FunnelCorrelationQuery
     source: FunnelsActorsQuery
-    funnelCorrelationType: FunnelCorrelationType
+    funnelCorrelationType: FunnelCorrelationResultsType
 
     /* Events */
     funnelCorrelationExcludeEventNames?: string[]

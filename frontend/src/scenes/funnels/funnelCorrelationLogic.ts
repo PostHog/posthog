@@ -7,8 +7,8 @@ import { cleanFilters } from 'scenes/insights/utils/cleanFilters'
 import { teamLogic } from 'scenes/teamLogic'
 
 import { queryNodeToFilter } from '~/queries/nodes/InsightQuery/utils/queryNodeToFilter'
-import { FunnelCorrelationQuery, FunnelCorrelationType, FunnelsActorsQuery, NodeKind } from '~/queries/schema'
-import { FunnelCorrelation, FunnelCorrelationResultsType, FunnelsFilterType, InsightLogicProps } from '~/types'
+import { FunnelCorrelationQuery, FunnelCorrelationResultsType, FunnelsActorsQuery, NodeKind } from '~/queries/schema'
+import { FunnelCorrelation, FunnelCorrelationType, FunnelsFilterType, InsightLogicProps } from '~/types'
 
 import type { funnelCorrelationLogicType } from './funnelCorrelationLogicType'
 import { funnelDataLogic } from './funnelDataLogic'
@@ -54,7 +54,7 @@ export const funnelCorrelationLogic = kea<funnelCorrelationLogicType>([
                             const query: FunnelCorrelationQuery = {
                                 kind: NodeKind.FunnelCorrelationQuery,
                                 source: actorsQuery,
-                                funnelCorrelationType: FunnelCorrelationType.Events,
+                                funnelCorrelationType: FunnelCorrelationResultsType.Events,
                                 funnelCorrelationExcludeEventNames: values.excludedEventNames,
                             }
                             const response = await api.query(query)
@@ -99,7 +99,7 @@ export const funnelCorrelationLogic = kea<funnelCorrelationLogicType>([
                         const query: FunnelCorrelationQuery = {
                             kind: NodeKind.FunnelCorrelationQuery,
                             source: actorsQuery,
-                            funnelCorrelationType: FunnelCorrelationType.EventWithProperties,
+                            funnelCorrelationType: FunnelCorrelationResultsType.EventWithProperties,
                             funnelCorrelationEventNames: [eventName],
                             funnelCorrelationEventExcludePropertyNames: values.excludedEventPropertyNames,
                         }

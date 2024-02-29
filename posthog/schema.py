@@ -305,7 +305,7 @@ class FunnelCorrelationResult(BaseModel):
     skewed: bool
 
 
-class FunnelCorrelationType(str, Enum):
+class FunnelCorrelationResultsType(str, Enum):
     events = "events"
     properties = "properties"
     event_with_properties = "event_with_properties"
@@ -2659,7 +2659,7 @@ class FunnelCorrelationQuery(BaseModel):
     funnelCorrelationExcludeEventNames: Optional[List[str]] = None
     funnelCorrelationExcludeNames: Optional[List[str]] = None
     funnelCorrelationNames: Optional[List[str]] = None
-    funnelCorrelationType: FunnelCorrelationType
+    funnelCorrelationType: FunnelCorrelationResultsType
     kind: Literal["FunnelCorrelationQuery"] = "FunnelCorrelationQuery"
     response: Optional[FunnelCorrelationResponse] = None
     source: FunnelsActorsQuery

@@ -13,7 +13,6 @@ from ee.clickhouse.queries.funnels.funnel_correlation_persons import (
 )
 from posthog.constants import INSIGHT_FUNNELS
 from posthog.hogql_queries.insights.funnels.funnel_correlation_query_runner import FunnelCorrelationQueryRunner
-from posthog.hogql_queries.insights.funnels.funnels_query_runner import FunnelsQueryRunner
 from posthog.hogql_queries.legacy_compatibility.filter_to_query import filter_to_query
 from posthog.models.action import Action
 from posthog.models.action_step import ActionStep
@@ -23,11 +22,10 @@ from posthog.models.group.util import create_group
 from posthog.models.group_type_mapping import GroupTypeMapping
 from posthog.models.instance_setting import override_instance_config
 from posthog.schema import (
-    CorrelationType,
     FunnelCorrelationQuery,
     FunnelsActorsQuery,
     FunnelsQuery,
-    FunnelCorrelationType,
+    FunnelCorrelationResultsType,
 )
 from posthog.test.base import (
     APIBaseTest,
@@ -55,7 +53,10 @@ class TestClickhouseFunnelCorrelation(ClickhouseTestMixin, APIBaseTest):
     maxDiff = None
 
     def _get_events_for_filters(
-        self, filters, funnelCorrelationType=FunnelCorrelationType.events, funnelCorrelationExcludeEventNames=None
+        self,
+        filters,
+        funnelCorrelationType=FunnelCorrelationResultsType.events,
+        funnelCorrelationExcludeEventNames=None,
     ):
         funnels_query = cast(FunnelsQuery, filter_to_query(filters))
         actors_query = FunnelsActorsQuery(source=funnels_query)
@@ -570,7 +571,7 @@ class TestClickhouseFunnelCorrelation(ClickhouseTestMixin, APIBaseTest):
             timestamp="2020-01-04T14:00:00Z",
         )
 
-        result = self._get_events_for_filters(filters, funnelCorrelationType=FunnelCorrelationType.properties)
+        result = self._get_events_for_filters(filters, funnelCorrelationType=FunnelCorrelationResultsType.properties)
 
         odds_ratios = [item.pop("odds_ratio") for item in result]  # type: ignore
 

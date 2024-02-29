@@ -3,7 +3,7 @@ from datetime import timedelta
 from typing import List, Literal, Optional, Any, Dict, Set, TypedDict, cast
 from ee.clickhouse.queries.funnels.funnel_correlation import EventOddsRatioSerialized
 
-from posthog.constants import AUTOCAPTURE_EVENT, FunnelCorrelationType
+from posthog.constants import AUTOCAPTURE_EVENT
 from posthog.hogql.parser import parse_select
 from posthog.hogql_queries.insights.funnels.funnel_event_query import FunnelEventQuery
 from posthog.hogql_queries.insights.funnels.funnel_persons import FunnelActors
@@ -31,6 +31,7 @@ from posthog.schema import (
     FunnelCorrelationQuery,
     FunnelCorrelationResponse,
     FunnelCorrelationResult,
+    FunnelCorrelationResultsType,
     FunnelsActorsQuery,
     FunnelsQuery,
     HogQLQueryModifiers,
@@ -312,10 +313,10 @@ class FunnelCorrelationQueryRunner(QueryRunner):
         Returns a query string and params, which are used to generate the contingency table.
         The query returns success and failure count for event / property values, along with total success and failure counts.
         """
-        if self.query.funnelCorrelationType == FunnelCorrelationType.PROPERTIES:
+        if self.query.funnelCorrelationType == FunnelCorrelationResultsType.properties:
             return self.get_properties_query()
 
-        if self.query.funnelCorrelationType == FunnelCorrelationType.EVENT_WITH_PROPERTIES:
+        if self.query.funnelCorrelationType == FunnelCorrelationResultsType.event_with_properties:
             return self.get_event_property_query()
 
         return self.get_event_query()
@@ -758,7 +759,7 @@ class FunnelCorrelationQueryRunner(QueryRunner):
         props_to_include = []
         # if (
         #     self._team.person_on_events_mode != PersonOnEventsMode.DISABLED
-        #     and self._filter.correlation_type == FunnelCorrelationType.PROPERTIES
+        #     and self._filter.correlation_type == FunnelCorrelationResultsType.properties
         # ):
         #     # When dealing with properties, make sure funnel response comes with properties
         #     # so we don't have to join on persons/groups to get these properties again
@@ -797,8 +798,9 @@ class FunnelCorrelationQueryRunner(QueryRunner):
         return props_to_include
 
     def support_autocapture_elements(self) -> bool:
-        if self.query.funnelCorrelationType == FunnelCorrelationType.EVENT_WITH_PROPERTIES and AUTOCAPTURE_EVENT in (
-            self.query.funnelCorrelationEventNames or []
+        if (
+            self.query.funnelCorrelationType == FunnelCorrelationResultsType.event_with_properties
+            and AUTOCAPTURE_EVENT in (self.query.funnelCorrelationEventNames or [])
         ):
             return True
         return False
