@@ -1,11 +1,13 @@
 import { LemonButton, LemonCollapse } from '@posthog/lemon-ui'
 import equal from 'fast-deep-equal'
+import { useActions, useValues } from 'kea'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonLabel } from 'lib/lemon-ui/LemonLabel/LemonLabel'
 import { useMemo } from 'react'
 
 import { RecordingFilters } from '~/types'
 
+import { playerSettingsLogic } from '../player/playerSettingsLogic'
 import { getDefaultFilters } from '../playlist/sessionRecordingsPlaylistLogic'
 import { AdvancedSessionRecordingsFilters } from './AdvancedSessionRecordingsFilters'
 import { OrderingFilters } from './OrderingFilters'
@@ -30,13 +32,16 @@ export function SessionRecordingsFilters({
     hideSimpleFilters,
     onReset,
 }: SessionRecordingsFiltersProps): JSX.Element {
+    const { prefersAdvancedFilters } = useValues(playerSettingsLogic)
+    const { setPrefersAdvancedFilters } = useActions(playerSettingsLogic)
+
     const initiallyOpen = useMemo(() => {
         // advanced always open if not showing simple filters, saves computation
         if (hideSimpleFilters) {
             return true
         }
         const defaultFilters = getDefaultFilters()
-        return !equal(advancedFilters, defaultFilters)
+        return prefersAdvancedFilters || !equal(advancedFilters, defaultFilters)
     }, [])
     const hasFilterOrdering = useFeatureFlag('SESSION_REPLAY_FILTER_ORDERING')
 
@@ -91,6 +96,9 @@ export function SessionRecordingsFilters({
                     defaultActiveKeys={initiallyOpen ? ['advanced-filters'] : []}
                     size="small"
                     panels={panels}
+                    onChange={(activeKeys) => {
+                        setPrefersAdvancedFilters(activeKeys.includes('advanced-filters'))
+                    }}
                 />
             )}
         </div>
