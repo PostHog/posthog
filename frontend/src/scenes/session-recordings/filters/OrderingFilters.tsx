@@ -15,18 +15,22 @@ export const OrderingFilters = (): JSX.Element => {
                 {
                     value: 'start_time',
                     label: 'Latest',
+                    'data-attr': 'session-replay-ordering-latest',
                 },
                 {
                     value: 'console_error_count',
                     label: 'Most console errors',
+                    'data-attr': 'session-replay-ordering-errors',
                 },
                 {
                     value: 'active_seconds',
                     label: 'Longest (active duration)',
+                    'data-attr': 'session-replay-ordering-active',
                 },
                 {
                     value: 'duration',
                     label: 'Longest (total duration)',
+                    'data-attr': 'session-replay-ordering-duration',
                 },
             ]}
         />
