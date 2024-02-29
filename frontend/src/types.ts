@@ -3603,6 +3603,16 @@ export type BatchExportDestinationBigQuery = {
     }
 }
 
+export type BatchExportDestinationHTTP = {
+    type: 'HTTP'
+    config: {
+        url: string
+        token: string
+        exclude_events: string[]
+        include_events: string[]
+    }
+}
+
 export type BatchExportDestinationRedshift = {
     type: 'Redshift'
     config: {
@@ -3628,6 +3638,7 @@ export type BatchExportDestination =
     | BatchExportDestinationPostgres
     | BatchExportDestinationBigQuery
     | BatchExportDestinationRedshift
+    | BatchExportDestinationHTTP
 
 export type BatchExportConfiguration = {
     // User provided data for the export. This is the data that the user
