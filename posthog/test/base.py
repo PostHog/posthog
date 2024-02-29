@@ -66,6 +66,7 @@ from posthog.models.sessions.sql import (
     SESSIONS_TABLE_SQL,
     SESSIONS_TABLE_MV_SQL,
     SESSIONS_VIEW_SQL,
+    DISTRIBUTED_SESSIONS_TABLE_SQL,
 )
 from posthog.session_recordings.sql.session_recording_event_sql import (
     DISTRIBUTED_SESSION_RECORDING_EVENTS_TABLE_SQL,
@@ -890,6 +891,7 @@ class ClickhouseDestroyTablesMixin(BaseTest):
                 CHANNEL_DEFINITION_DATA_SQL,
                 SESSIONS_TABLE_MV_SQL(),
                 SESSIONS_VIEW_SQL(),
+                DISTRIBUTED_SESSIONS_TABLE_SQL(),
             ]
         )
 
