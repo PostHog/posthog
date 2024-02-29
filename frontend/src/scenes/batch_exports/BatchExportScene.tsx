@@ -27,15 +27,12 @@ import { useEffect, useState } from 'react'
 import { PipelineLogLevel } from 'scenes/pipeline/pipelineNodeLogsLogic'
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
-import { userLogic } from 'scenes/userLogic'
-
-import { AvailableFeature, BatchExportLogEntry } from '~/types'
 
 import { BatchExportBackfillModal } from './BatchExportBackfillModal'
 import { batchExportLogic, BatchExportLogicProps, BatchExportTab } from './batchExportLogic'
 import { batchExportLogsLogic, BatchExportLogsProps, LOGS_PORTION_LIMIT } from './batchExportLogsLogic'
 import { BatchExportRunIcon, BatchExportTag } from './components'
-import { humanizeDestination, intervalToFrequency, isRunInProgress } from './utils'
+import { humanizeDestination, intervalToFrequency, isRunInProgress, showBatchExports } from './utils'
 
 export const scene: SceneExport = {
     component: BatchExportScene,
@@ -46,7 +43,6 @@ export const scene: SceneExport = {
 }
 
 export function RunsTab(): JSX.Element {
-    const { hasAvailableFeature } = useValues(userLogic)
     const {
         batchExportRunsResponse,
         batchExportConfig,
@@ -59,7 +55,7 @@ export function RunsTab(): JSX.Element {
 
     const [dateRangeVisible, setDateRangeVisible] = useState(false)
 
-    const hasDataPipelines = hasAvailableFeature(AvailableFeature.DATA_PIPELINES)
+    const hasDataPipelines = showBatchExports()
     if (!batchExportConfig && !batchExportConfigLoading) {
         return <NotFound object="Batch Export" />
     }
@@ -396,8 +392,7 @@ export function BatchExportScene(): JSX.Element {
     const { batchExportConfig, batchExportConfigLoading, activeTab } = useValues(batchExportLogic)
     const { loadBatchExportConfig, loadBatchExportRuns, openBackfillModal, pause, unpause, archive, setActiveTab } =
         useActions(batchExportLogic)
-    const { hasAvailableFeature } = useValues(userLogic)
-    const hasDataPipelines = hasAvailableFeature(AvailableFeature.DATA_PIPELINES)
+    const hasDataPipelines = showBatchExports()
 
     useEffect(() => {
         loadBatchExportConfig()
