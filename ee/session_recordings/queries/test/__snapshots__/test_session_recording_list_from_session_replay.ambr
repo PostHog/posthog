@@ -1,5 +1,171 @@
 # serializer version: 1
-# name: TestClickhouseSessionRecordingsListFromSessionReplay.test_wat
+# name: TestClickhouseSessionRecordingsListFromSessionReplay.test_allow_denormalised_props_fix_does_not_stop_all_poe_processing
+  '''
+  
+  SELECT s.session_id,
+         any(s.team_id),
+         any(s.distinct_id),
+         min(s.min_first_timestamp) as start_time,
+         max(s.max_last_timestamp) as end_time,
+         dateDiff('SECOND', start_time, end_time) as duration,
+         argMinMerge(s.first_url) as first_url,
+         sum(s.click_count),
+         sum(s.keypress_count),
+         sum(s.mouse_activity_count),
+         sum(s.active_milliseconds)/1000 as active_seconds,
+         duration-active_seconds as inactive_seconds,
+         sum(s.console_log_count) as console_log_count,
+         sum(s.console_warn_count) as console_warn_count,
+         sum(s.console_error_count) as console_error_count
+  FROM session_replay_events s
+  WHERE s.team_id = %(team_id)s -- regardless of what other filters are applied
+   -- limit by storage TTL
+  
+    AND s.min_first_timestamp >= %(clamped_to_storage_ttl)s -- we can filter on the pre-aggregated timestamp columns
+   -- because any not-the-lowest min value is _more_ greater than the min value
+   -- and any not-the-highest max value is _less_ lower than the max value
+  
+    AND s.min_first_timestamp >= %(start_time)s
+    AND s.max_last_timestamp <= %(end_time)s
+    AND s.session_id in
+      (select `$session_id` as session_id
+       from
+         (SELECT `$session_id`
+          FROM events e -- sometimes we have to join on persons so we can access e.g. person_props in filters
+   PREWHERE team_id = %(team_id)s -- regardless of what other filters are applied
+   -- limit by storage TTL
+  
+          AND e.timestamp >= %(clamped_to_storage_ttl)s -- make sure we don't get the occasional unexpected future event
+  
+          AND e.timestamp <= now() -- and then any time filter for the events query
+  
+          AND timestamp >= %(event_start_time)s
+          AND timestamp <= %(event_end_time)s
+          WHERE notEmpty(`$session_id`)
+            AND (has(%(vglobal_0)s, "mat_pp_rgInternal"))-- other times we can check distinct id against a sub query which should be faster than joining
+  
+          GROUP BY `$session_id`
+          HAVING 1=1) as session_events_sub_query)
+  GROUP BY session_id
+  HAVING 1=1
+  ORDER BY start_time DESC
+  LIMIT %(limit)s
+  OFFSET %(offset)s
+  '''
+# ---
+# name: TestClickhouseSessionRecordingsListFromSessionReplay.test_poe_being_unavailable_we_fall_back_to_person_subquery
+  '''
+  
+  SELECT s.session_id,
+         any(s.team_id),
+         any(s.distinct_id),
+         min(s.min_first_timestamp) as start_time,
+         max(s.max_last_timestamp) as end_time,
+         dateDiff('SECOND', start_time, end_time) as duration,
+         argMinMerge(s.first_url) as first_url,
+         sum(s.click_count),
+         sum(s.keypress_count),
+         sum(s.mouse_activity_count),
+         sum(s.active_milliseconds)/1000 as active_seconds,
+         duration-active_seconds as inactive_seconds,
+         sum(s.console_log_count) as console_log_count,
+         sum(s.console_warn_count) as console_warn_count,
+         sum(s.console_error_count) as console_error_count
+  FROM session_replay_events s
+  WHERE s.team_id = %(team_id)s -- regardless of what other filters are applied
+   -- limit by storage TTL
+  
+    AND s.min_first_timestamp >= %(clamped_to_storage_ttl)s -- we can filter on the pre-aggregated timestamp columns
+   -- because any not-the-lowest min value is _more_ greater than the min value
+   -- and any not-the-highest max value is _less_ lower than the max value
+  
+    AND s.min_first_timestamp >= %(start_time)s
+    AND s.max_last_timestamp <= %(end_time)s
+    AND s.distinct_id in
+      (select distinct_id
+       from
+         (SELECT distinct_id,
+                 argMax(person_id, version) as current_person_id
+          FROM person_distinct_id2 as pdi
+          INNER JOIN
+            (SELECT id
+             FROM person
+             WHERE team_id = %(team_id)s
+               AND id IN
+                 (SELECT id
+                  FROM person
+                  WHERE team_id = %(team_id)s
+                    AND (has(%(vperson_filter_pre__0)s, replaceRegexpAll(JSONExtractRaw(properties, %(kperson_filter_pre__0)s), '^"|"$', ''))) )
+             GROUP BY id
+             HAVING max(is_deleted) = 0
+             AND (has(%(vpersonquery_person_filter_fin__0)s, replaceRegexpAll(JSONExtractRaw(argMax(person.properties, version), %(kpersonquery_person_filter_fin__0)s), '^"|"$', ''))) SETTINGS optimize_aggregation_in_order = 1) person ON person.id = pdi.person_id
+          WHERE team_id = %(team_id)s
+          GROUP BY distinct_id
+          HAVING argMax(is_deleted, version) = 0) as session_persons_sub_query)
+  GROUP BY session_id
+  HAVING 1=1
+  ORDER BY start_time DESC
+  LIMIT %(limit)s
+  OFFSET %(offset)s
+  '''
+# ---
+# name: TestClickhouseSessionRecordingsListFromSessionReplay.test_poe_v1_still_falls_back_to_person_subquery
+  '''
+  
+  SELECT s.session_id,
+         any(s.team_id),
+         any(s.distinct_id),
+         min(s.min_first_timestamp) as start_time,
+         max(s.max_last_timestamp) as end_time,
+         dateDiff('SECOND', start_time, end_time) as duration,
+         argMinMerge(s.first_url) as first_url,
+         sum(s.click_count),
+         sum(s.keypress_count),
+         sum(s.mouse_activity_count),
+         sum(s.active_milliseconds)/1000 as active_seconds,
+         duration-active_seconds as inactive_seconds,
+         sum(s.console_log_count) as console_log_count,
+         sum(s.console_warn_count) as console_warn_count,
+         sum(s.console_error_count) as console_error_count
+  FROM session_replay_events s
+  WHERE s.team_id = %(team_id)s -- regardless of what other filters are applied
+   -- limit by storage TTL
+  
+    AND s.min_first_timestamp >= %(clamped_to_storage_ttl)s -- we can filter on the pre-aggregated timestamp columns
+   -- because any not-the-lowest min value is _more_ greater than the min value
+   -- and any not-the-highest max value is _less_ lower than the max value
+  
+    AND s.min_first_timestamp >= %(start_time)s
+    AND s.max_last_timestamp <= %(end_time)s
+    AND s.distinct_id in
+      (select distinct_id
+       from
+         (SELECT distinct_id,
+                 argMax(person_id, version) as current_person_id
+          FROM person_distinct_id2 as pdi
+          INNER JOIN
+            (SELECT id
+             FROM person
+             WHERE team_id = %(team_id)s
+               AND id IN
+                 (SELECT id
+                  FROM person
+                  WHERE team_id = %(team_id)s
+                    AND (has(%(vperson_filter_pre__0)s, replaceRegexpAll(JSONExtractRaw(properties, %(kperson_filter_pre__0)s), '^"|"$', ''))) )
+             GROUP BY id
+             HAVING max(is_deleted) = 0
+             AND (has(%(vpersonquery_person_filter_fin__0)s, replaceRegexpAll(JSONExtractRaw(argMax(person.properties, version), %(kpersonquery_person_filter_fin__0)s), '^"|"$', ''))) SETTINGS optimize_aggregation_in_order = 1) person ON person.id = pdi.person_id
+          WHERE team_id = %(team_id)s
+          GROUP BY distinct_id
+          HAVING argMax(is_deleted, version) = 0) as session_persons_sub_query)
+  GROUP BY session_id
+  HAVING 1=1
+  ORDER BY start_time DESC
+  LIMIT %(limit)s
+  OFFSET %(offset)s
+  '''
+# ---
+# name: TestClickhouseSessionRecordingsListFromSessionReplay.test_poe_v2_available_person_properties_are_used_in_replay_listing
   '''
   
   SELECT s.session_id,
