@@ -107,6 +107,7 @@ export const OnboardingStep = ({
                         <LemonButton
                             type="primary"
                             status="alt"
+                            data-attr="onboarding-continue"
                             onClick={() => {
                                 continueAction && continueAction()
                                 !hasNextStep ? completeOnboarding() : goToNextStep()
