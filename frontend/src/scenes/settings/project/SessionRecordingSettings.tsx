@@ -1,5 +1,6 @@
 import { IconPlus } from '@posthog/icons'
 import {
+    LemonBanner,
     LemonButton,
     LemonSegmentedButton,
     LemonSegmentedButtonOption,
@@ -126,6 +127,17 @@ function NetworkCaptureSettings(): JSX.Element {
                         Learn how to mask header and payload values in our docs
                     </Link>
                 </p>
+                <LemonBanner type="info" className="mb-4">
+                    We automatically scrub some sensitive information from network headers, but if your request or
+                    response payloads could contain sensitive data, you can provide a function to mask the data when you
+                    initialise PostHog.{' '}
+                    <Link
+                        to="https://posthog.com/docs/session-replay/network-recording#sensitive-information"
+                        target="blank"
+                    >
+                        Learn how to mask header and payload values in our docs
+                    </Link>
+                </LemonBanner>
                 <div className="flex flex-row space-x-2">
                     <LemonSwitch
                         data-attr="opt-in-capture-network-headers-switch"
