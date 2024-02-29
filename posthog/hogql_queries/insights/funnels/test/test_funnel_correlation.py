@@ -110,7 +110,6 @@ class TestClickhouseFunnelCorrelation(ClickhouseTestMixin, APIBaseTest):
             "insight": INSIGHT_FUNNELS,
             "date_from": "2020-01-01",
             "date_to": "2020-01-14",
-            "funnel_correlation_type": "events",
         }
 
         for i in range(10):
@@ -151,7 +150,7 @@ class TestClickhouseFunnelCorrelation(ClickhouseTestMixin, APIBaseTest):
                     timestamp="2020-01-03T14:00:00Z",
                 )
 
-        result = self._get_events_for_filters(filters)
+        result = self._get_events_for_filters(filters, funnelCorrelationType=FunnelCorrelationResultsType.events)
 
         odds_ratios = [item.pop("odds_ratio") for item in result]  # type: ignore
         expected_odds_ratios = [11, 1 / 11]
@@ -191,7 +190,11 @@ class TestClickhouseFunnelCorrelation(ClickhouseTestMixin, APIBaseTest):
         # self.assertEqual(len(self._get_actors_for_event(filters, "negatively_related")), 0)
 
         # Now exclude positively_related
-        result = self._get_events_for_filters(filters, funnelCorrelationExcludeEventNames=["positively_related"])
+        result = self._get_events_for_filters(
+            filters,
+            funnelCorrelationType=FunnelCorrelationResultsType.events,
+            funnelCorrelationExcludeEventNames=["positively_related"],
+        )
 
         odds_ratio = result[0].pop("odds_ratio")  # type: ignore
         expected_odds_ratio = 1 / 11
@@ -403,11 +406,10 @@ class TestClickhouseFunnelCorrelation(ClickhouseTestMixin, APIBaseTest):
             "insight": INSIGHT_FUNNELS,
             "date_from": "2020-01-01",
             "date_to": "2020-01-14",
-            "funnel_correlation_type": "events",
             "aggregation_group_type_index": 0,
         }
 
-        result = self._get_events_for_filters(filters)
+        result = self._get_events_for_filters(filters, funnelCorrelationType=FunnelCorrelationResultsType.events)
 
         odds_ratios = [item.pop("odds_ratio") for item in result]  # type: ignore
         expected_odds_ratios = [12 / 7, 1 / 11]
@@ -458,7 +460,7 @@ class TestClickhouseFunnelCorrelation(ClickhouseTestMixin, APIBaseTest):
             ]
         }
 
-        # result = self._get_events_for_filters({**filters, **excludes}) # TODO destructure
+        result = self._get_events_for_filters({**filters, **excludes})  # TODO destructure
 
         # odds_ratio = result[0].pop("odds_ratio")  # type: ignore
         # expected_odds_ratio = 1

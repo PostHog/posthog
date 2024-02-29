@@ -1,7 +1,6 @@
 import dataclasses
 from datetime import timedelta
 from typing import List, Literal, Optional, Any, Dict, Set, TypedDict, cast
-from ee.clickhouse.queries.funnels.funnel_correlation import EventOddsRatioSerialized
 
 from posthog.constants import AUTOCAPTURE_EVENT
 from posthog.hogql.parser import parse_select
@@ -27,6 +26,7 @@ from posthog.models.property.util import get_property_string_expr
 from posthog.queries.util import correct_result_for_sampling
 from posthog.schema import (
     ActionsNode,
+    CorrelationType,
     EventDefinition,
     FunnelCorrelationQuery,
     FunnelCorrelationResponse,
@@ -35,6 +35,8 @@ from posthog.schema import (
     FunnelsActorsQuery,
     FunnelsQuery,
     HogQLQueryModifiers,
+    HogQLQueryResponse,
+    EventOddsRatioSerialized,
 )
 
 
@@ -125,6 +127,9 @@ class FunnelCorrelationQueryRunner(QueryRunner):
 
         # Used for generating the funnel persons cte
         funnel_order_actor_class = get_funnel_actor_class(self.context.funnelsFilter)(context=self.context)
+        assert isinstance(
+            funnel_order_actor_class, (FunnelActors, FunnelStrictActors, FunnelUnorderedActors)
+        )  # for typings
         self._funnel_actors_generator = funnel_order_actor_class
 
     def _is_stale(self, cached_result_package):
@@ -211,7 +216,7 @@ class FunnelCorrelationQueryRunner(QueryRunner):
             hogql=hogql,
         )
 
-    def _calculate(self):
+    def _calculate(self) -> tuple[List[EventOddsRatio], bool, str, HogQLQueryResponse]:
         query = self.to_query()
 
         hogql = to_printed_hogql(query, self.team)
@@ -223,6 +228,7 @@ class FunnelCorrelationQueryRunner(QueryRunner):
             timings=self.timings,
             modifiers=self.modifiers,
         )
+        assert response.results
 
         # Get the total success/failure counts from the results
         results = [result for result in response.results if result[0] != self.TOTAL_IDENTIFIER]
@@ -246,7 +252,7 @@ class FunnelCorrelationQueryRunner(QueryRunner):
         failure_total = int(correct_result_for_sampling(failure_total, self.funnels_query.samplingFactor))
 
         if not success_total or not failure_total:
-            return FunnelCorrelationResponse(results=FunnelCorrelationResult(events=[], skewed=True))
+            return [], True, hogql, response
 
         skewed_totals = False
 
@@ -279,13 +285,15 @@ class FunnelCorrelationQueryRunner(QueryRunner):
 
     def serialize_event_odds_ratio(self, odds_ratio: EventOddsRatio) -> EventOddsRatioSerialized:
         event_definition = self.serialize_event_with_property(event=odds_ratio["event"])
-        return {
-            "success_count": odds_ratio["success_count"],
-            "failure_count": odds_ratio["failure_count"],
-            "odds_ratio": odds_ratio["odds_ratio"],
-            "correlation_type": odds_ratio["correlation_type"],
-            "event": event_definition,
-        }
+        return EventOddsRatioSerialized(
+            success_count=odds_ratio["success_count"],
+            failure_count=odds_ratio["failure_count"],
+            odds_ratio=odds_ratio["odds_ratio"],
+            correlation_type=(
+                CorrelationType.success if odds_ratio["correlation_type"] == "success" else CorrelationType.failure
+            ),
+            event=event_definition,
+        )
 
     def serialize_event_with_property(self, event: str) -> EventDefinition:
         """
