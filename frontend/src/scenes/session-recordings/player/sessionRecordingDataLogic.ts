@@ -241,10 +241,6 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
         loadSnapshotSources: true,
         loadNextSnapshotSource: true,
         loadSnapshotsForSource: (source: Pick<SessionRecordingSnapshotSource, 'source' | 'blob_key'>) => ({ source }),
-        manuallySetSnapshots: (source: SessionRecordingSnapshotSource, snapshots: RecordingSnapshot[]) => ({
-            snapshots,
-            source,
-        }),
         loadEvents: true,
         loadFullEventData: (event: RecordingEventType) => ({ event }),
         reportViewed: true,
@@ -273,19 +269,10 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
             {
                 loadSnapshotsForSourceSuccess: (state, { snapshotsForSource }) => {
                     const sourceKey = getSourceKey(snapshotsForSource.source)
+
                     return {
                         ...state,
                         [sourceKey]: snapshotsForSource,
-                    }
-                },
-                manuallySetSnapshots: (state, { source, snapshots }) => {
-                    const sourceKey = getSourceKey(source)
-                    return {
-                        ...state,
-                        [sourceKey]: {
-                            source,
-                            snapshots,
-                        },
                     }
                 },
             },
@@ -503,7 +490,13 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
                     const blobResponseType = source.source === SnapshotSourceType.blob || params.version === '3'
 
                     const response = blobResponseType
-                        ? await api.recordings.getBlobSnapshots(props.sessionRecordingId, params)
+                        ? await api.recordings.getBlobSnapshots(props.sessionRecordingId, params).catch((e) => {
+                              if (source.source === 'realtime' && e.status === 404) {
+                                  // Realtime source is not always available so a 404 is expected
+                                  return []
+                              }
+                              throw e
+                          })
                         : (await api.recordings.listSnapshots(props.sessionRecordingId, params)).snapshots ?? []
 
                     const { transformed, untransformed } = await processEncodedResponse(
@@ -755,11 +748,18 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
 
                 return dedupeRecordingSnapshots(allSnapshots)
             },
-            // {
-            //     resultEqualityCheck: (prev, next) => {
-            //         // TODO: Do we do equality on length? Would simplify re-renders...
-            //     },
-            // },
+        ],
+        untransformedSnapshots: [
+            (s) => [s.snapshotSources, s.snapshotsBySource],
+            (sources, snapshotsBySource): RecordingSnapshot[] => {
+                const allSnapshots =
+                    sources?.flatMap((source) => {
+                        const sourceKey = getSourceKey(source)
+                        return snapshotsBySource?.[sourceKey]?.untransformed_snapshots || []
+                    }) ?? []
+
+                return dedupeRecordingSnapshots(allSnapshots)
+            },
         ],
 
         snapshotsByWindowId: [
@@ -831,21 +831,18 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
         ],
 
         createExportJSON: [
-            (s) => [s.snapshots, s.sessionPlayerMetaData],
+            (s) => [s.sessionPlayerMetaData, s.snapshots, s.untransformedSnapshots],
             (
+                sessionPlayerMetaData,
                 snapshots,
-                sessionPlayerMetaData
+                untransformedSnapshots
             ): ((exportUntransformedMobileSnapshotData: boolean) => ExportedSessionRecordingFileV2) => {
                 return (exportUntransformedMobileSnapshotData: boolean) => ({
                     version: '2023-04-28',
                     data: {
                         id: sessionPlayerMetaData?.id ?? '',
                         person: sessionPlayerMetaData?.person,
-                        snapshots: snapshots,
-                        // TODO: What about this?!
-                        // snapshots:  exportUntransformedMobileSnapshotData
-                        //     ? sessionPlayerSnapshotData?.untransformed_snapshots || []
-                        //     : sessionPlayerSnapshotData?.snapshots || [],
+                        snapshots: exportUntransformedMobileSnapshotData ? untransformedSnapshots : snapshots,
                     },
                 })
             },

@@ -150,7 +150,12 @@ export const sessionRecordingFilePlaybackLogic = kea<sessionRecordingFilePlaybac
             )
 
             // TODO: Change to `receiveFilePlaybackData`
-            dataLogic.actions.manuallySetSnapshots({ source: 'file' }, snapshots)
+            dataLogic.actions.loadSnapshotsForSourceSuccess({
+                snapshots: snapshots,
+                untransformed_snapshots: snapshots,
+                source: { source: 'file' },
+            })
+            dataLogic.actions.loadSnapshotSourcesSuccess([{ source: 'file' }])
 
             dataLogic.actions.loadRecordingMetaSuccess({
                 id: values.sessionRecording.id,
