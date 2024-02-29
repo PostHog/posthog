@@ -71,7 +71,11 @@ export const OnboardingBillingStep = ({
                                     <StarHog className="h-full w-full" />
                                 </div>
                             </div>
-                            <LemonButton className="mt-2" onClick={() => setShowPlanComp(!showPlanComp)}>
+                            <LemonButton
+                                data-attr="show-plans"
+                                className="mt-2"
+                                onClick={() => setShowPlanComp(!showPlanComp)}
+                            >
                                 {showPlanComp ? 'Hide' : 'Show'} plans
                             </LemonButton>
                             {currentPlan?.initial_billing_limit && (

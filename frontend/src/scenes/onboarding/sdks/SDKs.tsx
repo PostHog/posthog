@@ -86,6 +86,7 @@ export function SDKs({
                     ) : (
                         <>
                             <LemonButton
+                                data-attr="sdk-continue"
                                 sideIcon={hasNextStep ? <IconArrowRight /> : null}
                                 type="primary"
                                 status="alt"
