@@ -514,7 +514,8 @@ class FunnelCorrelationQueryRunner(QueryRunner):
 
         person_prop_query = self._get_properties_prop_clause()
         # "property_names": self._filter.correlation_property_names,
-        aggregation_join_query = self._get_aggregation_join_query()
+        # aggregation_join_query = self._get_aggregation_join_query()
+        aggregation_join_query = ""
 
         query = parse_select(
             f"""
@@ -636,25 +637,6 @@ class FunnelCorrelationQueryRunner(QueryRunner):
         """
 
     def _get_aggregation_target_join_query(self) -> str:
-        # if self._team.person_on_events_mode == PersonOnEventsMode.V1_ENABLED:
-        #     aggregation_person_join = f"""
-        #         JOIN funnel_actors as actors
-        #             ON event.person_id = actors.actor_id
-        #     """
-
-        # else:
-        #     aggregation_person_join = f"""
-        #         JOIN ({get_team_distinct_ids_query(self._team.pk)}) AS pdi
-        #                 ON pdi.distinct_id = events.distinct_id
-
-        #             -- NOTE: I would love to right join here, so we count get total
-        #             -- success/failure numbers in one pass, but this causes out of memory
-        #             -- error mentioning issues with right filling. I'm sure there's a way
-        #             -- to do it but lifes too short.
-        #             JOIN funnel_actors AS actors
-        #                 ON pdi.person_id = actors.actor_id
-        #         """
-
         aggregation_person_join = f"""
             JOIN funnel_actors
                 ON event.person_id = funnel_actors.actor_id
@@ -693,34 +675,34 @@ class FunnelCorrelationQueryRunner(QueryRunner):
             return GroupsJoinQuery(self._filter, self._team.pk, join_key="funnel_actors.actor_id").get_join_query()
 
     def _get_properties_prop_clause(self):
-        if self._team.person_on_events_mode != PersonOnEventsMode.DISABLED and groups_on_events_querying_enabled():
-            group_properties_field = f"group{self._filter.aggregation_group_type_index}_properties"
-            aggregation_properties_alias = (
-                "person_properties" if self._filter.aggregation_group_type_index is None else group_properties_field
-            )
-        else:
-            group_properties_field = f"groups_{self._filter.aggregation_group_type_index}.group_properties_{self._filter.aggregation_group_type_index}"
-            aggregation_properties_alias = (
-                PersonQuery.PERSON_PROPERTIES_ALIAS
-                if self._filter.aggregation_group_type_index is None
-                else group_properties_field
-            )
+        # if self._team.person_on_events_mode != PersonOnEventsMode.DISABLED and groups_on_events_querying_enabled():
+        #     group_properties_field = f"group{self._filter.aggregation_group_type_index}_properties"
+        #     aggregation_properties_alias = (
+        #         "person_properties" if self._filter.aggregation_group_type_index is None else group_properties_field
+        #     )
+        # else:
+        #     group_properties_field = f"groups_{self._filter.aggregation_group_type_index}.group_properties_{self._filter.aggregation_group_type_index}"
+        #     aggregation_properties_alias = (
+        #         PersonQuery.PERSON_PROPERTIES_ALIAS
+        #         if self._filter.aggregation_group_type_index is None
+        #         else group_properties_field
+        #     )
+        aggregation_properties_alias = (
+            "person_properties"
+            if self.funnels_query.aggregation_group_type_index is None
+            else f"group{self.funnels_query.aggregation_group_type_index}_properties"
+        )
 
-        if "$all" in cast(list, self._filter.correlation_property_names):
-            return (
-                f"""
-                arrayJoin(JSONExtractKeysAndValues({aggregation_properties_alias}, 'String')) as prop
-            """,
-                {},
-            )
+        if "$all" in cast(list, self.query.funnelCorrelationNames):
+            return f"arrayJoin(JSONExtractKeysAndValues({aggregation_properties_alias}, 'String')) as prop"
         else:
             person_property_expressions = []
             person_property_params = {}
-            for index, property_name in enumerate(cast(list, self._filter.correlation_property_names)):
+            for index, property_name in enumerate(cast(list, self.query.funnelCorrelationNames)):
                 param_name = f"property_name_{index}"
-                if self._filter.aggregation_group_type_index is not None:
+                if self.funnels_query.aggregation_group_type_index is not None:
                     expression, _ = get_property_string_expr(
-                        "groups" if self._team.person_on_events_mode == PersonOnEventsMode.DISABLED else "events",
+                        "events",
                         property_name,
                         f"%({param_name})s",
                         aggregation_properties_alias,
@@ -728,15 +710,11 @@ class FunnelCorrelationQueryRunner(QueryRunner):
                     )
                 else:
                     expression, _ = get_property_string_expr(
-                        "person" if self._team.person_on_events_mode == PersonOnEventsMode.DISABLED else "events",
+                        "person",
                         property_name,
                         f"%({param_name})s",
                         aggregation_properties_alias,
-                        materialised_table_column=(
-                            aggregation_properties_alias
-                            if self._team.person_on_events_mode != PersonOnEventsMode.DISABLED
-                            else "properties"
-                        ),
+                        materialised_table_column=(aggregation_properties_alias),
                     )
                 person_property_params[param_name] = property_name
                 person_property_expressions.append(expression)
