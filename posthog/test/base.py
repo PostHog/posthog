@@ -930,6 +930,7 @@ class ClickhouseDestroyTablesMixin(BaseTest):
                 DISTRIBUTED_SESSION_RECORDING_EVENTS_TABLE_SQL(),
                 DISTRIBUTED_SESSION_REPLAY_EVENTS_TABLE_SQL(),
                 DISTRIBUTED_SESSIONS_TABLE_SQL(),
+                SESSIONS_VIEW_SQL(),
                 CHANNEL_DEFINITION_DATA_SQL,
             ]
         )
