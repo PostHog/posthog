@@ -31,7 +31,7 @@ export function DatabaseTablesContainer(): JSX.Element {
                             <div className="mt-2">
                                 <span className="card-secondary">Columns</span>
                                 <DatabaseTable table={row.name} tables={filteredTables} />
-                                {featureFlags[FEATURE_FLAGS.DATA_WAREHOUSE_VIEWS] && (
+                                {featureFlags[FEATURE_FLAGS.DATA_WAREHOUSE] && (
                                     <div className="w-full flex justify-end">
                                         <LemonButton
                                             className="mt-2"

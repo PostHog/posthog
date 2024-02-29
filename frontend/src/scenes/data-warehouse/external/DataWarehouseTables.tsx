@@ -95,7 +95,7 @@ export const DataWarehouseTables = (): JSX.Element => {
             },
         ]
 
-        if (featureFlags[FEATURE_FLAGS.DATA_WAREHOUSE_VIEWS]) {
+        if (featureFlags[FEATURE_FLAGS.DATA_WAREHOUSE]) {
             items.push({
                 name: 'Views',
                 items: savedQueriesFormatted.map((table) => ({
