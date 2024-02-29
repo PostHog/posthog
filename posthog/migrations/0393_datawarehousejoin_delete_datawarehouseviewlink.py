@@ -49,5 +49,4 @@ class Migration(migrations.Migration):
                 "abstract": False,
             },
         ),
-        migrations.DeleteModel(name="DataWarehouseViewLink"),
     ]
