@@ -77,12 +77,11 @@ describe('Surveys', () => {
             .should('include', '1 - 5')
 
         // make sure the preview is updated
-        cy.get('[data-attr="survey-preview"]')
-            .find('form')
+        cy.get('[class="survey-form"]')
             .should('contain', 'How likely are you to recommend us to a friend?')
             .should('contain', 'Unlikely')
             .should('contain', 'Very likely')
-        cy.get('[data-attr="survey-preview"]').find('form').find('.ratings-number').should('have.length', 5)
+        cy.get('[class="survey-form"]').find('.ratings-number').should('have.length', 5)
 
         // add targeting filters
         cy.get('.LemonCollapsePanel').contains('Targeting').click()
