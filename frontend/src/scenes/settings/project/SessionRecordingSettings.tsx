@@ -1,14 +1,5 @@
 import { IconPlus } from '@posthog/icons'
-import {
-    LemonButton,
-    LemonSegmentedButton,
-    LemonSegmentedButtonOption,
-    LemonSelect,
-    LemonSwitch,
-    LemonTag,
-    Link,
-    Spinner,
-} from '@posthog/lemon-ui'
+import { LemonButton, LemonSelect, LemonSwitch, LemonTag, Link } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { AuthorizedUrlList } from 'lib/components/AuthorizedUrlList/AuthorizedUrlList'
 import { AuthorizedUrlListType } from 'lib/components/AuthorizedUrlList/authorizedUrlListLogic'
@@ -19,12 +10,11 @@ import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { FEATURE_FLAGS, SESSION_REPLAY_MINIMUM_DURATION_OPTIONS } from 'lib/constants'
 import { IconCancel, IconSelectEvents } from 'lib/lemon-ui/icons'
 import { LemonLabel } from 'lib/lemon-ui/LemonLabel/LemonLabel'
-import { featureFlagLogic as enabledFlagsLogic } from 'lib/logic/featureFlagLogic'
-import { sessionReplayLinkedFlagLogic } from 'scenes/settings/project/sessionReplayLinkedFlagLogic'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { teamLogic } from 'scenes/teamLogic'
 import { userLogic } from 'scenes/userLogic'
 
-import { AvailableFeature, MultivariateFlagOptions, SessionRecordingAIConfig } from '~/types'
+import { AvailableFeature, SessionRecordingAIConfig } from '~/types'
 
 function LogCaptureSettings(): JSX.Element {
     const { updateCurrentTeam } = useActions(teamLogic)
@@ -194,110 +184,11 @@ export function ReplayAuthorizedDomains(): JSX.Element {
     )
 }
 
-function variantOptions(multivariate: MultivariateFlagOptions | undefined): LemonSegmentedButtonOption<string>[] {
-    if (!multivariate) {
-        return []
-    }
-    return [
-        {
-            label: 'any',
-            value: 'any',
-        },
-        ...multivariate.variants.map((variant) => {
-            return {
-                label: variant.key,
-                value: variant.key,
-            }
-        }),
-    ]
-}
-
-function LinkedFlagSelector(): JSX.Element | null {
-    const { updateCurrentTeam } = useActions(teamLogic)
-    const { currentTeam } = useValues(teamLogic)
-
-    const { hasAvailableFeature } = useValues(userLogic)
-    const { featureFlags } = useValues(enabledFlagsLogic)
-    const flagIsEnabled = featureFlags[FEATURE_FLAGS.SESSION_RECORDING_SAMPLING]
-    const featureFlagRecordingFeatureEnabled =
-        flagIsEnabled || hasAvailableFeature(AvailableFeature.REPLAY_FEATURE_FLAG_BASED_RECORDING)
-
-    const logic = sessionReplayLinkedFlagLogic({ id: currentTeam?.session_recording_linked_flag?.id || null })
-    const { linkedFlag, featureFlagLoading, flagHasVariants } = useValues(logic)
-    const { selectFeatureFlag } = useActions(logic)
-
-    if (!featureFlagRecordingFeatureEnabled) {
-        return null
-    }
-
-    return (
-        <>
-            <div className="flex flex-col space-y-2">
-                <LemonLabel className="text-base">
-                    Enable recordings using feature flag {featureFlagLoading && <Spinner />}
-                </LemonLabel>
-                <p>Linking a flag means that recordings will only be collected for users who have the flag enabled.</p>
-                <div className="flex flex-row justify-start">
-                    <FlagSelector
-                        value={currentTeam?.session_recording_linked_flag?.id ?? undefined}
-                        onChange={(id, key, flag) => {
-                            selectFeatureFlag(flag)
-                            updateCurrentTeam({ session_recording_linked_flag: { id, key, variant: null } })
-                        }}
-                    />
-                    {currentTeam?.session_recording_linked_flag && (
-                        <LemonButton
-                            className="ml-2"
-                            icon={<IconCancel />}
-                            size="small"
-                            type="secondary"
-                            onClick={() => updateCurrentTeam({ session_recording_linked_flag: null })}
-                            title="Clear selected flag"
-                        />
-                    )}
-                </div>
-                {flagHasVariants && (
-                    <>
-                        <LemonLabel className="text-base">Link to a specific flag variant</LemonLabel>
-                        <LemonSegmentedButton
-                            className="min-w-1/3"
-                            value={currentTeam?.session_recording_linked_flag?.variant ?? 'any'}
-                            options={variantOptions(linkedFlag?.filters.multivariate)}
-                            onChange={(variant) => {
-                                if (!linkedFlag) {
-                                    return
-                                }
-
-                                updateCurrentTeam({
-                                    session_recording_linked_flag: {
-                                        id: linkedFlag?.id,
-                                        key: linkedFlag?.key,
-                                        variant: variant === 'any' ? null : variant,
-                                    },
-                                })
-                            }}
-                        />
-                        <p>
-                            This is a multi-variant flag. You can link to "any" variant of the flag, and recordings will
-                            start whenever the flag is enabled for a user.
-                        </p>
-                        <p>
-                            Alternatively, you can link to a specific variant of the flag, and recordings will only
-                            start when the user has that specific variant enabled. Variant targeting support requires
-                            posthog-js v1.110.0 or greater
-                        </p>
-                    </>
-                )}
-            </div>
-        </>
-    )
-}
-
 export function ReplayCostControl(): JSX.Element | null {
     const { updateCurrentTeam } = useActions(teamLogic)
     const { currentTeam } = useValues(teamLogic)
     const { hasAvailableFeature } = useValues(userLogic)
-    const { featureFlags } = useValues(enabledFlagsLogic)
+    const { featureFlags } = useValues(featureFlagLogic)
 
     // some organisations have access to this by virtue of being in a flag
     // other orgs have access by virtue of being on the correct plan
@@ -453,7 +344,35 @@ export function ReplayCostControl(): JSX.Element | null {
                     </p>
                 </>
             )}
-            <LinkedFlagSelector />
+            {featureFlagRecordingFeatureEnabled && (
+                <>
+                    <div className="flex flex-col space-y-2">
+                        <LemonLabel className="text-base">Enable recordings using feature flag</LemonLabel>
+                        <div className="flex flex-row justify-start">
+                            <FlagSelector
+                                value={currentTeam?.session_recording_linked_flag?.id ?? undefined}
+                                onChange={(id, key) => {
+                                    updateCurrentTeam({ session_recording_linked_flag: { id, key } })
+                                }}
+                            />
+                            {currentTeam?.session_recording_linked_flag && (
+                                <LemonButton
+                                    className="ml-2"
+                                    icon={<IconCancel />}
+                                    size="small"
+                                    type="secondary"
+                                    onClick={() => updateCurrentTeam({ session_recording_linked_flag: null })}
+                                    title="Clear selected flag"
+                                />
+                            )}
+                        </div>
+                    </div>
+                    <p>
+                        Linking a flag means that recordings will only be collected for users who have the flag enabled.
+                        Only supports release toggles (boolean flags).
+                    </p>
+                </>
+            )}
         </>
     ) : null
 }

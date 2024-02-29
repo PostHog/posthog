@@ -39,6 +39,12 @@ def generate_recordings_embeddings_batch() -> None:
     for team in settings.REPLAY_EMBEDDINGS_ALLOWED_TEAMS:
         try:
             recordings = fetch_recordings_without_embeddings(int(team))
+            logger.info(
+                f"[generate_recordings_embeddings_batch] Fetched {len(recordings)} recordings",
+                recordings=recordings,
+                flow="embeddings",
+                team_id=team,
+            )
             embed_batch_of_recordings_task.si(recordings, int(team)).apply_async()
         except Team.DoesNotExist:
             logger.info(f"[generate_recordings_embeddings_batch] Team {team} does not exist. Skipping.")
