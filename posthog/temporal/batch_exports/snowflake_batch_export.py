@@ -411,7 +411,7 @@ async def insert_into_snowflake_activity(inputs: SnowflakeInsertInputs):
         last_inserted_at = None
         file_no = 0
 
-    async with get_client() as client:
+    async with get_client(team_id=inputs.team_id) as client:
         if not await client.is_alive():
             raise ConnectionError("Cannot establish connection to ClickHouse")
 

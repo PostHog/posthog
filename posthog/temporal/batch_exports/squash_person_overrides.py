@@ -75,7 +75,7 @@ DROP DICTIONARY {database}.{dictionary_name};
 """
 
 CREATE_JOIN_TABLE_FOR_DELETES_QUERY = """
-CREATE TABLE {database}.person_overrides_to_delete
+CREATE TABLE {database}.person_overrides_to_delete ON CLUSTER {cluster}
 ENGINE = Join(ANY, LEFT, team_id, distinct_id) AS
 SELECT
     team_id, distinct_id, groupUniqArray(_partition_id) AS partitions
@@ -362,7 +362,9 @@ async def delete_squashed_person_overrides_from_clickhouse(inputs: QueryInputs) 
         async with get_client(mutations_sync=2) as clickhouse_client:
             _ = await clickhouse_client.read_query(
                 CREATE_JOIN_TABLE_FOR_DELETES_QUERY.format(
-                    database=settings.CLICKHOUSE_DATABASE, dictionary_name=inputs.dictionary_name
+                    database=settings.CLICKHOUSE_DATABASE,
+                    dictionary_name=inputs.dictionary_name,
+                    cluster=settings.CLICKHOUSE_CLUSTER,
                 ),
             )
 
