@@ -143,16 +143,22 @@ SELECT plugin_config_id, if(total > 0, success/total, 1) as rate FROM (
 )
 """
 
+# For composeWebhook apps we report successes and failures in two steps
+# 1. running the composeWebhook function
+# 2. rusty hook sending the webhook
+# Users don't care that there are two steps, we'll want to show them the
+# success count after step 2, but for failures we'll want to add them up
 QUERY_APP_METRICS_TIME_SERIES = """
 SELECT groupArray(date), groupArray(successes), groupArray(successes_on_retry), groupArray(failures)
 FROM (
     SELECT
         date,
-        sum(successes) AS successes,
+        sum(CASE WHEN category = 'composeWebhook' THEN 0 ELSE successes END) AS successes,
         sum(successes_on_retry) AS successes_on_retry,
         sum(failures) AS failures
     FROM (
         SELECT
+            category,
             dateTrunc(%(interval)s, timestamp, %(timezone)s) AS date,
             sum(successes) AS successes,
             sum(successes_on_retry) AS successes_on_retry,
@@ -164,7 +170,7 @@ FROM (
           {job_id_clause}
           AND timestamp >= %(date_from)s
           AND timestamp < %(date_to)s
-        GROUP BY dateTrunc(%(interval)s, timestamp, %(timezone)s)
+        GROUP BY dateTrunc(%(interval)s, timestamp, %(timezone)s), category
     )
     GROUP BY date
     ORDER BY date

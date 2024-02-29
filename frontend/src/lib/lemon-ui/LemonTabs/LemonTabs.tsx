@@ -1,10 +1,9 @@
 import './LemonTabs.scss'
 
+import { IconInfo } from '@posthog/icons'
 import clsx from 'clsx'
-import { AlignType } from 'rc-trigger/lib/interface'
 
 import { useSliderPositioning } from '../hooks'
-import { IconInfo } from '../icons'
 import { Link } from '../Link'
 import { Tooltip } from '../Tooltip'
 
@@ -35,18 +34,6 @@ export interface LemonTabsProps<T extends string | number> {
 interface LemonTabsCSSProperties extends React.CSSProperties {
     '--lemon-tabs-slider-width': `${number}px`
     '--lemon-tabs-slider-offset': `${number}px`
-}
-
-/** Custom tooltip placement so that it's is closely aligned with the tabs, instead of being distanced. */
-const TAB_TOOLTIP_PLACEMENTS: Record<string, AlignType> = {
-    top: {
-        points: ['bc', 'tc'], // Bottom-center of tooltip aligned to top-center of target
-        offset: [0, 4], // This is the key change - positioning the tooltip lower to align arrow tip and top of tab
-        overflow: {
-            adjustX: 0,
-            adjustY: 0,
-        },
-    },
 }
 
 export function LemonTabs<T extends string | number>({
@@ -85,7 +72,7 @@ export function LemonTabs<T extends string | number>({
                         </>
                     )
                     return (
-                        <Tooltip key={tab.key} title={tab.tooltip} builtinPlacements={TAB_TOOLTIP_PLACEMENTS}>
+                        <Tooltip key={tab.key} title={tab.tooltip} placement="top" offset={0}>
                             <li
                                 className={clsx('LemonTabs__tab', tab.key === activeKey && 'LemonTabs__tab--active')}
                                 onClick={onChange ? () => onChange(tab.key) : undefined}

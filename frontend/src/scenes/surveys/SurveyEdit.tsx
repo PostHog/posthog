@@ -84,6 +84,7 @@ export default function SurveyEdit(): JSX.Element {
                     onChange={(section) => {
                         setSelectedSection(section)
                     }}
+                    className="bg-bg-light"
                     panels={[
                         {
                             key: SurveyEditSection.Presentation,
@@ -228,7 +229,7 @@ export default function SurveyEdit(): JSX.Element {
                                                                                       displayThankYouMessage: false,
                                                                                   })
                                                                               }}
-                                                                              tooltipPlacement="topRight"
+                                                                              tooltipPlacement="top-end"
                                                                           />
                                                                       </div>
                                                                   ),

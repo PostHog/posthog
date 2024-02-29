@@ -1,4 +1,17 @@
 # serializer version: 1
+# name: TestPropertyTypes.test_group_property_types
+  '''
+  
+  SELECT toFloat64OrNull(events__group_0.properties___inty) AS inty 
+  FROM events LEFT JOIN (
+  SELECT argMax(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(groups.group_properties, %(hogql_val_0)s), ''), 'null'), '^"|"$', ''), groups._timestamp) AS properties___inty, groups.group_type_index AS index, groups.group_key AS key 
+  FROM groups 
+  WHERE and(equals(groups.team_id, 420), ifNull(equals(index, 0), 0)) 
+  GROUP BY groups.group_type_index, groups.group_key) AS events__group_0 ON equals(events.`$group_0`, events__group_0.key) 
+  WHERE equals(events.team_id, 420) 
+  LIMIT 10000
+  '''
+# ---
 # name: TestPropertyTypes.test_resolve_property_types_combined
   '''
   

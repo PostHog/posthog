@@ -317,15 +317,18 @@ export const insightVizDataLogic = kea<insightVizDataLogicType>([
     }),
 
     listeners(({ actions, values, props }) => ({
-        updateDateRange: ({ dateRange }) => {
+        updateDateRange: async ({ dateRange }, breakpoint) => {
+            await breakpoint(300)
             actions.updateQuerySource({ dateRange: { ...values.dateRange, ...dateRange } })
         },
-        updateBreakdownFilter: ({ breakdownFilter }) => {
+        updateBreakdownFilter: async ({ breakdownFilter }, breakpoint) => {
+            await breakpoint(500) // extra debounce time because of number input
             actions.updateQuerySource({
                 breakdownFilter: { ...values.breakdownFilter, ...breakdownFilter },
             } as Partial<TrendsQuery>)
         },
-        updateInsightFilter: ({ insightFilter }) => {
+        updateInsightFilter: async ({ insightFilter }, breakpoint) => {
+            await breakpoint(300)
             const filterProperty = filterKeyForQuery(values.localQuerySource)
             actions.updateQuerySource({
                 [filterProperty]: { ...values.localQuerySource[filterProperty], ...insightFilter },

@@ -1,13 +1,13 @@
 import './SurveyView.scss'
 
 import { TZLabel } from '@posthog/apps-common'
+import { IconGraph } from '@posthog/icons'
 import { LemonButton, LemonDivider, Link } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { EditableField } from 'lib/components/EditableField/EditableField'
 import { PageHeader } from 'lib/components/PageHeader'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
-import { IconBarChart } from 'lib/lemon-ui/icons'
 import { More } from 'lib/lemon-ui/LemonButton/More'
 import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
 import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
@@ -322,7 +322,7 @@ export function SurveyResult({ disableEventsTable }: { disableEventsTable?: bool
                 <LemonButton
                     type="primary"
                     data-attr="survey-results-explore"
-                    icon={<IconBarChart />}
+                    icon={<IconGraph />}
                     to={urls.insightNew({
                         insight: InsightType.TRENDS,
                         events: [

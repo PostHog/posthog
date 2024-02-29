@@ -1,6 +1,6 @@
+import { IconInfo } from '@posthog/icons'
 import { useActions, useValues } from 'kea'
 import { TZLabel } from 'lib/components/TZLabel'
-import { IconInfo } from 'lib/lemon-ui/icons'
 import { LemonSelect } from 'lib/lemon-ui/LemonSelect'
 import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
 import { LemonTable } from 'lib/lemon-ui/LemonTable'

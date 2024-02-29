@@ -34,10 +34,10 @@ describe('hooks', () => {
             expect(webhookType).toBe(WebhookType.Discord)
         })
 
-        test('Teams', () => {
+        test('Other', () => {
             const webhookType = determineWebhookType('https://outlook.office.com/webhook/')
 
-            expect(webhookType).toBe(WebhookType.Teams)
+            expect(webhookType).toBe(WebhookType.Other)
         })
     })
 
@@ -64,7 +64,7 @@ describe('hooks', () => {
             const [userDetails, userDetailsMarkdown] = getPersonDetails(
                 event,
                 'http://localhost:8000',
-                WebhookType.Teams,
+                WebhookType.Other,
                 team
             )
 
@@ -91,7 +91,7 @@ describe('hooks', () => {
             const [actionDetails, actionDetailsMarkdown] = getActionDetails(
                 action,
                 'http://localhost:8000',
-                WebhookType.Teams
+                WebhookType.Other
             )
 
             expect(actionDetails).toBe('action1')
@@ -139,7 +139,7 @@ describe('hooks', () => {
                 event,
                 team,
                 'http://localhost:8000',
-                WebhookType.Teams,
+                WebhookType.Other,
                 tokenUserName
             )
 
@@ -155,7 +155,7 @@ describe('hooks', () => {
                 event,
                 team,
                 'http://localhost:8000',
-                WebhookType.Teams,
+                WebhookType.Other,
                 tokenUserName
             )
 
@@ -171,7 +171,7 @@ describe('hooks', () => {
                 event,
                 team,
                 'http://localhost:8000',
-                WebhookType.Teams,
+                WebhookType.Other,
                 tokenUserName
             )
 
@@ -187,7 +187,7 @@ describe('hooks', () => {
                 event,
                 team,
                 'http://localhost:8000',
-                WebhookType.Teams,
+                WebhookType.Other,
                 tokenUserName
             )
 
@@ -203,7 +203,7 @@ describe('hooks', () => {
                 event,
                 team,
                 'http://localhost:8000',
-                WebhookType.Teams,
+                WebhookType.Other,
                 tokenUserName
             )
 
@@ -219,7 +219,7 @@ describe('hooks', () => {
                 event,
                 team,
                 'http://localhost:8000',
-                WebhookType.Teams,
+                WebhookType.Other,
                 tokenUserName
             )
 
@@ -235,7 +235,7 @@ describe('hooks', () => {
                 { ...event, person_properties: { ...event.person_properties, email: 'wall-e@buynlarge.com' } },
                 team,
                 'http://localhost:8000',
-                WebhookType.Teams,
+                WebhookType.Other,
                 tokenUserName
             )
 
@@ -259,7 +259,7 @@ describe('hooks', () => {
                 },
                 { ...team, person_display_name_properties: ['nazwisko'] },
                 'http://localhost:8000',
-                WebhookType.Teams,
+                WebhookType.Other,
                 tokenUserName
             )
 
@@ -275,7 +275,7 @@ describe('hooks', () => {
                 event,
                 team,
                 'http://localhost:8000',
-                WebhookType.Teams,
+                WebhookType.Other,
                 tokenUserPropString
             )
 
@@ -297,7 +297,7 @@ describe('hooks', () => {
                 },
                 team,
                 'http://localhost:8000',
-                WebhookType.Teams,
+                WebhookType.Other,
                 tokenUserPropString
             )
 
@@ -335,7 +335,7 @@ describe('hooks', () => {
                 event,
                 team,
                 'http://localhost:8000',
-                WebhookType.Teams,
+                WebhookType.Other,
                 tokenUserName
             )
 
@@ -351,7 +351,7 @@ describe('hooks', () => {
                 event,
                 team,
                 'http://localhost:8000',
-                WebhookType.Teams,
+                WebhookType.Other,
                 tokenUserPropString
             )
 
@@ -367,7 +367,7 @@ describe('hooks', () => {
                 event,
                 team,
                 'http://localhost:8000',
-                WebhookType.Teams,
+                WebhookType.Other,
                 tokenUserPropMissing
             )
 
@@ -397,7 +397,7 @@ describe('hooks', () => {
                 { ...event, eventUuid: '**)', event: 'text](yes!), [new link' },
                 team,
                 'http://localhost:8000',
-                WebhookType.Teams,
+                WebhookType.Other,
                 ['event']
             )
 
@@ -419,11 +419,10 @@ describe('hooks', () => {
             const action = {
                 id: 1,
                 name: 'action1',
-                slack_message_format:
-                    '[user.name] from [user.browser] on [event.properties.page_title] page with [event.properties.fruit], [event.properties.with space]',
             } as Action
 
             const [text, markdown] = getFormattedMessage(
+                '[user.name] from [user.browser] on [event.properties.page_title] page with [event.properties.fruit], [event.properties.with space]',
                 action,
                 event,
                 team,
@@ -436,30 +435,14 @@ describe('hooks', () => {
             )
         })
 
-        test('default format', () => {
-            const action = { id: 1, name: 'action1', slack_message_format: '' } as Action
-
-            const [text, markdown] = getFormattedMessage(
-                action,
-                event,
-                team,
-                'https://localhost:8000',
-                WebhookType.Slack
-            )
-            expect(text).toBe('action1 was triggered by 2')
-            expect(markdown).toBe(
-                '<https://localhost:8000/action/1|action1> was triggered by <https://localhost:8000/person/2|2>'
-            )
-        })
-
         test('not quite correct format', () => {
             const action = {
                 id: 1,
                 name: 'action1',
-                slack_message_format: '[user.name] did thing from browser [user.brauzer]',
             } as Action
 
             const [text, markdown] = getFormattedMessage(
+                '[user.name] did thing from browser [user.brauzer]',
                 action,
                 event,
                 team,
@@ -474,6 +457,12 @@ describe('hooks', () => {
     describe('postRestHook', () => {
         let hookCommander: HookCommander
         let hook: Hook
+        const action = {
+            id: 1,
+            name: 'action1',
+            // slack_message_format: '[user.name] did thing from browser [user.brauzer]',
+        } as Action
+        const team = { person_display_name_properties: null } as Team
 
         beforeEach(() => {
             hook = {
@@ -485,6 +474,7 @@ describe('hooks', () => {
                 target: 'https://example.com/',
                 created: new Date().toISOString(),
                 updated: new Date().toISOString(),
+                format_text: null,
             }
             hookCommander = new HookCommander(
                 {} as any,
@@ -497,7 +487,7 @@ describe('hooks', () => {
         })
 
         test('person = undefined', async () => {
-            await hookCommander.postRestHook(hook, { event: 'foo' } as any)
+            await hookCommander.postWebhook({ event: 'foo' } as any, action, team, hook)
 
             expect(fetch).toHaveBeenCalledWith('https://example.com/', {
                 body: JSON.stringify(
@@ -524,13 +514,18 @@ describe('hooks', () => {
         test('person data from the event', async () => {
             const now = new Date().toISOString()
             const uuid = new UUIDT().toString()
-            await hookCommander.postRestHook(hook, {
-                event: 'foo',
-                teamId: hook.team_id,
-                person_id: uuid,
-                person_properties: { foo: 'bar' },
-                person_created_at: DateTime.fromISO(now).toUTC(),
-            } as any)
+            await hookCommander.postWebhook(
+                {
+                    event: 'foo',
+                    teamId: hook.team_id,
+                    person_id: uuid,
+                    person_properties: { foo: 'bar' },
+                    person_created_at: DateTime.fromISO(now).toUTC(),
+                } as any,
+                action,
+                team,
+                hook
+            )
             expect(fetch).toHaveBeenCalledWith('https://example.com/', {
                 body: JSON.stringify(
                     {
@@ -562,7 +557,10 @@ describe('hooks', () => {
             process.env.NODE_ENV = 'production'
 
             await expect(
-                hookCommander.postRestHook({ ...hook, target: 'http://127.0.0.1' }, { event: 'foo' } as any)
+                hookCommander.postWebhook({ event: 'foo' } as any, action, team, {
+                    ...hook,
+                    target: 'http://127.0.0.1',
+                })
             ).rejects.toThrow(new FetchError('Internal hostname', 'posthog-host-guard'))
         })
     })

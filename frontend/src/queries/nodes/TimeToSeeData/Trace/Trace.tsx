@@ -71,7 +71,9 @@ function DescribeSpan({ node }: { node: TimeToSeeNode }): JSX.Element {
 
             {(isFrustratingSession || isFrustratingInteraction) && (
                 <Tooltip title="This was frustrating because it took longer than 5 seconds">
-                    <IconSad />
+                    <span>
+                        <IconSad />
+                    </span>
                 </Tooltip>
             )}
             {isInteractionNode(node) && (

@@ -1,6 +1,6 @@
 import './FeatureFlag.scss'
 
-import { IconCollapse, IconExpand, IconLock, IconPlus, IconTrash } from '@posthog/icons'
+import { IconCollapse, IconExpand, IconPlus, IconTrash } from '@posthog/icons'
 import { LemonSegmentedButton, LemonSkeleton } from '@posthog/lemon-ui'
 import { Popconfirm } from 'antd'
 import { useActions, useValues } from 'kea'
@@ -25,12 +25,10 @@ import { LemonTag } from 'lib/lemon-ui/LemonTag/LemonTag'
 import { LemonTextArea } from 'lib/lemon-ui/LemonTextArea/LemonTextArea'
 import { Lettermark, LettermarkColor } from 'lib/lemon-ui/Lettermark'
 import { Link } from 'lib/lemon-ui/Link'
-import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { featureFlagLogic as enabledFeaturesLogic } from 'lib/logic/featureFlagLogic'
 import { alphabet, capitalizeFirstLetter } from 'lib/utils'
 import { PostHogFeature } from 'posthog-js/react'
 import { useEffect, useState } from 'react'
-import { billingLogic } from 'scenes/billing/billingLogic'
 import { Dashboard } from 'scenes/dashboard/Dashboard'
 import { dashboardLogic } from 'scenes/dashboard/dashboardLogic'
 import { EmptyDashboardComponent } from 'scenes/dashboard/EmptyDashboardComponent'
@@ -729,8 +727,6 @@ function FeatureFlagRollout({ readOnly }: { readOnly?: boolean }): JSX.Element {
     const { distributeVariantsEqually, addVariant, removeVariant, setMultivariateEnabled } =
         useActions(featureFlagLogic)
     const [showVariantDiscardWarning, setShowVariantDiscardWarning] = useState(false)
-    const { hasAvailableFeature } = useValues(userLogic)
-    const { upgradeLink } = useValues(billingLogic)
 
     const filterGroups: FeatureFlagGroupType[] = featureFlag.filters.groups || []
 
@@ -836,16 +832,7 @@ function FeatureFlagRollout({ readOnly }: { readOnly?: boolean }): JSX.Element {
                                                 : undefined,
                                     },
                                     {
-                                        label: !hasAvailableFeature(AvailableFeature.MULTIVARIATE_FLAGS) ? (
-                                            <Tooltip title="This feature is not available on your current plan. Click to upgrade.">
-                                                <Link to={upgradeLink} target="_blank">
-                                                    <IconLock className="mr-1 text-warning" />
-                                                    Multiple variants with rollout percentages (A/B test)
-                                                </Link>
-                                            </Tooltip>
-                                        ) : (
-                                            <span>Multiple variants with rollout percentages (A/B test)</span>
-                                        ),
+                                        label: <span>Multiple variants with rollout percentages (A/B test)</span>,
                                         value: 'multivariate',
                                     },
                                 ]}
@@ -1036,7 +1023,7 @@ function FeatureFlagRollout({ readOnly }: { readOnly?: boolean }): JSX.Element {
                                                         ? 'Cannot delete variants from a feature flag that is part of an experiment'
                                                         : undefined
                                                 }
-                                                tooltipPlacement="topRight"
+                                                tooltipPlacement="top-end"
                                             />
                                         )}
                                     </div>
@@ -1062,7 +1049,7 @@ function FeatureFlagRollout({ readOnly }: { readOnly?: boolean }): JSX.Element {
                                     ? 'Cannot add variants to a feature flag that is part of an experiment. To update variants, create a new experiment.'
                                     : undefined
                             }
-                            tooltipPlacement="topLeft"
+                            tooltipPlacement="top-start"
                             center
                         >
                             Add variant

@@ -45,6 +45,11 @@ def _get_recording_start_time_clause(recording_filters: SessionRecordingsFilter)
     return start_time_clause, start_time_params
 
 
+def _get_order_by_clause(filter_order: str | None) -> str:
+    order_by = filter_order or "start_time"
+    return f"ORDER BY {order_by} DESC"
+
+
 def _get_filter_by_log_text_session_ids_clause(
     team: Team, recording_filters: SessionRecordingsFilter, column_name="session_id"
 ) -> Tuple[str, Dict[str, Any]]:
@@ -179,6 +184,10 @@ class ActorsQuery(EventQuery):
     """
 
     def get_query(self) -> Tuple[str, Dict[str, Any]]:
+        # we don't support PoE V1 - hopefully that's ok
+        if self._team.person_on_events_mode == PersonOnEventsMode.V2_ENABLED:
+            return "", {}
+
         prop_query, prop_params = self._get_prop_groups(
             PropertyGroup(
                 type=PropertyOperatorType.AND,
@@ -223,9 +232,9 @@ class ActorsQuery(EventQuery):
 
             return self._raw_persons_query.format(
                 filter_persons_clause=filter_persons_clause,
-                select_person_props=", argMax(person_props, version) as person_props"
-                if "person_props" in filter_persons_clause
-                else "",
+                select_person_props=(
+                    ", argMax(person_props, version) as person_props" if "person_props" in filter_persons_clause else ""
+                ),
                 prop_filter_clause=prop_query,
                 prop_having_clause=having_prop_query,
                 filter_by_person_uuid_condition=filter_by_person_uuid_condition,
@@ -267,7 +276,20 @@ class SessionIdEventsQuery(EventQuery):
             )
             > 0
         )
-        return filters_by_event_or_action or has_event_property_filters
+
+        has_poe_filters = (
+            self._team.person_on_events_mode == PersonOnEventsMode.V2_ENABLED
+            and len(
+                [
+                    pg
+                    for pg in self._filter.property_groups.flat
+                    if pg.type == "person" or (pg.type == "hogql" and "person.properties" in pg.key)
+                ]
+            )
+            > 0
+        )
+
+        return filters_by_event_or_action or has_event_property_filters or has_poe_filters
 
     def __init__(
         self,
@@ -326,7 +348,9 @@ class SessionIdEventsQuery(EventQuery):
             prepend=prepend,
             allow_denormalized_props=True,
             has_person_id_joined=True,
-            person_properties_mode=PersonPropertiesMode.USING_PERSON_PROPERTIES_COLUMN,
+            person_properties_mode=PersonPropertiesMode.DIRECT_ON_EVENTS_WITH_POE_V2
+            if self._team.person_on_events_mode == PersonOnEventsMode.V2_ENABLED
+            else PersonPropertiesMode.USING_PERSON_PROPERTIES_COLUMN,
             hogql_context=self._filter.hogql_context,
         )
         filter_sql += f" {filters}"
@@ -437,8 +461,11 @@ class SessionIdEventsQuery(EventQuery):
                 values=[
                     g
                     for g in self._filter.property_groups.flat
-                    if (g.type == "hogql" and "person.properties" not in g.key)
-                    or (g.type != "hogql" and "cohort" not in g.type and g.type != "person")
+                    if (self._team.person_on_events_mode == PersonOnEventsMode.V2_ENABLED and g.type == "person")
+                    or (
+                        (g.type == "hogql" and "person.properties" not in g.key)
+                        or (g.type != "hogql" and "cohort" not in g.type and g.type != "person")
+                    )
                 ],
             ),
             person_id_joined_alias=f"{self.DISTINCT_ID_TABLE_ALIAS}.person_id",
@@ -447,6 +474,9 @@ class SessionIdEventsQuery(EventQuery):
             # it is likely this can be returned to the default of True in future
             # but would need careful monitoring
             allow_denormalized_props=settings.ALLOW_DENORMALIZED_PROPS_IN_LISTING,
+            person_properties_mode=PersonPropertiesMode.DIRECT_ON_EVENTS_WITH_POE_V2
+            if self._team.person_on_events_mode == PersonOnEventsMode.V2_ENABLED
+            else PersonPropertiesMode.USING_PERSON_PROPERTIES_COLUMN,
         )
 
         (
@@ -569,7 +599,7 @@ class SessionRecordingListFromReplaySummary(EventQuery):
     {log_matching_session_ids_clause}
     GROUP BY session_id
         HAVING 1=1 {duration_clause} {console_log_clause}
-    ORDER BY start_time DESC
+    {order_by_clause}
     LIMIT %(limit)s OFFSET %(offset)s
     """
 
@@ -609,8 +639,9 @@ class SessionRecordingListFromReplaySummary(EventQuery):
 
     def run(self) -> SessionRecordingQueryResult:
         try:
-            self._filter.hogql_context.modifiers.personsOnEventsMode = PersonOnEventsMode.DISABLED
+            self._filter.hogql_context.modifiers.personsOnEventsMode = self._team.person_on_events_mode
             query, query_params = self.get_query()
+
             query_results = sync_execute(query, {**query_params, **self._filter.hogql_context.values})
             session_recordings = self._data_to_return(query_results)
             return self._paginate_results(session_recordings)
@@ -644,6 +675,8 @@ class SessionRecordingListFromReplaySummary(EventQuery):
             log_matching_session_ids_params,
         ) = _get_filter_by_log_text_session_ids_clause(team=self._team, recording_filters=self._filter)
 
+        order_by_clause = _get_order_by_clause(self._filter.target_entity_order)
+
         duration_clause, duration_params = self.duration_clause(self._filter.duration_type_filter)
         console_log_clause = self._get_console_log_clause(self._filter.console_logs_filter)
 
@@ -668,6 +701,7 @@ class SessionRecordingListFromReplaySummary(EventQuery):
                 persons_sub_query=persons_select,
                 events_sub_query=events_select,
                 log_matching_session_ids_clause=log_matching_session_ids_clause,
+                order_by_clause=order_by_clause,
             ),
             {
                 **base_params,
