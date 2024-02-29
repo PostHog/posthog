@@ -181,7 +181,10 @@ def generate_recording_embeddings(session_id: str, team: Team | int) -> List[flo
 
     client = OpenAI()
 
-    session_metadata = SessionReplayEvents().get_metadata(session_id=str(session_id), team=team)
+    eight_days_ago = datetime.datetime.now(pytz.UTC) - datetime.timedelta(days=8)
+    session_metadata = SessionReplayEvents().get_metadata(
+        session_id=str(session_id), team=team, recording_start_time=eight_days_ago
+    )
     if not session_metadata:
         logger.error(f"no session metadata found for session", flow="embeddings", session_id=session_id)
         SESSION_SKIPPED_WHEN_GENERATING_EMBEDDINGS.inc()
