@@ -325,6 +325,8 @@ jmespath==1.0.0
     # via
     #   boto3
     #   botocore
+joblib==1.3.2
+    # via scikit-learn
 jsonpath-ng==1.6.0
     # via dlt
 jsonschema==4.20.0
@@ -378,7 +380,10 @@ nh3==0.2.14
 numpy==1.23.3
     # via
     #   -r requirements.in
+    #   pandas
     #   pyarrow
+    #   scikit-learn
+    #   scipy
 oauthlib==3.1.0
     # via
     #   requests-oauthlib
@@ -407,6 +412,8 @@ packaging==23.1
     #   prance
     #   snowflake-connector-python
     #   webdriver-manager
+pandas==2.2.1
+    # via -r requirements.in
 parso==0.8.1
     # via -r requirements.in
 pathable==0.4.3
@@ -489,6 +496,7 @@ python-dateutil==2.8.2
     #   celery
     #   celery-redbeat
     #   google-cloud-bigquery
+    #   pandas
     #   pendulum
     #   posthoganalytics
     #   temporalio
@@ -507,6 +515,7 @@ pytz==2023.3
     #   djangorestframework
     #   dlt
     #   infi-clickhouse-orm
+    #   pandas
     #   snowflake-connector-python
     #   tzlocal
 pytzdata==2020.1
@@ -571,6 +580,10 @@ s3fs==2023.10.0
     # via -r requirements.in
 s3transfer==0.6.0
     # via boto3
+scikit-learn==1.4.0
+    # via -r requirements.in
+scipy==1.12.0
+    # via scikit-learn
 selenium==4.1.5
     # via -r requirements.in
 semantic-version==2.8.5
@@ -633,6 +646,8 @@ tenacity==8.2.3
     # via
     #   celery-redbeat
     #   dlt
+threadpoolctl==3.3.0
+    # via scikit-learn
 tiktoken==0.6.0
     # via -r requirements.in
 token-bucket==0.3.0
@@ -677,6 +692,7 @@ tzdata==2023.3
     # via
     #   celery
     #   dlt
+    #   pandas
 tzlocal==2.1
     # via clickhouse-driver
 unicodecsv==0.14.1
