@@ -112,6 +112,7 @@ def fetch_recordings_without_embeddings(team: Team | int, offset=0) -> List[str]
                 and session_id in replay_with_events
             GROUP BY session_id
             HAVING dateDiff('second', min(min_first_timestamp), max(max_last_timestamp)) > %(min_duration_include_seconds)s
+            order by rand()
             LIMIT %(batch_flush_size)s
             -- when running locally the offset is used for paging
             -- when running in celery the offset is not used
