@@ -64,7 +64,6 @@ export const NavbarButton: FunctionComponent<NavbarButtonProps> = React.forwardR
             buttonProps.sideAction = {
                 ...sideAction,
                 divider: true,
-                tooltipPlacement: 'topRight',
                 'data-attr': `menu-item-${sideAction.identifier.toLowerCase()}`,
             }
             buttonProps.sideIcon = null
