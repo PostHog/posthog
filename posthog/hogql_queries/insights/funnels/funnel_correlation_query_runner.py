@@ -503,7 +503,7 @@ class FunnelCorrelationQueryRunner(QueryRunner):
 
         funnel_persons_query = self.get_funnel_actors_cte()
         target_step = self.context.max_steps
-        exclude_property_names = self.query.funnelCorrelationExcludeNames
+        exclude_property_names = self.query.funnelCorrelationExcludeNames or []
 
         person_prop_query = self._get_properties_prop_clause()
         # "property_names": self._filter.correlation_property_names,
@@ -679,7 +679,8 @@ class FunnelCorrelationQueryRunner(QueryRunner):
             return f"arrayJoin(JSONExtractKeysAndValues({properties_prefix}, 'String')) as prop"
         else:
             props = [f"{properties_prefix}.{property_name}" for property_name in self.query.funnelCorrelationNames]
-            return f"arrayJoin(arrayZip({self.query.funnelCorrelationNames}, [{props}])) as prop"
+            props_str = ", ".join(props)
+            return f"arrayJoin(arrayZip({self.query.funnelCorrelationNames}, [{props_str}])) as prop"
 
     def _get_funnel_step_names(self) -> List[str]:
         events: Set[str] = set()
