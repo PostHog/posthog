@@ -55,7 +55,8 @@ kombu==5.3.2
 lzstring==1.0.4
 numpy==1.23.3
 openapi-spec-validator==0.7.1
-orjson==3.9.13
+openpyxl==3.1.2
+orjson==3.9.15
 parso==0.8.1
 pexpect==4.7.0
 pickleshare==0.7.5
@@ -64,7 +65,7 @@ posthoganalytics==3.3.4
 prance==23.06.21.0
 psycopg2-binary==2.9.7
 psycopg==3.1.13
-pyarrow==12.0.1
+pyarrow==15.0.0
 pydantic==2.5.3
 pyjwt==2.4.0
 python-dateutil>=2.8.2
@@ -96,6 +97,7 @@ more-itertools==9.0.0
 django-two-factor-auth==1.14.0
 phonenumberslite==8.13.6
 openai==1.10.0
+tiktoken==0.6.0
 nh3==0.2.14
 hogql-parser==1.0.3
 urllib3[secure,socks]==1.26.18

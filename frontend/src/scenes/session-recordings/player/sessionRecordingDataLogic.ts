@@ -21,7 +21,6 @@ import api from 'lib/api'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { Dayjs, dayjs } from 'lib/dayjs'
 import { featureFlagLogic, FeatureFlagsSet } from 'lib/logic/featureFlagLogic'
-import { toParams } from 'lib/utils'
 import { chainToElements } from 'lib/utils/elements-chain'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import posthog from 'posthog-js'
@@ -54,10 +53,10 @@ import { createSegments, mapSnapshotsToWindowId } from './utils/segmenter'
 const IS_TEST_MODE = process.env.NODE_ENV === 'test'
 const BUFFER_MS = 60000 // +- before and after start and end of a recording to query for.
 const DEFAULT_REALTIME_POLLING_MILLIS = 3000
-const REALTIME_POLLING_PARAMS = toParams({
+const REALTIME_POLLING_PARAMS = {
     source: SnapshotSourceType.realtime,
     version: '2',
-})
+}
 
 let postHogEEModule: PostHogEE
 
@@ -451,11 +450,14 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
             null as SessionPlayerSnapshotData | null,
             {
                 pollRecordingSnapshots: async (_, breakpoint: BreakPointFunction) => {
+                    const params = { ...REALTIME_POLLING_PARAMS }
+
+                    if (values.featureFlags[FEATURE_FLAGS.SESSION_REPLAY_V3_INGESTION_PLAYBACK]) {
+                        params.version = '3'
+                    }
+
                     await breakpoint(1) // debounce
-                    const response = await api.recordings.listSnapshots(
-                        props.sessionRecordingId,
-                        REALTIME_POLLING_PARAMS
-                    )
+                    const response = await api.recordings.listSnapshots(props.sessionRecordingId, params)
                     breakpoint() // handle out of order
 
                     if (response.snapshots) {
@@ -496,13 +498,20 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
                     await breakpoint(1)
 
                     if (source?.source === SnapshotSourceType.blob) {
+                        const params = {
+                            source: source.source,
+                            blob_key: source.blob_key,
+                            version: '2',
+                        }
+
+                        if (values.featureFlags[FEATURE_FLAGS.SESSION_REPLAY_V3_INGESTION_PLAYBACK]) {
+                            params.version = '3'
+                        }
+
                         if (!source.blob_key) {
                             throw new Error('Missing key')
                         }
-                        const encodedResponse = await api.recordings.getBlobSnapshots(
-                            props.sessionRecordingId,
-                            source.blob_key
-                        )
+                        const encodedResponse = await api.recordings.getBlobSnapshots(props.sessionRecordingId, params)
 
                         const { transformed, untransformed } = await processEncodedResponse(
                             encodedResponse,
@@ -513,11 +522,15 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
                         data.snapshots = transformed
                         data.untransformed_snapshots = untransformed ?? undefined
                     } else {
-                        const params = toParams({
+                        const params = {
                             source: source?.source,
-                            key: source?.blob_key,
                             version: '2',
-                        })
+                        }
+
+                        if (values.featureFlags[FEATURE_FLAGS.SESSION_REPLAY_V3_INGESTION_PLAYBACK]) {
+                            params.version = '3'
+                        }
+
                         const response = await api.recordings.listSnapshots(props.sessionRecordingId, params)
                         if (response.snapshots) {
                             const { transformed, untransformed } = await processEncodedResponse(

@@ -45,10 +45,13 @@ class FunnelBase(ABC):
         self._extra_event_fields: List[ColumnName] = []
         self._extra_event_properties: List[PropertyName] = []
 
-        # TODO: implement with actors query
-        # if self._filter.include_recordings:
-        #     self._extra_event_fields = ["uuid"]
-        #     self._extra_event_properties = ["$session_id", "$window_id"]
+        if (
+            hasattr(self.context, "actorsQuery")
+            and self.context.actorsQuery is not None
+            and self.context.actorsQuery.includeRecordings
+        ):
+            self._extra_event_fields = ["uuid"]
+            self._extra_event_properties = ["$session_id", "$window_id"]
 
     def get_query(self) -> ast.SelectQuery:
         raise NotImplementedError()
@@ -395,12 +398,18 @@ class FunnelBase(ABC):
         )
         entities_to_use = entities or query.series
 
-        # extra_fields = []
+        extra_fields: List[str] = []
 
         # for prop in self._include_properties:
         #     extra_fields.append(prop)
 
-        funnel_events_query = FunnelEventQuery(context=self.context).to_query(skip_entity_filter=skip_entity_filter)
+        funnel_events_query = FunnelEventQuery(
+            context=self.context,
+            extra_fields=[*self._extra_event_fields, *extra_fields],
+            extra_event_properties=self._extra_event_properties,
+        ).to_query(
+            skip_entity_filter=skip_entity_filter,
+        )
         # funnel_events_query, params = FunnelEventQuery(
         #     extra_fields=[*self._extra_event_fields, *extra_fields],
         #     extra_event_properties=self._extra_event_properties,
@@ -545,8 +554,10 @@ class FunnelBase(ABC):
             parse_expr(f"if({step_prefix}step_{index} = 1, timestamp, null) as {step_prefix}latest_{index}")
         )
 
-        # for field in self.extra_event_fields_and_properties:
-        #     step_cols.append(f'if({step_prefix}step_{index} = 1, "{field}", null) as "{step_prefix}{field}_{index}"')
+        for field in self.extra_event_fields_and_properties:
+            step_cols.append(
+                parse_expr(f'if({step_prefix}step_{index} = 1, "{field}", null) as "{step_prefix}{field}_{index}"')
+            )
 
         return step_cols
 
@@ -620,22 +631,26 @@ class FunnelBase(ABC):
         return ast.And(exprs=conditions)
 
     def _get_funnel_person_step_events(self) -> List[ast.Expr]:
+        if (
+            hasattr(self.context, "actorsQuery")
+            and self.context.actorsQuery is not None
+            and self.context.actorsQuery.includeRecordings
+        ):
+            step_num = self.context.actorsQuery.funnelStep
+            # if self._filter.include_final_matching_events:
+            if False:  # TODO: Implement with correlations
+                # Always returns the user's final step of the funnel
+                return [parse_expr("final_matching_events as matching_events")]  # type: ignore
+            elif step_num is None:
+                raise ValueError("Missing funnelStep actors query property")
+            if step_num >= 0:
+                # None drop off case
+                matching_events_step_num = step_num - 1
+            else:
+                # Drop off case if negative number
+                matching_events_step_num = abs(step_num) - 2
+            return [parse_expr(f"step_{matching_events_step_num}_matching_events as matching_events")]
         return []
-        # if self._filter.include_recordings:
-        #     step_num = self._filter.funnel_step
-        #     if self._filter.include_final_matching_events:
-        #         # Always returns the user's final step of the funnel
-        #         return ", final_matching_events as matching_events"
-        #     elif step_num is None:
-        #         raise ValueError("Missing funnel_step filter property")
-        #     if step_num >= 0:
-        #         # None drop off case
-        #         self.params.update({"matching_events_step_num": step_num - 1})
-        #     else:
-        #         # Drop off case if negative number
-        #         self.params.update({"matching_events_step_num": abs(step_num) - 2})
-        #     return ", step_%(matching_events_step_num)s_matching_events as matching_events"
-        # return ""
 
     def _get_count_columns(self, max_steps: int) -> List[ast.Expr]:
         exprs: List[ast.Expr] = []
@@ -653,41 +668,44 @@ class FunnelBase(ABC):
 
         return exprs
 
-    # def _get_final_matching_event(self, max_steps: int):
-    #     statement = None
-    #     for i in range(max_steps - 1, -1, -1):
-    #         if i == max_steps - 1:
-    #             statement = f"if(isNull(latest_{i}),step_{i-1}_matching_event,step_{i}_matching_event)"
-    #         elif i == 0:
-    #             statement = f"if(isNull(latest_0),(null,null,null,null),{statement})"
-    #         else:
-    #             statement = f"if(isNull(latest_{i}),step_{i-1}_matching_event,{statement})"
-    #     return f",{statement} as final_matching_event" if statement else ""
+    def _get_final_matching_event(self, max_steps: int) -> List[ast.Expr]:
+        statement = None
+        for i in range(max_steps - 1, -1, -1):
+            if i == max_steps - 1:
+                statement = f"if(isNull(latest_{i}),step_{i-1}_matching_event,step_{i}_matching_event)"
+            elif i == 0:
+                statement = f"if(isNull(latest_0),(null,null,null,null),{statement})"
+            else:
+                statement = f"if(isNull(latest_{i}),step_{i-1}_matching_event,{statement})"
+        return [parse_expr(f"{statement} as final_matching_event")] if statement else []
 
     def _get_matching_events(self, max_steps: int) -> List[ast.Expr]:
-        # if self._filter.include_recordings:
-        #     events = []
-        #     for i in range(0, max_steps):
-        #         event_fields = ["latest"] + self.extra_event_fields_and_properties
-        #         event_fields_with_step = ", ".join([f'"{field}_{i}"' for field in event_fields])
-        #         event_clause = f"({event_fields_with_step}) as step_{i}_matching_event"
-        #         events.append(event_clause)
-        #     matching_event_select_statements = "," + ", ".join(events)
+        if (
+            hasattr(self.context, "actorsQuery")
+            and self.context.actorsQuery is not None
+            and self.context.actorsQuery.includeRecordings
+        ):
+            events = []
+            for i in range(0, max_steps):
+                event_fields = ["latest"] + self.extra_event_fields_and_properties
+                event_fields_with_step = ", ".join([f"{field}_{i}" for field in event_fields])
+                event_clause = f"({event_fields_with_step}) as step_{i}_matching_event"
+                events.append(parse_expr(event_clause))
 
-        #     final_matching_event_statement = self._get_final_matching_event(max_steps)
-
-        #     return matching_event_select_statements + final_matching_event_statement
-
+            return [*events, *self._get_final_matching_event(max_steps)]
         return []
 
     def _get_matching_event_arrays(self, max_steps: int) -> List[ast.Expr]:
-        # select_clause = ""
-        # if self._filter.include_recordings:
-        #     for i in range(0, max_steps):
-        #         select_clause += f", groupArray(10)(step_{i}_matching_event) as step_{i}_matching_events"
-        #     select_clause += f", groupArray(10)(final_matching_event) as final_matching_events"
-        # return select_clause
-        return []
+        exprs: List[ast.Expr] = []
+        if (
+            hasattr(self.context, "actorsQuery")
+            and self.context.actorsQuery is not None
+            and self.context.actorsQuery.includeRecordings
+        ):
+            for i in range(0, max_steps):
+                exprs.append(parse_expr(f"groupArray(10)(step_{i}_matching_event) as step_{i}_matching_events"))
+            exprs.append(parse_expr(f"groupArray(10)(final_matching_event) as final_matching_events"))
+        return exprs
 
     def _get_step_time_avgs(self, max_steps: int, inner_query: bool = False) -> List[ast.Expr]:
         exprs: List[ast.Expr] = []
@@ -718,12 +736,18 @@ class FunnelBase(ABC):
         Returns timestamp selectors for the target step and optionally the preceding step.
         In the former case, always returns the timestamp for the first and last step as well.
         """
-        # target_step = self._filter.funnel_step # TODO: implement with actors
-        # final_step = self.context.max_steps - 1
+        # actorsQuery, max_steps = (
+        #     self.context.actorsQuery,
+        #     self.context.max_steps,
+        # )
+        # assert actorsQuery is not None
+
+        # target_step = actorsQuery.funnelStep
+        # final_step = max_steps - 1
         # first_step = 0
 
         # if not target_step:
-        #     return "", ""
+        #     return [], []
 
         # if target_step < 0:
         #     # the first valid dropoff argument for funnel_step is -2
@@ -749,7 +773,7 @@ class FunnelBase(ABC):
         #         f", argMax(latest_{target_step}, steps) as timestamp, argMax(latest_{final_step}, steps) as final_timestamp, argMax(latest_{first_step}, steps) as first_timestamp",
         #     )
         # else:
-        #     return "", ""
+        #     return [], []
         return [], []
 
     def _get_step_times(self, max_steps: int) -> List[ast.Expr]:
@@ -780,8 +804,8 @@ class FunnelBase(ABC):
             if i < level_index:
                 exprs.append(ast.Field(chain=[f"latest_{i}"]))
 
-                # for field in self.extra_event_fields_and_properties:
-                #     exprs.append(ast.Field(chain=[f'"{field}_{i}"']))
+                for field in self.extra_event_fields_and_properties:
+                    exprs.append(ast.Field(chain=[f"{field}_{i}"]))
 
                 for exclusion_id, exclusion in enumerate(exclusions or []):
                     if cast(int, exclusion.funnelFromStep) + 1 == i:
@@ -799,10 +823,12 @@ class FunnelBase(ABC):
                     )
                 )
 
-                # for field in self.extra_event_fields_and_properties:
-                #     cols.append(
-                #         f'last_value("{field}_{i}") over (PARTITION by aggregation_target {self._get_breakdown_prop()} ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND {duplicate_event} PRECEDING) "{field}_{i}"'
-                #     )
+                for field in self.extra_event_fields_and_properties:
+                    exprs.append(
+                        parse_expr(
+                            f'last_value("{field}_{i}") over (PARTITION by aggregation_target {self._get_breakdown_prop()} ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND {duplicate_event} PRECEDING) "{field}_{i}"'
+                        )
+                    )
 
                 for exclusion_id, exclusion in enumerate(exclusions or []):
                     # exclusion starting at step i follows semantics of step i+1 in the query (since we're looking for exclusions after step i)
