@@ -18,6 +18,8 @@ import { expressApp } from '../../services/http-server'
 import { ObjectStorage } from '../../services/object_storage'
 import { runInstrumentedFunction } from '../../utils'
 import { addSentryBreadcrumbsEventListeners } from '../kafka-metrics'
+import { ConsoleLogsIngester } from './services/console-logs-ingester'
+import { ReplayEventsIngester } from './services/replay-events-ingester'
 import { BUCKETS_KB_WRITTEN, BUFFER_FILE_NAME, SessionManagerV3 } from './services/session-manager-v3'
 import { IncomingRecordingMessage } from './types'
 import { allSettledWithConcurrency, parseKafkaMessage, reduceRecordingMessages } from './utils'
@@ -67,8 +69,8 @@ export interface TeamIDWithConfig {
  */
 export class SessionRecordingIngesterV3 {
     sessions: Record<string, SessionManagerV3> = {}
-    // replayEventsIngester: ReplayEventsIngester
-    // consoleLogsIngester: ConsoleLogsIngester
+    replayEventsIngester?: ReplayEventsIngester
+    consoleLogsIngester?: ConsoleLogsIngester
     batchConsumer?: BatchConsumer
     teamsRefresher: BackgroundRefresher<Record<string, TeamIDWithConfig>>
     config: PluginsServerConfig
@@ -80,7 +82,7 @@ export class SessionRecordingIngesterV3 {
     private debugPartition: number | undefined = undefined
 
     constructor(
-        globalServerConfig: PluginsServerConfig,
+        private globalServerConfig: PluginsServerConfig,
         private postgres: PostgresRouter,
         private objectStorage: ObjectStorage
     ) {
@@ -91,11 +93,6 @@ export class SessionRecordingIngesterV3 {
         // NOTE: globalServerConfig contains the default pluginServer values, typically not pointing at dedicated resources like kafka or redis
         // We still connect to some of the non-dedicated resources such as postgres or the Replay events kafka.
         this.config = sessionRecordingConsumerConfig(globalServerConfig)
-
-        // NOTE: This is the only place where we need to use the shared server config
-        // TODO: Uncomment when we swap to using this service as the ingester for it
-        // this.replayEventsIngester = new ReplayEventsIngester(globalServerConfig, this.persistentHighWaterMarker)
-        // this.consoleLogsIngester = new ConsoleLogsIngester(globalServerConfig, this.persistentHighWaterMarker)
 
         this.teamsRefresher = new BackgroundRefresher(async () => {
             try {
@@ -244,19 +241,23 @@ export class SessionRecordingIngesterV3 {
                     },
                 })
 
-                // await runInstrumentedFunction({
-                //     statsKey: `recordingingester.handleEachBatch.consumeReplayEvents`,
-                //     func: async () => {
-                //         await this.replayEventsIngester.consumeBatch(recordingMessages)
-                //     },
-                // })
+                if (this.replayEventsIngester) {
+                    await runInstrumentedFunction({
+                        statsKey: `recordingingester.handleEachBatch.consumeReplayEvents`,
+                        func: async () => {
+                            await this.replayEventsIngester!.consumeBatch(recordingMessages)
+                        },
+                    })
+                }
 
-                // await runInstrumentedFunction({
-                //     statsKey: `recordingingester.handleEachBatch.consumeConsoleLogEvents`,
-                //     func: async () => {
-                //         await this.consoleLogsIngester.consumeBatch(recordingMessages)
-                //     },
-                // })
+                if (this.consoleLogsIngester) {
+                    await runInstrumentedFunction({
+                        statsKey: `recordingingester.handleEachBatch.consumeConsoleLogEvents`,
+                        func: async () => {
+                            await this.consoleLogsIngester!.consumeBatch(recordingMessages)
+                        },
+                    })
+                }
             },
         })
     }
@@ -271,8 +272,17 @@ export class SessionRecordingIngesterV3 {
 
         // Load teams into memory
         await this.teamsRefresher.refresh()
-        // await this.replayEventsIngester.start()
-        // await this.consoleLogsIngester.start()
+
+        // NOTE: This is the only place where we need to use the shared server config
+        if (this.config.SESSION_RECORDING_CONSOLE_LOGS_INGESTION_ENABLED) {
+            this.consoleLogsIngester = new ConsoleLogsIngester(this.globalServerConfig)
+            await this.consoleLogsIngester.start()
+        }
+
+        if (this.config.SESSION_RECORDING_REPLAY_EVENTS_INGESTION_ENABLED) {
+            this.replayEventsIngester = new ReplayEventsIngester(this.globalServerConfig)
+            await this.replayEventsIngester.start()
+        }
 
         const connectionConfig = createRdConnectionConfigFromEnvVars(this.config)
 
@@ -329,8 +339,12 @@ export class SessionRecordingIngesterV3 {
             )
         )
 
-        // void this.scheduleWork(this.replayEventsIngester.stop())
-        // void this.scheduleWork(this.consoleLogsIngester.stop())
+        if (this.replayEventsIngester) {
+            void this.scheduleWork(this.replayEventsIngester.stop())
+        }
+        if (this.consoleLogsIngester) {
+            void this.scheduleWork(this.consoleLogsIngester!.stop())
+        }
 
         const promiseResults = await Promise.allSettled(this.promises)
 
