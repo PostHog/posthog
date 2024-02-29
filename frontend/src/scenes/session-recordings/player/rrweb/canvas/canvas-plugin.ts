@@ -68,13 +68,15 @@ export const CanvasReplayerPlugin = (events: eventWithTime[]): ReplayPlugin => {
         // eslint-disable-next-line @typescript-eslint/no-misused-promises
         handler: async (e: eventWithTime, _isSync: boolean, { replayer }: { replayer: Replayer }) => {
             if (e.type === EventType.IncrementalSnapshot && e.data.source === IncrementalSource.CanvasMutation) {
-                const source = replayer.getMirror().getNode(e.data.id)
-                const target =
-                    canvases.get(e.data.id) || (source && cloneCanvas(e.data.id, source as HTMLCanvasElement))
+                const source = replayer.getMirror().getNode(e.data.id) as HTMLCanvasElement
+                const target = canvases.get(e.data.id) || (source && cloneCanvas(e.data.id, source))
 
                 if (!target) {
                     return
                 }
+
+                target.width = source.width
+                target.height = source.height
 
                 await canvasMutation({
                     event: e,

@@ -251,6 +251,21 @@ const cleanProperties = (parentProperties: FilterType['properties']): InsightsQu
         return parentProperties.map(processAnyPropertyFilter)
     }
 
+    if (
+        (parentProperties.type === FilterLogicalOperator.And || parentProperties.type === FilterLogicalOperator.Or) &&
+        Array.isArray(parentProperties.values) &&
+        parentProperties.values.some(
+            (value) =>
+                typeof value !== 'object' ||
+                (value.type !== FilterLogicalOperator.And && value.type !== FilterLogicalOperator.Or)
+        )
+    ) {
+        return {
+            type: FilterLogicalOperator.And,
+            values: [processPropertyGroupFilterValue(parentProperties)],
+        }
+    }
+
     // parentProperties is PropertyGroupFilter
     const values = parentProperties.values.map(processPropertyGroupFilterValue)
     return {
@@ -275,7 +290,9 @@ export const filtersToQueryNode = (filters: Partial<FilterType>): InsightQueryNo
         kind: reverseInsightMap[filters.insight],
         properties: cleanProperties(filters.properties),
         filterTestAccounts: filters.filter_test_accounts,
-        samplingFactor: filters.sampling_factor,
+    }
+    if (filters.sampling_factor) {
+        query.samplingFactor = filters.sampling_factor
     }
 
     // date range
