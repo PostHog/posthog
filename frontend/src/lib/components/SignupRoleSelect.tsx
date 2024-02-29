@@ -13,6 +13,10 @@ export default function SignupRoleSelect({ className }: { className?: string }):
                         value: 'engineering',
                     },
                     {
+                        label: 'Data',
+                        value: 'data',
+                    },
+                    {
                         label: 'Product Management',
                         value: 'product',
                     },

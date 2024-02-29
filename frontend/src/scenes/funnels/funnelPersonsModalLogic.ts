@@ -1,6 +1,4 @@
 import { actions, connect, kea, key, listeners, path, props, selectors } from 'kea'
-import { FEATURE_FLAGS } from 'lib/constants'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
 import { funnelTitle } from 'scenes/trends/persons-modal/persons-modal-utils'
@@ -36,9 +34,7 @@ export const funnelPersonsModalLogic = kea<funnelPersonsModalLogicType>([
             insightLogic(props),
             ['isInDashboardContext', 'isInExperimentContext'],
             funnelDataLogic(props),
-            ['steps', 'querySource', 'funnelsFilter'],
-            featureFlagLogic,
-            ['featureFlags'],
+            ['hogQLInsightsFunnelsFlagEnabled', 'steps', 'querySource', 'funnelsFilter'],
         ],
     })),
 
@@ -82,12 +78,6 @@ export const funnelPersonsModalLogic = kea<funnelPersonsModalLogicType>([
                 return !isInDashboardContext && !funnelsFilter?.funnelAggregateByHogQL
             },
         ],
-        hogQLInsightsFunnelsFlagEnabled: [
-            (s) => [s.featureFlags],
-            (featureFlags): boolean => {
-                return !!featureFlags[FEATURE_FLAGS.HOGQL_INSIGHTS_FUNNELS]
-            },
-        ],
     }),
 
     listeners(({ values }) => ({
@@ -112,8 +102,9 @@ export const funnelPersonsModalLogic = kea<funnelPersonsModalLogicType>([
                     kind: NodeKind.InsightActorsQuery,
                     source: values.querySource!,
                     funnelStep: converted ? stepNo : -stepNo,
+                    includeRecordings: true,
                 }
-                openPersonsModal({ title, query })
+                openPersonsModal({ title, query, additionalSelect: { matched_recordings: 'matched_recordings' } })
             } else {
                 openPersonsModal({
                     url: generateBaselineConversionUrl(converted ? step.converted_people_url : step.dropped_people_url),
@@ -144,8 +135,9 @@ export const funnelPersonsModalLogic = kea<funnelPersonsModalLogicType>([
                     source: values.querySource!,
                     funnelStep: converted ? stepNo : -stepNo,
                     funnelStepBreakdown: series.breakdown_value,
+                    includeRecordings: true,
                 }
-                openPersonsModal({ title, query })
+                openPersonsModal({ title, query, additionalSelect: { matched_recordings: 'matched_recordings' } })
             } else {
                 openPersonsModal({
                     url: converted ? series.converted_people_url : series.dropped_people_url,
