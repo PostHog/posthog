@@ -695,43 +695,17 @@ class FunnelCorrelationQueryRunner(QueryRunner):
     @property
     def properties_to_include(self) -> List[str]:
         props_to_include = []
-        # if (
-        #     self._team.person_on_events_mode != PersonOnEventsMode.DISABLED
-        #     and self._filter.correlation_type == FunnelCorrelationResultsType.properties
-        # ):
-        #     # When dealing with properties, make sure funnel response comes with properties
-        #     # so we don't have to join on persons/groups to get these properties again
-        #     mat_event_cols = get_materialized_columns("events")
+        if self.query.funnelCorrelationType == FunnelCorrelationResultsType.properties:
+            # When dealing with properties, make sure funnel response comes with properties
+            # so we don't have to join on persons/groups to get these properties again
 
-        #     for property_name in cast(list, self._filter.correlation_property_names):
-        #         if self._filter.aggregation_group_type_index is not None:
-        #             if not groups_on_events_querying_enabled():
-        #                 continue
-
-        #             if "$all" == property_name:
-        #                 return [f"group{self._filter.aggregation_group_type_index}_properties"]
-
-        #             possible_mat_col = mat_event_cols.get(
-        #                 (
-        #                     property_name,
-        #                     f"group{self._filter.aggregation_group_type_index}_properties",
-        #                 )
-        #             )
-        #             if possible_mat_col is not None:
-        #                 props_to_include.append(possible_mat_col)
-        #             else:
-        #                 props_to_include.append(f"group{self._filter.aggregation_group_type_index}_properties")
-
-        #         else:
-        #             if "$all" == property_name:
-        #                 return [f"person_properties"]
-
-        #             possible_mat_col = mat_event_cols.get((property_name, "person_properties"))
-
-        #             if possible_mat_col is not None:
-        #                 props_to_include.append(possible_mat_col)
-        #             else:
-        #                 props_to_include.append(f"person_properties")
+            for property_name in cast(list, self.query.funnelCorrelationNames):
+                if self.funnels_query.aggregation_group_type_index is not None:
+                    if "$all" == property_name:
+                        return [f"group_{self.funnels_query.aggregation_group_type_index}.properties"]
+                else:
+                    if "$all" == property_name:
+                        return [f"person.properties"]
 
         return props_to_include
 
