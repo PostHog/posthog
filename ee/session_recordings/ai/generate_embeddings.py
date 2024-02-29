@@ -30,6 +30,7 @@ GENERATE_RECORDING_EMBEDDING_TIMING = Histogram(
 RECORDING_EMBEDDING_TOKEN_COUNT = Histogram(
     "posthog_session_recordings_recording_embedding_token_count",
     "Token count for individual recordings generated during embedding",
+    buckets=[0, 100, 500, 1000, 2000, 3000, 4000, 5000, 6000, 8000, 10000],
 )
 
 SESSION_SKIPPED_WHEN_GENERATING_EMBEDDINGS = Counter(
