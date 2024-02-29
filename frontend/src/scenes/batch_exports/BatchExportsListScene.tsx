@@ -5,6 +5,7 @@ import { PageHeader } from 'lib/components/PageHeader'
 import { LemonMenu, LemonMenuItems } from 'lib/lemon-ui/LemonMenu'
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
+import { userLogic } from 'scenes/userLogic'
 
 import { batchExportsListLogic } from './batchExportsListLogic'
 import { BatchExportRunIcon, BatchExportTag } from './components'
@@ -38,9 +39,12 @@ export function BatchExportsListScene(): JSX.Element {
 export function BatchExportsList(): JSX.Element {
     const { batchExportConfigs, batchExportConfigsLoading, pagination } = useValues(batchExportsListLogic)
     const { unpause, pause } = useActions(batchExportsListLogic)
+    const { user } = useValues(userLogic)
     const hasDataPipelines = showBatchExports()
 
-    const configs = batchExportConfigs?.results ?? []
+    const configs =
+        batchExportConfigs?.results.filter((config) => config.destination.type !== 'HTTP' || user?.is_impersonated) ??
+        []
 
     if (configs.length === 0 && !hasDataPipelines) {
         return <></>
