@@ -25,8 +25,6 @@ export const DataWarehouseTables = (): JSX.Element => {
     const { featureFlags } = useValues(featureFlagLogic)
     const { toggleJoinTableModal, selectSourceTable } = useActions(viewLinkLogic)
 
-    const joinsEnabled = !!featureFlags[FEATURE_FLAGS.DATA_WAREHOUSE_JOINS]
-
     const deleteButton = (selectedRow: DataWarehouseTableType | null): JSX.Element => {
         if (!selectedRow) {
             return <></>
@@ -120,17 +118,15 @@ export const DataWarehouseTables = (): JSX.Element => {
                             <h3>{selectedRow.name}</h3>
                             <div className="flex flex-row gap-2 justify-between">
                                 {deleteButton(selectedRow)}
-                                {joinsEnabled && (
-                                    <LemonButton
-                                        type="primary"
-                                        onClick={() => {
-                                            selectSourceTable(selectedRow.name)
-                                            toggleJoinTableModal()
-                                        }}
-                                    >
-                                        Add Join
-                                    </LemonButton>
-                                )}
+                                <LemonButton
+                                    type="primary"
+                                    onClick={() => {
+                                        selectSourceTable(selectedRow.name)
+                                        toggleJoinTableModal()
+                                    }}
+                                >
+                                    Add Join
+                                </LemonButton>
                                 <Link
                                     to={urls.insightNew(
                                         undefined,

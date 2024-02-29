@@ -36,14 +36,12 @@ export function DataWarehouseExternalScene(): JSX.Element {
     const { featureFlags } = useValues(featureFlagLogic)
     const { toggleNewJoinModal } = useActions(viewLinkLogic)
 
-    const joinsEnabled = !!featureFlags[FEATURE_FLAGS.DATA_WAREHOUSE_JOINS]
-
     return (
         <div>
             <PageHeader
                 buttons={
                     <>
-                        {(activeSceneTab === DataWarehouseSceneTab.Tables || !joinsEnabled) && (
+                        {activeSceneTab === DataWarehouseSceneTab.Tables && (
                             <>
                                 {featureFlags[FEATURE_FLAGS.DATA_WAREHOUSE] && (
                                     <LemonButton
@@ -66,7 +64,7 @@ export function DataWarehouseExternalScene(): JSX.Element {
                             </>
                         )}
 
-                        {joinsEnabled && activeSceneTab === DataWarehouseSceneTab.Joins && (
+                        {activeSceneTab === DataWarehouseSceneTab.Joins && (
                             <LemonButton
                                 type="primary"
                                 key="new-data-warehouse-join"
@@ -96,19 +94,16 @@ export function DataWarehouseExternalScene(): JSX.Element {
                     </div>
                 }
             />
-            {joinsEnabled ? (
-                <LemonTabs
-                    activeKey={activeSceneTab}
-                    onChange={(tab) => setSceneTab(tab as DataWarehouseSceneTab)}
-                    tabs={Object.values(TABS_TO_CONTENT).map((tab, index) => ({
-                        label: tab.label,
-                        key: Object.keys(TABS_TO_CONTENT)[index],
-                        content: tab.content,
-                    }))}
-                />
-            ) : (
-                <DataWarehouseTables />
-            )}
+
+            <LemonTabs
+                activeKey={activeSceneTab}
+                onChange={(tab) => setSceneTab(tab as DataWarehouseSceneTab)}
+                tabs={Object.values(TABS_TO_CONTENT).map((tab, index) => ({
+                    label: tab.label,
+                    key: Object.keys(TABS_TO_CONTENT)[index],
+                    content: tab.content,
+                }))}
+            />
         </div>
     )
 }
