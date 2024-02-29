@@ -470,7 +470,13 @@ export class SessionRecordingIngesterV3 {
                                 continue
                             }
 
-                            const etag = `W/${exists.mtimeMs.toString()}`
+                            // TODO: Test if this actually works...
+                            status.info('⚡️', `Found recording ${projectId}__${sessionId} in partition ${partition}`, {
+                                size: exists.size,
+                                mtimeMs: exists.mtimeMs,
+                            })
+
+                            const etag = `W/${exists.mtimeMs}-${exists.size}`
 
                             // Set a weak etag header so that subsequent requests can be short circuited
                             res.setHeader('ETag', etag)

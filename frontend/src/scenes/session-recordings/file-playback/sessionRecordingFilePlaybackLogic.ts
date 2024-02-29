@@ -149,7 +149,7 @@ export const sessionRecordingFilePlaybackLogic = kea<sessionRecordingFilePlaybac
                 )
             )
 
-            // TODO: Change to `receiveFilePlaybackData`
+            // Simulate a loaded source and sources so that nothing extra gets loaded
             dataLogic.actions.loadSnapshotsForSourceSuccess({
                 snapshots: snapshots,
                 untransformed_snapshots: snapshots,
