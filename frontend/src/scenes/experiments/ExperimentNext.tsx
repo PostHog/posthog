@@ -53,7 +53,7 @@ const Header = (): JSX.Element => {
 
 const StepInfo = (): JSX.Element => {
     const { experiment, props } = useValues(experimentLogic)
-    const { addExperimentGroup, removeExperimentGroup } = useActions(experimentLogic)
+    const { addExperimentGroup, removeExperimentGroup, touchExperimentField } = useActions(experimentLogic)
 
     return (
         <>
@@ -165,7 +165,16 @@ const StepInfo = (): JSX.Element => {
                         </div>
                     </div>
                 </div>
-                <LemonButton form="experiment-step" type="primary" htmlType="submit">
+                <LemonButton
+                    type="primary"
+                    onClick={() => {
+                        touchExperimentField('name')
+                        touchExperimentField('feature_flag_key')
+                        experiment.parameters.feature_flag_variants.forEach((_, i) =>
+                            touchExperimentField(`parameters.feature_flag_variants.${i}.key`)
+                        )
+                    }}
+                >
                     Continue
                 </LemonButton>
             </Form>
