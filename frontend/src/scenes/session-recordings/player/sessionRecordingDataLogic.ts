@@ -345,8 +345,6 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
                         throw new Error('Missing key')
                     }
 
-                    throw new Error('what')
-
                     const blobResponseType = source.source === SnapshotSourceType.blob || params.version === '3'
 
                     const response = blobResponseType
