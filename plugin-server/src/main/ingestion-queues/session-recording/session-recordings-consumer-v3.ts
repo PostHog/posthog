@@ -463,8 +463,11 @@ export class SessionRecordingIngesterV3 {
                         const partitions = await readdir(this.rootDir).catch(() => [])
 
                         for (const partition of partitions) {
-                            const sessionDir = this.dirForSession(parseInt(partition), projectId, sessionId)
-                            const exists = await stat(sessionDir).catch(() => null)
+                            const possibleBufferFile = path.join(
+                                this.dirForSession(parseInt(partition), projectId, sessionId),
+                                BUFFER_FILE_NAME
+                            )
+                            const exists = await stat(possibleBufferFile).catch(() => null)
 
                             if (!exists) {
                                 continue
@@ -486,7 +489,7 @@ export class SessionRecordingIngesterV3 {
                                 return
                             }
 
-                            const fileStream = createReadStream(path.join(sessionDir, BUFFER_FILE_NAME))
+                            const fileStream = createReadStream(possibleBufferFile)
                             fileStream.pipe(res)
                             status.info('⚡️', `Took ${Date.now() - startTime}ms to find the file`)
                             return
