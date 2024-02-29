@@ -31,11 +31,11 @@ SOURCE(CLICKHOUSE(
     QUERY 'SELECT team_id, distinct_id, argMax(person_id, version) AS person_id FROM {database}.person_distinct_id_overrides GROUP BY team_id, distinct_id'
 ))
 LAYOUT(complex_key_hashed())
-LIFETIME(MIN 0 MAX 0)
+LIFETIME(0)
 """
 
 RELOAD_DICTIONARY_QUERY = """
-SYSTEM RELOAD DICTIONARY {database}.{dictionary_name}
+SYSTEM RELOAD DICTIONARY {database}.{dictionary_name} ON CLUSTER {cluster_name}
 """
 
 SQUASH_EVENTS_QUERY = """
@@ -173,6 +173,7 @@ async def prepare_dictionary(inputs: QueryInputs) -> None:
                 RELOAD_DICTIONARY_QUERY.format(
                     database=settings.CLICKHOUSE_DATABASE,
                     dictionary_name=inputs.dictionary_name,
+                    cluster_name=settings.CLICKHOUSE_CLUSTER,
                 )
             )
 
