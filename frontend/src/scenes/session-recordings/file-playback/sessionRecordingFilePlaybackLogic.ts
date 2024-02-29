@@ -17,6 +17,7 @@ import {
     parseEncodedSnapshots,
     sessionRecordingDataLogic,
 } from '../player/sessionRecordingDataLogic'
+import { sessionRecordingDataLogicType } from '../player/sessionRecordingDataLogicType'
 import type { sessionRecordingFilePlaybackLogicType } from './sessionRecordingFilePlaybackLogicType'
 import { ExportedSessionRecordingFileV1, ExportedSessionRecordingFileV2 } from './types'
 
@@ -59,7 +60,7 @@ export const parseExportedSessionRecording = (fileData: string): ExportedSession
  * in practice, it will only wait for 1-2 retries
  * but a timeout is provided to avoid waiting forever when something breaks
  */
-const waitForDataLogic = async (playerKey: string): Promise<BuiltLogic<any>> => {
+const waitForDataLogic = async (playerKey: string): Promise<BuiltLogic<sessionRecordingDataLogicType>> => {
     const maxRetries = 20 // 2 seconds / 100 ms per retry
     let retries = 0
     let dataLogic = null
@@ -149,9 +150,7 @@ export const sessionRecordingFilePlaybackLogic = kea<sessionRecordingFilePlaybac
             )
 
             // TODO: Change to `receiveFilePlaybackData`
-            dataLogic.actions.loadRecordingSnapshotsSuccess({
-                snapshots,
-            })
+            dataLogic.actions.manuallySetSnapshots({ source: 'file' }, snapshots)
 
             dataLogic.actions.loadRecordingMetaSuccess({
                 id: values.sessionRecording.id,

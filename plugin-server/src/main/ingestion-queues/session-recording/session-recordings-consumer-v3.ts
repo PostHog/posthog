@@ -470,10 +470,10 @@ export class SessionRecordingIngesterV3 {
                                 continue
                             }
 
-                            const etag = exists.mtimeMs.toString()
+                            const etag = `W/${exists.mtimeMs.toString()}`
 
                             // Set a weak etag header so that subsequent requests can be short circuited
-                            res.setHeader('ETag', `W/${etag}`)
+                            res.setHeader('ETag', etag)
 
                             if (etag && ifNoneMatch === etag) {
                                 res.sendStatus(304)

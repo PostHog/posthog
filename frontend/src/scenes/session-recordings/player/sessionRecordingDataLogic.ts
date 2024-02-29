@@ -241,6 +241,10 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
         loadSnapshotSources: true,
         loadNextSnapshotSource: true,
         loadSnapshotsForSource: (source: Pick<SessionRecordingSnapshotSource, 'source' | 'blob_key'>) => ({ source }),
+        manuallySetSnapshots: (source: SessionRecordingSnapshotSource, snapshots: RecordingSnapshot[]) => ({
+            snapshots,
+            source,
+        }),
         loadEvents: true,
         loadFullEventData: (event: RecordingEventType) => ({ event }),
         reportViewed: true,
@@ -272,6 +276,16 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
                     return {
                         ...state,
                         [sourceKey]: snapshotsForSource,
+                    }
+                },
+                manuallySetSnapshots: (state, { source, snapshots }) => {
+                    const sourceKey = getSourceKey(source)
+                    return {
+                        ...state,
+                        [sourceKey]: {
+                            source,
+                            snapshots,
+                        },
                     }
                 },
             },
@@ -498,7 +512,7 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
                         values.featureFlags
                     )
 
-                    return { snapshots: transformed, untransformed_snapshots: untransformed ?? undefined, source, etag }
+                    return { snapshots: transformed, untransformed_snapshots: untransformed ?? undefined, source }
                 },
             },
         ],
