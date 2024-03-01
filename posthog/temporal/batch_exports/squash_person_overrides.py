@@ -50,6 +50,8 @@ IN PARTITION
 WHERE
     dictHas('{database}.{dictionary_name}', (team_id, distinct_id))
     {in_team_ids}
+SETTINGS
+    max_execution_time=0
 """
 
 SQUASH_MUTATIONS_IN_PROGRESS_QUERY = """
@@ -97,6 +99,8 @@ ALTER TABLE
 DELETE WHERE
     hasAll(joinGet('{database}.person_overrides_to_delete', 'partitions', team_id, distinct_id), %(partition_ids)s)
     AND NOW() - _timestamp > %(grace_period)s
+SETTINGS
+    max_execution_time=0
 """
 
 
