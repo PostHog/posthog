@@ -130,7 +130,6 @@ export const SimpleSessionRecordingsFilters = ({
                         <Configuration
                             properties={quickFilterProperties}
                             onChange={(value) => {
-                                setShowPropertySelector(false)
                                 setQuickFilterProperties(value)
                             }}
                         />
@@ -167,13 +166,14 @@ export const SimpleSessionRecordingsFilters = ({
     )
 }
 
-export const Configuration = ({
+const Configuration = ({
     properties,
     onChange,
 }: {
     properties: string[]
     onChange: (properties: string[]) => void
 }): JSX.Element => {
+    // const buttonRef = useRef<HTMLButtonElement>(null)
     const [showPropertySelector, setShowPropertySelector] = useState<boolean>(false)
 
     return (
@@ -201,9 +201,9 @@ export const Configuration = ({
                 overlay={
                     <TaxonomicFilter
                         onChange={(_, value) => {
-                            setShowPropertySelector(false)
                             properties.push(value as string)
                             onChange([...properties])
+                            setShowPropertySelector(false)
                         }}
                         taxonomicGroupTypes={[TaxonomicFilterGroupType.PersonProperties]}
                         excludedProperties={{ [TaxonomicFilterGroupType.PersonProperties]: properties }}

@@ -1,6 +1,5 @@
-import { actions, connect, kea, listeners, path, reducers, selectors } from 'kea'
+import { actions, kea, listeners, path, reducers, selectors } from 'kea'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
-import { teamLogic } from 'scenes/teamLogic'
 
 import { AutoplayDirection, DurationType, SessionRecordingPlayerTab } from '~/types'
 
@@ -187,9 +186,6 @@ export const playerSettingsLogic = kea<playerSettingsLogicType>([
         setPrefersAdvancedFilters: (prefersAdvancedFilters: boolean) => ({ prefersAdvancedFilters }),
         setQuickFilterProperties: (properties: string[]) => ({ properties }),
     }),
-    connect(() => ({
-        values: [teamLogic, ['currentTeam']],
-    })),
     reducers(() => ({
         showFilters: [
             true,
