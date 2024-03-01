@@ -128,19 +128,22 @@ export const PlanComparison = ({
                     to={
                         plan.contact_support
                             ? 'mailto:sales@posthog.com?subject=Enterprise%20plan%20request'
-                            : getUpgradeProductLink(product, plan.plan_key || '', redirectPath, includeAddons)
+                            : !plan.included_if
+                            ? getUpgradeProductLink(product, plan.plan_key || '', redirectPath, includeAddons)
+                            : undefined
                     }
                     type={plan.current_plan || i < currentPlanIndex ? 'secondary' : 'primary'}
                     status={plan.current_plan ? 'default' : 'alt'}
                     fullWidth
                     center
                     disableClientSideRouting={!plan.contact_support}
-                    disabled={plan.current_plan || plan.included_if == 'has_subscription'}
                     disabledReason={
-                        plan.included_if == 'has_subscription'
+                        plan.included_if == 'has_subscription' && i >= currentPlanIndex
                             ? billing?.has_active_subscription
                                 ? 'Unsubscribe from all products to remove'
                                 : 'Subscribe to any product for access'
+                            : plan.current_plan
+                            ? 'Current plan'
                             : undefined
                     }
                     onClick={() => {
