@@ -102,7 +102,10 @@ CREATE_TABLE_PERSON_DISTINCT_ID_OVERRIDES_JOIN_TO_DELETE = """
 CREATE OR REPLACE TABLE {database}.person_distinct_id_overrides_join_to_delete ON CLUSTER {cluster}
 ENGINE = Join(ANY, LEFT, team_id, distinct_id) AS
 SELECT
-    team_id, distinct_id, groupUniqArray(_partition_id) AS partitions
+    team_id,
+    distinct_id,
+    sum(person_id != joinGet('{database}.person_distinct_id_overrides_join', 'person_id', team_id, distinct_id)) AS total_not_override_person_id,
+    sum(person_id = joinGet('{database}.person_distinct_id_overrides_join', 'person_id', team_id, distinct_id)) AS total_override_person_id
 FROM
     {database}.sharded_events
 WHERE
@@ -110,6 +113,9 @@ WHERE
     AND ((length(%(team_ids)s) = 0) OR (team_id IN %(team_ids)s))
 GROUP BY
     team_id, distinct_id
+HAVING
+    total_not_override_person_id = 0
+    AND total_override_person_id > 0
 SETTINGS
     max_execution_time = 0,
     max_memory_usage = 0,
@@ -122,13 +128,16 @@ SETTINGS
     distributed_ddl_task_timeout = 0
 """
 
+# The two first where predicates are redundant as the join table already excludes any rows that don't match.
+# However, there is no 'joinHas', and with 'joinGet' we are forced to grab a value.
 SUBMIT_DELETE_PERSON_OVERRIDES = """
 ALTER TABLE
     {database}.person_distinct_id_overrides
 ON CLUSTER
     {cluster}
 DELETE WHERE
-    hasAll(joinGet('{database}.person_distinct_id_overrides_join_to_delete', 'partitions', team_id, distinct_id), %(partition_ids)s)
+    joinGet('{database}.person_overrides_to_delete', 'total_not_override_person_id', team_id, distinct_id) = 0
+    AND joinGet('{database}.person_overrides_to_delete', 'total_override_person_id', team_id, distinct_id) > 0
     AND ((now() - _timestamp) > %(grace_period)s)
     AND (joinGet('{database}.person_distinct_id_overrides_join', 'latest_version', team_id, distinct_id) >= version)
 SETTINGS

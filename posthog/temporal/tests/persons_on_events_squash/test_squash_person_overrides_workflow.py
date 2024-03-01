@@ -688,6 +688,33 @@ SETTINGS
     await assert_events_have_been_overriden(limited_events, person_overrides_data)
 
 
+async def create_overrides_join_table_helper(activity_environment, team_ids: list[int]) -> TableActivityInputs:
+    """Helper function to create overrides join table in test functions."""
+    await activity_environment.run(optimize_person_distinct_id_overrides, False)
+
+    join_table_inputs = TableActivityInputs(
+        name="person_distinct_id_overrides_join",
+        query_parameters={"team_ids": team_ids},
+        dry_run=False,
+    )
+
+    await activity_environment.run(create_table, join_table_inputs)
+    await activity_environment.run(wait_for_table, join_table_inputs)
+
+    return join_table_inputs
+
+
+async def run_squash_mutation_helper(activity_environment, partition_id: str, team_ids: list[str]) -> None:
+    """Helper function to run the Squash mutation in test functions."""
+    squash_mutation_activity_inputs = MutationActivityInputs(
+        name="update_events_with_person_overrides",
+        query_parameters={"partition_id": partition_id, "team_ids": team_ids},
+        dry_run=False,
+    )
+    await activity_environment.run(submit_mutation, squash_mutation_activity_inputs)
+    await activity_environment.run(wait_for_mutation, squash_mutation_activity_inputs)
+
+
 @pytest.mark.django_db
 async def test_delete_person_overrides_mutation(
     activity_environment, events_to_override, person_overrides_data, clickhouse_client
@@ -712,16 +739,8 @@ async def test_delete_person_overrides_mutation(
         "INSERT INTO person_distinct_id_overrides FORMAT JSONEachRow", not_overriden_person
     )
 
-    await activity_environment.run(optimize_person_distinct_id_overrides, False)
-
-    join_table_inputs = TableActivityInputs(
-        name="person_distinct_id_overrides_join",
-        query_parameters={"team_ids": []},
-        dry_run=False,
-    )
-
-    await activity_environment.run(create_table, join_table_inputs)
-    await activity_environment.run(wait_for_table, join_table_inputs)
+    await create_overrides_join_table_helper(activity_environment, [])
+    await run_squash_mutation_helper(activity_environment, "202001", [])
 
     delete_table_inputs = TableActivityInputs(
         name="person_distinct_id_overrides_join_to_delete",
@@ -770,6 +789,11 @@ SETTINGS
     assert UUID(row[2]) == not_overriden_person["person_id"]
 
     await activity_environment.run(drop_table, delete_table_inputs)
+    join_table_inputs = TableActivityInputs(
+        name="person_distinct_id_overrides_join",
+        query_parameters={"team_ids": []},
+        dry_run=False,
+    )
     await activity_environment.run(drop_table, join_table_inputs)
 
 
@@ -795,16 +819,8 @@ async def test_delete_person_overrides_mutation_within_grace_period(
         "INSERT INTO person_distinct_id_overrides FORMAT JSONEachRow", not_deleted_person
     )
 
-    await activity_environment.run(optimize_person_distinct_id_overrides, False)
-
-    join_table_inputs = TableActivityInputs(
-        name="person_distinct_id_overrides_join",
-        query_parameters={"team_ids": []},
-        dry_run=False,
-    )
-
-    await activity_environment.run(create_table, join_table_inputs)
-    await activity_environment.run(wait_for_table, join_table_inputs)
+    await create_overrides_join_table_helper(activity_environment, [])
+    await run_squash_mutation_helper(activity_environment, "202001", [])
 
     delete_table_inputs = TableActivityInputs(
         name="person_distinct_id_overrides_join_to_delete",
@@ -843,6 +859,11 @@ async def test_delete_person_overrides_mutation_within_grace_period(
     assert _timestamp == now.replace(microsecond=0)
 
     await activity_environment.run(drop_table, delete_table_inputs)
+    join_table_inputs = TableActivityInputs(
+        name="person_distinct_id_overrides_join",
+        query_parameters={"team_ids": []},
+        dry_run=False,
+    )
     await activity_environment.run(drop_table, join_table_inputs)
 
 
@@ -863,16 +884,8 @@ async def test_delete_squashed_person_overrides_from_clickhouse_dry_run(
         "INSERT INTO person_distinct_id_overrides FORMAT JSONEachRow", not_overriden_person
     )
 
-    await activity_environment.run(optimize_person_distinct_id_overrides, False)
-
-    join_table_inputs = TableActivityInputs(
-        name="person_distinct_id_overrides_join",
-        query_parameters={"team_ids": []},
-        dry_run=False,
-    )
-
-    await activity_environment.run(create_table, join_table_inputs)
-    await activity_environment.run(wait_for_table, join_table_inputs)
+    await create_overrides_join_table_helper(activity_environment, [])
+    await run_squash_mutation_helper(activity_environment, "202001", [])
 
     delete_table_inputs = TableActivityInputs(
         name="person_distinct_id_overrides_join_to_delete",
@@ -901,6 +914,11 @@ async def test_delete_squashed_person_overrides_from_clickhouse_dry_run(
     assert len(rows) == expected_persons_not_deleted
 
     await activity_environment.run(drop_table, delete_table_inputs)
+    join_table_inputs = TableActivityInputs(
+        name="person_distinct_id_overrides_join",
+        query_parameters={"team_ids": []},
+        dry_run=False,
+    )
     await activity_environment.run(drop_table, join_table_inputs)
 
 
