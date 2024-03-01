@@ -1,6 +1,7 @@
 # serializer version: 1
 # name: TestClickhouseSessionRecordingsListFromSessionReplay.test_effect_of_poe_settings_on_query_generated_0_test_poe_v1_still_falls_back_to_person_subquery
   '''
+  -- running in PoE Mode: v1_enabled
   
   SELECT s.session_id,
          any(s.team_id),
@@ -57,6 +58,7 @@
 # ---
 # name: TestClickhouseSessionRecordingsListFromSessionReplay.test_effect_of_poe_settings_on_query_generated_1_test_poe_being_unavailable_we_fall_back_to_person_subquery
   '''
+  -- running in PoE Mode: disabled
   
   SELECT s.session_id,
          any(s.team_id),
@@ -113,6 +115,7 @@
 # ---
 # name: TestClickhouseSessionRecordingsListFromSessionReplay.test_effect_of_poe_settings_on_query_generated_2_test_allow_denormalised_props_fix_does_not_stop_all_poe_processing
   '''
+  -- running in PoE Mode: v2_enabled
   
   SELECT s.session_id,
          any(s.team_id),
@@ -168,6 +171,7 @@
 # ---
 # name: TestClickhouseSessionRecordingsListFromSessionReplay.test_effect_of_poe_settings_on_query_generated_3_test_poe_v2_available_person_properties_are_used_in_replay_listing
   '''
+  -- running in PoE Mode: v2_enabled
   
   SELECT s.session_id,
          any(s.team_id),
