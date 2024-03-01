@@ -309,6 +309,8 @@ class TestClickhouseSessionRecordingsListFromSessionReplay(ClickhouseTestMixin, 
         # KLUDGE: and the parameterized.expand decorator at the same time, so we generate test case combos
         # KLUDGE: for materialization on and off to test both sides the way the decorator would have
         if materialize_person_props:
+            # it shouldn't matter to this test whether any column is materialized
+            # but let's keep the tests in this file similar so we flush out any unexpected interactions
             materialize("events", "email", table_column="person_properties")
             materialize("person", "email")
 
