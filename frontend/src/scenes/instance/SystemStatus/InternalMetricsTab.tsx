@@ -1,6 +1,4 @@
-import { LemonButton, LemonCheckbox } from '@posthog/lemon-ui'
-import { Table } from 'antd'
-import { ColumnsType } from 'antd/lib/table'
+import { LemonButton, LemonCheckbox, LemonTable, LemonTableColumns } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { IconRefresh } from 'lib/lemon-ui/icons'
 import { LemonCollapse } from 'lib/lemon-ui/LemonCollapse'
@@ -105,7 +103,7 @@ function QueryTable(props: {
     loading: boolean
     columnExtra?: Record<string, any>
 }): JSX.Element {
-    const columns: ColumnsType<QuerySummary> = [
+    const columns: LemonTableColumns<QuerySummary> = [
         {
             title: 'duration',
             dataIndex: 'duration',
@@ -131,15 +129,13 @@ function QueryTable(props: {
     }
 
     return (
-        <Table
+        <LemonTable
             dataSource={props.queries || []}
             columns={columns}
             loading={props.loading}
             pagination={{ pageSize: 30, hideOnSinglePage: true }}
             size="small"
-            bordered
-            style={{ overflowX: 'auto', overflowY: 'auto' }}
-            locale={{ emptyText: 'No queries found' }}
+            nouns={['query', 'queries']}
         />
     )
 }

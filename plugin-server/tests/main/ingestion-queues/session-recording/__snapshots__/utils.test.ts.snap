@@ -1,0 +1,140 @@
+// Jest Snapshot v1, https://goo.gl/fbAQLP
+
+exports[` 1`] = `
+Array [
+  Object {
+    "distinct_id": "1",
+    "eventsByWindowId": Object {
+      "window_1": Array [
+        Object {
+          "data": Object {},
+          "timestamp": 1,
+          "type": 1,
+        },
+        Object {
+          "data": Object {},
+          "timestamp": 2,
+          "type": 2,
+        },
+      ],
+      "window_2": Array [
+        Object {
+          "data": Object {},
+          "timestamp": 3,
+          "type": 3,
+        },
+      ],
+    },
+    "eventsRange": Object {
+      "end": 3,
+      "start": 1,
+    },
+    "metadata": Object {
+      "highOffset": 3,
+      "lowOffset": 1,
+      "partition": 1,
+      "timestamp": 1,
+      "topic": "the_topic",
+    },
+    "session_id": "1",
+    "snapshot_source": null,
+    "team_id": 1,
+  },
+  Object {
+    "distinct_id": "1",
+    "eventsByWindowId": Object {
+      "window_1": Array [
+        Object {
+          "data": Object {},
+          "timestamp": 4,
+          "type": 4,
+        },
+      ],
+    },
+    "eventsRange": Object {
+      "end": 4,
+      "start": 4,
+    },
+    "metadata": Object {
+      "highOffset": 4,
+      "lowOffset": 4,
+      "partition": 1,
+      "timestamp": 4,
+      "topic": "the_topic",
+    },
+    "session_id": "1",
+    "snapshot_source": null,
+    "team_id": 2,
+  },
+  Object {
+    "distinct_id": "1",
+    "eventsByWindowId": Object {
+      "window_1": Array [
+        Object {
+          "data": Object {},
+          "timestamp": 5,
+          "type": 5,
+        },
+      ],
+    },
+    "eventsRange": Object {
+      "end": 5,
+      "start": 5,
+    },
+    "metadata": Object {
+      "highOffset": 5,
+      "lowOffset": 5,
+      "partition": 1,
+      "timestamp": 5,
+      "topic": "the_topic",
+    },
+    "session_id": "2",
+    "snapshot_source": null,
+    "team_id": 1,
+  },
+]
+`;
+
+exports[`session-recording utils parsing the message can parse a message correctly 1`] = `
+Object {
+  "distinct_id": "my-distinct-id",
+  "eventsByWindowId": Object {
+    "018a47c2-2f4a-70a8-b480-5e52f5480448": Array [
+      Object {
+        "data": Object {
+          "payload": Object {
+            "level": "log",
+            "payload": Array [
+              "\\"Hedgehog: Will 'jump' for 2916.6666666666665ms\\"",
+            ],
+            "trace": Array [
+              "HedgehogActor.setAnimation (http://127.0.0.1:8000/static/toolbar.js?_ts=1693421010000:105543:17)",
+              "HedgehogActor.setRandomAnimation (http://127.0.0.1:8000/static/toolbar.js?_ts=1693421010000:105550:14)",
+              "HedgehogActor.update (http://127.0.0.1:8000/static/toolbar.js?_ts=1693421010000:105572:16)",
+              "loop (http://127.0.0.1:8000/static/toolbar.js?_ts=1693421010000:105754:15)",
+            ],
+          },
+          "plugin": "rrweb/console@1",
+        },
+        "timestamp": 1693422950693,
+        "type": 6,
+      },
+    ],
+  },
+  "eventsRange": Object {
+    "end": 1693422950693,
+    "start": 1693422950693,
+  },
+  "metadata": Object {
+    "consoleLogIngestionEnabled": false,
+    "highOffset": 1,
+    "lowOffset": 1,
+    "partition": 1,
+    "timestamp": 1,
+    "topic": "the_topic",
+  },
+  "session_id": "018a47c2-2f4a-70a8-b480-5e51d8b8d070",
+  "snapshot_source": undefined,
+  "team_id": 1,
+}
+`;

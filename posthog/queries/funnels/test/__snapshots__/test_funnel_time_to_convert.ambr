@@ -122,7 +122,8 @@
     (SELECT histogram_from_seconds + number * bin_width_seconds AS bin_from_seconds
      FROM system.numbers
      LIMIT ifNull(bin_count, 0) + 1) fill USING (bin_from_seconds)
-  ORDER BY bin_from_seconds
+  ORDER BY bin_from_seconds SETTINGS max_ast_elements=1000000,
+                                     max_expanded_ast_elements=1000000
   '''
 # ---
 # name: TestFunnelTimeToConvert.test_auto_bin_count_total
@@ -248,7 +249,8 @@
     (SELECT histogram_from_seconds + number * bin_width_seconds AS bin_from_seconds
      FROM system.numbers
      LIMIT ifNull(bin_count, 0) + 1) fill USING (bin_from_seconds)
-  ORDER BY bin_from_seconds
+  ORDER BY bin_from_seconds SETTINGS max_ast_elements=1000000,
+                                     max_expanded_ast_elements=1000000
   '''
 # ---
 # name: TestFunnelTimeToConvert.test_auto_bin_count_total.1
@@ -374,7 +376,8 @@
     (SELECT histogram_from_seconds + number * bin_width_seconds AS bin_from_seconds
      FROM system.numbers
      LIMIT ifNull(bin_count, 0) + 1) fill USING (bin_from_seconds)
-  ORDER BY bin_from_seconds
+  ORDER BY bin_from_seconds SETTINGS max_ast_elements=1000000,
+                                     max_expanded_ast_elements=1000000
   '''
 # ---
 # name: TestFunnelTimeToConvert.test_basic_strict
@@ -481,7 +484,8 @@
     (SELECT histogram_from_seconds + number * bin_width_seconds AS bin_from_seconds
      FROM system.numbers
      LIMIT ifNull(bin_count, 0) + 1) fill USING (bin_from_seconds)
-  ORDER BY bin_from_seconds
+  ORDER BY bin_from_seconds SETTINGS max_ast_elements=1000000,
+                                     max_expanded_ast_elements=1000000
   '''
 # ---
 # name: TestFunnelTimeToConvert.test_basic_unordered
@@ -690,6 +694,7 @@
     (SELECT histogram_from_seconds + number * bin_width_seconds AS bin_from_seconds
      FROM system.numbers
      LIMIT ifNull(bin_count, 0) + 1) fill USING (bin_from_seconds)
-  ORDER BY bin_from_seconds
+  ORDER BY bin_from_seconds SETTINGS max_ast_elements=1000000,
+                                     max_expanded_ast_elements=1000000
   '''
 # ---

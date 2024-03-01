@@ -10,6 +10,7 @@ import {
     BatchExportConfiguration,
     BatchExportDestination,
     BatchExportDestinationBigQuery,
+    BatchExportDestinationHTTP,
     BatchExportDestinationPostgres,
     BatchExportDestinationRedshift,
     BatchExportDestinationS3,
@@ -32,8 +33,9 @@ export type BatchExportConfigurationForm = Omit<
     Partial<BatchExportDestinationRedshift['config']> &
     Partial<BatchExportDestinationBigQuery['config']> &
     Partial<BatchExportDestinationS3['config']> &
-    Partial<BatchExportDestinationSnowflake['config']> & {
-        destination: 'S3' | 'Snowflake' | 'Postgres' | 'BigQuery' | 'Redshift'
+    Partial<BatchExportDestinationSnowflake['config']> &
+    Partial<BatchExportDestinationHTTP['config']> & {
+        destination: 'S3' | 'Snowflake' | 'Postgres' | 'BigQuery' | 'Redshift' | 'HTTP'
         start_at: Dayjs | null
         end_at: Dayjs | null
         json_config_file?: File[] | null
@@ -111,6 +113,13 @@ export const batchExportFormFields = (
                   include_events: '',
                   use_json_type: '',
               }
+            : destination === 'HTTP'
+            ? {
+                  url: !config.url ? 'This field is required' : '',
+                  token: !config.token ? 'This field is required' : '',
+                  exclude_events: '',
+                  include_events: '',
+              }
             : destination === 'Snowflake'
             ? {
                   account: !config.account ? 'This field is required' : '',
@@ -169,6 +178,11 @@ export const batchExportsEditLogic = kea<batchExportsEditLogicType>([
                               type: 'BigQuery',
                               config: config,
                           } as unknown as BatchExportDestinationBigQuery)
+                        : destination === 'HTTP'
+                        ? ({
+                              type: 'HTTP',
+                              config: config,
+                          } as unknown as BatchExportDestinationHTTP)
                         : ({
                               type: 'Snowflake',
                               config: config,

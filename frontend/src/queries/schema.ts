@@ -46,6 +46,7 @@ export enum NodeKind {
     // Data nodes
     EventsNode = 'EventsNode',
     ActionsNode = 'ActionsNode',
+    DataWarehouseNode = 'DataWarehouseNode',
     EventsQuery = 'EventsQuery',
     PersonsNode = 'PersonsNode',
     HogQLQuery = 'HogQLQuery',
@@ -110,6 +111,7 @@ export type QuerySchema =
     | EventsNode // never queried directly
     | ActionsNode // old actions API endpoint
     | PersonsNode // old persons API endpoint
+    | DataWarehouseNode
     | TimeToSeeDataSessionsQuery // old API
     | EventsQuery
     | ActorsQuery
@@ -364,12 +366,20 @@ export interface EventsNode extends EntityNode {
     }
 }
 
+export interface DataWarehouseNode extends EntityNode {
+    id: string
+    kind: NodeKind.DataWarehouseNode
+    id_field: string
+    table_name: string
+    timestamp_field: string
+}
+
 export interface ActionsNode extends EntityNode {
     kind: NodeKind.ActionsNode
     id: integer
 }
 
-export type AnyEntityNode = EventsNode | ActionsNode
+export type AnyEntityNode = EventsNode | ActionsNode | DataWarehouseNode
 
 export interface QueryTiming {
     /** Key. Shortened to 'k' to save on data. */

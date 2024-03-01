@@ -18,7 +18,7 @@ EPOCH = datetime(1970, 1, 1, 0, 0, tzinfo=timezone.utc)
 
 
 CREATE_DICTIONARY_QUERY = """
-CREATE OR REPLACE DICTIONARY {database}.{dictionary_name} ON CLUSTER {cluster_name} (
+CREATE OR REPLACE DICTIONARY {database}.{dictionary_name} ON CLUSTER {cluster} (
     `team_id` Int64,
     `distinct_id` String,
     `person_id` UUID
@@ -31,11 +31,11 @@ SOURCE(CLICKHOUSE(
     QUERY 'SELECT team_id, distinct_id, argMax(person_id, version) AS person_id FROM {database}.person_distinct_id_overrides GROUP BY team_id, distinct_id'
 ))
 LAYOUT(complex_key_hashed())
-LIFETIME(MIN 0 MAX 0)
+LIFETIME(0)
 """
 
 RELOAD_DICTIONARY_QUERY = """
-SYSTEM RELOAD DICTIONARY {database}.{dictionary_name}
+SYSTEM RELOAD DICTIONARY {database}.{dictionary_name} ON CLUSTER {cluster}
 """
 
 SQUASH_EVENTS_QUERY = """
@@ -50,6 +50,8 @@ IN PARTITION
 WHERE
     dictHas('{database}.{dictionary_name}', (team_id, distinct_id))
     {in_team_ids}
+SETTINGS
+    max_execution_time=0
 """
 
 SQUASH_MUTATIONS_IN_PROGRESS_QUERY = """
@@ -71,7 +73,7 @@ AND command LIKE
 """
 
 DROP_DICTIONARY_QUERY = """
-DROP DICTIONARY {database}.{dictionary_name};
+DROP DICTIONARY {database}.{dictionary_name} ON CLUSTER {cluster}
 """
 
 CREATE_JOIN_TABLE_FOR_DELETES_QUERY = """
@@ -97,6 +99,8 @@ ALTER TABLE
 DELETE WHERE
     hasAll(joinGet('{database}.person_overrides_to_delete', 'partitions', team_id, distinct_id), %(partition_ids)s)
     AND NOW() - _timestamp > %(grace_period)s
+SETTINGS
+    max_execution_time=0
 """
 
 
@@ -162,7 +166,7 @@ async def prepare_dictionary(inputs: QueryInputs) -> None:
                     dictionary_name=inputs.dictionary_name,
                     user=settings.CLICKHOUSE_USER,
                     password=settings.CLICKHOUSE_PASSWORD,
-                    cluster_name=settings.CLICKHOUSE_CLUSTER,
+                    cluster=settings.CLICKHOUSE_CLUSTER,
                 )
             )
             # ClickHouse may delay populating the dictionary until we read from it.
@@ -173,6 +177,7 @@ async def prepare_dictionary(inputs: QueryInputs) -> None:
                 RELOAD_DICTIONARY_QUERY.format(
                     database=settings.CLICKHOUSE_DATABASE,
                     dictionary_name=inputs.dictionary_name,
+                    cluster=settings.CLICKHOUSE_CLUSTER,
                 )
             )
 
@@ -189,6 +194,7 @@ async def drop_dictionary(inputs: QueryInputs) -> None:
             DROP_DICTIONARY_QUERY.format(
                 database=settings.CLICKHOUSE_DATABASE,
                 dictionary_name=inputs.dictionary_name,
+                cluster=settings.CLICKHOUSE_CLUSTER,
             )
         )
 
@@ -360,7 +366,7 @@ async def delete_squashed_person_overrides_from_clickhouse(inputs: QueryInputs) 
 
     async with heartbeat_every():
         async with get_client(mutations_sync=2) as clickhouse_client:
-            _ = await clickhouse_client.read_query(
+            await clickhouse_client.execute_query(
                 CREATE_JOIN_TABLE_FOR_DELETES_QUERY.format(
                     database=settings.CLICKHOUSE_DATABASE,
                     dictionary_name=inputs.dictionary_name,

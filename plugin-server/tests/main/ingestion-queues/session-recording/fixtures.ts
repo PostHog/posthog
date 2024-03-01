@@ -17,14 +17,21 @@ export function createIncomingRecordingMessage(
         team_id: 1,
         distinct_id: 'distinct_id',
         session_id: 'session_id_1',
-        window_id: 'window_id_1',
-        events: [{ ...jsonFullSnapshot }],
+        eventsByWindowId: {
+            window_id_1: [{ ...jsonFullSnapshot }],
+        },
+        eventsRange: {
+            start: jsonFullSnapshot.timestamp,
+            end: jsonFullSnapshot.timestamp,
+        },
+        snapshot_source: null,
         ...partialIncomingMessage,
 
         metadata: {
             topic: 'session_recording_events',
             partition: 1,
-            offset: 1,
+            lowOffset: 1,
+            highOffset: 1,
             timestamp: 1,
             ...partialIncomingMessage.metadata,
             ...partialMetadata,
