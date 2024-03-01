@@ -162,11 +162,13 @@ class ActorsQuery(EventQuery):
 
     def __init__(
         self,
+        team: Team,
         **kwargs,
     ):
-        person_on_events_mode = kwargs.get("team").person_on_events_mode
+        person_on_events_mode = team.person_on_events_mode
         super().__init__(
             **kwargs,
+            team=team,
             person_on_events_mode=person_on_events_mode,
         )
 
@@ -263,11 +265,13 @@ class SessionIdEventsQuery(EventQuery):
 
     def __init__(
         self,
+        team: Team,
         **kwargs,
     ):
-        person_on_events_mode = kwargs.get("team").person_on_events_mode
+        person_on_events_mode = team.person_on_events_mode
         super().__init__(
             **kwargs,
+            team=team,
             person_on_events_mode=person_on_events_mode,
         )
 
@@ -583,11 +587,13 @@ class SessionRecordingListFromReplaySummary(EventQuery):
 
     def __init__(
         self,
+        team=Team,
         **kwargs,
     ):
-        person_on_events_mode = kwargs.get("team").person_on_events_mode
+        person_on_events_mode = team.person_on_events_mode
         super().__init__(
             **kwargs,
+            team=team,
             person_on_events_mode=person_on_events_mode,
         )
 
