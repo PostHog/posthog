@@ -6,6 +6,7 @@ import path from 'path'
 import { KAFKA_SESSION_RECORDING_SNAPSHOT_ITEM_EVENTS } from '../../../config/kafka-topics'
 import { PipelineEvent, RawEventMessage, RRWebEvent } from '../../../types'
 import { status } from '../../../utils/status'
+import { cloneObject } from '../../../utils/utils'
 import { eventDroppedCounter } from '../metrics'
 import { TeamIDWithConfig } from './session-recordings-consumer'
 import { IncomingRecordingMessage, PersistedRecordingMessage } from './types'
@@ -253,7 +254,7 @@ export const reduceRecordingMessages = (messages: IncomingRecordingMessage[]): I
     const reducedMessages: Record<string, IncomingRecordingMessage> = {}
 
     for (const message of messages) {
-        const clonedMessage = { ...message }
+        const clonedMessage = cloneObject(message)
         const key = `${clonedMessage.team_id}-${clonedMessage.session_id}`
         if (!reducedMessages[key]) {
             reducedMessages[key] = clonedMessage
@@ -279,12 +280,11 @@ export const reduceRecordingMessages = (messages: IncomingRecordingMessage[]): I
             )
 
             // Update the events ranges
-            existingMessage.eventsRange.start =
-                minDefined(existingMessage.eventsRange.start, clonedMessage.eventsRange.start) ??
-                existingMessage.eventsRange.start
-            existingMessage.eventsRange.end =
-                minDefined(existingMessage.eventsRange.end, clonedMessage.eventsRange.end) ??
-                existingMessage.eventsRange.end
+            existingMessage.eventsRange.start = Math.min(
+                existingMessage.eventsRange.start,
+                clonedMessage.eventsRange.start
+            )
+            existingMessage.eventsRange.end = Math.max(existingMessage.eventsRange.end, clonedMessage.eventsRange.end)
         }
     }
 

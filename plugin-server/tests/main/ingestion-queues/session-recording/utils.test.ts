@@ -64,24 +64,25 @@ describe('session-recording utils', () => {
         } satisfies Message)
 
     describe('parsing the message', () => {
+        it('can parse a message correctly', async () => {
+            const parsedMessage = await parseKafkaMessage(validMessage('my-distinct-id'), () =>
+                Promise.resolve({ teamId: 1, consoleLogIngestionEnabled: false })
+            )
+            expect(parsedMessage).toMatchSnapshot()
+        })
         it('can handle numeric distinct_ids', async () => {
             const numericId = 12345
             const parsedMessage = await parseKafkaMessage(validMessage(numericId), () =>
                 Promise.resolve({ teamId: 1, consoleLogIngestionEnabled: false })
             )
-            expect(parsedMessage).toEqual({
+            expect(parsedMessage).toMatchObject({
                 distinct_id: String(numericId),
-                events: expect.any(Array),
+                eventsByWindowId: expect.any(Object),
                 metadata: {
-                    offset: 1,
-                    partition: 1,
-                    timestamp: 1,
-                    topic: 'the_topic',
                     consoleLogIngestionEnabled: false,
                 },
                 session_id: '018a47c2-2f4a-70a8-b480-5e51d8b8d070',
                 team_id: 1,
-                window_id: '018a47c2-2f4a-70a8-b480-5e52f5480448',
             })
         })
 
@@ -145,13 +146,15 @@ describe('session-recording utils', () => {
                 () => Promise.resolve({ teamId: 1, consoleLogIngestionEnabled: true })
             )
             expect(parsedMessage2).toMatchObject({
-                events: [
-                    {
-                        data: {},
-                        timestamp: 123,
-                        type: 6,
-                    },
-                ],
+                eventsByWindowId: {
+                    '018a47c2-2f4a-70a8-b480-5e52f5480448': [
+                        {
+                            data: {},
+                            timestamp: 123,
+                            type: 6,
+                        },
+                    ],
+                },
             })
 
             const parsedMessage3 = await parseKafkaMessage(createMessage([null]), () =>
@@ -252,65 +255,60 @@ describe('session-recording utils', () => {
             // Should merge
             {
                 distinct_id: '1',
-                events: [{ timestamp: 1, type: 1, data: {} }],
-                metadata: { offset: 1, partition: 1, timestamp: 1, topic: 'the_topic' },
+                eventsRange: { start: 1, end: 1 },
+                eventsByWindowId: { window_1: [{ timestamp: 1, type: 1, data: {} }] },
+                metadata: { lowOffset: 1, highOffset: 1, partition: 1, timestamp: 1, topic: 'the_topic' },
                 session_id: '1',
-                window_id: '1',
                 team_id: 1,
                 snapshot_source: null,
             },
             {
                 distinct_id: '1',
-                events: [{ timestamp: 2, type: 2, data: {} }],
-                metadata: { offset: 2, partition: 1, timestamp: 2, topic: 'the_topic' },
+                eventsRange: { start: 2, end: 2 },
+                eventsByWindowId: { window_1: [{ timestamp: 2, type: 2, data: {} }] },
+                metadata: { lowOffset: 2, highOffset: 2, partition: 1, timestamp: 2, topic: 'the_topic' },
                 session_id: '1',
-                window_id: '1',
+                team_id: 1,
+                snapshot_source: null,
+            },
+            // Different window_id but should still merge
+            {
+                distinct_id: '1',
+                eventsRange: { start: 3, end: 3 },
+                eventsByWindowId: { window_2: [{ timestamp: 3, type: 3, data: {} }] },
+                metadata: { lowOffset: 3, highOffset: 3, partition: 1, timestamp: 3, topic: 'the_topic' },
+                session_id: '1',
                 team_id: 1,
                 snapshot_source: null,
             },
             // different team
             {
                 distinct_id: '1',
-                events: [{ timestamp: 2, type: 2, data: {} }],
-                metadata: { offset: 2, partition: 1, timestamp: 2, topic: 'the_topic' },
+                eventsRange: { start: 4, end: 4 },
+                eventsByWindowId: { window_1: [{ timestamp: 4, type: 4, data: {} }] },
+                metadata: { lowOffset: 4, highOffset: 4, partition: 1, timestamp: 4, topic: 'the_topic' },
                 session_id: '1',
-                window_id: '1',
                 team_id: 2,
                 snapshot_source: null,
             },
             // Different session_id
             {
                 distinct_id: '1',
-                events: [{ timestamp: 3, type: 3, data: {} }],
-                metadata: { offset: 3, partition: 1, timestamp: 3, topic: 'the_topic' },
+                eventsRange: { start: 5, end: 5 },
+                eventsByWindowId: { window_1: [{ timestamp: 5, type: 5, data: {} }] },
+                metadata: { lowOffset: 5, highOffset: 5, partition: 1, timestamp: 5, topic: 'the_topic' },
                 session_id: '2',
-                window_id: '1',
-                team_id: 1,
-                snapshot_source: null,
-            },
-            // Different window_id
-            {
-                distinct_id: '1',
-                events: [{ timestamp: 4, type: 4, data: {} }],
-                metadata: { offset: 4, partition: 1, timestamp: 4, topic: 'the_topic' },
-                session_id: '2',
-                window_id: '2',
                 team_id: 1,
                 snapshot_source: null,
             },
         ]
 
         // Call it once already to make sure that it doesn't mutate the input
-        reduceRecordingMessages(messages)
-        expect(reduceRecordingMessages(messages)).toEqual([
-            {
-                ...messages[0],
-                events: [...messages[0].events, ...messages[1].events],
-            },
-            messages[2],
-            messages[3],
-            messages[4],
-        ])
+        expect(reduceRecordingMessages(messages)).toHaveLength(3)
+        const reduced = reduceRecordingMessages(messages)
+        expect(reduceRecordingMessages(messages)).toMatchSnapshot()
+        expect(reduced[0].eventsRange).toEqual({ start: 1, end: 3 })
+        expect(reduced[0].metadata).toMatchObject({ lowOffset: 1, highOffset: 3 })
     })
 
     describe('allSettledWithConcurrency', () => {
