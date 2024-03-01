@@ -99,6 +99,8 @@ ALTER TABLE
 DELETE WHERE
     hasAll(joinGet('{database}.person_overrides_to_delete', 'partitions', team_id, distinct_id), %(partition_ids)s)
     AND NOW() - _timestamp > %(grace_period)s
+ON CLUSTER
+    {cluster}
 SETTINGS
     max_execution_time=0
 """
