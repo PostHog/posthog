@@ -289,7 +289,11 @@ class SessionIdEventsQuery(EventQuery):
             > 0
         )
 
-        return filters_by_event_or_action or has_event_property_filters or has_poe_filters
+        has_poe_person_filter = (
+            self._team.person_on_events_mode == PersonOnEventsMode.V2_ENABLED and self._filter.person_uuid
+        )
+
+        return filters_by_event_or_action or has_event_property_filters or has_poe_filters or has_poe_person_filter
 
     def __init__(
         self,
@@ -394,10 +398,19 @@ class SessionIdEventsQuery(EventQuery):
                 -- select the unique events in this session to support filtering sessions by presence of an event
                     groupUniqArray(event) as event_names,"""
 
+        if self._team.person_on_events_mode == PersonOnEventsMode.V2_ENABLED:
+            person_id_clause, person_id_params = self._get_person_id_clause
+            condition_sql += person_id_clause
+            params = {**params, **person_id_params}
+
+        condition_sql = (
+            f" AND {condition_sql}" if condition_sql and not condition_sql.startswith("AND") else condition_sql
+        )
+
         return SummaryEventFiltersSQL(
             having_conditions=having_conditions,
             having_select=having_select,
-            where_conditions=f"AND {condition_sql}" if condition_sql else "",
+            where_conditions=f"{condition_sql}" if condition_sql else "",
             params=params,
         )
 

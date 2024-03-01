@@ -4,7 +4,6 @@ from uuid import uuid4
 
 from dateutil.relativedelta import relativedelta
 from django.utils.timezone import now
-from freezegun import freeze_time
 from parameterized import parameterized
 
 from ee.clickhouse.materialized_columns.columns import materialize
@@ -26,7 +25,6 @@ from posthog.test.base import (
 from posthog.utils import PersonOnEventsMode
 
 
-@freeze_time("2021-01-01T13:46:23")
 class TestClickhouseSessionRecordingsListFromSessionReplay(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
     def tearDown(self) -> None:
         sync_execute(TRUNCATE_SESSION_REPLAY_EVENTS_TABLE_SQL())
@@ -206,34 +204,14 @@ class TestClickhouseSessionRecordingsListFromSessionReplay(ClickhouseTestMixin, 
             Person.objects.create(team=self.team, distinct_ids=[user_one], properties={"email": "bla"})
             Person.objects.create(team=self.team, distinct_ids=[user_two], properties={"email": "bla2"})
 
-            self.create_event(
-                user_one,
-                self.base_time,
-                properties={"$session_id": session_id_one, "$window_id": str(uuid4())},
-            )
-            produce_replay_summary(
-                distinct_id=user_one,
-                session_id=session_id_one,
-                first_timestamp=self.base_time,
-                team_id=self.team.id,
-            )
+            self.add_replay_with_pageview(session_id_one, user_one)
             produce_replay_summary(
                 distinct_id=user_one,
                 session_id=session_id_one,
                 first_timestamp=(self.base_time + relativedelta(seconds=30)),
                 team_id=self.team.id,
             )
-            self.create_event(
-                user_two,
-                self.base_time,
-                properties={"$session_id": session_id_two, "$window_id": str(uuid4())},
-            )
-            produce_replay_summary(
-                distinct_id=user_two,
-                session_id=session_id_two,
-                first_timestamp=self.base_time,
-                team_id=self.team.id,
-            )
+            self.add_replay_with_pageview(session_id_two, user_two)
             produce_replay_summary(
                 distinct_id=user_two,
                 session_id=session_id_two,
@@ -302,34 +280,14 @@ class TestClickhouseSessionRecordingsListFromSessionReplay(ClickhouseTestMixin, 
             Person.objects.create(team=self.team, distinct_ids=[user_one], properties={"email": "bla"})
             Person.objects.create(team=self.team, distinct_ids=[user_two], properties={"email": "bla2"})
 
-            self.create_event(
-                user_one,
-                self.base_time,
-                properties={"$session_id": session_id_one, "$window_id": str(uuid4())},
-            )
-            produce_replay_summary(
-                distinct_id=user_one,
-                session_id=session_id_one,
-                first_timestamp=self.base_time,
-                team_id=self.team.id,
-            )
+            self.add_replay_with_pageview(session_id_one, user_one)
             produce_replay_summary(
                 distinct_id=user_one,
                 session_id=session_id_one,
                 first_timestamp=(self.base_time + relativedelta(seconds=30)),
                 team_id=self.team.id,
             )
-            self.create_event(
-                user_two,
-                self.base_time,
-                properties={"$session_id": session_id_two, "$window_id": str(uuid4())},
-            )
-            produce_replay_summary(
-                distinct_id=user_two,
-                session_id=session_id_two,
-                first_timestamp=self.base_time,
-                team_id=self.team.id,
-            )
+            self.add_replay_with_pageview(session_id_two, user_two)
             produce_replay_summary(
                 distinct_id=user_two,
                 session_id=session_id_two,
@@ -370,3 +328,87 @@ class TestClickhouseSessionRecordingsListFromSessionReplay(ClickhouseTestMixin, 
 
             assert len(session_recordings) == 1
             assert session_recordings[0]["session_id"] == session_id_one
+
+    def add_replay_with_pageview(self, session_id: str, user_one):
+        self.create_event(
+            user_one,
+            self.base_time,
+            properties={"$session_id": session_id, "$window_id": str(uuid4())},
+        )
+        produce_replay_summary(
+            distinct_id=user_one,
+            session_id=session_id,
+            first_timestamp=self.base_time,
+            team_id=self.team.id,
+        )
+
+    @parameterized.expand(
+        [
+            ["poe and materialized columns allowed", True, True],
+            # ["poe and materialized columns off", True, False],
+            # ["poe off and materialized columns allowed", False, True],
+            # ["neither poe nor materialized columns", False, False],
+        ]
+    )
+    @snapshot_clickhouse_queries
+    def test_person_id_filter_not_materialized(
+        self, _name: str, poe2_enabled: bool, allow_denormalised_props: bool
+    ) -> None:
+        # KLUDGE: I couldn't figure out how to use @also_test_with_materialized_columns(person_properties=["email"])
+        # KLUDGE: and the parameterized.expand decorator at the same time,
+        # KLUDGE: so I'm manually duplicating and not materializing here
+
+        with self.settings(
+            PERSON_ON_EVENTS_V2_OVERRIDE=poe2_enabled, ALLOW_DENORMALIZED_PROPS_IN_LISTING=allow_denormalised_props
+        ):
+            three_user_ids = ["person-1-distinct-1", "person-1-distinct-2", "person-2"]
+            session_id_one = f"test_person_id_filter-session-one"
+            session_id_two = f"test_person_id_filter-session-two"
+            session_id_three = f"test_person_id_filter-session-three"
+
+            p = Person.objects.create(
+                team=self.team,
+                distinct_ids=[three_user_ids[0], three_user_ids[1]],
+                properties={"email": "bla"},
+            )
+            Person.objects.create(
+                team=self.team,
+                distinct_ids=[three_user_ids[2]],
+                properties={"email": "bla2"},
+            )
+
+            self.create_event(
+                three_user_ids[0],
+                self.base_time,
+                properties={"$session_id": session_id_one, "$window_id": str(uuid4())},
+            )
+            produce_replay_summary(
+                distinct_id=three_user_ids[0],
+                session_id=session_id_one,
+                team_id=self.team.id,
+            )
+            self.create_event(
+                three_user_ids[1],
+                self.base_time,
+                properties={"$session_id": session_id_two, "$window_id": str(uuid4())},
+            )
+            produce_replay_summary(
+                distinct_id=three_user_ids[1],
+                session_id=session_id_two,
+                team_id=self.team.id,
+            )
+            self.create_event(
+                three_user_ids[2],
+                self.base_time,
+                properties={"$session_id": session_id_three, "$window_id": str(uuid4())},
+            )
+            produce_replay_summary(
+                distinct_id=three_user_ids[2],
+                session_id=session_id_three,
+                team_id=self.team.id,
+            )
+
+            filter = SessionRecordingsFilter(team=self.team, data={"person_uuid": str(p.uuid)})
+            session_recording_list_instance = SessionRecordingListFromReplaySummary(filter=filter, team=self.team)
+            (session_recordings, _) = session_recording_list_instance.run()
+            assert sorted([r["session_id"] for r in session_recordings]) == sorted([session_id_two, session_id_one])
