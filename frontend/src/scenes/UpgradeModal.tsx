@@ -3,7 +3,9 @@ import { useActions, useValues } from 'kea'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { capitalizeFirstLetter } from 'lib/utils'
+import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import posthog from 'posthog-js'
+import { useEffect } from 'react'
 
 import { billingLogic } from './billing/billingLogic'
 import { sceneLogic } from './sceneLogic'
@@ -16,6 +18,12 @@ export function UpgradeModal(): JSX.Element {
     const [featureName, featureCaption] = upgradeModalFeatureNameAndCaption ?? []
     const { featureFlags } = useValues(featureFlagLogic)
     const { billing } = useValues(billingLogic)
+
+    const { reportSubscriptionStatus } = useActions(eventUsageLogic)
+
+    useEffect(() => {
+        reportSubscriptionStatus(billing?.has_active_subscription || false)
+    }, [])
 
     return (
         <LemonModal

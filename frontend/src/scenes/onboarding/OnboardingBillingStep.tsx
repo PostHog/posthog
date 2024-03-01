@@ -6,7 +6,7 @@ import { IconCheckCircleOutline } from 'lib/lemon-ui/icons'
 import { Spinner } from 'lib/lemon-ui/Spinner'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { getUpgradeProductLink } from 'scenes/billing/billing-utils'
 import { BillingHero } from 'scenes/billing/BillingHero'
 import { billingLogic } from 'scenes/billing/billingLogic'
@@ -28,12 +28,16 @@ export const OnboardingBillingStep = ({
     const { billing, redirectPath } = useValues(billingLogic)
     const { productKey } = useValues(onboardingLogic)
     const { currentAndUpgradePlans } = useValues(billingProductLogic({ product }))
-    const { reportBillingUpgradeClicked } = useActions(eventUsageLogic)
+    const { reportBillingUpgradeClicked, reportSubscriptionStatus } = useActions(eventUsageLogic)
     const plan = currentAndUpgradePlans?.upgradePlan
     const currentPlan = currentAndUpgradePlans?.currentPlan
     const { featureFlags } = useValues(featureFlagLogic)
 
     const [showPlanComp, setShowPlanComp] = useState(false)
+
+    useEffect(() => {
+        reportSubscriptionStatus(billing?.has_active_subscription || false)
+    }, [])
 
     return (
         <OnboardingStep

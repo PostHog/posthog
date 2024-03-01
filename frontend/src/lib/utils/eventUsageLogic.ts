@@ -507,8 +507,14 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
         reportCommandBarSearchResultOpened: (type: ResultType) => ({ type }),
         reportCommandBarActionSearch: (query: string) => ({ query }),
         reportCommandBarActionResultExecuted: (resultDisplay) => ({ resultDisplay }),
+        reportSubscriptionStatus: (hasActiveSubscription: boolean) => ({ hasActiveSubscription }),
     }),
     listeners(({ values }) => ({
+        reportSubscriptionStatus: ({ hasActiveSubscription }) => {
+            posthog.capture('report subscription status', {
+                has_active_subscription: hasActiveSubscription,
+            })
+        },
         reportAxisUnitsChanged: (properties) => {
             posthog.capture('axis units changed', properties)
         },

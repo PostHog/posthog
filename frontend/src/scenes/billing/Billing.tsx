@@ -18,6 +18,7 @@ import { LemonLabel } from 'lib/lemon-ui/LemonLabel/LemonLabel'
 import { SpinnerOverlay } from 'lib/lemon-ui/Spinner/Spinner'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { useEffect } from 'react'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { SceneExport } from 'scenes/sceneTypes'
@@ -52,6 +53,7 @@ export function Billing(): JSX.Element {
     const { preflight, isCloudOrDev } = useValues(preflightLogic)
     const { openSupportForm } = useActions(supportLogic)
     const { featureFlags } = useValues(featureFlagLogic)
+    const { reportSubscriptionStatus } = useActions(eventUsageLogic)
 
     if (preflight && !isCloudOrDev) {
         router.actions.push(urls.default())
@@ -135,6 +137,10 @@ export function Billing(): JSX.Element {
     }
 
     const upgradeAllProductsLink = getUpgradeAllProductsLink()
+
+    useEffect(() => {
+        reportSubscriptionStatus(billing?.has_active_subscription || false)
+    }, [])
 
     return (
         <div ref={ref}>
