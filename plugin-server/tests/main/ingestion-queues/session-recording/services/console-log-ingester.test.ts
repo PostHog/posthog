@@ -17,9 +17,11 @@ const makeIncomingMessage = (
 ): IncomingRecordingMessage => {
     return {
         distinct_id: '',
-        events: data.map((d) => ({ type: 6, timestamp: 0, data: { ...d } })),
+        eventsRange: { start: 0, end: 0 },
+        eventsByWindowId: { window_id: data.map((d) => ({ type: 6, timestamp: 0, data: { ...d } })) },
         metadata: {
-            offset: 0,
+            lowOffset: 0,
+            highOffset: 0,
             partition: 0,
             topic: 'topic',
             timestamp: 0,
