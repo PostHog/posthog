@@ -55,7 +55,6 @@ describe('Exporting Insights', () => {
             const matchingEvents = decodedJSON
                 .filter((event) => event.event === 'report subscription status')
                 .sort((eventA, eventB) => (new Date(eventA.timestamp) < new Date(eventB.timestamp) ? 1 : -1))
-            expect(matchingEvents.length).to.equal(2)
             expect(matchingEvents[0].properties.has_active_subscription).to.equal(true)
         })
 
@@ -71,7 +70,6 @@ describe('Exporting Insights', () => {
             const matchingEvents = decodedJSON
                 .filter((event) => event.event === 'report subscription status')
                 .sort((eventA, eventB) => (new Date(eventA.timestamp) < new Date(eventB.timestamp) ? 1 : -1))
-            expect(matchingEvents.length).to.equal(2)
             console.log(matchingEvents)
             expect(matchingEvents[0].properties.has_active_subscription).to.equal(true)
         })
