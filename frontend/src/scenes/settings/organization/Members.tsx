@@ -281,7 +281,7 @@ export function Members(): JSX.Element | null {
                 <LemonSwitch
                     label="Enforce 2FA"
                     bordered
-                    checked={currentOrganization?.enforce_2fa ? true : false}
+                    checked={currentOrganization?.enforce_2fa}
                     onChange={(enforce_2fa) => updateOrganization({ enforce_2fa })}
                 />
             </PayGateMini>
