@@ -92,7 +92,13 @@ export class ConsoleLogsIngester {
         }
 
         if (this.persistentHighWaterMarker) {
-            const topicPartitionOffsets = findOffsetsToCommit(messages.map((message) => message.metadata))
+            const topicPartitionOffsets = findOffsetsToCommit(
+                messages.map((message) => ({
+                    topic: message.metadata.topic,
+                    partition: message.metadata.partition,
+                    offset: message.metadata.highOffset,
+                }))
+            )
             await Promise.all(
                 topicPartitionOffsets.map((tpo) =>
                     this.persistentHighWaterMarker!.add(tpo, HIGH_WATERMARK_KEY, tpo.offset)
@@ -121,14 +127,16 @@ export class ConsoleLogsIngester {
             await this.persistentHighWaterMarker?.isBelowHighWaterMark(
                 event.metadata,
                 HIGH_WATERMARK_KEY,
-                event.metadata.offset
+                event.metadata.highOffset
             )
         ) {
             return drop('high_water_mark')
         }
 
+        const rrwebEvents = Object.values(event.eventsByWindowId).reduce((acc, val) => acc.concat(val), [])
+
         // cheapest possible check for any console logs to avoid parsing the events because...
-        const hasAnyConsoleLogs = event.events.some(
+        const hasAnyConsoleLogs = rrwebEvents.some(
             (e) => !!e && e.type === RRWebEventType.Plugin && e.data?.plugin === 'rrweb/console@1'
         )
 
@@ -145,7 +153,7 @@ export class ConsoleLogsIngester {
 
         try {
             const consoleLogEvents = deduplicateConsoleLogEvents(
-                gatherConsoleLogEvents(event.team_id, event.session_id, event.events)
+                gatherConsoleLogEvents(event.team_id, event.session_id, rrwebEvents)
             )
             consoleLogEventsCounter.inc(consoleLogEvents.length)
 

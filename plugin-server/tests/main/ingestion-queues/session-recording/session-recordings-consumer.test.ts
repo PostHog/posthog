@@ -384,8 +384,6 @@ describe('ingester', () => {
             await commitAllOffsets()
             expect(mockConsumer.commit).toHaveBeenCalledTimes(1)
 
-            // sid1 should be watermarked up until the 3rd message as it HAS been processed
-            await expect(getSessionWaterMarks()).resolves.toEqual({ sid1: 3 })
             // all replay events should be watermarked up until the 3rd message as they HAVE been processed
             // whereas the commited kafka offset should be the 1st message as the 2nd message HAS not been processed
             await expect(getPersistentWaterMarks()).resolves.toEqual({
@@ -393,6 +391,8 @@ describe('ingester', () => {
                 session_replay_console_logs_events_ingester: 3,
                 session_replay_events_ingester: 3,
             })
+            // sid1 should be watermarked up until the 3rd message as it HAS been processed
+            await expect(getSessionWaterMarks()).resolves.toEqual({ sid1: 3 })
         })
 
         it('should drop events that are higher than the watermarks', async () => {

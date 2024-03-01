@@ -239,19 +239,18 @@ export class SessionRecordingIngester {
         const { team_id, session_id } = event
         const key = `${team_id}-${session_id}`
 
-        const { offset, partition } = event.metadata
+        const { partition, highOffset } = event.metadata
         if (this.debugPartition === partition) {
-            status.info('🔁', '[blob_ingester_consumer] - [PARTITION DEBUG] - consuming event', {
-                team_id,
-                session_id,
-                partition,
-                offset,
-            })
+            status.info('🔁', '[blob_ingester_consumer] - [PARTITION DEBUG] - consuming event', event.metadata)
         }
 
         // Check that we are not below the high-water mark for this partition (another consumer may have flushed further than us when revoking)
         if (
-            await this.persistentHighWaterMarker.isBelowHighWaterMark(event.metadata, KAFKA_CONSUMER_GROUP_ID, offset)
+            await this.persistentHighWaterMarker.isBelowHighWaterMark(
+                event.metadata,
+                KAFKA_CONSUMER_GROUP_ID,
+                highOffset
+            )
         ) {
             eventDroppedCounter
                 .labels({
@@ -263,7 +262,7 @@ export class SessionRecordingIngester {
             return
         }
 
-        if (await this.sessionHighWaterMarker.isBelowHighWaterMark(event.metadata, session_id, offset)) {
+        if (await this.sessionHighWaterMarker.isBelowHighWaterMark(event.metadata, session_id, highOffset)) {
             eventDroppedCounter
                 .labels({
                     event_type: 'session_recordings_blob_ingestion',
@@ -311,6 +310,7 @@ export class SessionRecordingIngester {
                 await runInstrumentedFunction({
                     statsKey: `recordingingester.handleEachBatch.parseKafkaMessages`,
                     func: async () => {
+                        const parsedMessages: IncomingRecordingMessage[] = []
                         for (const message of messages) {
                             const { partition, offset, timestamp } = message
 
@@ -332,11 +332,17 @@ export class SessionRecordingIngester {
                             )
 
                             if (recordingMessage) {
-                                recordingMessages.push(recordingMessage)
+                                parsedMessages.push(recordingMessage)
                             }
                         }
 
-                        recordingMessages = reduceRecordingMessages(recordingMessages)
+                        recordingMessages = reduceRecordingMessages(parsedMessages)
+
+                        // TODO: Track metric for how many messages we reduced
+                        status.info('🔁', `blob_ingester_consumer - reduced batch`, {
+                            originalSize: messages.length,
+                            reducedSize: recordingMessages.length,
+                        })
                     },
                 })
                 heartbeat()
