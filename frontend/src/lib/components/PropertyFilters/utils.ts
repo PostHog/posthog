@@ -9,6 +9,7 @@ import {
     AnyPropertyFilter,
     CohortPropertyFilter,
     CohortType,
+    DataWarehousePropertyFilter,
     ElementPropertyFilter,
     EmptyPropertyFilter,
     EventDefinition,
@@ -198,6 +199,9 @@ export function isRecordingDurationFilter(filter?: AnyFilterLike | null): filter
 export function isGroupPropertyFilter(filter?: AnyFilterLike | null): filter is GroupPropertyFilter {
     return filter?.type === PropertyFilterType.Group
 }
+export function isDataWarehousePropertyFilter(filter?: AnyFilterLike | null): filter is DataWarehousePropertyFilter {
+    return filter?.type === PropertyFilterType.DataWarehouse
+}
 export function isFeaturePropertyFilter(filter?: AnyFilterLike | null): filter is FeaturePropertyFilter {
     return filter?.type === PropertyFilterType.Feature
 }
@@ -227,7 +231,8 @@ export function isPropertyFilterWithOperator(
     | SessionPropertyFilter
     | RecordingDurationFilter
     | FeaturePropertyFilter
-    | GroupPropertyFilter {
+    | GroupPropertyFilter
+    | DataWarehousePropertyFilter {
     return (
         !isPropertyGroupFilterLike(filter) &&
         (isEventPropertyFilter(filter) ||
@@ -236,7 +241,8 @@ export function isPropertyFilterWithOperator(
             isSessionPropertyFilter(filter) ||
             isRecordingDurationFilter(filter) ||
             isFeaturePropertyFilter(filter) ||
-            isGroupPropertyFilter(filter))
+            isGroupPropertyFilter(filter) ||
+            isDataWarehousePropertyFilter(filter))
     )
 }
 
