@@ -8,7 +8,6 @@ import { timeoutGuard } from '../../../../utils/db/utils'
 import { status } from '../../../../utils/status'
 import { createRedis } from '../../../../utils/utils'
 import { IncomingRecordingMessage } from '../types'
-import { convertToPersistedMessage } from '../utils'
 
 const Keys = {
     snapshots(prefix: string, teamId: number, suffix: string): string {
