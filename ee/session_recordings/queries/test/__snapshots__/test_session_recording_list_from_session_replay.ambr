@@ -239,9 +239,9 @@
          sum(s.console_error_count) as console_error_count
   FROM session_replay_events s
   WHERE s.team_id = 2
-    AND s.min_first_timestamp >= '2024-02-09 11:43:17'
+    AND s.min_first_timestamp >= '2024-02-09 11:47:56'
     AND s.min_first_timestamp >= '2024-02-23 00:00:00'
-    AND s.max_last_timestamp <= '2024-03-01 11:43:17'
+    AND s.max_last_timestamp <= '2024-03-01 11:47:56'
   GROUP BY session_id
   HAVING 1=1
   ORDER BY start_time DESC
@@ -269,9 +269,9 @@
          sum(s.console_error_count) as console_error_count
   FROM session_replay_events s
   WHERE s.team_id = 2
-    AND s.min_first_timestamp >= '2024-02-09 11:43:18'
+    AND s.min_first_timestamp >= '2024-02-09 11:47:56'
     AND s.min_first_timestamp >= '2024-02-23 00:00:00'
-    AND s.max_last_timestamp <= '2024-03-01 11:43:18'
+    AND s.max_last_timestamp <= '2024-03-01 11:47:56'
     AND s.distinct_id in
       (select distinct_id
        from
@@ -320,9 +320,9 @@
          sum(s.console_error_count) as console_error_count
   FROM session_replay_events s
   WHERE s.team_id = 2
-    AND s.min_first_timestamp >= '2024-02-09 11:43:18'
+    AND s.min_first_timestamp >= '2024-02-09 11:47:56'
     AND s.min_first_timestamp >= '2024-02-23 00:00:00'
-    AND s.max_last_timestamp <= '2024-03-01 11:43:18'
+    AND s.max_last_timestamp <= '2024-03-01 11:47:56'
   GROUP BY session_id
   HAVING 1=1
   ORDER BY start_time DESC
@@ -350,9 +350,9 @@
          sum(s.console_error_count) as console_error_count
   FROM session_replay_events s
   WHERE s.team_id = 2
-    AND s.min_first_timestamp >= '2024-02-09 11:43:18'
+    AND s.min_first_timestamp >= '2024-02-09 11:47:57'
     AND s.min_first_timestamp >= '2024-02-23 00:00:00'
-    AND s.max_last_timestamp <= '2024-03-01 11:43:18'
+    AND s.max_last_timestamp <= '2024-03-01 11:47:57'
     AND s.distinct_id in
       (select distinct_id
        from
@@ -401,9 +401,9 @@
          sum(s.console_error_count) as console_error_count
   FROM session_replay_events s
   WHERE s.team_id = 2
-    AND s.min_first_timestamp >= '2024-02-09 11:43:19'
+    AND s.min_first_timestamp >= '2024-02-09 11:47:57'
     AND s.min_first_timestamp >= '2024-02-23 00:00:00'
-    AND s.max_last_timestamp <= '2024-03-01 11:43:19'
+    AND s.max_last_timestamp <= '2024-03-01 11:47:57'
   GROUP BY session_id
   HAVING 1=1
   ORDER BY start_time DESC
@@ -431,9 +431,9 @@
          sum(s.console_error_count) as console_error_count
   FROM session_replay_events s
   WHERE s.team_id = 2
-    AND s.min_first_timestamp >= '2024-02-09 11:43:19'
+    AND s.min_first_timestamp >= '2024-02-09 11:47:57'
     AND s.min_first_timestamp >= '2024-02-23 00:00:00'
-    AND s.max_last_timestamp <= '2024-03-01 11:43:19'
+    AND s.max_last_timestamp <= '2024-03-01 11:47:57'
     AND s.distinct_id in
       (select distinct_id
        from
@@ -482,9 +482,9 @@
          sum(s.console_error_count) as console_error_count
   FROM session_replay_events s
   WHERE s.team_id = 2
-    AND s.min_first_timestamp >= '2024-02-09 11:43:19'
+    AND s.min_first_timestamp >= '2024-02-09 11:47:58'
     AND s.min_first_timestamp >= '2024-02-23 00:00:00'
-    AND s.max_last_timestamp <= '2024-03-01 11:43:19'
+    AND s.max_last_timestamp <= '2024-03-01 11:47:58'
   GROUP BY session_id
   HAVING 1=1
   ORDER BY start_time DESC
@@ -512,9 +512,9 @@
          sum(s.console_error_count) as console_error_count
   FROM session_replay_events s
   WHERE s.team_id = 2
-    AND s.min_first_timestamp >= '2024-02-09 11:43:19'
+    AND s.min_first_timestamp >= '2024-02-09 11:47:58'
     AND s.min_first_timestamp >= '2024-02-23 00:00:00'
-    AND s.max_last_timestamp <= '2024-03-01 11:43:19'
+    AND s.max_last_timestamp <= '2024-03-01 11:47:58'
     AND s.distinct_id in
       (select distinct_id
        from
@@ -563,9 +563,9 @@
          sum(s.console_error_count) as console_error_count
   FROM session_replay_events s
   WHERE s.team_id = 2
-    AND s.min_first_timestamp >= '2024-02-09 11:43:20'
+    AND s.min_first_timestamp >= '2024-02-09 11:47:58'
     AND s.min_first_timestamp >= '2024-02-23 00:00:00'
-    AND s.max_last_timestamp <= '2024-03-01 11:43:20'
+    AND s.max_last_timestamp <= '2024-03-01 11:47:58'
   GROUP BY session_id
   HAVING 1=1
   ORDER BY start_time DESC
@@ -593,9 +593,9 @@
          sum(s.console_error_count) as console_error_count
   FROM session_replay_events s
   WHERE s.team_id = 2
-    AND s.min_first_timestamp >= '2024-02-09 11:43:20'
+    AND s.min_first_timestamp >= '2024-02-09 11:47:58'
     AND s.min_first_timestamp >= '2024-02-23 00:00:00'
-    AND s.max_last_timestamp <= '2024-03-01 11:43:20'
+    AND s.max_last_timestamp <= '2024-03-01 11:47:58'
     AND s.distinct_id in
       (select distinct_id
        from
@@ -644,9 +644,9 @@
          sum(s.console_error_count) as console_error_count
   FROM session_replay_events s
   WHERE s.team_id = 2
-    AND s.min_first_timestamp >= '2024-02-09 11:43:20'
+    AND s.min_first_timestamp >= '2024-02-09 11:47:59'
     AND s.min_first_timestamp >= '2024-02-23 00:00:00'
-    AND s.max_last_timestamp <= '2024-03-01 11:43:20'
+    AND s.max_last_timestamp <= '2024-03-01 11:47:59'
   GROUP BY session_id
   HAVING 1=1
   ORDER BY start_time DESC
@@ -674,9 +674,9 @@
          sum(s.console_error_count) as console_error_count
   FROM session_replay_events s
   WHERE s.team_id = 2
-    AND s.min_first_timestamp >= '2024-02-09 11:43:20'
+    AND s.min_first_timestamp >= '2024-02-09 11:47:59'
     AND s.min_first_timestamp >= '2024-02-23 00:00:00'
-    AND s.max_last_timestamp <= '2024-03-01 11:43:20'
+    AND s.max_last_timestamp <= '2024-03-01 11:47:59'
     AND s.distinct_id in
       (select distinct_id
        from
@@ -725,9 +725,9 @@
          sum(s.console_error_count) as console_error_count
   FROM session_replay_events s
   WHERE s.team_id = 2
-    AND s.min_first_timestamp >= '2024-02-09 11:43:21'
+    AND s.min_first_timestamp >= '2024-02-09 11:47:59'
     AND s.min_first_timestamp >= '2024-02-23 00:00:00'
-    AND s.max_last_timestamp <= '2024-03-01 11:43:21'
+    AND s.max_last_timestamp <= '2024-03-01 11:47:59'
   GROUP BY session_id
   HAVING 1=1
   ORDER BY start_time DESC
@@ -755,9 +755,9 @@
          sum(s.console_error_count) as console_error_count
   FROM session_replay_events s
   WHERE s.team_id = 2
-    AND s.min_first_timestamp >= '2024-02-09 11:43:21'
+    AND s.min_first_timestamp >= '2024-02-09 11:47:59'
     AND s.min_first_timestamp >= '2024-02-23 00:00:00'
-    AND s.max_last_timestamp <= '2024-03-01 11:43:21'
+    AND s.max_last_timestamp <= '2024-03-01 11:47:59'
     AND s.distinct_id in
       (select distinct_id
        from
@@ -806,9 +806,9 @@
          sum(s.console_error_count) as console_error_count
   FROM session_replay_events s
   WHERE s.team_id = 2
-    AND s.min_first_timestamp >= '2024-02-09 11:43:21'
+    AND s.min_first_timestamp >= '2024-02-09 11:48:00'
     AND s.min_first_timestamp >= '2024-02-23 00:00:00'
-    AND s.max_last_timestamp <= '2024-03-01 11:43:21'
+    AND s.max_last_timestamp <= '2024-03-01 11:48:00'
   GROUP BY session_id
   HAVING 1=1
   ORDER BY start_time DESC
@@ -836,9 +836,9 @@
          sum(s.console_error_count) as console_error_count
   FROM session_replay_events s
   WHERE s.team_id = 2
-    AND s.min_first_timestamp >= '2024-02-09 11:43:21'
+    AND s.min_first_timestamp >= '2024-02-09 11:48:00'
     AND s.min_first_timestamp >= '2024-02-23 00:00:00'
-    AND s.max_last_timestamp <= '2024-03-01 11:43:21'
+    AND s.max_last_timestamp <= '2024-03-01 11:48:00'
     AND s.distinct_id in
       (select distinct_id
        from
@@ -887,9 +887,9 @@
          sum(s.console_error_count) as console_error_count
   FROM session_replay_events s
   WHERE s.team_id = 2
-    AND s.min_first_timestamp >= '2024-02-09 11:43:22'
+    AND s.min_first_timestamp >= '2024-02-09 11:48:00'
     AND s.min_first_timestamp >= '2024-02-23 00:00:00'
-    AND s.max_last_timestamp <= '2024-03-01 11:43:22'
+    AND s.max_last_timestamp <= '2024-03-01 11:48:00'
   GROUP BY session_id
   HAVING 1=1
   ORDER BY start_time DESC
@@ -917,18 +917,18 @@
          sum(s.console_error_count) as console_error_count
   FROM session_replay_events s
   WHERE s.team_id = 2
-    AND s.min_first_timestamp >= '2024-02-09 11:43:22'
+    AND s.min_first_timestamp >= '2024-02-09 11:48:00'
     AND s.min_first_timestamp >= '2024-02-23 00:00:00'
-    AND s.max_last_timestamp <= '2024-03-01 11:43:22'
+    AND s.max_last_timestamp <= '2024-03-01 11:48:00'
     AND s.session_id in
       (select `$session_id` as session_id
        from
          (SELECT `$session_id`
           FROM events e PREWHERE team_id = 2
-          AND e.timestamp >= '2024-02-09 11:43:22'
+          AND e.timestamp >= '2024-02-09 11:48:00'
           AND e.timestamp <= now()
           AND timestamp >= '2024-02-22 12:00:00'
-          AND timestamp <= '2024-03-01 23:43:22'
+          AND timestamp <= '2024-03-01 23:48:00'
           WHERE notEmpty(`$session_id`)
             AND (has(['bla'], "mat_pp_email"))
           GROUP BY `$session_id`
@@ -960,9 +960,9 @@
          sum(s.console_error_count) as console_error_count
   FROM session_replay_events s
   WHERE s.team_id = 2
-    AND s.min_first_timestamp >= '2024-02-09 11:43:22'
+    AND s.min_first_timestamp >= '2024-02-09 11:48:01'
     AND s.min_first_timestamp >= '2024-02-23 00:00:00'
-    AND s.max_last_timestamp <= '2024-03-01 11:43:22'
+    AND s.max_last_timestamp <= '2024-03-01 11:48:01'
   GROUP BY session_id
   HAVING 1=1
   ORDER BY start_time DESC
@@ -990,18 +990,18 @@
          sum(s.console_error_count) as console_error_count
   FROM session_replay_events s
   WHERE s.team_id = 2
-    AND s.min_first_timestamp >= '2024-02-09 11:43:22'
+    AND s.min_first_timestamp >= '2024-02-09 11:48:01'
     AND s.min_first_timestamp >= '2024-02-23 00:00:00'
-    AND s.max_last_timestamp <= '2024-03-01 11:43:22'
+    AND s.max_last_timestamp <= '2024-03-01 11:48:01'
     AND s.session_id in
       (select `$session_id` as session_id
        from
          (SELECT `$session_id`
           FROM events e PREWHERE team_id = 2
-          AND e.timestamp >= '2024-02-09 11:43:22'
+          AND e.timestamp >= '2024-02-09 11:48:01'
           AND e.timestamp <= now()
           AND timestamp >= '2024-02-22 12:00:00'
-          AND timestamp <= '2024-03-01 23:43:22'
+          AND timestamp <= '2024-03-01 23:48:01'
           WHERE notEmpty(`$session_id`)
             AND (has(['bla'], "mat_pp_email"))
           GROUP BY `$session_id`
@@ -1033,9 +1033,9 @@
          sum(s.console_error_count) as console_error_count
   FROM session_replay_events s
   WHERE s.team_id = 2
-    AND s.min_first_timestamp >= '2024-02-09 11:43:23'
+    AND s.min_first_timestamp >= '2024-02-09 11:48:02'
     AND s.min_first_timestamp >= '2024-02-23 00:00:00'
-    AND s.max_last_timestamp <= '2024-03-01 11:43:23'
+    AND s.max_last_timestamp <= '2024-03-01 11:48:02'
   GROUP BY session_id
   HAVING 1=1
   ORDER BY start_time DESC
@@ -1063,18 +1063,18 @@
          sum(s.console_error_count) as console_error_count
   FROM session_replay_events s
   WHERE s.team_id = 2
-    AND s.min_first_timestamp >= '2024-02-09 11:43:23'
+    AND s.min_first_timestamp >= '2024-02-09 11:48:02'
     AND s.min_first_timestamp >= '2024-02-23 00:00:00'
-    AND s.max_last_timestamp <= '2024-03-01 11:43:23'
+    AND s.max_last_timestamp <= '2024-03-01 11:48:02'
     AND s.session_id in
       (select `$session_id` as session_id
        from
          (SELECT `$session_id`
           FROM events e PREWHERE team_id = 2
-          AND e.timestamp >= '2024-02-09 11:43:23'
+          AND e.timestamp >= '2024-02-09 11:48:02'
           AND e.timestamp <= now()
           AND timestamp >= '2024-02-22 12:00:00'
-          AND timestamp <= '2024-03-01 23:43:23'
+          AND timestamp <= '2024-03-01 23:48:02'
           WHERE notEmpty(`$session_id`)
             AND (has(['bla'], "mat_pp_email"))
           GROUP BY `$session_id`
@@ -1106,9 +1106,9 @@
          sum(s.console_error_count) as console_error_count
   FROM session_replay_events s
   WHERE s.team_id = 2
-    AND s.min_first_timestamp >= '2024-02-09 11:43:23'
+    AND s.min_first_timestamp >= '2024-02-09 11:48:03'
     AND s.min_first_timestamp >= '2024-02-23 00:00:00'
-    AND s.max_last_timestamp <= '2024-03-01 11:43:23'
+    AND s.max_last_timestamp <= '2024-03-01 11:48:03'
   GROUP BY session_id
   HAVING 1=1
   ORDER BY start_time DESC
@@ -1136,18 +1136,18 @@
          sum(s.console_error_count) as console_error_count
   FROM session_replay_events s
   WHERE s.team_id = 2
-    AND s.min_first_timestamp >= '2024-02-09 11:43:23'
+    AND s.min_first_timestamp >= '2024-02-09 11:48:03'
     AND s.min_first_timestamp >= '2024-02-23 00:00:00'
-    AND s.max_last_timestamp <= '2024-03-01 11:43:23'
+    AND s.max_last_timestamp <= '2024-03-01 11:48:03'
     AND s.session_id in
       (select `$session_id` as session_id
        from
          (SELECT `$session_id`
           FROM events e PREWHERE team_id = 2
-          AND e.timestamp >= '2024-02-09 11:43:23'
+          AND e.timestamp >= '2024-02-09 11:48:03'
           AND e.timestamp <= now()
           AND timestamp >= '2024-02-22 12:00:00'
-          AND timestamp <= '2024-03-01 23:43:23'
+          AND timestamp <= '2024-03-01 23:48:03'
           WHERE notEmpty(`$session_id`)
             AND (has(['bla'], "mat_pp_email"))
           GROUP BY `$session_id`
@@ -1179,9 +1179,9 @@
          sum(s.console_error_count) as console_error_count
   FROM session_replay_events s
   WHERE s.team_id = 2
-    AND s.min_first_timestamp >= '2024-02-09 11:43:24'
+    AND s.min_first_timestamp >= '2024-02-09 11:48:03'
     AND s.min_first_timestamp >= '2024-02-23 00:00:00'
-    AND s.max_last_timestamp <= '2024-03-01 11:43:24'
+    AND s.max_last_timestamp <= '2024-03-01 11:48:03'
     AND s.distinct_id in
       (select distinct_id
        from
@@ -1224,9 +1224,9 @@
          sum(s.console_error_count) as console_error_count
   FROM session_replay_events s
   WHERE s.team_id = 2
-    AND s.min_first_timestamp >= '2024-02-09 11:43:24'
+    AND s.min_first_timestamp >= '2024-02-09 11:48:04'
     AND s.min_first_timestamp >= '2024-02-23 00:00:00'
-    AND s.max_last_timestamp <= '2024-03-01 11:43:24'
+    AND s.max_last_timestamp <= '2024-03-01 11:48:04'
     AND s.distinct_id in
       (select distinct_id
        from
@@ -1269,9 +1269,9 @@
          sum(s.console_error_count) as console_error_count
   FROM session_replay_events s
   WHERE s.team_id = 2
-    AND s.min_first_timestamp >= '2024-02-09 11:43:25'
+    AND s.min_first_timestamp >= '2024-02-09 11:48:04'
     AND s.min_first_timestamp >= '2024-02-23 00:00:00'
-    AND s.max_last_timestamp <= '2024-03-01 11:43:25'
+    AND s.max_last_timestamp <= '2024-03-01 11:48:04'
     AND s.distinct_id in
       (select distinct_id
        from
@@ -1314,9 +1314,9 @@
          sum(s.console_error_count) as console_error_count
   FROM session_replay_events s
   WHERE s.team_id = 2
-    AND s.min_first_timestamp >= '2024-02-09 11:43:25'
+    AND s.min_first_timestamp >= '2024-02-09 11:48:05'
     AND s.min_first_timestamp >= '2024-02-23 00:00:00'
-    AND s.max_last_timestamp <= '2024-03-01 11:43:25'
+    AND s.max_last_timestamp <= '2024-03-01 11:48:05'
     AND s.distinct_id in
       (select distinct_id
        from
@@ -1359,9 +1359,9 @@
          sum(s.console_error_count) as console_error_count
   FROM session_replay_events s
   WHERE s.team_id = 2
-    AND s.min_first_timestamp >= '2024-02-09 11:43:26'
+    AND s.min_first_timestamp >= '2024-02-09 11:48:05'
     AND s.min_first_timestamp >= '2024-02-23 00:00:00'
-    AND s.max_last_timestamp <= '2024-03-01 11:43:26'
+    AND s.max_last_timestamp <= '2024-03-01 11:48:05'
     AND s.distinct_id in
       (select distinct_id
        from
@@ -1404,9 +1404,9 @@
          sum(s.console_error_count) as console_error_count
   FROM session_replay_events s
   WHERE s.team_id = 2
-    AND s.min_first_timestamp >= '2024-02-09 11:43:26'
+    AND s.min_first_timestamp >= '2024-02-09 11:48:06'
     AND s.min_first_timestamp >= '2024-02-23 00:00:00'
-    AND s.max_last_timestamp <= '2024-03-01 11:43:26'
+    AND s.max_last_timestamp <= '2024-03-01 11:48:06'
     AND s.distinct_id in
       (select distinct_id
        from
@@ -1449,9 +1449,9 @@
          sum(s.console_error_count) as console_error_count
   FROM session_replay_events s
   WHERE s.team_id = 2
-    AND s.min_first_timestamp >= '2024-02-09 11:43:27'
+    AND s.min_first_timestamp >= '2024-02-09 11:48:06'
     AND s.min_first_timestamp >= '2024-02-23 00:00:00'
-    AND s.max_last_timestamp <= '2024-03-01 11:43:27'
+    AND s.max_last_timestamp <= '2024-03-01 11:48:06'
     AND s.distinct_id in
       (select distinct_id
        from
@@ -1494,9 +1494,9 @@
          sum(s.console_error_count) as console_error_count
   FROM session_replay_events s
   WHERE s.team_id = 2
-    AND s.min_first_timestamp >= '2024-02-09 11:43:27'
+    AND s.min_first_timestamp >= '2024-02-09 11:48:07'
     AND s.min_first_timestamp >= '2024-02-23 00:00:00'
-    AND s.max_last_timestamp <= '2024-03-01 11:43:27'
+    AND s.max_last_timestamp <= '2024-03-01 11:48:07'
     AND s.distinct_id in
       (select distinct_id
        from
@@ -1539,18 +1539,18 @@
          sum(s.console_error_count) as console_error_count
   FROM session_replay_events s
   WHERE s.team_id = 2
-    AND s.min_first_timestamp >= '2024-02-09 11:43:28'
+    AND s.min_first_timestamp >= '2024-02-09 11:48:08'
     AND s.min_first_timestamp >= '2024-02-23 00:00:00'
-    AND s.max_last_timestamp <= '2024-03-01 11:43:28'
+    AND s.max_last_timestamp <= '2024-03-01 11:48:08'
     AND s.session_id in
       (select `$session_id` as session_id
        from
          (SELECT `$session_id`
           FROM events e PREWHERE team_id = 2
-          AND e.timestamp >= '2024-02-09 11:43:28'
+          AND e.timestamp >= '2024-02-09 11:48:08'
           AND e.timestamp <= now()
           AND timestamp >= '2024-02-22 12:00:00'
-          AND timestamp <= '2024-03-01 23:43:28'
+          AND timestamp <= '2024-03-01 23:48:08'
           WHERE notEmpty(`$session_id`)
             AND person_id = '00000000-0000-0000-0000-000000000000'
           GROUP BY `$session_id`
@@ -1582,18 +1582,18 @@
          sum(s.console_error_count) as console_error_count
   FROM session_replay_events s
   WHERE s.team_id = 2
-    AND s.min_first_timestamp >= '2024-02-09 11:43:28'
+    AND s.min_first_timestamp >= '2024-02-09 11:48:08'
     AND s.min_first_timestamp >= '2024-02-23 00:00:00'
-    AND s.max_last_timestamp <= '2024-03-01 11:43:28'
+    AND s.max_last_timestamp <= '2024-03-01 11:48:08'
     AND s.session_id in
       (select `$session_id` as session_id
        from
          (SELECT `$session_id`
           FROM events e PREWHERE team_id = 2
-          AND e.timestamp >= '2024-02-09 11:43:28'
+          AND e.timestamp >= '2024-02-09 11:48:08'
           AND e.timestamp <= now()
           AND timestamp >= '2024-02-22 12:00:00'
-          AND timestamp <= '2024-03-01 23:43:28'
+          AND timestamp <= '2024-03-01 23:48:08'
           WHERE notEmpty(`$session_id`)
             AND person_id = '00000000-0000-0000-0000-000000000000'
           GROUP BY `$session_id`
@@ -1625,18 +1625,18 @@
          sum(s.console_error_count) as console_error_count
   FROM session_replay_events s
   WHERE s.team_id = 2
-    AND s.min_first_timestamp >= '2024-02-09 11:43:28'
+    AND s.min_first_timestamp >= '2024-02-09 11:48:09'
     AND s.min_first_timestamp >= '2024-02-23 00:00:00'
-    AND s.max_last_timestamp <= '2024-03-01 11:43:28'
+    AND s.max_last_timestamp <= '2024-03-01 11:48:09'
     AND s.session_id in
       (select `$session_id` as session_id
        from
          (SELECT `$session_id`
           FROM events e PREWHERE team_id = 2
-          AND e.timestamp >= '2024-02-09 11:43:28'
+          AND e.timestamp >= '2024-02-09 11:48:09'
           AND e.timestamp <= now()
           AND timestamp >= '2024-02-22 12:00:00'
-          AND timestamp <= '2024-03-01 23:43:28'
+          AND timestamp <= '2024-03-01 23:48:09'
           WHERE notEmpty(`$session_id`)
             AND person_id = '00000000-0000-0000-0000-000000000000'
           GROUP BY `$session_id`
@@ -1668,18 +1668,18 @@
          sum(s.console_error_count) as console_error_count
   FROM session_replay_events s
   WHERE s.team_id = 2
-    AND s.min_first_timestamp >= '2024-02-09 11:43:29'
+    AND s.min_first_timestamp >= '2024-02-09 11:48:09'
     AND s.min_first_timestamp >= '2024-02-23 00:00:00'
-    AND s.max_last_timestamp <= '2024-03-01 11:43:29'
+    AND s.max_last_timestamp <= '2024-03-01 11:48:09'
     AND s.session_id in
       (select `$session_id` as session_id
        from
          (SELECT `$session_id`
           FROM events e PREWHERE team_id = 2
-          AND e.timestamp >= '2024-02-09 11:43:29'
+          AND e.timestamp >= '2024-02-09 11:48:09'
           AND e.timestamp <= now()
           AND timestamp >= '2024-02-22 12:00:00'
-          AND timestamp <= '2024-03-01 23:43:29'
+          AND timestamp <= '2024-03-01 23:48:09'
           WHERE notEmpty(`$session_id`)
             AND person_id = '00000000-0000-0000-0000-000000000000'
           GROUP BY `$session_id`

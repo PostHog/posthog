@@ -177,8 +177,7 @@ class TestClickhouseSessionRecordingsListFromSessionReplay(ClickhouseTestMixin, 
             ) is materialized_event_column_used
             self.assertQueryMatchesSnapshot(generated_query)
 
-    # Original list of parameter combinations
-    original_params = [
+    settings_combinations = [
         ["poe and materialized columns allowed", False, True, True],
         ["poe and materialized columns off", False, True, False],
         ["poe off and materialized columns allowed", False, False, True],
@@ -193,15 +192,16 @@ class TestClickhouseSessionRecordingsListFromSessionReplay(ClickhouseTestMixin, 
         [" without materialization", False],
     ]
 
-    # Expand the parameter list to include all combinations with "materialize person columns"
-    expanded_params = [
+    # Expand the parameter list to the product of all combinations with "materialize person columns"
+    # e.g. [a, b] x [c, d] = [a, c], [a, d], [b, c], [b, d]
+    test_case_combinations = [
         [f"{name}{mat_option}", poe_v1, poe, mat_columns, mat_person]
         for (name, poe_v1, poe, mat_columns), (mat_option, mat_person) in product(
-            original_params, materialization_options
+            settings_combinations, materialization_options
         )
     ]
 
-    @parameterized.expand(expanded_params)
+    @parameterized.expand(test_case_combinations)
     @snapshot_clickhouse_queries
     def test_event_filter_with_person_properties_materialized(
         self,
@@ -211,6 +211,9 @@ class TestClickhouseSessionRecordingsListFromSessionReplay(ClickhouseTestMixin, 
         allow_denormalised_props: bool,
         materialize_person_props: bool,
     ) -> None:
+        # KLUDGE: I couldn't figure out how to use @also_test_with_materialized_columns(person_properties=["email"])
+        # KLUDGE: and the parameterized.expand decorator at the same time, so we generate test case combos
+        # KLUDGE: for materialization on and off to test both sides the way the decorator would have
         if materialize_person_props:
             materialize("events", "email", table_column="person_properties")
             materialize("person", "email")
@@ -290,7 +293,7 @@ class TestClickhouseSessionRecordingsListFromSessionReplay(ClickhouseTestMixin, 
             team_id=self.team.id,
         )
 
-    @parameterized.expand(expanded_params)
+    @parameterized.expand(test_case_combinations)
     @snapshot_clickhouse_queries
     def test_person_id_filter(
         self,
@@ -300,6 +303,9 @@ class TestClickhouseSessionRecordingsListFromSessionReplay(ClickhouseTestMixin, 
         allow_denormalised_props: bool,
         materialize_person_props: bool,
     ) -> None:
+        # KLUDGE: I couldn't figure out how to use @also_test_with_materialized_columns(person_properties=["email"])
+        # KLUDGE: and the parameterized.expand decorator at the same time, so we generate test case combos
+        # KLUDGE: for materialization on and off to test both sides the way the decorator would have
         if materialize_person_props:
             materialize("events", "email", table_column="person_properties")
             materialize("person", "email")
