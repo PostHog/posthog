@@ -46,6 +46,7 @@ export function ProjectSwitcherOverlay({ onClickInside }: { onClickInside?: () =
                 fullWidth
                 disabled={!!projectCreationForbiddenReason}
                 tooltip={projectCreationForbiddenReason}
+                data-attr="new-project-button"
                 onClick={() => {
                     onClickInside?.()
                     guardAvailableFeature(

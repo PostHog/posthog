@@ -704,6 +704,7 @@ export const BillingProduct = ({ product }: { product: BillingProductV2Type }): 
                                         }}
                                         className="grow"
                                         center
+                                        data-attr={`upgrade-button-${product.type}`}
                                     >
                                         {featureFlags[FEATURE_FLAGS.BILLING_UPGRADE_LANGUAGE] === 'subscribe'
                                             ? 'Subscribe'

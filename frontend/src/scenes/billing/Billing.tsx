@@ -65,6 +65,10 @@ export function Billing(): JSX.Element {
         }
     }, [!!billing])
 
+    useEffect(() => {
+        reportSubscriptionStatus(billing?.has_active_subscription || false)
+    }, [])
+
     const { ref, size } = useResizeBreakpoints({
         0: 'small',
         1000: 'medium',
@@ -137,10 +141,6 @@ export function Billing(): JSX.Element {
     }
 
     const upgradeAllProductsLink = getUpgradeAllProductsLink()
-
-    useEffect(() => {
-        reportSubscriptionStatus(billing?.has_active_subscription || false)
-    }, [])
 
     return (
         <div ref={ref}>

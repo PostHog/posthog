@@ -222,7 +222,7 @@ export function OnboardingProductIntroduction({ stepKey }: { stepKey: Onboarding
                             <h3 className="mb-6 text-2xl font-bold">Features</h3>
                             <ul className="list-none p-0 grid grid-cols-2 md:grid-cols-3 gap-8 mb-8 ">
                                 {product.features
-                                    .filter((feature) => feature.type == 'primary')
+                                    ?.filter((feature) => feature.type == 'primary')
                                     .map((feature, i) => {
                                         return (
                                             <React.Fragment key={`${product.type}-feature-${i}`}>

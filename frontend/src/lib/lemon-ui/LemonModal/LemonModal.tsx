@@ -44,6 +44,7 @@ export interface LemonModalProps {
     forceAbovePopovers?: boolean
     contentRef?: React.RefCallback<HTMLDivElement>
     overlayRef?: React.RefCallback<HTMLDivElement>
+    'data-attr'?: string
 }
 
 export const LemonModalHeader = ({ children, className }: LemonModalInnerProps): JSX.Element => {
@@ -80,6 +81,7 @@ export function LemonModal({
     contentRef,
     overlayRef,
     hideCloseButton = false,
+    'data-attr': dataAttr,
 }: LemonModalProps): JSX.Element {
     const nodeRef = useRef(null)
     const [ignoredOverlayClickCount, setIgnoredOverlayClickCount] = useState(0)
@@ -87,7 +89,7 @@ export function LemonModal({
     useEffect(() => setIgnoredOverlayClickCount(0), [hasUnsavedInput]) // Reset when there no longer is unsaved input
 
     const modalContent = (
-        <div ref={nodeRef} className="LemonModal__container">
+        <div ref={nodeRef} className="LemonModal__container" data-attr={dataAttr}>
             {closable && !hideCloseButton && (
                 // The key causes the div to be re-rendered, which restarts the animation,
                 // providing immediate visual feedback on click

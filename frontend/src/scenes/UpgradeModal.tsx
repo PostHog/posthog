@@ -27,6 +27,7 @@ export function UpgradeModal(): JSX.Element {
 
     return (
         <LemonModal
+            data-attr="upgrade-modal"
             title="Unleash PostHog's full power"
             footer={
                 <>
