@@ -180,12 +180,12 @@ class TestClickhouseSessionRecordingsListFromSessionReplay(ClickhouseTestMixin, 
             self.assertQueryMatchesSnapshot(generated_query)
 
     settings_combinations = [
-        ["poe and materialized columns allowed", False, True, True],
-        ["poe and materialized columns off", False, True, False],
+        ["poe v2 and materialized columns allowed", False, True, True],
+        ["poe v2 and materialized columns off", False, True, False],
         ["poe off and materialized columns allowed", False, False, True],
-        ["neither poe nor materialized columns", False, False, False],
-        ["poe v1 and materialized columns", True, False, True],
-        ["poe v1 and not materialized columns", True, False, False],
+        ["poe off and materialized columns not allowed", False, False, False],
+        ["poe v1 and materialized columns allowed", True, False, True],
+        ["poe v1 and not materialized columns not allowed", True, False, False],
     ]
 
     # Options for "materialize person columns"
@@ -208,8 +208,8 @@ class TestClickhouseSessionRecordingsListFromSessionReplay(ClickhouseTestMixin, 
     def test_event_filter_with_person_properties_materialized(
         self,
         _name: str,
-        poe2_enabled: bool,
         poe1_enabled: bool,
+        poe2_enabled: bool,
         allow_denormalised_props: bool,
         materialize_person_props: bool,
     ) -> None:
