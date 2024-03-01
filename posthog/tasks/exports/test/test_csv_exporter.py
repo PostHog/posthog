@@ -453,7 +453,9 @@ class TestCSVExporter(APIBaseTest):
 
     @patch("posthog.hogql.constants.MAX_SELECT_RETURNED_ROWS", 10)
     @patch("posthog.models.exported_asset.UUIDT")
-    def test_csv_exporter_events_query_with_columns(self, mocked_uuidt: Any, MAX_SELECT_RETURNED_ROWS=10) -> None:
+    def test_csv_exporter_events_query_with_columns(
+        self, mocked_uuidt: Any, MAX_SELECT_RETURNED_ROWS: int = 10
+    ) -> None:
         random_uuid = f"RANDOM_TEST_ID::{UUIDT()}"
         for i in range(15):
             _create_event(
