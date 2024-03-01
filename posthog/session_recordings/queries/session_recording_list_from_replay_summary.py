@@ -308,6 +308,7 @@ class SessionIdEventsQuery(EventQuery):
         return ttl_days(self._team)
 
     _raw_events_query = """
+        {context_comment}
         SELECT
             {select_event_ids}
             {event_filter_having_events_select}
@@ -510,6 +511,7 @@ class SessionIdEventsQuery(EventQuery):
                 persons_join=persons_join,
                 persons_sub_query=persons_sub_query,
                 groups_query=groups_query,
+                context_comment=f"-- running in PoE Mode: {self._team.person_on_events_mode}",
             ),
             {
                 **base_params,
