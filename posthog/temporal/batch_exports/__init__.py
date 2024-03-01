@@ -13,6 +13,10 @@ from posthog.temporal.batch_exports.bigquery_batch_export import (
     BigQueryBatchExportWorkflow,
     insert_into_bigquery_activity,
 )
+from posthog.temporal.batch_exports.http_batch_export import (
+    HttpBatchExportWorkflow,
+    insert_into_http_activity,
+)
 from posthog.temporal.batch_exports.noop import NoOpWorkflow, noop_activity
 from posthog.temporal.batch_exports.postgres_batch_export import (
     PostgresBatchExportWorkflow,
@@ -29,10 +33,6 @@ from posthog.temporal.batch_exports.s3_batch_export import (
 from posthog.temporal.batch_exports.snowflake_batch_export import (
     SnowflakeBatchExportWorkflow,
     insert_into_snowflake_activity,
-)
-from posthog.temporal.batch_exports.http_batch_export import (
-    HttpBatchExportWorkflow,
-    insert_into_http_activity,
 )
 from posthog.temporal.batch_exports.squash_person_overrides import *
 
