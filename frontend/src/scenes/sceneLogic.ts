@@ -2,7 +2,7 @@ import { actions, BuiltLogic, connect, kea, listeners, path, props, reducers, se
 import { router, urlToAction } from 'kea-router'
 import { commandBarLogic } from 'lib/components/CommandBar/commandBarLogic'
 import { BarStatus } from 'lib/components/CommandBar/types'
-import { FEATURE_FLAGS } from 'lib/constants'
+import { FEATURE_FLAGS, TeamMembershipLevel } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { addProjectIdIfMissing, removeProjectIdIfPresent } from 'lib/utils/router-utils'
@@ -239,10 +239,18 @@ export const sceneLogic = kea<sceneLogicType>([
                             return
                         }
                     } else if (teamLogic.values.isCurrentTeamUnavailable) {
-                        if (location.pathname !== urls.projectCreateFirst()) {
-                            console.warn('Organization not available, redirecting to project creation')
-                            router.actions.replace(urls.projectCreateFirst())
-                            return
+                        if (
+                            user.organization?.teams.length === 0 &&
+                            user.organization.membership_level &&
+                            user.organization.membership_level >= TeamMembershipLevel.Admin
+                        ) {
+                            if (location.pathname !== urls.projectCreateFirst()) {
+                                console.warn(
+                                    'Project not available and no other projects, redirecting to project creation'
+                                )
+                                router.actions.replace(urls.projectCreateFirst())
+                                return
+                            }
                         }
                     } else if (
                         teamLogic.values.currentTeam &&
