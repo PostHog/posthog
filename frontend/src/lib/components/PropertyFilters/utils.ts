@@ -99,6 +99,7 @@ export const PROPERTY_FILTER_TYPE_TO_TAXONOMIC_FILTER_GROUP_TYPE: Omit<
     [PropertyFilterType.Session]: TaxonomicFilterGroupType.Sessions,
     [PropertyFilterType.HogQL]: TaxonomicFilterGroupType.HogQLExpression,
     [PropertyFilterType.Group]: TaxonomicFilterGroupType.GroupsPrefix,
+    [PropertyFilterType.DataWarehouse]: TaxonomicFilterGroupType.DataWarehouse,
 }
 
 export function formatPropertyLabel(

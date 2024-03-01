@@ -401,6 +401,54 @@ class TestClickhouseSessionRecordingsListFromSessionReplay(ClickhouseTestMixin, 
 
         assert more_recordings_available is False
 
+    @snapshot_clickhouse_queries
+    def test_basic_query_with_ordering(self):
+        user = "test_basic_query_with_ordering-user"
+        Person.objects.create(team=self.team, distinct_ids=[user], properties={"email": "bla"})
+
+        session_id_one = f"test_basic_query_with_ordering-{str(uuid4())}"
+        session_id_two = f"test_basic_query_with_ordering-{str(uuid4())}"
+
+        produce_replay_summary(
+            session_id=session_id_one,
+            team_id=self.team.pk,
+            # can CH handle a timestamp with no T
+            first_timestamp=(self.base_time + relativedelta(seconds=10)),
+            last_timestamp=(self.base_time + relativedelta(seconds=50)),
+            distinct_id=user,
+            console_error_count=1000,
+        )
+
+        produce_replay_summary(
+            session_id=session_id_one,
+            team_id=self.team.pk,
+            # can CH handle a timestamp with no T
+            first_timestamp=(self.base_time + relativedelta(seconds=10)),
+            last_timestamp=(self.base_time + relativedelta(seconds=50)),
+            distinct_id=user,
+            console_error_count=12,
+        )
+
+        produce_replay_summary(
+            session_id=session_id_two,
+            team_id=self.team.pk,
+            # can CH handle a timestamp with no T
+            first_timestamp=(self.base_time + relativedelta(seconds=10)),
+            last_timestamp=(self.base_time + relativedelta(seconds=50)),
+            distinct_id=user,
+            console_error_count=430,
+        )
+
+        filter = SessionRecordingsFilter(
+            team=self.team, data={"no_filter": None, "limit": 3, "offset": 0, "entity_order": "active_seconds"}
+        )
+        session_recording_list_instance = SessionRecordingListFromReplaySummary(filter=filter, team=self.team)
+        (session_recordings) = session_recording_list_instance.run()
+
+        ordered_errors = [r["console_error_count"] for r in session_recordings.results]
+
+        assert ordered_errors == [1012, 430]
+
     def test_first_url_selection(self):
         user = "test_first_url_selection-user"
         Person.objects.create(team=self.team, distinct_ids=[user], properties={"email": "bla"})

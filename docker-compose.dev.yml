@@ -48,6 +48,8 @@ services:
             - ./docker/clickhouse/docker-entrypoint-initdb.d:/docker-entrypoint-initdb.d
             - ./docker/clickhouse/config.xml:/etc/clickhouse-server/config.xml
             - ./docker/clickhouse/users-dev.xml:/etc/clickhouse-server/users.xml
+        extra_hosts:
+            - 'host.docker.internal:host-gateway'
 
     zookeeper:
         extends:

@@ -79,6 +79,7 @@ export enum TaxonomicFilterGroupType {
     Actions = 'actions',
     Cohorts = 'cohorts',
     CohortsWithAllUsers = 'cohorts_with_all',
+    DataWarehouse = 'data_warehouse',
     Elements = 'elements',
     Events = 'events',
     EventProperties = 'event_properties',

@@ -23,6 +23,7 @@ from posthog.models.action.action import Action
 from posthog.models.filters.mixins.utils import cached_property
 from posthog.schema import (
     ActionsNode,
+    DataWarehouseNode,
     EventsNode,
     StickinessQuery,
     HogQLQueryModifiers,
@@ -31,12 +32,12 @@ from posthog.schema import (
 
 
 class SeriesWithExtras:
-    series: EventsNode | ActionsNode
+    series: EventsNode | ActionsNode | DataWarehouseNode
     is_previous_period_series: Optional[bool]
 
     def __init__(
         self,
-        series: EventsNode | ActionsNode,
+        series: EventsNode | ActionsNode | DataWarehouseNode,
         is_previous_period_series: Optional[bool],
     ):
         self.series = series
@@ -81,7 +82,7 @@ class StickinessQueryRunner(QueryRunner):
 
         return refresh_frequency
 
-    def _aggregation_expressions(self, series: EventsNode | ActionsNode) -> ast.Expr:
+    def _aggregation_expressions(self, series: EventsNode | ActionsNode | DataWarehouseNode) -> ast.Expr:
         if series.math == "hogql" and series.math_hogql is not None:
             return parse_expr(series.math_hogql)
         elif series.math == "unique_group" and series.math_group_type_index is not None:
@@ -323,9 +324,13 @@ class StickinessQueryRunner(QueryRunner):
 
         return ast.RatioExpr(left=ast.Constant(value=self.query.samplingFactor))
 
-    def series_event(self, series: EventsNode | ActionsNode) -> str | None:
+    def series_event(self, series: EventsNode | ActionsNode | DataWarehouseNode) -> str | None:
         if isinstance(series, EventsNode):
             return series.event
+
+        if isinstance(series, DataWarehouseNode):
+            return series.table_name
+
         if isinstance(series, ActionsNode):
             # TODO: Can we load the Action in more efficiently?
             action = Action.objects.get(pk=int(series.id), team=self.team)

@@ -6,6 +6,7 @@ import { Link } from 'lib/lemon-ui/Link'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { deleteWithUndo } from 'lib/utils/deleteWithUndo'
 import posthog from 'posthog-js'
+import HTTPIcon from 'public/hedgehog/running-hog.png'
 import BigQueryIcon from 'public/pipeline/BigQuery.png'
 import PostgresIcon from 'public/pipeline/Postgres.png'
 import RedshiftIcon from 'public/pipeline/Redshift.svg'
@@ -156,6 +157,7 @@ export function RenderBatchExportIcon({ type }: { type: BatchExportDestination['
         Redshift: RedshiftIcon,
         S3: S3Icon,
         Snowflake: SnowflakeIcon,
+        HTTP: HTTPIcon,
     }[type]
 
     return (

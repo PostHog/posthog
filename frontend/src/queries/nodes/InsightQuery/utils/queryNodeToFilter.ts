@@ -4,6 +4,7 @@ import { isFunnelsFilter, isLifecycleFilter, isStickinessFilter, isTrendsFilter 
 import {
     ActionsNode,
     BreakdownFilter,
+    DataWarehouseNode,
     EventsNode,
     FunnelsFilterLegacy,
     InsightNodeKind,
@@ -17,6 +18,7 @@ import {
 } from '~/queries/schema'
 import {
     isActionsNode,
+    isDataWarehouseNode,
     isEventsNode,
     isFunnelsQuery,
     isLifecycleQuery,
@@ -27,12 +29,24 @@ import {
 } from '~/queries/utils'
 import { ActionFilter, EntityTypes, FilterType, InsightType } from '~/types'
 
-type FilterTypeActionsAndEvents = { events?: ActionFilter[]; actions?: ActionFilter[]; new_entity?: ActionFilter[] }
+type FilterTypeActionsAndEvents = {
+    events?: ActionFilter[]
+    actions?: ActionFilter[]
+    data_warehouse?: ActionFilter[]
+    new_entity?: ActionFilter[]
+}
 
-export const seriesNodeToFilter = (node: EventsNode | ActionsNode, index?: number): ActionFilter => {
+export const seriesNodeToFilter = (
+    node: EventsNode | ActionsNode | DataWarehouseNode,
+    index?: number
+): ActionFilter => {
     const entity: ActionFilter = objectClean({
-        type: isActionsNode(node) ? EntityTypes.ACTIONS : EntityTypes.EVENTS,
-        id: (!isActionsNode(node) ? node.event : node.id) || null,
+        type: isDataWarehouseNode(node)
+            ? EntityTypes.DATA_WAREHOUSE
+            : isActionsNode(node)
+            ? EntityTypes.ACTIONS
+            : EntityTypes.EVENTS,
+        id: isDataWarehouseNode(node) ? node.table_name : (!isActionsNode(node) ? node.event : node.id) || null,
         order: index,
         name: node.name,
         custom_name: node.custom_name,
@@ -47,10 +61,11 @@ export const seriesNodeToFilter = (node: EventsNode | ActionsNode, index?: numbe
 }
 
 export const seriesToActionsAndEvents = (
-    series: (EventsNode | ActionsNode)[]
+    series: (EventsNode | ActionsNode | DataWarehouseNode)[]
 ): Required<FilterTypeActionsAndEvents> => {
     const actions: ActionFilter[] = []
     const events: ActionFilter[] = []
+    const data_warehouse: ActionFilter[] = []
     const new_entity: ActionFilter[] = []
     series.forEach((node, index) => {
         const entity = seriesNodeToFilter(node, index)
@@ -58,12 +73,14 @@ export const seriesToActionsAndEvents = (
             events.push(entity)
         } else if (isActionsNode(node)) {
             actions.push(entity)
+        } else if (isDataWarehouseNode(node)) {
+            data_warehouse.push(entity)
         } else {
             new_entity.push(entity)
         }
     })
 
-    return { actions, events, new_entity }
+    return { actions, events, data_warehouse, new_entity }
 }
 
 export const hiddenLegendItemsToKeys = (
