@@ -24,7 +24,15 @@ import { RealtimeManager } from './services/realtime-manager'
 import { ReplayEventsIngester } from './services/replay-events-ingester'
 import { BUCKETS_KB_WRITTEN, SessionManager } from './services/session-manager'
 import { IncomingRecordingMessage } from './types'
-import { bufferFileDir, getPartitionsForTopic, now, parseKafkaMessage, queryWatermarkOffsets } from './utils'
+import {
+    allSettledWithConcurrency,
+    bufferFileDir,
+    getPartitionsForTopic,
+    now,
+    parseKafkaMessage,
+    queryWatermarkOffsets,
+    reduceRecordingMessages,
+} from './utils'
 
 // Must require as `tsc` strips unused `import` statements and just requiring this seems to init some globals
 require('@sentry/tracing')
@@ -206,6 +214,10 @@ export class SessionRecordingIngester {
         return this.connectedBatchConsumer?.assignments() ?? []
     }
 
+    private get assignedPartitions(): TopicPartition['partition'][] {
+        return this.assignedTopicPartitions.map((x) => x.partition)
+    }
+
     private scheduleWork<T>(promise: Promise<T>): Promise<T> {
         /**
          * Helper to handle graceful shutdowns. Every time we do some work we add a promise to this array and remove it when finished.
@@ -279,11 +291,11 @@ export class SessionRecordingIngester {
         await this.sessions[key]?.add(event)
     }
 
-    public async handleEachBatch(messages: Message[]): Promise<void> {
+    public async handleEachBatch(messages: Message[], heartbeat: () => void): Promise<void> {
         status.info('🔁', `blob_ingester_consumer - handling batch`, {
             size: messages.length,
             partitionsInBatch: [...new Set(messages.map((x) => x.partition))],
-            assignedPartitions: this.assignedTopicPartitions.map((x) => x.partition),
+            assignedPartitions: this.assignedPartitions,
         })
         await runInstrumentedFunction({
             statsKey: `recordingingester.handleEachBatch`,
@@ -292,7 +304,7 @@ export class SessionRecordingIngester {
                 histogramKafkaBatchSize.observe(messages.length)
                 histogramKafkaBatchSizeKb.observe(messages.reduce((acc, m) => (m.value?.length ?? 0) + acc, 0) / 1024)
 
-                const recordingMessages: IncomingRecordingMessage[] = []
+                let recordingMessages: IncomingRecordingMessage[] = []
 
                 await runInstrumentedFunction({
                     statsKey: `recordingingester.handleEachBatch.parseKafkaMessages`,
@@ -321,8 +333,11 @@ export class SessionRecordingIngester {
                                 recordingMessages.push(recordingMessage)
                             }
                         }
+
+                        recordingMessages = reduceRecordingMessages(recordingMessages)
                     },
                 })
+                heartbeat()
 
                 await this.reportPartitionMetrics()
 
@@ -330,10 +345,11 @@ export class SessionRecordingIngester {
                     statsKey: `recordingingester.handleEachBatch.consumeBatch`,
                     func: async () => {
                         if (this.config.SESSION_RECORDING_PARALLEL_CONSUMPTION) {
-                            await Promise.all(recordingMessages.map((x) => this.consume(x)))
+                            await Promise.all(recordingMessages.map((x) => this.consume(x).then(heartbeat)))
                         } else {
                             for (const message of recordingMessages) {
                                 await this.consume(message)
+                                heartbeat()
                             }
                         }
                     },
@@ -342,7 +358,7 @@ export class SessionRecordingIngester {
                 await runInstrumentedFunction({
                     statsKey: `recordingingester.handleEachBatch.flushAllReadySessions`,
                     func: async () => {
-                        await this.flushAllReadySessions()
+                        await this.flushAllReadySessions(heartbeat)
                     },
                 })
 
@@ -360,6 +376,7 @@ export class SessionRecordingIngester {
                             await this.replayEventsIngester!.consumeBatch(recordingMessages)
                         },
                     })
+                    heartbeat()
                 }
 
                 if (this.consoleLogsIngester) {
@@ -369,6 +386,7 @@ export class SessionRecordingIngester {
                             await this.consoleLogsIngester!.consumeBatch(recordingMessages)
                         },
                     })
+                    heartbeat()
                 }
             },
         })
@@ -436,9 +454,11 @@ export class SessionRecordingIngester {
             fetchBatchSize: this.config.SESSION_RECORDING_KAFKA_BATCH_SIZE,
             batchingTimeoutMs: this.config.KAFKA_CONSUMPTION_BATCHING_TIMEOUT_MS,
             topicCreationTimeoutMs: this.config.KAFKA_TOPIC_CREATION_TIMEOUT_MS,
-            eachBatch: async (messages) => {
-                return await this.handleEachBatch(messages)
+            eachBatch: async (messages, { heartbeat }) => {
+                return await this.scheduleWork(this.handleEachBatch(messages, heartbeat))
             },
+            callEachBatchWhenEmpty: true, // Useful as we will still want to account for flushing sessions
+            debug: this.config.SESSION_RECORDING_KAFKA_DEBUG,
         })
 
         this.totalNumPartitions = (await getPartitionsForTopic(this.connectedBatchConsumer)).length
@@ -494,7 +514,7 @@ export class SessionRecordingIngester {
             void this.scheduleWork(this.replayEventsIngester.stop())
         }
         if (this.consoleLogsIngester) {
-            void this.scheduleWork(this.consoleLogsIngester!.stop())
+            void this.scheduleWork(this.consoleLogsIngester.stop())
         }
 
         const promiseResults = await Promise.allSettled(this.promises)
@@ -618,42 +638,54 @@ export class SessionRecordingIngester {
         })
     }
 
-    async flushAllReadySessions(): Promise<void> {
-        const promises: Promise<void>[] = []
-        for (const [key, sessionManager] of Object.entries(this.sessions)) {
-            // in practice, we will always have a values for latestKafkaMessageTimestamp,
-            const { lastMessageTimestamp, offsetLag } = this.partitionMetrics[sessionManager.partition] || {}
-            if (!lastMessageTimestamp) {
-                status.warn('🤔', 'blob_ingester_consumer - no referenceTime for partition', {
-                    partition: sessionManager.partition,
-                })
-                continue
-            }
+    async flushAllReadySessions(heartbeat: () => void): Promise<void> {
+        const sessions = Object.entries(this.sessions)
 
-            const flushPromise = sessionManager
-                .flushIfSessionBufferIsOld(lastMessageTimestamp, offsetLag)
-                .catch((err) => {
-                    status.error(
-                        '🚽',
-                        'blob_ingester_consumer - failed trying to flush on idle session: ' + sessionManager.sessionId,
-                        {
-                            err,
-                            session_id: sessionManager.sessionId,
+        // NOTE: We want to avoid flushing too many sessions at once as it can cause a lot of disk backpressure stalling the consumer
+        await allSettledWithConcurrency(
+            this.config.SESSION_RECORDING_MAX_PARALLEL_FLUSHES,
+            sessions,
+            async ([key, sessionManager]) => {
+                heartbeat()
+
+                if (!this.assignedPartitions.includes(sessionManager.partition)) {
+                    // We are no longer in charge of this partition, so we should not flush it
+                    return
+                }
+
+                // in practice, we will always have a values for latestKafkaMessageTimestamp,
+                const { lastMessageTimestamp, offsetLag } = this.partitionMetrics[sessionManager.partition] || {}
+                if (!lastMessageTimestamp) {
+                    status.warn('🤔', 'blob_ingester_consumer - no referenceTime for partition', {
+                        partition: sessionManager.partition,
+                    })
+                    return
+                }
+
+                await sessionManager
+                    .flushIfSessionBufferIsOld(lastMessageTimestamp, offsetLag)
+                    .catch((err) => {
+                        status.error(
+                            '🚽',
+                            'session-replay-ingestion - failed trying to flush on idle session: ' +
+                                sessionManager.sessionId,
+                            {
+                                err,
+                                session_id: sessionManager.sessionId,
+                            }
+                        )
+                        captureException(err, {
+                            tags: { session_id: sessionManager.sessionId },
+                        })
+                    })
+                    .then(async () => {
+                        // If the SessionManager is done (flushed and with no more queued events) then we remove it to free up memory
+                        if (sessionManager.isEmpty) {
+                            await this.destroySessions([[key, sessionManager]])
                         }
-                    )
-                    captureException(err, { tags: { session_id: sessionManager.sessionId } })
-                })
-                .finally(() => {
-                    // If the SessionManager is done (flushed and with no more queued events) then we remove it to free up memory
-                    if (sessionManager.isEmpty) {
-                        void this.destroySessions([[key, sessionManager]])
-                    }
-                })
-
-            promises.push(flushPromise)
-        }
-
-        await Promise.allSettled(promises)
+                    })
+            }
+        )
 
         gaugeSessionsHandled.set(Object.keys(this.sessions).length)
         gaugeRealtimeSessions.set(
