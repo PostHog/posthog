@@ -142,7 +142,8 @@
     AND s.session_id in
       (select `$session_id` as session_id
        from
-         (SELECT `$session_id`
+         (-- running in PoE Mode: v2_enabled
+   SELECT `$session_id`
           FROM events e -- sometimes we have to join on persons so we can access e.g. person_props in filters
    PREWHERE team_id = %(team_id)s -- regardless of what other filters are applied
    -- limit by storage TTL
@@ -196,7 +197,8 @@
     AND s.session_id in
       (select `$session_id` as session_id
        from
-         (SELECT `$session_id`
+         (-- running in PoE Mode: v2_enabled
+   SELECT `$session_id`
           FROM events e -- sometimes we have to join on persons so we can access e.g. person_props in filters
    PREWHERE team_id = %(team_id)s -- regardless of what other filters are applied
    -- limit by storage TTL
