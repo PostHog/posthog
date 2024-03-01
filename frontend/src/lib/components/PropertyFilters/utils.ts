@@ -231,7 +231,8 @@ export function isPropertyFilterWithOperator(
     | SessionPropertyFilter
     | RecordingDurationFilter
     | FeaturePropertyFilter
-    | GroupPropertyFilter {
+    | GroupPropertyFilter
+    | DataWarehousePropertyFilter {
     return (
         !isPropertyGroupFilterLike(filter) &&
         (isEventPropertyFilter(filter) ||
