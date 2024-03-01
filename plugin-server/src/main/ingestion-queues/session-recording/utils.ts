@@ -248,6 +248,8 @@ export const parseKafkaMessage = async (
 export const reduceRecordingMessages = (messages: IncomingRecordingMessage[]): IncomingRecordingMessage[] => {
     const reducedMessages: Record<string, IncomingRecordingMessage> = {}
 
+    // TODO: Future optimization would be to pre-transform the events here to include the windowID like convertToPersistedMessage
+    // That way we could group only on session_id removing any chance of parallel processing issues
     for (const message of messages) {
         const clonedMessage = { ...message }
         const key = `${clonedMessage.team_id}-${clonedMessage.session_id}-${clonedMessage.window_id}`
