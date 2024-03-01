@@ -97,7 +97,7 @@ export const BillingProductAddon = ({ addon }: { addon: BillingProductV2AddonTyp
         <div className="bg-side rounded p-6 flex flex-col">
             <div className="flex justify-between gap-x-4">
                 <div className="flex gap-x-4">
-                    <div className="w-8">{getProductIcon(addon.icon_key, 'text-2xl')}</div>
+                    <div className="w-8">{getProductIcon(addon.name, addon.icon_key, 'text-2xl')}</div>
                     <div>
                         <div className="flex gap-x-2 items-center mt-0 mb-2 ">
                             <h4 className="leading-5 mb-1 font-bold">{addon.name}</h4>
@@ -343,7 +343,7 @@ export const BillingProduct = ({ product }: { product: BillingProductV2Type }): 
             <div className="border border-border rounded w-full bg-bg-light" ref={productRef}>
                 <div className="border-b border-border bg-mid p-4">
                     <div className="flex gap-4 items-center justify-between">
-                        {getProductIcon(product.icon_key, 'text-2xl')}
+                        {getProductIcon(product.name, product.icon_key, 'text-2xl')}
                         <div>
                             <h3 className="font-bold mb-0">{product.name}</h3>
                             <div>{product.description}</div>

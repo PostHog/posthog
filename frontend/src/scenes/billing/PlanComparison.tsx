@@ -318,7 +318,11 @@ export const PlanComparison = ({
                                                 className="PlanTable__th__section bg-side justify-left rounded text-left mb-2"
                                             >
                                                 <div className="flex items-center gap-x-2 my-2">
-                                                    {getProductIcon(includedProduct.icon_key, 'text-2xl')}
+                                                    {getProductIcon(
+                                                        includedProduct.name,
+                                                        includedProduct.icon_key,
+                                                        'text-2xl'
+                                                    )}
                                                     <Tooltip title={includedProduct.description}>
                                                         <span className="font-bold">{includedProduct.name}</span>
                                                     </Tooltip>

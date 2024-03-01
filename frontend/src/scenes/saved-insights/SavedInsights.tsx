@@ -172,6 +172,12 @@ export const QUERY_TYPES_METADATA: Record<NodeKind, InsightTypeMetadata> = {
         icon: IconAction,
         inMenu: true,
     },
+    [NodeKind.DataWarehouseNode]: {
+        name: 'Data Warehouse',
+        description: 'List and explore data warehouse tables',
+        icon: IconTableChart,
+        inMenu: true,
+    },
     [NodeKind.EventsQuery]: {
         name: 'Events Query',
         description: 'Hmmm, not every kind should be displayable I guess',
