@@ -141,7 +141,7 @@ export function Group(): JSX.Element {
                                         <SessionRecordingsPlaylist
                                             logicKey="groups-recordings"
                                             updateSearchParams
-                                            filters={{
+                                            advancedFilters={{
                                                 events: [
                                                     {
                                                         type: 'events',

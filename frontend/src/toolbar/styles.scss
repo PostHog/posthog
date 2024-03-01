@@ -4,6 +4,8 @@
 *,
 *::before,
 *::after {
+    --z-toolbar: 2147483020;
+
     box-sizing: border-box;
 }
 
@@ -18,7 +20,7 @@
 }
 
 .LemonModal__overlay--force-modal-above-popovers {
-    z-index: 2147483033 !important;
+    z-index: calc(var(--z-toolbar) + var(--z-force-modal-above-popovers)) !important;
 }
 
 .section-title {
@@ -31,11 +33,11 @@
 
 .fade-component-container {
     position: fixed;
-    z-index: 2147483020;
+    z-index: var(--z-toolbar);
 }
 
 .Toastify__toast-container {
-    z-index: 2147483040;
+    z-index: calc(var(--z-toolbar) + 20);
 }
 
 .toolbar-global-fade-container {
@@ -49,5 +51,9 @@
 }
 
 .Popover {
-    z-index: 2147483020 !important;
+    z-index: calc(var(--z-toolbar) + var(--z-popover)) !important;
+}
+
+.Tooltip {
+    z-index: calc(var(--z-toolbar) + var(--z-tooltip)) !important;
 }

@@ -1,6 +1,6 @@
 import { hide } from '@floating-ui/react'
 import { IconInfo, IconLock } from '@posthog/icons'
-import { LemonButton, LemonCheckbox, LemonDivider } from '@posthog/lemon-ui'
+import { LemonButton, LemonCheckbox, LemonDivider, LemonSelect } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { ActionPopoverInfo } from 'lib/components/DefinitionPopover/ActionPopoverInfo'
 import { CohortPopoverInfo } from 'lib/components/DefinitionPopover/CohortPopoverInfo'
@@ -21,9 +21,11 @@ import { Popover } from 'lib/lemon-ui/Popover'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { CORE_FILTER_DEFINITIONS_BY_GROUP, isCoreFilter } from 'lib/taxonomy'
 import { useEffect } from 'react'
+import { DataWarehouseTableType } from 'scenes/data-warehouse/types'
 
 import { ActionType, CohortType, EventDefinition, PropertyDefinition } from '~/types'
 
+import { taxonomicFilterLogic } from '../TaxonomicFilter/taxonomicFilterLogic'
 import { TZLabel } from '../TZLabel'
 
 function TaxonomyIntroductionSection(): JSX.Element {
@@ -96,8 +98,20 @@ export function VerifiedDefinitionCheckbox({
 }
 
 function DefinitionView({ group }: { group: TaxonomicFilterGroup }): JSX.Element {
-    const { definition, type, hasTaxonomyFeatures, isAction, isEvent, isCohort, isProperty } =
-        useValues(definitionPopoverLogic)
+    const {
+        definition,
+        localDefinition,
+        type,
+        hasTaxonomyFeatures,
+        isAction,
+        isEvent,
+        isCohort,
+        isDataWarehouse,
+        isProperty,
+    } = useValues(definitionPopoverLogic)
+
+    const { setLocalDefinition } = useActions(definitionPopoverLogic)
+    const { selectItem } = useActions(taxonomicFilterLogic)
 
     if (!definition) {
         return <></>
@@ -257,6 +271,59 @@ function DefinitionView({ group }: { group: TaxonomicFilterGroup }): JSX.Element
                     />
                 </DefinitionPopover.Section>
             </>
+        )
+    }
+    if (isDataWarehouse) {
+        const _definition = definition as DataWarehouseTableType
+        const columnOptions = _definition.columns.map((column) => ({
+            label: column.key + ' (' + column.type + ')',
+            value: column.key,
+        }))
+        const itemValue = localDefinition ? group?.getValue?.(localDefinition) : null
+        return (
+            <form className="definition-popover-data-warehouse-schema-form">
+                <div className="flex flex-col justify-between gap-4">
+                    <DefinitionPopover.Section>
+                        <label className="definition-popover-edit-form-label" htmlFor="ID Field">
+                            <span className="label-text">ID field</span>
+                        </label>
+                        <LemonSelect
+                            value={'id_field' in localDefinition ? localDefinition.id_field : undefined}
+                            options={columnOptions}
+                            onChange={(value) => setLocalDefinition({ id_field: value })}
+                        />
+
+                        <label className="definition-popover-edit-form-label" htmlFor="ID Field">
+                            <span className="label-text">Timestamp field</span>
+                        </label>
+                        <LemonSelect
+                            value={
+                                ('timestamp_field' in localDefinition && localDefinition.timestamp_field) || undefined
+                            }
+                            options={columnOptions}
+                            onChange={(value) => setLocalDefinition({ timestamp_field: value })}
+                        />
+                    </DefinitionPopover.Section>
+                    <div className="flex justify-end">
+                        <LemonButton
+                            onClick={() => {
+                                selectItem(group, itemValue ?? null, localDefinition)
+                            }}
+                            disabledReason={
+                                'id_field' in localDefinition &&
+                                localDefinition.id_field &&
+                                'timestamp_field' in localDefinition &&
+                                localDefinition.timestamp_field
+                                    ? null
+                                    : 'Field mappings must be specified'
+                            }
+                            type="primary"
+                        >
+                            Select
+                        </LemonButton>
+                    </div>
+                </div>
+            </form>
         )
     }
     return <></>

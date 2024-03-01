@@ -1,6 +1,6 @@
+import { IconDownload, IconRedo } from '@posthog/icons'
 import { LemonButton, LemonDivider } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
-import { IconCloudDownload, IconRefresh } from 'lib/lemon-ui/icons'
 import { useMemo } from 'react'
 import { canGloballyManagePlugins } from 'scenes/plugins/access'
 import { pluginsLogic } from 'scenes/plugins/pluginsLogic'
@@ -59,7 +59,7 @@ export function AppsManagementTab(): JSX.Element {
                         {hasUpdatablePlugins && (
                             <LemonButton
                                 type="secondary"
-                                icon={pluginsNeedingUpdates.length > 0 ? <IconRefresh /> : <IconCloudDownload />}
+                                icon={pluginsNeedingUpdates.length > 0 ? <IconRedo /> : <IconDownload />}
                                 onClick={(e) => {
                                     e.stopPropagation()
                                     checkForUpdates(true)

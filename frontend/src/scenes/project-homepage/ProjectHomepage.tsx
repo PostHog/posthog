@@ -16,7 +16,6 @@ import { Dashboard } from 'scenes/dashboard/Dashboard'
 import { dashboardLogic } from 'scenes/dashboard/dashboardLogic'
 import { projectHomepageLogic } from 'scenes/project-homepage/projectHomepageLogic'
 import { Scene, SceneExport } from 'scenes/sceneTypes'
-import { AndroidRecordingsPromptBanner } from 'scenes/session-recordings/mobile-replay/AndroidRecordingPromptBanner'
 import { inviteLogic } from 'scenes/settings/organization/inviteLogic'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
@@ -66,7 +65,6 @@ export function ProjectHomepage(): JSX.Element {
     return (
         <div className="ProjectHomepage">
             <PageHeader delimited buttons={headerButtons} />
-            <AndroidRecordingsPromptBanner context="home" />
             <div className="ProjectHomepage__lists">
                 <RecentInsights />
                 <RecentPersons />

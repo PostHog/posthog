@@ -57,7 +57,7 @@ export function Navigation({
                         sceneConfig?.layout === 'app-raw' && 'Navigation3000__scene--raw'
                     )}
                 >
-                    <BillingAlertsV2 />
+                    {!sceneConfig?.hideBillingNotice && <BillingAlertsV2 />}
                     {!sceneConfig?.hideProjectNotice && <ProjectNotice />}
                     {children}
                 </div>

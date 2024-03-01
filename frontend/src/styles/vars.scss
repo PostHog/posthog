@@ -275,7 +275,7 @@ $_lifecycle_dormant: $_danger;
     // which means they aren't available in the toolbar
     --toastify-color-dark: var(--accent-3000-dark);
     --toastify-color-light: var(--bg-light);
-    --toastify-color-info: var(--primary-3000);
+    --toastify-color-info: var(--primary);
     --toastify-color-success: var(--success);
     --toastify-color-warning: var(--warning);
     --toastify-color-error: var(--danger);
@@ -412,7 +412,7 @@ $_lifecycle_dormant: $_danger;
 }
 
 // defined here so that they can be shared with the toolbar
-@mixin posthog-3000-variables {
+@mixin common-variables {
     --default: var(--text-3000);
     --text-secondary: var(--text-secondary-3000);
     --muted: var(--muted-3000);

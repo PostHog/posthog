@@ -1,6 +1,7 @@
 import { actions, connect, kea, key, path, props, reducers, selectors } from 'kea'
-import { BIN_COUNT_AUTO } from 'lib/constants'
+import { BIN_COUNT_AUTO, FEATURE_FLAGS } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { average, percentage, sum } from 'lib/utils'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
@@ -61,6 +62,8 @@ export const funnelDataLogic = kea<funnelDataLogicType>([
             ],
             groupsModel,
             ['aggregationLabel'],
+            featureFlagLogic,
+            ['featureFlags'],
         ],
         actions: [insightVizDataLogic(props), ['updateInsightFilter', 'updateQuerySource']],
     })),
@@ -79,6 +82,12 @@ export const funnelDataLogic = kea<funnelDataLogicType>([
     }),
 
     selectors(() => ({
+        hogQLInsightsFunnelsFlagEnabled: [
+            (s) => [s.featureFlags],
+            (featureFlags): boolean => {
+                return !!featureFlags[FEATURE_FLAGS.HOGQL_INSIGHTS_FUNNELS]
+            },
+        ],
         querySource: [
             (s) => [s.vizQuerySource],
             (vizQuerySource) => (isFunnelsQuery(vizQuerySource) ? vizQuerySource : null),

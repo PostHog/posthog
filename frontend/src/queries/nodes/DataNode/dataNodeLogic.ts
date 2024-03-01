@@ -342,7 +342,7 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
                     }
                     return error ?? 'Error loading data'
                 },
-                loadDataSuccess: () => null,
+                loadDataSuccess: (_, { response }) => response?.error ?? null,
             },
         ],
         elapsedTime: [

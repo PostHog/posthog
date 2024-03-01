@@ -1,10 +1,9 @@
 import './PlanComparison.scss'
 
-import { IconWarning, IconX } from '@posthog/icons'
+import { IconCheckCircle, IconWarning, IconX } from '@posthog/icons'
 import { LemonButton, LemonModal, LemonTag, Link } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
-import { IconCheckmark } from 'lib/lemon-ui/icons'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import React from 'react'
@@ -42,7 +41,7 @@ export function PlanIcon({
                 </>
             ) : (
                 <>
-                    <IconCheckmark className={clsx('text-success mx-4 shrink-0', className)} />
+                    <IconCheckCircle className={clsx('text-success mx-4 shrink-0', className)} />
                     {feature.note}
                 </>
             )}
@@ -272,7 +271,11 @@ export const PlanComparison = ({
                                             className="PlanTable__th__section bg-side justify-left rounded text-left mb-2"
                                         >
                                             <div className="flex items-center gap-x-2 my-2">
-                                                {getProductIcon(includedProduct.icon_key, 'text-2xl')}
+                                                {getProductIcon(
+                                                    includedProduct.name,
+                                                    includedProduct.icon_key,
+                                                    'text-2xl'
+                                                )}
                                                 <Tooltip title={includedProduct.description}>
                                                     <span className="font-bold">{includedProduct.name}</span>
                                                 </Tooltip>

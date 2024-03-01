@@ -105,11 +105,15 @@
          groupArray(successes_on_retry),
          groupArray(failures)
   FROM
-    (SELECT date, sum(successes) AS successes,
+    (SELECT date, sum(CASE
+                          WHEN category = 'composeWebhook' THEN 0
+                          ELSE successes
+                      END) AS successes,
                   sum(successes_on_retry) AS successes_on_retry,
                   sum(failures) AS failures
      FROM
-       (SELECT dateTrunc('day', timestamp, 'UTC') AS date,
+       (SELECT category,
+               dateTrunc('day', timestamp, 'UTC') AS date,
                sum(successes) AS successes,
                sum(successes_on_retry) AS successes_on_retry,
                sum(failures) AS failures
@@ -119,7 +123,40 @@
           AND category = 'processEvent'
           AND timestamp >= '2021-11-28 00:00:00'
           AND timestamp < '2021-12-05 13:23:00'
-        GROUP BY dateTrunc('day', timestamp, 'UTC'))
+        GROUP BY dateTrunc('day', timestamp, 'UTC'),
+                 category)
+     GROUP BY date
+     ORDER BY date WITH FILL
+     FROM dateTrunc('day', toDateTime('2021-11-28 00:00:00'), 'UTC') TO dateTrunc('day', toDateTime('2021-12-05 13:23:00') + toIntervalDay(1), 'UTC') STEP 86400)
+  '''
+# ---
+# name: TestAppMetricsQuery.test_composeWebhook_sums_all_failures_but_only_webhook_successes
+  '''
+  
+  SELECT groupArray(date),
+         groupArray(successes),
+         groupArray(successes_on_retry),
+         groupArray(failures)
+  FROM
+    (SELECT date, sum(CASE
+                          WHEN category = 'composeWebhook' THEN 0
+                          ELSE successes
+                      END) AS successes,
+                  sum(successes_on_retry) AS successes_on_retry,
+                  sum(failures) AS failures
+     FROM
+       (SELECT category,
+               dateTrunc('day', timestamp, 'UTC') AS date,
+               sum(successes) AS successes,
+               sum(successes_on_retry) AS successes_on_retry,
+               sum(failures) AS failures
+        FROM app_metrics
+        WHERE team_id = 2
+          AND plugin_config_id = 3
+          AND timestamp >= '2021-11-28 00:00:00'
+          AND timestamp < '2021-12-05 13:23:00'
+        GROUP BY dateTrunc('day', timestamp, 'UTC'),
+                 category)
      GROUP BY date
      ORDER BY date WITH FILL
      FROM dateTrunc('day', toDateTime('2021-11-28 00:00:00'), 'UTC') TO dateTrunc('day', toDateTime('2021-12-05 13:23:00') + toIntervalDay(1), 'UTC') STEP 86400)
@@ -133,11 +170,15 @@
          groupArray(successes_on_retry),
          groupArray(failures)
   FROM
-    (SELECT date, sum(successes) AS successes,
+    (SELECT date, sum(CASE
+                          WHEN category = 'composeWebhook' THEN 0
+                          ELSE successes
+                      END) AS successes,
                   sum(successes_on_retry) AS successes_on_retry,
                   sum(failures) AS failures
      FROM
-       (SELECT dateTrunc('hour', timestamp, 'UTC') AS date,
+       (SELECT category,
+               dateTrunc('hour', timestamp, 'UTC') AS date,
                sum(successes) AS successes,
                sum(successes_on_retry) AS successes_on_retry,
                sum(failures) AS failures
@@ -147,7 +188,8 @@
           AND category = 'processEvent'
           AND timestamp >= '2021-12-05 00:00:00'
           AND timestamp < '2021-12-05 08:00:00'
-        GROUP BY dateTrunc('hour', timestamp, 'UTC'))
+        GROUP BY dateTrunc('hour', timestamp, 'UTC'),
+                 category)
      GROUP BY date
      ORDER BY date WITH FILL
      FROM dateTrunc('hour', toDateTime('2021-12-05 00:00:00'), 'UTC') TO dateTrunc('hour', toDateTime('2021-12-05 08:00:00') + toIntervalHour(1), 'UTC') STEP 3600)
@@ -161,11 +203,15 @@
          groupArray(successes_on_retry),
          groupArray(failures)
   FROM
-    (SELECT date, sum(successes) AS successes,
+    (SELECT date, sum(CASE
+                          WHEN category = 'composeWebhook' THEN 0
+                          ELSE successes
+                      END) AS successes,
                   sum(successes_on_retry) AS successes_on_retry,
                   sum(failures) AS failures
      FROM
-       (SELECT dateTrunc('day', timestamp, 'UTC') AS date,
+       (SELECT category,
+               dateTrunc('day', timestamp, 'UTC') AS date,
                sum(successes) AS successes,
                sum(successes_on_retry) AS successes_on_retry,
                sum(failures) AS failures
@@ -176,7 +222,8 @@
           AND job_id = '12345'
           AND timestamp >= '2021-11-28 00:00:00'
           AND timestamp < '2021-12-05 13:23:00'
-        GROUP BY dateTrunc('day', timestamp, 'UTC'))
+        GROUP BY dateTrunc('day', timestamp, 'UTC'),
+                 category)
      GROUP BY date
      ORDER BY date WITH FILL
      FROM dateTrunc('day', toDateTime('2021-11-28 00:00:00'), 'UTC') TO dateTrunc('day', toDateTime('2021-12-05 13:23:00') + toIntervalDay(1), 'UTC') STEP 86400)
@@ -190,11 +237,15 @@
          groupArray(successes_on_retry),
          groupArray(failures)
   FROM
-    (SELECT date, sum(successes) AS successes,
+    (SELECT date, sum(CASE
+                          WHEN category = 'composeWebhook' THEN 0
+                          ELSE successes
+                      END) AS successes,
                   sum(successes_on_retry) AS successes_on_retry,
                   sum(failures) AS failures
      FROM
-       (SELECT dateTrunc('day', timestamp, 'UTC') AS date,
+       (SELECT category,
+               dateTrunc('day', timestamp, 'UTC') AS date,
                sum(successes) AS successes,
                sum(successes_on_retry) AS successes_on_retry,
                sum(failures) AS failures
@@ -204,7 +255,8 @@
           AND category = 'processEvent'
           AND timestamp >= '2021-11-28 00:00:00'
           AND timestamp < '2021-12-05 13:23:00'
-        GROUP BY dateTrunc('day', timestamp, 'UTC'))
+        GROUP BY dateTrunc('day', timestamp, 'UTC'),
+                 category)
      GROUP BY date
      ORDER BY date WITH FILL
      FROM dateTrunc('day', toDateTime('2021-11-28 00:00:00'), 'UTC') TO dateTrunc('day', toDateTime('2021-12-05 13:23:00') + toIntervalDay(1), 'UTC') STEP 86400)

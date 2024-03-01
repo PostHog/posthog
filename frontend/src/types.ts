@@ -399,6 +399,14 @@ export interface CorrelationConfigType {
     excluded_event_names?: string[]
 }
 
+export interface SessionRecordingAIConfig {
+    opt_in: boolean
+    preferred_events: string[]
+    excluded_events: string[]
+    included_event_properties: string[]
+    important_user_properties: string[]
+}
+
 export interface TeamType extends TeamBasicType {
     created_at: string
     updated_at: string
@@ -413,12 +421,12 @@ export interface TeamType extends TeamBasicType {
     // a string representation of the decimal value between 0 and 1
     session_recording_sample_rate: string
     session_recording_minimum_duration_milliseconds: number | null
-    session_recording_linked_flag: Pick<FeatureFlagBasicType, 'id' | 'key'> | null
+    session_recording_linked_flag: ({ variant?: string | null } & Pick<FeatureFlagBasicType, 'id' | 'key'>) | null
     session_recording_network_payload_capture_config:
         | { recordHeaders?: boolean; recordBody?: boolean }
         | undefined
         | null
-    session_replay_config: { record_canvas?: boolean } | undefined | null
+    session_replay_config: { record_canvas?: boolean; ai_config?: SessionRecordingAIConfig } | undefined | null
     autocapture_exceptions_opt_in: boolean
     surveys_opt_in?: boolean
     autocapture_exceptions_errors_to_ignore: string[]
@@ -629,6 +637,7 @@ export enum PropertyFilterType {
     Recording = 'recording',
     Group = 'group',
     HogQL = 'hogql',
+    DataWarehouse = 'data_warehouse',
 }
 
 /** Sync with plugin-server/src/types.ts */
@@ -648,6 +657,11 @@ export interface EventPropertyFilter extends BasePropertyFilter {
 /** Sync with plugin-server/src/types.ts */
 export interface PersonPropertyFilter extends BasePropertyFilter {
     type: PropertyFilterType.Person
+    operator: PropertyOperator
+}
+
+export interface DataWarehousePropertyFilter extends BasePropertyFilter {
+    type: PropertyFilterType.DataWarehouse
     operator: PropertyOperator
 }
 
@@ -706,6 +720,7 @@ export type AnyPropertyFilter =
     | FeaturePropertyFilter
     | HogQLPropertyFilter
     | EmptyPropertyFilter
+    | DataWarehousePropertyFilter
 
 export type AnyFilterLike = AnyPropertyFilter | PropertyGroupFilter | PropertyGroupFilterValue
 
@@ -866,16 +881,12 @@ export interface RecordingFilters {
     filter_test_accounts?: boolean
 }
 
-export interface LocalRecordingFilters extends RecordingFilters {
-    new_entity?: Record<string, any>[]
-}
-
 export interface SessionRecordingsResponse {
     results: SessionRecordingType[]
     has_next: boolean
 }
 
-export type EntityType = 'actions' | 'events' | 'new_entity'
+export type EntityType = 'actions' | 'events' | 'data_warehouse' | 'new_entity'
 
 export interface Entity {
     id: string | number
@@ -888,6 +899,7 @@ export interface Entity {
 export enum EntityTypes {
     ACTIONS = 'actions',
     EVENTS = 'events',
+    DATA_WAREHOUSE = 'data_warehouse',
 }
 
 export type EntityFilter = {
@@ -908,6 +920,15 @@ export interface ActionFilter extends EntityFilter {
     type: EntityType
     days?: string[] // TODO: why was this added here?
 }
+
+export interface DataWarehouseFilter extends ActionFilter {
+    id_field: string
+    timestamp_field: string
+    table_name: string
+}
+
+export const isDataWarehouseFilter = (filter: EntityFilter): filter is DataWarehouseFilter =>
+    filter.type === EntityTypes.DATA_WAREHOUSE
 
 export interface FunnelExclusionLegacy extends Partial<EntityFilter> {
     funnel_from_step: number
@@ -1799,7 +1820,7 @@ export enum ChartDisplayType {
     BoldNumber = 'BoldNumber',
 }
 
-export type BreakdownType = 'cohort' | 'person' | 'event' | 'group' | 'session' | 'hogql'
+export type BreakdownType = 'cohort' | 'person' | 'event' | 'group' | 'session' | 'hogql' | 'data_warehouse'
 export type IntervalType = 'hour' | 'day' | 'week' | 'month'
 export type SmoothingType = number
 
@@ -1868,6 +1889,7 @@ export interface FilterType {
 
     events?: Record<string, any>[]
     actions?: Record<string, any>[]
+    data_warehouse?: Record<string, any>[]
     new_entity?: Record<string, any>[]
 
     // persons modal
@@ -3234,6 +3256,7 @@ export enum ExporterFormat {
     CSV = 'text/csv',
     PDF = 'application/pdf',
     JSON = 'application/json',
+    XLSX = 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
 }
 
 /** Exporting directly from the browser to a file */
@@ -3266,6 +3289,7 @@ export interface ExportedAssetType {
     export_context?: ExportContext
     has_content: boolean
     filename: string
+    created_at: string
     expires_after?: string
 }
 
@@ -3479,11 +3503,13 @@ export interface DataWarehouseSavedQuery {
 
 export interface DataWarehouseViewLink {
     id: string
-    saved_query_id?: string
-    saved_query?: string
-    table?: string
-    to_join_key?: string
-    from_join_key?: string
+    source_table_name?: string
+    source_table_key?: string
+    joining_table_name?: string
+    joining_table_key?: string
+    field_name?: string
+    created_by?: UserBasicType | null
+    created_at?: string | null
 }
 
 export type ExternalDataSourceType = 'Stripe' | 'Hubspot' | 'Postgres'
@@ -3589,6 +3615,16 @@ export type BatchExportDestinationBigQuery = {
     }
 }
 
+export type BatchExportDestinationHTTP = {
+    type: 'HTTP'
+    config: {
+        url: string
+        token: string
+        exclude_events: string[]
+        include_events: string[]
+    }
+}
+
 export type BatchExportDestinationRedshift = {
     type: 'Redshift'
     config: {
@@ -3614,6 +3650,7 @@ export type BatchExportDestination =
     | BatchExportDestinationPostgres
     | BatchExportDestinationBigQuery
     | BatchExportDestinationRedshift
+    | BatchExportDestinationHTTP
 
 export type BatchExportConfiguration = {
     // User provided data for the export. This is the data that the user
@@ -3632,7 +3669,16 @@ export type BatchExportConfiguration = {
 
 export type BatchExportRun = {
     id: string
-    status: 'Cancelled' | 'Completed' | 'ContinuedAsNew' | 'Failed' | 'Terminated' | 'TimedOut' | 'Running' | 'Starting'
+    status:
+        | 'Cancelled'
+        | 'Completed'
+        | 'ContinuedAsNew'
+        | 'Failed'
+        | 'FailedRetryable'
+        | 'Terminated'
+        | 'TimedOut'
+        | 'Running'
+        | 'Starting'
     created_at: Dayjs
     data_interval_start: Dayjs
     data_interval_end: Dayjs

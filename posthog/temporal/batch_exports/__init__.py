@@ -1,5 +1,3 @@
-from typing import Callable, Sequence
-
 from posthog.temporal.batch_exports.backfill_batch_export import (
     BackfillBatchExportWorkflow,
     backfill_schedule,
@@ -55,7 +53,6 @@ ACTIVITIES = [
     create_batch_export_backfill_model,
     create_export_run,
     delete_squashed_person_overrides_from_clickhouse,
-    delete_squashed_person_overrides_from_postgres,
     drop_dictionary,
     get_schedule_frequency,
     insert_into_bigquery_activity,
@@ -65,9 +62,8 @@ ACTIVITIES = [
     insert_into_snowflake_activity,
     insert_into_http_activity,
     noop_activity,
+    optimize_person_distinct_id_overrides,
     prepare_dictionary,
-    prepare_person_overrides,
-    select_persons_to_delete,
     squash_events_partition,
     update_batch_export_backfill_model_status,
     update_export_run_status,

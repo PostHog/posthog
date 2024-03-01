@@ -45,6 +45,9 @@ import {
 import {
     filterForQuery,
     filterKeyForQuery,
+    isActionsNode,
+    isDataWarehouseNode,
+    isEventsNode,
     isFunnelsQuery,
     isInsightQueryNode,
     isInsightVizNode,
@@ -212,6 +215,13 @@ export const insightVizDataLogic = kea<insightVizDataLogicType>([
             },
         ],
 
+        isDataWarehouseSeries: [
+            (s) => [s.isTrends, s.series],
+            (isTrends, series): boolean => {
+                return isTrends && (series || []).length > 0 && !!series?.some((node) => isDataWarehouseNode(node))
+            },
+        ],
+
         valueOnSeries: [
             (s) => [s.isTrends, s.isStickiness, s.isLifecycle, s.insightFilter],
             (isTrends, isStickiness, isLifecycle, insightFilter): boolean => {
@@ -317,15 +327,18 @@ export const insightVizDataLogic = kea<insightVizDataLogicType>([
     }),
 
     listeners(({ actions, values, props }) => ({
-        updateDateRange: ({ dateRange }) => {
+        updateDateRange: async ({ dateRange }, breakpoint) => {
+            await breakpoint(300)
             actions.updateQuerySource({ dateRange: { ...values.dateRange, ...dateRange } })
         },
-        updateBreakdownFilter: ({ breakdownFilter }) => {
+        updateBreakdownFilter: async ({ breakdownFilter }, breakpoint) => {
+            await breakpoint(500) // extra debounce time because of number input
             actions.updateQuerySource({
                 breakdownFilter: { ...values.breakdownFilter, ...breakdownFilter },
             } as Partial<TrendsQuery>)
         },
-        updateInsightFilter: ({ insightFilter }) => {
+        updateInsightFilter: async ({ insightFilter }, breakpoint) => {
+            await breakpoint(300)
             const filterProperty = filterKeyForQuery(values.localQuerySource)
             actions.updateQuerySource({
                 [filterProperty]: { ...values.localQuerySource[filterProperty], ...insightFilter },
@@ -486,6 +499,17 @@ const handleQuerySourceUpdateSideEffects = (
             breakdown: '$geoip_country_code',
             breakdown_type: ['dau', 'weekly_active', 'monthly_active'].includes(math || '') ? 'person' : 'event',
         }
+    }
+
+    // if mixed, clear breakdown and trends filter
+    if (
+        kind === NodeKind.TrendsQuery &&
+        (mergedUpdate as TrendsQuery).series?.length >= 0 &&
+        (mergedUpdate as TrendsQuery).series.some((series) => isDataWarehouseNode(series)) &&
+        (mergedUpdate as TrendsQuery).series.some((series) => isActionsNode(series) || isEventsNode(series))
+    ) {
+        mergedUpdate['breakdownFilter'] = null
+        mergedUpdate['properties'] = []
     }
 
     return mergedUpdate

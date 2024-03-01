@@ -46,6 +46,7 @@ export enum NodeKind {
     // Data nodes
     EventsNode = 'EventsNode',
     ActionsNode = 'ActionsNode',
+    DataWarehouseNode = 'DataWarehouseNode',
     EventsQuery = 'EventsQuery',
     PersonsNode = 'PersonsNode',
     HogQLQuery = 'HogQLQuery',
@@ -110,6 +111,7 @@ export type QuerySchema =
     | EventsNode // never queried directly
     | ActionsNode // old actions API endpoint
     | PersonsNode // old persons API endpoint
+    | DataWarehouseNode
     | TimeToSeeDataSessionsQuery // old API
     | EventsQuery
     | ActorsQuery
@@ -364,12 +366,20 @@ export interface EventsNode extends EntityNode {
     }
 }
 
+export interface DataWarehouseNode extends EntityNode {
+    id: string
+    kind: NodeKind.DataWarehouseNode
+    id_field: string
+    table_name: string
+    timestamp_field: string
+}
+
 export interface ActionsNode extends EntityNode {
     kind: NodeKind.ActionsNode
     id: integer
 }
 
-export type AnyEntityNode = EventsNode | ActionsNode
+export type AnyEntityNode = EventsNode | ActionsNode | DataWarehouseNode
 
 export interface QueryTiming {
     /** Key. Shortened to 'k' to save on data. */
@@ -1083,11 +1093,14 @@ export interface FunnelsActorsQuery extends InsightActorsQueryBase {
     /** Index of the step for which we want to get the timestamp for, per person.
      * Positive for converted persons, negative for dropped of persons. */
     funnelStep?: integer
-    /** Custom step numbers to get persons for. This overrides `funnelStep`. */
+    /** Custom step numbers to get persons for. This overrides `funnelStep`. Primarily for correlation use. */
     funnelCustomSteps?: integer[]
     /** The breakdown value for which to get persons for. This is an array for
      * person and event properties, a string for groups and an integer for cohorts. */
     funnelStepBreakdown?: BreakdownKeyType
+    funnelTrendsDropOff?: boolean
+    /** Used together with `funnelTrendsDropOff` for funnels time conversion date for the persons modal. */
+    funnelTrendsEntrancePeriodStart?: string
 }
 
 export type BreakdownValueInt = integer

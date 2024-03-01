@@ -11,7 +11,7 @@ import requests
 from django.conf import settings
 
 
-def encode_clickhouse_data(data: typing.Any) -> bytes:
+def encode_clickhouse_data(data: typing.Any, quote_char="'") -> bytes:
     """Encode data for ClickHouse.
 
     Depending on the type of data the encoding is different.
@@ -24,9 +24,9 @@ def encode_clickhouse_data(data: typing.Any) -> bytes:
             return b"NULL"
 
         case uuid.UUID():
-            return f"'{data}'".encode("utf-8")
+            return f"{quote_char}{data}{quote_char}".encode("utf-8")
 
-        case int():
+        case int() | float():
             return b"%d" % data
 
         case dt.datetime():
@@ -49,12 +49,29 @@ def encode_clickhouse_data(data: typing.Any) -> bytes:
             return result
 
         case dict():
-            return json.dumps(data).encode("utf-8")
+            # Encode dictionaries as JSON, as it can represent a Python dictionary in a way ClickHouse understands.
+            # This means INSERT queries with dictionary data are only supported with 'FORMAT JSONEachRow', which
+            # is enough for now as most if not all of our INSERT query workloads are in unit test setup.
+            encoded_data = []
+            quote_char = '"'  # JSON requires double quotes.
+
+            for key, value in data.items():
+                if isinstance(value, dt.datetime):
+                    value = str(value.timestamp())
+                elif isinstance(value, uuid.UUID) or isinstance(value, str):
+                    value = str(value)
+
+                encoded_data.append(
+                    f'"{str(key)}"'.encode("utf-8") + b":" + encode_clickhouse_data(value, quote_char=quote_char)
+                )
+
+            result = b"{" + b",".join(encoded_data) + b"}"
+            return result
 
         case _:
             str_data = str(data)
             str_data = str_data.replace("\\", "\\\\").replace("'", "\\'")
-            return f"'{str_data}'".encode("utf-8")
+            return f"{quote_char}{str_data}{quote_char}".encode("utf-8")
 
 
 class ClickHouseError(Exception):
@@ -138,13 +155,13 @@ class ClickHouseClient:
         Returns:
             The formatted query.
         """
-        if query_parameters:
-            format_parameters = {k: encode_clickhouse_data(v).decode("utf-8") for k, v in query_parameters.items()}
-        else:
-            format_parameters = {}
+        if not query_parameters:
+            return query
 
+        format_parameters = {k: encode_clickhouse_data(v).decode("utf-8") for k, v in query_parameters.items()}
         query = query % format_parameters
         query = query.format(**format_parameters)
+
         return query
 
     def prepare_request_data(self, data: collections.abc.Sequence[typing.Any]) -> bytes | None:
@@ -180,6 +197,36 @@ class ClickHouseClient:
             raise ClickHouseError(query, error_message)
 
     @contextlib.asynccontextmanager
+    async def aget_query(
+        self, query, query_parameters, query_id
+    ) -> collections.abc.AsyncIterator[aiohttp.ClientResponse]:
+        """Send a GET request to the ClickHouse HTTP interface with a query.
+
+        Only read-only queries may be sent as a GET request. For inserts, use apost_query.
+
+        The context manager protocol is used to control when to release the response.
+
+        Arguments:
+            query: The query to POST.
+            *data: Iterable of values to include in the body of the request. For example, the tuples of VALUES for an INSERT query.
+            query_parameters: Parameters to be formatted in the query.
+            query_id: A query ID to pass to ClickHouse.
+
+        Returns:
+            The response received from the ClickHouse HTTP interface.
+        """
+
+        params = {**self.params}
+        if query_id is not None:
+            params["query_id"] = query_id
+
+        params["query"] = self.prepare_query(query, query_parameters)
+
+        async with self.session.get(url=self.url, params=params, headers=self.headers) as response:
+            await self.acheck_response(response, query)
+            yield response
+
+    @contextlib.asynccontextmanager
     async def apost_query(
         self, query, *data, query_parameters, query_id
     ) -> collections.abc.AsyncIterator[aiohttp.ClientResponse]:
@@ -196,6 +243,7 @@ class ClickHouseClient:
         Returns:
             The response received from the ClickHouse HTTP interface.
         """
+
         params = {**self.params}
         if query_id is not None:
             params["query_id"] = query_id
@@ -259,13 +307,13 @@ class ClickHouseClient:
         async with self.apost_query(query, *data, query_parameters=query_parameters, query_id=query_id):
             return None
 
-    async def read_query(self, query, *data, query_parameters=None, query_id: str | None = None) -> bytes:
-        """Execute the given query in ClickHouse and read the response in full.
+    async def read_query(self, query, query_parameters=None, query_id: str | None = None) -> bytes:
+        """Execute the given readonly query in ClickHouse and read the response in full.
 
         As the entire payload will be read at once, use this method when expecting a small payload, like
         when running a 'count(*)' query.
         """
-        async with self.apost_query(query, *data, query_parameters=query_parameters, query_id=query_id) as response:
+        async with self.aget_query(query, query_parameters=query_parameters, query_id=query_id) as response:
             return await response.content.read()
 
     async def stream_query_as_jsonl(
@@ -320,7 +368,9 @@ class ClickHouseClient:
 
 
 @contextlib.asynccontextmanager
-async def get_client() -> collections.abc.AsyncIterator[ClickHouseClient]:
+async def get_client(
+    *, team_id: typing.Optional[int] = None, **kwargs
+) -> collections.abc.AsyncIterator[ClickHouseClient]:
     """
     Returns a ClickHouse client based on the aiochclient library. This is an
     async context manager.
@@ -351,6 +401,14 @@ async def get_client() -> collections.abc.AsyncIterator[ClickHouseClient]:
     #    elif ssl_context.verify_mode is ssl.CERT_REQUIRED:
     #        ssl_context.load_default_certs(ssl.Purpose.SERVER_AUTH)
     timeout = aiohttp.ClientTimeout(total=None, connect=None, sock_connect=None, sock_read=None)
+
+    if team_id is None:
+        max_block_size = settings.CLICKHOUSE_MAX_BLOCK_SIZE_DEFAULT
+    else:
+        max_block_size = settings.CLICKHOUSE_MAX_BLOCK_SIZE_OVERRIDES.get(
+            team_id, settings.CLICKHOUSE_MAX_BLOCK_SIZE_DEFAULT
+        )
+
     with aiohttp.TCPConnector(ssl=False) as connector:
         async with aiohttp.ClientSession(connector=connector, timeout=timeout) as session:
             async with ClickHouseClient(
@@ -359,9 +417,9 @@ async def get_client() -> collections.abc.AsyncIterator[ClickHouseClient]:
                 user=settings.CLICKHOUSE_USER,
                 password=settings.CLICKHOUSE_PASSWORD,
                 database=settings.CLICKHOUSE_DATABASE,
-                # TODO: make this a setting.
-                max_execution_time=0,
-                max_block_size=10000,
+                max_execution_time=settings.CLICKHOUSE_MAX_EXECUTION_TIME,
+                max_block_size=max_block_size,
                 output_format_arrow_string_as_string="true",
+                **kwargs,
             ) as client:
                 yield client

@@ -6,6 +6,7 @@ import { router, urlToAction } from 'kea-router'
 import api from 'lib/api'
 import { dayjs } from 'lib/dayjs'
 import { LemonBannerAction } from 'lib/lemon-ui/LemonBanner/LemonBanner'
+import { lemonBannerLogic } from 'lib/lemon-ui/LemonBanner/lemonBannerLogic'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { pluralize } from 'lib/utils'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
@@ -234,8 +235,13 @@ export const billingLogic = kea<billingLogicType>([
                         message: `You have exceeded the usage limit for ${productOverLimit.name}. Please 
                             ${productOverLimit.subscribed ? 'increase your billing limit' : 'upgrade your plan'}
                             or data loss may occur.`,
+                        dismissKey: 'usage-limit-exceeded',
                     }
                 }
+
+                lemonBannerLogic({ dismissKey: 'usage-limit-exceeded' }).mount()
+                lemonBannerLogic({ dismissKey: 'usage-limit-exceeded' }).actions.resetDismissKey()
+                lemonBannerLogic({ dismissKey: 'usage-limit-exceeded' }).unmount()
 
                 const productApproachingLimit = billing.products?.find(
                     (x) => x.percentage_usage > ALLOCATION_THRESHOLD_ALERT
@@ -250,8 +256,13 @@ export const billingLogic = kea<billingLogicType>([
                         )}% of your ${
                             productApproachingLimit.usage_key && productApproachingLimit.usage_key.toLowerCase()
                         } allocation.`,
+                        dismissKey: 'usage-limit-approaching',
                     }
                 }
+
+                lemonBannerLogic({ dismissKey: 'usage-limit-approaching' }).mount()
+                lemonBannerLogic({ dismissKey: 'usage-limit-approaching' }).actions.resetDismissKey()
+                lemonBannerLogic({ dismissKey: 'usage-limit-approaching' }).unmount()
             },
         ],
     }),

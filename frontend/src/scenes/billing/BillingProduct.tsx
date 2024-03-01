@@ -1,16 +1,9 @@
-import { IconPlus } from '@posthog/icons'
+import { IconCheckCircle, IconChevronDown, IconInfo, IconPlus } from '@posthog/icons'
 import { LemonButton, LemonSelectOptions, LemonTable, LemonTag, Link } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { useResizeBreakpoints } from 'lib/hooks/useResizeObserver'
-import {
-    IconArticle,
-    IconCheckCircleOutline,
-    IconCheckmark,
-    IconChevronRight,
-    IconExpandMore,
-    IconInfo,
-} from 'lib/lemon-ui/icons'
+import { IconArticle, IconCheckCircleOutline, IconChevronRight } from 'lib/lemon-ui/icons'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { More } from 'lib/lemon-ui/LemonButton/More'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
@@ -104,13 +97,13 @@ export const BillingProductAddon = ({ addon }: { addon: BillingProductV2AddonTyp
         <div className="bg-side rounded p-6 flex flex-col">
             <div className="flex justify-between gap-x-4">
                 <div className="flex gap-x-4">
-                    <div className="w-8">{getProductIcon(addon.icon_key, 'text-2xl')}</div>
+                    <div className="w-8">{getProductIcon(addon.name, addon.icon_key, 'text-2xl')}</div>
                     <div>
                         <div className="flex gap-x-2 items-center mt-0 mb-2 ">
                             <h4 className="leading-5 mb-1 font-bold">{addon.name}</h4>
                             {addon.subscribed && (
                                 <div>
-                                    <LemonTag type="primary" icon={<IconCheckmark />}>
+                                    <LemonTag type="primary" icon={<IconCheckCircle />}>
                                         Subscribed
                                     </LemonTag>
                                 </div>
@@ -155,7 +148,7 @@ export const BillingProductAddon = ({ addon }: { addon: BillingProductV2AddonTyp
                             />
                         </>
                     ) : addon.included_with_main_product ? (
-                        <LemonTag type="completion" icon={<IconCheckmark />}>
+                        <LemonTag type="completion" icon={<IconCheckCircle />}>
                             Included with plan
                         </LemonTag>
                     ) : (
@@ -351,7 +344,7 @@ export const BillingProduct = ({ product }: { product: BillingProductV2Type }): 
             <div className="border border-border rounded w-full bg-bg-light" ref={productRef}>
                 <div className="border-b border-border bg-mid p-4">
                     <div className="flex gap-4 items-center justify-between">
-                        {getProductIcon(product.icon_key, 'text-2xl')}
+                        {getProductIcon(product.name, product.icon_key, 'text-2xl')}
                         <div>
                             <h3 className="font-bold mb-0">{product.name}</h3>
                             <div>{product.description}</div>
@@ -457,7 +450,9 @@ export const BillingProduct = ({ product }: { product: BillingProductV2Type }): 
                                         <>
                                             {product.subscribed && (
                                                 <LemonButton
-                                                    icon={showTierBreakdown ? <IconExpandMore /> : <IconChevronRight />}
+                                                    icon={
+                                                        showTierBreakdown ? <IconChevronDown /> : <IconChevronRight />
+                                                    }
                                                     onClick={() => setShowTierBreakdown(!showTierBreakdown)}
                                                 />
                                             )}

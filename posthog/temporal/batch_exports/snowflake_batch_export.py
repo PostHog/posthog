@@ -14,6 +14,7 @@ from snowflake.connector.connection import SnowflakeConnection
 from temporalio import activity, workflow
 from temporalio.common import RetryPolicy
 
+from posthog.batch_exports.models import BatchExportRun
 from posthog.batch_exports.service import BatchExportField, BatchExportSchema, SnowflakeBatchExportInputs
 from posthog.temporal.batch_exports.base import PostHogWorkflow
 from posthog.temporal.batch_exports.batch_exports import (
@@ -27,12 +28,12 @@ from posthog.temporal.batch_exports.batch_exports import (
     get_rows_count,
     iter_records,
 )
-from posthog.temporal.batch_exports.clickhouse import get_client
 from posthog.temporal.batch_exports.metrics import (
     get_bytes_exported_metric,
     get_rows_exported_metric,
 )
 from posthog.temporal.batch_exports.utils import peek_first_and_rewind
+from posthog.temporal.common.clickhouse import get_client
 from posthog.temporal.common.logger import bind_temporal_worker_logger
 from posthog.temporal.common.utils import (
     BatchExportHeartbeatDetails,
@@ -72,13 +73,13 @@ class SnowflakeHeartbeatDetails(BatchExportHeartbeatDetails):
 
     @classmethod
     def from_activity(cls, activity):
-        details = super().from_activity(activity)
+        details = BatchExportHeartbeatDetails.from_activity(activity)
 
         if details.total_details < 2:
             raise NotEnoughHeartbeatValuesError(details.total_details, 2)
 
         try:
-            file_no = int(details._remaining[1])
+            file_no = int(details._remaining[0])
         except (TypeError, ValueError) as e:
             raise HeartbeatParseError("file_no") from e
 
@@ -410,7 +411,7 @@ async def insert_into_snowflake_activity(inputs: SnowflakeInsertInputs):
         last_inserted_at = None
         file_no = 0
 
-    async with get_client() as client:
+    async with get_client(team_id=inputs.team_id) as client:
         if not await client.is_alive():
             raise ConnectionError("Cannot establish connection to ClickHouse")
 
@@ -594,7 +595,7 @@ class SnowflakeBatchExportWorkflow(PostHogWorkflow):
 
         update_inputs = UpdateBatchExportRunStatusInputs(
             id=run_id,
-            status="Completed",
+            status=BatchExportRun.Status.COMPLETED,
             team_id=inputs.team_id,
         )
 

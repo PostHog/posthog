@@ -1,7 +1,7 @@
-import { IconTerminal } from '@posthog/icons'
+import { IconDashboard, IconTerminal } from '@posthog/icons'
 import clsx from 'clsx'
 import { useValues } from 'kea'
-import { IconGauge, IconMagnifier, IconUnverifiedEvent } from 'lib/lemon-ui/icons'
+import { IconMagnifier, IconUnverifiedEvent } from 'lib/lemon-ui/icons'
 
 import { SessionRecordingPlayerTab } from '~/types'
 
@@ -12,7 +12,7 @@ const TabToIcon = {
     [SessionRecordingPlayerTab.ALL]: IconMagnifier,
     [SessionRecordingPlayerTab.EVENTS]: IconUnverifiedEvent,
     [SessionRecordingPlayerTab.CONSOLE]: IconTerminal,
-    [SessionRecordingPlayerTab.NETWORK]: IconGauge,
+    [SessionRecordingPlayerTab.NETWORK]: IconDashboard,
 }
 
 export function PlayerInspectorPreview(props: { onClick: () => void }): JSX.Element {

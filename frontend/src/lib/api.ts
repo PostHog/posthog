@@ -1584,16 +1584,19 @@ const api = {
 
         async listSnapshots(
             recordingId: SessionRecordingType['id'],
-            params: string
+            params: Record<string, any> = {}
         ): Promise<SessionRecordingSnapshotResponse> {
             return await new ApiRequest().recording(recordingId).withAction('snapshots').withQueryString(params).get()
         },
 
-        async getBlobSnapshots(recordingId: SessionRecordingType['id'], blobKey: string): Promise<string[]> {
+        async getBlobSnapshots(
+            recordingId: SessionRecordingType['id'],
+            params: Record<string, any>
+        ): Promise<string[]> {
             const response = await new ApiRequest()
                 .recording(recordingId)
                 .withAction('snapshots')
-                .withQueryString(toParams({ source: 'blob', blob_key: blobKey, version: '2' }))
+                .withQueryString(params)
                 .getResponse()
 
             const contentBuffer = new Uint8Array(await response.arrayBuffer())
@@ -1903,7 +1906,10 @@ const api = {
         },
         async update(
             viewId: DataWarehouseViewLink['id'],
-            data: Pick<DataWarehouseViewLink, 'saved_query_id' | 'from_join_key' | 'table' | 'to_join_key'>
+            data: Pick<
+                DataWarehouseViewLink,
+                'source_table_name' | 'source_table_key' | 'joining_table_name' | 'joining_table_key' | 'field_name'
+            >
         ): Promise<DataWarehouseViewLink> {
             return await new ApiRequest().dataWarehouseViewLink(viewId).update({ data })
         },
@@ -2136,11 +2142,11 @@ const api = {
         return response
     },
 
-    async loadPaginatedResults(
+    async loadPaginatedResults<T extends Record<string, any>>(
         url: string | null,
         maxIterations: number = PAGINATION_DEFAULT_MAX_PAGES
-    ): Promise<any[]> {
-        let results: any[] = []
+    ): Promise<T[]> {
+        let results: T[] = []
         for (let i = 0; i <= maxIterations; ++i) {
             if (!url) {
                 break
