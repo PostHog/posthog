@@ -322,6 +322,10 @@ export function taxonomicFilterTypeToPropertyFilterType(
         return PropertyFilterType.Event
     }
 
+    if (filterType == TaxonomicFilterGroupType.DataWarehouseProperties) {
+        return PropertyFilterType.DataWarehouse
+    }
+
     return Object.entries(propertyFilterMapping).find(([, v]) => v === filterType)?.[0] as
         | PropertyFilterType
         | undefined

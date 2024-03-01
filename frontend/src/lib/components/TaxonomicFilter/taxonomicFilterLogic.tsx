@@ -1,3 +1,4 @@
+import { IconServer } from '@posthog/icons'
 import { actions, BuiltLogic, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { combineUrl } from 'kea-router'
 import { infiniteListLogic } from 'lib/components/TaxonomicFilter/infiniteListLogic'
@@ -14,6 +15,8 @@ import { IconCohort } from 'lib/lemon-ui/icons'
 import { CORE_FILTER_DEFINITIONS_BY_GROUP } from 'lib/taxonomy'
 import { capitalizeFirstLetter, pluralize, toParams } from 'lib/utils'
 import { getEventDefinitionIcon, getPropertyDefinitionIcon } from 'scenes/data-management/events/DefinitionHeader'
+import { dataWarehouseSceneLogic } from 'scenes/data-warehouse/external/dataWarehouseSceneLogic'
+import { DataWarehouseTableType } from 'scenes/data-warehouse/types'
 import { experimentsLogic } from 'scenes/experiments/experimentsLogic'
 import { featureFlagsLogic } from 'scenes/feature-flags/featureFlagsLogic'
 import { groupDisplayId } from 'scenes/persons/GroupActorDisplay'
@@ -26,7 +29,7 @@ import { dashboardsModel } from '~/models/dashboardsModel'
 import { groupPropertiesModel } from '~/models/groupPropertiesModel'
 import { groupsModel } from '~/models/groupsModel'
 import { updatePropertyDefinitions } from '~/models/propertyDefinitionsModel'
-import { AnyDataNode, NodeKind } from '~/queries/schema'
+import { AnyDataNode, DatabaseSchemaQueryResponseField, NodeKind } from '~/queries/schema'
 import {
     ActionType,
     CohortType,
@@ -81,6 +84,8 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
             ['groupTypes', 'aggregationLabel'],
             groupPropertiesModel,
             ['allGroupProperties'],
+            dataWarehouseSceneLogic,
+            ['externalTables'],
         ],
     }),
     actions(() => ({
@@ -135,6 +140,7 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
             (taxonomicFilterLogicKey) => taxonomicFilterLogicKey,
         ],
         eventNames: [() => [(_, props) => props.eventNames], (eventNames) => eventNames ?? []],
+        schemaColumns: [() => [(_, props) => props.schemaColumns], (schemaColumns) => schemaColumns ?? []],
         metadataSource: [
             () => [(_, props) => props.metadataSource],
             (metadataSource): AnyDataNode =>
@@ -154,6 +160,7 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                 s.groupAnalyticsTaxonomicGroups,
                 s.groupAnalyticsTaxonomicGroupNames,
                 s.eventNames,
+                s.schemaColumns,
                 s.metadataSource,
                 s.excludedProperties,
                 s.propertyAllowList,
@@ -163,6 +170,7 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                 groupAnalyticsTaxonomicGroups,
                 groupAnalyticsTaxonomicGroupNames,
                 eventNames,
+                schemaColumns,
                 metadataSource,
                 excludedProperties,
                 propertyAllowList
@@ -194,6 +202,27 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                         getValue: (action: ActionType) => action.id,
                         getPopoverHeader: () => 'Action',
                         getIcon: getEventDefinitionIcon,
+                    },
+                    {
+                        name: 'Data Warehouse',
+                        searchPlaceholder: 'data warehouse table name',
+                        type: TaxonomicFilterGroupType.DataWarehouse,
+                        logic: dataWarehouseSceneLogic,
+                        value: 'externalTables',
+                        getName: (table: DataWarehouseTableType) => table.name,
+                        getValue: (table: DataWarehouseTableType) => table.id,
+                        getPopoverHeader: () => 'Data Warehouse Table',
+                        getIcon: () => <IconServer />,
+                    },
+                    {
+                        name: 'Data Warehouse Properties',
+                        searchPlaceholder: 'data warehouse property',
+                        type: TaxonomicFilterGroupType.DataWarehouseProperties,
+                        options: schemaColumns,
+                        getName: (col: DatabaseSchemaQueryResponseField) => col.key,
+                        getValue: (col: DatabaseSchemaQueryResponseField) => col.key,
+                        getPopoverHeader: () => 'Data Warehouse Column',
+                        getIcon: () => <IconServer />,
                     },
                     {
                         name: 'Autocapture elements',
