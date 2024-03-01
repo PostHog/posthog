@@ -86,7 +86,9 @@ function useBoldNumberTooltip({
 
 export function BoldNumber({ showPersonsModal = true }: ChartParams): JSX.Element {
     const { insightProps } = useValues(insightLogic)
-    const { insightData, trendsFilter, isTrends, query } = useValues(insightVizDataLogic(insightProps))
+    const { insightData, trendsFilter, isTrends, query, isDataWarehouseSeries } = useValues(
+        insightVizDataLogic(insightProps)
+    )
     const { featureFlags } = useValues(featureFlagLogic)
 
     const [isTooltipShown, setIsTooltipShown] = useState(false)
@@ -108,7 +110,7 @@ export function BoldNumber({ showPersonsModal = true }: ChartParams): JSX.Elemen
                 className={clsx('BoldNumber__value', showPersonsModal ? 'cursor-pointer' : 'cursor-default')}
                 onClick={
                     // != is intentional to catch undefined too
-                    showPersonsModal && resultSeries.aggregated_value != null
+                    showPersonsModal && resultSeries.aggregated_value != null && !isDataWarehouseSeries
                         ? () => {
                               if (isTrendsQueryWithFeatureFlagOn) {
                                   openPersonsModal({
