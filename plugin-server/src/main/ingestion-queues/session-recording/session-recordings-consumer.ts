@@ -137,6 +137,7 @@ export class SessionRecordingIngester {
     config: PluginsServerConfig
     topic = KAFKA_SESSION_RECORDING_SNAPSHOT_ITEM_EVENTS
     totalNumPartitions = 0
+    isStopping = false
 
     private promises: Set<Promise<any>> = new Set()
     // if ingestion is lagging on a single partition it is often hard to identify _why_,
@@ -500,6 +501,7 @@ export class SessionRecordingIngester {
 
     public async stop(): Promise<PromiseSettledResult<any>[]> {
         status.info('🔁', 'blob_ingester_consumer - stopping')
+        this.isStopping = true
 
         // NOTE: We have to get the partitions before we stop the consumer as it throws if disconnected
         const assignedPartitions = this.assignedTopicPartitions
@@ -622,11 +624,15 @@ export class SessionRecordingIngester {
 
                     const sortedSessions = sessionsToDrop.sort((x) => x.buffer.oldestKafkaTimestamp ?? Infinity)
 
-                    // Flush all the sessions we are supposed to drop
+                    // Flush all the sessions we are supposed to drop - until a timeout
                     await allSettledWithConcurrency(
                         this.config.SESSION_RECORDING_MAX_PARALLEL_FLUSHES,
                         sortedSessions,
-                        async (sessionManager) => {
+                        async (sessionManager, ctx) => {
+                            if (startTime + SHUTDOWN_FLUSH_TIMEOUT_MS < Date.now()) {
+                                return ctx.break()
+                            }
+
                             await sessionManager.flush('partition_shutdown')
                         }
                     )
@@ -646,8 +652,13 @@ export class SessionRecordingIngester {
         await allSettledWithConcurrency(
             this.config.SESSION_RECORDING_MAX_PARALLEL_FLUSHES,
             sessions,
-            async ([key, sessionManager]) => {
+            async ([key, sessionManager], ctx) => {
                 heartbeat()
+
+                if (this.isStopping) {
+                    // We can end up with a large number of flushes. We want to stop early if we hit shutdown
+                    return ctx.break()
+                }
 
                 if (!this.assignedPartitions.includes(sessionManager.partition)) {
                     // We are no longer in charge of this partition, so we should not flush it
