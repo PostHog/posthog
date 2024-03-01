@@ -40,6 +40,7 @@ require('@sentry/tracing')
 // WARNING: Do not change this - it will essentially reset the consumer
 const KAFKA_CONSUMER_GROUP_ID = 'session-recordings-blob'
 const KAFKA_CONSUMER_SESSION_TIMEOUT_MS = 30000
+const SHUTDOWN_FLUSH_TIMEOUT_MS = 30000
 
 const gaugeSessionsHandled = new Gauge({
     name: 'recording_blob_ingestion_session_manager_count',
@@ -606,10 +607,11 @@ export class SessionRecordingIngester {
         gaugeSessionsRevoked.set(sessionsToDrop.length)
         gaugeSessionsHandled.remove()
 
+        const startTime = Date.now()
         await runInstrumentedFunction({
             statsKey: `recordingingester.onRevokePartitions.revokeSessions`,
             logExecutionTime: true,
-            timeout: 30000, // same as the partition lock
+            timeout: SHUTDOWN_FLUSH_TIMEOUT_MS, // same as the partition lock
             func: async () => {
                 if (this.config.SESSION_RECORDING_PARTITION_REVOKE_OPTIMIZATION) {
                     // Extend our claim on these partitions to give us time to flush
@@ -618,17 +620,16 @@ export class SessionRecordingIngester {
                         `blob_ingester_consumer - flushing ${sessionsToDrop.length} sessions on revoke...`
                     )
 
+                    const sortedSessions = sessionsToDrop.sort((x) => x.buffer.oldestKafkaTimestamp ?? Infinity)
+
                     // Flush all the sessions we are supposed to drop
-                    await runInstrumentedFunction({
-                        statsKey: `recordingingester.onRevokePartitions.flushSessions`,
-                        logExecutionTime: true,
-                        func: async () =>
-                            await Promise.allSettled(
-                                sessionsToDrop
-                                    .sort((x) => x.buffer.oldestKafkaTimestamp ?? Infinity)
-                                    .map((x) => x.flush('partition_shutdown'))
-                            ),
-                    })
+                    await allSettledWithConcurrency(
+                        this.config.SESSION_RECORDING_MAX_PARALLEL_FLUSHES,
+                        sortedSessions,
+                        async (sessionManager) => {
+                            await sessionManager.flush('partition_shutdown')
+                        }
+                    )
 
                     await this.commitAllOffsets(partitionsToDrop, sessionsToDrop)
                 }
