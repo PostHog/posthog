@@ -1,7 +1,7 @@
+import { IconInfo } from '@posthog/icons'
 import { Link, Tooltip } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
-import { IconInfo, IconPremium } from 'lib/lemon-ui/icons'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { lowercaseFirstLetter } from 'lib/utils'
 import { billingLogic } from 'scenes/billing/billingLogic'
@@ -71,9 +71,7 @@ export function PayGateMini({
                 'PayGateMini rounded flex flex-col items-center p-4 text-center'
             )}
         >
-            <div className="flex text-4xl text-warning">
-                {getProductIcon(product.name, featureInfo.icon_key) || <IconPremium />}
-            </div>
+            <div className="flex text-4xl text-warning">{getProductIcon(product.name, featureInfo.icon_key)}</div>
             <h3>{featureInfo.name}</h3>
             {featureDetailsWithLimit?.limit && gateVariant !== 'move-to-cloud' ? (
                 <div>
