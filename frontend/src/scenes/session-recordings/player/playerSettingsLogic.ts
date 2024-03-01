@@ -1,5 +1,6 @@
-import { actions, kea, listeners, path, reducers, selectors } from 'kea'
+import { actions, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
+import { teamLogic } from 'scenes/teamLogic'
 
 import { AutoplayDirection, DurationType, SessionRecordingPlayerTab } from '~/types'
 
@@ -184,7 +185,11 @@ export const playerSettingsLogic = kea<playerSettingsLogicType>([
         setDurationTypeToShow: (type: DurationType) => ({ type }),
         setShowFilters: (showFilters: boolean) => ({ showFilters }),
         setPrefersAdvancedFilters: (prefersAdvancedFilters: boolean) => ({ prefersAdvancedFilters }),
+        setQuickFilterProperties: (properties: string[]) => ({ properties }),
     }),
+    connect(() => ({
+        values: [teamLogic, ['currentTeam']],
+    })),
     reducers(() => ({
         showFilters: [
             true,
@@ -202,6 +207,15 @@ export const playerSettingsLogic = kea<playerSettingsLogicType>([
             },
             {
                 setPrefersAdvancedFilters: (_, { prefersAdvancedFilters }) => prefersAdvancedFilters,
+            },
+        ],
+        quickFilterProperties: [
+            ['$geoip_country_name'] as string[],
+            {
+                persist: true,
+            },
+            {
+                setQuickFilterProperties: (_, { properties }) => properties,
             },
         ],
         durationTypeToShow: [
