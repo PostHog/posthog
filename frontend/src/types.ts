@@ -921,6 +921,15 @@ export interface ActionFilter extends EntityFilter {
     days?: string[] // TODO: why was this added here?
 }
 
+export interface DataWarehouseFilter extends ActionFilter {
+    id_field: string
+    timestamp_field: string
+    table_name: string
+}
+
+export const isDataWarehouseFilter = (filter: EntityFilter): filter is DataWarehouseFilter =>
+    filter.type === EntityTypes.DATA_WAREHOUSE
+
 export interface FunnelExclusionLegacy extends Partial<EntityFilter> {
     funnel_from_step: number
     funnel_to_step: number
@@ -1880,6 +1889,7 @@ export interface FilterType {
 
     events?: Record<string, any>[]
     actions?: Record<string, any>[]
+    data_warehouse?: Record<string, any>[]
     new_entity?: Record<string, any>[]
 
     // persons modal
@@ -3493,11 +3503,13 @@ export interface DataWarehouseSavedQuery {
 
 export interface DataWarehouseViewLink {
     id: string
-    saved_query_id?: string
-    saved_query?: string
-    table?: string
-    to_join_key?: string
-    from_join_key?: string
+    source_table_name?: string
+    source_table_key?: string
+    joining_table_name?: string
+    joining_table_key?: string
+    field_name?: string
+    created_by?: UserBasicType | null
+    created_at?: string | null
 }
 
 export type ExternalDataSourceType = 'Stripe' | 'Hubspot' | 'Postgres'

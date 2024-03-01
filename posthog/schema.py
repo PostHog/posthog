@@ -2446,6 +2446,7 @@ class FilterType(BaseModel):
     breakdown_normalize_url: Optional[bool] = None
     breakdown_type: Optional[BreakdownType] = None
     breakdowns: Optional[List[Breakdown]] = None
+    data_warehouse: Optional[List[Dict[str, Any]]] = None
     date_from: Optional[str] = None
     date_to: Optional[str] = None
     entity_id: Optional[Union[str, float]] = None
