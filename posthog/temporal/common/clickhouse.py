@@ -338,7 +338,9 @@ class ClickHouseClient:
 
 
 @contextlib.asynccontextmanager
-async def get_client(**kwargs) -> collections.abc.AsyncIterator[ClickHouseClient]:
+async def get_client(
+    *, team_id: typing.Optional[int] = None, **kwargs
+) -> collections.abc.AsyncIterator[ClickHouseClient]:
     """
     Returns a ClickHouse client based on the aiochclient library. This is an
     async context manager.
@@ -369,6 +371,14 @@ async def get_client(**kwargs) -> collections.abc.AsyncIterator[ClickHouseClient
     #    elif ssl_context.verify_mode is ssl.CERT_REQUIRED:
     #        ssl_context.load_default_certs(ssl.Purpose.SERVER_AUTH)
     timeout = aiohttp.ClientTimeout(total=None, connect=None, sock_connect=None, sock_read=None)
+
+    if team_id is None:
+        max_block_size = settings.CLICKHOUSE_MAX_BLOCK_SIZE_DEFAULT
+    else:
+        max_block_size = settings.CLICKHOUSE_MAX_BLOCK_SIZE_OVERRIDES.get(
+            team_id, settings.CLICKHOUSE_MAX_BLOCK_SIZE_DEFAULT
+        )
+
     with aiohttp.TCPConnector(ssl=False) as connector:
         async with aiohttp.ClientSession(connector=connector, timeout=timeout) as session:
             async with ClickHouseClient(
@@ -377,9 +387,8 @@ async def get_client(**kwargs) -> collections.abc.AsyncIterator[ClickHouseClient
                 user=settings.CLICKHOUSE_USER,
                 password=settings.CLICKHOUSE_PASSWORD,
                 database=settings.CLICKHOUSE_DATABASE,
-                # TODO: make this a setting.
-                max_execution_time=0,
-                max_block_size=10000,
+                max_execution_time=settings.CLICKHOUSE_MAX_EXECUTION_TIME,
+                max_block_size=max_block_size,
                 output_format_arrow_string_as_string="true",
                 **kwargs,
             ) as client:

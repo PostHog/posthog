@@ -211,7 +211,7 @@ async def insert_into_bigquery_activity(inputs: BigQueryInsertInputs):
         data_interval_start = inputs.data_interval_start
         last_inserted_at = None
 
-    async with get_client() as client:
+    async with get_client(team_id=inputs.team_id) as client:
         if not await client.is_alive():
             raise ConnectionError("Cannot establish connection to ClickHouse")
 
