@@ -23,7 +23,7 @@ type PropertyGroupFiltersProps = {
     pageKey: string
     eventNames?: string[]
     taxonomicGroupTypes?: TaxonomicFilterGroupType[]
-    isMixedSeries?: boolean
+    isDataWarehouseSeries?: boolean
 }
 
 export function PropertyGroupFilters({
@@ -33,7 +33,7 @@ export function PropertyGroupFilters({
     pageKey,
     eventNames = [],
     taxonomicGroupTypes,
-    isMixedSeries,
+    isDataWarehouseSeries,
 }: PropertyGroupFiltersProps): JSX.Element {
     const logicProps = { query, setQuery, pageKey }
     const { propertyGroupFilter } = useValues(propertyGroupFilterLogic(logicProps))
@@ -47,7 +47,7 @@ export function PropertyGroupFilters({
     } = useActions(propertyGroupFilterLogic(logicProps))
 
     const showHeader = propertyGroupFilter.type && propertyGroupFilter.values.length > 1
-    const disabledReason = isMixedSeries ? 'Cannot add filter groups to mixed series' : undefined
+    const disabledReason = isDataWarehouseSeries ? 'Cannot add filter groups to data warehouse series' : undefined
     return (
         <div className="space-y-2 PropertyGroupFilters">
             {propertyGroupFilter.values && (

@@ -8,10 +8,10 @@ import { taxonomicBreakdownFilterLogic } from './taxonomicBreakdownFilterLogic'
 import { TaxonomicBreakdownPopover } from './TaxonomicBreakdownPopover'
 
 interface TaxonomicBreakdownButtonProps {
-    isMixedSeries?: boolean
+    isDataWarehouseSeries?: boolean
 }
 
-export function TaxonomicBreakdownButton({ isMixedSeries }: TaxonomicBreakdownButtonProps): JSX.Element {
+export function TaxonomicBreakdownButton({ isDataWarehouseSeries }: TaxonomicBreakdownButtonProps): JSX.Element {
     const [open, setOpen] = useState(false)
 
     const { taxonomicBreakdownType } = useValues(taxonomicBreakdownFilterLogic)
@@ -24,7 +24,9 @@ export function TaxonomicBreakdownButton({ isMixedSeries }: TaxonomicBreakdownBu
                 data-attr="add-breakdown-button"
                 onClick={() => setOpen(!open)}
                 sideIcon={null}
-                disabledReason={isMixedSeries ? 'Breakdowns are not available for mixed series' : undefined}
+                disabledReason={
+                    isDataWarehouseSeries ? 'Breakdowns are not available for data warehouse series' : undefined
+                }
             >
                 {taxonomicBreakdownType === TaxonomicFilterGroupType.CohortsWithAllUsers
                     ? 'Add cohort'

@@ -16,7 +16,7 @@ interface SamplingFilterProps {
 }
 
 export function SamplingFilter({ insightProps, infoTooltipContent }: SamplingFilterProps): JSX.Element {
-    const { isMixedSeries } = useValues(insightVizDataLogic(insightProps))
+    const { isDataWarehouseSeries } = useValues(insightVizDataLogic(insightProps))
     const { samplingPercentage } = useValues(samplingFilterLogic(insightProps))
     const { setSamplingPercentage } = useActions(samplingFilterLogic(insightProps))
 
@@ -41,7 +41,9 @@ export function SamplingFilter({ insightProps, infoTooltipContent }: SamplingFil
                         posthog.capture('sampling_disabled_on_insight')
                     }}
                     checked={!!samplingPercentage}
-                    disabledReason={isMixedSeries ? 'Sampling is not available for mixed series' : undefined}
+                    disabledReason={
+                        isDataWarehouseSeries ? 'Sampling is not available for data warehouse series' : undefined
+                    }
                 />
             </div>
             {samplingPercentage ? (

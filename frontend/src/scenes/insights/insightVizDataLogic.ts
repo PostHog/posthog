@@ -215,15 +215,10 @@ export const insightVizDataLogic = kea<insightVizDataLogicType>([
             },
         ],
 
-        isMixedSeries: [
+        isDataWarehouseSeries: [
             (s) => [s.isTrends, s.series],
             (isTrends, series): boolean => {
-                return (
-                    isTrends &&
-                    (series || []).length > 1 &&
-                    !!series?.some((node) => isDataWarehouseNode(node)) &&
-                    !!series?.some((node) => isEventsNode(node) || isActionsNode(node))
-                )
+                return isTrends && (series || []).length > 0 && !!series?.some((node) => isDataWarehouseNode(node))
             },
         ],
 
