@@ -71,7 +71,9 @@ export function PayGateMini({
                 'PayGateMini rounded flex flex-col items-center p-4 text-center'
             )}
         >
-            <div className="flex text-4xl text-warning">{getProductIcon(featureInfo.icon_key) || <IconPremium />}</div>
+            <div className="flex text-4xl text-warning">
+                {getProductIcon(product.name, featureInfo.icon_key) || <IconPremium />}
+            </div>
             <h3>{featureInfo.name}</h3>
             {featureDetailsWithLimit?.limit && gateVariant !== 'move-to-cloud' ? (
                 <div>

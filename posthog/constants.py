@@ -38,6 +38,7 @@ class AvailableFeature(str, Enum):
 
 TREND_FILTER_TYPE_ACTIONS = "actions"
 TREND_FILTER_TYPE_EVENTS = "events"
+TREND_FILTER_TYPE_DATA_WAREHOUSE = "data_warehouse"
 
 SESSION_RECORDINGS_FILTER_IDS = "session_ids"
 
@@ -115,6 +116,7 @@ EXPLICIT_DATE = "explicit_date"
 ENTITIES = "entities"
 ACTIONS = "actions"
 EVENTS = "events"
+DATA_WAREHOUSE_ENTITIES = "data_warehouse_entities"
 EXCLUSIONS = "exclusions"
 PROPERTIES = "properties"
 PROPERTY_GROUPS = "property_groups"

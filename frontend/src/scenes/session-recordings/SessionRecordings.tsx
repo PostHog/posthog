@@ -13,7 +13,6 @@ import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { NotebookSelectButton } from 'scenes/notebooks/NotebookSelectButton/NotebookSelectButton'
 import { sceneLogic } from 'scenes/sceneLogic'
 import { SceneExport } from 'scenes/sceneTypes'
-import { AndroidRecordingsPromptBanner } from 'scenes/session-recordings/mobile-replay/AndroidRecordingPromptBanner'
 import { sessionRecordingsPlaylistLogic } from 'scenes/session-recordings/playlist/sessionRecordingsPlaylistLogic'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
@@ -132,7 +131,6 @@ export function SessionsRecordings(): JSX.Element {
             />
             <div className="space-y-2">
                 <VersionCheckerBanner />
-                <AndroidRecordingsPromptBanner context="replay" />
 
                 {recordingsDisabled ? (
                     <LemonBanner
