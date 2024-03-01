@@ -381,7 +381,9 @@ async def delete_squashed_person_overrides_from_clickhouse(inputs: QueryInputs) 
             try:
                 await clickhouse_client.execute_query(
                     DELETE_SQUASHED_PERSON_OVERRIDES_QUERY.format(
-                        database=settings.CLICKHOUSE_DATABASE, dictionary_name=inputs.dictionary_name
+                        database=settings.CLICKHOUSE_DATABASE,
+                        dictionary_name=inputs.dictionary_name,
+                        cluster=settings.CLICKHOUSE_CLUSTER,
                     ),
                     query_parameters={
                         "partition_ids": inputs.partition_ids,
