@@ -144,13 +144,10 @@ export class SessionRecordingIngesterV3 {
         const { team_id, session_id } = event
         const key = `${team_id}__${session_id}`
 
-        const { offset, partition } = event.metadata
+        const { partition } = event.metadata
         if (this.debugPartition === partition) {
             status.info('🔁', '[session-replay-ingestion] - [PARTITION DEBUG] - consuming event', {
-                team_id,
-                session_id,
-                partition,
-                offset,
+                ...event.metadata,
             })
         }
 

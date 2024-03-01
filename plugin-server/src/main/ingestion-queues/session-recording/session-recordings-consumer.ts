@@ -241,7 +241,7 @@ export class SessionRecordingIngester {
 
         const { partition, highOffset } = event.metadata
         if (this.debugPartition === partition) {
-            status.info('🔁', '[blob_ingester_consumer] - [PARTITION DEBUG] - consuming event', event.metadata)
+            status.info('🔁', '[blob_ingester_consumer] - [PARTITION DEBUG] - consuming event', { ...event.metadata })
         }
 
         // Check that we are not below the high-water mark for this partition (another consumer may have flushed further than us when revoking)
