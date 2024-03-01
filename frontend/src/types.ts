@@ -3503,11 +3503,13 @@ export interface DataWarehouseSavedQuery {
 
 export interface DataWarehouseViewLink {
     id: string
-    saved_query_id?: string
-    saved_query?: string
-    table?: string
-    to_join_key?: string
-    from_join_key?: string
+    source_table_name?: string
+    source_table_key?: string
+    joining_table_name?: string
+    joining_table_key?: string
+    field_name?: string
+    created_by?: UserBasicType | null
+    created_at?: string | null
 }
 
 export type ExternalDataSourceType = 'Stripe' | 'Hubspot' | 'Postgres'
