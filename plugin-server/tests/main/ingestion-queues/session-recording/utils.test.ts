@@ -368,5 +368,33 @@ describe('session-recording utils', () => {
 
             expect(counter).toEqual(10)
         })
+
+        it('should allow breaking mid chain', async () => {
+            const ids = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]
+            const waiters = {}
+
+            const promise = allSettledWithConcurrency(4, ids, (id, ctx) => {
+                return new Promise<any>((resolve, reject) => {
+                    waiters[id] = {
+                        resolve,
+                        reject: () => {
+                            ctx.break()
+                            reject()
+                        },
+                    }
+                }).finally(() => {
+                    delete waiters[id]
+                })
+            })
+
+            expect(Object.keys(waiters)).toEqual(['1', '2', '3', '4'])
+            waiters[4].resolve(4)
+            await new Promise((resolve) => setTimeout(resolve, 1))
+            waiters[3].resolve(3)
+            waiters[2].reject() // Triggers the break
+
+            // We should see the promise that resolved before the break but not the other one
+            await expect(promise).resolves.toEqual([undefined, undefined, undefined, { result: 4 }])
+        })
     })
 })

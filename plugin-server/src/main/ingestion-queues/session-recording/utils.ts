@@ -264,9 +264,11 @@ export const reduceRecordingMessages = (messages: IncomingRecordingMessage[]): I
 export const allSettledWithConcurrency = async <T, Q>(
     concurrency: number,
     arr: T[],
-    fn: (item: T, index: number) => Promise<Q>
+    fn: (item: T, context: { index: number; break: () => void }) => Promise<Q>
 ): Promise<{ error?: any; result?: Q }[]> => {
     // This function processes promises in parallel like Promise.allSettled, but with a maximum concurrency
+
+    let breakCalled = false
 
     return new Promise<{ error?: any; result?: Q }[]>((resolve) => {
         const results: { error?: any; result?: Q }[] = []
@@ -275,11 +277,20 @@ export const allSettledWithConcurrency = async <T, Q>(
 
         const run = () => {
             while (remaining.length && runningCount < concurrency) {
+                if (breakCalled) {
+                    return
+                }
                 const item = remaining.shift()
                 if (item) {
                     const arrIndex = arr.indexOf(item)
                     runningCount += 1
-                    fn(item, arr.length - remaining.length - 1)
+                    fn(item, {
+                        index: arrIndex,
+                        break: () => {
+                            breakCalled = true
+                            return resolve(results)
+                        },
+                    })
                         .then((result) => {
                             results[arrIndex] = { result: result }
                         })
@@ -294,7 +305,7 @@ export const allSettledWithConcurrency = async <T, Q>(
             }
 
             if (remaining.length === 0 && !runningCount) {
-                return resolve(results)
+                return !breakCalled ? resolve(results) : undefined
             }
         }
 
