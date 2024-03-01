@@ -260,7 +260,7 @@ class BillingManager:
             organization.never_drop_data = never_drop_data
             org_modified = True
 
-        trusted_customer_scores = data.get("trusted_customer_scores", {})
+        customer_trust_scores = data.get("customer_trust_scores", {})
 
         product_key_to_usage_key = {
             product["type"]: product["usage_key"]
@@ -268,12 +268,13 @@ class BillingManager:
                 billing_status["customer"].get("products") or self.get_default_products(organization)["products"]
             )
         }
-        org_trusted_customer_scores = {}
-        for product_key in trusted_customer_scores:
-            org_trusted_customer_scores[product_key_to_usage_key[product_key]] = trusted_customer_scores[product_key]
+        org_customer_trust_scores = {}
+        for product_key in customer_trust_scores:
+            if product_key in product_key_to_usage_key:
+                org_customer_trust_scores[product_key_to_usage_key[product_key]] = customer_trust_scores[product_key]
 
-        if org_trusted_customer_scores != organization.trusted_customer_scores:
-            organization.trusted_customer_scores = trusted_customer_scores
+        if org_customer_trust_scores != organization.customer_trust_scores:
+            organization.customer_trust_scores = customer_trust_scores
             org_modified = True
 
         if org_modified:

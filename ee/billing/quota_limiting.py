@@ -105,7 +105,9 @@ def org_quota_limited_until(
     billing_period_start = round(dateutil.parser.isoparse(organization.usage["period"][0]).timestamp())
     billing_period_end = round(dateutil.parser.isoparse(organization.usage["period"][1]).timestamp())
     quota_limiting_suspended_until = summary.get("quota_limiting_suspended_until", None)
-    trust_score = organization.trusted_customer_scores.get(resource.value)
+    # Note: customer_trust_scores can initially be null. This should only happen after the initial migration and therefore
+    # should be removed once all existing customers have this field set.
+    trust_score = organization.customer_trust_scores.get(resource.value) if organization.customer_trust_scores else 0
 
     if not is_over_limit:
         if quota_limiting_suspended_until:
@@ -144,10 +146,12 @@ def org_quota_limited_until(
 
     _, today_end = get_current_day()
 
+    # These trust score levels are defined in billing::customer::TrustScores.
+    # Please keep the logic and levels in sync with what is defined in billing.
     if not trust_score:
         # Set them to the default trust score and immediately limit
         if trust_score is None:
-            organization.trusted_customer_scores[resource] = 0
+            organization.customer_trust_scores[resource] = 0
             organization.save(update_fields=["usage"])
         return {
             "quota_limited_until": billing_period_end,

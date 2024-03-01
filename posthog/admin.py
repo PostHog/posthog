@@ -578,17 +578,11 @@ class OrganizationAdmin(admin.ModelAdmin):
         "billing_link_v2",
         "usage_posthog",
         "usage",
-        "trusted_customer_scores",
+        "customer_trust_scores",
         "is_hipaa",
     ]
     inlines = [OrganizationTeamInline, OrganizationMemberInline]
-    readonly_fields = [
-        "created_at",
-        "updated_at",
-        "billing_link_v2",
-        "usage_posthog",
-        "usage",
-    ]
+    readonly_fields = ["created_at", "updated_at", "billing_link_v2", "usage_posthog", "usage", "customer_trust_scores"]
     search_fields = ("name", "members__email", "team__api_token")
     list_display = (
         "id",

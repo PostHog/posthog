@@ -130,7 +130,7 @@ class TestQuotaLimiting(BaseTest):
             "rows_synced": {"usage": 5, "limit": 100, "todays_usage": 0},
             "period": ["2021-01-01T00:00:00Z", "2021-01-31T23:59:59Z"],
         }
-        self.organization.trusted_customer_scores = {"events": 0, "recordings": 0, "rows_synced": 0}
+        self.organization.customer_trust_scores = {"events": 0, "recordings": 0, "rows_synced": 0}
         self.organization.save()
 
         time.sleep(1)
@@ -240,7 +240,7 @@ class TestQuotaLimiting(BaseTest):
             }
 
             # # Increase the trust score. They are already being limited, so we will not suspend their limiting.
-            self.organization.trusted_customer_scores = {"events": 7, "recordings": 0, "rows_synced": 0}
+            self.organization.customer_trust_scores = {"events": 7, "recordings": 0, "rows_synced": 0}
             self.organization.save()
             quota_limited_orgs, quota_limiting_suspended_orgs = update_all_org_billing_quotas()
 
@@ -330,7 +330,7 @@ class TestQuotaLimiting(BaseTest):
         with freeze_time("2021-01-25T00:00:00Z"):
             assert self.redis_client.delete(f"{QuotaLimitingCaches.QUOTA_LIMITER_CACHE_KEY}events")
 
-            self.organization.trusted_customer_scores = {"events": 10, "recordings": 0, "rows_synced": 0}
+            self.organization.customer_trust_scores = {"events": 10, "recordings": 0, "rows_synced": 0}
             self.organization.usage = {
                 "events": {"usage": 109, "limit": 100, "quota_limiting_suspended_until": 1611705600},
                 "recordings": {"usage": 1, "limit": 100},
@@ -354,7 +354,7 @@ class TestQuotaLimiting(BaseTest):
             assert self.redis_client.zrange(f"{QuotaLimitingCaches.QUOTA_LIMITER_CACHE_KEY}rows_synced", 0, -1) == []
 
             # Reset, quota limiting should be suspended for 3 days.
-            self.organization.trusted_customer_scores = {"events": 10, "recordings": 0, "rows_synced": 0}
+            self.organization.customer_trust_scores = {"events": 10, "recordings": 0, "rows_synced": 0}
             self.organization.usage = {
                 "events": {"usage": 109, "limit": 100},
                 "recordings": {"usage": 1, "limit": 100},
@@ -378,7 +378,7 @@ class TestQuotaLimiting(BaseTest):
             assert self.redis_client.zrange(f"{QuotaLimitingCaches.QUOTA_LIMITER_CACHE_KEY}rows_synced", 0, -1) == []
 
             # Decrease the trust score to 0. Quota limiting should immediately take effect.
-            self.organization.trusted_customer_scores = {"events": 0, "recordings": 0, "rows_synced": 0}
+            self.organization.customer_trust_scores = {"events": 0, "recordings": 0, "rows_synced": 0}
             self.organization.usage = {
                 "events": {"usage": 109, "limit": 100, "quota_limiting_suspended_until": 1611705600},
                 "recordings": {"usage": 1, "limit": 100},
@@ -405,7 +405,7 @@ class TestQuotaLimiting(BaseTest):
             self.redis_client.delete(f"{QuotaLimitingCaches.QUOTA_LIMITER_CACHE_KEY}events")
 
             # Quota limiting suspension date set in previous billing period, update to new suspension expiration
-            self.organization.trusted_customer_scores = {"events": 10, "recordings": 0, "rows_synced": 0}
+            self.organization.customer_trust_scores = {"events": 10, "recordings": 0, "rows_synced": 0}
             self.organization.usage = {
                 "events": {"usage": 109, "limit": 100, "quota_limiting_suspended_until": 1611705600},
                 "recordings": {"usage": 1, "limit": 100},
@@ -507,7 +507,7 @@ class TestQuotaLimiting(BaseTest):
 
     def test_org_quota_limited_until(self):
         self.organization.usage = None
-        self.organization.trusted_customer_scores = {"events": 0, "recordings": 0, "rows_synced": 0}
+        self.organization.customer_trust_scores = {"events": 0, "recordings": 0, "rows_synced": 0}
         previously_quota_limited_team_tokens_events = list_limited_team_attributes(
             QuotaResource.EVENTS, QuotaLimitingCaches.QUOTA_LIMITER_CACHE_KEY
         )
@@ -595,7 +595,7 @@ class TestQuotaLimiting(BaseTest):
         }
 
         with freeze_time("2021-01-25T00:00:00Z"):
-            self.organization.trusted_customer_scores = {"events": 7, "recordings": 3, "rows_synced": 10}
+            self.organization.customer_trust_scores = {"events": 7, "recordings": 3, "rows_synced": 10}
             self.organization.usage["rows_synced"]["usage"] = 101
             self.organization.usage["events"]["limit"] = 100
             self.organization.usage["events"]["usage"] = 101
@@ -716,7 +716,7 @@ class TestQuotaLimiting(BaseTest):
                 list_limited_team_attributes(QuotaResource.ROWS_SYNCED, QuotaLimitingCaches.QUOTA_LIMITER_CACHE_KEY)
             ) == sorted(["1337"])
 
-            self.organization.trusted_customer_scores = {"events": 10, "recordings": 0, "rows_synced": 7}
+            self.organization.customer_trust_scores = {"events": 10, "recordings": 0, "rows_synced": 7}
             self.organization.save()
 
             self.organization.usage["events"]["usage"] = 120
