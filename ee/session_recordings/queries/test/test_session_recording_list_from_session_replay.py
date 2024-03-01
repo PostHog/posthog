@@ -168,15 +168,18 @@ class TestClickhouseSessionRecordingsListFromSessionReplay(ClickhouseTestMixin, 
                 **expected_query_params,
             }
 
-            # the unmaterialized person column
-            assert (
+            json_extract_fragment = (
                 "has(%(vperson_filter_pre__0)s, replaceRegexpAll(JSONExtractRaw(properties, %(kperson_filter_pre__0)s)"
-                in generated_query
-            ) is unmaterialized_person_column_used
+            )
+            materialized_column_fragment = 'AND (  has(%(vglobal_0)s, "mat_pp_rgInternal"))'
+
+            # it will always have one of these fragments
+            assert (json_extract_fragment in generated_query) or (materialized_column_fragment in generated_query)
+
+            # the unmaterialized person column
+            assert (json_extract_fragment in generated_query) is unmaterialized_person_column_used
             # materialized event column
-            assert (
-                'AND (  has(%(vglobal_0)s, "mat_pp_rgInternal"))' in generated_query
-            ) is materialized_event_column_used
+            assert (materialized_column_fragment in generated_query) is materialized_event_column_used
             self.assertQueryMatchesSnapshot(generated_query)
 
     settings_combinations = [

@@ -225,87 +225,6 @@
   OFFSET %(offset)s
   '''
 # ---
-# name: TestClickhouseSessionRecordingsListFromSessionReplay.test_event_filter_with_person_properties_materialized_00_poe_and_materialized_columns_allowed_with_materialization
-  '''
-  
-  SELECT s.session_id,
-         any(s.team_id),
-         any(s.distinct_id),
-         min(s.min_first_timestamp) as start_time,
-         max(s.max_last_timestamp) as end_time,
-         dateDiff('SECOND', start_time, end_time) as duration,
-         argMinMerge(s.first_url) as first_url,
-         sum(s.click_count),
-         sum(s.keypress_count),
-         sum(s.mouse_activity_count),
-         sum(s.active_milliseconds)/1000 as active_seconds,
-         duration-active_seconds as inactive_seconds,
-         sum(s.console_log_count) as console_log_count,
-         sum(s.console_warn_count) as console_warn_count,
-         sum(s.console_error_count) as console_error_count
-  FROM session_replay_events s
-  WHERE s.team_id = 2
-    AND s.min_first_timestamp >= '2020-12-11 13:46:23'
-    AND s.min_first_timestamp >= '2020-12-25 00:00:00'
-    AND s.max_last_timestamp <= '2021-01-01 13:46:23'
-  GROUP BY session_id
-  HAVING 1=1
-  ORDER BY start_time DESC
-  LIMIT 51
-  OFFSET 0
-  '''
-# ---
-# name: TestClickhouseSessionRecordingsListFromSessionReplay.test_event_filter_with_person_properties_materialized_00_poe_and_materialized_columns_allowed_with_materialization.1
-  '''
-  
-  SELECT s.session_id,
-         any(s.team_id),
-         any(s.distinct_id),
-         min(s.min_first_timestamp) as start_time,
-         max(s.max_last_timestamp) as end_time,
-         dateDiff('SECOND', start_time, end_time) as duration,
-         argMinMerge(s.first_url) as first_url,
-         sum(s.click_count),
-         sum(s.keypress_count),
-         sum(s.mouse_activity_count),
-         sum(s.active_milliseconds)/1000 as active_seconds,
-         duration-active_seconds as inactive_seconds,
-         sum(s.console_log_count) as console_log_count,
-         sum(s.console_warn_count) as console_warn_count,
-         sum(s.console_error_count) as console_error_count
-  FROM session_replay_events s
-  WHERE s.team_id = 2
-    AND s.min_first_timestamp >= '2020-12-11 13:46:23'
-    AND s.min_first_timestamp >= '2020-12-25 00:00:00'
-    AND s.max_last_timestamp <= '2021-01-01 13:46:23'
-    AND s.distinct_id in
-      (select distinct_id
-       from
-         (SELECT distinct_id,
-                 argMax(person_id, version) as current_person_id
-          FROM person_distinct_id2 as pdi
-          INNER JOIN
-            (SELECT id
-             FROM person
-             WHERE team_id = 2
-               AND id IN
-                 (SELECT id
-                  FROM person
-                  WHERE team_id = 2
-                    AND (has(['bla'], "pmat_email")) )
-             GROUP BY id
-             HAVING max(is_deleted) = 0
-             AND (has(['bla'], argMax(person."pmat_email", version))) SETTINGS optimize_aggregation_in_order = 1) person ON person.id = pdi.person_id
-          WHERE team_id = 2
-          GROUP BY distinct_id
-          HAVING argMax(is_deleted, version) = 0) as session_persons_sub_query)
-  GROUP BY session_id
-  HAVING 1=1
-  ORDER BY start_time DESC
-  LIMIT 51
-  OFFSET 0
-  '''
-# ---
 # name: TestClickhouseSessionRecordingsListFromSessionReplay.test_event_filter_with_person_properties_materialized_00_poe_v2_and_materialized_columns_allowed_with_materialization
   '''
   
@@ -326,9 +245,9 @@
          sum(s.console_error_count) as console_error_count
   FROM session_replay_events s
   WHERE s.team_id = 2
-    AND s.min_first_timestamp >= '2020-12-11 13:46:23'
-    AND s.min_first_timestamp >= '2020-12-25 00:00:00'
-    AND s.max_last_timestamp <= '2021-01-01 13:46:23'
+    AND s.min_first_timestamp >= '2024-02-09 17:27:37'
+    AND s.min_first_timestamp >= '2024-02-23 00:00:00'
+    AND s.max_last_timestamp <= '2024-03-01 17:27:37'
   GROUP BY session_id
   HAVING 1=1
   ORDER BY start_time DESC
@@ -356,103 +275,22 @@
          sum(s.console_error_count) as console_error_count
   FROM session_replay_events s
   WHERE s.team_id = 2
-    AND s.min_first_timestamp >= '2020-12-11 13:46:23'
-    AND s.min_first_timestamp >= '2020-12-25 00:00:00'
-    AND s.max_last_timestamp <= '2021-01-01 13:46:23'
+    AND s.min_first_timestamp >= '2024-02-09 17:27:37'
+    AND s.min_first_timestamp >= '2024-02-23 00:00:00'
+    AND s.max_last_timestamp <= '2024-03-01 17:27:37'
     AND s.session_id in
       (select `$session_id` as session_id
        from
          (SELECT `$session_id`
           FROM events e PREWHERE team_id = 2
-          AND e.timestamp >= '2020-12-11 13:46:23'
+          AND e.timestamp >= '2024-02-09 17:27:37'
           AND e.timestamp <= now()
-          AND timestamp >= '2020-12-24 12:00:00'
-          AND timestamp <= '2021-01-02 01:46:23'
+          AND timestamp >= '2024-02-22 12:00:00'
+          AND timestamp <= '2024-03-02 05:27:37'
           WHERE notEmpty(`$session_id`)
             AND (has(['bla'], "mat_pp_email"))
           GROUP BY `$session_id`
           HAVING 1=1) as session_events_sub_query)
-  GROUP BY session_id
-  HAVING 1=1
-  ORDER BY start_time DESC
-  LIMIT 51
-  OFFSET 0
-  '''
-# ---
-# name: TestClickhouseSessionRecordingsListFromSessionReplay.test_event_filter_with_person_properties_materialized_01_poe_and_materialized_columns_allowed_without_materialization
-  '''
-  
-  SELECT s.session_id,
-         any(s.team_id),
-         any(s.distinct_id),
-         min(s.min_first_timestamp) as start_time,
-         max(s.max_last_timestamp) as end_time,
-         dateDiff('SECOND', start_time, end_time) as duration,
-         argMinMerge(s.first_url) as first_url,
-         sum(s.click_count),
-         sum(s.keypress_count),
-         sum(s.mouse_activity_count),
-         sum(s.active_milliseconds)/1000 as active_seconds,
-         duration-active_seconds as inactive_seconds,
-         sum(s.console_log_count) as console_log_count,
-         sum(s.console_warn_count) as console_warn_count,
-         sum(s.console_error_count) as console_error_count
-  FROM session_replay_events s
-  WHERE s.team_id = 2
-    AND s.min_first_timestamp >= '2020-12-11 13:46:23'
-    AND s.min_first_timestamp >= '2020-12-25 00:00:00'
-    AND s.max_last_timestamp <= '2021-01-01 13:46:23'
-  GROUP BY session_id
-  HAVING 1=1
-  ORDER BY start_time DESC
-  LIMIT 51
-  OFFSET 0
-  '''
-# ---
-# name: TestClickhouseSessionRecordingsListFromSessionReplay.test_event_filter_with_person_properties_materialized_01_poe_and_materialized_columns_allowed_without_materialization.1
-  '''
-  
-  SELECT s.session_id,
-         any(s.team_id),
-         any(s.distinct_id),
-         min(s.min_first_timestamp) as start_time,
-         max(s.max_last_timestamp) as end_time,
-         dateDiff('SECOND', start_time, end_time) as duration,
-         argMinMerge(s.first_url) as first_url,
-         sum(s.click_count),
-         sum(s.keypress_count),
-         sum(s.mouse_activity_count),
-         sum(s.active_milliseconds)/1000 as active_seconds,
-         duration-active_seconds as inactive_seconds,
-         sum(s.console_log_count) as console_log_count,
-         sum(s.console_warn_count) as console_warn_count,
-         sum(s.console_error_count) as console_error_count
-  FROM session_replay_events s
-  WHERE s.team_id = 2
-    AND s.min_first_timestamp >= '2020-12-11 13:46:23'
-    AND s.min_first_timestamp >= '2020-12-25 00:00:00'
-    AND s.max_last_timestamp <= '2021-01-01 13:46:23'
-    AND s.distinct_id in
-      (select distinct_id
-       from
-         (SELECT distinct_id,
-                 argMax(person_id, version) as current_person_id
-          FROM person_distinct_id2 as pdi
-          INNER JOIN
-            (SELECT id
-             FROM person
-             WHERE team_id = 2
-               AND id IN
-                 (SELECT id
-                  FROM person
-                  WHERE team_id = 2
-                    AND (has(['bla'], "pmat_email")) )
-             GROUP BY id
-             HAVING max(is_deleted) = 0
-             AND (has(['bla'], argMax(person."pmat_email", version))) SETTINGS optimize_aggregation_in_order = 1) person ON person.id = pdi.person_id
-          WHERE team_id = 2
-          GROUP BY distinct_id
-          HAVING argMax(is_deleted, version) = 0) as session_persons_sub_query)
   GROUP BY session_id
   HAVING 1=1
   ORDER BY start_time DESC
@@ -480,9 +318,9 @@
          sum(s.console_error_count) as console_error_count
   FROM session_replay_events s
   WHERE s.team_id = 2
-    AND s.min_first_timestamp >= '2020-12-11 13:46:23'
-    AND s.min_first_timestamp >= '2020-12-25 00:00:00'
-    AND s.max_last_timestamp <= '2021-01-01 13:46:23'
+    AND s.min_first_timestamp >= '2024-02-09 17:27:38'
+    AND s.min_first_timestamp >= '2024-02-23 00:00:00'
+    AND s.max_last_timestamp <= '2024-03-01 17:27:38'
   GROUP BY session_id
   HAVING 1=1
   ORDER BY start_time DESC
@@ -510,103 +348,22 @@
          sum(s.console_error_count) as console_error_count
   FROM session_replay_events s
   WHERE s.team_id = 2
-    AND s.min_first_timestamp >= '2020-12-11 13:46:23'
-    AND s.min_first_timestamp >= '2020-12-25 00:00:00'
-    AND s.max_last_timestamp <= '2021-01-01 13:46:23'
+    AND s.min_first_timestamp >= '2024-02-09 17:27:38'
+    AND s.min_first_timestamp >= '2024-02-23 00:00:00'
+    AND s.max_last_timestamp <= '2024-03-01 17:27:38'
     AND s.session_id in
       (select `$session_id` as session_id
        from
          (SELECT `$session_id`
           FROM events e PREWHERE team_id = 2
-          AND e.timestamp >= '2020-12-11 13:46:23'
+          AND e.timestamp >= '2024-02-09 17:27:38'
           AND e.timestamp <= now()
-          AND timestamp >= '2020-12-24 12:00:00'
-          AND timestamp <= '2021-01-02 01:46:23'
+          AND timestamp >= '2024-02-22 12:00:00'
+          AND timestamp <= '2024-03-02 05:27:38'
           WHERE notEmpty(`$session_id`)
             AND (has(['bla'], "mat_pp_email"))
           GROUP BY `$session_id`
           HAVING 1=1) as session_events_sub_query)
-  GROUP BY session_id
-  HAVING 1=1
-  ORDER BY start_time DESC
-  LIMIT 51
-  OFFSET 0
-  '''
-# ---
-# name: TestClickhouseSessionRecordingsListFromSessionReplay.test_event_filter_with_person_properties_materialized_02_poe_and_materialized_columns_off_with_materialization
-  '''
-  
-  SELECT s.session_id,
-         any(s.team_id),
-         any(s.distinct_id),
-         min(s.min_first_timestamp) as start_time,
-         max(s.max_last_timestamp) as end_time,
-         dateDiff('SECOND', start_time, end_time) as duration,
-         argMinMerge(s.first_url) as first_url,
-         sum(s.click_count),
-         sum(s.keypress_count),
-         sum(s.mouse_activity_count),
-         sum(s.active_milliseconds)/1000 as active_seconds,
-         duration-active_seconds as inactive_seconds,
-         sum(s.console_log_count) as console_log_count,
-         sum(s.console_warn_count) as console_warn_count,
-         sum(s.console_error_count) as console_error_count
-  FROM session_replay_events s
-  WHERE s.team_id = 2
-    AND s.min_first_timestamp >= '2020-12-11 13:46:23'
-    AND s.min_first_timestamp >= '2020-12-25 00:00:00'
-    AND s.max_last_timestamp <= '2021-01-01 13:46:23'
-  GROUP BY session_id
-  HAVING 1=1
-  ORDER BY start_time DESC
-  LIMIT 51
-  OFFSET 0
-  '''
-# ---
-# name: TestClickhouseSessionRecordingsListFromSessionReplay.test_event_filter_with_person_properties_materialized_02_poe_and_materialized_columns_off_with_materialization.1
-  '''
-  
-  SELECT s.session_id,
-         any(s.team_id),
-         any(s.distinct_id),
-         min(s.min_first_timestamp) as start_time,
-         max(s.max_last_timestamp) as end_time,
-         dateDiff('SECOND', start_time, end_time) as duration,
-         argMinMerge(s.first_url) as first_url,
-         sum(s.click_count),
-         sum(s.keypress_count),
-         sum(s.mouse_activity_count),
-         sum(s.active_milliseconds)/1000 as active_seconds,
-         duration-active_seconds as inactive_seconds,
-         sum(s.console_log_count) as console_log_count,
-         sum(s.console_warn_count) as console_warn_count,
-         sum(s.console_error_count) as console_error_count
-  FROM session_replay_events s
-  WHERE s.team_id = 2
-    AND s.min_first_timestamp >= '2020-12-11 13:46:23'
-    AND s.min_first_timestamp >= '2020-12-25 00:00:00'
-    AND s.max_last_timestamp <= '2021-01-01 13:46:23'
-    AND s.distinct_id in
-      (select distinct_id
-       from
-         (SELECT distinct_id,
-                 argMax(person_id, version) as current_person_id
-          FROM person_distinct_id2 as pdi
-          INNER JOIN
-            (SELECT id
-             FROM person
-             WHERE team_id = 2
-               AND id IN
-                 (SELECT id
-                  FROM person
-                  WHERE team_id = 2
-                    AND (has(['bla'], "pmat_email")) )
-             GROUP BY id
-             HAVING max(is_deleted) = 0
-             AND (has(['bla'], argMax(person."pmat_email", version))) SETTINGS optimize_aggregation_in_order = 1) person ON person.id = pdi.person_id
-          WHERE team_id = 2
-          GROUP BY distinct_id
-          HAVING argMax(is_deleted, version) = 0) as session_persons_sub_query)
   GROUP BY session_id
   HAVING 1=1
   ORDER BY start_time DESC
@@ -634,9 +391,9 @@
          sum(s.console_error_count) as console_error_count
   FROM session_replay_events s
   WHERE s.team_id = 2
-    AND s.min_first_timestamp >= '2020-12-11 13:46:23'
-    AND s.min_first_timestamp >= '2020-12-25 00:00:00'
-    AND s.max_last_timestamp <= '2021-01-01 13:46:23'
+    AND s.min_first_timestamp >= '2024-02-09 17:27:38'
+    AND s.min_first_timestamp >= '2024-02-23 00:00:00'
+    AND s.max_last_timestamp <= '2024-03-01 17:27:38'
   GROUP BY session_id
   HAVING 1=1
   ORDER BY start_time DESC
@@ -664,103 +421,22 @@
          sum(s.console_error_count) as console_error_count
   FROM session_replay_events s
   WHERE s.team_id = 2
-    AND s.min_first_timestamp >= '2020-12-11 13:46:23'
-    AND s.min_first_timestamp >= '2020-12-25 00:00:00'
-    AND s.max_last_timestamp <= '2021-01-01 13:46:23'
+    AND s.min_first_timestamp >= '2024-02-09 17:27:38'
+    AND s.min_first_timestamp >= '2024-02-23 00:00:00'
+    AND s.max_last_timestamp <= '2024-03-01 17:27:38'
     AND s.session_id in
       (select `$session_id` as session_id
        from
          (SELECT `$session_id`
           FROM events e PREWHERE team_id = 2
-          AND e.timestamp >= '2020-12-11 13:46:23'
+          AND e.timestamp >= '2024-02-09 17:27:38'
           AND e.timestamp <= now()
-          AND timestamp >= '2020-12-24 12:00:00'
-          AND timestamp <= '2021-01-02 01:46:23'
+          AND timestamp >= '2024-02-22 12:00:00'
+          AND timestamp <= '2024-03-02 05:27:38'
           WHERE notEmpty(`$session_id`)
             AND (has(['bla'], "mat_pp_email"))
           GROUP BY `$session_id`
           HAVING 1=1) as session_events_sub_query)
-  GROUP BY session_id
-  HAVING 1=1
-  ORDER BY start_time DESC
-  LIMIT 51
-  OFFSET 0
-  '''
-# ---
-# name: TestClickhouseSessionRecordingsListFromSessionReplay.test_event_filter_with_person_properties_materialized_03_poe_and_materialized_columns_off_without_materialization
-  '''
-  
-  SELECT s.session_id,
-         any(s.team_id),
-         any(s.distinct_id),
-         min(s.min_first_timestamp) as start_time,
-         max(s.max_last_timestamp) as end_time,
-         dateDiff('SECOND', start_time, end_time) as duration,
-         argMinMerge(s.first_url) as first_url,
-         sum(s.click_count),
-         sum(s.keypress_count),
-         sum(s.mouse_activity_count),
-         sum(s.active_milliseconds)/1000 as active_seconds,
-         duration-active_seconds as inactive_seconds,
-         sum(s.console_log_count) as console_log_count,
-         sum(s.console_warn_count) as console_warn_count,
-         sum(s.console_error_count) as console_error_count
-  FROM session_replay_events s
-  WHERE s.team_id = 2
-    AND s.min_first_timestamp >= '2020-12-11 13:46:23'
-    AND s.min_first_timestamp >= '2020-12-25 00:00:00'
-    AND s.max_last_timestamp <= '2021-01-01 13:46:23'
-  GROUP BY session_id
-  HAVING 1=1
-  ORDER BY start_time DESC
-  LIMIT 51
-  OFFSET 0
-  '''
-# ---
-# name: TestClickhouseSessionRecordingsListFromSessionReplay.test_event_filter_with_person_properties_materialized_03_poe_and_materialized_columns_off_without_materialization.1
-  '''
-  
-  SELECT s.session_id,
-         any(s.team_id),
-         any(s.distinct_id),
-         min(s.min_first_timestamp) as start_time,
-         max(s.max_last_timestamp) as end_time,
-         dateDiff('SECOND', start_time, end_time) as duration,
-         argMinMerge(s.first_url) as first_url,
-         sum(s.click_count),
-         sum(s.keypress_count),
-         sum(s.mouse_activity_count),
-         sum(s.active_milliseconds)/1000 as active_seconds,
-         duration-active_seconds as inactive_seconds,
-         sum(s.console_log_count) as console_log_count,
-         sum(s.console_warn_count) as console_warn_count,
-         sum(s.console_error_count) as console_error_count
-  FROM session_replay_events s
-  WHERE s.team_id = 2
-    AND s.min_first_timestamp >= '2020-12-11 13:46:23'
-    AND s.min_first_timestamp >= '2020-12-25 00:00:00'
-    AND s.max_last_timestamp <= '2021-01-01 13:46:23'
-    AND s.distinct_id in
-      (select distinct_id
-       from
-         (SELECT distinct_id,
-                 argMax(person_id, version) as current_person_id
-          FROM person_distinct_id2 as pdi
-          INNER JOIN
-            (SELECT id
-             FROM person
-             WHERE team_id = 2
-               AND id IN
-                 (SELECT id
-                  FROM person
-                  WHERE team_id = 2
-                    AND (has(['bla'], "pmat_email")) )
-             GROUP BY id
-             HAVING max(is_deleted) = 0
-             AND (has(['bla'], argMax(person."pmat_email", version))) SETTINGS optimize_aggregation_in_order = 1) person ON person.id = pdi.person_id
-          WHERE team_id = 2
-          GROUP BY distinct_id
-          HAVING argMax(is_deleted, version) = 0) as session_persons_sub_query)
   GROUP BY session_id
   HAVING 1=1
   ORDER BY start_time DESC
@@ -788,9 +464,9 @@
          sum(s.console_error_count) as console_error_count
   FROM session_replay_events s
   WHERE s.team_id = 2
-    AND s.min_first_timestamp >= '2020-12-11 13:46:23'
-    AND s.min_first_timestamp >= '2020-12-25 00:00:00'
-    AND s.max_last_timestamp <= '2021-01-01 13:46:23'
+    AND s.min_first_timestamp >= '2024-02-09 17:27:39'
+    AND s.min_first_timestamp >= '2024-02-23 00:00:00'
+    AND s.max_last_timestamp <= '2024-03-01 17:27:39'
   GROUP BY session_id
   HAVING 1=1
   ORDER BY start_time DESC
@@ -818,18 +494,18 @@
          sum(s.console_error_count) as console_error_count
   FROM session_replay_events s
   WHERE s.team_id = 2
-    AND s.min_first_timestamp >= '2020-12-11 13:46:23'
-    AND s.min_first_timestamp >= '2020-12-25 00:00:00'
-    AND s.max_last_timestamp <= '2021-01-01 13:46:23'
+    AND s.min_first_timestamp >= '2024-02-09 17:27:39'
+    AND s.min_first_timestamp >= '2024-02-23 00:00:00'
+    AND s.max_last_timestamp <= '2024-03-01 17:27:39'
     AND s.session_id in
       (select `$session_id` as session_id
        from
          (SELECT `$session_id`
           FROM events e PREWHERE team_id = 2
-          AND e.timestamp >= '2020-12-11 13:46:23'
+          AND e.timestamp >= '2024-02-09 17:27:39'
           AND e.timestamp <= now()
-          AND timestamp >= '2020-12-24 12:00:00'
-          AND timestamp <= '2021-01-02 01:46:23'
+          AND timestamp >= '2024-02-22 12:00:00'
+          AND timestamp <= '2024-03-02 05:27:39'
           WHERE notEmpty(`$session_id`)
             AND (has(['bla'], "mat_pp_email"))
           GROUP BY `$session_id`
@@ -861,9 +537,9 @@
          sum(s.console_error_count) as console_error_count
   FROM session_replay_events s
   WHERE s.team_id = 2
-    AND s.min_first_timestamp >= '2020-12-11 13:46:23'
-    AND s.min_first_timestamp >= '2020-12-25 00:00:00'
-    AND s.max_last_timestamp <= '2021-01-01 13:46:23'
+    AND s.min_first_timestamp >= '2024-02-09 17:27:39'
+    AND s.min_first_timestamp >= '2024-02-23 00:00:00'
+    AND s.max_last_timestamp <= '2024-03-01 17:27:39'
   GROUP BY session_id
   HAVING 1=1
   ORDER BY start_time DESC
@@ -891,9 +567,9 @@
          sum(s.console_error_count) as console_error_count
   FROM session_replay_events s
   WHERE s.team_id = 2
-    AND s.min_first_timestamp >= '2020-12-11 13:46:23'
-    AND s.min_first_timestamp >= '2020-12-25 00:00:00'
-    AND s.max_last_timestamp <= '2021-01-01 13:46:23'
+    AND s.min_first_timestamp >= '2024-02-09 17:27:39'
+    AND s.min_first_timestamp >= '2024-02-23 00:00:00'
+    AND s.max_last_timestamp <= '2024-03-01 17:27:39'
     AND s.distinct_id in
       (select distinct_id
        from
@@ -942,9 +618,9 @@
          sum(s.console_error_count) as console_error_count
   FROM session_replay_events s
   WHERE s.team_id = 2
-    AND s.min_first_timestamp >= '2020-12-11 13:46:23'
-    AND s.min_first_timestamp >= '2020-12-25 00:00:00'
-    AND s.max_last_timestamp <= '2021-01-01 13:46:23'
+    AND s.min_first_timestamp >= '2024-02-09 17:27:40'
+    AND s.min_first_timestamp >= '2024-02-23 00:00:00'
+    AND s.max_last_timestamp <= '2024-03-01 17:27:40'
   GROUP BY session_id
   HAVING 1=1
   ORDER BY start_time DESC
@@ -972,90 +648,9 @@
          sum(s.console_error_count) as console_error_count
   FROM session_replay_events s
   WHERE s.team_id = 2
-    AND s.min_first_timestamp >= '2020-12-11 13:46:23'
-    AND s.min_first_timestamp >= '2020-12-25 00:00:00'
-    AND s.max_last_timestamp <= '2021-01-01 13:46:23'
-    AND s.distinct_id in
-      (select distinct_id
-       from
-         (SELECT distinct_id,
-                 argMax(person_id, version) as current_person_id
-          FROM person_distinct_id2 as pdi
-          INNER JOIN
-            (SELECT id
-             FROM person
-             WHERE team_id = 2
-               AND id IN
-                 (SELECT id
-                  FROM person
-                  WHERE team_id = 2
-                    AND (has(['bla'], "pmat_email")) )
-             GROUP BY id
-             HAVING max(is_deleted) = 0
-             AND (has(['bla'], argMax(person."pmat_email", version))) SETTINGS optimize_aggregation_in_order = 1) person ON person.id = pdi.person_id
-          WHERE team_id = 2
-          GROUP BY distinct_id
-          HAVING argMax(is_deleted, version) = 0) as session_persons_sub_query)
-  GROUP BY session_id
-  HAVING 1=1
-  ORDER BY start_time DESC
-  LIMIT 51
-  OFFSET 0
-  '''
-# ---
-# name: TestClickhouseSessionRecordingsListFromSessionReplay.test_event_filter_with_person_properties_materialized_06_neither_poe_nor_materialized_columns_with_materialization
-  '''
-  
-  SELECT s.session_id,
-         any(s.team_id),
-         any(s.distinct_id),
-         min(s.min_first_timestamp) as start_time,
-         max(s.max_last_timestamp) as end_time,
-         dateDiff('SECOND', start_time, end_time) as duration,
-         argMinMerge(s.first_url) as first_url,
-         sum(s.click_count),
-         sum(s.keypress_count),
-         sum(s.mouse_activity_count),
-         sum(s.active_milliseconds)/1000 as active_seconds,
-         duration-active_seconds as inactive_seconds,
-         sum(s.console_log_count) as console_log_count,
-         sum(s.console_warn_count) as console_warn_count,
-         sum(s.console_error_count) as console_error_count
-  FROM session_replay_events s
-  WHERE s.team_id = 2
-    AND s.min_first_timestamp >= '2020-12-11 13:46:23'
-    AND s.min_first_timestamp >= '2020-12-25 00:00:00'
-    AND s.max_last_timestamp <= '2021-01-01 13:46:23'
-  GROUP BY session_id
-  HAVING 1=1
-  ORDER BY start_time DESC
-  LIMIT 51
-  OFFSET 0
-  '''
-# ---
-# name: TestClickhouseSessionRecordingsListFromSessionReplay.test_event_filter_with_person_properties_materialized_06_neither_poe_nor_materialized_columns_with_materialization.1
-  '''
-  
-  SELECT s.session_id,
-         any(s.team_id),
-         any(s.distinct_id),
-         min(s.min_first_timestamp) as start_time,
-         max(s.max_last_timestamp) as end_time,
-         dateDiff('SECOND', start_time, end_time) as duration,
-         argMinMerge(s.first_url) as first_url,
-         sum(s.click_count),
-         sum(s.keypress_count),
-         sum(s.mouse_activity_count),
-         sum(s.active_milliseconds)/1000 as active_seconds,
-         duration-active_seconds as inactive_seconds,
-         sum(s.console_log_count) as console_log_count,
-         sum(s.console_warn_count) as console_warn_count,
-         sum(s.console_error_count) as console_error_count
-  FROM session_replay_events s
-  WHERE s.team_id = 2
-    AND s.min_first_timestamp >= '2020-12-11 13:46:23'
-    AND s.min_first_timestamp >= '2020-12-25 00:00:00'
-    AND s.max_last_timestamp <= '2021-01-01 13:46:23'
+    AND s.min_first_timestamp >= '2024-02-09 17:27:40'
+    AND s.min_first_timestamp >= '2024-02-23 00:00:00'
+    AND s.max_last_timestamp <= '2024-03-01 17:27:40'
     AND s.distinct_id in
       (select distinct_id
        from
@@ -1104,9 +699,9 @@
          sum(s.console_error_count) as console_error_count
   FROM session_replay_events s
   WHERE s.team_id = 2
-    AND s.min_first_timestamp >= '2020-12-11 13:46:23'
-    AND s.min_first_timestamp >= '2020-12-25 00:00:00'
-    AND s.max_last_timestamp <= '2021-01-01 13:46:23'
+    AND s.min_first_timestamp >= '2024-02-09 17:27:41'
+    AND s.min_first_timestamp >= '2024-02-23 00:00:00'
+    AND s.max_last_timestamp <= '2024-03-01 17:27:41'
   GROUP BY session_id
   HAVING 1=1
   ORDER BY start_time DESC
@@ -1134,90 +729,9 @@
          sum(s.console_error_count) as console_error_count
   FROM session_replay_events s
   WHERE s.team_id = 2
-    AND s.min_first_timestamp >= '2020-12-11 13:46:23'
-    AND s.min_first_timestamp >= '2020-12-25 00:00:00'
-    AND s.max_last_timestamp <= '2021-01-01 13:46:23'
-    AND s.distinct_id in
-      (select distinct_id
-       from
-         (SELECT distinct_id,
-                 argMax(person_id, version) as current_person_id
-          FROM person_distinct_id2 as pdi
-          INNER JOIN
-            (SELECT id
-             FROM person
-             WHERE team_id = 2
-               AND id IN
-                 (SELECT id
-                  FROM person
-                  WHERE team_id = 2
-                    AND (has(['bla'], "pmat_email")) )
-             GROUP BY id
-             HAVING max(is_deleted) = 0
-             AND (has(['bla'], argMax(person."pmat_email", version))) SETTINGS optimize_aggregation_in_order = 1) person ON person.id = pdi.person_id
-          WHERE team_id = 2
-          GROUP BY distinct_id
-          HAVING argMax(is_deleted, version) = 0) as session_persons_sub_query)
-  GROUP BY session_id
-  HAVING 1=1
-  ORDER BY start_time DESC
-  LIMIT 51
-  OFFSET 0
-  '''
-# ---
-# name: TestClickhouseSessionRecordingsListFromSessionReplay.test_event_filter_with_person_properties_materialized_07_neither_poe_nor_materialized_columns_without_materialization
-  '''
-  
-  SELECT s.session_id,
-         any(s.team_id),
-         any(s.distinct_id),
-         min(s.min_first_timestamp) as start_time,
-         max(s.max_last_timestamp) as end_time,
-         dateDiff('SECOND', start_time, end_time) as duration,
-         argMinMerge(s.first_url) as first_url,
-         sum(s.click_count),
-         sum(s.keypress_count),
-         sum(s.mouse_activity_count),
-         sum(s.active_milliseconds)/1000 as active_seconds,
-         duration-active_seconds as inactive_seconds,
-         sum(s.console_log_count) as console_log_count,
-         sum(s.console_warn_count) as console_warn_count,
-         sum(s.console_error_count) as console_error_count
-  FROM session_replay_events s
-  WHERE s.team_id = 2
-    AND s.min_first_timestamp >= '2020-12-11 13:46:23'
-    AND s.min_first_timestamp >= '2020-12-25 00:00:00'
-    AND s.max_last_timestamp <= '2021-01-01 13:46:23'
-  GROUP BY session_id
-  HAVING 1=1
-  ORDER BY start_time DESC
-  LIMIT 51
-  OFFSET 0
-  '''
-# ---
-# name: TestClickhouseSessionRecordingsListFromSessionReplay.test_event_filter_with_person_properties_materialized_07_neither_poe_nor_materialized_columns_without_materialization.1
-  '''
-  
-  SELECT s.session_id,
-         any(s.team_id),
-         any(s.distinct_id),
-         min(s.min_first_timestamp) as start_time,
-         max(s.max_last_timestamp) as end_time,
-         dateDiff('SECOND', start_time, end_time) as duration,
-         argMinMerge(s.first_url) as first_url,
-         sum(s.click_count),
-         sum(s.keypress_count),
-         sum(s.mouse_activity_count),
-         sum(s.active_milliseconds)/1000 as active_seconds,
-         duration-active_seconds as inactive_seconds,
-         sum(s.console_log_count) as console_log_count,
-         sum(s.console_warn_count) as console_warn_count,
-         sum(s.console_error_count) as console_error_count
-  FROM session_replay_events s
-  WHERE s.team_id = 2
-    AND s.min_first_timestamp >= '2020-12-11 13:46:23'
-    AND s.min_first_timestamp >= '2020-12-25 00:00:00'
-    AND s.max_last_timestamp <= '2021-01-01 13:46:23'
+    AND s.min_first_timestamp >= '2024-02-09 17:27:41'
+    AND s.min_first_timestamp >= '2024-02-23 00:00:00'
+    AND s.max_last_timestamp <= '2024-03-01 17:27:41'
     AND s.distinct_id in
       (select distinct_id
        from
@@ -1266,9 +780,9 @@
          sum(s.console_error_count) as console_error_count
   FROM session_replay_events s
   WHERE s.team_id = 2
-    AND s.min_first_timestamp >= '2020-12-11 13:46:23'
-    AND s.min_first_timestamp >= '2020-12-25 00:00:00'
-    AND s.max_last_timestamp <= '2021-01-01 13:46:23'
+    AND s.min_first_timestamp >= '2024-02-09 17:27:41'
+    AND s.min_first_timestamp >= '2024-02-23 00:00:00'
+    AND s.max_last_timestamp <= '2024-03-01 17:27:41'
   GROUP BY session_id
   HAVING 1=1
   ORDER BY start_time DESC
@@ -1296,9 +810,9 @@
          sum(s.console_error_count) as console_error_count
   FROM session_replay_events s
   WHERE s.team_id = 2
-    AND s.min_first_timestamp >= '2020-12-11 13:46:23'
-    AND s.min_first_timestamp >= '2020-12-25 00:00:00'
-    AND s.max_last_timestamp <= '2021-01-01 13:46:23'
+    AND s.min_first_timestamp >= '2024-02-09 17:27:41'
+    AND s.min_first_timestamp >= '2024-02-23 00:00:00'
+    AND s.max_last_timestamp <= '2024-03-01 17:27:41'
     AND s.distinct_id in
       (select distinct_id
        from
@@ -1347,9 +861,9 @@
          sum(s.console_error_count) as console_error_count
   FROM session_replay_events s
   WHERE s.team_id = 2
-    AND s.min_first_timestamp >= '2020-12-11 13:46:23'
-    AND s.min_first_timestamp >= '2020-12-25 00:00:00'
-    AND s.max_last_timestamp <= '2021-01-01 13:46:23'
+    AND s.min_first_timestamp >= '2024-02-09 17:27:42'
+    AND s.min_first_timestamp >= '2024-02-23 00:00:00'
+    AND s.max_last_timestamp <= '2024-03-01 17:27:42'
   GROUP BY session_id
   HAVING 1=1
   ORDER BY start_time DESC
@@ -1377,9 +891,9 @@
          sum(s.console_error_count) as console_error_count
   FROM session_replay_events s
   WHERE s.team_id = 2
-    AND s.min_first_timestamp >= '2020-12-11 13:46:23'
-    AND s.min_first_timestamp >= '2020-12-25 00:00:00'
-    AND s.max_last_timestamp <= '2021-01-01 13:46:23'
+    AND s.min_first_timestamp >= '2024-02-09 17:27:42'
+    AND s.min_first_timestamp >= '2024-02-23 00:00:00'
+    AND s.max_last_timestamp <= '2024-03-01 17:27:42'
     AND s.distinct_id in
       (select distinct_id
        from
@@ -1401,79 +915,6 @@
           WHERE team_id = 2
           GROUP BY distinct_id
           HAVING argMax(is_deleted, version) = 0) as session_persons_sub_query)
-  GROUP BY session_id
-  HAVING 1=1
-  ORDER BY start_time DESC
-  LIMIT 51
-  OFFSET 0
-  '''
-# ---
-# name: TestClickhouseSessionRecordingsListFromSessionReplay.test_event_filter_with_person_properties_materialized_08_poe_v1_and_materialized_columns_with_materialization
-  '''
-  
-  SELECT s.session_id,
-         any(s.team_id),
-         any(s.distinct_id),
-         min(s.min_first_timestamp) as start_time,
-         max(s.max_last_timestamp) as end_time,
-         dateDiff('SECOND', start_time, end_time) as duration,
-         argMinMerge(s.first_url) as first_url,
-         sum(s.click_count),
-         sum(s.keypress_count),
-         sum(s.mouse_activity_count),
-         sum(s.active_milliseconds)/1000 as active_seconds,
-         duration-active_seconds as inactive_seconds,
-         sum(s.console_log_count) as console_log_count,
-         sum(s.console_warn_count) as console_warn_count,
-         sum(s.console_error_count) as console_error_count
-  FROM session_replay_events s
-  WHERE s.team_id = 2
-    AND s.min_first_timestamp >= '2020-12-11 13:46:23'
-    AND s.min_first_timestamp >= '2020-12-25 00:00:00'
-    AND s.max_last_timestamp <= '2021-01-01 13:46:23'
-  GROUP BY session_id
-  HAVING 1=1
-  ORDER BY start_time DESC
-  LIMIT 51
-  OFFSET 0
-  '''
-# ---
-# name: TestClickhouseSessionRecordingsListFromSessionReplay.test_event_filter_with_person_properties_materialized_08_poe_v1_and_materialized_columns_with_materialization.1
-  '''
-  
-  SELECT s.session_id,
-         any(s.team_id),
-         any(s.distinct_id),
-         min(s.min_first_timestamp) as start_time,
-         max(s.max_last_timestamp) as end_time,
-         dateDiff('SECOND', start_time, end_time) as duration,
-         argMinMerge(s.first_url) as first_url,
-         sum(s.click_count),
-         sum(s.keypress_count),
-         sum(s.mouse_activity_count),
-         sum(s.active_milliseconds)/1000 as active_seconds,
-         duration-active_seconds as inactive_seconds,
-         sum(s.console_log_count) as console_log_count,
-         sum(s.console_warn_count) as console_warn_count,
-         sum(s.console_error_count) as console_error_count
-  FROM session_replay_events s
-  WHERE s.team_id = 2
-    AND s.min_first_timestamp >= '2020-12-11 13:46:23'
-    AND s.min_first_timestamp >= '2020-12-25 00:00:00'
-    AND s.max_last_timestamp <= '2021-01-01 13:46:23'
-    AND s.session_id in
-      (select `$session_id` as session_id
-       from
-         (SELECT `$session_id`
-          FROM events e PREWHERE team_id = 2
-          AND e.timestamp >= '2020-12-11 13:46:23'
-          AND e.timestamp <= now()
-          AND timestamp >= '2020-12-24 12:00:00'
-          AND timestamp <= '2021-01-02 01:46:23'
-          WHERE notEmpty(`$session_id`)
-            AND (has(['bla'], "mat_pp_email"))
-          GROUP BY `$session_id`
-          HAVING 1=1) as session_events_sub_query)
   GROUP BY session_id
   HAVING 1=1
   ORDER BY start_time DESC
@@ -1501,9 +942,9 @@
          sum(s.console_error_count) as console_error_count
   FROM session_replay_events s
   WHERE s.team_id = 2
-    AND s.min_first_timestamp >= '2020-12-11 13:46:23'
-    AND s.min_first_timestamp >= '2020-12-25 00:00:00'
-    AND s.max_last_timestamp <= '2021-01-01 13:46:23'
+    AND s.min_first_timestamp >= '2024-02-09 17:27:42'
+    AND s.min_first_timestamp >= '2024-02-23 00:00:00'
+    AND s.max_last_timestamp <= '2024-03-01 17:27:42'
   GROUP BY session_id
   HAVING 1=1
   ORDER BY start_time DESC
@@ -1531,9 +972,9 @@
          sum(s.console_error_count) as console_error_count
   FROM session_replay_events s
   WHERE s.team_id = 2
-    AND s.min_first_timestamp >= '2020-12-11 13:46:23'
-    AND s.min_first_timestamp >= '2020-12-25 00:00:00'
-    AND s.max_last_timestamp <= '2021-01-01 13:46:23'
+    AND s.min_first_timestamp >= '2024-02-09 17:27:42'
+    AND s.min_first_timestamp >= '2024-02-23 00:00:00'
+    AND s.max_last_timestamp <= '2024-03-01 17:27:42'
     AND s.distinct_id in
       (select distinct_id
        from
@@ -1555,79 +996,6 @@
           WHERE team_id = 2
           GROUP BY distinct_id
           HAVING argMax(is_deleted, version) = 0) as session_persons_sub_query)
-  GROUP BY session_id
-  HAVING 1=1
-  ORDER BY start_time DESC
-  LIMIT 51
-  OFFSET 0
-  '''
-# ---
-# name: TestClickhouseSessionRecordingsListFromSessionReplay.test_event_filter_with_person_properties_materialized_09_poe_v1_and_materialized_columns_without_materialization
-  '''
-  
-  SELECT s.session_id,
-         any(s.team_id),
-         any(s.distinct_id),
-         min(s.min_first_timestamp) as start_time,
-         max(s.max_last_timestamp) as end_time,
-         dateDiff('SECOND', start_time, end_time) as duration,
-         argMinMerge(s.first_url) as first_url,
-         sum(s.click_count),
-         sum(s.keypress_count),
-         sum(s.mouse_activity_count),
-         sum(s.active_milliseconds)/1000 as active_seconds,
-         duration-active_seconds as inactive_seconds,
-         sum(s.console_log_count) as console_log_count,
-         sum(s.console_warn_count) as console_warn_count,
-         sum(s.console_error_count) as console_error_count
-  FROM session_replay_events s
-  WHERE s.team_id = 2
-    AND s.min_first_timestamp >= '2020-12-11 13:46:23'
-    AND s.min_first_timestamp >= '2020-12-25 00:00:00'
-    AND s.max_last_timestamp <= '2021-01-01 13:46:23'
-  GROUP BY session_id
-  HAVING 1=1
-  ORDER BY start_time DESC
-  LIMIT 51
-  OFFSET 0
-  '''
-# ---
-# name: TestClickhouseSessionRecordingsListFromSessionReplay.test_event_filter_with_person_properties_materialized_09_poe_v1_and_materialized_columns_without_materialization.1
-  '''
-  
-  SELECT s.session_id,
-         any(s.team_id),
-         any(s.distinct_id),
-         min(s.min_first_timestamp) as start_time,
-         max(s.max_last_timestamp) as end_time,
-         dateDiff('SECOND', start_time, end_time) as duration,
-         argMinMerge(s.first_url) as first_url,
-         sum(s.click_count),
-         sum(s.keypress_count),
-         sum(s.mouse_activity_count),
-         sum(s.active_milliseconds)/1000 as active_seconds,
-         duration-active_seconds as inactive_seconds,
-         sum(s.console_log_count) as console_log_count,
-         sum(s.console_warn_count) as console_warn_count,
-         sum(s.console_error_count) as console_error_count
-  FROM session_replay_events s
-  WHERE s.team_id = 2
-    AND s.min_first_timestamp >= '2020-12-11 13:46:23'
-    AND s.min_first_timestamp >= '2020-12-25 00:00:00'
-    AND s.max_last_timestamp <= '2021-01-01 13:46:23'
-    AND s.session_id in
-      (select `$session_id` as session_id
-       from
-         (SELECT `$session_id`
-          FROM events e PREWHERE team_id = 2
-          AND e.timestamp >= '2020-12-11 13:46:23'
-          AND e.timestamp <= now()
-          AND timestamp >= '2020-12-24 12:00:00'
-          AND timestamp <= '2021-01-02 01:46:23'
-          WHERE notEmpty(`$session_id`)
-            AND (has(['bla'], "mat_pp_email"))
-          GROUP BY `$session_id`
-          HAVING 1=1) as session_events_sub_query)
   GROUP BY session_id
   HAVING 1=1
   ORDER BY start_time DESC
@@ -1655,9 +1023,9 @@
          sum(s.console_error_count) as console_error_count
   FROM session_replay_events s
   WHERE s.team_id = 2
-    AND s.min_first_timestamp >= '2020-12-11 13:46:23'
-    AND s.min_first_timestamp >= '2020-12-25 00:00:00'
-    AND s.max_last_timestamp <= '2021-01-01 13:46:23'
+    AND s.min_first_timestamp >= '2024-02-09 17:27:43'
+    AND s.min_first_timestamp >= '2024-02-23 00:00:00'
+    AND s.max_last_timestamp <= '2024-03-01 17:27:43'
   GROUP BY session_id
   HAVING 1=1
   ORDER BY start_time DESC
@@ -1685,9 +1053,9 @@
          sum(s.console_error_count) as console_error_count
   FROM session_replay_events s
   WHERE s.team_id = 2
-    AND s.min_first_timestamp >= '2020-12-11 13:46:23'
-    AND s.min_first_timestamp >= '2020-12-25 00:00:00'
-    AND s.max_last_timestamp <= '2021-01-01 13:46:23'
+    AND s.min_first_timestamp >= '2024-02-09 17:27:43'
+    AND s.min_first_timestamp >= '2024-02-23 00:00:00'
+    AND s.max_last_timestamp <= '2024-03-01 17:27:43'
     AND s.distinct_id in
       (select distinct_id
        from
@@ -1709,79 +1077,6 @@
           WHERE team_id = 2
           GROUP BY distinct_id
           HAVING argMax(is_deleted, version) = 0) as session_persons_sub_query)
-  GROUP BY session_id
-  HAVING 1=1
-  ORDER BY start_time DESC
-  LIMIT 51
-  OFFSET 0
-  '''
-# ---
-# name: TestClickhouseSessionRecordingsListFromSessionReplay.test_event_filter_with_person_properties_materialized_10_poe_v1_and_not_materialized_columns_with_materialization
-  '''
-  
-  SELECT s.session_id,
-         any(s.team_id),
-         any(s.distinct_id),
-         min(s.min_first_timestamp) as start_time,
-         max(s.max_last_timestamp) as end_time,
-         dateDiff('SECOND', start_time, end_time) as duration,
-         argMinMerge(s.first_url) as first_url,
-         sum(s.click_count),
-         sum(s.keypress_count),
-         sum(s.mouse_activity_count),
-         sum(s.active_milliseconds)/1000 as active_seconds,
-         duration-active_seconds as inactive_seconds,
-         sum(s.console_log_count) as console_log_count,
-         sum(s.console_warn_count) as console_warn_count,
-         sum(s.console_error_count) as console_error_count
-  FROM session_replay_events s
-  WHERE s.team_id = 2
-    AND s.min_first_timestamp >= '2020-12-11 13:46:23'
-    AND s.min_first_timestamp >= '2020-12-25 00:00:00'
-    AND s.max_last_timestamp <= '2021-01-01 13:46:23'
-  GROUP BY session_id
-  HAVING 1=1
-  ORDER BY start_time DESC
-  LIMIT 51
-  OFFSET 0
-  '''
-# ---
-# name: TestClickhouseSessionRecordingsListFromSessionReplay.test_event_filter_with_person_properties_materialized_10_poe_v1_and_not_materialized_columns_with_materialization.1
-  '''
-  
-  SELECT s.session_id,
-         any(s.team_id),
-         any(s.distinct_id),
-         min(s.min_first_timestamp) as start_time,
-         max(s.max_last_timestamp) as end_time,
-         dateDiff('SECOND', start_time, end_time) as duration,
-         argMinMerge(s.first_url) as first_url,
-         sum(s.click_count),
-         sum(s.keypress_count),
-         sum(s.mouse_activity_count),
-         sum(s.active_milliseconds)/1000 as active_seconds,
-         duration-active_seconds as inactive_seconds,
-         sum(s.console_log_count) as console_log_count,
-         sum(s.console_warn_count) as console_warn_count,
-         sum(s.console_error_count) as console_error_count
-  FROM session_replay_events s
-  WHERE s.team_id = 2
-    AND s.min_first_timestamp >= '2020-12-11 13:46:23'
-    AND s.min_first_timestamp >= '2020-12-25 00:00:00'
-    AND s.max_last_timestamp <= '2021-01-01 13:46:23'
-    AND s.session_id in
-      (select `$session_id` as session_id
-       from
-         (SELECT `$session_id`
-          FROM events e PREWHERE team_id = 2
-          AND e.timestamp >= '2020-12-11 13:46:23'
-          AND e.timestamp <= now()
-          AND timestamp >= '2020-12-24 12:00:00'
-          AND timestamp <= '2021-01-02 01:46:23'
-          WHERE notEmpty(`$session_id`)
-            AND (has(['bla'], "mat_pp_email"))
-          GROUP BY `$session_id`
-          HAVING 1=1) as session_events_sub_query)
   GROUP BY session_id
   HAVING 1=1
   ORDER BY start_time DESC
@@ -1809,9 +1104,9 @@
          sum(s.console_error_count) as console_error_count
   FROM session_replay_events s
   WHERE s.team_id = 2
-    AND s.min_first_timestamp >= '2020-12-11 13:46:23'
-    AND s.min_first_timestamp >= '2020-12-25 00:00:00'
-    AND s.max_last_timestamp <= '2021-01-01 13:46:23'
+    AND s.min_first_timestamp >= '2024-02-09 17:27:43'
+    AND s.min_first_timestamp >= '2024-02-23 00:00:00'
+    AND s.max_last_timestamp <= '2024-03-01 17:27:43'
   GROUP BY session_id
   HAVING 1=1
   ORDER BY start_time DESC
@@ -1839,9 +1134,9 @@
          sum(s.console_error_count) as console_error_count
   FROM session_replay_events s
   WHERE s.team_id = 2
-    AND s.min_first_timestamp >= '2020-12-11 13:46:23'
-    AND s.min_first_timestamp >= '2020-12-25 00:00:00'
-    AND s.max_last_timestamp <= '2021-01-01 13:46:23'
+    AND s.min_first_timestamp >= '2024-02-09 17:27:43'
+    AND s.min_first_timestamp >= '2024-02-23 00:00:00'
+    AND s.max_last_timestamp <= '2024-03-01 17:27:43'
     AND s.distinct_id in
       (select distinct_id
        from
@@ -1870,124 +1165,6 @@
   OFFSET 0
   '''
 # ---
-# name: TestClickhouseSessionRecordingsListFromSessionReplay.test_event_filter_with_person_properties_materialized_11_poe_v1_and_not_materialized_columns_without_materialization
-  '''
-  
-  SELECT s.session_id,
-         any(s.team_id),
-         any(s.distinct_id),
-         min(s.min_first_timestamp) as start_time,
-         max(s.max_last_timestamp) as end_time,
-         dateDiff('SECOND', start_time, end_time) as duration,
-         argMinMerge(s.first_url) as first_url,
-         sum(s.click_count),
-         sum(s.keypress_count),
-         sum(s.mouse_activity_count),
-         sum(s.active_milliseconds)/1000 as active_seconds,
-         duration-active_seconds as inactive_seconds,
-         sum(s.console_log_count) as console_log_count,
-         sum(s.console_warn_count) as console_warn_count,
-         sum(s.console_error_count) as console_error_count
-  FROM session_replay_events s
-  WHERE s.team_id = 2
-    AND s.min_first_timestamp >= '2020-12-11 13:46:23'
-    AND s.min_first_timestamp >= '2020-12-25 00:00:00'
-    AND s.max_last_timestamp <= '2021-01-01 13:46:23'
-  GROUP BY session_id
-  HAVING 1=1
-  ORDER BY start_time DESC
-  LIMIT 51
-  OFFSET 0
-  '''
-# ---
-# name: TestClickhouseSessionRecordingsListFromSessionReplay.test_event_filter_with_person_properties_materialized_11_poe_v1_and_not_materialized_columns_without_materialization.1
-  '''
-  
-  SELECT s.session_id,
-         any(s.team_id),
-         any(s.distinct_id),
-         min(s.min_first_timestamp) as start_time,
-         max(s.max_last_timestamp) as end_time,
-         dateDiff('SECOND', start_time, end_time) as duration,
-         argMinMerge(s.first_url) as first_url,
-         sum(s.click_count),
-         sum(s.keypress_count),
-         sum(s.mouse_activity_count),
-         sum(s.active_milliseconds)/1000 as active_seconds,
-         duration-active_seconds as inactive_seconds,
-         sum(s.console_log_count) as console_log_count,
-         sum(s.console_warn_count) as console_warn_count,
-         sum(s.console_error_count) as console_error_count
-  FROM session_replay_events s
-  WHERE s.team_id = 2
-    AND s.min_first_timestamp >= '2020-12-11 13:46:23'
-    AND s.min_first_timestamp >= '2020-12-25 00:00:00'
-    AND s.max_last_timestamp <= '2021-01-01 13:46:23'
-    AND s.session_id in
-      (select `$session_id` as session_id
-       from
-         (SELECT `$session_id`
-          FROM events e PREWHERE team_id = 2
-          AND e.timestamp >= '2020-12-11 13:46:23'
-          AND e.timestamp <= now()
-          AND timestamp >= '2020-12-24 12:00:00'
-          AND timestamp <= '2021-01-02 01:46:23'
-          WHERE notEmpty(`$session_id`)
-            AND (has(['bla'], "mat_pp_email"))
-          GROUP BY `$session_id`
-          HAVING 1=1) as session_events_sub_query)
-  GROUP BY session_id
-  HAVING 1=1
-  ORDER BY start_time DESC
-  LIMIT 51
-  OFFSET 0
-  '''
-# ---
-# name: TestClickhouseSessionRecordingsListFromSessionReplay.test_person_id_filter_00_poe_and_materialized_columns_allowed_with_materialization
-  '''
-  
-  SELECT s.session_id,
-         any(s.team_id),
-         any(s.distinct_id),
-         min(s.min_first_timestamp) as start_time,
-         max(s.max_last_timestamp) as end_time,
-         dateDiff('SECOND', start_time, end_time) as duration,
-         argMinMerge(s.first_url) as first_url,
-         sum(s.click_count),
-         sum(s.keypress_count),
-         sum(s.mouse_activity_count),
-         sum(s.active_milliseconds)/1000 as active_seconds,
-         duration-active_seconds as inactive_seconds,
-         sum(s.console_log_count) as console_log_count,
-         sum(s.console_warn_count) as console_warn_count,
-         sum(s.console_error_count) as console_error_count
-  FROM session_replay_events s
-  WHERE s.team_id = 2
-    AND s.min_first_timestamp >= '2020-12-11 13:46:23'
-    AND s.min_first_timestamp >= '2020-12-25 00:00:00'
-    AND s.max_last_timestamp <= '2021-01-01 13:46:23'
-    AND s.distinct_id in
-      (select distinct_id
-       from
-         (SELECT distinct_id,
-                 argMax(person_id, version) as current_person_id
-          FROM person_distinct_id2 as pdi
-          WHERE team_id = 2
-            AND distinct_id IN
-              (SELECT distinct_id
-               FROM person_distinct_id2
-               WHERE team_id = 2
-                 AND person_id = '00000000-0000-0000-0000-000000000000') as all_distinct_ids_that_might_match_a_person
-          GROUP BY distinct_id
-          HAVING argMax(is_deleted, version) = 0
-          AND current_person_id = '00000000-0000-0000-0000-000000000000') as session_persons_sub_query)
-  GROUP BY session_id
-  HAVING 1=1
-  ORDER BY start_time DESC
-  LIMIT 51
-  OFFSET 0
-  '''
-# ---
 # name: TestClickhouseSessionRecordingsListFromSessionReplay.test_person_id_filter_00_poe_v2_and_materialized_columns_allowed_with_materialization
   '''
   
@@ -2008,54 +1185,9 @@
          sum(s.console_error_count) as console_error_count
   FROM session_replay_events s
   WHERE s.team_id = 2
-    AND s.min_first_timestamp >= '2020-12-11 13:46:23'
-    AND s.min_first_timestamp >= '2020-12-25 00:00:00'
-    AND s.max_last_timestamp <= '2021-01-01 13:46:23'
-    AND s.distinct_id in
-      (select distinct_id
-       from
-         (SELECT distinct_id,
-                 argMax(person_id, version) as current_person_id
-          FROM person_distinct_id2 as pdi
-          WHERE team_id = 2
-            AND distinct_id IN
-              (SELECT distinct_id
-               FROM person_distinct_id2
-               WHERE team_id = 2
-                 AND person_id = '00000000-0000-0000-0000-000000000000') as all_distinct_ids_that_might_match_a_person
-          GROUP BY distinct_id
-          HAVING argMax(is_deleted, version) = 0
-          AND current_person_id = '00000000-0000-0000-0000-000000000000') as session_persons_sub_query)
-  GROUP BY session_id
-  HAVING 1=1
-  ORDER BY start_time DESC
-  LIMIT 51
-  OFFSET 0
-  '''
-# ---
-# name: TestClickhouseSessionRecordingsListFromSessionReplay.test_person_id_filter_01_poe_and_materialized_columns_allowed_without_materialization
-  '''
-  
-  SELECT s.session_id,
-         any(s.team_id),
-         any(s.distinct_id),
-         min(s.min_first_timestamp) as start_time,
-         max(s.max_last_timestamp) as end_time,
-         dateDiff('SECOND', start_time, end_time) as duration,
-         argMinMerge(s.first_url) as first_url,
-         sum(s.click_count),
-         sum(s.keypress_count),
-         sum(s.mouse_activity_count),
-         sum(s.active_milliseconds)/1000 as active_seconds,
-         duration-active_seconds as inactive_seconds,
-         sum(s.console_log_count) as console_log_count,
-         sum(s.console_warn_count) as console_warn_count,
-         sum(s.console_error_count) as console_error_count
-  FROM session_replay_events s
-  WHERE s.team_id = 2
-    AND s.min_first_timestamp >= '2020-12-11 13:46:23'
-    AND s.min_first_timestamp >= '2020-12-25 00:00:00'
-    AND s.max_last_timestamp <= '2021-01-01 13:46:23'
+    AND s.min_first_timestamp >= '2024-02-09 17:27:44'
+    AND s.min_first_timestamp >= '2024-02-23 00:00:00'
+    AND s.max_last_timestamp <= '2024-03-01 17:27:44'
     AND s.distinct_id in
       (select distinct_id
        from
@@ -2098,54 +1230,9 @@
          sum(s.console_error_count) as console_error_count
   FROM session_replay_events s
   WHERE s.team_id = 2
-    AND s.min_first_timestamp >= '2020-12-11 13:46:23'
-    AND s.min_first_timestamp >= '2020-12-25 00:00:00'
-    AND s.max_last_timestamp <= '2021-01-01 13:46:23'
-    AND s.distinct_id in
-      (select distinct_id
-       from
-         (SELECT distinct_id,
-                 argMax(person_id, version) as current_person_id
-          FROM person_distinct_id2 as pdi
-          WHERE team_id = 2
-            AND distinct_id IN
-              (SELECT distinct_id
-               FROM person_distinct_id2
-               WHERE team_id = 2
-                 AND person_id = '00000000-0000-0000-0000-000000000000') as all_distinct_ids_that_might_match_a_person
-          GROUP BY distinct_id
-          HAVING argMax(is_deleted, version) = 0
-          AND current_person_id = '00000000-0000-0000-0000-000000000000') as session_persons_sub_query)
-  GROUP BY session_id
-  HAVING 1=1
-  ORDER BY start_time DESC
-  LIMIT 51
-  OFFSET 0
-  '''
-# ---
-# name: TestClickhouseSessionRecordingsListFromSessionReplay.test_person_id_filter_02_poe_and_materialized_columns_off_with_materialization
-  '''
-  
-  SELECT s.session_id,
-         any(s.team_id),
-         any(s.distinct_id),
-         min(s.min_first_timestamp) as start_time,
-         max(s.max_last_timestamp) as end_time,
-         dateDiff('SECOND', start_time, end_time) as duration,
-         argMinMerge(s.first_url) as first_url,
-         sum(s.click_count),
-         sum(s.keypress_count),
-         sum(s.mouse_activity_count),
-         sum(s.active_milliseconds)/1000 as active_seconds,
-         duration-active_seconds as inactive_seconds,
-         sum(s.console_log_count) as console_log_count,
-         sum(s.console_warn_count) as console_warn_count,
-         sum(s.console_error_count) as console_error_count
-  FROM session_replay_events s
-  WHERE s.team_id = 2
-    AND s.min_first_timestamp >= '2020-12-11 13:46:23'
-    AND s.min_first_timestamp >= '2020-12-25 00:00:00'
-    AND s.max_last_timestamp <= '2021-01-01 13:46:23'
+    AND s.min_first_timestamp >= '2024-02-09 17:27:44'
+    AND s.min_first_timestamp >= '2024-02-23 00:00:00'
+    AND s.max_last_timestamp <= '2024-03-01 17:27:44'
     AND s.distinct_id in
       (select distinct_id
        from
@@ -2188,54 +1275,9 @@
          sum(s.console_error_count) as console_error_count
   FROM session_replay_events s
   WHERE s.team_id = 2
-    AND s.min_first_timestamp >= '2020-12-11 13:46:23'
-    AND s.min_first_timestamp >= '2020-12-25 00:00:00'
-    AND s.max_last_timestamp <= '2021-01-01 13:46:23'
-    AND s.distinct_id in
-      (select distinct_id
-       from
-         (SELECT distinct_id,
-                 argMax(person_id, version) as current_person_id
-          FROM person_distinct_id2 as pdi
-          WHERE team_id = 2
-            AND distinct_id IN
-              (SELECT distinct_id
-               FROM person_distinct_id2
-               WHERE team_id = 2
-                 AND person_id = '00000000-0000-0000-0000-000000000000') as all_distinct_ids_that_might_match_a_person
-          GROUP BY distinct_id
-          HAVING argMax(is_deleted, version) = 0
-          AND current_person_id = '00000000-0000-0000-0000-000000000000') as session_persons_sub_query)
-  GROUP BY session_id
-  HAVING 1=1
-  ORDER BY start_time DESC
-  LIMIT 51
-  OFFSET 0
-  '''
-# ---
-# name: TestClickhouseSessionRecordingsListFromSessionReplay.test_person_id_filter_03_poe_and_materialized_columns_off_without_materialization
-  '''
-  
-  SELECT s.session_id,
-         any(s.team_id),
-         any(s.distinct_id),
-         min(s.min_first_timestamp) as start_time,
-         max(s.max_last_timestamp) as end_time,
-         dateDiff('SECOND', start_time, end_time) as duration,
-         argMinMerge(s.first_url) as first_url,
-         sum(s.click_count),
-         sum(s.keypress_count),
-         sum(s.mouse_activity_count),
-         sum(s.active_milliseconds)/1000 as active_seconds,
-         duration-active_seconds as inactive_seconds,
-         sum(s.console_log_count) as console_log_count,
-         sum(s.console_warn_count) as console_warn_count,
-         sum(s.console_error_count) as console_error_count
-  FROM session_replay_events s
-  WHERE s.team_id = 2
-    AND s.min_first_timestamp >= '2020-12-11 13:46:23'
-    AND s.min_first_timestamp >= '2020-12-25 00:00:00'
-    AND s.max_last_timestamp <= '2021-01-01 13:46:23'
+    AND s.min_first_timestamp >= '2024-02-09 17:27:45'
+    AND s.min_first_timestamp >= '2024-02-23 00:00:00'
+    AND s.max_last_timestamp <= '2024-03-01 17:27:45'
     AND s.distinct_id in
       (select distinct_id
        from
@@ -2278,9 +1320,9 @@
          sum(s.console_error_count) as console_error_count
   FROM session_replay_events s
   WHERE s.team_id = 2
-    AND s.min_first_timestamp >= '2020-12-11 13:46:23'
-    AND s.min_first_timestamp >= '2020-12-25 00:00:00'
-    AND s.max_last_timestamp <= '2021-01-01 13:46:23'
+    AND s.min_first_timestamp >= '2024-02-09 17:27:45'
+    AND s.min_first_timestamp >= '2024-02-23 00:00:00'
+    AND s.max_last_timestamp <= '2024-03-01 17:27:45'
     AND s.distinct_id in
       (select distinct_id
        from
@@ -2323,9 +1365,9 @@
          sum(s.console_error_count) as console_error_count
   FROM session_replay_events s
   WHERE s.team_id = 2
-    AND s.min_first_timestamp >= '2020-12-11 13:46:23'
-    AND s.min_first_timestamp >= '2020-12-25 00:00:00'
-    AND s.max_last_timestamp <= '2021-01-01 13:46:23'
+    AND s.min_first_timestamp >= '2024-02-09 17:27:46'
+    AND s.min_first_timestamp >= '2024-02-23 00:00:00'
+    AND s.max_last_timestamp <= '2024-03-01 17:27:46'
     AND s.distinct_id in
       (select distinct_id
        from
@@ -2368,54 +1410,9 @@
          sum(s.console_error_count) as console_error_count
   FROM session_replay_events s
   WHERE s.team_id = 2
-    AND s.min_first_timestamp >= '2020-12-11 13:46:23'
-    AND s.min_first_timestamp >= '2020-12-25 00:00:00'
-    AND s.max_last_timestamp <= '2021-01-01 13:46:23'
-    AND s.distinct_id in
-      (select distinct_id
-       from
-         (SELECT distinct_id,
-                 argMax(person_id, version) as current_person_id
-          FROM person_distinct_id2 as pdi
-          WHERE team_id = 2
-            AND distinct_id IN
-              (SELECT distinct_id
-               FROM person_distinct_id2
-               WHERE team_id = 2
-                 AND person_id = '00000000-0000-0000-0000-000000000000') as all_distinct_ids_that_might_match_a_person
-          GROUP BY distinct_id
-          HAVING argMax(is_deleted, version) = 0
-          AND current_person_id = '00000000-0000-0000-0000-000000000000') as session_persons_sub_query)
-  GROUP BY session_id
-  HAVING 1=1
-  ORDER BY start_time DESC
-  LIMIT 51
-  OFFSET 0
-  '''
-# ---
-# name: TestClickhouseSessionRecordingsListFromSessionReplay.test_person_id_filter_06_neither_poe_nor_materialized_columns_with_materialization
-  '''
-  
-  SELECT s.session_id,
-         any(s.team_id),
-         any(s.distinct_id),
-         min(s.min_first_timestamp) as start_time,
-         max(s.max_last_timestamp) as end_time,
-         dateDiff('SECOND', start_time, end_time) as duration,
-         argMinMerge(s.first_url) as first_url,
-         sum(s.click_count),
-         sum(s.keypress_count),
-         sum(s.mouse_activity_count),
-         sum(s.active_milliseconds)/1000 as active_seconds,
-         duration-active_seconds as inactive_seconds,
-         sum(s.console_log_count) as console_log_count,
-         sum(s.console_warn_count) as console_warn_count,
-         sum(s.console_error_count) as console_error_count
-  FROM session_replay_events s
-  WHERE s.team_id = 2
-    AND s.min_first_timestamp >= '2020-12-11 13:46:23'
-    AND s.min_first_timestamp >= '2020-12-25 00:00:00'
-    AND s.max_last_timestamp <= '2021-01-01 13:46:23'
+    AND s.min_first_timestamp >= '2024-02-09 17:27:46'
+    AND s.min_first_timestamp >= '2024-02-23 00:00:00'
+    AND s.max_last_timestamp <= '2024-03-01 17:27:46'
     AND s.distinct_id in
       (select distinct_id
        from
@@ -2458,54 +1455,9 @@
          sum(s.console_error_count) as console_error_count
   FROM session_replay_events s
   WHERE s.team_id = 2
-    AND s.min_first_timestamp >= '2020-12-11 13:46:23'
-    AND s.min_first_timestamp >= '2020-12-25 00:00:00'
-    AND s.max_last_timestamp <= '2021-01-01 13:46:23'
-    AND s.distinct_id in
-      (select distinct_id
-       from
-         (SELECT distinct_id,
-                 argMax(person_id, version) as current_person_id
-          FROM person_distinct_id2 as pdi
-          WHERE team_id = 2
-            AND distinct_id IN
-              (SELECT distinct_id
-               FROM person_distinct_id2
-               WHERE team_id = 2
-                 AND person_id = '00000000-0000-0000-0000-000000000000') as all_distinct_ids_that_might_match_a_person
-          GROUP BY distinct_id
-          HAVING argMax(is_deleted, version) = 0
-          AND current_person_id = '00000000-0000-0000-0000-000000000000') as session_persons_sub_query)
-  GROUP BY session_id
-  HAVING 1=1
-  ORDER BY start_time DESC
-  LIMIT 51
-  OFFSET 0
-  '''
-# ---
-# name: TestClickhouseSessionRecordingsListFromSessionReplay.test_person_id_filter_07_neither_poe_nor_materialized_columns_without_materialization
-  '''
-  
-  SELECT s.session_id,
-         any(s.team_id),
-         any(s.distinct_id),
-         min(s.min_first_timestamp) as start_time,
-         max(s.max_last_timestamp) as end_time,
-         dateDiff('SECOND', start_time, end_time) as duration,
-         argMinMerge(s.first_url) as first_url,
-         sum(s.click_count),
-         sum(s.keypress_count),
-         sum(s.mouse_activity_count),
-         sum(s.active_milliseconds)/1000 as active_seconds,
-         duration-active_seconds as inactive_seconds,
-         sum(s.console_log_count) as console_log_count,
-         sum(s.console_warn_count) as console_warn_count,
-         sum(s.console_error_count) as console_error_count
-  FROM session_replay_events s
-  WHERE s.team_id = 2
-    AND s.min_first_timestamp >= '2020-12-11 13:46:23'
-    AND s.min_first_timestamp >= '2020-12-25 00:00:00'
-    AND s.max_last_timestamp <= '2021-01-01 13:46:23'
+    AND s.min_first_timestamp >= '2024-02-09 17:27:47'
+    AND s.min_first_timestamp >= '2024-02-23 00:00:00'
+    AND s.max_last_timestamp <= '2024-03-01 17:27:47'
     AND s.distinct_id in
       (select distinct_id
        from
@@ -2548,9 +1500,9 @@
          sum(s.console_error_count) as console_error_count
   FROM session_replay_events s
   WHERE s.team_id = 2
-    AND s.min_first_timestamp >= '2020-12-11 13:46:23'
-    AND s.min_first_timestamp >= '2020-12-25 00:00:00'
-    AND s.max_last_timestamp <= '2021-01-01 13:46:23'
+    AND s.min_first_timestamp >= '2024-02-09 17:27:47'
+    AND s.min_first_timestamp >= '2024-02-23 00:00:00'
+    AND s.max_last_timestamp <= '2024-03-01 17:27:47'
     AND s.distinct_id in
       (select distinct_id
        from
@@ -2593,61 +1545,18 @@
          sum(s.console_error_count) as console_error_count
   FROM session_replay_events s
   WHERE s.team_id = 2
-    AND s.min_first_timestamp >= '2020-12-11 13:46:23'
-    AND s.min_first_timestamp >= '2020-12-25 00:00:00'
-    AND s.max_last_timestamp <= '2021-01-01 13:46:23'
+    AND s.min_first_timestamp >= '2024-02-09 17:27:48'
+    AND s.min_first_timestamp >= '2024-02-23 00:00:00'
+    AND s.max_last_timestamp <= '2024-03-01 17:27:48'
     AND s.session_id in
       (select `$session_id` as session_id
        from
          (SELECT `$session_id`
           FROM events e PREWHERE team_id = 2
-          AND e.timestamp >= '2020-12-11 13:46:23'
+          AND e.timestamp >= '2024-02-09 17:27:48'
           AND e.timestamp <= now()
-          AND timestamp >= '2020-12-24 12:00:00'
-          AND timestamp <= '2021-01-02 01:46:23'
-          WHERE notEmpty(`$session_id`)
-            AND person_id = '00000000-0000-0000-0000-000000000000'
-          GROUP BY `$session_id`
-          HAVING 1=1) as session_events_sub_query)
-  GROUP BY session_id
-  HAVING 1=1
-  ORDER BY start_time DESC
-  LIMIT 51
-  OFFSET 0
-  '''
-# ---
-# name: TestClickhouseSessionRecordingsListFromSessionReplay.test_person_id_filter_08_poe_v1_and_materialized_columns_with_materialization
-  '''
-  
-  SELECT s.session_id,
-         any(s.team_id),
-         any(s.distinct_id),
-         min(s.min_first_timestamp) as start_time,
-         max(s.max_last_timestamp) as end_time,
-         dateDiff('SECOND', start_time, end_time) as duration,
-         argMinMerge(s.first_url) as first_url,
-         sum(s.click_count),
-         sum(s.keypress_count),
-         sum(s.mouse_activity_count),
-         sum(s.active_milliseconds)/1000 as active_seconds,
-         duration-active_seconds as inactive_seconds,
-         sum(s.console_log_count) as console_log_count,
-         sum(s.console_warn_count) as console_warn_count,
-         sum(s.console_error_count) as console_error_count
-  FROM session_replay_events s
-  WHERE s.team_id = 2
-    AND s.min_first_timestamp >= '2020-12-11 13:46:23'
-    AND s.min_first_timestamp >= '2020-12-25 00:00:00'
-    AND s.max_last_timestamp <= '2021-01-01 13:46:23'
-    AND s.session_id in
-      (select `$session_id` as session_id
-       from
-         (SELECT `$session_id`
-          FROM events e PREWHERE team_id = 2
-          AND e.timestamp >= '2020-12-11 13:46:23'
-          AND e.timestamp <= now()
-          AND timestamp >= '2020-12-24 12:00:00'
-          AND timestamp <= '2021-01-02 01:46:23'
+          AND timestamp >= '2024-02-22 12:00:00'
+          AND timestamp <= '2024-03-02 05:27:48'
           WHERE notEmpty(`$session_id`)
             AND person_id = '00000000-0000-0000-0000-000000000000'
           GROUP BY `$session_id`
@@ -2679,61 +1588,18 @@
          sum(s.console_error_count) as console_error_count
   FROM session_replay_events s
   WHERE s.team_id = 2
-    AND s.min_first_timestamp >= '2020-12-11 13:46:23'
-    AND s.min_first_timestamp >= '2020-12-25 00:00:00'
-    AND s.max_last_timestamp <= '2021-01-01 13:46:23'
+    AND s.min_first_timestamp >= '2024-02-09 17:27:48'
+    AND s.min_first_timestamp >= '2024-02-23 00:00:00'
+    AND s.max_last_timestamp <= '2024-03-01 17:27:48'
     AND s.session_id in
       (select `$session_id` as session_id
        from
          (SELECT `$session_id`
           FROM events e PREWHERE team_id = 2
-          AND e.timestamp >= '2020-12-11 13:46:23'
+          AND e.timestamp >= '2024-02-09 17:27:48'
           AND e.timestamp <= now()
-          AND timestamp >= '2020-12-24 12:00:00'
-          AND timestamp <= '2021-01-02 01:46:23'
-          WHERE notEmpty(`$session_id`)
-            AND person_id = '00000000-0000-0000-0000-000000000000'
-          GROUP BY `$session_id`
-          HAVING 1=1) as session_events_sub_query)
-  GROUP BY session_id
-  HAVING 1=1
-  ORDER BY start_time DESC
-  LIMIT 51
-  OFFSET 0
-  '''
-# ---
-# name: TestClickhouseSessionRecordingsListFromSessionReplay.test_person_id_filter_09_poe_v1_and_materialized_columns_without_materialization
-  '''
-  
-  SELECT s.session_id,
-         any(s.team_id),
-         any(s.distinct_id),
-         min(s.min_first_timestamp) as start_time,
-         max(s.max_last_timestamp) as end_time,
-         dateDiff('SECOND', start_time, end_time) as duration,
-         argMinMerge(s.first_url) as first_url,
-         sum(s.click_count),
-         sum(s.keypress_count),
-         sum(s.mouse_activity_count),
-         sum(s.active_milliseconds)/1000 as active_seconds,
-         duration-active_seconds as inactive_seconds,
-         sum(s.console_log_count) as console_log_count,
-         sum(s.console_warn_count) as console_warn_count,
-         sum(s.console_error_count) as console_error_count
-  FROM session_replay_events s
-  WHERE s.team_id = 2
-    AND s.min_first_timestamp >= '2020-12-11 13:46:23'
-    AND s.min_first_timestamp >= '2020-12-25 00:00:00'
-    AND s.max_last_timestamp <= '2021-01-01 13:46:23'
-    AND s.session_id in
-      (select `$session_id` as session_id
-       from
-         (SELECT `$session_id`
-          FROM events e PREWHERE team_id = 2
-          AND e.timestamp >= '2020-12-11 13:46:23'
-          AND e.timestamp <= now()
-          AND timestamp >= '2020-12-24 12:00:00'
-          AND timestamp <= '2021-01-02 01:46:23'
+          AND timestamp >= '2024-02-22 12:00:00'
+          AND timestamp <= '2024-03-02 05:27:48'
           WHERE notEmpty(`$session_id`)
             AND person_id = '00000000-0000-0000-0000-000000000000'
           GROUP BY `$session_id`
@@ -2765,61 +1631,18 @@
          sum(s.console_error_count) as console_error_count
   FROM session_replay_events s
   WHERE s.team_id = 2
-    AND s.min_first_timestamp >= '2020-12-11 13:46:23'
-    AND s.min_first_timestamp >= '2020-12-25 00:00:00'
-    AND s.max_last_timestamp <= '2021-01-01 13:46:23'
+    AND s.min_first_timestamp >= '2024-02-09 17:27:49'
+    AND s.min_first_timestamp >= '2024-02-23 00:00:00'
+    AND s.max_last_timestamp <= '2024-03-01 17:27:49'
     AND s.session_id in
       (select `$session_id` as session_id
        from
          (SELECT `$session_id`
           FROM events e PREWHERE team_id = 2
-          AND e.timestamp >= '2020-12-11 13:46:23'
+          AND e.timestamp >= '2024-02-09 17:27:49'
           AND e.timestamp <= now()
-          AND timestamp >= '2020-12-24 12:00:00'
-          AND timestamp <= '2021-01-02 01:46:23'
-          WHERE notEmpty(`$session_id`)
-            AND person_id = '00000000-0000-0000-0000-000000000000'
-          GROUP BY `$session_id`
-          HAVING 1=1) as session_events_sub_query)
-  GROUP BY session_id
-  HAVING 1=1
-  ORDER BY start_time DESC
-  LIMIT 51
-  OFFSET 0
-  '''
-# ---
-# name: TestClickhouseSessionRecordingsListFromSessionReplay.test_person_id_filter_10_poe_v1_and_not_materialized_columns_with_materialization
-  '''
-  
-  SELECT s.session_id,
-         any(s.team_id),
-         any(s.distinct_id),
-         min(s.min_first_timestamp) as start_time,
-         max(s.max_last_timestamp) as end_time,
-         dateDiff('SECOND', start_time, end_time) as duration,
-         argMinMerge(s.first_url) as first_url,
-         sum(s.click_count),
-         sum(s.keypress_count),
-         sum(s.mouse_activity_count),
-         sum(s.active_milliseconds)/1000 as active_seconds,
-         duration-active_seconds as inactive_seconds,
-         sum(s.console_log_count) as console_log_count,
-         sum(s.console_warn_count) as console_warn_count,
-         sum(s.console_error_count) as console_error_count
-  FROM session_replay_events s
-  WHERE s.team_id = 2
-    AND s.min_first_timestamp >= '2020-12-11 13:46:23'
-    AND s.min_first_timestamp >= '2020-12-25 00:00:00'
-    AND s.max_last_timestamp <= '2021-01-01 13:46:23'
-    AND s.session_id in
-      (select `$session_id` as session_id
-       from
-         (SELECT `$session_id`
-          FROM events e PREWHERE team_id = 2
-          AND e.timestamp >= '2020-12-11 13:46:23'
-          AND e.timestamp <= now()
-          AND timestamp >= '2020-12-24 12:00:00'
-          AND timestamp <= '2021-01-02 01:46:23'
+          AND timestamp >= '2024-02-22 12:00:00'
+          AND timestamp <= '2024-03-02 05:27:49'
           WHERE notEmpty(`$session_id`)
             AND person_id = '00000000-0000-0000-0000-000000000000'
           GROUP BY `$session_id`
@@ -2851,61 +1674,18 @@
          sum(s.console_error_count) as console_error_count
   FROM session_replay_events s
   WHERE s.team_id = 2
-    AND s.min_first_timestamp >= '2020-12-11 13:46:23'
-    AND s.min_first_timestamp >= '2020-12-25 00:00:00'
-    AND s.max_last_timestamp <= '2021-01-01 13:46:23'
+    AND s.min_first_timestamp >= '2024-02-09 17:27:49'
+    AND s.min_first_timestamp >= '2024-02-23 00:00:00'
+    AND s.max_last_timestamp <= '2024-03-01 17:27:49'
     AND s.session_id in
       (select `$session_id` as session_id
        from
          (SELECT `$session_id`
           FROM events e PREWHERE team_id = 2
-          AND e.timestamp >= '2020-12-11 13:46:23'
+          AND e.timestamp >= '2024-02-09 17:27:49'
           AND e.timestamp <= now()
-          AND timestamp >= '2020-12-24 12:00:00'
-          AND timestamp <= '2021-01-02 01:46:23'
-          WHERE notEmpty(`$session_id`)
-            AND person_id = '00000000-0000-0000-0000-000000000000'
-          GROUP BY `$session_id`
-          HAVING 1=1) as session_events_sub_query)
-  GROUP BY session_id
-  HAVING 1=1
-  ORDER BY start_time DESC
-  LIMIT 51
-  OFFSET 0
-  '''
-# ---
-# name: TestClickhouseSessionRecordingsListFromSessionReplay.test_person_id_filter_11_poe_v1_and_not_materialized_columns_without_materialization
-  '''
-  
-  SELECT s.session_id,
-         any(s.team_id),
-         any(s.distinct_id),
-         min(s.min_first_timestamp) as start_time,
-         max(s.max_last_timestamp) as end_time,
-         dateDiff('SECOND', start_time, end_time) as duration,
-         argMinMerge(s.first_url) as first_url,
-         sum(s.click_count),
-         sum(s.keypress_count),
-         sum(s.mouse_activity_count),
-         sum(s.active_milliseconds)/1000 as active_seconds,
-         duration-active_seconds as inactive_seconds,
-         sum(s.console_log_count) as console_log_count,
-         sum(s.console_warn_count) as console_warn_count,
-         sum(s.console_error_count) as console_error_count
-  FROM session_replay_events s
-  WHERE s.team_id = 2
-    AND s.min_first_timestamp >= '2020-12-11 13:46:23'
-    AND s.min_first_timestamp >= '2020-12-25 00:00:00'
-    AND s.max_last_timestamp <= '2021-01-01 13:46:23'
-    AND s.session_id in
-      (select `$session_id` as session_id
-       from
-         (SELECT `$session_id`
-          FROM events e PREWHERE team_id = 2
-          AND e.timestamp >= '2020-12-11 13:46:23'
-          AND e.timestamp <= now()
-          AND timestamp >= '2020-12-24 12:00:00'
-          AND timestamp <= '2021-01-02 01:46:23'
+          AND timestamp >= '2024-02-22 12:00:00'
+          AND timestamp <= '2024-03-02 05:27:49'
           WHERE notEmpty(`$session_id`)
             AND person_id = '00000000-0000-0000-0000-000000000000'
           GROUP BY `$session_id`
