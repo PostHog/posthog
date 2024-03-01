@@ -582,6 +582,7 @@ class SessionRecordingListFromReplaySummary(EventQuery):
         return ttl_days(self._team)
 
     _session_recordings_query: str = """
+    {context_comment}
     SELECT
        s.session_id,
        any(s.team_id),
@@ -717,6 +718,7 @@ class SessionRecordingListFromReplaySummary(EventQuery):
                 events_sub_query=events_select,
                 log_matching_session_ids_clause=log_matching_session_ids_clause,
                 order_by_clause=order_by_clause,
+                context_comment=f"-- running in PoE Mode: {self._team.person_on_events_mode}",
             ),
             {
                 **base_params,
