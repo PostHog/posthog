@@ -1,3 +1,4 @@
+import { urls } from 'scenes/urls'
 import { decideResponse } from '../fixtures/api/decide'
 
 describe('Onboarding', () => {
@@ -141,7 +142,7 @@ describe('Onboarding', () => {
         cy.get('[data-attr=skip-onboarding]').should('be.visible')
         cy.get('[data-attr=start-onboarding-sdk]').should('be.visible')
 
-        cy.get('[data-attr=skip-onboarding]').click()
+        cy.get('[data-attr=skip-onboarding]').first().click()
         cy.url().should('contain', 'feature_flags/new')
     })
 
