@@ -15,6 +15,7 @@ from ee.session_recordings.ai.utils import (
     simplify_window_id,
     format_dates,
     collapse_sequence_of_events,
+    only_pageview_urls,
 )
 from structlog import get_logger
 from posthog.clickhouse.client import sync_execute
@@ -220,11 +221,13 @@ def generate_recording_embeddings(session_id: str, team: Team | int) -> List[flo
         return None
 
     processed_sessions = collapse_sequence_of_events(
-        format_dates(
-            reduce_elements_chain(
-                simplify_window_id(SessionSummaryPromptData(columns=session_events[0], results=session_events[1]))
-            ),
-            start=datetime.datetime(1970, 1, 1, tzinfo=pytz.UTC),  # epoch timestamp
+        only_pageview_urls(
+            format_dates(
+                reduce_elements_chain(
+                    simplify_window_id(SessionSummaryPromptData(columns=session_events[0], results=session_events[1]))
+                ),
+                start=datetime.datetime(1970, 1, 1, tzinfo=pytz.UTC),  # epoch timestamp
+            )
         )
     )
 
