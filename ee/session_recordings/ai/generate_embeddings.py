@@ -6,6 +6,7 @@ from typing import Dict, Any, List
 
 from prometheus_client import Histogram, Counter
 
+from posthog.clickhouse.client.connection import Workload
 from posthog.models import Team
 
 from posthog.session_recordings.queries.session_replay_events import SessionReplayEvents
@@ -134,6 +135,7 @@ def fetch_recordings_without_embeddings(team: Team | int, offset=0) -> List[str]
                 "offset": offset,
                 "min_duration_include_seconds": MIN_DURATION_INCLUDE_SECONDS,
             },
+            workload=Workload.OFFLINE,
         )
     ]
 
@@ -198,7 +200,7 @@ def generate_recording_embeddings(session_id: str, team: Team | int) -> List[flo
 
     eight_days_ago = datetime.datetime.now(pytz.UTC) - datetime.timedelta(days=8)
     session_metadata = SessionReplayEvents().get_metadata(
-        session_id=str(session_id), team=team, recording_start_time=eight_days_ago
+        session_id=str(session_id), team=team, recording_start_time=eight_days_ago, workload=Workload.OFFLINE
     )
     if not session_metadata:
         logger.error(f"no session metadata found for session", flow="embeddings", session_id=session_id)
@@ -212,6 +214,7 @@ def generate_recording_embeddings(session_id: str, team: Team | int) -> List[flo
         events_to_ignore=[
             "$feature_flag_called",
         ],
+        workload=Workload.OFFLINE,
     )
 
     if not session_events or not session_events[0] or not session_events[1]:

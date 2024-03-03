@@ -4,6 +4,7 @@ from typing import Optional, Tuple, List
 from django.conf import settings
 
 from posthog.clickhouse.client import sync_execute
+from posthog.clickhouse.client.connection import Workload
 from posthog.cloud_utils import is_cloud
 from posthog.constants import AvailableFeature
 
@@ -44,6 +45,7 @@ class SessionReplayEvents:
         session_id: str,
         team: Team,
         recording_start_time: Optional[datetime] = None,
+        workload: Workload = Workload.ONLINE,
     ) -> Optional[RecordingMetadata]:
         query = """
             SELECT
@@ -81,6 +83,7 @@ class SessionReplayEvents:
                 "session_id": session_id,
                 "recording_start_time": recording_start_time,
             },
+            workload=workload,
         )
 
         if len(replay_response) == 0:
@@ -105,7 +108,12 @@ class SessionReplayEvents:
         )
 
     def get_events(
-        self, session_id: str, team: Team, metadata: RecordingMetadata, events_to_ignore: List[str] | None
+        self,
+        session_id: str,
+        team: Team,
+        metadata: RecordingMetadata,
+        events_to_ignore: List[str] | None,
+        workload: Workload = Workload.ONLINE,
     ) -> Tuple[List | None, List | None]:
         from posthog.schema import HogQLQuery, HogQLQueryResponse
         from posthog.hogql_queries.hogql_query_runner import HogQLQueryRunner
@@ -131,6 +139,7 @@ class SessionReplayEvents:
                 "session_id": session_id,
                 "events_to_ignore": events_to_ignore,
             },
+            workload=workload,
         )
 
         result: HogQLQueryResponse = HogQLQueryRunner(
