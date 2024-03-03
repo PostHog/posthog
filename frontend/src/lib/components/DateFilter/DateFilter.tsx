@@ -1,4 +1,5 @@
 import { Placement } from '@floating-ui/react'
+import { IconCalendar } from '@posthog/icons'
 import { LemonButton, LemonButtonProps, LemonButtonWithDropdown, LemonDivider } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
@@ -10,7 +11,6 @@ import {
     NO_OVERRIDE_RANGE_PLACEHOLDER,
 } from 'lib/components/DateFilter/types'
 import { dayjs } from 'lib/dayjs'
-import { IconCalendar } from 'lib/lemon-ui/icons'
 import { LemonCalendarSelect } from 'lib/lemon-ui/LemonCalendar/LemonCalendarSelect'
 import { LemonCalendarRange } from 'lib/lemon-ui/LemonCalendarRange/LemonCalendarRange'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'

@@ -1906,7 +1906,10 @@ const api = {
         },
         async update(
             viewId: DataWarehouseViewLink['id'],
-            data: Pick<DataWarehouseViewLink, 'saved_query_id' | 'from_join_key' | 'table' | 'to_join_key'>
+            data: Pick<
+                DataWarehouseViewLink,
+                'source_table_name' | 'source_table_key' | 'joining_table_name' | 'joining_table_key' | 'field_name'
+            >
         ): Promise<DataWarehouseViewLink> {
             return await new ApiRequest().dataWarehouseViewLink(viewId).update({ data })
         },

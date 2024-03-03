@@ -42,7 +42,7 @@ const gaugeSessionsHandled = new Gauge({
 const histogramKafkaBatchSize = new Histogram({
     name: metricPrefix + 'recording_blob_ingestion_kafka_batch_size',
     help: 'The size of the batches we are receiving from Kafka',
-    buckets: [0, 50, 100, 150, 200, 250, 300, 350, 400, 450, 500, 600, Infinity],
+    buckets: [0, 50, 100, 250, 500, 750, 1000, 1500, 2000, 3000, Infinity],
 })
 
 const histogramKafkaBatchSizeKb = new Histogram({
@@ -75,6 +75,7 @@ export class SessionRecordingIngesterV3 {
     teamsRefresher: BackgroundRefresher<Record<string, TeamIDWithConfig>>
     config: PluginsServerConfig
     topic = KAFKA_SESSION_RECORDING_SNAPSHOT_ITEM_EVENTS
+    isStopping = false
 
     private promises: Set<Promise<any>> = new Set()
     // if ingestion is lagging on a single partition it is often hard to identify _why_,
@@ -143,13 +144,10 @@ export class SessionRecordingIngesterV3 {
         const { team_id, session_id } = event
         const key = `${team_id}__${session_id}`
 
-        const { offset, partition } = event.metadata
+        const { partition } = event.metadata
         if (this.debugPartition === partition) {
             status.info('🔁', '[session-replay-ingestion] - [PARTITION DEBUG] - consuming event', {
-                team_id,
-                session_id,
-                partition,
-                offset,
+                ...event.metadata,
             })
         }
 
@@ -326,6 +324,7 @@ export class SessionRecordingIngesterV3 {
     }
 
     public async stop(): Promise<PromiseSettledResult<any>[]> {
+        this.isStopping = true
         status.info('🔁', 'session-replay-ingestion - stopping')
 
         // NOTE: We have to get the partitions before we stop the consumer as it throws if disconnected
@@ -365,8 +364,13 @@ export class SessionRecordingIngesterV3 {
         await allSettledWithConcurrency(
             this.config.SESSION_RECORDING_MAX_PARALLEL_FLUSHES,
             sessions,
-            async ([key, sessionManager]) => {
+            async ([key, sessionManager], ctx) => {
                 heartbeat()
+
+                if (this.isStopping) {
+                    // We can end up with a large number of flushes. We want to stop early if we hit shutdown
+                    return ctx.break()
+                }
 
                 if (!this.assignedPartitions.includes(sessionManager.context.partition)) {
                     await this.destroySession(key, sessionManager)
@@ -418,6 +422,11 @@ export class SessionRecordingIngesterV3 {
             for (const key of relatedKeys) {
                 // TODO: Ensure sessionId can only be a uuid
                 const [teamId, sessionId] = key.split('__')
+
+                if (this.isStopping) {
+                    // We can end up with a large number of files we are processing. We want to stop early if we hit shutdown
+                    return
+                }
 
                 if (!this.assignedPartitions.includes(partition)) {
                     // Account for rebalances

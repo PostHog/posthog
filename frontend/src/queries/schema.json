@@ -1452,6 +1452,12 @@
                     },
                     "type": "array"
                 },
+                "data_warehouse": {
+                    "items": {
+                        "type": "object"
+                    },
+                    "type": "array"
+                },
                 "date_from": {
                     "type": ["string", "null"]
                 },
