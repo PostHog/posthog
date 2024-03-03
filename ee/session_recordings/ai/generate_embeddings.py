@@ -45,7 +45,12 @@ SESSION_EMBEDDINGS_GENERATED = Counter(
 
 SESSION_EMBEDDINGS_FAILED = Counter(
     "posthog_session_recordings_embeddings_failed",
-    "Number of session embeddings failed",
+    "Instance of an embedding request to open AI (and its surrounding work) failing and being swallowed",
+)
+
+SESSION_EMBEDDINGS_FATAL_FAILED = Counter(
+    "posthog_session_recordings_embeddings_fatal_failed",
+    "Instance of the embeddings task failing and raising an exception",
 )
 
 SESSION_EMBEDDINGS_WRITTEN_TO_CLICKHOUSE = Counter(
@@ -142,9 +147,10 @@ def embed_batch_of_recordings(recordings: List[str], team: Team | int) -> None:
             f"processing {len(recordings)} recordings to embed for team {team.pk}", flow="embeddings", team_id=team.pk
         )
 
-        while len(recordings) > 0:
-            batched_embeddings = []
-            for session_id in recordings:
+        batched_embeddings = []
+
+        for session_id in recordings:
+            try:
                 with GENERATE_RECORDING_EMBEDDING_TIMING.time():
                     embeddings = generate_recording_embeddings(session_id=session_id, team=team)
 
@@ -157,12 +163,19 @@ def embed_batch_of_recordings(recordings: List[str], team: Team | int) -> None:
                             "embeddings": embeddings,
                         }
                     )
+            # we don't want to fail the whole batch if only a single recording fails
+            except Exception as e:
+                SESSION_EMBEDDINGS_FAILED.inc()
+                logger.error(f"embed individual recording error", flow="embeddings", error=e)
+                # so we swallow errors here
 
-            if len(batched_embeddings) > 0:
-                flush_embeddings_to_clickhouse(embeddings=batched_embeddings)
+        if len(batched_embeddings) > 0:
+            flush_embeddings_to_clickhouse(embeddings=batched_embeddings)
     except Exception as e:
-        SESSION_EMBEDDINGS_FAILED.inc()
-        logger.error(f"embed recordings error", flow="embeddings", error=e)
+        # but we don't swallow errors within the wider task itself
+        # if something is failing here then we're most likely having trouble with ClickHouse
+        SESSION_EMBEDDINGS_FATAL_FAILED.inc()
+        logger.error(f"embed recordings fatal error", flow="embeddings", error=e)
         raise e
 
 
