@@ -142,24 +142,24 @@ def embed_batch_of_recordings(recordings: List[str], team: Team | int) -> None:
             f"processing {len(recordings)} recordings to embed for team {team.pk}", flow="embeddings", team_id=team.pk
         )
 
-        while len(recordings) > 0:
-            batched_embeddings = []
-            for session_id in recordings:
-                with GENERATE_RECORDING_EMBEDDING_TIMING.time():
-                    embeddings = generate_recording_embeddings(session_id=session_id, team=team)
+        batched_embeddings = []
 
-                if embeddings:
-                    SESSION_EMBEDDINGS_GENERATED.inc()
-                    batched_embeddings.append(
-                        {
-                            "session_id": session_id,
-                            "team_id": team.pk,
-                            "embeddings": embeddings,
-                        }
-                    )
+        for session_id in recordings:
+            with GENERATE_RECORDING_EMBEDDING_TIMING.time():
+                embeddings = generate_recording_embeddings(session_id=session_id, team=team)
 
-            if len(batched_embeddings) > 0:
-                flush_embeddings_to_clickhouse(embeddings=batched_embeddings)
+            if embeddings:
+                SESSION_EMBEDDINGS_GENERATED.inc()
+                batched_embeddings.append(
+                    {
+                        "session_id": session_id,
+                        "team_id": team.pk,
+                        "embeddings": embeddings,
+                    }
+                )
+
+        if len(batched_embeddings) > 0:
+            flush_embeddings_to_clickhouse(embeddings=batched_embeddings)
     except Exception as e:
         SESSION_EMBEDDINGS_FAILED.inc()
         logger.error(f"embed recordings error", flow="embeddings", error=e)
