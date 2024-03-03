@@ -14,23 +14,9 @@
     }
 }
 
-.react-grid-item.cssTransforms {
-    transition-property: transform;
-}
-
 .react-grid-item.resizing {
     z-index: 1;
     will-change: width, height;
-}
-
-.react-grid-item.react-draggable {
-    cursor: move;
-}
-
-.react-grid-item.react-draggable-dragging {
-    z-index: 105;
-    transition: none;
-    will-change: transform;
 }
 
 .react-grid-item.dropping {
@@ -48,41 +34,9 @@
     transition: 100ms ease;
 }
 
-.react-resizable-hide > .react-resizable-handle {
-    display: none;
-}
-
 .react-grid-item {
     transition: all 100ms ease;
     transition-property: left, top;
-
-    & > .react-resizable-handle {
-        position: absolute;
-        right: -0.5rem;
-        bottom: -0.5rem;
-        z-index: 10;
-        width: 2rem;
-        height: 2rem;
-        cursor: se-resize;
-    }
-
-    & > .react-resizable-handle.react-resizable-handle-se {
-        cursor: se-resize;
-    }
-
-    & > .react-resizable-handle.react-resizable-handle-e {
-        top: 0;
-        bottom: 2rem;
-        height: auto;
-        cursor: ew-resize;
-    }
-
-    & > .react-resizable-handle.react-resizable-handle-s {
-        right: 2rem;
-        left: 0;
-        width: auto;
-        cursor: ns-resize;
-    }
 }
 
 // All dropdowns must be below top navigation
