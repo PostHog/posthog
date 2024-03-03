@@ -62,7 +62,8 @@
         "mobile-replay:web:schema:build:json": "ts-json-schema-generator -f tsconfig.json --path 'node_modules/@rrweb/types/dist/index.d.ts' --type 'eventWithTime' --expose all --no-top-ref --out ee/frontend/mobile-replay/schema/web/rr-web-schema.json && prettier --write ee/frontend/mobile-replay/schema/web/rr-web-schema.json",
         "mobile-replay:mobile:schema:build:json": "ts-json-schema-generator -f tsconfig.json --path 'ee/frontend/mobile-replay/mobile.types.ts' --type 'mobileEventWithTime' --expose all --no-top-ref --out ee/frontend/mobile-replay/schema/mobile/rr-mobile-schema.json && prettier --write ee/frontend/mobile-replay/schema/mobile/rr-mobile-schema.json",
         "mobile-replay:schema:build:json": "pnpm mobile-replay:web:schema:build:json && pnpm mobile-replay:mobile:schema:build:json",
-        "visualize-toolbar-bundle": "pnpm exec esbuild-visualizer --metadata ./toolbar-esbuild-meta.json --filename=toolbar-esbuild-bundle-visualization.html"
+        "visualize-toolbar-bundle": "pnpm exec esbuild-visualizer --metadata ./toolbar-esbuild-meta.json --filename=toolbar-esbuild-bundle-visualization.html",
+        "knip": "knip"
     },
     "dependencies": {
         "@ant-design/icons": "^4.7.0",
@@ -269,6 +270,7 @@
         "jest-environment-jsdom": "^29.3.1",
         "jest-image-snapshot": "^6.1.0",
         "kea-typegen": "^3.3.0",
+        "knip": "^5.0.2",
         "less": "^3.12.2",
         "less-loader": "^7.0.2",
         "lint-staged": "~10.2.13",
