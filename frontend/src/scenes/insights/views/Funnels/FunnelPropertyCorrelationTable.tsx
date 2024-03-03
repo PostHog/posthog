@@ -141,7 +141,7 @@ export function FunnelPropertyCorrelationTable(): JSX.Element | null {
                         <IconSelectProperties style={{ marginRight: 4, opacity: 0.5, fontSize: 24 }} />
                         CORRELATED PROPERTIES
                     </div>
-                    <div className="table-options">
+                    <div className="table-options flex-wrap">
                         <div className="flex">
                             <p className="title">PROPERTIES</p>
                             <Popover

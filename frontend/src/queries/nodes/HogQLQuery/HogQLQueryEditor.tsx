@@ -376,7 +376,7 @@ export function HogQLQueryEditor(props: HogQLQueryEditorProps): JSX.Element {
                             {!props.setQuery ? 'No permission to update' : 'Update and run'}
                         </LemonButton>
                     </div>
-                    {featureFlags[FEATURE_FLAGS.DATA_WAREHOUSE_VIEWS] ? (
+                    {featureFlags[FEATURE_FLAGS.DATA_WAREHOUSE] ? (
                         <LemonButton
                             className="ml-2"
                             onClick={saveAsView}
@@ -394,7 +394,7 @@ export function HogQLQueryEditor(props: HogQLQueryEditorProps): JSX.Element {
                             Save as View
                         </LemonButton>
                     ) : null}
-                    {featureFlags[FEATURE_FLAGS.DATA_WAREHOUSE_VIEWS] && (
+                    {featureFlags[FEATURE_FLAGS.DATA_WAREHOUSE] && (
                         <LemonButtonWithDropdown
                             className="ml-2"
                             icon={<IconInfo />}

@@ -6,16 +6,10 @@ import path from 'path'
 import { KAFKA_SESSION_RECORDING_SNAPSHOT_ITEM_EVENTS } from '../../../config/kafka-topics'
 import { PipelineEvent, RawEventMessage, RRWebEvent } from '../../../types'
 import { status } from '../../../utils/status'
+import { cloneObject } from '../../../utils/utils'
 import { eventDroppedCounter } from '../metrics'
 import { TeamIDWithConfig } from './session-recordings-consumer'
 import { IncomingRecordingMessage, PersistedRecordingMessage } from './types'
-
-export const convertToPersistedMessage = (message: IncomingRecordingMessage): PersistedRecordingMessage => {
-    return {
-        window_id: message.window_id,
-        data: message.events,
-    }
-}
 
 // Helper to return now as a milliseconds timestamp
 export const now = () => DateTime.now().toMillis()
@@ -231,7 +225,8 @@ export const parseKafkaMessage = async (
         metadata: {
             partition: message.partition,
             topic: message.topic,
-            offset: message.offset,
+            lowOffset: message.offset,
+            highOffset: message.offset,
             timestamp: message.timestamp,
             consoleLogIngestionEnabled: teamIdWithConfig.consoleLogIngestionEnabled,
         },
@@ -239,34 +234,82 @@ export const parseKafkaMessage = async (
         team_id: teamIdWithConfig.teamId,
         distinct_id: messagePayload.distinct_id,
         session_id: $session_id,
-        window_id: $window_id,
-        events: events,
+        eventsByWindowId: {
+            [$window_id ?? '']: events,
+        },
+        eventsRange: {
+            start: events[0].timestamp,
+            end: events[events.length - 1].timestamp,
+        },
         snapshot_source: $snapshot_source,
     }
 }
 
 export const reduceRecordingMessages = (messages: IncomingRecordingMessage[]): IncomingRecordingMessage[] => {
+    /**
+     * It can happen that a single batch contains all messages for the same session.
+     * A big perf win here is to group everything up front and then reduce the messages
+     * to a single message per session.
+     */
     const reducedMessages: Record<string, IncomingRecordingMessage> = {}
 
     for (const message of messages) {
-        const clonedMessage = { ...message }
-        const key = `${clonedMessage.team_id}-${clonedMessage.session_id}-${clonedMessage.window_id}`
+        const clonedMessage = cloneObject(message)
+        const key = `${clonedMessage.team_id}-${clonedMessage.session_id}`
         if (!reducedMessages[key]) {
             reducedMessages[key] = clonedMessage
         } else {
-            reducedMessages[key].events = [...reducedMessages[key].events, ...clonedMessage.events]
+            const existingMessage = reducedMessages[key]
+            for (const [windowId, events] of Object.entries(clonedMessage.eventsByWindowId)) {
+                if (existingMessage.eventsByWindowId[windowId]) {
+                    existingMessage.eventsByWindowId[windowId].push(...events)
+                } else {
+                    existingMessage.eventsByWindowId[windowId] = events
+                }
+            }
+
+            // Update the events ranges
+            existingMessage.metadata.lowOffset = Math.min(
+                existingMessage.metadata.lowOffset,
+                clonedMessage.metadata.lowOffset
+            )
+
+            existingMessage.metadata.highOffset = Math.max(
+                existingMessage.metadata.highOffset,
+                clonedMessage.metadata.highOffset
+            )
+
+            // Update the events ranges
+            existingMessage.eventsRange.start = Math.min(
+                existingMessage.eventsRange.start,
+                clonedMessage.eventsRange.start
+            )
+            existingMessage.eventsRange.end = Math.max(existingMessage.eventsRange.end, clonedMessage.eventsRange.end)
         }
     }
 
     return Object.values(reducedMessages)
 }
 
+export const convertForPersistence = (
+    messages: IncomingRecordingMessage['eventsByWindowId']
+): PersistedRecordingMessage[] => {
+    return Object.entries(messages).map(([window_id, events]) => {
+        return {
+            window_id,
+            data: events,
+        }
+    })
+}
+
 export const allSettledWithConcurrency = async <T, Q>(
     concurrency: number,
     arr: T[],
-    fn: (item: T, index: number) => Promise<Q>
+    fn: (item: T, context: { index: number; break: () => void }) => Promise<Q>
 ): Promise<{ error?: any; result?: Q }[]> => {
     // This function processes promises in parallel like Promise.allSettled, but with a maximum concurrency
+
+    let breakCalled = false
 
     return new Promise<{ error?: any; result?: Q }[]>((resolve) => {
         const results: { error?: any; result?: Q }[] = []
@@ -275,11 +318,20 @@ export const allSettledWithConcurrency = async <T, Q>(
 
         const run = () => {
             while (remaining.length && runningCount < concurrency) {
+                if (breakCalled) {
+                    return
+                }
                 const item = remaining.shift()
                 if (item) {
                     const arrIndex = arr.indexOf(item)
                     runningCount += 1
-                    fn(item, arr.length - remaining.length - 1)
+                    fn(item, {
+                        index: arrIndex,
+                        break: () => {
+                            breakCalled = true
+                            return resolve(results)
+                        },
+                    })
                         .then((result) => {
                             results[arrIndex] = { result: result }
                         })
@@ -294,7 +346,7 @@ export const allSettledWithConcurrency = async <T, Q>(
             }
 
             if (remaining.length === 0 && !runningCount) {
-                return resolve(results)
+                return !breakCalled ? resolve(results) : undefined
             }
         }
 

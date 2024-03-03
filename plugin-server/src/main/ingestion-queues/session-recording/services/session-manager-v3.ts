@@ -13,7 +13,7 @@ import { status } from '../../../../utils/status'
 import { asyncTimeoutGuard } from '../../../../utils/timing'
 import { ObjectStorage } from '../../../services/object_storage'
 import { IncomingRecordingMessage } from '../types'
-import { convertToPersistedMessage, maxDefined, minDefined, now } from '../utils'
+import { convertForPersistence, maxDefined, minDefined, now } from '../utils'
 
 const BUCKETS_LINES_WRITTEN = [0, 10, 50, 100, 500, 1000, 2000, 5000, 10000, Infinity]
 export const BUCKETS_KB_WRITTEN = [0, 128, 512, 1024, 5120, 10240, 20480, 51200, 102400, 204800, Infinity]
@@ -244,25 +244,21 @@ export class SessionManagerV3 {
 
         try {
             const buffer = this.getOrCreateBuffer()
-            const messageData = convertToPersistedMessage(message)
-            const start = message.events.at(0)?.timestamp
-            const end = message.events.at(-1)?.timestamp ?? start
 
-            if (!start || !end) {
-                captureMessage("[session-manager]: can't set events range from message without events summary", {
-                    extra: { message },
-                })
-                return
-            }
+            const content =
+                convertForPersistence(message.eventsByWindowId)
+                    .map((x) => JSON.stringify(x))
+                    .join('\n') + '\n'
 
-            buffer.eventsRange = {
-                firstTimestamp: minDefined(start, buffer.eventsRange?.firstTimestamp) ?? start,
-                lastTimestamp: maxDefined(end, buffer.eventsRange?.lastTimestamp) ?? end,
-            }
-
-            const content = JSON.stringify(messageData) + '\n'
             buffer.count += 1
             buffer.sizeEstimate += content.length
+            buffer.eventsRange = {
+                firstTimestamp:
+                    minDefined(message.eventsRange.start, buffer.eventsRange?.firstTimestamp) ??
+                    message.eventsRange.start,
+                lastTimestamp:
+                    maxDefined(message.eventsRange.end, buffer.eventsRange?.lastTimestamp) ?? message.eventsRange.end,
+            }
 
             if (!this.bufferWriteStream!.write(content, 'utf-8')) {
                 writeStreamBlocked.inc()

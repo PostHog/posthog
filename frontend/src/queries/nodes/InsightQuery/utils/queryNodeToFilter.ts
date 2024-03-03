@@ -56,6 +56,9 @@ export const seriesNodeToFilter = (
         math_hogql: node.math_hogql,
         math_group_type_index: node.math_group_type_index,
         properties: node.properties as any, // TODO,
+        ...(isDataWarehouseNode(node)
+            ? { table_name: node.table_name, id_field: node.id_field, timestamp_field: node.timestamp_field }
+            : {}),
     })
     return entity
 }
@@ -120,12 +123,15 @@ export const queryNodeToFilter = (query: InsightQueryNode): Partial<FilterType> 
     })
 
     if (!isRetentionQuery(query) && !isPathsQuery(query)) {
-        const { actions, events, new_entity } = seriesToActionsAndEvents(query.series)
+        const { actions, events, data_warehouse, new_entity } = seriesToActionsAndEvents(query.series)
         if (actions.length > 0) {
             filters.actions = actions
         }
         if (events.length > 0) {
             filters.events = events
+        }
+        if (data_warehouse.length > 0) {
+            filters.data_warehouse = data_warehouse
         }
         if (new_entity.length > 0) {
             filters.new_entity = new_entity
