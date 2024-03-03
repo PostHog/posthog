@@ -69,7 +69,7 @@ logger = get_logger(__name__)
 # model_name = "text-embedding-3-small" for this usecase
 encoding = tiktoken.get_encoding("cl100k_base")
 
-BATCH_FLUSH_SIZE = settings.REPLAY_EMBEDDINGS_BATCH_SIZE
+PAGE_SIZE = settings.REPLAY_EMBEDDINGS_QUERY_PAGE_SIZE
 MIN_DURATION_INCLUDE_SECONDS = settings.REPLAY_EMBEDDINGS_MIN_DURATION_SECONDS
 MAX_TOKENS_FOR_MODEL = 8191
 
@@ -130,7 +130,7 @@ def fetch_recordings_without_embeddings(team: Team | int, offset=0) -> List[str]
             query,
             {
                 "team_id": team.pk,
-                "batch_flush_size": BATCH_FLUSH_SIZE,
+                "batch_flush_size": PAGE_SIZE,
                 "offset": offset,
                 "min_duration_include_seconds": MIN_DURATION_INCLUDE_SECONDS,
             },

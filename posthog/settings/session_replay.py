@@ -22,8 +22,13 @@ REALTIME_SNAPSHOTS_FROM_REDIS_ATTEMPT_TIMEOUT_SECONDS = get_from_env(
 RECORDINGS_INGESTER_URL = get_from_env("RECORDINGS_INGESTER_URL", "")
 
 REPLAY_EMBEDDINGS_ALLOWED_TEAMS: List[str] = get_list(get_from_env("REPLAY_EMBEDDINGS_ALLOWED_TEAM", "", type_cast=str))
-REPLAY_EMBEDDINGS_BATCH_SIZE = get_from_env("REPLAY_EMBEDDINGS_BATCH_SIZE", 10, type_cast=int)
+# how many recordings are passed into the loading task
+# there is only one CH write per the N recordings passed in
+REPLAY_EMBEDDINGS_BATCH_SIZE = get_from_env("REPLAY_EMBEDDINGS_BATCH_SIZE", 20, type_cast=int)
+# how many recordings are fetched at once
+# these are split into tasks of REPLAY_EMBEDDINGS_BATCH_SIZE each
+REPLAY_EMBEDDINGS_QUERY_PAGE_SIZE = get_from_env("REPLAY_EMBEDDINGS_QUERY_PAGE_SIZE", 25000, type_cast=int)
 REPLAY_EMBEDDINGS_MIN_DURATION_SECONDS = get_from_env("REPLAY_EMBEDDINGS_MIN_DURATION_SECONDS", 30, type_cast=int)
 REPLAY_EMBEDDINGS_CALCULATION_CELERY_INTERVAL_SECONDS = get_from_env(
-    "REPLAY_EMBEDDINGS_CALCULATION_CELERY_INTERVAL_SECONDS", 150, type_cast=int
+    "REPLAY_EMBEDDINGS_CALCULATION_CELERY_INTERVAL_SECONDS", 3600, type_cast=int
 )
