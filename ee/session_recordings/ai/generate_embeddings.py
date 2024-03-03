@@ -45,7 +45,12 @@ SESSION_EMBEDDINGS_GENERATED = Counter(
 
 SESSION_EMBEDDINGS_FAILED = Counter(
     "posthog_session_recordings_embeddings_failed",
-    "Number of session embeddings failed",
+    "Instance of an embedding rquest to open AI (and its surrounding work) failing and being swallowed",
+)
+
+SESSION_EMBEDDINGS_FATAL_FAILED = Counter(
+    "posthog_session_recordings_embeddings_fatal_failed",
+    "Instance of the embeddings task failing and raising an exception",
 )
 
 SESSION_EMBEDDINGS_WRITTEN_TO_CLICKHOUSE = Counter(
@@ -169,7 +174,7 @@ def embed_batch_of_recordings(recordings: List[str], team: Team | int) -> None:
     except Exception as e:
         # but we don't swallow errors within the wider task itself
         # if something is failing here then we're most likely having trouble with ClickHouse
-        SESSION_EMBEDDINGS_FAILED.inc()
+        SESSION_EMBEDDINGS_FATAL_FAILED.inc()
         logger.error(f"embed recordings fatal error", flow="embeddings", error=e)
         raise e
 
