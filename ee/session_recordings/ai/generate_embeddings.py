@@ -145,24 +145,32 @@ def embed_batch_of_recordings(recordings: List[str], team: Team | int) -> None:
         batched_embeddings = []
 
         for session_id in recordings:
-            with GENERATE_RECORDING_EMBEDDING_TIMING.time():
-                embeddings = generate_recording_embeddings(session_id=session_id, team=team)
+            try:
+                with GENERATE_RECORDING_EMBEDDING_TIMING.time():
+                    embeddings = generate_recording_embeddings(session_id=session_id, team=team)
 
-            if embeddings:
-                SESSION_EMBEDDINGS_GENERATED.inc()
-                batched_embeddings.append(
-                    {
-                        "session_id": session_id,
-                        "team_id": team.pk,
-                        "embeddings": embeddings,
-                    }
-                )
+                if embeddings:
+                    SESSION_EMBEDDINGS_GENERATED.inc()
+                    batched_embeddings.append(
+                        {
+                            "session_id": session_id,
+                            "team_id": team.pk,
+                            "embeddings": embeddings,
+                        }
+                    )
+            # we don't want to fail the whole batch if only a single recording fails
+            except Exception as e:
+                SESSION_EMBEDDINGS_FAILED.inc()
+                logger.error(f"embed individual recording error", flow="embeddings", error=e)
+                # so we swallow errors here
 
         if len(batched_embeddings) > 0:
             flush_embeddings_to_clickhouse(embeddings=batched_embeddings)
     except Exception as e:
+        # but we don't swallow errors within the wider task itself
+        # if something is failing here then we're most likely having trouble with ClickHouse
         SESSION_EMBEDDINGS_FAILED.inc()
-        logger.error(f"embed recordings error", flow="embeddings", error=e)
+        logger.error(f"embed recordings fatal error", flow="embeddings", error=e)
         raise e
 
 
