@@ -45,7 +45,7 @@ SESSION_EMBEDDINGS_GENERATED = Counter(
 
 SESSION_EMBEDDINGS_FAILED = Counter(
     "posthog_session_recordings_embeddings_failed",
-    "Instance of an embedding rquest to open AI (and its surrounding work) failing and being swallowed",
+    "Instance of an embedding request to open AI (and its surrounding work) failing and being swallowed",
 )
 
 SESSION_EMBEDDINGS_FATAL_FAILED = Counter(
