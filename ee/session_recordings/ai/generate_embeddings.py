@@ -1,3 +1,5 @@
+import json
+
 from django.conf import settings
 from openai import OpenAI
 import tiktoken
@@ -256,7 +258,10 @@ def generate_recording_embeddings(session_id: str, team: Team | int) -> List[flo
     RECORDING_EMBEDDING_TOKEN_COUNT.observe(token_count)
     if token_count > MAX_TOKENS_FOR_MODEL:
         logger.error(
-            f"embedding input exceeds max token count for model", flow="embeddings", session_id=session_id, input=input
+            f"embedding input exceeds max token count for model",
+            flow="embeddings",
+            session_id=session_id,
+            input=json.dumps(input),
         )
         SESSION_SKIPPED_WHEN_GENERATING_EMBEDDINGS.inc()
         return None
