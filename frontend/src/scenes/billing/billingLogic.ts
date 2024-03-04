@@ -6,6 +6,7 @@ import { router, urlToAction } from 'kea-router'
 import api from 'lib/api'
 import { dayjs } from 'lib/dayjs'
 import { LemonBannerAction } from 'lib/lemon-ui/LemonBanner/LemonBanner'
+import { lemonBannerLogic } from 'lib/lemon-ui/LemonBanner/lemonBannerLogic'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { pluralize } from 'lib/utils'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
@@ -16,7 +17,6 @@ import { userLogic } from 'scenes/userLogic'
 import { BillingProductV2Type, BillingV2Type, ProductKey } from '~/types'
 
 import type { billingLogicType } from './billingLogicType'
-import { lemonBannerLogic } from 'lib/lemon-ui/LemonBanner/lemonBannerLogic'
 
 export const ALLOCATION_THRESHOLD_ALERT = 0.85 // Threshold to show warning of event usage near limit
 export const ALLOCATION_THRESHOLD_BLOCK = 1.2 // Threshold to block usage
@@ -385,11 +385,9 @@ export const billingLogic = kea<billingLogicType>([
                 return
             }
 
-            // debugger
-            // const { resetDismissKey } = lemonBannerLogic({ dismissKey: 'usage-limit-exceeded' }).actions
-            // resetDismissKey()
-            const logic = lemonBannerLogic.findMounted()
-            console.log('what', logic)
+            // This is not null anymore
+            // const logic = lemonBannerLogic.findMounted()
+            // console.log('what', logic)
 
             const productApproachingLimit = values.billing.products?.find(
                 (x) => x.percentage_usage > ALLOCATION_THRESHOLD_ALERT
