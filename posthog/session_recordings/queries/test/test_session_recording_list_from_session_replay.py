@@ -2157,8 +2157,6 @@ class TestClickhouseSessionRecordingsListFromSessionReplay(ClickhouseTestMixin, 
 
         (session_recordings, _) = self._filter_recordings_by({"console_logs": ["log"]})
 
-        session_recording_list_instance = SessionRecordingListFromReplaySummary(filter=filter, team=self.team)
-        (session_recordings, _) = session_recording_list_instance.run()
         assert session_recordings == []
 
     @snapshot_clickhouse_queries
