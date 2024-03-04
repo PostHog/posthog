@@ -71,11 +71,17 @@ export const billingLogic = kea<billingLogicType>([
         setIsOnboarding: true,
         setBillingAlert: (billingAlert: BillingAlertConfig | null) => ({ billingAlert }),
     }),
-    connect({
+    connect(() => ({
         values: [featureFlagLogic, ['featureFlags'], preflightLogic, ['preflight']],
-        actions: [userLogic, ['loadUser'], eventUsageLogic, ['reportProductUnsubscribed']],
-        logic: [lemonBannerLogic({ dismissKey: 'usage-limit-exceeded' })],
-    }),
+        actions: [
+            userLogic,
+            ['loadUser'],
+            eventUsageLogic,
+            ['reportProductUnsubscribed'],
+            lemonBannerLogic({ dismissKey: 'usage-limit-exceeded' }),
+            ['resetDismissKey'],
+        ],
+    })),
     reducers({
         billingAlert: [
             null as BillingAlertConfig | null,
@@ -385,7 +391,7 @@ export const billingLogic = kea<billingLogicType>([
                 return
             }
 
-            // This is not null anymore
+            // This is not null
             // const logic = lemonBannerLogic.findMounted()
             // console.log('what', logic)
 
