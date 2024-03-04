@@ -317,7 +317,7 @@ class _Printer(Visitor):
         limit = node.limit
         if self.context.limit_top_select and is_top_level_query:
             max_rows = MAX_SELECT_RETURNED_ROWS
-            if isinstance(self.context.limit_top_select, int):
+            if isinstance(self.context.limit_top_select, int) and not isinstance(limit, bool):
                 max_rows = self.context.limit_top_select
 
             if limit is not None:
