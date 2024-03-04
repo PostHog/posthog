@@ -292,7 +292,7 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
                                 mode={!canEditInsight ? 'view' : undefined}
                                 data-attr="insight-description"
                                 compactButtons
-                                paywall={!hasAvailableFeature(AvailableFeature.DASHBOARD_COLLABORATION)}
+                                paywall={!hasAvailableFeature(AvailableFeature.TEAM_COLLABORATION)}
                             />
                         )}
                         {canEditInsight ? (

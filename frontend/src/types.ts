@@ -129,8 +129,8 @@ export enum AvailableFeature {
     PATHS = 'paths',
     INSIGHTS = 'insights',
     SUBSCRIPTIONS = 'subscriptions',
-    DASHBOARD_COLLABORATION = 'dashboard_collaboration',
-    DASHBOARD_PERMISSIONING = 'dashboard_permissioning',
+    TEAM_COLLABORATION = 'team_collaboration',
+    ADVANCED_PERMISSIONS = 'advanced_permissions',
     INGESTION_TAXONOMY = 'ingestion_taxonomy',
     PATHS_ADVANCED = 'paths_advanced',
     CORRELATION_ANALYSIS = 'correlation_analysis',
@@ -141,6 +141,8 @@ export enum AvailableFeature {
     AUTOCAPTURE = 'autocapture',
     DATA_VISUALIZATION = 'data_visualization',
     PRODUCT_ANALYTICS_SQL_QUERIES = 'product_analytics_sql_queries',
+    TWOFA_ENFORCEMENT = '2fa_enforcement',
+    AUDIT_LOGS = 'audit_logs',
 }
 
 type AvailableFeatureUnion = `${AvailableFeature}`
@@ -1454,6 +1456,7 @@ export interface BillingV2PlanType {
     product_key: ProductKeyUnion
     current_plan?: any
     tiers?: BillingV2TierType[] | null
+    unit_amount_usd?: string
     included_if?: 'no_active_subscription' | 'has_subscription' | null
     initial_billing_limit?: number
     contact_support?: boolean
