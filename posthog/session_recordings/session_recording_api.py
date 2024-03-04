@@ -133,6 +133,7 @@ class SessionRecordingSerializer(serializers.ModelSerializer):
             "start_url",
             "person",
             "storage",
+            "snapshot_source",
         ]
 
         read_only_fields = [
@@ -152,6 +153,7 @@ class SessionRecordingSerializer(serializers.ModelSerializer):
             "console_error_count",
             "start_url",
             "storage",
+            "snapshot_source",
         ]
 
 

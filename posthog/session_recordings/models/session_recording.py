@@ -97,6 +97,7 @@ class SessionRecording(UUIDModel):
             self.console_log_count = metadata["console_log_count"]
             self.console_warn_count = metadata["console_warn_count"]
             self.console_error_count = metadata["console_error_count"]
+            self.snapshot_source = metadata["snapshot_source"]
 
         return True
 
