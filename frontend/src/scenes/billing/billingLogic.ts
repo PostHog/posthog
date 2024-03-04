@@ -79,7 +79,9 @@ export const billingLogic = kea<billingLogicType>([
             eventUsageLogic,
             ['reportProductUnsubscribed'],
             lemonBannerLogic({ dismissKey: 'usage-limit-exceeded' }),
-            ['resetDismissKey'],
+            ['resetDismissKey as resetUsageLimitExceededKey'],
+            lemonBannerLogic({ dismissKey: 'usage-limit-approaching' }),
+            ['resetDismissKey as resetUsageLimitApproachingKey'],
         ],
     })),
     reducers({
@@ -201,87 +203,6 @@ export const billingLogic = kea<billingLogicType>([
                 return billing?.billing_period?.interval === 'year'
             },
         ],
-        // billingAlert: [
-        //     (s) => [s.billing, s.preflight, s.productSpecificAlert],
-        //     (billing, preflight, productSpecificAlert): BillingAlertConfig | null => {
-        //         if (productSpecificAlert) {
-        //             return productSpecificAlert
-        //         }
-
-        //         if (!billing) {
-        //             // || !preflight?.cloud) {
-        //             return null
-        //         }
-
-        //         if (billing.free_trial_until && billing.free_trial_until.isAfter(dayjs())) {
-        //             const remainingDays = billing.free_trial_until.diff(dayjs(), 'days')
-        //             const remainingHours = billing.free_trial_until.diff(dayjs(), 'hours')
-
-        //             if (remainingHours > 72) {
-        //                 return null
-        //             }
-
-        //             return {
-        //                 status: 'info',
-        //                 title: `Your free trial will end in ${
-        //                     remainingHours < 24 ? pluralize(remainingHours, 'hour') : pluralize(remainingDays, 'day')
-        //                 }.`,
-        //                 message: `Setup billing now to ensure you don't lose access to premium features.`,
-        //             }
-        //         }
-
-        //         if (billing.deactivated) {
-        //             return {
-        //                 status: 'error',
-        //                 title: 'Your organization has been temporarily suspended.',
-        //                 message: 'Please contact support to reactivate it.',
-        //                 contactSupport: true,
-        //             }
-        //         }
-
-        //         const productOverLimit = billing.products?.find((x: BillingProductV2Type) => {
-        //             return x.percentage_usage > 1 && x.usage_key
-        //         })
-
-        //         if (productOverLimit) {
-        //             return {
-        //                 status: 'error',
-        //                 title: 'Usage limit exceeded',
-        //                 message: `You have exceeded the usage limit for ${productOverLimit.name}. Please
-        //                     ${productOverLimit.subscribed ? 'increase your billing limit' : 'upgrade your plan'}
-        //                     or data loss may occur.`,
-        //                 dismissKey: 'usage-limit-exceeded',
-        //             }
-        //         }
-
-        //         // lemonBannerLogic({ dismissKey: 'usage-limit-exceeded' }).mount()
-        //         // lemonBannerLogic({ dismissKey: 'usage-limit-exceeded' }).actions.resetDismissKey()
-        //         // lemonBannerLogic({ dismissKey: 'usage-limit-exceeded' }).unmount()
-
-        //         const productApproachingLimit = billing.products?.find(
-        //             (x) => x.percentage_usage > ALLOCATION_THRESHOLD_ALERT
-        //         )
-
-        //         if (productApproachingLimit) {
-        //             return {
-        //                 status: 'info',
-        //                 title: 'You will soon hit your usage limit',
-        //                 message: `You have currently used ${parseFloat(
-        //                     (productApproachingLimit.percentage_usage * 100).toFixed(2)
-        //                 )}% of your ${
-        //                     productApproachingLimit.usage_key && productApproachingLimit.usage_key.toLowerCase()
-        //                 } allocation.`,
-        //                 dismissKey: 'usage-limit-approaching',
-        //             }
-        //         }
-
-        //         return null
-
-        //         // lemonBannerLogic({ dismissKey: 'usage-limit-approaching' }).mount()
-        //         // lemonBannerLogic({ dismissKey: 'usage-limit-approaching' }).actions.resetDismissKey()
-        //         // lemonBannerLogic({ dismissKey: 'usage-limit-approaching' }).unmount()
-        //     },
-        // ],
     }),
     forms(({ actions, values }) => ({
         activateLicense: {
@@ -391,9 +312,7 @@ export const billingLogic = kea<billingLogicType>([
                 return
             }
 
-            // This is not null
-            // const logic = lemonBannerLogic.findMounted()
-            // console.log('what', logic)
+            actions.resetUsageLimitExceededKey()
 
             const productApproachingLimit = values.billing.products?.find(
                 (x) => x.percentage_usage > ALLOCATION_THRESHOLD_ALERT
@@ -413,9 +332,7 @@ export const billingLogic = kea<billingLogicType>([
                 return
             }
 
-            lemonBannerLogic({ dismissKey: 'usage-limit-approaching' }).actions.resetDismissKey()
-
-            return
+            actions.resetUsageLimitApproachingKey()
         },
         registerInstrumentationProps: async (_, breakpoint) => {
             await breakpoint(100)
