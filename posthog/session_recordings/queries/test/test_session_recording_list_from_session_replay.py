@@ -464,6 +464,16 @@ class TestClickhouseSessionRecordingsListFromSessionReplay(ClickhouseTestMixin, 
 
         assert ordered_by_errors == [(session_id_one, 1012), (session_id_two, 430)]
 
+        filter = SessionRecordingsFilter(
+            team=self.team, data={"no_filter": None, "limit": 3, "offset": 0, "entity_order": "start_time"}
+        )
+        session_recording_list_instance = SessionRecordingListFromReplaySummary(filter=filter, team=self.team)
+        (session_recordings) = session_recording_list_instance.run()
+
+        ordered_by_default = [(r["session_id"], r["start_time"]) for r in session_recordings.results]
+
+        assert ordered_by_default == [(session_id_one, session_one_start), (session_id_two, session_two_start)]
+
     def test_first_url_selection(self):
         user = "test_first_url_selection-user"
         Person.objects.create(team=self.team, distinct_ids=[user], properties={"email": "bla"})

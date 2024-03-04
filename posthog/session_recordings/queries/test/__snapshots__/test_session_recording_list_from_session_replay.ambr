@@ -652,6 +652,36 @@
   OFFSET 0
   '''
 # ---
+# name: TestClickhouseSessionRecordingsListFromSessionReplay.test_basic_query_with_ordering
+  '''
+  
+  SELECT s.session_id,
+         any(s.team_id),
+         any(s.distinct_id),
+         min(s.min_first_timestamp) as start_time,
+         max(s.max_last_timestamp) as end_time,
+         dateDiff('SECOND', start_time, end_time) as duration,
+         argMinMerge(s.first_url) as first_url,
+         sum(s.click_count),
+         sum(s.keypress_count),
+         sum(s.mouse_activity_count),
+         sum(s.active_milliseconds)/1000 as active_seconds,
+         duration-active_seconds as inactive_seconds,
+         sum(s.console_log_count) as console_log_count,
+         sum(s.console_warn_count) as console_warn_count,
+         sum(s.console_error_count) as console_error_count
+  FROM session_replay_events s
+  WHERE s.team_id = 2
+    AND s.min_first_timestamp >= '2024-02-12 08:55:57'
+    AND s.min_first_timestamp >= '2024-02-26 00:00:00'
+    AND s.max_last_timestamp <= '2024-03-04 08:55:57'
+  GROUP BY session_id
+  HAVING 1=1
+  ORDER BY active_seconds DESC
+  LIMIT 4
+  OFFSET 0
+  '''
+# ---
 # name: TestClickhouseSessionRecordingsListFromSessionReplay.test_basic_query_with_ordering.1
   '''
   
@@ -672,12 +702,42 @@
          sum(s.console_error_count) as console_error_count
   FROM session_replay_events s
   WHERE s.team_id = 2
-    AND s.min_first_timestamp >= '2024-02-12 08:45:28'
+    AND s.min_first_timestamp >= '2024-02-12 08:55:57'
     AND s.min_first_timestamp >= '2024-02-26 00:00:00'
-    AND s.max_last_timestamp <= '2024-03-04 08:45:28'
+    AND s.max_last_timestamp <= '2024-03-04 08:55:57'
   GROUP BY session_id
   HAVING 1=1
   ORDER BY console_error_count DESC
+  LIMIT 4
+  OFFSET 0
+  '''
+# ---
+# name: TestClickhouseSessionRecordingsListFromSessionReplay.test_basic_query_with_ordering.2
+  '''
+  
+  SELECT s.session_id,
+         any(s.team_id),
+         any(s.distinct_id),
+         min(s.min_first_timestamp) as start_time,
+         max(s.max_last_timestamp) as end_time,
+         dateDiff('SECOND', start_time, end_time) as duration,
+         argMinMerge(s.first_url) as first_url,
+         sum(s.click_count),
+         sum(s.keypress_count),
+         sum(s.mouse_activity_count),
+         sum(s.active_milliseconds)/1000 as active_seconds,
+         duration-active_seconds as inactive_seconds,
+         sum(s.console_log_count) as console_log_count,
+         sum(s.console_warn_count) as console_warn_count,
+         sum(s.console_error_count) as console_error_count
+  FROM session_replay_events s
+  WHERE s.team_id = 2
+    AND s.min_first_timestamp >= '2024-02-12 08:55:57'
+    AND s.min_first_timestamp >= '2024-02-26 00:00:00'
+    AND s.max_last_timestamp <= '2024-03-04 08:55:57'
+  GROUP BY session_id
+  HAVING 1=1
+  ORDER BY start_time DESC
   LIMIT 4
   OFFSET 0
   '''
