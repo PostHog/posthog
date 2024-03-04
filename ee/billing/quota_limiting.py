@@ -137,7 +137,6 @@ def org_quota_limited_until(
         groups={"organization": str(organization.id)},
         group_properties={"organization": {"id": str(organization.id)}},
     ):
-        # Only suspend quota limiting for teams that are not already being limited.
         # Don't drop data for this org but record that they would have been limited.
         report_organization_action(
             organization, "quota limiting suspended", properties={"current_usage": usage + todays_usage}

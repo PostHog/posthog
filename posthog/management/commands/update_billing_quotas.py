@@ -28,10 +28,10 @@ class Command(BaseCommand):
         else:
             print(f"{len(quota_limited_orgs['events'])} orgs rate limited for events")  # noqa T201
             print(  # noqa T201
-                f"{len(quota_limiting_suspended_orgs['events'])} orgs rate rate limiting suspended for events"  # noqa T201
+                f"{len(quota_limiting_suspended_orgs['events'])} orgs rate limiting suspended for events"  # noqa T201
             )  # noqa T201
             print(f"{len(quota_limited_orgs['recordings'])} orgs rate limited for recordings")  # noqa T201
             print(  # noqa T201
-                f"{len(quota_limiting_suspended_orgs['recordings'])} orgs rate rate limiting suspended for recordings"  # noqa T201
+                f"{len(quota_limiting_suspended_orgs['recordings'])} orgs rate limiting suspended for recordings"  # noqa T201
             )  # noqa T201
             print("Done!")  # noqa T201

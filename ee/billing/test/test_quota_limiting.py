@@ -108,6 +108,8 @@ class TestQuotaLimiting(BaseTest):
         patch_capture.assert_not_called()
 
         # Feature flag is on but we only suspend limiting for orgs that were not previously limited. This org should still be in the set.
+        # NOTE on the asserted dict: org_id is a variable (see above), not a string key, and the value is the timestamp at which
+        # quota_limiting should end or quota_limiting_suspension should end.
         assert quota_limited_orgs["events"] == {org_id: 1612137599}
         assert quota_limited_orgs["recordings"] == {}
         assert quota_limited_orgs["rows_synced"] == {}
