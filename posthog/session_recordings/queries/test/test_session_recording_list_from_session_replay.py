@@ -36,6 +36,7 @@ from posthog.test.base import (
 )
 
 
+@freeze_time("2021-01-01T13:46:23")
 class TestClickhouseSessionRecordingsListFromSessionReplay(ClickhouseTestMixin, APIBaseTest):
     # this test does not create any session_recording_events, only writes to the session_replay summary table
     # it is a pair with test_session_recording_list
@@ -1179,22 +1180,8 @@ class TestClickhouseSessionRecordingsListFromSessionReplay(ClickhouseTestMixin, 
             last_timestamp=(self.base_time + relativedelta(seconds=29)),
             team_id=another_team.id,
         )
-        produce_replay_summary(
-            distinct_id=user,
-            session_id=session_id_one,
-            first_timestamp=(self.base_time + relativedelta(seconds=28)),
-            last_timestamp=(self.base_time + relativedelta(seconds=29)),
-            team_id=another_team.id,
-        )
 
         session_id_two = "session two is 61 seconds long"
-        produce_replay_summary(
-            distinct_id=user,
-            session_id=session_id_two,
-            first_timestamp=self.base_time,
-            last_timestamp=(self.base_time + relativedelta(seconds=61)),
-            team_id=another_team.id,
-        )
         produce_replay_summary(
             distinct_id=user,
             session_id=session_id_two,
@@ -1317,9 +1304,10 @@ class TestClickhouseSessionRecordingsListFromSessionReplay(ClickhouseTestMixin, 
         user = "test_recording_that_spans_time_bounds-user"
         Person.objects.create(team=self.team, distinct_ids=[user], properties={"email": "bla"})
         day_line = datetime(2021, 11, 5)
+        session_id = f"session-one-{user}"
         produce_replay_summary(
             distinct_id=user,
-            session_id="1",
+            session_id=session_id,
             first_timestamp=(day_line - relativedelta(hours=3)),
             last_timestamp=(day_line + relativedelta(hours=3)),
             team_id=self.team.id,
@@ -1333,7 +1321,7 @@ class TestClickhouseSessionRecordingsListFromSessionReplay(ClickhouseTestMixin, 
         )
 
         assert len(session_recordings) == 1
-        assert session_recordings[0]["session_id"] == "1"
+        assert session_recordings[0]["session_id"] == session_id
         assert session_recordings[0]["duration"] == 6 * 60 * 60
 
     @snapshot_clickhouse_queries
