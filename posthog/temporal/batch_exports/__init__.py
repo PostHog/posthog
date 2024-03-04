@@ -67,4 +67,5 @@ ACTIVITIES = [
     squash_events_partition,
     update_batch_export_backfill_model_status,
     update_export_run_status,
+    wait_for_mutation,
 ]

@@ -1,4 +1,3 @@
-import asyncio
 import collections.abc
 import contextlib
 import datetime as dt
@@ -83,35 +82,6 @@ class ClickHouseError(Exception):
         super().__init__(error_message)
 
 
-class RetryRequestsSession(aiohttp.ClientSession):
-    """A simple ClientSession to retry requests.
-
-    Occassionally, long-running sessions will receive a aiohttp.ServerDisconnectedError. This class
-    automatically retries requests when that exception is raised.
-    """
-
-    def __init__(self, *args, **kwargs):
-        super().__init__(*args, **kwargs)
-        self._retryable_exceptions = (aiohttp.ServerDisconnectedError,)
-
-    async def _request(self, *args, max_attempts: int = 10, backoff: float = 0.1, **kwargs) -> aiohttp.ClientResponse:
-        """Override _request to retry on any _retryable_exceptions."""
-        attempt = 0
-
-        while True:
-            try:
-                return await super()._request(*args, **kwargs)
-
-            except self._retryable_exceptions:
-                if attempt > max_attempts:
-                    raise
-
-                else:
-                    attempt += 1
-                    await asyncio.sleep(backoff)
-                    continue
-
-
 class ClickHouseClient:
     """An asynchronous client to access ClickHouse via HTTP.
 
@@ -133,7 +103,7 @@ class ClickHouseClient:
         **kwargs,
     ):
         if session is None:
-            self.session = RetryRequestsSession()
+            self.session = aiohttp.ClientSession()
         else:
             self.session = session
 
@@ -252,7 +222,7 @@ class ClickHouseClient:
 
         params["query"] = self.prepare_query(query, query_parameters)
 
-        async with self.session.get(url=self.url, params=params, headers=self.headers) as response:
+        async with self.session.get(url=self.url, headers=self.headers, params=params) as response:
             await self.acheck_response(response, query)
             yield response
 
