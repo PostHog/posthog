@@ -1,12 +1,13 @@
 import { LemonBanner, LemonButton } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
+import { BillingUpgradeCTA } from 'lib/components/BillingUpgradeCTA'
 import { StarHog } from 'lib/components/hedgehogs'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { IconCheckCircleOutline } from 'lib/lemon-ui/icons'
 import { Spinner } from 'lib/lemon-ui/Spinner'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
-import { useEffect, useState } from 'react'
+import { useState } from 'react'
 import { getUpgradeProductLink } from 'scenes/billing/billing-utils'
 import { BillingHero } from 'scenes/billing/BillingHero'
 import { billingLogic } from 'scenes/billing/billingLogic'
@@ -28,16 +29,12 @@ export const OnboardingBillingStep = ({
     const { billing, redirectPath } = useValues(billingLogic)
     const { productKey } = useValues(onboardingLogic)
     const { currentAndUpgradePlans } = useValues(billingProductLogic({ product }))
-    const { reportBillingUpgradeClicked, reportSubscriptionStatus } = useActions(eventUsageLogic)
+    const { reportBillingUpgradeClicked } = useActions(eventUsageLogic)
     const plan = currentAndUpgradePlans?.upgradePlan
     const currentPlan = currentAndUpgradePlans?.currentPlan
     const { featureFlags } = useValues(featureFlagLogic)
 
     const [showPlanComp, setShowPlanComp] = useState(false)
-
-    useEffect(() => {
-        reportSubscriptionStatus(billing?.has_active_subscription || false)
-    }, [])
 
     return (
         <OnboardingStep
@@ -46,7 +43,7 @@ export const OnboardingBillingStep = ({
             stepKey={stepKey}
             continueOverride={
                 product?.subscribed ? undefined : (
-                    <LemonButton
+                    <BillingUpgradeCTA
                         // TODO: redirect path won't work properly until navigation is properly set up
                         to={getUpgradeProductLink(product, plan.plan_key || '', redirectPath, true)}
                         type="primary"
@@ -66,7 +63,7 @@ export const OnboardingBillingStep = ({
                               billing?.has_active_subscription
                             ? 'Add paid plan'
                             : 'Upgrade to paid plan'}
-                    </LemonButton>
+                    </BillingUpgradeCTA>
                 )
             }
         >

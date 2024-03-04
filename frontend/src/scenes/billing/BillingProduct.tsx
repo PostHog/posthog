@@ -2,6 +2,7 @@ import { IconCheckCircle, IconChevronDown, IconInfo, IconPlus } from '@posthog/i
 import { LemonButton, LemonSelectOptions, LemonTable, LemonTag, Link } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
+import { BillingUpgradeCTA } from 'lib/components/BillingUpgradeCTA'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { useResizeBreakpoints } from 'lib/hooks/useResizeObserver'
 import { IconArticle, IconCheckCircleOutline, IconChevronRight } from 'lib/lemon-ui/icons'
@@ -608,7 +609,7 @@ export const BillingProduct = ({ product }: { product: BillingProductV2Type }): 
                     >
                         <div>
                             <h4 className={`${!upgradePlan ? 'text-success-dark' : 'text-warning-dark'}`}>
-                                You're on the {currentPlan.name} plan for {product.name}.
+                                You're on the {currentPlan?.name} plan for {product.name}.
                             </h4>
                             {additionalFeaturesOnUpgradedPlan?.length > 0 ? (
                                 <>
@@ -695,7 +696,7 @@ export const BillingProduct = ({ product }: { product: BillingProductV2Type }): 
                                         </LemonButton>
                                     ) : (
                                         upgradePlan.included_if !== 'has_subscription' && (
-                                            <LemonButton
+                                            <BillingUpgradeCTA
                                                 to={getUpgradeProductLink(
                                                     product,
                                                     upgradeToPlanKey || '',
@@ -720,7 +721,7 @@ export const BillingProduct = ({ product }: { product: BillingProductV2Type }): 
                                                           'credit_card' && billing?.has_active_subscription
                                                     ? 'Add paid plan'
                                                     : 'Upgrade'}
-                                            </LemonButton>
+                                            </BillingUpgradeCTA>
                                         )
                                     )}
                                 </div>

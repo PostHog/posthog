@@ -6,6 +6,7 @@ import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { Field, Form } from 'kea-forms'
 import { router } from 'kea-router'
+import { BillingUpgradeCTA } from 'lib/components/BillingUpgradeCTA'
 import { SurprisedHog } from 'lib/components/hedgehogs'
 import { PageHeader } from 'lib/components/PageHeader'
 import { supportLogic } from 'lib/components/Support/supportLogic'
@@ -18,7 +19,6 @@ import { LemonLabel } from 'lib/lemon-ui/LemonLabel/LemonLabel'
 import { SpinnerOverlay } from 'lib/lemon-ui/Spinner/Spinner'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { useEffect } from 'react'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { SceneExport } from 'scenes/sceneTypes'
@@ -53,7 +53,6 @@ export function Billing(): JSX.Element {
     const { preflight, isCloudOrDev } = useValues(preflightLogic)
     const { openSupportForm } = useActions(supportLogic)
     const { featureFlags } = useValues(featureFlagLogic)
-    const { reportSubscriptionStatus } = useActions(eventUsageLogic)
 
     if (preflight && !isCloudOrDev) {
         router.actions.push(urls.default())
@@ -64,10 +63,6 @@ export function Billing(): JSX.Element {
             reportBillingV2Shown()
         }
     }, [!!billing])
-
-    useEffect(() => {
-        reportSubscriptionStatus(billing?.has_active_subscription || false)
-    }, [])
 
     const { ref, size } = useResizeBreakpoints({
         0: 'small',
@@ -320,7 +315,7 @@ export function Billing(): JSX.Element {
             <div className="flex justify-between mt-4">
                 <h2>Products</h2>
                 {isOnboarding && upgradeAllProductsLink && (
-                    <LemonButton
+                    <BillingUpgradeCTA
                         type="primary"
                         icon={<IconPlus />}
                         to={upgradeAllProductsLink}
@@ -335,7 +330,7 @@ export function Billing(): JSX.Element {
                               billing?.has_active_subscription
                             ? 'Add all products to plan'
                             : 'Upgrade to all'}{' '}
-                    </LemonButton>
+                    </BillingUpgradeCTA>
                 )}
             </div>
             <LemonDivider className="mt-2 mb-8" />
