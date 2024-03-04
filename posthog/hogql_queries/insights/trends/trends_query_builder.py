@@ -197,8 +197,10 @@ class TrendsQueryBuilder(TrendsQueryBuilderAbstract):
 
         if not self._trends_display.should_aggregate_values() and not is_actors_query:
             # For cumulative unique users or groups, we want to count each user or group once per query, not per day
-            if self.query.trendsFilter.display == ChartDisplayType.ActionsLineGraphCumulative and (
-                self.series.math == "unique_group" or self.series.math == "dau"
+            if (
+                self.query.trendsFilter
+                and self.query.trendsFilter.display == ChartDisplayType.ActionsLineGraphCumulative
+                and (self.series.math == "unique_group" or self.series.math == "dau")
             ):
                 day_start.expr = ast.Call(name="min", args=[day_start.expr])
                 default_query.group_by.append(self._aggregation_operation.actor_id())
