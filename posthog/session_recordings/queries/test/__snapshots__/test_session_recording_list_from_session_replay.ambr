@@ -652,7 +652,7 @@
   OFFSET 0
   '''
 # ---
-# name: TestClickhouseSessionRecordingsListFromSessionReplay.test_basic_query_with_ordering
+# name: TestClickhouseSessionRecordingsListFromSessionReplay.test_basic_query_with_ordering.1
   '''
   
   SELECT s.session_id,
@@ -672,12 +672,12 @@
          sum(s.console_error_count) as console_error_count
   FROM session_replay_events s
   WHERE s.team_id = 2
-    AND s.min_first_timestamp >= '2020-12-11 13:46:23'
-    AND s.min_first_timestamp >= '2020-12-25 00:00:00'
-    AND s.max_last_timestamp <= '2021-01-01 13:46:23'
+    AND s.min_first_timestamp >= '2024-02-12 08:45:28'
+    AND s.min_first_timestamp >= '2024-02-26 00:00:00'
+    AND s.max_last_timestamp <= '2024-03-04 08:45:28'
   GROUP BY session_id
   HAVING 1=1
-  ORDER BY active_seconds DESC
+  ORDER BY console_error_count DESC
   LIMIT 4
   OFFSET 0
   '''
