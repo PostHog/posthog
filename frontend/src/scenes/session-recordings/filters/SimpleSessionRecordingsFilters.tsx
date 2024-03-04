@@ -173,7 +173,6 @@ const Configuration = ({
     properties: string[]
     onChange: (properties: string[]) => void
 }): JSX.Element => {
-    // const buttonRef = useRef<HTMLButtonElement>(null)
     const [showPropertySelector, setShowPropertySelector] = useState<boolean>(false)
 
     return (
