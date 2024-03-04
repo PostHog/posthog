@@ -75,7 +75,7 @@ DROP DICTIONARY {database}.{dictionary_name} ON CLUSTER {cluster}
 """
 
 CREATE_JOIN_TABLE_FOR_DELETES_QUERY = """
-CREATE TABLE {database}.person_overrides_to_delete ON CLUSTER {cluster}
+CREATE OR REPLACE TABLE {database}.person_overrides_to_delete ON CLUSTER {cluster}
 ENGINE = Join(ANY, LEFT, team_id, distinct_id) AS
 SELECT
     team_id, distinct_id, groupUniqArray(_partition_id) AS partitions
