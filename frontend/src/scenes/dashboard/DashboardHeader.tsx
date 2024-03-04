@@ -316,7 +316,7 @@ export function DashboardHeader(): JSX.Element | null {
                                 saveOnBlur={true}
                                 compactButtons
                                 mode={!canEditDashboard ? 'view' : undefined}
-                                paywall={!hasAvailableFeature(AvailableFeature.DASHBOARD_COLLABORATION)}
+                                paywall={!hasAvailableFeature(AvailableFeature.TEAM_COLLABORATION)}
                             />
                         )}
                         {dashboard?.tags && (

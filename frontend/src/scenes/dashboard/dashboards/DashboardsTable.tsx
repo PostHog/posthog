@@ -106,7 +106,7 @@ export function DashboardsTable({
                                 </Tooltip>
                             )}
                         </div>
-                        {hasAvailableFeature(AvailableFeature.DASHBOARD_COLLABORATION) && description && (
+                        {hasAvailableFeature(AvailableFeature.TEAM_COLLABORATION) && description && (
                             <LemonMarkdown className="row-description max-w-100" lowKeyHeadings>
                                 {description}
                             </LemonMarkdown>
