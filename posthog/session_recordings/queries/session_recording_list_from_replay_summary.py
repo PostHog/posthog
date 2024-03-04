@@ -619,6 +619,7 @@ class SessionRecordingListFromReplaySummary(EventQuery):
        sum(s.console_log_count) as console_log_count,
        sum(s.console_warn_count) as console_warn_count,
        sum(s.console_error_count) as console_error_count
+       any(s.snapshot_source) as snapshot_source
     FROM session_replay_events s
     WHERE s.team_id = %(team_id)s
         -- regardless of what other filters are applied

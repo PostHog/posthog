@@ -48,6 +48,8 @@ class SessionRecording(UUIDModel):
     console_warn_count: models.IntegerField = models.IntegerField(blank=True, null=True)
     console_error_count: models.IntegerField = models.IntegerField(blank=True, null=True)
 
+    snapshot_source: models.CharField = models.CharField(blank=True, null=True, max_length=200)
+
     start_url: models.CharField = models.CharField(blank=True, null=True, max_length=512)
 
     # we can't store storage version in the stored content
@@ -185,6 +187,7 @@ class SessionRecording(UUIDModel):
             recording.console_log_count = ch_recording.get("console_log_count", None)
             recording.console_warn_count = ch_recording.get("console_warn_count", None)
             recording.console_error_count = ch_recording.get("console_error_count", None)
+            recording.snapshot_source = ch_recording.get("snapshot_source", None)
             recording.set_start_url_from_urls(ch_recording.get("urls", None), ch_recording.get("first_url", None))
             recordings.append(recording)
 
