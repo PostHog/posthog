@@ -156,7 +156,6 @@ export const FEATURE_FLAGS = {
     // owner: #team-replay, only to be enabled for PostHog team testing
     EXCEPTION_AUTOCAPTURE: 'exception-autocapture',
     DATA_WAREHOUSE: 'data-warehouse', // owner: @EDsCODE
-    DATA_WAREHOUSE_VIEWS: 'data-warehouse-views', // owner: @EDsCODE
     DATA_WAREHOUSE_POSTGRES_IMPORT: 'data-warehouse-postgres-import', // owner: @EDsCODE
     FF_DASHBOARD_TEMPLATES: 'ff-dashboard-templates', // owner: @EDsCODE
     SHOW_PRODUCT_INTRO_EXISTING_PRODUCTS: 'show-product-intro-existing-products', // owner: @raquelmsmith

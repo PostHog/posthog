@@ -93,12 +93,6 @@ posthog/hogql/database/database.py:0: error: "FieldOrTable" has no attribute "fi
 posthog/hogql/database/database.py:0: error: "FieldOrTable" has no attribute "fields"  [attr-defined]
 posthog/hogql/database/database.py:0: error: "FieldOrTable" has no attribute "fields"  [attr-defined]
 posthog/hogql/database/database.py:0: error: "FieldOrTable" has no attribute "fields"  [attr-defined]
-posthog/hogql/database/database.py:0: error: Incompatible types in assignment (expression has type "DataWarehouseTable", variable has type "Table")  [assignment]
-posthog/hogql/database/database.py:0: error: "Table" has no attribute "name"  [attr-defined]
-posthog/hogql/database/database.py:0: error: "Table" has no attribute "hogql_definition"  [attr-defined]
-posthog/hogql/database/database.py:0: error: Incompatible types in assignment (expression has type "DataWarehouseSavedQuery", variable has type "Table")  [assignment]
-posthog/hogql/database/database.py:0: error: "Table" has no attribute "name"  [attr-defined]
-posthog/hogql/database/database.py:0: error: "Table" has no attribute "hogql_definition"  [attr-defined]
 posthog/hogql/database/database.py:0: error: Incompatible types (expression has type "Literal['view', 'lazy_table']", TypedDict item "type" has type "Literal['integer', 'float', 'string', 'datetime', 'date', 'boolean', 'array', 'json', 'lazy_table', 'virtual_table', 'field_traverser']")  [typeddict-item]
 posthog/warehouse/models/datawarehouse_saved_query.py:0: error: Argument 1 to "create_hogql_database" has incompatible type "int | None"; expected "int"  [arg-type]
 posthog/warehouse/models/datawarehouse_saved_query.py:0: error: Incompatible types in assignment (expression has type "Expr", variable has type "SelectQuery | SelectUnionQuery")  [assignment]
@@ -733,8 +727,6 @@ posthog/hogql/test/test_query.py:0: error: Argument 1 to "pretty_print_in_tests"
 posthog/hogql/test/test_query.py:0: error: Argument 1 to "pretty_print_in_tests" has incompatible type "str | None"; expected "str"  [arg-type]
 posthog/hogql/test/test_query.py:0: error: Argument 1 to "pretty_print_in_tests" has incompatible type "str | None"; expected "str"  [arg-type]
 posthog/hogql/test/test_query.py:0: error: Value of type "list[Any] | None" is not indexable  [index]
-posthog/hogql/test/test_query.py:0: error: Incompatible types in assignment (expression has type "HogQLQueryResponse", variable has type "HttpResponse")  [assignment]
-posthog/hogql/test/test_query.py:0: error: "HttpResponse" has no attribute "results"  [attr-defined]
 posthog/hogql/test/test_query.py:0: error: Argument "placeholders" to "execute_hogql_query" has incompatible type "dict[str, Constant]"; expected "dict[str, Expr] | None"  [arg-type]
 posthog/hogql/test/test_query.py:0: note: "Dict" is invariant -- see https://mypy.readthedocs.io/en/stable/common_issues.html#variance
 posthog/hogql/test/test_query.py:0: note: Consider using "Mapping" instead, which is covariant in the value type

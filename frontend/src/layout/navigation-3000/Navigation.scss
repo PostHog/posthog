@@ -127,10 +127,6 @@
 .NavbarButton {
     position: relative;
 
-    .LemonButton__icon {
-        transition: color 100ms ease, transform 100ms ease;
-    }
-
     &.NavbarButton--here {
         &::after {
             position: absolute;
