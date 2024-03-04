@@ -210,9 +210,9 @@
          sum(s.console_error_count) as console_error_count
   FROM session_replay_events s
   WHERE s.team_id = 2
-    AND s.min_first_timestamp >= '2020-12-11 13:46:23'
-    AND s.min_first_timestamp >= '2020-12-22 00:00:00'
-    AND s.max_last_timestamp <= '2021-01-04 23:59:59'
+    AND s.min_first_timestamp >= '2024-02-12 10:45:22'
+    AND s.min_first_timestamp >= '2024-02-23 00:00:00'
+    AND s.max_last_timestamp <= '2024-03-07 23:59:59'
     AND s.distinct_id in
       (select distinct_id
        from
@@ -234,10 +234,10 @@
          (SELECT groupUniqArray(event) as event_names,
                  `$session_id`
           FROM events e PREWHERE team_id = 2
-          AND e.timestamp >= '2020-12-11 13:46:23'
+          AND e.timestamp >= '2024-02-12 10:45:22'
           AND e.timestamp <= now()
-          AND timestamp >= '2020-12-21 12:00:00'
-          AND timestamp <= '2021-01-05 11:59:59'
+          AND timestamp >= '2024-02-22 12:00:00'
+          AND timestamp <= '2024-03-08 11:59:59'
           WHERE notEmpty(`$session_id`)
             AND ((event = '$pageview')
                  OR ((event = 'custom-event')))
@@ -529,36 +529,6 @@
   OFFSET 0
   '''
 # ---
-# name: TestClickhouseSessionRecordingsListFromSessionReplay.test_basic_query
-  '''
-  
-  SELECT s.session_id,
-         any(s.team_id),
-         any(s.distinct_id),
-         min(s.min_first_timestamp) as start_time,
-         max(s.max_last_timestamp) as end_time,
-         dateDiff('SECOND', start_time, end_time) as duration,
-         argMinMerge(s.first_url) as first_url,
-         sum(s.click_count),
-         sum(s.keypress_count),
-         sum(s.mouse_activity_count),
-         sum(s.active_milliseconds)/1000 as active_seconds,
-         duration-active_seconds as inactive_seconds,
-         sum(s.console_log_count) as console_log_count,
-         sum(s.console_warn_count) as console_warn_count,
-         sum(s.console_error_count) as console_error_count
-  FROM session_replay_events s
-  WHERE s.team_id = 2
-    AND s.min_first_timestamp >= '2020-12-11 13:46:23'
-    AND s.min_first_timestamp >= '2020-12-25 00:00:00'
-    AND s.max_last_timestamp <= '2021-01-01 13:46:23'
-  GROUP BY session_id
-  HAVING 1=1
-  ORDER BY start_time DESC
-  LIMIT 51
-  OFFSET 0
-  '''
-# ---
 # name: TestClickhouseSessionRecordingsListFromSessionReplay.test_basic_query_active_sessions
   '''
   
@@ -579,9 +549,9 @@
          sum(s.console_error_count) as console_error_count
   FROM session_replay_events s
   WHERE s.team_id = 2
-    AND s.min_first_timestamp >= '2020-12-11 13:46:23'
-    AND s.min_first_timestamp >= '2020-12-25 00:00:00'
-    AND s.max_last_timestamp <= '2021-01-01 13:46:23'
+    AND s.min_first_timestamp >= '2024-02-12 10:45:26'
+    AND s.min_first_timestamp >= '2024-02-26 00:00:00'
+    AND s.max_last_timestamp <= '2024-03-04 10:45:26'
   GROUP BY session_id
   HAVING 1=1
   AND duration > 60
@@ -610,9 +580,9 @@
          sum(s.console_error_count) as console_error_count
   FROM session_replay_events s
   WHERE s.team_id = 2
-    AND s.min_first_timestamp >= '2020-12-11 13:46:23'
-    AND s.min_first_timestamp >= '2020-12-25 00:00:00'
-    AND s.max_last_timestamp <= '2021-01-01 13:46:23'
+    AND s.min_first_timestamp >= '2024-02-12 10:45:26'
+    AND s.min_first_timestamp >= '2024-02-26 00:00:00'
+    AND s.max_last_timestamp <= '2024-03-04 10:45:26'
   GROUP BY session_id
   HAVING 1=1
   AND active_seconds > 60
@@ -641,9 +611,9 @@
          sum(s.console_error_count) as console_error_count
   FROM session_replay_events s
   WHERE s.team_id = 2
-    AND s.min_first_timestamp >= '2020-12-11 13:46:23'
-    AND s.min_first_timestamp >= '2020-12-25 00:00:00'
-    AND s.max_last_timestamp <= '2021-01-01 13:46:23'
+    AND s.min_first_timestamp >= '2024-02-12 10:45:26'
+    AND s.min_first_timestamp >= '2024-02-26 00:00:00'
+    AND s.max_last_timestamp <= '2024-03-04 10:45:26'
   GROUP BY session_id
   HAVING 1=1
   AND inactive_seconds > 60
@@ -672,9 +642,9 @@
          sum(s.console_error_count) as console_error_count
   FROM session_replay_events s
   WHERE s.team_id = 2
-    AND s.min_first_timestamp >= '2020-12-11 13:46:23'
-    AND s.min_first_timestamp >= '2020-12-25 00:00:00'
-    AND s.max_last_timestamp <= '2021-01-01 13:46:23'
+    AND s.min_first_timestamp >= '2024-02-12 10:45:26'
+    AND s.min_first_timestamp >= '2024-02-26 00:00:00'
+    AND s.max_last_timestamp <= '2024-03-04 10:45:26'
   GROUP BY session_id
   HAVING 1=1
   ORDER BY active_seconds DESC
@@ -702,9 +672,9 @@
          sum(s.console_error_count) as console_error_count
   FROM session_replay_events s
   WHERE s.team_id = 2
-    AND s.min_first_timestamp >= '2020-12-11 13:46:23'
-    AND s.min_first_timestamp >= '2020-12-25 00:00:00'
-    AND s.max_last_timestamp <= '2021-01-01 13:46:23'
+    AND s.min_first_timestamp >= '2024-02-12 10:45:26'
+    AND s.min_first_timestamp >= '2024-02-26 00:00:00'
+    AND s.max_last_timestamp <= '2024-03-04 10:45:26'
   GROUP BY session_id
   HAVING 1=1
   ORDER BY console_error_count DESC
@@ -732,9 +702,9 @@
          sum(s.console_error_count) as console_error_count
   FROM session_replay_events s
   WHERE s.team_id = 2
-    AND s.min_first_timestamp >= '2020-12-11 13:46:23'
-    AND s.min_first_timestamp >= '2020-12-25 00:00:00'
-    AND s.max_last_timestamp <= '2021-01-01 13:46:23'
+    AND s.min_first_timestamp >= '2024-02-12 10:45:26'
+    AND s.min_first_timestamp >= '2024-02-26 00:00:00'
+    AND s.max_last_timestamp <= '2024-03-04 10:45:26'
   GROUP BY session_id
   HAVING 1=1
   ORDER BY start_time DESC
@@ -762,9 +732,9 @@
          sum(s.console_error_count) as console_error_count
   FROM session_replay_events s
   WHERE s.team_id = 2
-    AND s.min_first_timestamp >= '2020-12-11 13:46:23'
-    AND s.min_first_timestamp >= '2020-12-25 00:00:00'
-    AND s.max_last_timestamp <= '2021-01-01 13:46:23'
+    AND s.min_first_timestamp >= '2024-02-12 10:45:26'
+    AND s.min_first_timestamp >= '2024-02-26 00:00:00'
+    AND s.max_last_timestamp <= '2024-03-04 10:45:26'
   GROUP BY session_id
   HAVING 1=1
   ORDER BY start_time DESC
@@ -792,9 +762,9 @@
          sum(s.console_error_count) as console_error_count
   FROM session_replay_events s
   WHERE s.team_id = 2
-    AND s.min_first_timestamp >= '2020-12-11 13:46:23'
-    AND s.min_first_timestamp >= '2020-12-25 00:00:00'
-    AND s.max_last_timestamp <= '2021-01-01 13:46:23'
+    AND s.min_first_timestamp >= '2024-02-12 10:45:26'
+    AND s.min_first_timestamp >= '2024-02-26 00:00:00'
+    AND s.max_last_timestamp <= '2024-03-04 10:45:26'
   GROUP BY session_id
   HAVING 1=1
   ORDER BY start_time DESC
@@ -822,9 +792,9 @@
          sum(s.console_error_count) as console_error_count
   FROM session_replay_events s
   WHERE s.team_id = 2
-    AND s.min_first_timestamp >= '2020-12-11 13:46:23'
-    AND s.min_first_timestamp >= '2020-12-25 00:00:00'
-    AND s.max_last_timestamp <= '2021-01-01 13:46:23'
+    AND s.min_first_timestamp >= '2024-02-12 10:45:27'
+    AND s.min_first_timestamp >= '2024-02-26 00:00:00'
+    AND s.max_last_timestamp <= '2024-03-04 10:45:27'
   GROUP BY session_id
   HAVING 1=1
   ORDER BY start_time DESC
@@ -852,9 +822,9 @@
          sum(s.console_error_count) as console_error_count
   FROM session_replay_events s
   WHERE s.team_id = 2
-    AND s.min_first_timestamp >= '2020-12-11 13:46:23'
-    AND s.min_first_timestamp >= '2021-01-01 00:00:00'
-    AND s.max_last_timestamp <= '2021-01-01 13:46:23'
+    AND s.min_first_timestamp >= '2024-02-12 10:45:27'
+    AND s.min_first_timestamp >= '2024-03-04 00:00:00'
+    AND s.max_last_timestamp <= '2024-03-04 10:45:27'
   GROUP BY session_id
   HAVING 1=1
   ORDER BY start_time DESC
@@ -882,9 +852,9 @@
          sum(s.console_error_count) as console_error_count
   FROM session_replay_events s
   WHERE s.team_id = 2
-    AND s.min_first_timestamp >= '2020-12-11 13:46:23'
-    AND s.min_first_timestamp >= '2020-12-30 00:00:00'
-    AND s.max_last_timestamp <= '2021-01-01 13:46:23'
+    AND s.min_first_timestamp >= '2024-02-12 10:45:27'
+    AND s.min_first_timestamp >= '2024-03-02 00:00:00'
+    AND s.max_last_timestamp <= '2024-03-04 10:45:27'
   GROUP BY session_id
   HAVING 1=1
   ORDER BY start_time DESC
@@ -912,9 +882,9 @@
          sum(s.console_error_count) as console_error_count
   FROM session_replay_events s
   WHERE s.team_id = 2
-    AND s.min_first_timestamp >= '2020-12-11 12:46:00'
-    AND s.min_first_timestamp >= '2020-12-12 00:00:00'
-    AND s.max_last_timestamp <= '2021-01-01 12:46:00'
+    AND s.min_first_timestamp >= '2024-02-12 09:45:00'
+    AND s.min_first_timestamp >= '2024-02-13 00:00:00'
+    AND s.max_last_timestamp <= '2024-03-04 09:45:00'
   GROUP BY session_id
   HAVING 1=1
   ORDER BY start_time DESC
@@ -942,9 +912,9 @@
          sum(s.console_error_count) as console_error_count
   FROM session_replay_events s
   WHERE s.team_id = 2
-    AND s.min_first_timestamp >= '2020-12-11 12:46:00'
-    AND s.min_first_timestamp >= '2020-12-11 00:00:00'
-    AND s.max_last_timestamp <= '2021-01-01 12:46:00'
+    AND s.min_first_timestamp >= '2024-02-12 09:45:00'
+    AND s.min_first_timestamp >= '2024-02-12 00:00:00'
+    AND s.max_last_timestamp <= '2024-03-04 09:45:00'
   GROUP BY session_id
   HAVING 1=1
   ORDER BY start_time DESC
@@ -972,9 +942,9 @@
          sum(s.console_error_count) as console_error_count
   FROM session_replay_events s
   WHERE s.team_id = 2
-    AND s.min_first_timestamp >= '2020-12-11 12:46:00'
-    AND s.min_first_timestamp >= '2020-12-10 00:00:00'
-    AND s.max_last_timestamp <= '2021-01-01 12:46:00'
+    AND s.min_first_timestamp >= '2024-02-12 09:45:00'
+    AND s.min_first_timestamp >= '2024-02-11 00:00:00'
+    AND s.max_last_timestamp <= '2024-03-04 09:45:00'
   GROUP BY session_id
   HAVING 1=1
   ORDER BY start_time DESC
@@ -1002,9 +972,9 @@
          sum(s.console_error_count) as console_error_count
   FROM session_replay_events s
   WHERE s.team_id = 2
-    AND s.min_first_timestamp >= '2020-12-11 13:46:23'
-    AND s.min_first_timestamp >= '2020-12-25 00:00:00'
-    AND s.max_last_timestamp <= '2020-12-28 23:59:59'
+    AND s.min_first_timestamp >= '2024-02-12 10:45:28'
+    AND s.min_first_timestamp >= '2024-02-26 00:00:00'
+    AND s.max_last_timestamp <= '2024-02-29 23:59:59'
   GROUP BY session_id
   HAVING 1=1
   ORDER BY start_time DESC
@@ -1032,73 +1002,11 @@
          sum(s.console_error_count) as console_error_count
   FROM session_replay_events s
   WHERE s.team_id = 2
-    AND s.min_first_timestamp >= '2020-12-11 13:46:23'
-    AND s.min_first_timestamp >= '2020-12-25 00:00:00'
-    AND s.max_last_timestamp <= '2020-12-29 23:59:59'
+    AND s.min_first_timestamp >= '2024-02-12 10:45:28'
+    AND s.min_first_timestamp >= '2024-02-26 00:00:00'
+    AND s.max_last_timestamp <= '2024-03-01 23:59:59'
   GROUP BY session_id
   HAVING 1=1
-  ORDER BY start_time DESC
-  LIMIT 51
-  OFFSET 0
-  '''
-# ---
-# name: TestClickhouseSessionRecordingsListFromSessionReplay.test_duration_filter
-  '''
-  
-  SELECT s.session_id,
-         any(s.team_id),
-         any(s.distinct_id),
-         min(s.min_first_timestamp) as start_time,
-         max(s.max_last_timestamp) as end_time,
-         dateDiff('SECOND', start_time, end_time) as duration,
-         argMinMerge(s.first_url) as first_url,
-         sum(s.click_count),
-         sum(s.keypress_count),
-         sum(s.mouse_activity_count),
-         sum(s.active_milliseconds)/1000 as active_seconds,
-         duration-active_seconds as inactive_seconds,
-         sum(s.console_log_count) as console_log_count,
-         sum(s.console_warn_count) as console_warn_count,
-         sum(s.console_error_count) as console_error_count
-  FROM session_replay_events s
-  WHERE s.team_id = 2
-    AND s.min_first_timestamp >= '2020-12-11 13:46:23'
-    AND s.min_first_timestamp >= '2020-12-25 00:00:00'
-    AND s.max_last_timestamp <= '2021-01-01 13:46:23'
-  GROUP BY session_id
-  HAVING 1=1
-  AND duration > 60
-  ORDER BY start_time DESC
-  LIMIT 51
-  OFFSET 0
-  '''
-# ---
-# name: TestClickhouseSessionRecordingsListFromSessionReplay.test_duration_filter.1
-  '''
-  
-  SELECT s.session_id,
-         any(s.team_id),
-         any(s.distinct_id),
-         min(s.min_first_timestamp) as start_time,
-         max(s.max_last_timestamp) as end_time,
-         dateDiff('SECOND', start_time, end_time) as duration,
-         argMinMerge(s.first_url) as first_url,
-         sum(s.click_count),
-         sum(s.keypress_count),
-         sum(s.mouse_activity_count),
-         sum(s.active_milliseconds)/1000 as active_seconds,
-         duration-active_seconds as inactive_seconds,
-         sum(s.console_log_count) as console_log_count,
-         sum(s.console_warn_count) as console_warn_count,
-         sum(s.console_error_count) as console_error_count
-  FROM session_replay_events s
-  WHERE s.team_id = 2
-    AND s.min_first_timestamp >= '2020-12-11 13:46:23'
-    AND s.min_first_timestamp >= '2020-12-25 00:00:00'
-    AND s.max_last_timestamp <= '2021-01-01 13:46:23'
-  GROUP BY session_id
-  HAVING 1=1
-  AND duration < 60
   ORDER BY start_time DESC
   LIMIT 51
   OFFSET 0
@@ -1124,19 +1032,19 @@
          sum(s.console_error_count) as console_error_count
   FROM session_replay_events s
   WHERE s.team_id = 2
-    AND s.min_first_timestamp >= '2020-12-11 13:46:23'
-    AND s.min_first_timestamp >= '2020-12-25 00:00:00'
-    AND s.max_last_timestamp <= '2021-01-01 13:46:23'
+    AND s.min_first_timestamp >= '2024-02-12 10:45:28'
+    AND s.min_first_timestamp >= '2024-02-26 00:00:00'
+    AND s.max_last_timestamp <= '2024-03-04 10:45:28'
     AND s.session_id in
       (select `$session_id` as session_id
        from
          (SELECT groupUniqArray(event) as event_names,
                  `$session_id`
           FROM events e PREWHERE team_id = 2
-          AND e.timestamp >= '2020-12-11 13:46:23'
+          AND e.timestamp >= '2024-02-12 10:45:28'
           AND e.timestamp <= now()
-          AND timestamp >= '2020-12-24 12:00:00'
-          AND timestamp <= '2021-01-02 01:46:23'
+          AND timestamp >= '2024-02-25 12:00:00'
+          AND timestamp <= '2024-03-04 22:45:28'
           WHERE notEmpty(`$session_id`)
             AND (event = '$pageview')
           GROUP BY `$session_id`
@@ -1169,19 +1077,19 @@
          sum(s.console_error_count) as console_error_count
   FROM session_replay_events s
   WHERE s.team_id = 2
-    AND s.min_first_timestamp >= '2020-12-11 13:46:23'
-    AND s.min_first_timestamp >= '2020-12-25 00:00:00'
-    AND s.max_last_timestamp <= '2021-01-01 13:46:23'
+    AND s.min_first_timestamp >= '2024-02-12 10:45:28'
+    AND s.min_first_timestamp >= '2024-02-26 00:00:00'
+    AND s.max_last_timestamp <= '2024-03-04 10:45:28'
     AND s.session_id in
       (select `$session_id` as session_id
        from
          (SELECT groupUniqArray(event) as event_names,
                  `$session_id`
           FROM events e PREWHERE team_id = 2
-          AND e.timestamp >= '2020-12-11 13:46:23'
+          AND e.timestamp >= '2024-02-12 10:45:28'
           AND e.timestamp <= now()
-          AND timestamp >= '2020-12-24 12:00:00'
-          AND timestamp <= '2021-01-02 01:46:23'
+          AND timestamp >= '2024-02-25 12:00:00'
+          AND timestamp <= '2024-03-04 22:45:28'
           WHERE notEmpty(`$session_id`)
             AND (event = '$autocapture')
           GROUP BY `$session_id`
@@ -1214,19 +1122,19 @@
          sum(s.console_error_count) as console_error_count
   FROM session_replay_events s
   WHERE s.team_id = 2
-    AND s.min_first_timestamp >= '2020-12-11 13:46:23'
-    AND s.min_first_timestamp >= '2020-12-25 00:00:00'
-    AND s.max_last_timestamp <= '2021-01-01 13:46:23'
+    AND s.min_first_timestamp >= '2024-02-12 10:45:29'
+    AND s.min_first_timestamp >= '2024-02-26 00:00:00'
+    AND s.max_last_timestamp <= '2024-03-04 10:45:29'
     AND s.session_id in
       (select `$session_id` as session_id
        from
          (SELECT groupUniqArray(event) as event_names,
                  `$session_id`
           FROM events e PREWHERE team_id = 2
-          AND e.timestamp >= '2020-12-11 13:46:23'
+          AND e.timestamp >= '2024-02-12 10:45:29'
           AND e.timestamp <= now()
-          AND timestamp >= '2020-12-24 12:00:00'
-          AND timestamp <= '2021-01-02 01:46:23'
+          AND timestamp >= '2024-02-25 12:00:00'
+          AND timestamp <= '2024-03-04 22:45:29'
           WHERE notEmpty(`$session_id`)
             AND (event = '$pageview')
           GROUP BY `$session_id`
@@ -1259,9 +1167,9 @@
          sum(s.console_error_count) as console_error_count
   FROM session_replay_events s
   WHERE s.team_id = 2
-    AND s.min_first_timestamp >= '2020-12-11 13:46:23'
-    AND s.min_first_timestamp >= '2020-12-25 00:00:00'
-    AND s.max_last_timestamp <= '2021-01-01 13:46:23'
+    AND s.min_first_timestamp >= '2024-02-12 10:45:29'
+    AND s.min_first_timestamp >= '2024-02-26 00:00:00'
+    AND s.max_last_timestamp <= '2024-03-04 10:45:29'
   GROUP BY session_id
   HAVING 1=1
   ORDER BY start_time DESC
@@ -1289,19 +1197,19 @@
          sum(s.console_error_count) as console_error_count
   FROM session_replay_events s
   WHERE s.team_id = 2
-    AND s.min_first_timestamp >= '2020-12-11 13:46:23'
-    AND s.min_first_timestamp >= '2020-12-25 00:00:00'
-    AND s.max_last_timestamp <= '2021-01-01 13:46:23'
+    AND s.min_first_timestamp >= '2024-02-12 10:45:29'
+    AND s.min_first_timestamp >= '2024-02-26 00:00:00'
+    AND s.max_last_timestamp <= '2024-03-04 10:45:29'
     AND s.session_id in
       (select `$session_id` as session_id
        from
          (SELECT groupUniqArray(event) as event_names,
                  `$session_id`
           FROM events e PREWHERE team_id = 2
-          AND e.timestamp >= '2020-12-11 13:46:23'
+          AND e.timestamp >= '2024-02-12 10:45:29'
           AND e.timestamp <= now()
-          AND timestamp >= '2020-12-24 12:00:00'
-          AND timestamp <= '2021-01-02 01:46:23'
+          AND timestamp >= '2024-02-25 12:00:00'
+          AND timestamp <= '2024-03-04 22:45:29'
           WHERE notEmpty(`$session_id`)
             AND (event = '$pageview')
           GROUP BY `$session_id`
@@ -1335,19 +1243,19 @@
          sum(s.console_error_count) as console_error_count
   FROM session_replay_events s
   WHERE s.team_id = 2
-    AND s.min_first_timestamp >= '2020-12-11 13:46:23'
-    AND s.min_first_timestamp >= '2020-12-25 00:00:00'
-    AND s.max_last_timestamp <= '2021-01-01 13:46:23'
+    AND s.min_first_timestamp >= '2024-02-12 10:45:29'
+    AND s.min_first_timestamp >= '2024-02-26 00:00:00'
+    AND s.max_last_timestamp <= '2024-03-04 10:45:29'
     AND s.session_id in
       (select `$session_id` as session_id
        from
          (SELECT groupUniqArray(event) as event_names,
                  `$session_id`
           FROM events e PREWHERE team_id = 2
-          AND e.timestamp >= '2020-12-11 13:46:23'
+          AND e.timestamp >= '2024-02-12 10:45:29'
           AND e.timestamp <= now()
-          AND timestamp >= '2020-12-24 12:00:00'
-          AND timestamp <= '2021-01-02 01:46:23'
+          AND timestamp >= '2024-02-25 12:00:00'
+          AND timestamp <= '2024-03-04 22:45:29'
           WHERE notEmpty(`$session_id`)
             AND (event = '$pageview')
           GROUP BY `$session_id`
@@ -1840,9 +1748,9 @@
          sum(s.console_error_count) as console_error_count
   FROM session_replay_events s
   WHERE s.team_id = 2
-    AND s.min_first_timestamp >= '2020-12-11 13:46:23'
-    AND s.min_first_timestamp >= '2020-12-25 00:00:00'
-    AND s.max_last_timestamp <= '2021-01-01 13:46:23'
+    AND s.min_first_timestamp >= '2024-02-12 10:45:33'
+    AND s.min_first_timestamp >= '2024-02-26 00:00:00'
+    AND s.max_last_timestamp <= '2024-03-04 10:45:33'
     AND s.distinct_id in
       (select distinct_id
        from
@@ -1881,10 +1789,10 @@
              WHERE team_id = 2
              GROUP BY distinct_id
              HAVING argMax(is_deleted, version) = 0) as pdi on pdi.distinct_id = e.distinct_id PREWHERE team_id = 2
-          AND e.timestamp >= '2020-12-11 13:46:23'
+          AND e.timestamp >= '2024-02-12 10:45:33'
           AND e.timestamp <= now()
-          AND timestamp >= '2020-12-24 12:00:00'
-          AND timestamp <= '2021-01-02 01:46:23'
+          AND timestamp >= '2024-02-25 12:00:00'
+          AND timestamp <= '2024-03-04 22:45:33'
           WHERE notEmpty(`$session_id`)
             AND (event = '$pageview'
                  AND (ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person_props, 'email'), ''), 'null'), '^"|"$', ''), 'bla'), 0)))
@@ -1918,9 +1826,9 @@
          sum(s.console_error_count) as console_error_count
   FROM session_replay_events s
   WHERE s.team_id = 2
-    AND s.min_first_timestamp >= '2020-12-11 13:46:23'
-    AND s.min_first_timestamp >= '2020-12-25 00:00:00'
-    AND s.max_last_timestamp <= '2021-01-01 13:46:23'
+    AND s.min_first_timestamp >= '2024-02-12 10:45:33'
+    AND s.min_first_timestamp >= '2024-02-26 00:00:00'
+    AND s.max_last_timestamp <= '2024-03-04 10:45:33'
     AND s.distinct_id in
       (select distinct_id
        from
@@ -1959,10 +1867,10 @@
              WHERE team_id = 2
              GROUP BY distinct_id
              HAVING argMax(is_deleted, version) = 0) as pdi on pdi.distinct_id = e.distinct_id PREWHERE team_id = 2
-          AND e.timestamp >= '2020-12-11 13:46:23'
+          AND e.timestamp >= '2024-02-12 10:45:33'
           AND e.timestamp <= now()
-          AND timestamp >= '2020-12-24 12:00:00'
-          AND timestamp <= '2021-01-02 01:46:23'
+          AND timestamp >= '2024-02-25 12:00:00'
+          AND timestamp <= '2024-03-04 22:45:33'
           WHERE notEmpty(`$session_id`)
             AND (event = '$pageview'
                  AND (ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person_props, 'email'), ''), 'null'), '^"|"$', ''), 'something else'), 0)))
@@ -1996,19 +1904,19 @@
          sum(s.console_error_count) as console_error_count
   FROM session_replay_events s
   WHERE s.team_id = 2
-    AND s.min_first_timestamp >= '2020-12-11 13:46:23'
-    AND s.min_first_timestamp >= '2020-12-25 00:00:00'
-    AND s.max_last_timestamp <= '2021-01-01 13:46:23'
+    AND s.min_first_timestamp >= '2024-02-12 10:45:33'
+    AND s.min_first_timestamp >= '2024-02-26 00:00:00'
+    AND s.max_last_timestamp <= '2024-03-04 10:45:33'
     AND s.session_id in
       (select `$session_id` as session_id
        from
          (SELECT groupUniqArray(event) as event_names,
                  `$session_id`
           FROM events e PREWHERE team_id = 2
-          AND e.timestamp >= '2020-12-11 13:46:23'
+          AND e.timestamp >= '2024-02-12 10:45:33'
           AND e.timestamp <= now()
-          AND timestamp >= '2020-12-24 12:00:00'
-          AND timestamp <= '2021-01-02 01:46:23'
+          AND timestamp >= '2024-02-25 12:00:00'
+          AND timestamp <= '2024-03-04 22:45:33'
           WHERE notEmpty(`$session_id`)
             AND (event = '$pageview'
                  AND (ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(properties, '$browser'), ''), 'null'), '^"|"$', ''), 'Chrome'), 0)))
@@ -2042,19 +1950,19 @@
          sum(s.console_error_count) as console_error_count
   FROM session_replay_events s
   WHERE s.team_id = 2
-    AND s.min_first_timestamp >= '2020-12-11 13:46:23'
-    AND s.min_first_timestamp >= '2020-12-25 00:00:00'
-    AND s.max_last_timestamp <= '2021-01-01 13:46:23'
+    AND s.min_first_timestamp >= '2024-02-12 10:45:34'
+    AND s.min_first_timestamp >= '2024-02-26 00:00:00'
+    AND s.max_last_timestamp <= '2024-03-04 10:45:34'
     AND s.session_id in
       (select `$session_id` as session_id
        from
          (SELECT groupUniqArray(event) as event_names,
                  `$session_id`
           FROM events e PREWHERE team_id = 2
-          AND e.timestamp >= '2020-12-11 13:46:23'
+          AND e.timestamp >= '2024-02-12 10:45:34'
           AND e.timestamp <= now()
-          AND timestamp >= '2020-12-24 12:00:00'
-          AND timestamp <= '2021-01-02 01:46:23'
+          AND timestamp >= '2024-02-25 12:00:00'
+          AND timestamp <= '2024-03-04 22:45:34'
           WHERE notEmpty(`$session_id`)
             AND (event = '$pageview'
                  AND (ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(properties, '$browser'), ''), 'null'), '^"|"$', ''), 'Firefox'), 0)))
@@ -2088,19 +1996,19 @@
          sum(s.console_error_count) as console_error_count
   FROM session_replay_events s
   WHERE s.team_id = 2
-    AND s.min_first_timestamp >= '2020-12-11 13:46:23'
-    AND s.min_first_timestamp >= '2020-12-25 00:00:00'
-    AND s.max_last_timestamp <= '2021-01-01 13:46:23'
+    AND s.min_first_timestamp >= '2024-02-12 10:45:35'
+    AND s.min_first_timestamp >= '2024-02-26 00:00:00'
+    AND s.max_last_timestamp <= '2024-03-04 10:45:35'
     AND s.session_id in
       (select `$session_id` as session_id
        from
          (SELECT groupUniqArray(event) as event_names,
                  `$session_id`
           FROM events e PREWHERE team_id = 2
-          AND e.timestamp >= '2020-12-11 13:46:23'
+          AND e.timestamp >= '2024-02-12 10:45:35'
           AND e.timestamp <= now()
-          AND timestamp >= '2020-12-24 12:00:00'
-          AND timestamp <= '2021-01-02 01:46:23'
+          AND timestamp >= '2024-02-25 12:00:00'
+          AND timestamp <= '2024-03-04 22:45:35'
           WHERE notEmpty(`$session_id`)
             AND (event = '$pageview'
                  AND (ifNull(equals(nullIf(nullIf(events.`mat_$browser`, ''), 'null'), 'Chrome'), 0)))
@@ -2134,19 +2042,19 @@
          sum(s.console_error_count) as console_error_count
   FROM session_replay_events s
   WHERE s.team_id = 2
-    AND s.min_first_timestamp >= '2020-12-11 13:46:23'
-    AND s.min_first_timestamp >= '2020-12-25 00:00:00'
-    AND s.max_last_timestamp <= '2021-01-01 13:46:23'
+    AND s.min_first_timestamp >= '2024-02-12 10:45:35'
+    AND s.min_first_timestamp >= '2024-02-26 00:00:00'
+    AND s.max_last_timestamp <= '2024-03-04 10:45:35'
     AND s.session_id in
       (select `$session_id` as session_id
        from
          (SELECT groupUniqArray(event) as event_names,
                  `$session_id`
           FROM events e PREWHERE team_id = 2
-          AND e.timestamp >= '2020-12-11 13:46:23'
+          AND e.timestamp >= '2024-02-12 10:45:35'
           AND e.timestamp <= now()
-          AND timestamp >= '2020-12-24 12:00:00'
-          AND timestamp <= '2021-01-02 01:46:23'
+          AND timestamp >= '2024-02-25 12:00:00'
+          AND timestamp <= '2024-03-04 22:45:35'
           WHERE notEmpty(`$session_id`)
             AND (event = '$pageview'
                  AND (ifNull(equals(nullIf(nullIf(events.`mat_$browser`, ''), 'null'), 'Firefox'), 0)))
@@ -2180,19 +2088,19 @@
          sum(s.console_error_count) as console_error_count
   FROM session_replay_events s
   WHERE s.team_id = 2
-    AND s.min_first_timestamp >= '2020-12-11 13:46:23'
-    AND s.min_first_timestamp >= '2020-12-25 00:00:00'
-    AND s.max_last_timestamp <= '2021-01-01 13:46:23'
+    AND s.min_first_timestamp >= '2024-02-12 10:45:36'
+    AND s.min_first_timestamp >= '2024-02-26 00:00:00'
+    AND s.max_last_timestamp <= '2024-03-04 10:45:36'
     AND s.session_id in
       (select `$session_id` as session_id
        from
          (SELECT groupUniqArray(event) as event_names,
                  `$session_id`
           FROM events e PREWHERE team_id = 2
-          AND e.timestamp >= '2020-12-11 13:46:23'
+          AND e.timestamp >= '2024-02-12 10:45:36'
           AND e.timestamp <= now()
-          AND timestamp >= '2020-12-24 12:00:00'
-          AND timestamp <= '2021-01-02 01:46:23'
+          AND timestamp >= '2024-02-25 12:00:00'
+          AND timestamp <= '2024-03-04 22:45:36'
           WHERE notEmpty(`$session_id`)
             AND (event = '$pageview')
           GROUP BY `$session_id`
@@ -2225,19 +2133,19 @@
          sum(s.console_error_count) as console_error_count
   FROM session_replay_events s
   WHERE s.team_id = 2
-    AND s.min_first_timestamp >= '2020-12-11 13:46:23'
-    AND s.min_first_timestamp >= '2020-12-25 00:00:00'
-    AND s.max_last_timestamp <= '2021-01-01 13:46:23'
+    AND s.min_first_timestamp >= '2024-02-12 10:45:36'
+    AND s.min_first_timestamp >= '2024-02-26 00:00:00'
+    AND s.max_last_timestamp <= '2024-03-04 10:45:36'
     AND s.session_id in
       (select `$session_id` as session_id
        from
          (SELECT groupUniqArray(event) as event_names,
                  `$session_id`
           FROM events e PREWHERE team_id = 2
-          AND e.timestamp >= '2020-12-11 13:46:23'
+          AND e.timestamp >= '2024-02-12 10:45:36'
           AND e.timestamp <= now()
-          AND timestamp >= '2020-12-24 12:00:00'
-          AND timestamp <= '2021-01-02 01:46:23'
+          AND timestamp >= '2024-02-25 12:00:00'
+          AND timestamp <= '2024-03-04 22:45:36'
           WHERE notEmpty(`$session_id`)
             AND (event = '$autocapture')
           GROUP BY `$session_id`
@@ -2270,9 +2178,9 @@
          sum(s.console_error_count) as console_error_count
   FROM session_replay_events s
   WHERE s.team_id = 2
-    AND s.min_first_timestamp >= '2020-12-11 13:46:23'
-    AND s.min_first_timestamp >= '2020-12-25 00:00:00'
-    AND s.max_last_timestamp <= '2021-01-01 13:46:23'
+    AND s.min_first_timestamp >= '2024-02-12 10:45:37'
+    AND s.min_first_timestamp >= '2024-02-26 00:00:00'
+    AND s.max_last_timestamp <= '2024-03-04 10:45:37'
     AND s.distinct_id in
       (select distinct_id
        from
@@ -2321,19 +2229,19 @@
          sum(s.console_error_count) as console_error_count
   FROM session_replay_events s
   WHERE s.team_id = 2
-    AND s.min_first_timestamp >= '2020-12-11 13:46:23'
-    AND s.min_first_timestamp >= '2020-12-25 00:00:00'
-    AND s.max_last_timestamp <= '2021-01-01 13:46:23'
+    AND s.min_first_timestamp >= '2024-02-12 10:45:38'
+    AND s.min_first_timestamp >= '2024-02-26 00:00:00'
+    AND s.max_last_timestamp <= '2024-03-04 10:45:38'
     AND s.session_id in
       (select `$session_id` as session_id
        from
          (SELECT groupUniqArray(event) as event_names,
                  `$session_id`
           FROM events e PREWHERE team_id = 2
-          AND e.timestamp >= '2020-12-11 13:46:23'
+          AND e.timestamp >= '2024-02-12 10:45:38'
           AND e.timestamp <= now()
-          AND timestamp >= '2020-12-24 12:00:00'
-          AND timestamp <= '2021-01-02 01:46:23'
+          AND timestamp >= '2024-02-25 12:00:00'
+          AND timestamp <= '2024-03-04 22:45:38'
           WHERE notEmpty(`$session_id`)
             AND (event = '$pageview'
                  AND (has(['Chrome'], replaceRegexpAll(JSONExtractRaw(properties, '$browser'), '^"|"$', ''))))
@@ -2367,19 +2275,19 @@
          sum(s.console_error_count) as console_error_count
   FROM session_replay_events s
   WHERE s.team_id = 2
-    AND s.min_first_timestamp >= '2020-12-11 13:46:23'
-    AND s.min_first_timestamp >= '2020-12-25 00:00:00'
-    AND s.max_last_timestamp <= '2021-01-01 13:46:23'
+    AND s.min_first_timestamp >= '2024-02-12 10:45:38'
+    AND s.min_first_timestamp >= '2024-02-26 00:00:00'
+    AND s.max_last_timestamp <= '2024-03-04 10:45:38'
     AND s.session_id in
       (select `$session_id` as session_id
        from
          (SELECT groupUniqArray(event) as event_names,
                  `$session_id`
           FROM events e PREWHERE team_id = 2
-          AND e.timestamp >= '2020-12-11 13:46:23'
+          AND e.timestamp >= '2024-02-12 10:45:38'
           AND e.timestamp <= now()
-          AND timestamp >= '2020-12-24 12:00:00'
-          AND timestamp <= '2021-01-02 01:46:23'
+          AND timestamp >= '2024-02-25 12:00:00'
+          AND timestamp <= '2024-03-04 22:45:38'
           WHERE notEmpty(`$session_id`)
             AND (event = '$pageview'
                  AND (has(['Firefox'], replaceRegexpAll(JSONExtractRaw(properties, '$browser'), '^"|"$', ''))))
@@ -2413,19 +2321,19 @@
          sum(s.console_error_count) as console_error_count
   FROM session_replay_events s
   WHERE s.team_id = 2
-    AND s.min_first_timestamp >= '2020-12-11 13:46:23'
-    AND s.min_first_timestamp >= '2020-12-25 00:00:00'
-    AND s.max_last_timestamp <= '2021-01-01 13:46:23'
+    AND s.min_first_timestamp >= '2024-02-12 10:45:40'
+    AND s.min_first_timestamp >= '2024-02-26 00:00:00'
+    AND s.max_last_timestamp <= '2024-03-04 10:45:40'
     AND s.session_id in
       (select `$session_id` as session_id
        from
          (SELECT groupUniqArray(event) as event_names,
                  `$session_id`
           FROM events e PREWHERE team_id = 2
-          AND e.timestamp >= '2020-12-11 13:46:23'
+          AND e.timestamp >= '2024-02-12 10:45:40'
           AND e.timestamp <= now()
-          AND timestamp >= '2020-12-24 12:00:00'
-          AND timestamp <= '2021-01-02 01:46:23'
+          AND timestamp >= '2024-02-25 12:00:00'
+          AND timestamp <= '2024-03-04 22:45:40'
           WHERE notEmpty(`$session_id`)
             AND (event = '$pageview'
                  AND (has(['Chrome'], "mat_$browser")))
@@ -2459,19 +2367,19 @@
          sum(s.console_error_count) as console_error_count
   FROM session_replay_events s
   WHERE s.team_id = 2
-    AND s.min_first_timestamp >= '2020-12-11 13:46:23'
-    AND s.min_first_timestamp >= '2020-12-25 00:00:00'
-    AND s.max_last_timestamp <= '2021-01-01 13:46:23'
+    AND s.min_first_timestamp >= '2024-02-12 10:45:40'
+    AND s.min_first_timestamp >= '2024-02-26 00:00:00'
+    AND s.max_last_timestamp <= '2024-03-04 10:45:40'
     AND s.session_id in
       (select `$session_id` as session_id
        from
          (SELECT groupUniqArray(event) as event_names,
                  `$session_id`
           FROM events e PREWHERE team_id = 2
-          AND e.timestamp >= '2020-12-11 13:46:23'
+          AND e.timestamp >= '2024-02-12 10:45:40'
           AND e.timestamp <= now()
-          AND timestamp >= '2020-12-24 12:00:00'
-          AND timestamp <= '2021-01-02 01:46:23'
+          AND timestamp >= '2024-02-25 12:00:00'
+          AND timestamp <= '2024-03-04 22:45:40'
           WHERE notEmpty(`$session_id`)
             AND (event = '$pageview'
                  AND (has(['Firefox'], "mat_$browser")))
@@ -2966,140 +2874,6 @@
   OFFSET 0
   '''
 # ---
-# name: TestClickhouseSessionRecordingsListFromSessionReplay.test_filter_for_recordings_by_console_text.4
-  '''
-  
-  SELECT s.session_id,
-         any(s.team_id),
-         any(s.distinct_id),
-         min(s.min_first_timestamp) as start_time,
-         max(s.max_last_timestamp) as end_time,
-         dateDiff('SECOND', start_time, end_time) as duration,
-         argMinMerge(s.first_url) as first_url,
-         sum(s.click_count),
-         sum(s.keypress_count),
-         sum(s.mouse_activity_count),
-         sum(s.active_milliseconds)/1000 as active_seconds,
-         duration-active_seconds as inactive_seconds,
-         sum(s.console_log_count) as console_log_count,
-         sum(s.console_warn_count) as console_warn_count,
-         sum(s.console_error_count) as console_error_count
-  FROM session_replay_events s
-  WHERE s.team_id = 2
-    AND s.min_first_timestamp >= '2020-12-31 20:00:00'
-    AND s.min_first_timestamp >= '2021-01-14 00:00:00'
-    AND s.max_last_timestamp <= '2021-01-21 20:00:00'
-    AND "session_id" in
-      (SELECT distinct log_source_id as session_id
-       FROM log_entries PREWHERE team_id = 2
-       AND timestamp >= '2020-12-31 20:00:00'
-       AND timestamp <= now()
-       AND timestamp >= '2021-01-13 12:00:00'
-       AND timestamp <= '2021-01-22 08:00:00'
-       WHERE 1=1
-         AND level in ['log']
-         AND positionCaseInsensitive(message, 'message 5') > 0 ) as log_text_matching
-  GROUP BY session_id
-  HAVING 1=1
-  AND (console_log_count > 0)
-  ORDER BY start_time DESC
-  LIMIT 51
-  OFFSET 0
-  '''
-# ---
-# name: TestClickhouseSessionRecordingsListFromSessionReplay.test_filter_for_recordings_with_console_errors
-  '''
-  
-  SELECT s.session_id,
-         any(s.team_id),
-         any(s.distinct_id),
-         min(s.min_first_timestamp) as start_time,
-         max(s.max_last_timestamp) as end_time,
-         dateDiff('SECOND', start_time, end_time) as duration,
-         argMinMerge(s.first_url) as first_url,
-         sum(s.click_count),
-         sum(s.keypress_count),
-         sum(s.mouse_activity_count),
-         sum(s.active_milliseconds)/1000 as active_seconds,
-         duration-active_seconds as inactive_seconds,
-         sum(s.console_log_count) as console_log_count,
-         sum(s.console_warn_count) as console_warn_count,
-         sum(s.console_error_count) as console_error_count
-  FROM session_replay_events s
-  WHERE s.team_id = 2
-    AND s.min_first_timestamp >= '2020-12-31 20:00:00'
-    AND s.min_first_timestamp >= '2021-01-14 00:00:00'
-    AND s.max_last_timestamp <= '2021-01-21 20:00:00'
-  GROUP BY session_id
-  HAVING 1=1
-  AND (console_error_count > 0)
-  ORDER BY start_time DESC
-  LIMIT 51
-  OFFSET 0
-  '''
-# ---
-# name: TestClickhouseSessionRecordingsListFromSessionReplay.test_filter_for_recordings_with_console_errors.1
-  '''
-  
-  SELECT s.session_id,
-         any(s.team_id),
-         any(s.distinct_id),
-         min(s.min_first_timestamp) as start_time,
-         max(s.max_last_timestamp) as end_time,
-         dateDiff('SECOND', start_time, end_time) as duration,
-         argMinMerge(s.first_url) as first_url,
-         sum(s.click_count),
-         sum(s.keypress_count),
-         sum(s.mouse_activity_count),
-         sum(s.active_milliseconds)/1000 as active_seconds,
-         duration-active_seconds as inactive_seconds,
-         sum(s.console_log_count) as console_log_count,
-         sum(s.console_warn_count) as console_warn_count,
-         sum(s.console_error_count) as console_error_count
-  FROM session_replay_events s
-  WHERE s.team_id = 2
-    AND s.min_first_timestamp >= '2020-12-31 20:00:00'
-    AND s.min_first_timestamp >= '2021-01-14 00:00:00'
-    AND s.max_last_timestamp <= '2021-01-21 20:00:00'
-  GROUP BY session_id
-  HAVING 1=1
-  AND (console_log_count > 0)
-  ORDER BY start_time DESC
-  LIMIT 51
-  OFFSET 0
-  '''
-# ---
-# name: TestClickhouseSessionRecordingsListFromSessionReplay.test_filter_for_recordings_with_console_errors.2
-  '''
-  
-  SELECT s.session_id,
-         any(s.team_id),
-         any(s.distinct_id),
-         min(s.min_first_timestamp) as start_time,
-         max(s.max_last_timestamp) as end_time,
-         dateDiff('SECOND', start_time, end_time) as duration,
-         argMinMerge(s.first_url) as first_url,
-         sum(s.click_count),
-         sum(s.keypress_count),
-         sum(s.mouse_activity_count),
-         sum(s.active_milliseconds)/1000 as active_seconds,
-         duration-active_seconds as inactive_seconds,
-         sum(s.console_log_count) as console_log_count,
-         sum(s.console_warn_count) as console_warn_count,
-         sum(s.console_error_count) as console_error_count
-  FROM session_replay_events s
-  WHERE s.team_id = 2
-    AND s.min_first_timestamp >= '2020-12-31 20:00:00'
-    AND s.min_first_timestamp >= '2021-01-14 00:00:00'
-    AND s.max_last_timestamp <= '2021-01-21 20:00:00'
-  GROUP BY session_id
-  HAVING 1=1
-  AND (console_log_count > 0)
-  ORDER BY start_time DESC
-  LIMIT 51
-  OFFSET 0
-  '''
-# ---
 # name: TestClickhouseSessionRecordingsListFromSessionReplay.test_filter_for_recordings_with_console_logs
   '''
   
@@ -3132,37 +2906,6 @@
   '''
 # ---
 # name: TestClickhouseSessionRecordingsListFromSessionReplay.test_filter_for_recordings_with_console_logs.1
-  '''
-  
-  SELECT s.session_id,
-         any(s.team_id),
-         any(s.distinct_id),
-         min(s.min_first_timestamp) as start_time,
-         max(s.max_last_timestamp) as end_time,
-         dateDiff('SECOND', start_time, end_time) as duration,
-         argMinMerge(s.first_url) as first_url,
-         sum(s.click_count),
-         sum(s.keypress_count),
-         sum(s.mouse_activity_count),
-         sum(s.active_milliseconds)/1000 as active_seconds,
-         duration-active_seconds as inactive_seconds,
-         sum(s.console_log_count) as console_log_count,
-         sum(s.console_warn_count) as console_warn_count,
-         sum(s.console_error_count) as console_error_count
-  FROM session_replay_events s
-  WHERE s.team_id = 2
-    AND s.min_first_timestamp >= '2020-12-31 20:00:00'
-    AND s.min_first_timestamp >= '2021-01-14 00:00:00'
-    AND s.max_last_timestamp <= '2021-01-21 20:00:00'
-  GROUP BY session_id
-  HAVING 1=1
-  AND (console_warn_count > 0)
-  ORDER BY start_time DESC
-  LIMIT 51
-  OFFSET 0
-  '''
-# ---
-# name: TestClickhouseSessionRecordingsListFromSessionReplay.test_filter_for_recordings_with_console_logs.2
   '''
   
   SELECT s.session_id,
@@ -3255,37 +2998,6 @@
   OFFSET 0
   '''
 # ---
-# name: TestClickhouseSessionRecordingsListFromSessionReplay.test_filter_for_recordings_with_console_warns.2
-  '''
-  
-  SELECT s.session_id,
-         any(s.team_id),
-         any(s.distinct_id),
-         min(s.min_first_timestamp) as start_time,
-         max(s.max_last_timestamp) as end_time,
-         dateDiff('SECOND', start_time, end_time) as duration,
-         argMinMerge(s.first_url) as first_url,
-         sum(s.click_count),
-         sum(s.keypress_count),
-         sum(s.mouse_activity_count),
-         sum(s.active_milliseconds)/1000 as active_seconds,
-         duration-active_seconds as inactive_seconds,
-         sum(s.console_log_count) as console_log_count,
-         sum(s.console_warn_count) as console_warn_count,
-         sum(s.console_error_count) as console_error_count
-  FROM session_replay_events s
-  WHERE s.team_id = 2
-    AND s.min_first_timestamp >= '2020-12-31 20:00:00'
-    AND s.min_first_timestamp >= '2021-01-14 00:00:00'
-    AND s.max_last_timestamp <= '2021-01-21 20:00:00'
-  GROUP BY session_id
-  HAVING 1=1
-  AND (console_log_count > 0)
-  ORDER BY start_time DESC
-  LIMIT 51
-  OFFSET 0
-  '''
-# ---
 # name: TestClickhouseSessionRecordingsListFromSessionReplay.test_filter_for_recordings_with_mixed_console_counts
   '''
   
@@ -3319,37 +3031,6 @@
   '''
 # ---
 # name: TestClickhouseSessionRecordingsListFromSessionReplay.test_filter_for_recordings_with_mixed_console_counts.1
-  '''
-  
-  SELECT s.session_id,
-         any(s.team_id),
-         any(s.distinct_id),
-         min(s.min_first_timestamp) as start_time,
-         max(s.max_last_timestamp) as end_time,
-         dateDiff('SECOND', start_time, end_time) as duration,
-         argMinMerge(s.first_url) as first_url,
-         sum(s.click_count),
-         sum(s.keypress_count),
-         sum(s.mouse_activity_count),
-         sum(s.active_milliseconds)/1000 as active_seconds,
-         duration-active_seconds as inactive_seconds,
-         sum(s.console_log_count) as console_log_count,
-         sum(s.console_warn_count) as console_warn_count,
-         sum(s.console_error_count) as console_error_count
-  FROM session_replay_events s
-  WHERE s.team_id = 2
-    AND s.min_first_timestamp >= '2020-12-31 20:00:00'
-    AND s.min_first_timestamp >= '2021-01-14 00:00:00'
-    AND s.max_last_timestamp <= '2021-01-21 20:00:00'
-  GROUP BY session_id
-  HAVING 1=1
-  AND (console_log_count > 0)
-  ORDER BY start_time DESC
-  LIMIT 51
-  OFFSET 0
-  '''
-# ---
-# name: TestClickhouseSessionRecordingsListFromSessionReplay.test_filter_for_recordings_with_mixed_console_counts.2
   '''
   
   SELECT s.session_id,
@@ -3665,19 +3346,19 @@
          sum(s.console_error_count) as console_error_count
   FROM session_replay_events s
   WHERE s.team_id = 2
-    AND s.min_first_timestamp >= '2020-12-11 13:46:23'
-    AND s.min_first_timestamp >= '2020-12-25 00:00:00'
-    AND s.max_last_timestamp <= '2021-01-01 13:46:23'
+    AND s.min_first_timestamp >= '2024-02-12 10:45:49'
+    AND s.min_first_timestamp >= '2024-02-26 00:00:00'
+    AND s.max_last_timestamp <= '2024-03-04 10:45:49'
     AND s.session_id in
       (select `$session_id` as session_id
        from
          (SELECT groupUniqArray(event) as event_names,
                  `$session_id`
           FROM events e PREWHERE team_id = 2
-          AND e.timestamp >= '2020-12-11 13:46:23'
+          AND e.timestamp >= '2024-02-12 10:45:49'
           AND e.timestamp <= now()
-          AND timestamp >= '2020-12-24 12:00:00'
-          AND timestamp <= '2021-01-02 01:46:23'
+          AND timestamp >= '2024-02-25 12:00:00'
+          AND timestamp <= '2024-03-04 22:45:49'
           WHERE notEmpty(`$session_id`)
             AND ((event = '$pageview')
                  OR event = 'new-event')
@@ -3711,19 +3392,19 @@
          sum(s.console_error_count) as console_error_count
   FROM session_replay_events s
   WHERE s.team_id = 2
-    AND s.min_first_timestamp >= '2020-12-11 13:46:23'
-    AND s.min_first_timestamp >= '2020-12-25 00:00:00'
-    AND s.max_last_timestamp <= '2021-01-01 13:46:23'
+    AND s.min_first_timestamp >= '2024-02-12 10:45:49'
+    AND s.min_first_timestamp >= '2024-02-26 00:00:00'
+    AND s.max_last_timestamp <= '2024-03-04 10:45:49'
     AND s.session_id in
       (select `$session_id` as session_id
        from
          (SELECT groupUniqArray(event) as event_names,
                  `$session_id`
           FROM events e PREWHERE team_id = 2
-          AND e.timestamp >= '2020-12-11 13:46:23'
+          AND e.timestamp >= '2024-02-12 10:45:49'
           AND e.timestamp <= now()
-          AND timestamp >= '2020-12-24 12:00:00'
-          AND timestamp <= '2021-01-02 01:46:23'
+          AND timestamp >= '2024-02-25 12:00:00'
+          AND timestamp <= '2024-03-04 22:45:49'
           WHERE notEmpty(`$session_id`)
             AND ((event = '$pageview')
                  OR event = 'new-event2')
@@ -3757,9 +3438,9 @@
          sum(s.console_error_count) as console_error_count
   FROM session_replay_events s
   WHERE s.team_id = 2
-    AND s.min_first_timestamp >= '2020-12-11 13:46:23'
-    AND s.min_first_timestamp >= '2020-12-25 00:00:00'
-    AND s.max_last_timestamp <= '2021-01-01 13:46:23'
+    AND s.min_first_timestamp >= '2024-02-12 10:45:49'
+    AND s.min_first_timestamp >= '2024-02-26 00:00:00'
+    AND s.max_last_timestamp <= '2024-03-04 10:45:49'
     AND s.distinct_id in
       (select distinct_id
        from
