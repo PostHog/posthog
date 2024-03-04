@@ -99,7 +99,7 @@ class SessionRecording(UUIDModel):
             self.console_log_count = metadata["console_log_count"]
             self.console_warn_count = metadata["console_warn_count"]
             self.console_error_count = metadata["console_error_count"]
-            self.snapshot_source = metadata["snapshot_source"]
+            self.snapshot_source = metadata["snapshot_source"] or "web"
 
         return True
 
@@ -187,7 +187,7 @@ class SessionRecording(UUIDModel):
             recording.console_log_count = ch_recording.get("console_log_count", None)
             recording.console_warn_count = ch_recording.get("console_warn_count", None)
             recording.console_error_count = ch_recording.get("console_error_count", None)
-            recording.snapshot_source = ch_recording.get("snapshot_source", None)
+            recording.snapshot_source = ch_recording.get("snapshot_source", "web")
             recording.set_start_url_from_urls(ch_recording.get("urls", None), ch_recording.get("first_url", None))
             recordings.append(recording)
 
