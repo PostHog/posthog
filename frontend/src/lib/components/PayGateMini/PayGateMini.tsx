@@ -58,7 +58,9 @@ export function PayGateMini({
 
     return gateVariant && product && featureInfo ? (
         <div className={clsx('PayGateMini', className)}>
-            <div className="PayGateMini__icon">{getProductIcon(featureInfo.icon_key) || <IconPremium />}</div>
+            <div className="PayGateMini__icon">
+                {getProductIcon(product.name, featureInfo.icon_key) || <IconPremium />}
+            </div>
             <h3>{featureInfo.name}</h3>
             <p className="mb-0">
                 {gateVariant === 'move-to-cloud' ? (

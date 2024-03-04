@@ -34,6 +34,7 @@ from posthog.models import (
     Organization,
     Person,
 )
+
 from posthog.models.group.util import create_group
 from posthog.models.instance_setting import (
     get_instance_setting,
@@ -46,6 +47,7 @@ from posthog.schema import (
     BreakdownFilter,
     DateRange,
     EventsNode,
+    DataWarehouseNode,
     PropertyGroupFilter,
     TrendsFilter,
     TrendsQuery,
@@ -169,7 +171,7 @@ def convert_filter_to_trends_query(filter: Filter) -> TrendsQuery:
             )
         )
 
-    series: List[EventsNode | ActionsNode] = [*events, *actions]
+    series: List[Union[EventsNode, ActionsNode, DataWarehouseNode]] = [*events, *actions]
 
     tq = TrendsQuery(
         series=series,

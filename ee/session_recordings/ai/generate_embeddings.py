@@ -1,3 +1,5 @@
+import json
+
 from django.conf import settings
 from openai import OpenAI
 import tiktoken
@@ -15,6 +17,7 @@ from ee.session_recordings.ai.utils import (
     simplify_window_id,
     format_dates,
     collapse_sequence_of_events,
+    only_pageview_urls,
 )
 from structlog import get_logger
 from posthog.clickhouse.client import sync_execute
@@ -30,6 +33,7 @@ GENERATE_RECORDING_EMBEDDING_TIMING = Histogram(
 RECORDING_EMBEDDING_TOKEN_COUNT = Histogram(
     "posthog_session_recordings_recording_embedding_token_count",
     "Token count for individual recordings generated during embedding",
+    buckets=[0, 100, 500, 1000, 2000, 3000, 4000, 5000, 6000, 8000, 10000],
 )
 
 SESSION_SKIPPED_WHEN_GENERATING_EMBEDDINGS = Counter(
@@ -44,7 +48,12 @@ SESSION_EMBEDDINGS_GENERATED = Counter(
 
 SESSION_EMBEDDINGS_FAILED = Counter(
     "posthog_session_recordings_embeddings_failed",
-    "Number of session embeddings failed",
+    "Instance of an embedding request to open AI (and its surrounding work) failing and being swallowed",
+)
+
+SESSION_EMBEDDINGS_FATAL_FAILED = Counter(
+    "posthog_session_recordings_embeddings_fatal_failed",
+    "Instance of the embeddings task failing and raising an exception",
 )
 
 SESSION_EMBEDDINGS_WRITTEN_TO_CLICKHOUSE = Counter(
@@ -111,6 +120,7 @@ def fetch_recordings_without_embeddings(team: Team | int, offset=0) -> List[str]
                 and session_id in replay_with_events
             GROUP BY session_id
             HAVING dateDiff('second', min(min_first_timestamp), max(max_last_timestamp)) > %(min_duration_include_seconds)s
+            order by rand()
             LIMIT %(batch_flush_size)s
             -- when running locally the offset is used for paging
             -- when running in celery the offset is not used
@@ -140,9 +150,10 @@ def embed_batch_of_recordings(recordings: List[str], team: Team | int) -> None:
             f"processing {len(recordings)} recordings to embed for team {team.pk}", flow="embeddings", team_id=team.pk
         )
 
-        while len(recordings) > 0:
-            batched_embeddings = []
-            for session_id in recordings:
+        batched_embeddings = []
+
+        for session_id in recordings:
+            try:
                 with GENERATE_RECORDING_EMBEDDING_TIMING.time():
                     embeddings = generate_recording_embeddings(session_id=session_id, team=team)
 
@@ -155,12 +166,19 @@ def embed_batch_of_recordings(recordings: List[str], team: Team | int) -> None:
                             "embeddings": embeddings,
                         }
                     )
+            # we don't want to fail the whole batch if only a single recording fails
+            except Exception as e:
+                SESSION_EMBEDDINGS_FAILED.inc()
+                logger.error(f"embed individual recording error", flow="embeddings", error=e)
+                # so we swallow errors here
 
-            if len(batched_embeddings) > 0:
-                flush_embeddings_to_clickhouse(embeddings=batched_embeddings)
+        if len(batched_embeddings) > 0:
+            flush_embeddings_to_clickhouse(embeddings=batched_embeddings)
     except Exception as e:
-        SESSION_EMBEDDINGS_FAILED.inc()
-        logger.error(f"embed recordings error", flow="embeddings", error=e)
+        # but we don't swallow errors within the wider task itself
+        # if something is failing here then we're most likely having trouble with ClickHouse
+        SESSION_EMBEDDINGS_FATAL_FAILED.inc()
+        logger.error(f"embed recordings fatal error", flow="embeddings", error=e)
         raise e
 
 
@@ -205,11 +223,13 @@ def generate_recording_embeddings(session_id: str, team: Team | int) -> List[flo
         return None
 
     processed_sessions = collapse_sequence_of_events(
-        format_dates(
-            reduce_elements_chain(
-                simplify_window_id(SessionSummaryPromptData(columns=session_events[0], results=session_events[1]))
-            ),
-            start=datetime.datetime(1970, 1, 1, tzinfo=pytz.UTC),  # epoch timestamp
+        only_pageview_urls(
+            format_dates(
+                reduce_elements_chain(
+                    simplify_window_id(SessionSummaryPromptData(columns=session_events[0], results=session_events[1]))
+                ),
+                start=datetime.datetime(1970, 1, 1, tzinfo=pytz.UTC),  # epoch timestamp
+            )
         )
     )
 
@@ -238,7 +258,10 @@ def generate_recording_embeddings(session_id: str, team: Team | int) -> List[flo
     RECORDING_EMBEDDING_TOKEN_COUNT.observe(token_count)
     if token_count > MAX_TOKENS_FOR_MODEL:
         logger.error(
-            f"embedding input exceeds max token count for model", flow="embeddings", session_id=session_id, input=input
+            f"embedding input exceeds max token count for model",
+            flow="embeddings",
+            session_id=session_id,
+            input=json.dumps(input),
         )
         SESSION_SKIPPED_WHEN_GENERATING_EMBEDDINGS.inc()
         return None

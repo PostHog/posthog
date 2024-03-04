@@ -24,6 +24,7 @@ from posthog.schema import (
     ActionsNode,
     BreakdownAttributionType,
     BreakdownType,
+    DataWarehouseNode,
     EventsNode,
     FunnelExclusionActionsNode,
     FunnelTimeToConvertResults,
@@ -356,26 +357,33 @@ class FunnelBase(ABC):
 
     def _serialize_step(
         self,
-        step: ActionsNode | EventsNode,
+        step: ActionsNode | EventsNode | DataWarehouseNode,
         count: int,
         index: int,
         people: Optional[List[uuid.UUID]] = None,
         sampling_factor: Optional[float] = None,
     ) -> Dict[str, Any]:
+        action_id: Optional[str | int]
         if isinstance(step, EventsNode):
             name = step.event
+            action_id = step.event
+            type = "events"
+        elif isinstance(step, DataWarehouseNode):
+            raise NotImplementedError("DataWarehouseNode is not supported in funnels")
         else:
             action = Action.objects.get(pk=step.id)
             name = action.name
+            action_id = step.id
+            type = "actions"
 
         return {
-            "action_id": step.event if isinstance(step, EventsNode) else step.id,
+            "action_id": action_id,
             "name": name,
             "custom_name": step.custom_name,
             "order": index,
             "people": people if people else [],
             "count": correct_result_for_sampling(count, sampling_factor),
-            "type": "events" if isinstance(step, EventsNode) else "actions",
+            "type": type,
         }
 
     @property
@@ -420,8 +428,10 @@ class FunnelBase(ABC):
             step_cols = self._get_step_col(entity, index, entity_name)
             all_step_cols.extend(step_cols)
 
-        for exclusion_id, entity in enumerate(funnelsFilter.exclusions or []):
-            step_cols = self._get_step_col(entity, entity.funnelFromStep, entity_name, f"exclusion_{exclusion_id}_")
+        for exclusion_id, excluded_entity in enumerate(funnelsFilter.exclusions or []):
+            step_cols = self._get_step_col(
+                excluded_entity, excluded_entity.funnelFromStep, entity_name, f"exclusion_{exclusion_id}_"
+            )
             # every exclusion entity has the form: exclusion_<id>_step_i & timestamp exclusion_<id>_latest_i
             # where i is the starting step for exclusion on that entity
             all_step_cols.extend(step_cols)
@@ -572,6 +582,8 @@ class FunnelBase(ABC):
             # action
             action = Action.objects.get(pk=int(entity.id), team=self.context.team)
             event_expr = action_to_expr(action)
+        elif isinstance(entity, DataWarehouseNode):
+            raise NotImplementedError("DataWarehouseNode is not supported in funnels")
         elif entity.event is None:
             # all events
             event_expr = ast.Constant(value=True)

@@ -839,10 +839,10 @@ export const commandPaletteLogic = kea<commandPaletteLogicType>([
                 scope: GLOBAL_COMMAND_SCOPE,
                 resolver: {
                     icon: IconEye,
-                    display: 'Switch theme',
+                    display: 'Change theme',
                     synonyms: ['toggle theme', 'dark mode', 'light mode'],
                     executor: () => ({
-                        scope: 'Switch theme',
+                        scope: 'Change theme',
                         resolver: [
                             {
                                 icon: IconDay,

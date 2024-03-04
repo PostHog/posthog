@@ -14,9 +14,10 @@ from posthog.models.action.action import Action
 from posthog.models.filters.mixins.utils import cached_property
 from posthog.models.team.team import Team
 from posthog.schema import ActionsNode, EventsNode, HogQLQueryModifiers, TrendsQuery, ChartDisplayType
+from posthog.hogql_queries.insights.trends.trends_query_builder_abstract import TrendsQueryBuilderAbstract
 
 
-class TrendsQueryBuilder:
+class TrendsQueryBuilder(TrendsQueryBuilderAbstract):
     query: TrendsQuery
     team: Team
     query_date_range: QueryDateRange

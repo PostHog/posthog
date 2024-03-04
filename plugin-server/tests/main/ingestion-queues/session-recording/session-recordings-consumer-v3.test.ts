@@ -311,17 +311,16 @@ describe('ingester', () => {
             await ingester.handleEachBatch(partitionMsgs1, noop)
         }
 
-        // TODO: Unskip when we add back in the replay and console ingestion
         it('shuts down without error', async () => {
             await setup()
 
             await expect(ingester.stop()).resolves.toMatchObject([
                 // destroy sessions,
                 { status: 'fulfilled' },
-                // // stop replay ingester
-                // { status: 'fulfilled' },
-                // // stop console ingester
-                // { status: 'fulfilled' },
+                // stop replay ingester
+                { status: 'fulfilled' },
+                // stop console ingester
+                { status: 'fulfilled' },
             ])
         })
     })

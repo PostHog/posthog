@@ -12,6 +12,7 @@ import { insightMap } from '~/queries/nodes/InsightQuery/utils/queryNodeToFilter
 import { getDisplay, getShowPercentStackView, getShowValueOnSeries } from '~/queries/nodes/InsightViz/utils'
 import {
     ActionsNode,
+    DataWarehouseNode,
     EventsNode,
     FunnelsFilter,
     FunnelsQuery,
@@ -70,9 +71,9 @@ export interface QueryPropertyCache
 }
 
 const cleanSeriesEntityMath = (
-    entity: EventsNode | ActionsNode,
+    entity: EventsNode | ActionsNode | DataWarehouseNode,
     mathAvailability: MathAvailability
-): EventsNode | ActionsNode => {
+): EventsNode | ActionsNode | DataWarehouseNode => {
     const { math, math_property, math_group_type_index, math_hogql, ...baseEntity } = entity
 
     // TODO: This should be improved to keep a math that differs from the default.
@@ -91,9 +92,9 @@ const cleanSeriesEntityMath = (
 }
 
 const cleanSeriesMath = (
-    series: (EventsNode | ActionsNode)[],
+    series: (EventsNode | ActionsNode | DataWarehouseNode)[],
     mathAvailability: MathAvailability
-): (EventsNode | ActionsNode)[] => {
+): (EventsNode | ActionsNode | DataWarehouseNode)[] => {
     return series.map((entity) => cleanSeriesEntityMath(entity, mathAvailability))
 }
 

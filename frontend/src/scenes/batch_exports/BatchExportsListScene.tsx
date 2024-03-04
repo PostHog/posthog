@@ -7,22 +7,20 @@ import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
-import { AvailableFeature } from '~/types'
-
 import { batchExportsListLogic } from './batchExportsListLogic'
 import { BatchExportRunIcon, BatchExportTag } from './components'
+import { showBatchExports } from './utils'
 
 export const scene: SceneExport = {
     component: BatchExportsListScene,
 }
 
 export function BatchExportsListScene(): JSX.Element {
-    const { hasAvailableFeature } = useValues(userLogic)
     return (
         <>
             <PageHeader
                 buttons={
-                    hasAvailableFeature(AvailableFeature.DATA_PIPELINES) && (
+                    showBatchExports() && (
                         <>
                             <LemonButton type="primary" to={urls.batchExportNew()}>
                                 Create export workflow
@@ -41,10 +39,12 @@ export function BatchExportsListScene(): JSX.Element {
 export function BatchExportsList(): JSX.Element {
     const { batchExportConfigs, batchExportConfigsLoading, pagination } = useValues(batchExportsListLogic)
     const { unpause, pause } = useActions(batchExportsListLogic)
-    const { hasAvailableFeature } = useValues(userLogic)
-    const hasDataPipelines = hasAvailableFeature(AvailableFeature.DATA_PIPELINES)
+    const { user } = useValues(userLogic)
+    const hasDataPipelines = showBatchExports()
 
-    const configs = batchExportConfigs?.results ?? []
+    const configs =
+        batchExportConfigs?.results.filter((config) => config.destination.type !== 'HTTP' || user?.is_impersonated) ??
+        []
 
     if (configs.length === 0 && !hasDataPipelines) {
         return <></>
