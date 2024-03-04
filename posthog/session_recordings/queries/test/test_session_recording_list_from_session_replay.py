@@ -1167,10 +1167,8 @@ class TestClickhouseSessionRecordingsListFromSessionReplay(ClickhouseTestMixin, 
 
     @snapshot_clickhouse_queries
     def test_duration_filter(self):
-        another_team = Team.objects.create(organization=self.organization)
-
         user = "test_duration_filter-user"
-        Person.objects.create(team=another_team, distinct_ids=[user], properties={"email": "bla"})
+        Person.objects.create(team=self.team, distinct_ids=[user], properties={"email": "bla"})
 
         session_id_one = "session one is 29 seconds long"
         produce_replay_summary(
@@ -1178,7 +1176,7 @@ class TestClickhouseSessionRecordingsListFromSessionReplay(ClickhouseTestMixin, 
             session_id=session_id_one,
             first_timestamp=self.base_time,
             last_timestamp=(self.base_time + relativedelta(seconds=29)),
-            team_id=another_team.id,
+            team_id=self.team.id,
         )
 
         session_id_two = "session two is 61 seconds long"
@@ -1187,7 +1185,7 @@ class TestClickhouseSessionRecordingsListFromSessionReplay(ClickhouseTestMixin, 
             session_id=session_id_two,
             first_timestamp=self.base_time,
             last_timestamp=(self.base_time + relativedelta(seconds=61)),
-            team_id=another_team.id,
+            team_id=self.team.id,
         )
 
         (session_recordings, _) = self._filter_recordings_by(
