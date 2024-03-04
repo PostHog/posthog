@@ -246,6 +246,7 @@ export function DataTableExport({ query }: DataTableExportProps): JSX.Element | 
                                     )
                                 }
                             },
+                            'data-attr': 'copy-csv-to-clipboard',
                         },
                         {
                             label: 'JSON',
@@ -258,12 +259,14 @@ export function DataTableExport({ query }: DataTableExportProps): JSX.Element | 
                                     )
                                 }
                             },
+                            'data-attr': 'copy-json-to-clipboard',
                         },
                     ],
                 },
                 queryWithDefaults.showOpenEditorButton && {
                     label: 'Open table as a new insight',
                     to: query ? urls.insightNew(undefined, undefined, JSON.stringify(query)) : undefined,
+                    'data-attr': 'open-json-editor-button',
                 },
                 response?.hogql && {
                     label: 'Edit SQL directly',
@@ -276,6 +279,7 @@ export function DataTableExport({ query }: DataTableExportProps): JSX.Element | 
                             source: { kind: NodeKind.HogQLQuery, query: response.hogql },
                         })
                     ),
+                    'data-attr': 'open-sql-editor-button',
                 },
             ].filter(Boolean)}
         >
