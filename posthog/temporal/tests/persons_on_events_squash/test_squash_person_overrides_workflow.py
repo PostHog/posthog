@@ -449,7 +449,6 @@ async def test_squash_events_partition(
 
     squash_events_partition_inputs = SquashEventsPartitionInputs(
         dry_run=False,
-        dictionary_name=overrides_dictionary,
         partition_id="202001",
     )
     mutation_query = await activity_environment.run(squash_events_partition, squash_events_partition_inputs)
@@ -498,7 +497,6 @@ async def test_squash_events_partition_dry_run(
 
     squash_events_partition_inputs = SquashEventsPartitionInputs(
         dry_run=True,
-        dictionary_name=overrides_dictionary,
         partition_id="202001",
     )
     mutation_query = await activity_environment.run(squash_events_partition, squash_events_partition_inputs)
@@ -549,7 +547,6 @@ async def test_squash_events_partition_with_older_overrides(
 
     squash_events_partition_inputs = SquashEventsPartitionInputs(
         dry_run=False,
-        dictionary_name=dictionary_name,
         partition_id="202001",
     )
     mutation_query = await activity_environment.run(squash_events_partition, squash_events_partition_inputs)
@@ -587,7 +584,6 @@ async def test_squash_events_partition_with_newer_overrides(
 
     squash_events_partition_inputs = SquashEventsPartitionInputs(
         dry_run=False,
-        dictionary_name=overrides_dictionary,
         partition_id="202001",
     )
     mutation_query = await activity_environment.run(squash_events_partition, squash_events_partition_inputs)
@@ -619,7 +615,6 @@ async def test_squash_events_partition_with_limited_team_ids(
 
     squash_events_partition_inputs = SquashEventsPartitionInputs(
         dry_run=False,
-        dictionary_name=overrides_dictionary,
         partition_id="202001",
         team_ids=[random_team],
     )
@@ -674,12 +669,6 @@ async def test_delete_squashed_person_overrides_from_clickhouse(
     """
     delete_inputs = DeletePersonOverridesInputs(
         partition_ids=["202001"],
-        dictionary_name="delete_test_dictionary",
-        dry_run=False,
-    )
-    dictionary_inputs = DeletePersonOverridesInputs(
-        partition_ids=["202001"],
-        dictionary_name="delete_test_dictionary",
         dry_run=False,
     )
 
@@ -697,9 +686,9 @@ async def test_delete_squashed_person_overrides_from_clickhouse(
     )
 
     await activity_environment.run(optimize_person_distinct_id_overrides, False)
-    await activity_environment.run(prepare_dictionary, dictionary_inputs)
+    await activity_environment.run(prepare_dictionary, False)
 
-    await activity_environment.run(delete_squashed_person_overrides_from_clickhouse, query_inputs)
+    await activity_environment.run(delete_squashed_person_overrides_from_clickhouse, delete_inputs)
 
     response = await clickhouse_client.read_query(
         "SELECT team_id, distinct_id, person_id FROM person_distinct_id_overrides"
@@ -721,12 +710,6 @@ async def test_delete_squashed_person_overrides_from_clickhouse_within_grace_per
     """Test we do not delete person overrides if they are within the grace period."""
     delete_inputs = DeletePersonOverridesInputs(
         partition_ids=["202001"],
-        dictionary_name="delete_grace_period_test_dictionary",
-        dry_run=False,
-    )
-    dictionary_inputs = DeletePersonOverridesInputs(
-        partition_ids=["202001"],
-        dictionary_name="delete_grace_period_test_dictionary",
         dry_run=False,
     )
 
@@ -749,14 +732,14 @@ async def test_delete_squashed_person_overrides_from_clickhouse_within_grace_per
     )
 
     await activity_environment.run(optimize_person_distinct_id_overrides, False)
-    await activity_environment.run(prepare_dictionary, dictionary_inputs)
+    await activity_environment.run(prepare_dictionary, False)
 
     # Assume it will take less than 120 seconds to run the rest of the test.
     # So the row we have added should not be deleted like all the others as its _timestamp
     # was just computed from datetime.now.
     delete_inputs.delete_grace_period_seconds = 120
 
-    await activity_environment.run(delete_squashed_person_overrides_from_clickhouse, query_inputs)
+    await activity_environment.run(delete_squashed_person_overrides_from_clickhouse, delete_inputs)
 
     response = await clickhouse_client.read_query(
         "SELECT team_id, distinct_id, person_id, _timestamp FROM person_distinct_id_overrides"
