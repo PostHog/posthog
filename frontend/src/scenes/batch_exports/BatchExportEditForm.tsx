@@ -495,7 +495,7 @@ export function BatchExportsEditFields({
                         <LemonField name="url" label="URL">
                             <LemonInput />
                         </LemonField>
-                        <LemonField name="token" label="token">
+                        <LemonField name="token" label="Project API Key">
                             <LemonInput />
                         </LemonField>
                         <LemonField name="exclude_events" label="Events to exclude" className="flex-1">

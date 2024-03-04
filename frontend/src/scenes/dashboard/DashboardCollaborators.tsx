@@ -40,7 +40,7 @@ export function DashboardCollaboration({ dashboardId }: { dashboardId: Dashboard
     return (
         dashboard && (
             <>
-                <PayGateMini feature={AvailableFeature.DASHBOARD_PERMISSIONING}>
+                <PayGateMini feature={AvailableFeature.ADVANCED_PERMISSIONS}>
                     {(!canEditDashboard || !canRestrictDashboard) && (
                         <LemonBanner type="info" className="mb-4">
                             {canEditDashboard
