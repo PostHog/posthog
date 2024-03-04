@@ -32,7 +32,9 @@ RESERVED_KEYWORDS = KEYWORDS + ["team_id"]
 # Limit applied to SELECT statements without LIMIT clause when queried via the API
 DEFAULT_RETURNED_ROWS = 100
 # Max limit for all SELECT queries, and the default for CSV exports.
-MAX_SELECT_RETURNED_ROWS = 10000  # sync with CSV_EXPORT_LIMIT
+MAX_SELECT_RETURNED_ROWS = 10_000  # sync with CSV_EXPORT_LIMIT
+# Max limit for CSV exports
+MAX_CSV_EXPORT_LIMIT = 100_000
 # Max limit for all cohort calculations
 MAX_SELECT_COHORT_CALCULATION_LIMIT = 1000000000  # 1b persons
 
@@ -46,7 +48,7 @@ class LimitContext(str, Enum):
 
 def get_max_limit_for_context(limit_context: LimitContext) -> int:
     if limit_context == LimitContext.EXPORT:
-        return MAX_SELECT_RETURNED_ROWS  # 10k
+        return MAX_CSV_EXPORT_LIMIT  # 100k
     elif limit_context in (LimitContext.QUERY, LimitContext.QUERY_ASYNC):
         return MAX_SELECT_RETURNED_ROWS  # 10k
     elif limit_context == LimitContext.COHORT_CALCULATION:

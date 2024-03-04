@@ -3,7 +3,12 @@ from typing import Dict, Optional, Union, cast
 from posthog.clickhouse.client.connection import Workload
 from posthog.errors import ExposedCHQueryError
 from posthog.hogql import ast
-from posthog.hogql.constants import HogQLGlobalSettings, LimitContext, get_default_limit_for_context
+from posthog.hogql.constants import (
+    HogQLGlobalSettings,
+    LimitContext,
+    get_default_limit_for_context,
+    get_max_limit_for_context,
+)
 from posthog.hogql.errors import HogQLException
 from posthog.hogql.hogql import HogQLContext
 from posthog.hogql.modifiers import create_default_modifiers_for_team
@@ -87,6 +92,7 @@ def execute_hogql_query(
                 enable_select_queries=True,
                 timings=timings,
                 modifiers=query_modifiers,
+                limit_top_select=get_max_limit_for_context(limit_context),
             )
             with timings.measure("clone"):
                 cloned_query = clone_expr(select_query, True)
@@ -130,6 +136,7 @@ def execute_hogql_query(
             enable_select_queries=True,
             timings=timings,
             modifiers=query_modifiers,
+            limit_top_select=get_max_limit_for_context(limit_context),
         )
         clickhouse_sql = print_ast(
             select_query,

@@ -33,8 +33,8 @@ class HogQLContext:
     within_non_hogql_query: bool = False
     # Enable full SELECT queries and subqueries in ClickHouse
     enable_select_queries: bool = False
-    # Do we apply a limit of MAX_SELECT_RETURNED_ROWS=10000 to the topmost select query?
-    limit_top_select: bool = True
+    # Do we apply a limit of int or MAX_SELECT_RETURNED_ROWS=10000 to the topmost select query?
+    limit_top_select: bool | int = True
     # How many nested views do we support on this query?
     max_view_depth: int = 1
 

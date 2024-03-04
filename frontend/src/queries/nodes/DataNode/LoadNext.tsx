@@ -27,6 +27,13 @@ export function LoadNext({ query }: LoadNextProps): JSX.Element {
                         {canLoadNextData ? '. Click to load more.' : '. Reached the end of results.'}
                     </>
                 )}
+                {isHogQLQuery(query) && (
+                    <>
+                        <br />
+                        <br />
+                        Tip: Using export together with a LIMIT clause lets you export more rows.
+                    </>
+                )}
             </LemonButton>
         </div>
     )
