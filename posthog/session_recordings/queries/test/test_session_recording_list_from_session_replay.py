@@ -76,9 +76,8 @@ class TestClickhouseSessionRecordingsListFromSessionReplay(ClickhouseTestMixin, 
         )
 
     def _filter_recordings_by(self, recordings_filter: Dict) -> SessionRecordingQueryResult:
-        session_recording_list_instance = SessionRecordingListFromReplaySummary(
-            filter=(SessionRecordingsFilter(team=self.team, data=recordings_filter)), team=self.team
-        )
+        the_filter = SessionRecordingsFilter(team=self.team, data=recordings_filter)
+        session_recording_list_instance = SessionRecordingListFromReplaySummary(filter=the_filter, team=self.team)
         return session_recording_list_instance.run()
 
     @property
