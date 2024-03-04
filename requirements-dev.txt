@@ -59,9 +59,7 @@ coreapi==2.3.3
 coreschema==0.0.4
     # via coreapi
 coverage[toml]==5.5
-    # via
-    #   coverage
-    #   pytest-cov
+    # via pytest-cov
 datamodel-code-generator==0.25.2
     # via -r requirements-dev.in
 django==4.1.13
@@ -92,9 +90,7 @@ exceptiongroup==1.2.0
 faker==17.5.0
     # via -r requirements-dev.in
 fakeredis[lua]==2.11.0
-    # via
-    #   -r requirements-dev.in
-    #   fakeredis
+    # via -r requirements-dev.in
 flaky==3.7.0
     # via -r requirements-dev.in
 freezegun==1.2.2
@@ -170,7 +166,6 @@ pydantic[email]==2.5.3
     # via
     #   -c requirements.txt
     #   datamodel-code-generator
-    #   pydantic
 pydantic-core==2.14.6
     # via
     #   -c requirements.txt

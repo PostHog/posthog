@@ -1,79 +1,30 @@
-import { LemonButton, LemonModal } from '@posthog/lemon-ui'
+import { LemonModal } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
-import { FEATURE_FLAGS } from 'lib/constants'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { capitalizeFirstLetter } from 'lib/utils'
-import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
-import posthog from 'posthog-js'
-import { useEffect } from 'react'
+import { PayGateMini } from 'lib/components/PayGateMini/PayGateMini'
 
-import { billingLogic } from './billing/billingLogic'
 import { sceneLogic } from './sceneLogic'
-import { urls } from './urls'
 
 export function UpgradeModal(): JSX.Element {
-    const { upgradeModalFeatureNameAndCaption } = useValues(sceneLogic)
+    const { upgradeModalFeatureKey, upgradeModalFeatureUsage, upgradeModalIsGrandfathered } = useValues(sceneLogic)
     const { hideUpgradeModal } = useActions(sceneLogic)
 
-    const [featureName, featureCaption] = upgradeModalFeatureNameAndCaption ?? []
-    const { featureFlags } = useValues(featureFlagLogic)
-    const { billing } = useValues(billingLogic)
-
-    const { reportSubscriptionStatus } = useActions(eventUsageLogic)
-
-    useEffect(() => {
-        reportSubscriptionStatus(billing?.has_active_subscription || false)
-    }, [])
-
-    return (
-        <LemonModal
-            data-attr="upgrade-modal"
-            title="Unleash PostHog's full power"
-            footer={
-                <>
-                    <LemonButton type="secondary" onClick={hideUpgradeModal}>
-                        Maybe later
-                    </LemonButton>
-                    <LemonButton
-                        type="primary"
-                        to={urls.organizationBilling()}
-                        onClick={() => {
-                            hideUpgradeModal()
-                            posthog.capture('upgrade modal pricing interaction')
-                        }}
-                    >
-                        {featureFlags[FEATURE_FLAGS.BILLING_UPGRADE_LANGUAGE] === 'subscribe'
-                            ? 'Subscribe'
-                            : featureFlags[FEATURE_FLAGS.BILLING_UPGRADE_LANGUAGE] === 'credit_card' &&
-                              !billing?.has_active_subscription
-                            ? 'Add credit card'
-                            : featureFlags[FEATURE_FLAGS.BILLING_UPGRADE_LANGUAGE] === 'credit_card' &&
-                              billing?.has_active_subscription
-                            ? 'Add paid plan'
-                            : 'Upgrade'}{' '}
-                        now
-                    </LemonButton>
-                </>
-            }
-            onClose={hideUpgradeModal}
-            isOpen={!!featureName}
-        >
-            <p>
-                <b>{featureName && capitalizeFirstLetter(featureName)}</b> is an advanced PostHog feature.
-            </p>
-            {featureCaption && <p>{featureCaption}</p>}
-            <p className="mb-0">
-                {featureFlags[FEATURE_FLAGS.BILLING_UPGRADE_LANGUAGE] === 'subscribe'
-                    ? 'Subscribe'
-                    : featureFlags[FEATURE_FLAGS.BILLING_UPGRADE_LANGUAGE] === 'credit_card' &&
-                      !billing?.has_active_subscription
-                    ? 'Add a credit card'
-                    : featureFlags[FEATURE_FLAGS.BILLING_UPGRADE_LANGUAGE] === 'credit_card' &&
-                      billing?.has_active_subscription
-                    ? 'Add paid plan'
-                    : 'Upgrade'}{' '}
-                to get access to this and other powerful enhancements.
-            </p>
+    return upgradeModalFeatureKey ? (
+        <LemonModal onClose={hideUpgradeModal} isOpen={!!upgradeModalFeatureKey}>
+            <div className="max-w-2xl">
+                <PayGateMini
+                    feature={upgradeModalFeatureKey}
+                    currentUsage={upgradeModalFeatureUsage ?? undefined}
+                    isGrandfathered={upgradeModalIsGrandfathered ?? undefined}
+                    background={false}
+                >
+                    <>
+                        You should have access to this feature already. If you are still seeing this modal, please let
+                        us know 🙂
+                    </>
+                </PayGateMini>
+            </div>
         </LemonModal>
+    ) : (
+        <></>
     )
 }
