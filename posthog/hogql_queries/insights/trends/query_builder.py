@@ -13,7 +13,7 @@ from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 from posthog.models.action.action import Action
 from posthog.models.filters.mixins.utils import cached_property
 from posthog.models.team.team import Team
-from posthog.schema import ActionsNode, EventsNode, HogQLQueryModifiers, TrendsQuery
+from posthog.schema import ActionsNode, EventsNode, HogQLQueryModifiers, TrendsQuery, ChartDisplayType
 
 
 class TrendsQueryBuilder:
@@ -195,8 +195,15 @@ class TrendsQueryBuilder:
         default_query.group_by = []
 
         if not self._trends_display.should_aggregate_values() and not is_actors_query:
+            # For cumulative unique users or groups, we want to count each user or group once per query, not per day
+            if self.query.trendsFilter.display == ChartDisplayType.ActionsLineGraphCumulative and (
+                self.series.math == "unique_group" or self.series.math == "dau"
+            ):
+                day_start.expr = ast.Call(name="min", args=[day_start.expr])
+                default_query.group_by.append(self._aggregation_operation.actor_id())
+            else:
+                default_query.group_by.append(ast.Field(chain=["day_start"]))
             default_query.select.append(day_start)
-            default_query.group_by.append(ast.Field(chain=["day_start"]))
 
         # TODO: Move this logic into the below branches when working on adding breakdown support for the person modal
         if is_actors_query:
