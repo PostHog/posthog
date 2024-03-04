@@ -452,6 +452,51 @@ class TestCSVExporter(APIBaseTest):
             self.assertEqual(first_row[2], "$pageview")
             self.assertEqual(first_row[5], str(self.team.pk))
 
+    @patch("posthog.hogql.constants.MAX_SELECT_RETURNED_ROWS", 10)
+    @patch("posthog.models.exported_asset.UUIDT")
+    def test_csv_exporter_events_query_with_columns(
+        self, mocked_uuidt: Any, MAX_SELECT_RETURNED_ROWS: int = 10
+    ) -> None:
+        random_uuid = f"RANDOM_TEST_ID::{UUIDT()}"
+        for i in range(15):
+            _create_event(
+                event="$pageview",
+                distinct_id=random_uuid,
+                team=self.team,
+                timestamp=now() - relativedelta(hours=1),
+                properties={"prop": i},
+            )
+        flush_persons_and_events()
+
+        exported_asset = ExportedAsset(
+            team=self.team,
+            export_format=ExportedAsset.ExportFormat.CSV,
+            export_context={
+                "columns": ["*"],
+                "source": {
+                    "kind": "EventsQuery",
+                    "select": ["event", "*"],
+                    "where": [f"distinct_id = '{random_uuid}'"],
+                },
+            },
+        )
+        exported_asset.save()
+        mocked_uuidt.return_value = "a-guid"
+
+        with self.settings(OBJECT_STORAGE_ENABLED=True, OBJECT_STORAGE_EXPORTS_FOLDER="Test-Exports"):
+            csv_exporter.export_tabular(exported_asset)
+            content = object_storage.read(exported_asset.content_location)
+            lines = (content or "").split("\r\n")
+            self.assertEqual(len(lines), 12)
+            self.assertEqual(
+                lines[0],
+                "*.uuid,*.event,*.properties.prop,*.timestamp,*.team_id,*.distinct_id,*.elements_chain,*.created_at",
+            )
+            self.assertEqual(lines[11], "")
+            first_row = lines[1].split(",")
+            self.assertEqual(first_row[1], "$pageview")
+            self.assertEqual(first_row[4], str(self.team.pk))
+
     def _split_to_dict(self, url: str) -> Dict[str, Any]:
         first_split_parts = url.split("?")
         assert len(first_split_parts) == 2
