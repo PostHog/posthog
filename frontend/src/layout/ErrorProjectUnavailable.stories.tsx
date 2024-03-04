@@ -23,7 +23,7 @@ const meta: Meta = {
                     can_create_org: true,
                     available_social_auth_providers: { github: true, gitlab: true, 'google-oauth2': true, saml: false },
                 },
-                '/api/users/@me': () => [
+                '/api/users/@me/': () => [
                     200,
                     {
                         email: 'test@posthog.com',
@@ -36,6 +36,14 @@ const meta: Meta = {
                             id: 1,
                             name: 'My team',
                         },
+                    },
+                ],
+                '/api/projects/@current/': () => [
+                    403,
+                    {
+                        code: 'project_unavailable',
+                        type: 'authentication_error',
+                        detail: 'You do not have access to this project',
                     },
                 ],
                 'api/organizations/@current/': () => [
@@ -60,6 +68,7 @@ const meta: Meta = {
     },
 }
 export default meta
+
 export const ErrorProjectUnavailableAccessRevoked = (): JSX.Element => {
     const { loadUser } = useActions(userLogic)
     useStorybookMocks({

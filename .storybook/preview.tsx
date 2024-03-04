@@ -4,7 +4,6 @@ import type { Meta, Parameters, Preview } from '@storybook/react'
 import { Title, Subtitle, Description, Primary, Controls, Stories } from '@storybook/blocks'
 import { worker } from '~/mocks/browser'
 import { loadPostHogJS } from '~/loadPostHogJS'
-import { getStorybookAppContext } from './app-context'
 import { withKea } from './decorators/withKea'
 import { withMockDate } from './decorators/withMockDate'
 import { defaultMocks } from '~/mocks/handlers'
@@ -29,7 +28,6 @@ const setupMsw = () => {
         },
     })
     ;(window as any).__mockServiceWorker = worker
-    ;(window as any).POSTHOG_APP_CONTEXT = getStorybookAppContext()
 }
 setupMsw()
 
