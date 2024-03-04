@@ -135,7 +135,7 @@ class TestClickhouseSessionRecordingsListFromSessionReplay(ClickhouseTestMixin, 
             active_milliseconds=1980 * 1000 * 0.4,  # 40% of the total expected duration
         )
 
-        more_recordings_available, session_recordings = self._filter_recordings_by({"no_filter": None})
+        session_recordings, more_recordings_available = self._filter_recordings_by({"no_filter": None})
 
         assert session_recordings == [
             {
@@ -556,7 +556,7 @@ class TestClickhouseSessionRecordingsListFromSessionReplay(ClickhouseTestMixin, 
             first_url="https://on-second-received-event-but-actually-first.com",
         )
 
-        more_recordings_available, session_recordings = self._filter_recordings_by({"no_filter": None})
+        session_recordings, more_recordings_available = self._filter_recordings_by({"no_filter": None})
 
         assert sorted(
             [{"session_id": r["session_id"], "first_url": r["first_url"]} for r in session_recordings],
