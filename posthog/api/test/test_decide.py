@@ -277,6 +277,26 @@ class TestDecide(BaseTest, QueryMatchingTest):
         response = self._post_decide().json()
         self.assertEqual(response["sessionRecording"]["linkedFlag"], "my-flag")
 
+    @pytest.mark.skip(
+        reason="functionality was implicated in an incident, re-releasing without the decide change at first"
+    )
+    def test_session_recording_linked_flag_variant(self, *args):
+        # :TRICKY: Test for regression around caching
+
+        self._update_team(
+            {
+                "session_recording_opt_in": True,
+            }
+        )
+
+        response = self._post_decide().json()
+        assert response["sessionRecording"]["linkedFlag"] is None
+
+        self._update_team({"session_recording_linked_flag": {"id": 12, "key": "my-flag", "variant": "test"}})
+
+        response = self._post_decide().json()
+        self.assertEqual(response["sessionRecording"]["linkedFlag"], {"flag": "my-flag", "variant": "test"})
+
     def test_session_recording_network_payload_capture_config(self, *args):
         # :TRICKY: Test for regression around caching
 

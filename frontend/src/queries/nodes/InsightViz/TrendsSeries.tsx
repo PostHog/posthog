@@ -1,6 +1,7 @@
 import { useActions, useValues } from 'kea'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
-import { SINGLE_SERIES_DISPLAY_TYPES } from 'lib/constants'
+import { FEATURE_FLAGS, SINGLE_SERIES_DISPLAY_TYPES } from 'lib/constants'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { alphabet } from 'lib/utils'
 import { ActionFilter } from 'scenes/insights/filters/ActionFilter/ActionFilter'
 import { MathAvailability } from 'scenes/insights/filters/ActionFilter/ActionFilterRow/ActionFilterRow'
@@ -22,6 +23,7 @@ export function TrendsSeries(): JSX.Element | null {
         insightVizDataLogic(insightProps)
     )
     const { updateQuerySource } = useActions(insightVizDataLogic(insightProps))
+    const { featureFlags } = useValues(featureFlagLogic)
 
     const { groupsTaxonomicTypes } = useValues(groupsModel)
 
@@ -34,6 +36,7 @@ export function TrendsSeries(): JSX.Element | null {
         TaxonomicFilterGroupType.Elements,
         ...(isTrends ? [TaxonomicFilterGroupType.Sessions] : []),
         TaxonomicFilterGroupType.HogQLExpression,
+        TaxonomicFilterGroupType.DataWarehouseProperties,
     ]
 
     if (!isInsightQueryNode(querySource)) {
@@ -74,6 +77,15 @@ export function TrendsSeries(): JSX.Element | null {
                 }
                 mathAvailability={mathAvailability}
                 propertiesTaxonomicGroupTypes={propertiesTaxonomicGroupTypes}
+                actionsTaxonomicGroupTypes={
+                    featureFlags[FEATURE_FLAGS.DATA_WAREHOUSE]
+                        ? [
+                              TaxonomicFilterGroupType.Events,
+                              TaxonomicFilterGroupType.Actions,
+                              TaxonomicFilterGroupType.DataWarehouse,
+                          ]
+                        : [TaxonomicFilterGroupType.Events, TaxonomicFilterGroupType.Actions]
+                }
             />
         </>
     )

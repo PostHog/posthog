@@ -20,6 +20,7 @@ import { LemonDropdown } from 'lib/lemon-ui/LemonDropdown'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { getEventNamesForAction } from 'lib/utils'
 import { useState } from 'react'
+import { dataWarehouseSceneLogic } from 'scenes/data-warehouse/external/dataWarehouseSceneLogic'
 import { GroupIntroductionFooter } from 'scenes/groups/GroupsIntroduction'
 import { insightDataLogic } from 'scenes/insights/insightDataLogic'
 import { isAllEventsEntityFilter } from 'scenes/insights/utils'
@@ -154,12 +155,15 @@ export function ActionFilterRow({
     } = useActions(logic)
     const { actions } = useValues(actionsModel)
     const { mathDefinitions } = useValues(mathsLogic)
+    const { externalTablesMap } = useValues(dataWarehouseSceneLogic)
 
     const [isHogQLDropdownVisible, setIsHogQLDropdownVisible] = useState(false)
 
     const { setNodeRef, attributes, transform, transition, listeners, isDragging } = useSortable({ id: filter.uuid })
 
     const propertyFiltersVisible = typeof filter.order === 'number' ? entityFilterVisible[filter.order] : false
+    const mathDisabledReason =
+        filter.type === EntityTypes.DATA_WAREHOUSE ? 'Data Warehouse Series only supports total counts' : ''
 
     let name: string | null | undefined, value: PropertyFilterValue
     const {
@@ -227,12 +231,25 @@ export function ActionFilterRow({
             groupType={filter.type as TaxonomicFilterGroupType}
             value={getValue(value, filter)}
             onChange={(changedValue, taxonomicGroupType, item) => {
-                updateFilter({
-                    type: taxonomicFilterGroupTypeToEntityType(taxonomicGroupType) || undefined,
-                    id: changedValue ? String(changedValue) : null,
-                    name: item?.name ?? '',
-                    index,
-                })
+                const groupType = taxonomicFilterGroupTypeToEntityType(taxonomicGroupType)
+                if (groupType === EntityTypes.DATA_WAREHOUSE) {
+                    updateFilter({
+                        type: groupType,
+                        id: changedValue ? String(changedValue) : null,
+                        name: item?.name ?? '',
+                        id_field: item?.id_field,
+                        timestamp_field: item?.timestamp_field,
+                        table_name: item?.name,
+                        index,
+                    })
+                } else {
+                    updateFilter({
+                        type: groupType || undefined,
+                        id: changedValue ? String(changedValue) : null,
+                        name: item?.name ?? '',
+                        index,
+                    })
+                }
             }}
             renderValue={() => (
                 <span className="text-overflow max-w-full">
@@ -358,6 +375,7 @@ export function ActionFilterRow({
                                         index={index}
                                         onMathSelect={onMathSelect}
                                         disabled={readOnly}
+                                        disabledReason={mathDisabledReason}
                                         style={{ maxWidth: '100%', width: 'initial' }}
                                         mathAvailability={mathAvailability}
                                     />
@@ -459,12 +477,21 @@ export function ActionFilterRow({
                         onChange={(properties) => updateFilterProperty({ properties, index })}
                         showNestedArrow={showNestedArrow}
                         disablePopover={!propertyFiltersPopover}
-                        taxonomicGroupTypes={propertiesTaxonomicGroupTypes}
+                        taxonomicGroupTypes={
+                            filter.type == TaxonomicFilterGroupType.DataWarehouse
+                                ? [TaxonomicFilterGroupType.DataWarehouseProperties]
+                                : propertiesTaxonomicGroupTypes
+                        }
                         eventNames={
                             filter.type === TaxonomicFilterGroupType.Events && filter.id
                                 ? [String(filter.id)]
                                 : filter.type === TaxonomicFilterGroupType.Actions && filter.id
                                 ? getEventNamesForAction(parseInt(String(filter.id)), actions)
+                                : []
+                        }
+                        schemaColumns={
+                            filter.type == TaxonomicFilterGroupType.DataWarehouse && filter.name
+                                ? externalTablesMap[filter.name]?.columns
                                 : []
                         }
                     />
@@ -480,6 +507,7 @@ interface MathSelectorProps {
     mathAvailability: MathAvailability
     index: number
     disabled?: boolean
+    disabledReason?: string
     onMathSelect: (index: number, value: any) => any
     style?: React.CSSProperties
 }
@@ -610,7 +638,7 @@ function useMathSelectorOptions({
 
 function MathSelector(props: MathSelectorProps): JSX.Element {
     const options = useMathSelectorOptions(props)
-    const { math, mathGroupTypeIndex, index, onMathSelect, disabled } = props
+    const { math, mathGroupTypeIndex, index, onMathSelect, disabled, disabledReason } = props
 
     const mathType = apiValueToMathType(math, mathGroupTypeIndex)
 
@@ -621,6 +649,7 @@ function MathSelector(props: MathSelectorProps): JSX.Element {
             onChange={(value) => onMathSelect(index, value)}
             data-attr={`math-selector-${index}`}
             disabled={disabled}
+            disabledReason={disabledReason}
             optionTooltipPlacement="right"
             dropdownMatchSelectWidth={false}
             dropdownPlacement="bottom-start"
@@ -631,6 +660,7 @@ function MathSelector(props: MathSelectorProps): JSX.Element {
 const taxonomicFilterGroupTypeToEntityTypeMapping: Partial<Record<TaxonomicFilterGroupType, EntityTypes>> = {
     [TaxonomicFilterGroupType.Events]: EntityTypes.EVENTS,
     [TaxonomicFilterGroupType.Actions]: EntityTypes.ACTIONS,
+    [TaxonomicFilterGroupType.DataWarehouse]: EntityTypes.DATA_WAREHOUSE,
 }
 
 export function taxonomicFilterGroupTypeToEntityType(
