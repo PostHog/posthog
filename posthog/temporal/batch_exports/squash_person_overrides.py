@@ -88,7 +88,7 @@ GROUP BY
 """
 
 DROP_JOIN_TABLE_FOR_DELETES_QUERY = """
-DROP TABLE IF EXISTS {database}.person_overrides_to_delete
+DROP TABLE IF EXISTS {database}.person_overrides_to_delete ON CLUSTER {cluster}
 """
 
 DELETE_SQUASHED_PERSON_OVERRIDES_QUERY = """
@@ -252,10 +252,33 @@ async def drop_dictionary(inputs: DictionaryInputs) -> None:
         activity.logger.debug("Drop dictionary query: %s", drop_dictionary_query)
         return
 
-    async with get_client() as clickhouse_client:
-        await clickhouse_client.execute_query(drop_dictionary_query)
+    async with heartbeat_every():
+        async with get_client() as clickhouse_client:
+            await clickhouse_client.execute_query(drop_dictionary_query)
 
     activity.logger.info("Dropped dictionary %s", inputs.dictionary_name)
+
+
+@activity.defn
+async def drop_delete_join_table(dry_run: bool) -> None:
+    """DROP the JOIN table used in the delete step of the squash workflow."""
+    from django.conf import settings
+
+    drop_join_table_query = DROP_JOIN_TABLE_FOR_DELETES_QUERY.format(
+        database=settings.CLICKHOUSE_DATABASE,
+        cluster=settings.CLICKHOUSE_CLUSTER,
+    )
+
+    if dry_run is True:
+        activity.logger.info("This is a DRY RUN so no dictionary will be dropped.")
+        activity.logger.debug("Drop JOIN table query: %s", drop_join_table_query)
+        return
+
+    async with heartbeat_every():
+        async with get_client() as clickhouse_client:
+            await clickhouse_client.execute_query(drop_join_table_query)
+
+    activity.logger.info("Dropped JOIN table")
 
 
 @dataclasses.dataclass
@@ -475,13 +498,7 @@ async def delete_squashed_person_overrides_from_clickhouse(inputs: DeletePersonO
 
     async with heartbeat_every():
         async with get_client() as clickhouse_client:
-            try:
-                await clickhouse_client.execute_query(prepared_delete_query)
-
-            finally:
-                await clickhouse_client.execute_query(
-                    DROP_JOIN_TABLE_FOR_DELETES_QUERY.format(database=settings.CLICKHOUSE_DATABASE),
-                )
+            await clickhouse_client.execute_query(prepared_delete_query)
 
     activity.logger.info("Deleted squashed person overrides from ClickHouse")
     return prepared_delete_query
@@ -702,6 +719,14 @@ class SquashPersonOverridesWorkflow(PostHogWorkflow):
                 start_to_close_timeout=timedelta(hours=4),
                 retry_policy=RetryPolicy(maximum_attempts=6, initial_interval=timedelta(seconds=20)),
                 heartbeat_timeout=timedelta(minutes=2),
+            )
+
+            await workflow.execute_activity(
+                drop_delete_join_table,
+                inputs.dry_run,
+                start_to_close_timeout=timedelta(seconds=60),
+                retry_policy=RetryPolicy(maximum_attempts=10, initial_interval=timedelta(seconds=60)),
+                heartbeat_timeout=timedelta(seconds=10),
             )
 
         workflow.logger.info("Done 🎉")
