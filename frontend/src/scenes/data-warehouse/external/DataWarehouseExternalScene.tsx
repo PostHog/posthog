@@ -1,4 +1,4 @@
-import { IconDatabase, IconGear } from '@posthog/icons'
+import { IconBrackets, IconDatabase, IconGear } from '@posthog/icons'
 import { LemonButton, Link } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
@@ -6,7 +6,6 @@ import { DatabaseTableTree, TreeItem } from 'lib/components/DatabaseTableTree/Da
 import { EmptyMessage } from 'lib/components/EmptyMessage/EmptyMessage'
 import { PageHeader } from 'lib/components/PageHeader'
 import { FEATURE_FLAGS } from 'lib/constants'
-import { IconDataObject } from 'lib/lemon-ui/icons'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { DatabaseTable } from 'scenes/data-management/database/DatabaseTable'
 import { SceneExport } from 'scenes/sceneTypes'
@@ -103,7 +102,7 @@ export function DataWarehouseExternalScene(): JSX.Element {
                 name: 'Views',
                 items: savedQueriesFormatted.map((table) => ({
                     table: table,
-                    icon: <IconDataObject />,
+                    icon: <IconBrackets />,
                 })),
             })
         }

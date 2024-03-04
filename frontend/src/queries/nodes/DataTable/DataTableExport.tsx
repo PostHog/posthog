@@ -1,8 +1,8 @@
+import { IconDownload } from '@posthog/icons'
 import { LemonButton, LemonButtonWithDropdown, LemonDivider, lemonToast } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { TriggerExportProps } from 'lib/components/ExportButton/exporter'
 import { exportsLogic } from 'lib/components/ExportButton/exportsLogic'
-import { IconExport } from 'lib/lemon-ui/icons'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import Papa from 'papaparse'
 import { asDisplay } from 'scenes/persons/person-utils'
@@ -326,7 +326,7 @@ export function DataTableExport({ query }: DataTableExportProps): JSX.Element | 
                     ),
             }}
             type="secondary"
-            icon={<IconExport />}
+            icon={<IconDownload />}
             data-attr="data-table-export-menu"
         >
             Export{filterCount > 0 ? ` (${filterCount} filter${filterCount === 1 ? '' : 's'})` : ''}

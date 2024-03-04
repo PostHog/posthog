@@ -1,10 +1,9 @@
-import { IconLock, IconPin, IconPinFilled, IconShare } from '@posthog/icons'
+import { IconHome, IconLock, IconPin, IconPinFilled, IconShare } from '@posthog/icons'
 import { LemonInput } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { MemberSelect } from 'lib/components/MemberSelect'
 import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
 import { DashboardPrivilegeLevel } from 'lib/constants'
-import { IconCottage } from 'lib/lemon-ui/icons'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { More } from 'lib/lemon-ui/LemonButton/More'
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
@@ -102,7 +101,7 @@ export function DashboardsTable({
                             {isPrimary && (
                                 <Tooltip title="The primary dashboard is shown on the project home page.">
                                     <span>
-                                        <IconCottage className="ml-1 text-base text-warning" />
+                                        <IconHome className="ml-1 text-base text-warning" />
                                     </span>
                                 </Tooltip>
                             )}
@@ -174,11 +173,7 @@ export function DashboardsTable({
                                           Duplicate
                                       </LemonButton>
                                       <LemonDivider />
-                                      <LemonRow
-                                          icon={<IconCottage className="text-warning" />}
-                                          fullWidth
-                                          status="warning"
-                                      >
+                                      <LemonRow icon={<IconHome className="text-warning" />} fullWidth status="warning">
                                           <span className="text-muted">
                                               Change the default dashboard
                                               <br />

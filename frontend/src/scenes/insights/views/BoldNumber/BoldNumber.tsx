@@ -1,11 +1,12 @@
 import './BoldNumber.scss'
 
+import { IconTrending } from '@posthog/icons'
 import { LemonRow, Link } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { useValues } from 'kea'
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
 import { FEATURE_FLAGS } from 'lib/constants'
-import { IconFlare, IconTrendingDown, IconTrendingFlat, IconTrendingUp } from 'lib/lemon-ui/icons'
+import { IconFlare, IconTrendingDown, IconTrendingFlat } from 'lib/lemon-ui/icons'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { percentage } from 'lib/utils'
 import { useLayoutEffect, useRef, useState } from 'react'
@@ -183,7 +184,7 @@ function BoldNumberComparison({ showPersonsModal }: Pick<ChartParams, 'showPerso
                 percentageDiff === null ? (
                     <IconFlare />
                 ) : percentageDiff > 0 ? (
-                    <IconTrendingUp />
+                    <IconTrending />
                 ) : percentageDiff < 0 ? (
                     <IconTrendingDown />
                 ) : (

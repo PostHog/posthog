@@ -1,6 +1,6 @@
-import { IconPencil } from '@posthog/icons'
+import { IconPencil, IconSearch } from '@posthog/icons'
 import { useActions, useValues } from 'kea'
-import { IconExclamation, IconMagnifier } from 'lib/lemon-ui/icons'
+import { IconExclamation } from 'lib/lemon-ui/icons'
 
 import { commandPaletteLogic } from './commandPaletteLogic'
 
@@ -15,7 +15,7 @@ export function CommandInput(): JSX.Element {
             ) : activeFlow ? (
                 <activeFlow.icon className="palette__icon" /> ?? <IconPencil className="palette__icon" />
             ) : (
-                <IconMagnifier className="palette__icon" />
+                <IconSearch className="palette__icon" />
             )}
             <input
                 className="palette__display palette__input ph-no-capture"

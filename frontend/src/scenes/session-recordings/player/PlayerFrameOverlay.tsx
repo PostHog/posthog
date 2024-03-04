@@ -1,9 +1,10 @@
 import './PlayerFrameOverlay.scss'
 
+import { IconPlay } from '@posthog/icons'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
-import { IconErrorOutline, IconPlay } from 'lib/lemon-ui/icons'
+import { IconErrorOutline } from 'lib/lemon-ui/icons'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { useState } from 'react'
 import { sessionRecordingPlayerLogic } from 'scenes/session-recordings/player/sessionRecordingPlayerLogic'
