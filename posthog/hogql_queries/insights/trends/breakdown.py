@@ -225,6 +225,7 @@ class Breakdown:
                 events_filter=self.events_filter,
                 chart_display_type=self._trends_display().display_type,
                 breakdown_filter=self.query.breakdownFilter,
+                query_date_range=self.query_date_range,
             )
             return breakdown.get_breakdown_values()
 
