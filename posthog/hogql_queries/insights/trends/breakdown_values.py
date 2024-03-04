@@ -113,7 +113,9 @@ class BreakdownValues:
                 "table": self._table,
                 "id_field": self._id_field,
                 "aggregation_expression": replace_placeholders(
-                    self._aggregation_operation.select_aggregation(),
+                    ast.Call(name="max", args=[ast.Field(chain=["session", "duration"])])
+                    if self._aggregation_operation.aggregating_on_session_duration()
+                    else self._aggregation_operation.select_aggregation(),
                     # take a shortcut with weekly_active and monthly_active options, and just select for total count
                     {"replaced": ast.Call(name="count", args=[self._id_field])},
                 ),
