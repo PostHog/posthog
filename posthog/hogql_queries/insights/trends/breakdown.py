@@ -114,7 +114,7 @@ class Breakdown:
                 or_clause = ast.Or(
                     exprs=[
                         ast.CompareOperation(
-                            left=ast.Field(chain=["person", "id"]),
+                            left=ast.Field(chain=["person_id"]),
                             op=ast.CompareOperationOp.InCohort,
                             right=ast.Constant(value=breakdown),
                         )
@@ -129,7 +129,7 @@ class Breakdown:
                     return ast.Constant(value=True)
 
             return ast.CompareOperation(
-                left=ast.Field(chain=["person", "id"]),
+                left=ast.Field(chain=["person_id"]),
                 op=ast.CompareOperationOp.InCohort,
                 right=ast.Constant(value=self.query.breakdownFilter.breakdown),
             )
@@ -225,6 +225,7 @@ class Breakdown:
                 events_filter=self.events_filter,
                 chart_display_type=self._trends_display().display_type,
                 breakdown_filter=self.query.breakdownFilter,
+                query_date_range=self.query_date_range,
             )
             return breakdown.get_breakdown_values()
 
