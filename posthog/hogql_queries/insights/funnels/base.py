@@ -750,7 +750,8 @@ class FunnelBase(ABC):
             self.context.actorsQuery,
             self.context.max_steps,
         )
-        assert actorsQuery is not None
+        if not actorsQuery:
+            return [], []
 
         target_step = actorsQuery.funnelStep
         final_step = max_steps - 1

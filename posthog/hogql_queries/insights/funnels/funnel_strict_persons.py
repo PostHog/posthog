@@ -5,7 +5,6 @@ from posthog.hogql_queries.insights.funnels.funnel_strict import FunnelStrict
 
 
 class FunnelStrictActors(FunnelStrict):
-
     def actor_query(
         self,
         extra_fields: Optional[List[str]] = None,

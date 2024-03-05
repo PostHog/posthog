@@ -103,6 +103,8 @@ class FunnelQueryContext(QueryContext):
         else:
             self.breakdown = self.breakdownFilter.breakdown  # type: ignore
 
+        self.actorsQuery = None
+
     @cached_property
     def max_steps(self) -> int:
         return len(self.query.series)
