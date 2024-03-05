@@ -267,7 +267,7 @@ export const billingLogic = kea<billingLogicType>([
                 return
             }
 
-            if (!values.billing || !preflight?.cloud) {
+            if (!values.billing || !values.preflight?.cloud) {
                 return
             }
 
