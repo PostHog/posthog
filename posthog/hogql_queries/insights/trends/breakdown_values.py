@@ -94,6 +94,10 @@ class BreakdownValues:
         aggregation_expression: ast.Expr
         if self._aggregation_operation.aggregating_on_session_duration():
             aggregation_expression = ast.Call(name="max", args=[ast.Field(chain=["session", "duration"])])
+        elif self.series.math == "dau":
+            # When aggregating by (daily) unique users, run the breakdown aggregation on count(e.uuid).
+            # This retains legacy compatibility and should be removed once we have the new trends in production.
+            aggregation_expression = parse_expr("count({id_field})", placeholders={"id_field": self._id_field})
         else:
             aggregation_expression = self._aggregation_operation.select_aggregation()
             # Take a shortcut with WAU and MAU queries. Get the total AU-s for the period instead.
@@ -102,6 +106,21 @@ class BreakdownValues:
                 replaced = parse_expr(f"count(DISTINCT {actor})")
                 aggregation_expression = replace_placeholders(aggregation_expression, {"replaced": replaced})
 
+        date_filter = ast.And(
+            exprs=[
+                ast.CompareOperation(
+                    op=ast.CompareOperationOp.GtEq,
+                    left=ast.Field(chain=["e", "timestamp"]),
+                    right=self.query_date_range.date_from_to_start_of_interval_hogql(),
+                ),
+                ast.CompareOperation(
+                    op=ast.CompareOperationOp.Lt,
+                    left=ast.Field(chain=["e", "timestamp"]),
+                    right=self.query_date_range.date_to_with_extra_interval_hogql(),
+                ),
+            ]
+        )
+
         inner_events_query = parse_select(
             """
                 SELECT
@@ -109,7 +128,7 @@ class BreakdownValues:
                     {aggregation_expression} as count
                 FROM {table} e
                 WHERE
-                    {events_where}
+                    {date_filter} and {events_where}
                 GROUP BY
                     value
                 ORDER BY
@@ -118,12 +137,12 @@ class BreakdownValues:
                 LIMIT {breakdown_limit}
             """,
             placeholders={
-                "events_where": self.events_filter,
                 "select_field": select_field,
-                "breakdown_limit": ast.Constant(value=breakdown_limit),
-                "table": self._table,
-                "id_field": self._id_field,
                 "aggregation_expression": aggregation_expression,
+                "table": self._table,
+                "date_filter": date_filter,
+                "events_where": self.events_filter,
+                "breakdown_limit": ast.Constant(value=breakdown_limit),
             },
         )
 
