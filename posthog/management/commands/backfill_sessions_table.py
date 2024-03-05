@@ -97,12 +97,12 @@ class Command(BaseCommand):
 
     def add_arguments(self, parser):
         parser.add_argument("--team-id", required=True, type=int, help="team to backfill for")
-        parser.add_argument("--month", type=str, help="month to backfill for (format: YYYY-MM)")
+        parser.add_argument("--month", type=str, help="month to backfill for (format: YYYYMM)")
         parser.add_argument(
             "--live-run", action="store_true", help="actually execute INSERT queries (default is dry-run)"
         )
 
-    def handle(self, *, live_run: bool, team_id: int, **options):
+    def handle(self, *, live_run: bool, team_id: int, month: str, **options):
         logger.setLevel(logging.INFO)
 
         if not Team.objects.filter(id=team_id).exists():
