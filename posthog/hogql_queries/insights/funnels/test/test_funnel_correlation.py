@@ -581,7 +581,9 @@ class TestClickhouseFunnelCorrelation(ClickhouseTestMixin, APIBaseTest):
             timestamp="2020-01-04T14:00:00Z",
         )
 
-        result = self._get_events_for_filters(filters, funnelCorrelationType=FunnelCorrelationResultsType.properties)
+        result = self._get_events_for_filters(
+            filters, funnelCorrelationType=FunnelCorrelationResultsType.properties, funnelCorrelationNames=["$browser"]
+        )
 
         odds_ratios = [item.pop("odds_ratio") for item in result]  # type: ignore
 

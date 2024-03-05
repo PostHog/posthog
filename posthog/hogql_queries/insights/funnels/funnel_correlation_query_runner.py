@@ -418,7 +418,7 @@ class FunnelCorrelationQueryRunner(QueryRunner):
         date_from = funnel_event_query._date_range().date_from_as_hogql()
         date_to = funnel_event_query._date_range().date_to_as_hogql()
         event_names = self.query.funnelCorrelationEventNames
-        exclude_property_names = self.query.funnelCorrelationEventExcludePropertyNames
+        exclude_property_names = self.query.funnelCorrelationEventExcludePropertyNames or []
 
         if self.support_autocapture_elements():
             array_join_query = f"""
@@ -449,7 +449,7 @@ class FunnelCorrelationQueryRunner(QueryRunner):
                 SELECT
                     funnel_actors.actor_id as actor_id,
                     funnel_actors.steps as steps,
-                    events.event as event_name,
+                    event.event as event_name,
                     -- Same as what we do in $all property queries
                     {array_join_query}
                 FROM events AS event
@@ -506,9 +506,7 @@ class FunnelCorrelationQueryRunner(QueryRunner):
         exclude_property_names = self.query.funnelCorrelationExcludeNames or []
 
         person_prop_query = self._get_properties_prop_clause()
-        # "property_names": self._filter.correlation_property_names,
-        # aggregation_join_query = self._get_aggregation_join_query()
-        aggregation_join_query = ""
+        aggregation_join_query = self._get_aggregation_join_query()
 
         query = parse_select(
             f"""
@@ -646,39 +644,36 @@ class FunnelCorrelationQueryRunner(QueryRunner):
             else aggregation_person_join
         )
 
-    # def _get_aggregation_join_query(self):
-    #     if self.funnels_query.aggregation_group_type_index is None:
-    #         if self._team.person_on_events_mode != PersonOnEventsMode.DISABLED and groups_on_events_querying_enabled():
-    #             return "", {}
-
-    #         person_query, person_query_params = PersonQuery(
-    #             self._filter,
-    #             self._team.pk,
-    #             EnterpriseColumnOptimizer(self._filter, self._team.pk),
-    #         ).get_query()
-
-    #         return (
-    #             f"""
-    #             JOIN ({person_query}) person
-    #                 ON person.id = funnel_actors.actor_id
-    #         """,
-    #             person_query_params,
-    #         )
-    #     else:
-    #         return GroupsJoinQuery(self._filter, self._team.pk, join_key="funnel_actors.actor_id").get_join_query()
+    def _get_aggregation_join_query(self):
+        if self.funnels_query.aggregation_group_type_index is None:
+            return f"JOIN (SELECT id, properties as person_props FROM persons) persons ON persons.id = funnel_actors.actor_id"
+        else:
+            group_type_index = self.funnels_query.aggregation_group_type_index
+            return f"""
+                LEFT JOIN (
+                    SELECT
+                        key,
+                        properties --AS group_properties_{group_type_index}
+                    FROM groups
+                    WHERE index = {group_type_index}
+                ) groups_{group_type_index}
+                ON funnel_actors.actor_id == groups_{group_type_index}.key
+            """
 
     def _get_properties_prop_clause(self):
         assert self.query.funnelCorrelationNames is not None
 
         if self.funnels_query.aggregation_group_type_index is None:
-            properties_prefix = "person.properties"
+            properties_prefix = "person_props"
         else:
-            properties_prefix = f"group_{self.funnels_query.aggregation_group_type_index}.properties"
-
+            properties_prefix = f"groups_{self.funnels_query.aggregation_group_type_index}.properties"
         if "$all" in self.query.funnelCorrelationNames:
             return f"arrayJoin(JSONExtractKeysAndValues({properties_prefix}, 'String')) as prop"
         else:
-            props = [f"{properties_prefix}.{property_name}" for property_name in self.query.funnelCorrelationNames]
+            props = [
+                f"JSONExtractString({properties_prefix}, '{property_name}')"
+                for property_name in self.query.funnelCorrelationNames
+            ]
             props_str = ", ".join(props)
             return f"arrayJoin(arrayZip({self.query.funnelCorrelationNames}, [{props_str}])) as prop"
 
@@ -696,17 +691,19 @@ class FunnelCorrelationQueryRunner(QueryRunner):
     @property
     def properties_to_include(self) -> List[str]:
         props_to_include = []
-        if self.query.funnelCorrelationType == FunnelCorrelationResultsType.properties:
-            # When dealing with properties, make sure funnel response comes with properties
-            # so we don't have to join on persons/groups to get these properties again
+        # if self.query.funnelCorrelationType == FunnelCorrelationResultsType.properties:
+        #     assert self.query.funnelCorrelationNames is not None
 
-            for property_name in cast(list, self.query.funnelCorrelationNames):
-                if self.funnels_query.aggregation_group_type_index is not None:
-                    if "$all" == property_name:
-                        return [f"group_{self.funnels_query.aggregation_group_type_index}.properties"]
-                else:
-                    if "$all" == property_name:
-                        return [f"person.properties"]
+        #     # When dealing with properties, make sure funnel response comes with properties
+        #     # so we don't have to join on persons/groups to get these properties again
+
+        #     for property_name in self.query.funnelCorrelationNames:
+        #         if self.funnels_query.aggregation_group_type_index is not None:
+        #             if "$all" == property_name:
+        #                 return []
+        #         else:
+        #             if "$all" == property_name:
+        #                 return []
 
         return props_to_include
 
