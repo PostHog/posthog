@@ -1631,8 +1631,8 @@
       -- it will still (or should still) map to the same person
       distinct_id SimpleAggregateFunction(any, String),
   
-      min_first_timestamp SimpleAggregateFunction(min, DateTime64(6, 'UTC')),
-      max_last_timestamp SimpleAggregateFunction(max, DateTime64(6, 'UTC')),
+      min_timestamp SimpleAggregateFunction(min, DateTime64(6, 'UTC')),
+      max_timestamp SimpleAggregateFunction(max, DateTime64(6, 'UTC')),
   
       urls SimpleAggregateFunction(groupUniqArrayArray, Array(String)),
       entry_url AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
@@ -1648,7 +1648,7 @@
       initial_gad_source AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
   
       -- create a map of how many times we saw each event
-      event_count_map AggregateFunction(sumMap, Tuple(Array(String), Array(Int64))),
+      event_count_map SimpleAggregateFunction(sumMap, Map(String, Int64)),
       -- duplicate the event count as a specific column for pageviews and autocaptures,
       -- as these are used in some key queries and need to be fast
       pageview_count SimpleAggregateFunction(sum, Int64),
@@ -1670,8 +1670,8 @@
   -- it doesn't matter which distinct_id gets picked (it'll be somewhat random) as they can all join to the right person
   any(distinct_id) as distinct_id,
   
-  min(timestamp) AS min_first_timestamp,
-  max(timestamp) AS max_last_timestamp,
+  min(timestamp) AS min_timestamp,
+  max(timestamp) AS max_timestamp,
   
   groupUniqArray(replaceRegexpAll(JSONExtractRaw(properties, '$current_url'), '^"|"$', '')) AS urls,
   argMinState(replaceRegexpAll(JSONExtractRaw(properties, '$current_url'), '^"|"$', ''), timestamp) as entry_url,
@@ -1686,7 +1686,7 @@
   argMinState(replaceRegexpAll(JSONExtractRaw(properties, 'gclid'), '^"|"$', ''), timestamp) as initial_gclid,
   argMinState(replaceRegexpAll(JSONExtractRaw(properties, 'gad_source'), '^"|"$', ''), timestamp) as initial_gad_source,
   
-  sumMapState(([event], [toInt64(1)])) as event_count_map,
+  sumMap(CAST(([event], [1]), 'Map(String, UInt64)')) as event_count_map,
   sumIf(1, event='$pageview') as pageview_count,
   sumIf(1, event='$autocapture') as autocapture_count
   
@@ -1964,8 +1964,8 @@
       -- it will still (or should still) map to the same person
       distinct_id SimpleAggregateFunction(any, String),
   
-      min_first_timestamp SimpleAggregateFunction(min, DateTime64(6, 'UTC')),
-      max_last_timestamp SimpleAggregateFunction(max, DateTime64(6, 'UTC')),
+      min_timestamp SimpleAggregateFunction(min, DateTime64(6, 'UTC')),
+      max_timestamp SimpleAggregateFunction(max, DateTime64(6, 'UTC')),
   
       urls SimpleAggregateFunction(groupUniqArrayArray, Array(String)),
       entry_url AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
@@ -1981,16 +1981,16 @@
       initial_gad_source AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
   
       -- create a map of how many times we saw each event
-      event_count_map AggregateFunction(sumMap, Tuple(Array(String), Array(Int64))),
+      event_count_map SimpleAggregateFunction(sumMap, Map(String, Int64)),
       -- duplicate the event count as a specific column for pageviews and autocaptures,
       -- as these are used in some key queries and need to be fast
       pageview_count SimpleAggregateFunction(sum, Int64),
       autocapture_count SimpleAggregateFunction(sum, Int64),
   ) ENGINE = ReplicatedAggregatingMergeTree('/clickhouse/tables/77f1df52-4b43-11e9-910f-b8ca3a9b9f3e_{shard}/posthog.sessions', '{replica}')
   
-      PARTITION BY toYYYYMM(min_first_timestamp)
+      PARTITION BY toYYYYMM(min_timestamp)
       -- order by is used by the aggregating merge tree engine to
-      -- identify candidates to merge, e.g. toDate(min_first_timestamp)
+      -- identify candidates to merge, e.g. toDate(min_timestamp)
       -- would mean we would have one row per day per session_id
       -- if CH could completely merge to match the order by
       -- it is also used to organise data to make queries faster
@@ -1999,7 +1999,7 @@
       -- and order by must be in order of increasing cardinality
       -- so we order by date first, then team_id, then session_id
       -- hopefully, this is a good balance between the two
-      ORDER BY (toDate(min_first_timestamp), team_id, session_id)
+      ORDER BY (toStartOfDay(min_timestamp), team_id, session_id)
   SETTINGS index_granularity=512
   
   '''
@@ -2076,8 +2076,8 @@
       -- it will still (or should still) map to the same person
       distinct_id SimpleAggregateFunction(any, String),
   
-      min_first_timestamp SimpleAggregateFunction(min, DateTime64(6, 'UTC')),
-      max_last_timestamp SimpleAggregateFunction(max, DateTime64(6, 'UTC')),
+      min_timestamp SimpleAggregateFunction(min, DateTime64(6, 'UTC')),
+      max_timestamp SimpleAggregateFunction(max, DateTime64(6, 'UTC')),
   
       urls SimpleAggregateFunction(groupUniqArrayArray, Array(String)),
       entry_url AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
@@ -2093,7 +2093,7 @@
       initial_gad_source AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
   
       -- create a map of how many times we saw each event
-      event_count_map AggregateFunction(sumMap, Tuple(Array(String), Array(Int64))),
+      event_count_map SimpleAggregateFunction(sumMap, Map(String, Int64)),
       -- duplicate the event count as a specific column for pageviews and autocaptures,
       -- as these are used in some key queries and need to be fast
       pageview_count SimpleAggregateFunction(sum, Int64),
@@ -2760,8 +2760,8 @@
       -- it will still (or should still) map to the same person
       distinct_id SimpleAggregateFunction(any, String),
   
-      min_first_timestamp SimpleAggregateFunction(min, DateTime64(6, 'UTC')),
-      max_last_timestamp SimpleAggregateFunction(max, DateTime64(6, 'UTC')),
+      min_timestamp SimpleAggregateFunction(min, DateTime64(6, 'UTC')),
+      max_timestamp SimpleAggregateFunction(max, DateTime64(6, 'UTC')),
   
       urls SimpleAggregateFunction(groupUniqArrayArray, Array(String)),
       entry_url AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
@@ -2777,16 +2777,16 @@
       initial_gad_source AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
   
       -- create a map of how many times we saw each event
-      event_count_map AggregateFunction(sumMap, Tuple(Array(String), Array(Int64))),
+      event_count_map SimpleAggregateFunction(sumMap, Map(String, Int64)),
       -- duplicate the event count as a specific column for pageviews and autocaptures,
       -- as these are used in some key queries and need to be fast
       pageview_count SimpleAggregateFunction(sum, Int64),
       autocapture_count SimpleAggregateFunction(sum, Int64),
   ) ENGINE = ReplicatedAggregatingMergeTree('/clickhouse/tables/77f1df52-4b43-11e9-910f-b8ca3a9b9f3e_{shard}/posthog.sessions', '{replica}')
   
-      PARTITION BY toYYYYMM(min_first_timestamp)
+      PARTITION BY toYYYYMM(min_timestamp)
       -- order by is used by the aggregating merge tree engine to
-      -- identify candidates to merge, e.g. toDate(min_first_timestamp)
+      -- identify candidates to merge, e.g. toDate(min_timestamp)
       -- would mean we would have one row per day per session_id
       -- if CH could completely merge to match the order by
       -- it is also used to organise data to make queries faster
@@ -2795,7 +2795,7 @@
       -- and order by must be in order of increasing cardinality
       -- so we order by date first, then team_id, then session_id
       -- hopefully, this is a good balance between the two
-      ORDER BY (toDate(min_first_timestamp), team_id, session_id)
+      ORDER BY (toStartOfDay(min_timestamp), team_id, session_id)
   SETTINGS index_granularity=512
   
   '''
