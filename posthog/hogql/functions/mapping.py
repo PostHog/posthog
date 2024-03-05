@@ -493,6 +493,7 @@ HOGQL_CLICKHOUSE_FUNCTIONS: Dict[str, HogQLFunctionMeta] = {
     "JSONExtractKeys": HogQLFunctionMeta("JSONExtractKeys", 1, None),
     "JSONExtractRaw": HogQLFunctionMeta("JSONExtractRaw", 1, None),
     "JSONExtractArrayRaw": HogQLFunctionMeta("JSONExtractArrayRaw", 1, None),
+    "JSONExtractKeysAndValues": HogQLFunctionMeta("JSONExtractKeysAndValues", 1, 3),
     "JSONExtractKeysAndValuesRaw": HogQLFunctionMeta("JSONExtractKeysAndValuesRaw", 1, None),
     # in
     "in": HogQLFunctionMeta("in", 2, 2),
