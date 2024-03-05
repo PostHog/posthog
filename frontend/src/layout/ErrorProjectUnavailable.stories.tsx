@@ -1,10 +1,8 @@
 import { Meta } from '@storybook/react'
-import { useActions } from 'kea'
 import { router } from 'kea-router'
 import { useEffect } from 'react'
 import { App } from 'scenes/App'
 import { urls } from 'scenes/urls'
-import { userLogic } from 'scenes/userLogic'
 
 import { mswDecorator, useStorybookMocks } from '~/mocks/browser'
 
@@ -23,21 +21,6 @@ const meta: Meta = {
                     can_create_org: true,
                     available_social_auth_providers: { github: true, gitlab: true, 'google-oauth2': true, saml: false },
                 },
-                '/api/users/@me/': () => [
-                    200,
-                    {
-                        email: 'test@posthog.com',
-                        first_name: 'Test PostHog',
-                        organization: {
-                            name: 'My org',
-                            teams: [],
-                        },
-                        team: {
-                            id: 1,
-                            name: 'My team',
-                        },
-                    },
-                ],
                 '/api/projects/@current/': () => [
                     403,
                     {
@@ -46,15 +29,6 @@ const meta: Meta = {
                         detail: 'You do not have access to this project',
                     },
                 ],
-                'api/organizations/@current/': () => [
-                    200,
-                    {
-                        membership_level: 1,
-                        name: 'My org',
-                        teams: [],
-                    },
-                ],
-                '/api/organizations/@current/members/': {},
             },
         }),
     ],
@@ -70,20 +44,64 @@ const meta: Meta = {
 export default meta
 
 export const ErrorProjectUnavailableAccessRevoked = (): JSX.Element => {
-    const { loadUser } = useActions(userLogic)
     useStorybookMocks({
         get: {
-            '/_preflight': {
-                ...preflightJson,
-                cloud: true,
-                realm: 'cloud',
-                can_create_org: true,
-                available_social_auth_providers: { github: true, gitlab: true, 'google-oauth2': true, saml: false },
-            },
+            '/api/users/@me/': () => [
+                200,
+                {
+                    email: 'test@posthog.com',
+                    first_name: 'Test PostHog',
+                    organization: {
+                        name: 'Test org',
+                        teams: [],
+                    },
+                    team: {
+                        id: 1,
+                        name: 'Test team',
+                    },
+                },
+            ],
+            'api/organizations/@current/': () => [
+                200,
+                {
+                    membership_level: 15,
+                    name: 'Test org',
+                    teams: [],
+                },
+            ],
         },
     })
     useEffect(() => {
-        loadUser()
+        router.actions.push(urls.projectHomepage())
+    }, [])
+    return <App />
+}
+export const ErrorProjectUnavailableNoProjects = (): JSX.Element => {
+    useStorybookMocks({
+        get: {
+            '/api/users/@me/': () => [
+                200,
+                {
+                    email: 'test@posthog.com',
+                    first_name: 'Test PostHog',
+                    organization: {
+                        name: 'Test org',
+                        teams: [],
+                    },
+                    team: null,
+                },
+            ],
+            'api/organizations/@current/': () => [
+                200,
+                {
+                    membership_level: 1,
+                    name: 'Test org',
+                    teams: [],
+                },
+            ],
+        },
+    })
+    useEffect(() => {
         router.actions.push(urls.projectHomepage())
     }, [])
     return <App />
