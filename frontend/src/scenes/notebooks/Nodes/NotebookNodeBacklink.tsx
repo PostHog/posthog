@@ -2,7 +2,7 @@ import { mergeAttributes, Node, NodeViewProps } from '@tiptap/core'
 import { NodeViewWrapper, ReactNodeViewRenderer } from '@tiptap/react'
 import { InsightModel, NotebookNodeType, NotebookTarget } from '~/types'
 import { Link } from '@posthog/lemon-ui'
-import { IconExperiment, IconLive, IconCohort } from 'lib/lemon-ui/icons'
+import { IconExperiment, IconCohort } from 'lib/lemon-ui/icons'
 import { urls } from 'scenes/urls'
 import clsx from 'clsx'
 import { router } from 'kea-router'
@@ -17,6 +17,7 @@ import {
     IconDashboard,
     IconFlag,
     IconGraph,
+    IconLive,
     IconLogomark,
     IconNotebook,
     IconPerson,

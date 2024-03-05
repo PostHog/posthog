@@ -73,13 +73,13 @@ class SnowflakeHeartbeatDetails(BatchExportHeartbeatDetails):
 
     @classmethod
     def from_activity(cls, activity):
-        details = super().from_activity(activity)
+        details = BatchExportHeartbeatDetails.from_activity(activity)
 
         if details.total_details < 2:
             raise NotEnoughHeartbeatValuesError(details.total_details, 2)
 
         try:
-            file_no = int(details._remaining[1])
+            file_no = int(details._remaining[0])
         except (TypeError, ValueError) as e:
             raise HeartbeatParseError("file_no") from e
 

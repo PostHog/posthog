@@ -93,12 +93,6 @@ posthog/hogql/database/database.py:0: error: "FieldOrTable" has no attribute "fi
 posthog/hogql/database/database.py:0: error: "FieldOrTable" has no attribute "fields"  [attr-defined]
 posthog/hogql/database/database.py:0: error: "FieldOrTable" has no attribute "fields"  [attr-defined]
 posthog/hogql/database/database.py:0: error: "FieldOrTable" has no attribute "fields"  [attr-defined]
-posthog/hogql/database/database.py:0: error: Incompatible types in assignment (expression has type "DataWarehouseTable", variable has type "Table")  [assignment]
-posthog/hogql/database/database.py:0: error: "Table" has no attribute "name"  [attr-defined]
-posthog/hogql/database/database.py:0: error: "Table" has no attribute "hogql_definition"  [attr-defined]
-posthog/hogql/database/database.py:0: error: Incompatible types in assignment (expression has type "DataWarehouseSavedQuery", variable has type "Table")  [assignment]
-posthog/hogql/database/database.py:0: error: "Table" has no attribute "name"  [attr-defined]
-posthog/hogql/database/database.py:0: error: "Table" has no attribute "hogql_definition"  [attr-defined]
 posthog/hogql/database/database.py:0: error: Incompatible types (expression has type "Literal['view', 'lazy_table']", TypedDict item "type" has type "Literal['integer', 'float', 'string', 'datetime', 'date', 'boolean', 'array', 'json', 'lazy_table', 'virtual_table', 'field_traverser']")  [typeddict-item]
 posthog/warehouse/models/datawarehouse_saved_query.py:0: error: Argument 1 to "create_hogql_database" has incompatible type "int | None"; expected "int"  [arg-type]
 posthog/warehouse/models/datawarehouse_saved_query.py:0: error: Incompatible types in assignment (expression has type "Expr", variable has type "SelectQuery | SelectUnionQuery")  [assignment]
@@ -331,7 +325,6 @@ posthog/models/property/util.py:0: error: Argument 1 to "append" of "list" has i
 posthog/models/property/util.py:0: error: Argument 1 to "append" of "list" has incompatible type "str | int"; expected "str"  [arg-type]
 posthog/models/property/util.py:0: error: Argument 1 to "append" of "list" has incompatible type "str | int"; expected "str"  [arg-type]
 posthog/queries/trends/util.py:0: error: Argument 1 to "translate_hogql" has incompatible type "str | None"; expected "str"  [arg-type]
-posthog/hogql/property.py:0: error: Non-overlapping equality check (left operand type: "Literal['person', 'cohort', 'element', 'static-cohort', 'precalculated-cohort', 'group', 'recording', 'behavioral', 'session']", right operand type: "Literal['feature']")  [comparison-overlap]
 posthog/hogql/property.py:0: error: Argument "chain" to "Field" has incompatible type "list[str]"; expected "list[str | int]"  [arg-type]
 posthog/hogql/property.py:0: note: "List" is invariant -- see https://mypy.readthedocs.io/en/stable/common_issues.html#variance
 posthog/hogql/property.py:0: note: Consider using "Sequence" instead, which is covariant
@@ -379,16 +372,12 @@ posthog/hogql_queries/insights/trends/breakdown.py:0: error: Unsupported operand
 posthog/hogql_queries/insights/trends/breakdown.py:0: note: Left operand is of type "str | int"
 posthog/hogql_queries/insights/trends/breakdown.py:0: error: Incompatible return value type (got "list[tuple[str | int, Any | float | str | int]]", expected "list[tuple[float, float]]")  [return-value]
 posthog/hogql_queries/insights/trends/breakdown.py:0: error: Item "None" of "BreakdownFilter | None" has no attribute "breakdown_type"  [union-attr]
-posthog/hogql_queries/insights/trends/breakdown.py:0: error: Argument "breakdown_type" to "get_properties_chain" has incompatible type "BreakdownType | Any | None"; expected "Literal['person', 'session', 'group', 'event']"  [arg-type]
 posthog/hogql_queries/insights/trends/breakdown.py:0: error: Item "None" of "BreakdownFilter | None" has no attribute "breakdown"  [union-attr]
 posthog/hogql_queries/insights/trends/breakdown.py:0: error: Argument "breakdown_field" to "get_properties_chain" has incompatible type "str | float | list[str | float] | Any | None"; expected "str"  [arg-type]
 posthog/hogql_queries/insights/trends/breakdown.py:0: error: Item "None" of "BreakdownFilter | None" has no attribute "breakdown_group_type_index"  [union-attr]
 posthog/hogql/metadata.py:0: error: Argument "metadata_source" to "translate_hogql" has incompatible type "SelectQuery | SelectUnionQuery"; expected "SelectQuery | None"  [arg-type]
 posthog/hogql/metadata.py:0: error: Incompatible types in assignment (expression has type "Expr", variable has type "SelectQuery | SelectUnionQuery")  [assignment]
 posthog/queries/breakdown_props.py:0: error: Argument 1 to "translate_hogql" has incompatible type "str | int"; expected "str"  [arg-type]
-posthog/hogql_queries/insights/funnels/base.py:0: error: Incompatible types in assignment (expression has type "FunnelExclusionEventsNode | FunnelExclusionActionsNode", variable has type "EventsNode | ActionsNode")  [assignment]
-posthog/hogql_queries/insights/funnels/base.py:0: error: Item "EventsNode" of "EventsNode | ActionsNode" has no attribute "funnelFromStep"  [union-attr]
-posthog/hogql_queries/insights/funnels/base.py:0: error: Item "ActionsNode" of "EventsNode | ActionsNode" has no attribute "funnelFromStep"  [union-attr]
 posthog/queries/funnels/base.py:0: error: "HogQLContext" has no attribute "person_on_events_mode"  [attr-defined]
 posthog/queries/funnels/base.py:0: error: Argument 1 to "translate_hogql" has incompatible type "str | int"; expected "str"  [arg-type]
 ee/clickhouse/queries/funnels/funnel_correlation.py:0: error: Statement is unreachable  [unreachable]
@@ -431,10 +420,6 @@ posthog/hogql_queries/insights/trends/trends_query_runner.py:0: note: def to_act
 posthog/hogql_queries/insights/trends/trends_query_runner.py:0: note: Subclass:
 posthog/hogql_queries/insights/trends/trends_query_runner.py:0: note: def to_actors_query(self, time_frame: str | int | None, series_index: int, breakdown_value: str | int | None = ..., compare: Compare | None = ...) -> SelectQuery | SelectUnionQuery
 posthog/hogql_queries/insights/trends/trends_query_runner.py:0: error: Statement is unreachable  [unreachable]
-posthog/hogql_queries/insights/trends/trends_query_runner.py:0: error: List item 0 has incompatible type "str | float | None"; expected "str | float"  [list-item]
-posthog/hogql_queries/insights/trends/trends_query_runner.py:0: error: Item "None" of "BreakdownFilter | None" has no attribute "breakdown"  [union-attr]
-posthog/hogql_queries/insights/trends/trends_query_runner.py:0: error: Argument 1 to "FormulaAST" has incompatible type "map[Any]"; expected "list[list[float]]"  [arg-type]
-posthog/hogql_queries/insights/trends/trends_query_runner.py:0: error: Argument 1 to "FormulaAST" has incompatible type "map[Any]"; expected "list[list[float]]"  [arg-type]
 posthog/hogql_queries/insights/trends/trends_query_runner.py:0: error: Argument 1 to "_event_property" of "TrendsQueryRunner" has incompatible type "str | float | list[str | float] | None"; expected "str"  [arg-type]
 posthog/hogql_queries/legacy_compatibility/process_insight.py:0: error: Incompatible types in assignment (expression has type "PathFilter", variable has type "RetentionFilter")  [assignment]
 posthog/hogql_queries/legacy_compatibility/process_insight.py:0: error: Incompatible types in assignment (expression has type "StickinessFilter", variable has type "RetentionFilter")  [assignment]
@@ -742,8 +727,6 @@ posthog/hogql/test/test_query.py:0: error: Argument 1 to "pretty_print_in_tests"
 posthog/hogql/test/test_query.py:0: error: Argument 1 to "pretty_print_in_tests" has incompatible type "str | None"; expected "str"  [arg-type]
 posthog/hogql/test/test_query.py:0: error: Argument 1 to "pretty_print_in_tests" has incompatible type "str | None"; expected "str"  [arg-type]
 posthog/hogql/test/test_query.py:0: error: Value of type "list[Any] | None" is not indexable  [index]
-posthog/hogql/test/test_query.py:0: error: Incompatible types in assignment (expression has type "HogQLQueryResponse", variable has type "HttpResponse")  [assignment]
-posthog/hogql/test/test_query.py:0: error: "HttpResponse" has no attribute "results"  [attr-defined]
 posthog/hogql/test/test_query.py:0: error: Argument "placeholders" to "execute_hogql_query" has incompatible type "dict[str, Constant]"; expected "dict[str, Expr] | None"  [arg-type]
 posthog/hogql/test/test_query.py:0: note: "Dict" is invariant -- see https://mypy.readthedocs.io/en/stable/common_issues.html#variance
 posthog/hogql/test/test_query.py:0: note: Consider using "Mapping" instead, which is covariant in the value type

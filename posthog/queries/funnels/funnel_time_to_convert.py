@@ -107,6 +107,7 @@ class ClickhouseFunnelTimeToConvert(ClickhouseFunnelBase):
             ) fill
             USING (bin_from_seconds)
             ORDER BY bin_from_seconds
+            SETTINGS max_ast_elements=1000000, max_expanded_ast_elements=1000000
         """
 
         return query

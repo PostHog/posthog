@@ -487,10 +487,10 @@ class QueryMatchingTest:
         # replace django cursors
         query = re.sub(r"_django_curs_[0-9sync_]*\"", r'_django_curs_X"', query)
 
-        # hog ql checks team ids differently
+        # hog ql checks some ids differently
         query = re.sub(
-            r"equals\(([^.]+\.)?team_id?, \d+\)",
-            r"equals(\1team_id, 2)",
+            r"equals\(([^.]+\.)?(team_id|cohort_id)?, \d+\)",
+            r"equals(\1\2, 2)",
             query,
         )
 

@@ -652,6 +652,96 @@
   OFFSET 0
   '''
 # ---
+# name: TestClickhouseSessionRecordingsListFromSessionReplay.test_basic_query_with_ordering
+  '''
+  
+  SELECT s.session_id,
+         any(s.team_id),
+         any(s.distinct_id),
+         min(s.min_first_timestamp) as start_time,
+         max(s.max_last_timestamp) as end_time,
+         dateDiff('SECOND', start_time, end_time) as duration,
+         argMinMerge(s.first_url) as first_url,
+         sum(s.click_count),
+         sum(s.keypress_count),
+         sum(s.mouse_activity_count),
+         sum(s.active_milliseconds)/1000 as active_seconds,
+         duration-active_seconds as inactive_seconds,
+         sum(s.console_log_count) as console_log_count,
+         sum(s.console_warn_count) as console_warn_count,
+         sum(s.console_error_count) as console_error_count
+  FROM session_replay_events s
+  WHERE s.team_id = 2
+    AND s.min_first_timestamp >= '2020-12-11 13:46:23'
+    AND s.min_first_timestamp >= '2020-12-25 00:00:00'
+    AND s.max_last_timestamp <= '2021-01-01 13:46:23'
+  GROUP BY session_id
+  HAVING 1=1
+  ORDER BY active_seconds DESC
+  LIMIT 4
+  OFFSET 0
+  '''
+# ---
+# name: TestClickhouseSessionRecordingsListFromSessionReplay.test_basic_query_with_ordering.1
+  '''
+  
+  SELECT s.session_id,
+         any(s.team_id),
+         any(s.distinct_id),
+         min(s.min_first_timestamp) as start_time,
+         max(s.max_last_timestamp) as end_time,
+         dateDiff('SECOND', start_time, end_time) as duration,
+         argMinMerge(s.first_url) as first_url,
+         sum(s.click_count),
+         sum(s.keypress_count),
+         sum(s.mouse_activity_count),
+         sum(s.active_milliseconds)/1000 as active_seconds,
+         duration-active_seconds as inactive_seconds,
+         sum(s.console_log_count) as console_log_count,
+         sum(s.console_warn_count) as console_warn_count,
+         sum(s.console_error_count) as console_error_count
+  FROM session_replay_events s
+  WHERE s.team_id = 2
+    AND s.min_first_timestamp >= '2020-12-11 13:46:23'
+    AND s.min_first_timestamp >= '2020-12-25 00:00:00'
+    AND s.max_last_timestamp <= '2021-01-01 13:46:23'
+  GROUP BY session_id
+  HAVING 1=1
+  ORDER BY console_error_count DESC
+  LIMIT 4
+  OFFSET 0
+  '''
+# ---
+# name: TestClickhouseSessionRecordingsListFromSessionReplay.test_basic_query_with_ordering.2
+  '''
+  
+  SELECT s.session_id,
+         any(s.team_id),
+         any(s.distinct_id),
+         min(s.min_first_timestamp) as start_time,
+         max(s.max_last_timestamp) as end_time,
+         dateDiff('SECOND', start_time, end_time) as duration,
+         argMinMerge(s.first_url) as first_url,
+         sum(s.click_count),
+         sum(s.keypress_count),
+         sum(s.mouse_activity_count),
+         sum(s.active_milliseconds)/1000 as active_seconds,
+         duration-active_seconds as inactive_seconds,
+         sum(s.console_log_count) as console_log_count,
+         sum(s.console_warn_count) as console_warn_count,
+         sum(s.console_error_count) as console_error_count
+  FROM session_replay_events s
+  WHERE s.team_id = 2
+    AND s.min_first_timestamp >= '2020-12-11 13:46:23'
+    AND s.min_first_timestamp >= '2020-12-25 00:00:00'
+    AND s.max_last_timestamp <= '2021-01-01 13:46:23'
+  GROUP BY session_id
+  HAVING 1=1
+  ORDER BY start_time DESC
+  LIMIT 4
+  OFFSET 0
+  '''
+# ---
 # name: TestClickhouseSessionRecordingsListFromSessionReplay.test_basic_query_with_paging
   '''
   
@@ -2876,47 +2966,6 @@
   OFFSET 0
   '''
 # ---
-# name: TestClickhouseSessionRecordingsListFromSessionReplay.test_filter_for_recordings_by_console_text.4
-  '''
-  
-  SELECT s.session_id,
-         any(s.team_id),
-         any(s.distinct_id),
-         min(s.min_first_timestamp) as start_time,
-         max(s.max_last_timestamp) as end_time,
-         dateDiff('SECOND', start_time, end_time) as duration,
-         argMinMerge(s.first_url) as first_url,
-         sum(s.click_count),
-         sum(s.keypress_count),
-         sum(s.mouse_activity_count),
-         sum(s.active_milliseconds)/1000 as active_seconds,
-         duration-active_seconds as inactive_seconds,
-         sum(s.console_log_count) as console_log_count,
-         sum(s.console_warn_count) as console_warn_count,
-         sum(s.console_error_count) as console_error_count
-  FROM session_replay_events s
-  WHERE s.team_id = 2
-    AND s.min_first_timestamp >= '2020-12-31 20:00:00'
-    AND s.min_first_timestamp >= '2021-01-14 00:00:00'
-    AND s.max_last_timestamp <= '2021-01-21 20:00:00'
-    AND "session_id" in
-      (SELECT distinct log_source_id as session_id
-       FROM log_entries PREWHERE team_id = 2
-       AND timestamp >= '2020-12-31 20:00:00'
-       AND timestamp <= now()
-       AND timestamp >= '2021-01-13 12:00:00'
-       AND timestamp <= '2021-01-22 08:00:00'
-       WHERE 1=1
-         AND level in ['log']
-         AND positionCaseInsensitive(message, 'message 5') > 0 ) as log_text_matching
-  GROUP BY session_id
-  HAVING 1=1
-  AND (console_log_count > 0)
-  ORDER BY start_time DESC
-  LIMIT 51
-  OFFSET 0
-  '''
-# ---
 # name: TestClickhouseSessionRecordingsListFromSessionReplay.test_filter_for_recordings_with_console_errors
   '''
   
@@ -2949,37 +2998,6 @@
   '''
 # ---
 # name: TestClickhouseSessionRecordingsListFromSessionReplay.test_filter_for_recordings_with_console_errors.1
-  '''
-  
-  SELECT s.session_id,
-         any(s.team_id),
-         any(s.distinct_id),
-         min(s.min_first_timestamp) as start_time,
-         max(s.max_last_timestamp) as end_time,
-         dateDiff('SECOND', start_time, end_time) as duration,
-         argMinMerge(s.first_url) as first_url,
-         sum(s.click_count),
-         sum(s.keypress_count),
-         sum(s.mouse_activity_count),
-         sum(s.active_milliseconds)/1000 as active_seconds,
-         duration-active_seconds as inactive_seconds,
-         sum(s.console_log_count) as console_log_count,
-         sum(s.console_warn_count) as console_warn_count,
-         sum(s.console_error_count) as console_error_count
-  FROM session_replay_events s
-  WHERE s.team_id = 2
-    AND s.min_first_timestamp >= '2020-12-31 20:00:00'
-    AND s.min_first_timestamp >= '2021-01-14 00:00:00'
-    AND s.max_last_timestamp <= '2021-01-21 20:00:00'
-  GROUP BY session_id
-  HAVING 1=1
-  AND (console_log_count > 0)
-  ORDER BY start_time DESC
-  LIMIT 51
-  OFFSET 0
-  '''
-# ---
-# name: TestClickhouseSessionRecordingsListFromSessionReplay.test_filter_for_recordings_with_console_errors.2
   '''
   
   SELECT s.session_id,
@@ -3072,37 +3090,6 @@
   OFFSET 0
   '''
 # ---
-# name: TestClickhouseSessionRecordingsListFromSessionReplay.test_filter_for_recordings_with_console_logs.2
-  '''
-  
-  SELECT s.session_id,
-         any(s.team_id),
-         any(s.distinct_id),
-         min(s.min_first_timestamp) as start_time,
-         max(s.max_last_timestamp) as end_time,
-         dateDiff('SECOND', start_time, end_time) as duration,
-         argMinMerge(s.first_url) as first_url,
-         sum(s.click_count),
-         sum(s.keypress_count),
-         sum(s.mouse_activity_count),
-         sum(s.active_milliseconds)/1000 as active_seconds,
-         duration-active_seconds as inactive_seconds,
-         sum(s.console_log_count) as console_log_count,
-         sum(s.console_warn_count) as console_warn_count,
-         sum(s.console_error_count) as console_error_count
-  FROM session_replay_events s
-  WHERE s.team_id = 2
-    AND s.min_first_timestamp >= '2020-12-31 20:00:00'
-    AND s.min_first_timestamp >= '2021-01-14 00:00:00'
-    AND s.max_last_timestamp <= '2021-01-21 20:00:00'
-  GROUP BY session_id
-  HAVING 1=1
-  AND (console_warn_count > 0)
-  ORDER BY start_time DESC
-  LIMIT 51
-  OFFSET 0
-  '''
-# ---
 # name: TestClickhouseSessionRecordingsListFromSessionReplay.test_filter_for_recordings_with_console_warns
   '''
   
@@ -3135,37 +3122,6 @@
   '''
 # ---
 # name: TestClickhouseSessionRecordingsListFromSessionReplay.test_filter_for_recordings_with_console_warns.1
-  '''
-  
-  SELECT s.session_id,
-         any(s.team_id),
-         any(s.distinct_id),
-         min(s.min_first_timestamp) as start_time,
-         max(s.max_last_timestamp) as end_time,
-         dateDiff('SECOND', start_time, end_time) as duration,
-         argMinMerge(s.first_url) as first_url,
-         sum(s.click_count),
-         sum(s.keypress_count),
-         sum(s.mouse_activity_count),
-         sum(s.active_milliseconds)/1000 as active_seconds,
-         duration-active_seconds as inactive_seconds,
-         sum(s.console_log_count) as console_log_count,
-         sum(s.console_warn_count) as console_warn_count,
-         sum(s.console_error_count) as console_error_count
-  FROM session_replay_events s
-  WHERE s.team_id = 2
-    AND s.min_first_timestamp >= '2020-12-31 20:00:00'
-    AND s.min_first_timestamp >= '2021-01-14 00:00:00'
-    AND s.max_last_timestamp <= '2021-01-21 20:00:00'
-  GROUP BY session_id
-  HAVING 1=1
-  AND (console_log_count > 0)
-  ORDER BY start_time DESC
-  LIMIT 51
-  OFFSET 0
-  '''
-# ---
-# name: TestClickhouseSessionRecordingsListFromSessionReplay.test_filter_for_recordings_with_console_warns.2
   '''
   
   SELECT s.session_id,
@@ -3229,37 +3185,6 @@
   '''
 # ---
 # name: TestClickhouseSessionRecordingsListFromSessionReplay.test_filter_for_recordings_with_mixed_console_counts.1
-  '''
-  
-  SELECT s.session_id,
-         any(s.team_id),
-         any(s.distinct_id),
-         min(s.min_first_timestamp) as start_time,
-         max(s.max_last_timestamp) as end_time,
-         dateDiff('SECOND', start_time, end_time) as duration,
-         argMinMerge(s.first_url) as first_url,
-         sum(s.click_count),
-         sum(s.keypress_count),
-         sum(s.mouse_activity_count),
-         sum(s.active_milliseconds)/1000 as active_seconds,
-         duration-active_seconds as inactive_seconds,
-         sum(s.console_log_count) as console_log_count,
-         sum(s.console_warn_count) as console_warn_count,
-         sum(s.console_error_count) as console_error_count
-  FROM session_replay_events s
-  WHERE s.team_id = 2
-    AND s.min_first_timestamp >= '2020-12-31 20:00:00'
-    AND s.min_first_timestamp >= '2021-01-14 00:00:00'
-    AND s.max_last_timestamp <= '2021-01-21 20:00:00'
-  GROUP BY session_id
-  HAVING 1=1
-  AND (console_log_count > 0)
-  ORDER BY start_time DESC
-  LIMIT 51
-  OFFSET 0
-  '''
-# ---
-# name: TestClickhouseSessionRecordingsListFromSessionReplay.test_filter_for_recordings_with_mixed_console_counts.2
   '''
   
   SELECT s.session_id,

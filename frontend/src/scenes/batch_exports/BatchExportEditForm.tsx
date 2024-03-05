@@ -11,6 +11,7 @@ import { LemonSelectMultiple } from 'lib/lemon-ui/LemonSelectMultiple/LemonSelec
 import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { userLogic } from 'scenes/userLogic'
 
 import { BatchExportConfigurationForm, batchExportsEditLogic, BatchExportsEditLogicProps } from './batchExportEditLogic'
 
@@ -75,6 +76,7 @@ export function BatchExportsEditFields({
     batchExportConfigForm: BatchExportConfigurationForm
 }): JSX.Element {
     const { featureFlags } = useValues(featureFlagLogic)
+    const { user } = useValues(userLogic)
     const highFrequencyBatchExports = featureFlags[FEATURE_FLAGS.HIGH_FREQUENCY_BATCH_EXPORTS]
 
     return (
@@ -170,6 +172,7 @@ export function BatchExportsEditFields({
                             { value: 'Redshift', label: 'Redshift' },
                             { value: 'S3', label: 'S3' },
                             { value: 'Snowflake', label: 'Snowflake' },
+                            ...(user?.is_impersonated ? [{ value: 'HTTP', label: 'HTTP' }] : []),
                         ]}
                     />
                 </LemonField>
@@ -472,6 +475,29 @@ export function BatchExportsEditFields({
                             </LemonField>
                         ) : null}
 
+                        <LemonField name="exclude_events" label="Events to exclude" className="flex-1">
+                            <LemonSelectMultiple
+                                mode="multiple-custom"
+                                options={[]}
+                                placeholder="Input one or more events to exclude from the export (optional)"
+                            />
+                        </LemonField>
+                        <LemonField name="include_events" label="Events to include" className="flex-1">
+                            <LemonSelectMultiple
+                                mode="multiple-custom"
+                                options={[]}
+                                placeholder="Input one or more events to include in the export (optional)"
+                            />
+                        </LemonField>
+                    </>
+                ) : batchExportConfigForm.destination === 'HTTP' ? (
+                    <>
+                        <LemonField name="url" label="URL">
+                            <LemonInput />
+                        </LemonField>
+                        <LemonField name="token" label="Project API Key">
+                            <LemonInput />
+                        </LemonField>
                         <LemonField name="exclude_events" label="Events to exclude" className="flex-1">
                             <LemonSelectMultiple
                                 mode="multiple-custom"

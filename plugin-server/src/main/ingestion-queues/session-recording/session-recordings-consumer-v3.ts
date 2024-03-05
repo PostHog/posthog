@@ -18,6 +18,8 @@ import { expressApp } from '../../services/http-server'
 import { ObjectStorage } from '../../services/object_storage'
 import { runInstrumentedFunction } from '../../utils'
 import { addSentryBreadcrumbsEventListeners } from '../kafka-metrics'
+import { ConsoleLogsIngester } from './services/console-logs-ingester'
+import { ReplayEventsIngester } from './services/replay-events-ingester'
 import { BUCKETS_KB_WRITTEN, BUFFER_FILE_NAME, SessionManagerV3 } from './services/session-manager-v3'
 import { IncomingRecordingMessage } from './types'
 import { allSettledWithConcurrency, parseKafkaMessage, reduceRecordingMessages } from './utils'
@@ -40,7 +42,7 @@ const gaugeSessionsHandled = new Gauge({
 const histogramKafkaBatchSize = new Histogram({
     name: metricPrefix + 'recording_blob_ingestion_kafka_batch_size',
     help: 'The size of the batches we are receiving from Kafka',
-    buckets: [0, 50, 100, 150, 200, 250, 300, 350, 400, 450, 500, 600, Infinity],
+    buckets: [0, 50, 100, 250, 500, 750, 1000, 1500, 2000, 3000, Infinity],
 })
 
 const histogramKafkaBatchSizeKb = new Histogram({
@@ -67,12 +69,13 @@ export interface TeamIDWithConfig {
  */
 export class SessionRecordingIngesterV3 {
     sessions: Record<string, SessionManagerV3> = {}
-    // replayEventsIngester: ReplayEventsIngester
-    // consoleLogsIngester: ConsoleLogsIngester
+    replayEventsIngester?: ReplayEventsIngester
+    consoleLogsIngester?: ConsoleLogsIngester
     batchConsumer?: BatchConsumer
     teamsRefresher: BackgroundRefresher<Record<string, TeamIDWithConfig>>
     config: PluginsServerConfig
     topic = KAFKA_SESSION_RECORDING_SNAPSHOT_ITEM_EVENTS
+    isStopping = false
 
     private promises: Set<Promise<any>> = new Set()
     // if ingestion is lagging on a single partition it is often hard to identify _why_,
@@ -80,7 +83,7 @@ export class SessionRecordingIngesterV3 {
     private debugPartition: number | undefined = undefined
 
     constructor(
-        globalServerConfig: PluginsServerConfig,
+        private globalServerConfig: PluginsServerConfig,
         private postgres: PostgresRouter,
         private objectStorage: ObjectStorage
     ) {
@@ -91,11 +94,6 @@ export class SessionRecordingIngesterV3 {
         // NOTE: globalServerConfig contains the default pluginServer values, typically not pointing at dedicated resources like kafka or redis
         // We still connect to some of the non-dedicated resources such as postgres or the Replay events kafka.
         this.config = sessionRecordingConsumerConfig(globalServerConfig)
-
-        // NOTE: This is the only place where we need to use the shared server config
-        // TODO: Uncomment when we swap to using this service as the ingester for it
-        // this.replayEventsIngester = new ReplayEventsIngester(globalServerConfig, this.persistentHighWaterMarker)
-        // this.consoleLogsIngester = new ConsoleLogsIngester(globalServerConfig, this.persistentHighWaterMarker)
 
         this.teamsRefresher = new BackgroundRefresher(async () => {
             try {
@@ -146,13 +144,10 @@ export class SessionRecordingIngesterV3 {
         const { team_id, session_id } = event
         const key = `${team_id}__${session_id}`
 
-        const { offset, partition } = event.metadata
+        const { partition } = event.metadata
         if (this.debugPartition === partition) {
             status.info('🔁', '[session-replay-ingestion] - [PARTITION DEBUG] - consuming event', {
-                team_id,
-                session_id,
-                partition,
-                offset,
+                ...event.metadata,
             })
         }
 
@@ -244,19 +239,23 @@ export class SessionRecordingIngesterV3 {
                     },
                 })
 
-                // await runInstrumentedFunction({
-                //     statsKey: `recordingingester.handleEachBatch.consumeReplayEvents`,
-                //     func: async () => {
-                //         await this.replayEventsIngester.consumeBatch(recordingMessages)
-                //     },
-                // })
+                if (this.replayEventsIngester) {
+                    await runInstrumentedFunction({
+                        statsKey: `recordingingester.handleEachBatch.consumeReplayEvents`,
+                        func: async () => {
+                            await this.replayEventsIngester!.consumeBatch(recordingMessages)
+                        },
+                    })
+                }
 
-                // await runInstrumentedFunction({
-                //     statsKey: `recordingingester.handleEachBatch.consumeConsoleLogEvents`,
-                //     func: async () => {
-                //         await this.consoleLogsIngester.consumeBatch(recordingMessages)
-                //     },
-                // })
+                if (this.consoleLogsIngester) {
+                    await runInstrumentedFunction({
+                        statsKey: `recordingingester.handleEachBatch.consumeConsoleLogEvents`,
+                        func: async () => {
+                            await this.consoleLogsIngester!.consumeBatch(recordingMessages)
+                        },
+                    })
+                }
             },
         })
     }
@@ -271,8 +270,17 @@ export class SessionRecordingIngesterV3 {
 
         // Load teams into memory
         await this.teamsRefresher.refresh()
-        // await this.replayEventsIngester.start()
-        // await this.consoleLogsIngester.start()
+
+        // NOTE: This is the only place where we need to use the shared server config
+        if (this.config.SESSION_RECORDING_CONSOLE_LOGS_INGESTION_ENABLED) {
+            this.consoleLogsIngester = new ConsoleLogsIngester(this.globalServerConfig)
+            await this.consoleLogsIngester.start()
+        }
+
+        if (this.config.SESSION_RECORDING_REPLAY_EVENTS_INGESTION_ENABLED) {
+            this.replayEventsIngester = new ReplayEventsIngester(this.globalServerConfig)
+            await this.replayEventsIngester.start()
+        }
 
         const connectionConfig = createRdConnectionConfigFromEnvVars(this.config)
 
@@ -316,6 +324,7 @@ export class SessionRecordingIngesterV3 {
     }
 
     public async stop(): Promise<PromiseSettledResult<any>[]> {
+        this.isStopping = true
         status.info('🔁', 'session-replay-ingestion - stopping')
 
         // NOTE: We have to get the partitions before we stop the consumer as it throws if disconnected
@@ -329,8 +338,12 @@ export class SessionRecordingIngesterV3 {
             )
         )
 
-        // void this.scheduleWork(this.replayEventsIngester.stop())
-        // void this.scheduleWork(this.consoleLogsIngester.stop())
+        if (this.replayEventsIngester) {
+            void this.scheduleWork(this.replayEventsIngester.stop())
+        }
+        if (this.consoleLogsIngester) {
+            void this.scheduleWork(this.consoleLogsIngester!.stop())
+        }
 
         const promiseResults = await Promise.allSettled(this.promises)
 
@@ -351,8 +364,13 @@ export class SessionRecordingIngesterV3 {
         await allSettledWithConcurrency(
             this.config.SESSION_RECORDING_MAX_PARALLEL_FLUSHES,
             sessions,
-            async ([key, sessionManager]) => {
+            async ([key, sessionManager], ctx) => {
                 heartbeat()
+
+                if (this.isStopping) {
+                    // We can end up with a large number of flushes. We want to stop early if we hit shutdown
+                    return ctx.break()
+                }
 
                 if (!this.assignedPartitions.includes(sessionManager.context.partition)) {
                     await this.destroySession(key, sessionManager)
@@ -404,6 +422,11 @@ export class SessionRecordingIngesterV3 {
             for (const key of relatedKeys) {
                 // TODO: Ensure sessionId can only be a uuid
                 const [teamId, sessionId] = key.split('__')
+
+                if (this.isStopping) {
+                    // We can end up with a large number of files we are processing. We want to stop early if we hit shutdown
+                    return
+                }
 
                 if (!this.assignedPartitions.includes(partition)) {
                     // Account for rebalances
