@@ -92,7 +92,7 @@ def execute_hogql_query(
                 enable_select_queries=True,
                 timings=timings,
                 modifiers=query_modifiers,
-                limit_top_select=get_max_limit_for_context(limit_context),
+                limit_top_select=get_max_limit_for_context(limit_context) if limit_context else True,
             )
             with timings.measure("clone"):
                 cloned_query = clone_expr(select_query, True)
@@ -136,7 +136,7 @@ def execute_hogql_query(
             enable_select_queries=True,
             timings=timings,
             modifiers=query_modifiers,
-            limit_top_select=get_max_limit_for_context(limit_context),
+            limit_top_select=get_max_limit_for_context(limit_context) if limit_context else True,
         )
         clickhouse_sql = print_ast(
             select_query,
