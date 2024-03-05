@@ -13,6 +13,8 @@ describe('Exporting Insights', () => {
             )
         )
 
+        cy.intercept('/api/billing-v2/', { fixture: 'api/billing-v2/billing-v2-unsubscribed.json' })
+
         cy.intercept('POST', '**/e/?compression=gzip-js*').as('capture')
     })
 
@@ -22,13 +24,13 @@ describe('Exporting Insights', () => {
         // Try to create a new project
         cy.get('[data-attr=breadcrumb-project').click()
         cy.get('[data-attr=new-project-button').click()
-        cy.get('[data-attr=upgrade-modal]').should('be.visible')
+        cy.get('[data-attr=paygate]').should('be.visible')
         cy.wait('@capture').then(({ request }) => {
             const data = new Uint8Array(request.body)
             const decoded = fflate.strFromU8(fflate.decompressSync(data))
             const decodedJSON = JSON.parse(decoded)
 
-            const matchingEvents = decodedJSON.filter((event) => event.event === 'report subscription status')
+            const matchingEvents = decodedJSON.filter((event) => event.event === 'report billing CTA seen')
             expect(matchingEvents.length).to.equal(1)
             expect(matchingEvents[0].properties.has_active_subscription).to.equal(false)
         })
@@ -39,7 +41,8 @@ describe('Exporting Insights', () => {
             const decoded = fflate.strFromU8(fflate.decompressSync(data))
             const decodedJSON = JSON.parse(decoded)
 
-            const matchingEvents = decodedJSON.filter((event) => event.event === 'report subscription status')
+            const matchingEvents = decodedJSON.filter((event) => event.event === 'report billing CTA seen')
+            console.log('what', decodedJSON)
             expect(matchingEvents.length).to.equal(1)
             expect(matchingEvents[0].properties.has_active_subscription).to.equal(false)
         })
@@ -53,7 +56,7 @@ describe('Exporting Insights', () => {
             const decodedJSON = JSON.parse(decoded)
 
             const matchingEvents = decodedJSON
-                .filter((event) => event.event === 'report subscription status')
+                .filter((event) => event.event === 'report billing CTA seen')
                 .sort((eventA, eventB) => (new Date(eventA.timestamp) < new Date(eventB.timestamp) ? 1 : -1))
             expect(matchingEvents[0].properties.has_active_subscription).to.equal(true)
         })
@@ -68,7 +71,7 @@ describe('Exporting Insights', () => {
             const decodedJSON = JSON.parse(decoded)
 
             const matchingEvents = decodedJSON
-                .filter((event) => event.event === 'report subscription status')
+                .filter((event) => event.event === 'report billing CTA seen')
                 .sort((eventA, eventB) => (new Date(eventA.timestamp) < new Date(eventB.timestamp) ? 1 : -1))
             console.log(matchingEvents)
             expect(matchingEvents[0].properties.has_active_subscription).to.equal(true)

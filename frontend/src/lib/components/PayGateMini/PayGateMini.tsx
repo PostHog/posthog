@@ -2,7 +2,8 @@ import { IconInfo } from '@posthog/icons'
 import { Link, Tooltip } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
-import { LemonButton } from 'lib/lemon-ui/LemonButton'
+import { FEATURE_FLAGS } from 'lib/constants'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { lowercaseFirstLetter } from 'lib/utils'
 import { billingLogic } from 'scenes/billing/billingLogic'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
@@ -11,6 +12,8 @@ import { sceneLogic } from 'scenes/sceneLogic'
 import { userLogic } from 'scenes/userLogic'
 
 import { AvailableFeature } from '~/types'
+
+import { BillingUpgradeCTA } from '../BillingUpgradeCTA'
 
 export interface PayGateMiniProps {
     feature: AvailableFeature
@@ -36,15 +39,16 @@ export function PayGateMini({
     background = true,
     isGrandfathered,
 }: PayGateMiniProps): JSX.Element | null {
+    const { featureFlags } = useValues(featureFlagLogic)
     const { preflight, isCloudOrDev } = useValues(preflightLogic)
     const { hasAvailableFeature, availableFeature } = useValues(userLogic)
     const { billing } = useValues(billingLogic)
     const { hideUpgradeModal } = useActions(sceneLogic)
 
-    const product = billing?.products.find((product) => product.features.some((f) => f.key === feature))
+    const product = billing?.products.find((product) => product.features?.some((f) => f.key === feature))
     const featureInfo = product?.features.find((f) => f.key === feature)
     const featureDetailsWithLimit = availableFeature(feature)
-    const minimumPlan = product?.plans.find((plan) => plan.features.some((f) => f.key === feature))
+    const minimumPlan = product?.plans.find((plan) => plan.features?.some((f) => f.key === feature))
 
     let gateVariant: 'add-card' | 'contact-sales' | 'move-to-cloud' | null = null
     if (!overrideShouldShowGate && !hasAvailableFeature(feature, currentUsage)) {
@@ -70,6 +74,7 @@ export function PayGateMini({
                 background && 'bg-side border border-border',
                 'PayGateMini rounded flex flex-col items-center p-4 text-center'
             )}
+            data-attr="paygate"
         >
             <div className="flex text-4xl text-warning">{getProductIcon(product.name, featureInfo.icon_key)}</div>
             <h3>{featureInfo.name}</h3>
@@ -101,10 +106,12 @@ export function PayGateMini({
                         <>On PostHog Cloud, you can </>
                     ) : (
                         <>
-                            Upgrade your <b>{product?.name}</b> plan to{' '}
+                            Upgrade your <b>{product.name}</b> plan to{' '}
+                            {featureInfo.description
+                                ? lowercaseFirstLetter(featureInfo.description)
+                                : 'use this feature.'}
                         </>
                     )}
-                    {featureInfo.description ? lowercaseFirstLetter(featureInfo.description) : 'use this feature.'}
                 </p>
             )}
             {isGrandfathered && (
@@ -125,7 +132,7 @@ export function PayGateMini({
                     </>
                 </div>
             )}
-            <LemonButton
+            <BillingUpgradeCTA
                 to={
                     gateVariant === 'add-card'
                         ? `/organization/billing?products=${product.type}`
@@ -140,13 +147,19 @@ export function PayGateMini({
                 onClick={hideUpgradeModal}
             >
                 {gateVariant === 'add-card'
-                    ? billing?.has_active_subscription
-                        ? `Upgrade ${product?.name}`
-                        : 'Subscribe now'
+                    ? featureFlags[FEATURE_FLAGS.BILLING_UPGRADE_LANGUAGE] === 'subscribe'
+                        ? `Subscribe to ${product.name}`
+                        : featureFlags[FEATURE_FLAGS.BILLING_UPGRADE_LANGUAGE] === 'credit_card' &&
+                          !billing?.has_active_subscription
+                        ? 'Add credit card'
+                        : featureFlags[FEATURE_FLAGS.BILLING_UPGRADE_LANGUAGE] === 'credit_card' &&
+                          billing?.has_active_subscription
+                        ? `Add paid plan for ${product.name}`
+                        : `Upgrade ${product.name}`
                     : gateVariant === 'contact-sales'
                     ? 'Contact sales'
                     : 'Move to PostHog Cloud'}
-            </LemonButton>
+            </BillingUpgradeCTA>
         </div>
     ) : (
         <div className={className}>{children}</div>

@@ -47,17 +47,17 @@
         "api_access",
         "social_sso",
         "community_support",
-        "terms_and_conditions"
+        "2fa"
     ],
     "license": {
-        "plan": "cloud"
+        "plan": "dev"
     },
-    "customer_id": null,
+    "customer_id": "cus_Pg7PIL8MsKi6bx",
     "deactivated": false,
     "has_active_subscription": false,
     "billing_period": {
-        "current_period_start": "2024-02-06T19:37:14.843Z",
-        "current_period_end": "2024-03-07T19:37:14.843Z",
+        "current_period_start": "2024-03-04T23:43:35.772Z",
+        "current_period_end": "2024-04-03T23:43:35.772Z",
         "interval": "month"
     },
     "available_product_features": [
@@ -438,12 +438,12 @@
             "note": null
         },
         {
-            "key": "terms_and_conditions",
-            "name": "Terms and conditions",
-            "description": "Terms and conditions",
+            "key": "2fa",
+            "name": "2FA",
+            "description": "Secure your PostHog account with two-factor authentication.",
             "unit": null,
             "limit": null,
-            "note": "Standard"
+            "note": null
         }
     ],
     "current_total_amount_usd": null,
@@ -464,7 +464,7 @@
                 {
                     "plan_key": "free-20230117",
                     "product_key": "product_analytics",
-                    "name": "Product analytics",
+                    "name": "Free",
                     "description": "A comprehensive product analytics platform built to natively work with session replay, feature flags, A/B testing, and surveys.",
                     "image_url": "https://posthog.com/images/products/product-analytics/product-analytics.png",
                     "docs_url": "https://posthog.com/docs/product-analytics",
@@ -515,12 +515,14 @@
                     ],
                     "tiers": null,
                     "current_plan": true,
-                    "included_if": null
+                    "included_if": null,
+                    "contact_support": null,
+                    "unit_amount_usd": null
                 },
                 {
                     "plan_key": "paid-20240111",
                     "product_key": "product_analytics",
-                    "name": "Product analytics",
+                    "name": "Paid",
                     "description": "A comprehensive product analytics platform built to natively work with session replay, feature flags, A/B testing, and surveys.",
                     "image_url": "https://posthog.com/images/products/product-analytics/product-analytics.png",
                     "docs_url": "https://posthog.com/docs/product-analytics",
@@ -577,41 +579,9 @@
                             "note": null
                         },
                         {
-                            "key": "dashboard_permissioning",
-                            "name": "Dashboard permissions",
-                            "description": "Restrict access to dashboards within the organization to only those who need it.",
-                            "unit": null,
-                            "limit": null,
-                            "note": null
-                        },
-                        {
-                            "key": "dashboard_collaboration",
-                            "name": "Tags & text cards",
-                            "description": "Keep organized by adding tags to your dashboards, cohorts and more. Add text cards and descriptions to your dashboards to provide context to your team.",
-                            "unit": null,
-                            "limit": null,
-                            "note": null
-                        },
-                        {
-                            "key": "ingestion_taxonomy",
-                            "name": "Ingestion taxonomy",
-                            "description": "Ingestion taxonomy",
-                            "unit": null,
-                            "limit": null,
-                            "note": null
-                        },
-                        {
                             "key": "correlation_analysis",
                             "name": "Correlation analysis",
                             "description": "Automatically highlight significant factors that affect the conversion rate of users within a funnel.",
-                            "unit": null,
-                            "limit": null,
-                            "note": null
-                        },
-                        {
-                            "key": "tagging",
-                            "name": "Dashboard tags",
-                            "description": "Organize dashboards with tags.",
                             "unit": null,
                             "limit": null,
                             "note": null
@@ -645,7 +615,7 @@
                         },
                         {
                             "flat_amount_usd": "0",
-                            "unit_amount_usd": "0.000248",
+                            "unit_amount_usd": "0.00031",
                             "up_to": 2000000,
                             "current_amount_usd": "0.00",
                             "current_usage": 0,
@@ -654,7 +624,7 @@
                         },
                         {
                             "flat_amount_usd": "0",
-                            "unit_amount_usd": "0.000104",
+                            "unit_amount_usd": "0.00013",
                             "up_to": 15000000,
                             "current_amount_usd": "0.00",
                             "current_usage": 0,
@@ -663,7 +633,7 @@
                         },
                         {
                             "flat_amount_usd": "0",
-                            "unit_amount_usd": "0.0000655",
+                            "unit_amount_usd": "0.0000819",
                             "up_to": 50000000,
                             "current_amount_usd": "0.00",
                             "current_usage": 0,
@@ -672,7 +642,7 @@
                         },
                         {
                             "flat_amount_usd": "0",
-                            "unit_amount_usd": "0.0000364",
+                            "unit_amount_usd": "0.0000455",
                             "up_to": 100000000,
                             "current_amount_usd": "0.00",
                             "current_usage": 0,
@@ -681,7 +651,7 @@
                         },
                         {
                             "flat_amount_usd": "0",
-                            "unit_amount_usd": "0.0000187",
+                            "unit_amount_usd": "0.0000234",
                             "up_to": 250000000,
                             "current_amount_usd": "0.00",
                             "current_usage": 0,
@@ -690,7 +660,7 @@
                         },
                         {
                             "flat_amount_usd": "0",
-                            "unit_amount_usd": "0.0000042",
+                            "unit_amount_usd": "0.0000052",
                             "up_to": null,
                             "current_amount_usd": "0.00",
                             "current_usage": 0,
@@ -699,7 +669,9 @@
                         }
                     ],
                     "current_plan": false,
-                    "included_if": null
+                    "included_if": null,
+                    "contact_support": null,
+                    "unit_amount_usd": null
                 }
             ],
             "type": "product_analytics",
@@ -737,7 +709,7 @@
                         },
                         {
                             "flat_amount_usd": "0",
-                            "unit_amount_usd": "0.000071",
+                            "unit_amount_usd": "0.0000708",
                             "up_to": 2000000,
                             "current_amount_usd": "0.00",
                             "current_usage": 0,
@@ -803,7 +775,7 @@
                         {
                             "plan_key": "addon-20230509",
                             "product_key": "group_analytics",
-                            "name": "Group analytics",
+                            "name": "Addon",
                             "description": "Associate events with a group or entity - such as a company, community, or project. Analyze these events as if they were sent by that entity itself. Great for B2B, marketplaces, and more.",
                             "image_url": "https://posthog.com/images/product/product-icons/group-analytics.svg",
                             "docs_url": "https://posthog.com/docs/product-analytics/group-analytics",
@@ -832,7 +804,7 @@
                                 },
                                 {
                                     "flat_amount_usd": "0",
-                                    "unit_amount_usd": "0.000071",
+                                    "unit_amount_usd": "0.0000708",
                                     "up_to": 2000000,
                                     "current_amount_usd": "0.00",
                                     "current_usage": 0,
@@ -886,10 +858,12 @@
                                 }
                             ],
                             "current_plan": false,
-                            "included_if": null
+                            "included_if": null,
+                            "contact_support": null,
+                            "unit_amount_usd": null
                         }
                     ],
-                    "contact_support": false
+                    "contact_support": null
                 },
                 {
                     "name": "Data pipelines",
@@ -911,7 +885,7 @@
                         },
                         {
                             "flat_amount_usd": "0",
-                            "unit_amount_usd": "0.000062",
+                            "unit_amount_usd": "0.000248",
                             "up_to": 2000000,
                             "current_amount_usd": "0.00",
                             "current_usage": 0,
@@ -920,7 +894,7 @@
                         },
                         {
                             "flat_amount_usd": "0",
-                            "unit_amount_usd": "0.000026",
+                            "unit_amount_usd": "0.000104",
                             "up_to": 15000000,
                             "current_amount_usd": "0.00",
                             "current_usage": 0,
@@ -929,7 +903,7 @@
                         },
                         {
                             "flat_amount_usd": "0",
-                            "unit_amount_usd": "0.0000164",
+                            "unit_amount_usd": "0.0000655",
                             "up_to": 50000000,
                             "current_amount_usd": "0.00",
                             "current_usage": 0,
@@ -938,7 +912,7 @@
                         },
                         {
                             "flat_amount_usd": "0",
-                            "unit_amount_usd": "0.0000091",
+                            "unit_amount_usd": "0.0000364",
                             "up_to": 100000000,
                             "current_amount_usd": "0.00",
                             "current_usage": 0,
@@ -947,7 +921,7 @@
                         },
                         {
                             "flat_amount_usd": "0",
-                            "unit_amount_usd": "0.0000047",
+                            "unit_amount_usd": "0.0000187",
                             "up_to": 250000000,
                             "current_amount_usd": "0.00",
                             "current_usage": 0,
@@ -956,7 +930,7 @@
                         },
                         {
                             "flat_amount_usd": "0",
-                            "unit_amount_usd": "0.000001",
+                            "unit_amount_usd": "0.0000042",
                             "up_to": null,
                             "current_amount_usd": "0.00",
                             "current_usage": 0,
@@ -977,7 +951,7 @@
                         {
                             "plan_key": "addon-20240111",
                             "product_key": "data_pipelines",
-                            "name": "Data pipelines",
+                            "name": "Addon",
                             "description": "Get your PostHog data into your data warehouse or other tools like BigQuery, Redshift, Customer.io, and more.",
                             "image_url": null,
                             "docs_url": "https://posthog.com/docs/cdp/batch-exports",
@@ -1006,7 +980,7 @@
                                 },
                                 {
                                     "flat_amount_usd": "0",
-                                    "unit_amount_usd": "0.000062",
+                                    "unit_amount_usd": "0.000248",
                                     "up_to": 2000000,
                                     "current_amount_usd": "0.00",
                                     "current_usage": 0,
@@ -1015,7 +989,7 @@
                                 },
                                 {
                                     "flat_amount_usd": "0",
-                                    "unit_amount_usd": "0.000026",
+                                    "unit_amount_usd": "0.000104",
                                     "up_to": 15000000,
                                     "current_amount_usd": "0.00",
                                     "current_usage": 0,
@@ -1024,7 +998,7 @@
                                 },
                                 {
                                     "flat_amount_usd": "0",
-                                    "unit_amount_usd": "0.0000164",
+                                    "unit_amount_usd": "0.0000655",
                                     "up_to": 50000000,
                                     "current_amount_usd": "0.00",
                                     "current_usage": 0,
@@ -1033,7 +1007,7 @@
                                 },
                                 {
                                     "flat_amount_usd": "0",
-                                    "unit_amount_usd": "0.0000091",
+                                    "unit_amount_usd": "0.0000364",
                                     "up_to": 100000000,
                                     "current_amount_usd": "0.00",
                                     "current_usage": 0,
@@ -1042,7 +1016,7 @@
                                 },
                                 {
                                     "flat_amount_usd": "0",
-                                    "unit_amount_usd": "0.0000047",
+                                    "unit_amount_usd": "0.0000187",
                                     "up_to": 250000000,
                                     "current_amount_usd": "0.00",
                                     "current_usage": 0,
@@ -1051,7 +1025,7 @@
                                 },
                                 {
                                     "flat_amount_usd": "0",
-                                    "unit_amount_usd": "0.000001",
+                                    "unit_amount_usd": "0.0000042",
                                     "up_to": null,
                                     "current_amount_usd": "0.00",
                                     "current_usage": 0,
@@ -1060,10 +1034,12 @@
                                 }
                             ],
                             "current_plan": false,
-                            "included_if": null
+                            "included_if": null,
+                            "contact_support": null,
+                            "unit_amount_usd": null
                         }
                     ],
-                    "contact_support": false
+                    "contact_support": null
                 }
             ],
             "contact_support": false,
@@ -1132,30 +1108,6 @@
                     "type": "secondary"
                 },
                 {
-                    "key": "dashboard_collaboration",
-                    "name": "Tags & text cards",
-                    "description": "Keep organized by adding tags to your dashboards, cohorts and more. Add text cards and descriptions to your dashboards to provide context to your team.",
-                    "images": null,
-                    "icon_key": null,
-                    "type": null
-                },
-                {
-                    "key": "dashboard_permissioning",
-                    "name": "Dashboard permissions",
-                    "description": "Restrict access to dashboards within the organization to only those who need it.",
-                    "images": null,
-                    "icon_key": null,
-                    "type": null
-                },
-                {
-                    "key": "ingestion_taxonomy",
-                    "name": "Ingestion taxonomy",
-                    "description": "Ingestion taxonomy",
-                    "images": null,
-                    "icon_key": null,
-                    "type": null
-                },
-                {
                     "key": "paths_advanced",
                     "name": "Advanced paths",
                     "description": "Customize your path insights by setting the maximum number of paths, number of people on each path, and how path names should appear.",
@@ -1173,14 +1125,6 @@
                     },
                     "icon_key": null,
                     "type": "primary"
-                },
-                {
-                    "key": "tagging",
-                    "name": "Dashboard tags",
-                    "description": "Organize dashboards with tags.",
-                    "images": null,
-                    "icon_key": null,
-                    "type": null
                 },
                 {
                     "key": "behavioral_cohort_filtering",
@@ -1256,7 +1200,7 @@
                 {
                     "plan_key": "free-20231218",
                     "product_key": "session_replay",
-                    "name": "Session replay",
+                    "name": "Free",
                     "description": "Session replay helps you diagnose issues and understand user behavior in your product or website.",
                     "image_url": "https://posthog.com/images/products/session-replay/session-replay.png",
                     "docs_url": "https://posthog.com/docs/session-replay",
@@ -1379,12 +1323,14 @@
                     ],
                     "tiers": null,
                     "current_plan": true,
-                    "included_if": null
+                    "included_if": null,
+                    "contact_support": null,
+                    "unit_amount_usd": null
                 },
                 {
                     "plan_key": "paid-20231218",
                     "product_key": "session_replay",
-                    "name": "Session replay",
+                    "name": "Paid",
                     "description": "Session replay helps you diagnose issues and understand user behavior in your product or website.",
                     "image_url": "https://posthog.com/images/products/session-replay/session-replay.png",
                     "docs_url": "https://posthog.com/docs/session-replay",
@@ -1570,7 +1516,9 @@
                         }
                     ],
                     "current_plan": false,
-                    "included_if": null
+                    "included_if": null,
+                    "contact_support": null,
+                    "unit_amount_usd": null
                 }
             ],
             "type": "session_replay",
@@ -1753,7 +1701,7 @@
                 {
                     "plan_key": "free-20230117",
                     "product_key": "feature_flags",
-                    "name": "Feature flags & A/B testing",
+                    "name": "Free",
                     "description": "Test changes with small groups of users before rolling out wider. Analyze usage with product analytics and session replay.",
                     "image_url": "https://posthog.com/images/products/feature-flags/feature-flags.png",
                     "docs_url": "https://posthog.com/docs/feature-flags",
@@ -1836,12 +1784,14 @@
                     ],
                     "tiers": null,
                     "current_plan": true,
-                    "included_if": null
+                    "included_if": null,
+                    "contact_support": null,
+                    "unit_amount_usd": null
                 },
                 {
                     "plan_key": "paid-20230623",
                     "product_key": "feature_flags",
-                    "name": "Feature flags & A/B testing",
+                    "name": "Paid",
                     "description": "Test changes with small groups of users before rolling out wider. Analyze usage with product analytics and session replay.",
                     "image_url": "https://posthog.com/images/products/feature-flags/feature-flags.png",
                     "docs_url": "https://posthog.com/docs/feature-flags",
@@ -2018,7 +1968,9 @@
                         }
                     ],
                     "current_plan": false,
-                    "included_if": null
+                    "included_if": null,
+                    "contact_support": null,
+                    "unit_amount_usd": null
                 }
             ],
             "type": "feature_flags",
@@ -2215,7 +2167,7 @@
                 {
                     "plan_key": "free-20230928",
                     "product_key": "surveys",
-                    "name": "Surveys",
+                    "name": "Free",
                     "description": "Build in-app popups with freeform text responses, multiple choice, NPS, ratings, and emoji reactions. Or use the API for complete control.",
                     "image_url": "https://posthog.com/images/products/surveys/surveys.png",
                     "docs_url": "https://posthog.com/docs/surveys",
@@ -2290,12 +2242,14 @@
                     ],
                     "tiers": null,
                     "current_plan": true,
-                    "included_if": null
+                    "included_if": null,
+                    "contact_support": null,
+                    "unit_amount_usd": null
                 },
                 {
                     "plan_key": "paid-20230928",
                     "product_key": "surveys",
-                    "name": "Surveys",
+                    "name": "Paid",
                     "description": "Build in-app popups with freeform text responses, multiple choice, NPS, ratings, and emoji reactions. Or use the API for complete control.",
                     "image_url": "https://posthog.com/images/products/surveys/surveys.png",
                     "docs_url": "https://posthog.com/docs/surveys",
@@ -2449,7 +2403,9 @@
                         }
                     ],
                     "current_plan": false,
-                    "included_if": null
+                    "included_if": null,
+                    "contact_support": null,
+                    "unit_amount_usd": null
                 }
             ],
             "type": "surveys",
@@ -2617,7 +2573,7 @@
                 {
                     "plan_key": "free-20230117",
                     "product_key": "integrations",
-                    "name": "Integrations",
+                    "name": "Free",
                     "description": "Connect PostHog to your favorite tools.",
                     "image_url": "https://posthog.com/images/product/product-icons/integrations.svg",
                     "docs_url": "https://posthog.com/docs/apps",
@@ -2668,12 +2624,14 @@
                     ],
                     "tiers": null,
                     "current_plan": true,
-                    "included_if": "no_active_subscription"
+                    "included_if": "no_active_subscription",
+                    "contact_support": null,
+                    "unit_amount_usd": null
                 },
                 {
                     "plan_key": "paid-20230117",
                     "product_key": "integrations",
-                    "name": "Integrations",
+                    "name": "Paid",
                     "description": "Connect PostHog to your favorite tools.",
                     "image_url": "https://posthog.com/images/product/product-icons/integrations.svg",
                     "docs_url": "https://posthog.com/docs/apps",
@@ -2732,7 +2690,9 @@
                     ],
                     "tiers": null,
                     "current_plan": false,
-                    "included_if": "has_subscription"
+                    "included_if": "has_subscription",
+                    "contact_support": null,
+                    "unit_amount_usd": null
                 }
             ],
             "type": "integrations",
@@ -2818,7 +2778,7 @@
                 {
                     "plan_key": "free-20230117",
                     "product_key": "platform_and_support",
-                    "name": "Platform and support",
+                    "name": "Totally free",
                     "description": "SSO, permission management, and support.",
                     "image_url": "https://posthog.com/images/product/product-icons/platform.svg",
                     "docs_url": "https://posthog.com/docs",
@@ -2875,22 +2835,114 @@
                             "note": null
                         },
                         {
-                            "key": "terms_and_conditions",
-                            "name": "Terms and conditions",
-                            "description": "Terms and conditions",
+                            "key": "2fa",
+                            "name": "2FA",
+                            "description": "Secure your PostHog account with two-factor authentication.",
                             "unit": null,
                             "limit": null,
-                            "note": "Standard"
+                            "note": null
                         }
                     ],
                     "tiers": null,
                     "current_plan": true,
-                    "included_if": "no_active_subscription"
+                    "included_if": "no_active_subscription",
+                    "contact_support": null,
+                    "unit_amount_usd": null
                 },
                 {
-                    "plan_key": "paid-20230926",
+                    "plan_key": "paid-20240208",
                     "product_key": "platform_and_support",
-                    "name": "Platform and support",
+                    "name": "With subscription",
+                    "description": "SSO, permission management, and support.",
+                    "image_url": "https://posthog.com/images/product/product-icons/platform.svg",
+                    "docs_url": "https://posthog.com/docs",
+                    "note": null,
+                    "unit": null,
+                    "free_allocation": null,
+                    "features": [
+                        {
+                            "key": "tracked_users",
+                            "name": "Tracked users",
+                            "description": "Track users across devices and sessions.",
+                            "unit": null,
+                            "limit": null,
+                            "note": "Unlimited"
+                        },
+                        {
+                            "key": "team_members",
+                            "name": "Team members",
+                            "description": "PostHog doesn't charge per seat add your entire team!",
+                            "unit": null,
+                            "limit": null,
+                            "note": "Unlimited"
+                        },
+                        {
+                            "key": "organizations_projects",
+                            "name": "Projects",
+                            "description": "Create silos of data within PostHog. All data belongs to a single project and all queries are project-specific.",
+                            "unit": "projects",
+                            "limit": 2,
+                            "note": null
+                        },
+                        {
+                            "key": "api_access",
+                            "name": "API access",
+                            "description": "Access your data via our developer-friendly API.",
+                            "unit": null,
+                            "limit": null,
+                            "note": null
+                        },
+                        {
+                            "key": "social_sso",
+                            "name": "SSO via Google, Github, or Gitlab",
+                            "description": "Log in to PostHog with your Google, Github, or Gitlab account.",
+                            "unit": null,
+                            "limit": null,
+                            "note": null
+                        },
+                        {
+                            "key": "community_support",
+                            "name": "Community support",
+                            "description": "Get help from other users and PostHog team members in our Community forums.",
+                            "unit": null,
+                            "limit": null,
+                            "note": null
+                        },
+                        {
+                            "key": "dedicated_support",
+                            "name": "Dedicated account manager",
+                            "description": "Work with a dedicated account manager via Slack or email to help you get the most out of PostHog.",
+                            "unit": null,
+                            "limit": null,
+                            "note": "$2k+/month spend"
+                        },
+                        {
+                            "key": "email_support",
+                            "name": "Email support",
+                            "description": "Get help directly from our product engineers via email. No wading through multiple support people before you get help.",
+                            "unit": null,
+                            "limit": null,
+                            "note": null
+                        },
+                        {
+                            "key": "2fa",
+                            "name": "2FA",
+                            "description": "Secure your PostHog account with two-factor authentication.",
+                            "unit": null,
+                            "limit": null,
+                            "note": null
+                        }
+                    ],
+                    "tiers": null,
+                    "current_plan": false,
+                    "included_if": "has_subscription",
+                    "contact_support": null,
+                    "unit_amount_usd": null
+                },
+                {
+                    "plan_key": "teams-20240208",
+                    "product_key": "platform_and_support",
+                    "name": "Teams",
                     "description": "SSO, permission management, and support.",
                     "image_url": "https://posthog.com/images/product/product-icons/platform.svg",
                     "docs_url": "https://posthog.com/docs",
@@ -2939,17 +2991,25 @@
                             "note": null
                         },
                         {
-                            "key": "project_based_permissioning",
-                            "name": "Project permissions",
-                            "description": "Restrict access to data within the organization to only those who need it.",
+                            "key": "sso_enforcement",
+                            "name": "Enforce SSO login",
+                            "description": "Users can only sign up and log in to your PostHog organization with your specified SSO provider.",
                             "unit": null,
                             "limit": null,
                             "note": null
                         },
                         {
-                            "key": "white_labelling",
-                            "name": "White labeling",
-                            "description": "Use your own branding in your PostHog organization.",
+                            "key": "2fa",
+                            "name": "2FA",
+                            "description": "Secure your PostHog account with two-factor authentication.",
+                            "unit": null,
+                            "limit": null,
+                            "note": null
+                        },
+                        {
+                            "key": "2fa_enforcement",
+                            "name": "Enforce 2FA",
+                            "description": "Require all users in your organization to enable two-factor authentication.",
                             "unit": null,
                             "limit": null,
                             "note": null
@@ -2963,28 +3023,60 @@
                             "note": null
                         },
                         {
-                            "key": "dedicated_support",
-                            "name": "Slack (dedicated channel)",
-                            "description": "Get help directly from our support team in a dedicated Slack channel shared between you and the PostHog team.",
-                            "unit": null,
-                            "limit": null,
-                            "note": "$2k/month spend or above"
-                        },
-                        {
                             "key": "email_support",
-                            "name": "Direct access to engineers",
+                            "name": "Email support",
                             "description": "Get help directly from our product engineers via email. No wading through multiple support people before you get help.",
                             "unit": null,
                             "limit": null,
                             "note": null
                         },
                         {
-                            "key": "terms_and_conditions",
-                            "name": "Terms and conditions",
-                            "description": "Terms and conditions",
+                            "key": "dedicated_support",
+                            "name": "Dedicated account manager",
+                            "description": "Work with a dedicated account manager via Slack or email to help you get the most out of PostHog.",
                             "unit": null,
                             "limit": null,
-                            "note": "Standard"
+                            "note": "$2k+/month spend"
+                        },
+                        {
+                            "key": "priority_support",
+                            "name": "Priority support",
+                            "description": "Get help from our team faster than other customers.",
+                            "unit": null,
+                            "limit": null,
+                            "note": null
+                        },
+                        {
+                            "key": "white_labelling",
+                            "name": "White labeling",
+                            "description": "Use your own branding on surveys, shared dashboards, shared insights, and more.",
+                            "unit": null,
+                            "limit": null,
+                            "note": null
+                        },
+                        {
+                            "key": "project_based_permissioning",
+                            "name": "Project permissions",
+                            "description": "Restrict access to data within the organization to only those who need it.",
+                            "unit": null,
+                            "limit": null,
+                            "note": null
+                        },
+                        {
+                            "key": "advanced_permissions",
+                            "name": "Advanced permissions",
+                            "description": "Control who can access and modify data and features within your organization.",
+                            "unit": null,
+                            "limit": null,
+                            "note": "Project-based only"
+                        },
+                        {
+                            "key": "audit_logs",
+                            "name": "Audit logs",
+                            "description": "See who in your organization has accessed or modified entities within PostHog.",
+                            "unit": null,
+                            "limit": null,
+                            "note": "Basic"
                         },
                         {
                             "key": "security_assessment",
@@ -2993,11 +3085,271 @@
                             "unit": null,
                             "limit": null,
                             "note": null
+                        },
+                        {
+                            "key": "hipaa_baa",
+                            "name": "HIPAA BAA",
+                            "description": "Get a signed HIPAA Business Associate Agreement (BAA) to use PostHog in a HIPAA-compliant manner.",
+                            "unit": null,
+                            "limit": null,
+                            "note": null
+                        },
+                        {
+                            "key": "team_collaboration",
+                            "name": "Team collaboration features",
+                            "description": "Work together better with tags on dashboards and insights; descriptions on insights, events, & properties; verified events; comments on almost anything.",
+                            "unit": null,
+                            "limit": null,
+                            "note": null
+                        },
+                        {
+                            "key": "ingestion_taxonomy",
+                            "name": "Ingestion taxonomy",
+                            "description": "Mark events as verified or unverified to help you understand the quality of your data.",
+                            "unit": null,
+                            "limit": null,
+                            "note": null
+                        },
+                        {
+                            "key": "tagging",
+                            "name": "Dashboard tags",
+                            "description": "Organize dashboards with tags.",
+                            "unit": null,
+                            "limit": null,
+                            "note": null
+                        }
+                    ],
+                    "tiers": [],
+                    "current_plan": false,
+                    "included_if": null,
+                    "contact_support": null,
+                    "unit_amount_usd": "450.00"
+                },
+                {
+                    "plan_key": "enterprise-20240208",
+                    "product_key": "platform_and_support",
+                    "name": "Enterprise",
+                    "description": "SSO, permission management, and support.",
+                    "image_url": "https://posthog.com/images/product/product-icons/platform.svg",
+                    "docs_url": "https://posthog.com/docs",
+                    "note": null,
+                    "unit": null,
+                    "free_allocation": null,
+                    "features": [
+                        {
+                            "key": "team_members",
+                            "name": "Team members",
+                            "description": "PostHog doesn't charge per seat add your entire team!",
+                            "unit": null,
+                            "limit": null,
+                            "note": "Unlimited"
+                        },
+                        {
+                            "key": "organizations_projects",
+                            "name": "Projects",
+                            "description": "Create silos of data within PostHog. All data belongs to a single project and all queries are project-specific.",
+                            "unit": null,
+                            "limit": null,
+                            "note": "Unlimited"
+                        },
+                        {
+                            "key": "tracked_users",
+                            "name": "Tracked users",
+                            "description": "Track users across devices and sessions.",
+                            "unit": null,
+                            "limit": null,
+                            "note": "Unlimited"
+                        },
+                        {
+                            "key": "api_access",
+                            "name": "API access",
+                            "description": "Access your data via our developer-friendly API.",
+                            "unit": null,
+                            "limit": null,
+                            "note": null
+                        },
+                        {
+                            "key": "white_labelling",
+                            "name": "White labeling",
+                            "description": "Use your own branding on surveys, shared dashboards, shared insights, and more.",
+                            "unit": null,
+                            "limit": null,
+                            "note": null
+                        },
+                        {
+                            "key": "team_collaboration",
+                            "name": "Team collaboration features",
+                            "description": "Work together better with tags on dashboards and insights; descriptions on insights, events, & properties; verified events; comments on almost anything.",
+                            "unit": null,
+                            "limit": null,
+                            "note": null
+                        },
+                        {
+                            "key": "ingestion_taxonomy",
+                            "name": "Ingestion taxonomy",
+                            "description": "Mark events as verified or unverified to help you understand the quality of your data.",
+                            "unit": null,
+                            "limit": null,
+                            "note": null
+                        },
+                        {
+                            "key": "tagging",
+                            "name": "Dashboard tags",
+                            "description": "Organize dashboards with tags.",
+                            "unit": null,
+                            "limit": null,
+                            "note": null
+                        },
+                        {
+                            "key": "social_sso",
+                            "name": "SSO via Google, Github, or Gitlab",
+                            "description": "Log in to PostHog with your Google, Github, or Gitlab account.",
+                            "unit": null,
+                            "limit": null,
+                            "note": null
+                        },
+                        {
+                            "key": "sso_enforcement",
+                            "name": "Enforce SSO login",
+                            "description": "Users can only sign up and log in to your PostHog organization with your specified SSO provider.",
+                            "unit": null,
+                            "limit": null,
+                            "note": null
+                        },
+                        {
+                            "key": "saml",
+                            "name": "SAML SSO",
+                            "description": "Allow your organization's users to log in with SAML.",
+                            "unit": null,
+                            "limit": null,
+                            "note": null
+                        },
+                        {
+                            "key": "2fa",
+                            "name": "2FA",
+                            "description": "Secure your PostHog account with two-factor authentication.",
+                            "unit": null,
+                            "limit": null,
+                            "note": null
+                        },
+                        {
+                            "key": "2fa_enforcement",
+                            "name": "Enforce 2FA",
+                            "description": "Require all users in your organization to enable two-factor authentication.",
+                            "unit": null,
+                            "limit": null,
+                            "note": null
+                        },
+                        {
+                            "key": "project_based_permissioning",
+                            "name": "Project permissions",
+                            "description": "Restrict access to data within the organization to only those who need it.",
+                            "unit": null,
+                            "limit": null,
+                            "note": null
+                        },
+                        {
+                            "key": "role_based_access",
+                            "name": "Role-based access",
+                            "description": "Control access to features like experiments, session recordings, and feature flags with custom roles.",
+                            "unit": null,
+                            "limit": null,
+                            "note": null
+                        },
+                        {
+                            "key": "advanced_permissions",
+                            "name": "Advanced permissions",
+                            "description": "Control who can access and modify data and features within your organization.",
+                            "unit": null,
+                            "limit": null,
+                            "note": null
+                        },
+                        {
+                            "key": "audit_logs",
+                            "name": "Audit logs",
+                            "description": "See who in your organization has accessed or modified entities within PostHog.",
+                            "unit": null,
+                            "limit": null,
+                            "note": "Advanced"
+                        },
+                        {
+                            "key": "hipaa_baa",
+                            "name": "HIPAA BAA",
+                            "description": "Get a signed HIPAA Business Associate Agreement (BAA) to use PostHog in a HIPAA-compliant manner.",
+                            "unit": null,
+                            "limit": null,
+                            "note": null
+                        },
+                        {
+                            "key": "custom_msa",
+                            "name": "Custom MSA",
+                            "description": "Get a custom Master Services Agreement (MSA) to use PostHog in a way that fits your company's needs.",
+                            "unit": null,
+                            "limit": null,
+                            "note": null
+                        },
+                        {
+                            "key": "community_support",
+                            "name": "Community support",
+                            "description": "Get help from other users and PostHog team members in our Community forums.",
+                            "unit": null,
+                            "limit": null,
+                            "note": null
+                        },
+                        {
+                            "key": "email_support",
+                            "name": "Email support",
+                            "description": "Get help directly from our product engineers via email. No wading through multiple support people before you get help.",
+                            "unit": null,
+                            "limit": null,
+                            "note": null
+                        },
+                        {
+                            "key": "dedicated_support",
+                            "name": "Dedicated account manager",
+                            "description": "Work with a dedicated account manager via Slack or email to help you get the most out of PostHog.",
+                            "unit": null,
+                            "limit": null,
+                            "note": null
+                        },
+                        {
+                            "key": "priority_support",
+                            "name": "Priority support",
+                            "description": "Get help from our team faster than other customers.",
+                            "unit": null,
+                            "limit": null,
+                            "note": null
+                        },
+                        {
+                            "key": "security_assessment",
+                            "name": "Security assessment",
+                            "description": "Security assessment",
+                            "unit": null,
+                            "limit": null,
+                            "note": null
+                        },
+                        {
+                            "key": "training",
+                            "name": "Ongoing training",
+                            "description": "Get training from our team to help you quickly get up and running with PostHog.",
+                            "unit": null,
+                            "limit": null,
+                            "note": null
+                        },
+                        {
+                            "key": "configuration_support",
+                            "name": "Personalized onboarding",
+                            "description": "Get help from our team to create dashboards that will help you understand your data and your business.",
+                            "unit": null,
+                            "limit": null,
+                            "note": null
                         }
                     ],
                     "tiers": null,
                     "current_plan": false,
-                    "included_if": "has_subscription"
+                    "included_if": null,
+                    "contact_support": true,
+                    "unit_amount_usd": null
                 }
             ],
             "type": "platform_and_support",
@@ -3015,7 +3367,7 @@
             "projected_amount_usd": null,
             "unit": null,
             "addons": [],
-            "contact_support": true,
+            "contact_support": false,
             "inclusion_only": true,
             "features": [
                 {
@@ -3051,14 +3403,6 @@
                     "type": null
                 },
                 {
-                    "key": "role_based_access",
-                    "name": "Role-based access",
-                    "description": "Control access to features like experiments, session recordings, and feature flags with custom roles.",
-                    "images": null,
-                    "icon_key": null,
-                    "type": null
-                },
-                {
                     "key": "social_sso",
                     "name": "SSO via Google, Github, or Gitlab",
                     "description": "Log in to PostHog with your Google, Github, or Gitlab account.",
@@ -3067,9 +3411,25 @@
                     "type": null
                 },
                 {
+                    "key": "role_based_access",
+                    "name": "Role-based access",
+                    "description": "Control access to features like experiments, session recordings, and feature flags with custom roles.",
+                    "images": null,
+                    "icon_key": null,
+                    "type": null
+                },
+                {
                     "key": "project_based_permissioning",
                     "name": "Project permissions",
                     "description": "Restrict access to data within the organization to only those who need it.",
+                    "images": null,
+                    "icon_key": null,
+                    "type": null
+                },
+                {
+                    "key": "advanced_permissions",
+                    "name": "Advanced permissions",
+                    "description": "Control who can access and modify data and features within your organization.",
                     "images": null,
                     "icon_key": null,
                     "type": null
@@ -3091,9 +3451,25 @@
                     "type": null
                 },
                 {
+                    "key": "2fa",
+                    "name": "2FA",
+                    "description": "Secure your PostHog account with two-factor authentication.",
+                    "images": null,
+                    "icon_key": null,
+                    "type": null
+                },
+                {
+                    "key": "2fa_enforcement",
+                    "name": "Enforce 2FA",
+                    "description": "Require all users in your organization to enable two-factor authentication.",
+                    "images": null,
+                    "icon_key": null,
+                    "type": null
+                },
+                {
                     "key": "white_labelling",
                     "name": "White labeling",
-                    "description": "Use your own branding in your PostHog organization.",
+                    "description": "Use your own branding on surveys, shared dashboards, shared insights, and more.",
                     "images": null,
                     "icon_key": null,
                     "type": null
@@ -3108,31 +3484,31 @@
                 },
                 {
                     "key": "dedicated_support",
-                    "name": "Slack (dedicated channel)",
-                    "description": "Get help directly from our support team in a dedicated Slack channel shared between you and the PostHog team.",
+                    "name": "Dedicated account manager",
+                    "description": "Work with a dedicated account manager via Slack or email to help you get the most out of PostHog.",
                     "images": null,
                     "icon_key": null,
                     "type": null
                 },
                 {
                     "key": "email_support",
-                    "name": "Direct access to engineers",
+                    "name": "Email support",
                     "description": "Get help directly from our product engineers via email. No wading through multiple support people before you get help.",
                     "images": null,
                     "icon_key": null,
                     "type": null
                 },
                 {
-                    "key": "account_manager",
-                    "name": "Account manager",
-                    "description": "Work with a dedicated account manager to help you get the most out of PostHog.",
+                    "key": "priority_support",
+                    "name": "Priority support",
+                    "description": "Get help from our team faster than other customers.",
                     "images": null,
                     "icon_key": null,
                     "type": null
                 },
                 {
                     "key": "training",
-                    "name": "Training sessions",
+                    "name": "Ongoing training",
                     "description": "Get training from our team to help you quickly get up and running with PostHog.",
                     "images": null,
                     "icon_key": null,
@@ -3140,7 +3516,7 @@
                 },
                 {
                     "key": "configuration_support",
-                    "name": "Dashboard configuration support",
+                    "name": "Personalized onboarding",
                     "description": "Get help from our team to create dashboards that will help you understand your data and your business.",
                     "images": null,
                     "icon_key": null,
@@ -3185,6 +3561,54 @@
                     "images": null,
                     "icon_key": null,
                     "type": null
+                },
+                {
+                    "key": "audit_logs",
+                    "name": "Audit logs",
+                    "description": "See who in your organization has accessed or modified entities within PostHog.",
+                    "images": null,
+                    "icon_key": null,
+                    "type": null
+                },
+                {
+                    "key": "hipaa_baa",
+                    "name": "HIPAA BAA",
+                    "description": "Get a signed HIPAA Business Associate Agreement (BAA) to use PostHog in a HIPAA-compliant manner.",
+                    "images": null,
+                    "icon_key": null,
+                    "type": null
+                },
+                {
+                    "key": "custom_msa",
+                    "name": "Custom MSA",
+                    "description": "Get a custom Master Services Agreement (MSA) to use PostHog in a way that fits your company's needs.",
+                    "images": null,
+                    "icon_key": null,
+                    "type": null
+                },
+                {
+                    "key": "team_collaboration",
+                    "name": "Team collaboration features",
+                    "description": "Work together better with tags on dashboards and insights; descriptions on insights, events, & properties; verified events; comments on almost anything.",
+                    "images": null,
+                    "icon_key": null,
+                    "type": null
+                },
+                {
+                    "key": "ingestion_taxonomy",
+                    "name": "Ingestion taxonomy",
+                    "description": "Mark events as verified or unverified to help you understand the quality of your data.",
+                    "images": null,
+                    "icon_key": null,
+                    "type": null
+                },
+                {
+                    "key": "tagging",
+                    "name": "Dashboard tags",
+                    "description": "Organize dashboards with tags.",
+                    "images": null,
+                    "icon_key": null,
+                    "type": null
                 }
             ]
         }
@@ -3213,5 +3637,5 @@
     "discount_amount_usd": null,
     "amount_off_expires_at": null,
     "never_drop_data": null,
-    "stripe_portal_url": null
+    "stripe_portal_url": "https://billing.stripe.com/p/session/test_YWNjdF8xSElNRERFdUlhdFJYU2R6LF9QZzdwUjRPMXBobnRsdHdKaDVpbEVzbkREcE9RQnFT0100S0djyn8G"
 }
