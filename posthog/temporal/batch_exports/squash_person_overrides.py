@@ -28,8 +28,12 @@ AS
     SELECT
         team_id,
         distinct_id,
+<<<<<<< HEAD
         argMax(person_id, version) AS person_id,
         max(version) AS latest_version
+=======
+        argMax(person_id, version) AS person_id
+>>>>>>> ca1e88b081 (refactor: Squash workflow uses less activities and a join table)
     FROM
         {database}.person_distinct_id_overrides
     WHERE
@@ -45,7 +49,11 @@ SETTINGS
 DROP_TABLE_PERSON_DISTINCT_ID_OVERRIDES_JOIN = """
 DROP TABLE IF EXISTS {database}.person_distinct_id_overrides_join ON CLUSTER {cluster}
 SETTINGS
+<<<<<<< HEAD
     distributed_ddl_task_timeout = 0
+=======
+    distributed_ddl_task_timeout = -1
+>>>>>>> ca1e88b081 (refactor: Squash workflow uses less activities and a join table)
 """
 
 SUBMIT_UPDATE_EVENTS_WITH_PERSON_OVERRIDES = """
