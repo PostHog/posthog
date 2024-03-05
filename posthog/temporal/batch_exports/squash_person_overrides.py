@@ -51,7 +51,7 @@ WHERE
     dictHas('{database}.{dictionary_name}', (team_id, distinct_id))
     {in_team_ids}
 SETTINGS
-    max_execution_time = 0
+    max_execution_time = 86400
 """
 
 MUTATIONS_IN_PROGRESS_QUERY = """
@@ -100,7 +100,7 @@ DELETE WHERE
     hasAll(joinGet('{database}.person_overrides_to_delete', 'partitions', team_id, distinct_id), %(partition_ids)s)
     AND ((now() - _timestamp) > %(grace_period)s)
 SETTINGS
-    max_execution_time=0
+    max_execution_time = 86400
 """
 
 
