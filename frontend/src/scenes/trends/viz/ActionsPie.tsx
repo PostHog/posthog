@@ -47,6 +47,7 @@ export function ActionsPie({
         supportsPercentStackView,
         showPercentStackView,
         pieChartVizOptions,
+        isDataWarehouseSeries,
     } = useValues(trendsDataLogic(insightProps))
 
     const { isTrends, query } = useValues(insightVizDataLogic(insightProps))
@@ -147,7 +148,7 @@ export function ActionsPie({
                             showLabelOnSeries={showLabelOnSeries}
                             supportsPercentStackView={supportsPercentStackView}
                             showPercentStackView={showPercentStackView}
-                            onClick={onClick}
+                            onClick={isDataWarehouseSeries ? undefined : onClick}
                             disableHoverOffset={pieChartVizOptions?.disableHoverOffset}
                         />
                     </div>

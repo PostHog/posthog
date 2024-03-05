@@ -118,6 +118,9 @@
                             "$ref": "#/definitions/InsightActorsQuery"
                         },
                         {
+                            "$ref": "#/definitions/FunnelsActorsQuery"
+                        },
+                        {
                             "$ref": "#/definitions/HogQLQuery"
                         }
                     ]
@@ -231,6 +234,9 @@
                 },
                 {
                     "$ref": "#/definitions/ActionsNode"
+                },
+                {
+                    "$ref": "#/definitions/DataWarehouseNode"
                 }
             ]
         },
@@ -265,6 +271,9 @@
                 },
                 {
                     "$ref": "#/definitions/EmptyPropertyFilter"
+                },
+                {
+                    "$ref": "#/definitions/DataWarehousePropertyFilter"
                 }
             ]
         },
@@ -314,6 +323,10 @@
         "AutocompleteCompletionItem": {
             "additionalProperties": false,
             "properties": {
+                "detail": {
+                    "description": "A human-readable string with additional information about this item, like type or symbol information.",
+                    "type": "string"
+                },
                 "documentation": {
                     "description": "A human-readable string that represents a doc-comment.",
                     "type": "string"
@@ -406,7 +419,14 @@
                     "$ref": "#/definitions/BreakdownKeyType"
                 },
                 "breakdown_group_type_index": {
-                    "type": "integer"
+                    "anyOf": [
+                        {
+                            "type": "integer"
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ]
                 },
                 "breakdown_hide_other_aggregation": {
                     "type": ["boolean", "null"]
@@ -459,7 +479,7 @@
             ]
         },
         "BreakdownType": {
-            "enum": ["cohort", "person", "event", "group", "session", "hogql"],
+            "enum": ["cohort", "person", "event", "group", "session", "hogql", "data_warehouse"],
             "type": "string"
         },
         "BreakdownValueInt": {
@@ -659,6 +679,10 @@
                     "description": "Include a free text search field (PersonsNode only)",
                     "type": "boolean"
                 },
+                "showTestAccountFilters": {
+                    "description": "Show filter to exclude test accounts",
+                    "type": "boolean"
+                },
                 "showTimings": {
                     "description": "Show a detailed query timing breakdown",
                     "type": "boolean"
@@ -735,6 +759,105 @@
                 }
             },
             "required": ["kind", "source"],
+            "type": "object"
+        },
+        "DataWarehouseNode": {
+            "additionalProperties": false,
+            "properties": {
+                "custom_name": {
+                    "type": "string"
+                },
+                "fixedProperties": {
+                    "description": "Fixed properties in the query, can't be edited in the interface (e.g. scoping down by person)",
+                    "items": {
+                        "$ref": "#/definitions/AnyPropertyFilter"
+                    },
+                    "type": "array"
+                },
+                "id": {
+                    "type": "string"
+                },
+                "id_field": {
+                    "type": "string"
+                },
+                "kind": {
+                    "const": "DataWarehouseNode",
+                    "type": "string"
+                },
+                "math": {
+                    "anyOf": [
+                        {
+                            "$ref": "#/definitions/BaseMathType"
+                        },
+                        {
+                            "$ref": "#/definitions/PropertyMathType"
+                        },
+                        {
+                            "$ref": "#/definitions/CountPerActorMathType"
+                        },
+                        {
+                            "$ref": "#/definitions/GroupMathType"
+                        },
+                        {
+                            "$ref": "#/definitions/HogQLMathType"
+                        }
+                    ]
+                },
+                "math_group_type_index": {
+                    "enum": [0, 1, 2, 3, 4],
+                    "type": "number"
+                },
+                "math_hogql": {
+                    "type": "string"
+                },
+                "math_property": {
+                    "type": "string"
+                },
+                "name": {
+                    "type": "string"
+                },
+                "properties": {
+                    "description": "Properties configurable in the interface",
+                    "items": {
+                        "$ref": "#/definitions/AnyPropertyFilter"
+                    },
+                    "type": "array"
+                },
+                "response": {
+                    "description": "Cached query response",
+                    "type": "object"
+                },
+                "table_name": {
+                    "type": "string"
+                },
+                "timestamp_field": {
+                    "type": "string"
+                }
+            },
+            "required": ["id", "id_field", "kind", "table_name", "timestamp_field"],
+            "type": "object"
+        },
+        "DataWarehousePropertyFilter": {
+            "additionalProperties": false,
+            "properties": {
+                "key": {
+                    "type": "string"
+                },
+                "label": {
+                    "type": "string"
+                },
+                "operator": {
+                    "$ref": "#/definitions/PropertyOperator"
+                },
+                "type": {
+                    "const": "data_warehouse",
+                    "type": "string"
+                },
+                "value": {
+                    "$ref": "#/definitions/PropertyFilterValue"
+                }
+            },
+            "required": ["key", "operator", "type"],
             "type": "object"
         },
         "DatabaseSchemaQuery": {
@@ -937,7 +1060,7 @@
             "type": "object"
         },
         "EntityType": {
-            "enum": ["actions", "events", "new_entity"],
+            "enum": ["actions", "events", "data_warehouse", "new_entity"],
             "type": "string"
         },
         "EventPropertyFilter": {
@@ -1127,6 +1250,10 @@
                 "event": {
                     "description": "Limit to events matching this string",
                     "type": ["string", "null"]
+                },
+                "filterTestAccounts": {
+                    "description": "Filter test accounts",
+                    "type": "boolean"
                 },
                 "fixedProperties": {
                     "description": "Fixed properties in the query, can't be edited in the interface (e.g. scoping down by person)",
@@ -1322,6 +1449,12 @@
                 "breakdowns": {
                     "items": {
                         "$ref": "#/definitions/Breakdown"
+                    },
+                    "type": "array"
+                },
+                "data_warehouse": {
+                    "items": {
+                        "type": "object"
                     },
                     "type": "array"
                 },
@@ -1627,15 +1760,99 @@
             "enum": ["total", "previous"],
             "type": "string"
         },
+        "FunnelStepsBreakdownResults": {
+            "items": {
+                "items": {
+                    "type": "object"
+                },
+                "type": "array"
+            },
+            "type": "array"
+        },
+        "FunnelStepsResults": {
+            "items": {
+                "type": "object"
+            },
+            "type": "array"
+        },
+        "FunnelTimeToConvertResults": {
+            "additionalProperties": false,
+            "properties": {
+                "average_conversion_time": {
+                    "type": "integer"
+                },
+                "bins": {
+                    "items": {
+                        "items": {
+                            "type": "integer"
+                        },
+                        "maxItems": 2,
+                        "minItems": 2,
+                        "type": "array"
+                    },
+                    "type": "array"
+                }
+            },
+            "required": ["average_conversion_time", "bins"],
+            "type": "object"
+        },
+        "FunnelTrendsResults": {
+            "items": {
+                "type": "object"
+            },
+            "type": "array"
+        },
         "FunnelVizType": {
             "enum": ["steps", "time_to_convert", "trends"],
             "type": "string"
+        },
+        "FunnelsActorsQuery": {
+            "additionalProperties": false,
+            "properties": {
+                "funnelCustomSteps": {
+                    "description": "Custom step numbers to get persons for. This overrides `funnelStep`. Primarily for correlation use.",
+                    "items": {
+                        "type": "integer"
+                    },
+                    "type": "array"
+                },
+                "funnelStep": {
+                    "description": "Index of the step for which we want to get the timestamp for, per person. Positive for converted persons, negative for dropped of persons.",
+                    "type": "integer"
+                },
+                "funnelStepBreakdown": {
+                    "$ref": "#/definitions/BreakdownKeyType",
+                    "description": "The breakdown value for which to get persons for. This is an array for person and event properties, a string for groups and an integer for cohorts."
+                },
+                "funnelTrendsDropOff": {
+                    "type": "boolean"
+                },
+                "funnelTrendsEntrancePeriodStart": {
+                    "description": "Used together with `funnelTrendsDropOff` for funnels time conversion date for the persons modal.",
+                    "type": "string"
+                },
+                "includeRecordings": {
+                    "type": "boolean"
+                },
+                "kind": {
+                    "const": "InsightActorsQuery",
+                    "type": "string"
+                },
+                "response": {
+                    "$ref": "#/definitions/ActorsQueryResponse"
+                },
+                "source": {
+                    "$ref": "#/definitions/FunnelsQuery"
+                }
+            },
+            "required": ["kind", "source"],
+            "type": "object"
         },
         "FunnelsFilter": {
             "additionalProperties": false,
             "properties": {
                 "binCount": {
-                    "$ref": "#/definitions/BinCountValue"
+                    "type": "integer"
                 },
                 "breakdownAttributionType": {
                     "$ref": "#/definitions/BreakdownAttributionType"
@@ -1818,19 +2035,16 @@
                 "results": {
                     "anyOf": [
                         {
-                            "items": {
-                                "type": "object"
-                            },
-                            "type": "array"
+                            "$ref": "#/definitions/FunnelStepsResults"
                         },
                         {
-                            "items": {
-                                "items": {
-                                    "type": "object"
-                                },
-                                "type": "array"
-                            },
-                            "type": "array"
+                            "$ref": "#/definitions/FunnelStepsBreakdownResults"
+                        },
+                        {
+                            "$ref": "#/definitions/FunnelTimeToConvertResults"
+                        },
+                        {
+                            "$ref": "#/definitions/FunnelTrendsResults"
                         }
                     ]
                 },
@@ -1934,14 +2148,25 @@
         "HogQLAutocompleteResponse": {
             "additionalProperties": false,
             "properties": {
+                "incomplete_list": {
+                    "description": "Whether or not the suggestions returned are complete",
+                    "type": "boolean"
+                },
                 "suggestions": {
                     "items": {
                         "$ref": "#/definitions/AutocompleteCompletionItem"
                     },
                     "type": "array"
+                },
+                "timings": {
+                    "description": "Measured timings for different parts of the query generation process",
+                    "items": {
+                        "$ref": "#/definitions/QueryTiming"
+                    },
+                    "type": "array"
                 }
             },
-            "required": ["suggestions"],
+            "required": ["suggestions", "incomplete_list"],
             "type": "object"
         },
         "HogQLExpression": {
@@ -1953,6 +2178,9 @@
             "properties": {
                 "dateRange": {
                     "$ref": "#/definitions/DateRange"
+                },
+                "filterTestAccounts": {
+                    "type": "boolean"
                 },
                 "properties": {
                     "items": {
@@ -2231,8 +2459,11 @@
                         }
                     ]
                 },
+                "includeRecordings": {
+                    "type": "boolean"
+                },
                 "interval": {
-                    "description": "An interval selected out of available intervals in source query",
+                    "description": "An interval selected out of available intervals in source query.",
                     "type": "integer"
                 },
                 "kind": {
@@ -2255,6 +2486,18 @@
             "required": ["kind", "source"],
             "type": "object"
         },
+        "InsightActorsQueryBase": {
+            "additionalProperties": false,
+            "properties": {
+                "includeRecordings": {
+                    "type": "boolean"
+                },
+                "response": {
+                    "$ref": "#/definitions/ActorsQueryResponse"
+                }
+            },
+            "type": "object"
+        },
         "InsightActorsQueryOptions": {
             "additionalProperties": false,
             "properties": {
@@ -2266,7 +2509,14 @@
                     "$ref": "#/definitions/InsightActorsQueryOptionsResponse"
                 },
                 "source": {
-                    "$ref": "#/definitions/InsightActorsQuery"
+                    "anyOf": [
+                        {
+                            "$ref": "#/definitions/InsightActorsQuery"
+                        },
+                        {
+                            "$ref": "#/definitions/FunnelsActorsQuery"
+                        }
+                    ]
                 }
             },
             "required": ["kind", "source"],
@@ -2713,6 +2963,7 @@
             "enum": [
                 "EventsNode",
                 "ActionsNode",
+                "DataWarehouseNode",
                 "EventsQuery",
                 "PersonsNode",
                 "HogQLQuery",
@@ -3054,7 +3305,8 @@
                 "cohort",
                 "recording",
                 "group",
-                "hogql"
+                "hogql",
+                "data_warehouse"
             ],
             "type": "string"
         },
@@ -3183,10 +3435,7 @@
                 "next_allowed_client_refresh": {
                     "type": "string"
                 },
-                "results": {
-                    "items": {},
-                    "type": "array"
-                },
+                "results": {},
                 "timings": {
                     "items": {
                         "$ref": "#/definitions/QueryTiming"
@@ -3568,14 +3817,25 @@
                 {
                     "additionalProperties": false,
                     "properties": {
+                        "incomplete_list": {
+                            "description": "Whether or not the suggestions returned are complete",
+                            "type": "boolean"
+                        },
                         "suggestions": {
                             "items": {
                                 "$ref": "#/definitions/AutocompleteCompletionItem"
                             },
                             "type": "array"
+                        },
+                        "timings": {
+                            "description": "Measured timings for different parts of the query generation process",
+                            "items": {
+                                "$ref": "#/definitions/QueryTiming"
+                            },
+                            "type": "array"
                         }
                     },
-                    "required": ["suggestions"],
+                    "required": ["suggestions", "incomplete_list"],
                     "type": "object"
                 },
                 {
@@ -3849,6 +4109,9 @@
                 },
                 {
                     "$ref": "#/definitions/PersonsNode"
+                },
+                {
+                    "$ref": "#/definitions/DataWarehouseNode"
                 },
                 {
                     "$ref": "#/definitions/TimeToSeeDataSessionsQuery"
@@ -4327,6 +4590,10 @@
                     "type": "boolean"
                 },
                 "showTable": {
+                    "type": "boolean"
+                },
+                "showTestAccountFilters": {
+                    "description": "Show filter to exclude test accounts",
                     "type": "boolean"
                 },
                 "showTimings": {
@@ -4981,6 +5248,9 @@
         "WebOverviewQuery": {
             "additionalProperties": false,
             "properties": {
+                "compare": {
+                    "type": "boolean"
+                },
                 "dateRange": {
                     "$ref": "#/definitions/DateRange"
                 },

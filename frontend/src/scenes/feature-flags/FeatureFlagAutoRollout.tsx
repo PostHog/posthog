@@ -1,9 +1,9 @@
+import { IconTrash } from '@posthog/icons'
 import { LemonButton, LemonDivider, LemonInput, LemonSelect, LemonTag, Link } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { Group } from 'kea-forms'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
-import { Field } from 'lib/forms/Field'
-import { IconDelete } from 'lib/lemon-ui/icons'
+import { LemonField } from 'lib/lemon-ui/LemonField'
 import { Spinner } from 'lib/lemon-ui/Spinner/Spinner'
 import { capitalizeFirstLetter, genericOperatorMap, humanFriendlyNumber } from 'lib/utils'
 import { ActionFilter } from 'scenes/insights/filters/ActionFilter/ActionFilter'
@@ -87,7 +87,7 @@ export function FeatureFlagAutoRollback({ readOnly }: FeatureFlagAutoRollbackPro
                                         <div className="mt-3 mr-3">
                                             <b>Rollback Condition Type</b>
                                         </div>
-                                        <Field name="threshold_type">
+                                        <LemonField name="threshold_type">
                                             {({ value, onChange }) => (
                                                 <LemonSelect
                                                     value={value}
@@ -98,10 +98,10 @@ export function FeatureFlagAutoRollback({ readOnly }: FeatureFlagAutoRollbackPro
                                                     ]}
                                                 />
                                             )}
-                                        </Field>
+                                        </LemonField>
                                     </div>
                                     <LemonButton
-                                        icon={<IconDelete />}
+                                        icon={<IconTrash />}
                                         noPadding
                                         onClick={() => {
                                             removeRollbackCondition(index)
@@ -111,7 +111,7 @@ export function FeatureFlagAutoRollback({ readOnly }: FeatureFlagAutoRollbackPro
                                 <LemonDivider className="my-3" />
                                 {featureFlag.rollback_conditions[index].threshold_type == 'insight' ? (
                                     <div className="flex gap-2 items-center mt-4">
-                                        <Field name="threshold_metric">
+                                        <LemonField name="threshold_metric">
                                             {({ value, onChange }) => (
                                                 <ActionFilter
                                                     filters={value}
@@ -137,7 +137,7 @@ export function FeatureFlagAutoRollback({ readOnly }: FeatureFlagAutoRollbackPro
                                                     ]}
                                                 />
                                             )}
-                                        </Field>
+                                        </LemonField>
                                         <span>
                                             trailing 7 day average is&nbsp;
                                             {insightRollingAverages[index] !== undefined ? (
@@ -147,7 +147,7 @@ export function FeatureFlagAutoRollback({ readOnly }: FeatureFlagAutoRollbackPro
                                             )}
                                             . Trigger when trailing average is
                                         </span>
-                                        <Field name="operator">
+                                        <LemonField name="operator">
                                             {({ value, onChange }) => (
                                                 <LemonSelect
                                                     value={value}
@@ -158,10 +158,10 @@ export function FeatureFlagAutoRollback({ readOnly }: FeatureFlagAutoRollbackPro
                                                     ]}
                                                 />
                                             )}
-                                        </Field>
-                                        <Field name="threshold">
+                                        </LemonField>
+                                        <LemonField name="threshold">
                                             <LemonInput min={0} type="number" />
-                                        </Field>
+                                        </LemonField>
                                     </div>
                                 ) : sentryIntegrationEnabled ? (
                                     <div>
@@ -175,7 +175,7 @@ export function FeatureFlagAutoRollback({ readOnly }: FeatureFlagAutoRollbackPro
                                                 <Spinner />
                                             )}
                                             <span>&nbsp;Trigger when there is a</span>
-                                            <Field name="threshold" className="ml-3 mr-3">
+                                            <LemonField name="threshold" className="ml-3 mr-3">
                                                 {({ value, onChange }) => (
                                                     <LemonInput
                                                         value={value}
@@ -185,8 +185,8 @@ export function FeatureFlagAutoRollback({ readOnly }: FeatureFlagAutoRollbackPro
                                                         onChange={onChange}
                                                     />
                                                 )}
-                                            </Field>
-                                            <Field name="operator" className="mr-3">
+                                            </LemonField>
+                                            <LemonField name="operator" className="mr-3">
                                                 {({ value, onChange }) => (
                                                     <LemonSelect
                                                         options={[
@@ -197,7 +197,7 @@ export function FeatureFlagAutoRollback({ readOnly }: FeatureFlagAutoRollbackPro
                                                         onChange={onChange}
                                                     />
                                                 )}
-                                            </Field>
+                                            </LemonField>
                                             <span>
                                                 to{' '}
                                                 {sentryErrorCount ? (

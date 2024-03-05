@@ -169,7 +169,7 @@ HOGQL_CLICKHOUSE_FUNCTIONS: Dict[str, HogQLFunctionMeta] = {
         "parseDateTime64BestEffortOrNull",
         1,
         1,
-        overloads=[((ast.DateTimeType, ast.DateType), "toDateTime")],
+        overloads=[((ast.DateTimeType, ast.DateType, ast.IntegerType), "toDateTime")],
         tz_aware=True,
     ),
     "toUUID": HogQLFunctionMeta("toUUIDOrNull", 1, 1),
@@ -539,6 +539,8 @@ HOGQL_CLICKHOUSE_FUNCTIONS: Dict[str, HogQLFunctionMeta] = {
     "formatReadableSize": HogQLFunctionMeta("formatReadableSize", 1, 1),
     "formatReadableQuantity": HogQLFunctionMeta("formatReadableQuantity", 1, 1),
     "formatReadableTimeDelta": HogQLFunctionMeta("formatReadableTimeDelta", 1, 2),
+    "least": HogQLFunctionMeta("least", 2, 2),
+    "greatest": HogQLFunctionMeta("greatest", 2, 2),
     # time window
     "tumble": HogQLFunctionMeta("tumble", 2, 2),
     "hop": HogQLFunctionMeta("hop", 3, 3),

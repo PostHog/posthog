@@ -37,7 +37,7 @@ export function ClickToInspectActors({
                 </div>
             )}
             <div className="table-subtext-click-to-inspect">
-                <IconHandClick style={{ marginRight: 4, marginBottom: 2 }} />
+                <IconHandClick className="mr-1 mb-0.5" />
                 Click to view {groupTypeLabel}
             </div>
         </div>
@@ -178,7 +178,6 @@ export function InsightTooltip({
                     dataSource={dataSource.slice(0, rowCutoff)}
                     columns={columns}
                     rowKey="id"
-                    size="small"
                     uppercaseHeader={false}
                     rowRibbonColor={hideColorCol ? undefined : (datum) => datum.color || null}
                     showHeader={showHeader}
@@ -239,7 +238,6 @@ export function InsightTooltip({
                 dataSource={dataSource.slice(0, rowCutoff)}
                 columns={columns}
                 rowKey="id"
-                size="small"
                 className="ph-no-capture"
                 uppercaseHeader={false}
                 rowRibbonColor={hideColorCol ? undefined : (datum: SeriesDatum) => datum.color || null}

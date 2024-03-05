@@ -72,13 +72,13 @@ class ServerTimingsGathered:
 
 
 class ActivityLogViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet, mixins.ListModelMixin):
+    scope_object = "activity_log"
     queryset = ActivityLog.objects.all()
     serializer_class = ActivityLogSerializer
     pagination_class = ActivityLogPagination
 
     def filter_queryset_by_parents_lookups(self, queryset) -> QuerySet:
-        team = self.team
-        return queryset.filter(Q(organization_id=team.organization_id) | Q(team_id=team.id))
+        return queryset.filter(team_id=self.team.id)
 
     def get_queryset(self) -> QuerySet:
         queryset = super().get_queryset()

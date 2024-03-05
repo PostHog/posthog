@@ -7,6 +7,7 @@ from rest_framework import status
 from django.core.cache import cache
 from django.test.client import Client
 from posthog.api.survey import nh3_clean_with_allow_list
+from posthog.models.cohort.cohort import Cohort
 
 from posthog.models.feedback.survey import Survey
 from posthog.test.base import (
@@ -272,6 +273,61 @@ class TestSurvey(APIBaseTest):
                 [("flag_0", []), (ff_key, [created_survey1, created_survey2])],
             )
 
+    def test_updating_survey_with_invalid_targeting_throws_appropriate_error(self):
+        cohort_not_valid_for_ff = Cohort.objects.create(
+            team=self.team,
+            filters={
+                "properties": {
+                    "type": "AND",
+                    "values": [
+                        {
+                            "key": "$pageview",
+                            "event_type": "events",
+                            "time_value": 2,
+                            "time_interval": "week",
+                            "value": "performed_event_first_time",
+                            "type": "behavioral",
+                        },
+                        {"key": "email", "value": "test@posthog.com", "type": "person"},
+                    ],
+                }
+            },
+            name="cohort2",
+        )
+        survey_with_targeting = self.client.post(
+            f"/api/projects/{self.team.id}/surveys/",
+            data={
+                "name": "survey with targeting",
+                "type": "popover",
+                "targeting_flag_filters": {
+                    "groups": [
+                        {
+                            "variant": None,
+                            "rollout_percentage": None,
+                            "properties": [
+                                {
+                                    "key": "id",
+                                    "value": cohort_not_valid_for_ff.pk,
+                                    "operator": "exact",
+                                    "type": "cohort",
+                                }
+                            ],
+                        }
+                    ]
+                },
+                "conditions": {"url": "https://app.posthog.com/notebooks"},
+            },
+            format="json",
+        )
+
+        assert survey_with_targeting.status_code == status.HTTP_400_BAD_REQUEST
+        assert survey_with_targeting.json() == {
+            "type": "validation_error",
+            "code": "behavioral_cohort_found",
+            "detail": "Cohort 'cohort2' with filters on events cannot be used in surveys.",
+            "attr": None,
+        }
+
     def test_updating_survey_with_targeting_creates_or_updates_targeting_flag(self):
         survey_with_targeting = self.client.post(
             f"/api/projects/{self.team.id}/surveys/",
@@ -452,6 +508,9 @@ class TestSurvey(APIBaseTest):
 
         with self.assertRaises(FeatureFlag.DoesNotExist):
             FeatureFlag.objects.get(id=flagId)
+
+        with self.assertRaises(FeatureFlag.DoesNotExist):
+            FeatureFlag.objects.get(key="survey-targeting-survey-with-targeting")
 
     def test_updating_survey_other_props_doesnt_delete_targeting_flag(self):
         survey_with_targeting = self.client.post(

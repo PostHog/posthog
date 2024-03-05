@@ -237,7 +237,10 @@ def get_decide(request: HttpRequest):
                     if random() < settings.NEW_ANALYTICS_CAPTURE_SAMPLING_RATE:
                         response["analytics"] = {"endpoint": settings.NEW_ANALYTICS_CAPTURE_ENDPOINT}
 
-            if str(team.id) in settings.NEW_CAPTURE_ENDPOINTS_INCLUDED_TEAM_IDS:
+            if (
+                "*" in settings.NEW_CAPTURE_ENDPOINTS_INCLUDED_TEAM_IDS
+                or str(team.id) in settings.NEW_CAPTURE_ENDPOINTS_INCLUDED_TEAM_IDS
+            ):
                 if random() < settings.NEW_CAPTURE_ENDPOINTS_SAMPLING_RATE:
                     response["__preview_ingestion_endpoints"] = True
 
@@ -260,6 +263,14 @@ def get_decide(request: HttpRequest):
                 linked_flag = team.session_recording_linked_flag or None
                 if isinstance(linked_flag, Dict):
                     linked_flag = linked_flag.get("key")
+                    # the below was merged in https://github.com/PostHog/posthog/pull/20543
+                    # might have caused an incident, so commenting out for now
+                    # linked_flag_key = linked_flag.get("key", None)
+                    # linked_flag_variant = linked_flag.get("variant", None)
+                    # if linked_flag_variant is not None:
+                    #     linked_flag = {"flag": linked_flag_key, "variant": linked_flag_variant}
+                    # else:
+                    #     linked_flag = linked_flag_key
 
                 session_recording_response = {
                     "endpoint": "/s/",

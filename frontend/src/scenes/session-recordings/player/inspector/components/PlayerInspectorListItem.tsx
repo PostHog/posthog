@@ -1,9 +1,9 @@
 import { TZLabel } from '@posthog/apps-common'
-import { IconGear } from '@posthog/icons'
+import { IconDashboard, IconGear, IconTerminal } from '@posthog/icons'
 import { LemonButton, LemonDivider } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
-import { IconGauge, IconOffline, IconTerminal, IconUnverifiedEvent } from 'lib/lemon-ui/icons'
+import { IconOffline, IconUnverifiedEvent } from 'lib/lemon-ui/icons'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { ceilMsToClosestSecond, colonDelimitedDuration } from 'lib/utils'
 import { useEffect } from 'react'
@@ -35,7 +35,7 @@ const typeToIconAndDescription = {
         tooltip: 'Console log',
     },
     [SessionRecordingPlayerTab.NETWORK]: {
-        Icon: IconGauge,
+        Icon: IconDashboard,
         tooltip: 'Network event',
     },
     ['offline-status']: {
@@ -204,7 +204,7 @@ export function PlayerInspectorListItem({
                                         title="This event occured before the recording started, likely as the page was loading."
                                         placement="left"
                                     >
-                                        {colonDelimitedDuration(item.timeInRecording / 1000, fixedUnits)}
+                                        <span>{colonDelimitedDuration(item.timeInRecording / 1000, fixedUnits)}</span>
                                     </Tooltip>
                                 ) : (
                                     colonDelimitedDuration(item.timeInRecording / 1000, fixedUnits)

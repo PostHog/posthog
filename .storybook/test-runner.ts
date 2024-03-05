@@ -138,7 +138,6 @@ async function expectStoryToMatchSnapshot(
 
     // snapshot light theme
     await page.evaluate(() => {
-        document.body.classList.add('posthog-3000')
         document.body.setAttribute('theme', 'light')
     })
 

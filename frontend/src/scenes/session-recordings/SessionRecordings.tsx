@@ -1,3 +1,4 @@
+import { IconGear } from '@posthog/icons'
 import { LemonButton } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
@@ -5,7 +6,6 @@ import { authorizedUrlListLogic, AuthorizedUrlListType } from 'lib/components/Au
 import { PageHeader } from 'lib/components/PageHeader'
 import { VersionCheckerBanner } from 'lib/components/VersionChecker/VersionCheckerBanner'
 import { useAsyncHandler } from 'lib/hooks/useAsyncHandler'
-import { IconSettings } from 'lib/lemon-ui/icons'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
 import { Spinner } from 'lib/lemon-ui/Spinner/Spinner'
@@ -13,7 +13,6 @@ import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { NotebookSelectButton } from 'scenes/notebooks/NotebookSelectButton/NotebookSelectButton'
 import { sceneLogic } from 'scenes/sceneLogic'
 import { SceneExport } from 'scenes/sceneTypes'
-import { AndroidRecordingsPromptBanner } from 'scenes/session-recordings/mobile-replay/AndroidRecordingPromptBanner'
 import { sessionRecordingsPlaylistLogic } from 'scenes/session-recordings/playlist/sessionRecordingsPlaylistLogic'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
@@ -78,8 +77,6 @@ export function SessionsRecordings(): JSX.Element {
                                     onClick={(e) =>
                                         guardAvailableFeature(
                                             AvailableFeature.RECORDINGS_PLAYLISTS,
-                                            'recording playlists',
-                                            "Playlists allow you to save certain session recordings as a group to easily find and watch them again in the future. You've unfortunately run out of playlists on your current subscription plan.",
                                             () => {
                                                 // choose the type of playlist handler so that analytics correctly report
                                                 // whether filters have been changed before saving
@@ -96,7 +93,7 @@ export function SessionsRecordings(): JSX.Element {
                                 </LemonButton>
                                 <LemonButton
                                     type="secondary"
-                                    icon={<IconSettings />}
+                                    icon={<IconGear />}
                                     onClick={() => openSettingsPanel({ sectionId: 'project-replay' })}
                                 >
                                     Configure
@@ -110,8 +107,6 @@ export function SessionsRecordings(): JSX.Element {
                                 onClick={(e) =>
                                     guardAvailableFeature(
                                         AvailableFeature.RECORDINGS_PLAYLISTS,
-                                        'recording playlists',
-                                        "Playlists allow you to save certain session recordings as a group to easily find and watch them again in the future. You've unfortunately run out of playlists on your current subscription plan.",
                                         () => newPlaylistHandler.onEvent?.(e),
                                         undefined,
                                         playlists.count
@@ -136,14 +131,13 @@ export function SessionsRecordings(): JSX.Element {
             />
             <div className="space-y-2">
                 <VersionCheckerBanner />
-                <AndroidRecordingsPromptBanner context="replay" />
 
                 {recordingsDisabled ? (
                     <LemonBanner
                         type="info"
                         action={{
                             type: 'secondary',
-                            icon: <IconSettings />,
+                            icon: <IconGear />,
                             onClick: () => openSettingsPanel({ sectionId: 'project-replay' }),
                             children: 'Configure',
                         }}
@@ -157,7 +151,7 @@ export function SessionsRecordings(): JSX.Element {
                         type="warning"
                         action={{
                             type: 'secondary',
-                            icon: <IconSettings />,
+                            icon: <IconGear />,
                             onClick: () => openSettingsPanel({ sectionId: 'project-replay' }),
                             children: 'Configure',
                         }}

@@ -1,6 +1,6 @@
+import { IconX } from '@posthog/icons'
 import { TaxonomicFilter } from 'lib/components/TaxonomicFilter/TaxonomicFilter'
 import { TaxonomicFilterGroupType, TaxonomicFilterValue } from 'lib/components/TaxonomicFilter/types'
-import { IconClose } from 'lib/lemon-ui/icons'
 import { LemonButton, LemonButtonProps } from 'lib/lemon-ui/LemonButton'
 import { LemonDropdown } from 'lib/lemon-ui/LemonDropdown'
 import { useEffect, useState } from 'react'
@@ -99,7 +99,7 @@ export function TaxonomicPopover<ValueType extends TaxonomicFilterValue = Taxono
             {isClearButtonShown ? (
                 <LemonButton
                     sideAction={{
-                        icon: <IconClose />,
+                        icon: <IconX />,
                         tooltip: 'Clear selection',
                         onClick: (e) => {
                             e.stopPropagation()

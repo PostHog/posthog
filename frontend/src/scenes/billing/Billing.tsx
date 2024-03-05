@@ -1,5 +1,6 @@
 import './Billing.scss'
 
+import { IconCheckCircle, IconPlus } from '@posthog/icons'
 import { LemonButton, LemonDivider, LemonInput, Link } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
@@ -10,7 +11,6 @@ import { PageHeader } from 'lib/components/PageHeader'
 import { supportLogic } from 'lib/components/Support/supportLogic'
 import { dayjs } from 'lib/dayjs'
 import { useResizeBreakpoints } from 'lib/hooks/useResizeObserver'
-import { IconCheckCircleOutline, IconPlus } from 'lib/lemon-ui/icons'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { LemonLabel } from 'lib/lemon-ui/LemonLabel/LemonLabel'
 import { SpinnerOverlay } from 'lib/lemon-ui/Spinner/Spinner'
@@ -212,12 +212,12 @@ export function Billing(): JSX.Element {
                                                                       )}`
                                                                     : null
                                                             }
-                                                            placement="bottomLeft"
+                                                            placement="bottom-start"
                                                         >
                                                             <strong>
                                                                 $
                                                                 {parseInt(billing.discount_amount_usd).toLocaleString()}
-                                                            </strong>{' '}
+                                                            </strong>
                                                         </Tooltip>
                                                         remaining credits applied to your bill.
                                                     </p>
@@ -264,31 +264,31 @@ export function Billing(): JSX.Element {
                             <h3>You've unlocked enterprise-grade perks:</h3>
                             <ul className="pl-4">
                                 <li className="flex gap-2 items-center">
-                                    <IconCheckCircleOutline className="text-success shrink-0" />
+                                    <IconCheckCircle className="text-success shrink-0" />
                                     <span>
                                         <strong>Save 20%</strong> by switching to up-front annual billing
                                     </span>
                                 </li>
                                 <li className="flex gap-2 items-center">
-                                    <IconCheckCircleOutline className="text-success shrink-0" />
+                                    <IconCheckCircle className="text-success shrink-0" />
                                     <span>
                                         Get <strong>discounts on bundled subscriptions</strong> to multiple products
                                     </span>
                                 </li>
                                 <li className="flex gap-2 items-center">
-                                    <IconCheckCircleOutline className="text-success shrink-0" />
+                                    <IconCheckCircle className="text-success shrink-0" />
                                     <span>
                                         Get <strong>customized training</strong> for you and your team
                                     </span>
                                 </li>
                                 <li className="flex gap-2 items-center">
-                                    <IconCheckCircleOutline className="text-success shrink-0" />
+                                    <IconCheckCircle className="text-success shrink-0" />
                                     <span>
                                         Get dedicated support via <strong>private Slack channel</strong>
                                     </span>
                                 </li>
                                 <li className="flex gap-2 items-center">
-                                    <IconCheckCircleOutline className="text-success shrink-0" />
+                                    <IconCheckCircle className="text-success shrink-0" />
                                     <span>
                                         We'll even send you <strong>awesome free merch</strong>
                                     </span>
@@ -323,7 +323,7 @@ export function Billing(): JSX.Element {
             <LemonDivider className="mt-2 mb-8" />
 
             {products
-                ?.filter((product) => !product.inclusion_only || product.contact_support)
+                ?.filter((product) => !product.inclusion_only || product.plans.some((plan) => !plan.included_if))
                 ?.map((x) => (
                     <div key={x.type}>
                         <BillingProduct product={x} />

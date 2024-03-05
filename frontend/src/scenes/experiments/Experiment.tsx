@@ -1,5 +1,6 @@
 import './Experiment.scss'
 
+import { IconPlusSmall, IconTrash, IconWarning } from '@posthog/icons'
 import {
     LemonDivider,
     LemonInput,
@@ -20,12 +21,11 @@ import { EditableField } from 'lib/components/EditableField/EditableField'
 import { NotFound } from 'lib/components/NotFound'
 import { PageHeader } from 'lib/components/PageHeader'
 import { dayjs } from 'lib/dayjs'
-import { Field } from 'lib/forms/Field'
-import { IconDelete, IconPlusMini, IconWarning } from 'lib/lemon-ui/icons'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { More } from 'lib/lemon-ui/LemonButton/More'
 import { LemonCollapse } from 'lib/lemon-ui/LemonCollapse'
+import { LemonField } from 'lib/lemon-ui/LemonField'
 import { LemonProgress } from 'lib/lemon-ui/LemonProgress'
 import { Link } from 'lib/lemon-ui/Link'
 import { capitalizeFirstLetter, humanFriendlyNumber } from 'lib/utils'
@@ -36,10 +36,9 @@ import { insightLogic } from 'scenes/insights/insightLogic'
 import { SceneExport } from 'scenes/sceneTypes'
 import { trendsDataLogic } from 'scenes/trends/trendsDataLogic'
 import { urls } from 'scenes/urls'
-import { userLogic } from 'scenes/userLogic'
 
 import { Query } from '~/queries/Query/Query'
-import { AvailableFeature, Experiment as ExperimentType, FunnelStep, InsightType, ProgressStatus } from '~/types'
+import { Experiment as ExperimentType, FunnelStep, InsightType, ProgressStatus } from '~/types'
 
 import { EXPERIMENT_INSIGHT_ID } from './constants'
 import { ExperimentImplementationDetails } from './ExperimentImplementationDetails'
@@ -47,9 +46,9 @@ import { experimentLogic, ExperimentLogicProps } from './experimentLogic'
 import { ExperimentPreview } from './ExperimentPreview'
 import { ExperimentResult } from './ExperimentResult'
 import { getExperimentStatus, getExperimentStatusColor } from './experimentsLogic'
-import { ExperimentsPayGate } from './ExperimentsPayGate'
 import { ExperimentInsightCreator } from './MetricSelector'
-import { SecondaryMetrics } from './SecondaryMetrics'
+import { SecondaryMetricsResult } from './SecondaryMetricsResult'
+import { SecondaryMetricsTable } from './SecondaryMetricsTable'
 
 export const scene: SceneExport = {
     component: Experiment,
@@ -93,11 +92,11 @@ export function Experiment(): JSX.Element {
         resetRunningExperiment,
         loadExperiment,
         loadExperimentResults,
+        loadSecondaryMetricResults,
         setExposureAndSampleSize,
         updateExperimentSecondaryMetrics,
         setExperiment,
     } = useActions(experimentLogic)
-    const { hasAvailableFeature } = useValues(userLogic)
 
     const [showWarning, setShowWarning] = useState(true)
 
@@ -147,15 +146,6 @@ export function Experiment(): JSX.Element {
         { background: '#FFE6AE', color: '#35416B' },
         { background: '#8DA9E74D', color: '#35416B' },
     ]
-
-    if (!hasAvailableFeature(AvailableFeature.EXPERIMENTATION)) {
-        return (
-            <>
-                <PageHeader />
-                <ExperimentsPayGate />
-            </>
-        )
-    }
 
     if (experimentLoading) {
         return <LoadingState />
@@ -212,16 +202,16 @@ export function Experiment(): JSX.Element {
                         <BindLogic logic={insightLogic} props={insightProps}>
                             <>
                                 <div className="flex flex-col gap-2 max-w-1/2">
-                                    <Field name="name" label="Name">
+                                    <LemonField name="name" label="Name">
                                         <LemonInput data-attr="experiment-name" />
-                                    </Field>
-                                    <Field name="feature_flag_key" label="Feature flag key">
+                                    </LemonField>
+                                    <LemonField name="feature_flag_key" label="Feature flag key">
                                         <LemonInput
                                             data-attr="experiment-feature-flag-key"
                                             disabled={editingExistingExperiment}
                                         />
-                                    </Field>
-                                    <Field
+                                    </LemonField>
+                                    <LemonField
                                         name="description"
                                         label={
                                             <div>
@@ -234,7 +224,7 @@ export function Experiment(): JSX.Element {
                                             className="ph-ignore-input"
                                             placeholder="Adding a helpful description can ensure others know what this experiment is about."
                                         />
-                                    </Field>
+                                    </LemonField>
                                     {experiment.parameters.feature_flag_variants && (
                                         <div>
                                             <label>
@@ -276,7 +266,7 @@ export function Experiment(): JSX.Element {
                                                             >
                                                                 {index === 0 ? 'Control' : 'Test'}
                                                             </div>
-                                                            <Field name="key" className="extend-variant-fully">
+                                                            <LemonField name="key" className="extend-variant-fully">
                                                                 <LemonInput
                                                                     disabled={index === 0 || experimentId !== 'new'}
                                                                     data-attr="experiment-variant-key"
@@ -289,18 +279,18 @@ export function Experiment(): JSX.Element {
                                                                     autoCorrect="off"
                                                                     spellCheck={false}
                                                                 />
-                                                            </Field>
+                                                            </LemonField>
 
                                                             <div className="float-right">
                                                                 {experimentId === 'new' &&
                                                                     !(index === 0 || index === 1) && (
                                                                         <Tooltip
                                                                             title="Delete this variant"
-                                                                            placement="bottomLeft"
+                                                                            placement="bottom-start"
                                                                         >
                                                                             <LemonButton
                                                                                 size="small"
-                                                                                icon={<IconDelete />}
+                                                                                icon={<IconTrash />}
                                                                                 onClick={() =>
                                                                                     removeExperimentGroup(index)
                                                                                 }
@@ -318,7 +308,7 @@ export function Experiment(): JSX.Element {
                                                         <div className="feature-flag-variant border-b">
                                                             <LemonButton
                                                                 onClick={() => addExperimentGroup()}
-                                                                icon={<IconPlusMini />}
+                                                                icon={<IconPlusSmall />}
                                                                 data-attr="add-test-variant"
                                                             >
                                                                 Add test variant
@@ -460,7 +450,7 @@ export function Experiment(): JSX.Element {
                                         </BindLogic>
                                     </div>
                                 </div>
-                                <Field name="secondary_metrics">
+                                <LemonField name="secondary_metrics">
                                     {({ value, onChange }) => (
                                         <div className="secondary-metrics">
                                             <div className="flex flex-col">
@@ -472,7 +462,7 @@ export function Experiment(): JSX.Element {
                                                     Use secondary metrics to monitor metrics related to your experiment
                                                     goal. You can add up to three secondary metrics.{' '}
                                                 </div>
-                                                <SecondaryMetrics
+                                                <SecondaryMetricsTable
                                                     onMetricsChange={onChange}
                                                     initialMetrics={value}
                                                     experimentId={experiment.id}
@@ -483,7 +473,7 @@ export function Experiment(): JSX.Element {
                                             </div>
                                         </div>
                                     )}
-                                </Field>
+                                </LemonField>
                                 <div className="bg-bg-light border rounded experiment-preview p-4">
                                     <ExperimentPreview
                                         experimentId={experiment.id}
@@ -556,6 +546,13 @@ export function Experiment(): JSX.Element {
                                                                 data-attr="refresh-experiment"
                                                             >
                                                                 Refresh experiment results
+                                                            </LemonButton>
+                                                            <LemonButton
+                                                                onClick={() => loadSecondaryMetricResults(true)}
+                                                                fullWidth
+                                                                data-attr="refresh-secondary-metrics"
+                                                            >
+                                                                Refresh secondary metrics
                                                             </LemonButton>
                                                         </>
                                                     }
@@ -721,6 +718,7 @@ export function Experiment(): JSX.Element {
                                 {
                                     key: 'experiment-details',
                                     header: 'Experiment details',
+                                    className: 'bg-bg-light',
                                     content: (
                                         <div>
                                             <div className={isExperimentRunning ? 'w-1/2' : 'w-full'}>
@@ -815,7 +813,7 @@ export function Experiment(): JSX.Element {
                                                 </div>
                                             )}
                                             <div>
-                                                <SecondaryMetrics
+                                                <SecondaryMetricsTable
                                                     experimentId={experiment.id}
                                                     onMetricsChange={(metrics) =>
                                                         updateExperimentSecondaryMetrics(metrics)
@@ -837,7 +835,9 @@ export function Experiment(): JSX.Element {
                             </div>
                         )}
                     </div>
+                    <h2 className="font-semibold text-lg m-0 mt-4">Experiment result</h2>
                     <ExperimentResult />
+                    <SecondaryMetricsResult />
                 </div>
             ) : (
                 <LoadingState />

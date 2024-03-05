@@ -15,8 +15,9 @@ import { PipelineNodeTab, PipelineStage, ProductKey } from '~/types'
 import { AppMetricSparkLine } from './AppMetricSparkLine'
 import { pipelineDestinationsLogic } from './destinationsLogic'
 import { NewButton } from './NewButton'
+import { pipelineLogic } from './pipelineLogic'
 import { Destination, PipelineBackend } from './types'
-import { RenderApp, RenderBatchExportIcon } from './utils'
+import { pipelineNodeMenuCommonItems, RenderApp, RenderBatchExportIcon } from './utils'
 
 export function Destinations(): JSX.Element {
     const { featureFlags } = useValues(featureFlagLogic)
@@ -52,7 +53,7 @@ function DestinationsTable(): JSX.Element {
         <>
             <LemonTable
                 dataSource={destinations}
-                size="xs"
+                size="small"
                 loading={loading}
                 columns={[
                     {
@@ -97,7 +98,7 @@ function DestinationsTable(): JSX.Element {
                         },
                     },
                     {
-                        title: 'Success rate',
+                        title: 'Weekly volume',
                         render: function RenderSuccessRate(_, destination) {
                             return <AppMetricSparkLine pipelineNode={destination} />
                         },
@@ -140,7 +141,7 @@ export const DestinationMoreOverlay = ({
     destination: Destination
     inOverview?: boolean
 }): JSX.Element => {
-    const { canConfigurePlugins } = useValues(pipelineDestinationsLogic)
+    const { canConfigurePlugins } = useValues(pipelineLogic)
     const { toggleEnabled, loadPluginConfigs } = useActions(pipelineDestinationsLogic)
 
     return (
@@ -157,19 +158,7 @@ export const DestinationMoreOverlay = ({
                           },
                       ]
                     : []),
-                {
-                    label: canConfigurePlugins ? 'Edit configuration' : 'View configuration',
-                    to: urls.pipelineNode(PipelineStage.Destination, destination.id, PipelineNodeTab.Configuration),
-                },
-                {
-                    label: 'View metrics',
-                    to: urls.pipelineNode(PipelineStage.Destination, destination.id, PipelineNodeTab.Metrics),
-                },
-                {
-                    label: 'View logs',
-                    to: urls.pipelineNode(PipelineStage.Destination, destination.id, PipelineNodeTab.Logs),
-                },
-                // TODO: Add link to source code for staff
+                ...pipelineNodeMenuCommonItems(destination),
                 {
                     label: 'Delete destination',
                     onClick: () => {

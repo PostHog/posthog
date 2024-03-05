@@ -238,10 +238,11 @@ SURROGATES_SUBSTITUTED_COUNTER = Counter(
 
 
 # keep in sync with posthog/plugin-server/src/utils/db/utils.ts::safeClickhouseString
-def safe_clickhouse_string(s: str) -> str:
+def safe_clickhouse_string(s: str, with_counter=True) -> str:
     matches = SURROGATE_REGEX.findall(s or "")
     for match in matches:
-        SURROGATES_SUBSTITUTED_COUNTER.inc()
+        if with_counter:
+            SURROGATES_SUBSTITUTED_COUNTER.inc()
         s = s.replace(match, match.encode("unicode_escape").decode("utf8"))
     return s
 

@@ -28,6 +28,7 @@ class BatchExportDestination(UUIDModel):
         POSTGRES = "Postgres"
         REDSHIFT = "Redshift"
         BIGQUERY = "BigQuery"
+        HTTP = "HTTP"
         NOOP = "NoOp"
 
     secret_fields = {
@@ -36,6 +37,7 @@ class BatchExportDestination(UUIDModel):
         "Postgres": set("password"),
         "Redshift": set("password"),
         "BigQuery": {"private_key", "private_key_id", "client_email", "token_uri"},
+        "HTTP": set("token"),
         "NoOp": set(),
     }
 
@@ -72,8 +74,9 @@ class BatchExportRun(UUIDModel):
 
         CANCELLED = "Cancelled"
         COMPLETED = "Completed"
-        CONTINUEDASNEW = "ContinuedAsNew"
+        CONTINUED_AS_NEW = "ContinuedAsNew"
         FAILED = "Failed"
+        FAILED_RETRYABLE = "FailedRetryable"
         TERMINATED = "Terminated"
         TIMEDOUT = "TimedOut"
         RUNNING = "Running"
@@ -267,8 +270,9 @@ class BatchExportBackfill(UUIDModel):
 
         CANCELLED = "Cancelled"
         COMPLETED = "Completed"
-        CONTINUEDASNEW = "ContinuedAsNew"
+        CONTINUED_AS_NEW = "ContinuedAsNew"
         FAILED = "Failed"
+        FAILED_RETRYABLE = "FailedRetryable"
         TERMINATED = "Terminated"
         TIMEDOUT = "TimedOut"
         RUNNING = "Running"

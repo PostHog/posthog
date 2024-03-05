@@ -1,5 +1,5 @@
+import { IconPlus } from '@posthog/icons'
 import { useActions, useValues } from 'kea'
-import { IconPlus } from 'lib/lemon-ui/icons'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
 import { LemonTag } from 'lib/lemon-ui/LemonTag/LemonTag'
@@ -56,8 +56,6 @@ export function NewOrganizationButton(): JSX.Element {
             onClick={() =>
                 guardAvailableFeature(
                     AvailableFeature.ORGANIZATIONS_PROJECTS,
-                    'multiple organizations',
-                    'Organizations group people building products together. An organization can have multiple projects.',
                     () => {
                         closeAccountPopover()
                         showCreateOrganizationModal()

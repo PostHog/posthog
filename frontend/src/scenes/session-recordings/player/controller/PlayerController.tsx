@@ -1,8 +1,9 @@
+import { IconDownload, IconMagic, IconPlay, IconSearch } from '@posthog/icons'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { FlaggedFeature } from 'lib/components/FlaggedFeature'
 import { FEATURE_FLAGS } from 'lib/constants'
-import { IconExport, IconFullScreen, IconMagnifier, IconPause, IconPlay, IconSkipInactivity } from 'lib/lemon-ui/icons'
+import { IconFullScreen, IconPause, IconSkipInactivity } from 'lib/lemon-ui/icons'
 import { LemonButton, LemonButtonWithDropdown } from 'lib/lemon-ui/LemonButton'
 import { More } from 'lib/lemon-ui/LemonButton/More'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
@@ -16,6 +17,7 @@ import { KeyboardShortcut } from '~/layout/navigation-3000/components/KeyboardSh
 import { SessionPlayerState } from '~/types'
 
 import { playerSettingsLogic } from '../playerSettingsLogic'
+import { sessionRecordingDataLogic } from '../sessionRecordingDataLogic'
 import { SeekSkip } from './PlayerControllerTime'
 import { Seekbar } from './Seekbar'
 
@@ -23,6 +25,7 @@ export function PlayerController(): JSX.Element {
     const { playingState, logicProps, isFullScreen } = useValues(sessionRecordingPlayerLogic)
     const { togglePlayPause, exportRecordingToFile, openExplorer, setIsFullScreen } =
         useActions(sessionRecordingPlayerLogic)
+    const { fetchSimilarRecordings } = useActions(sessionRecordingDataLogic(logicProps))
 
     const { speed, skipInactivitySetting } = useValues(playerSettingsLogic)
     const { setSpeed, setSkipInactivitySetting } = useActions(playerSettingsLogic)
@@ -116,7 +119,7 @@ export function PlayerController(): JSX.Element {
                                     <LemonButton
                                         onClick={() => exportRecordingToFile()}
                                         fullWidth
-                                        sideIcon={<IconExport />}
+                                        sideIcon={<IconDownload />}
                                         tooltip="Export recording to a file. This can be loaded later into PostHog for playback."
                                     >
                                         Export to file
@@ -126,14 +129,25 @@ export function PlayerController(): JSX.Element {
                                         <LemonButton
                                             onClick={() => exportRecordingToFile(true)}
                                             fullWidth
-                                            sideIcon={<IconExport />}
+                                            sideIcon={<IconDownload />}
                                             tooltip="DEBUG ONLY - Export untransformed recording to a file. This can be loaded later into PostHog for playback."
                                         >
                                             DEBUG Export mobile replay to file DEBUG
                                         </LemonButton>
                                     </FlaggedFeature>
 
-                                    <LemonButton onClick={() => openExplorer()} fullWidth sideIcon={<IconMagnifier />}>
+                                    <FlaggedFeature flag={FEATURE_FLAGS.REPLAY_SIMILAR_RECORDINGS} match={true}>
+                                        <LemonButton
+                                            onClick={() => fetchSimilarRecordings()}
+                                            fullWidth
+                                            sideIcon={<IconMagic />}
+                                            tooltip="DEBUG ONLY - Find similar recordings based on distance calculations via embeddings."
+                                        >
+                                            Find similar recordings
+                                        </LemonButton>
+                                    </FlaggedFeature>
+
+                                    <LemonButton onClick={() => openExplorer()} fullWidth sideIcon={<IconSearch />}>
                                         Explore DOM
                                     </LemonButton>
                                 </>

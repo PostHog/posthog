@@ -26,6 +26,7 @@ from posthog.schema import (
     PropertyMathType,
     TrendsFilter,
     TrendsQuery,
+    AggregationAxisFormat,
 )
 
 from posthog.schema import Series as InsightActorsQuerySeries
@@ -165,7 +166,7 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
     def _create_query_runner(
         self,
         date_from: str,
-        date_to: str,
+        date_to: Optional[str],
         interval: IntervalType,
         series: Optional[List[EventsNode | ActionsNode]],
         trends_filters: Optional[TrendsFilter] = None,
@@ -187,7 +188,7 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
     def _run_trends_query(
         self,
         date_from: str,
-        date_to: str,
+        date_to: Optional[str],
         interval: IntervalType,
         series: Optional[List[EventsNode | ActionsNode]],
         trends_filters: Optional[TrendsFilter] = None,
@@ -361,6 +362,47 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual("Formula (A+B)", response.results[0]["label"])
         self.assertEqual([1, 0, 2, 4, 4, 0, 2, 1, 1, 0, 1], response.results[0]["data"])
 
+    def test_trends_query_formula_aggregate(self):
+        self._create_test_events()
+
+        response = self._run_trends_query(
+            self.default_date_from,
+            self.default_date_to,
+            IntervalType.day,
+            [EventsNode(event="$pageview"), EventsNode(event="$pageleave")],
+            TrendsFilter(
+                formula="A+B",
+                display=ChartDisplayType.BoldNumber,
+                aggregationAxisFormat=AggregationAxisFormat.percentage_scaled,
+            ),
+        )
+        self.assertEqual(1, len(response.results))
+        self.assertEqual(16, response.results[0]["aggregated_value"])
+        self.assertEqual(0, response.results[0]["count"])  # it has always been so :shrug:
+        self.assertEqual("Formula (A+B)", response.results[0]["label"])
+        self.assertEqual(None, response.results[0].get("data"))
+
+    def test_trends_query_formula_aggregate_compare(self):
+        self._create_test_events()
+
+        response = self._run_trends_query(
+            self.default_date_from,
+            self.default_date_to,
+            IntervalType.day,
+            [EventsNode(event="$pageview"), EventsNode(event="$pageleave")],
+            TrendsFilter(
+                formula="A+B",
+                display=ChartDisplayType.BoldNumber,
+                aggregationAxisFormat=AggregationAxisFormat.percentage_scaled,
+                compare=True,
+            ),
+        )
+        self.assertEqual(2, len(response.results))
+        self.assertEqual(16, response.results[0]["aggregated_value"])
+        self.assertEqual(0, response.results[0]["count"])  # it has always been so :shrug:
+        self.assertEqual("Formula (A+B)", response.results[0]["label"])
+        self.assertEqual(None, response.results[0].get("data"))
+
     def test_trends_query_compare(self):
         self._create_test_events()
 
@@ -403,6 +445,60 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
 
         self.assertEqual(["day 0", "day 1", "day 2", "day 3", "day 4"], response.results[0]["labels"])
         self.assertEqual(["day 0", "day 1", "day 2", "day 3", "day 4"], response.results[1]["labels"])
+
+    def test_trends_query_compare_weeks(self):
+        self._create_test_events()
+
+        with freeze_time("2020-01-24"):
+            response = self._run_trends_query(
+                "-7d",
+                None,
+                IntervalType.day,
+                [EventsNode(event="$pageview")],
+                TrendsFilter(compare=True),
+            )
+
+            self.assertEqual(2, len(response.results))
+
+            self.assertEqual(True, response.results[0]["compare"])
+            self.assertEqual(True, response.results[1]["compare"])
+
+            self.assertEqual("current", response.results[0]["compare_label"])
+            self.assertEqual("previous", response.results[1]["compare_label"])
+
+            self.assertEqual(
+                [
+                    "2020-01-17",
+                    "2020-01-18",
+                    "2020-01-19",
+                    "2020-01-20",
+                    "2020-01-21",
+                    "2020-01-22",
+                    "2020-01-23",
+                    "2020-01-24",
+                ],
+                response.results[0]["days"],
+            )
+            self.assertEqual(
+                [
+                    "2020-01-10",
+                    "2020-01-11",
+                    "2020-01-12",
+                    "2020-01-13",
+                    "2020-01-14",
+                    "2020-01-15",
+                    "2020-01-16",
+                    "2020-01-17",
+                ],
+                response.results[1]["days"],
+            )
+
+            self.assertEqual(
+                ["day 0", "day 1", "day 2", "day 3", "day 4", "day 5", "day 6", "day 7"], response.results[0]["labels"]
+            )
+            self.assertEqual(
+                ["day 0", "day 1", "day 2", "day 3", "day 4", "day 5", "day 6", "day 7"], response.results[1]["labels"]
+            )
 
     def test_trends_query_formula_with_compare(self):
         self._create_test_events()
@@ -473,8 +569,8 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         assert len(response.results) == 3
         assert breakdown_labels == ["true", "false", "$$_posthog_breakdown_other_$$"]
 
-        assert response.results[0]["label"] == f"$pageview - true"
-        assert response.results[1]["label"] == f"$pageview - false"
+        assert response.results[0]["label"] == f"true"
+        assert response.results[1]["label"] == f"false"
         assert response.results[2]["label"] == f"$pageview - Other"
 
         assert response.results[0]["count"] == 7
@@ -544,7 +640,7 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
 
         assert len(response.results) == 1
 
-        assert response.results[0]["label"] == f"$pageview - cohort"
+        assert response.results[0]["label"] == f"cohort"
         assert response.results[0]["count"] == 6
         assert response.results[0]["data"] == [
             0,
@@ -661,13 +757,13 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
             "$$_posthog_breakdown_other_$$",
         ]
 
-        assert response.results[0]["label"] == f"$pageview - Chrome"
-        assert response.results[1]["label"] == f"$pageview - Safari"
-        assert response.results[2]["label"] == f"$pageview - $$_posthog_breakdown_other_$$"
-        assert response.results[3]["label"] == f"$pageview - Chrome"
-        assert response.results[4]["label"] == f"$pageview - Firefox"
-        assert response.results[5]["label"] == f"$pageview - Edge"
-        assert response.results[6]["label"] == f"$pageview - $$_posthog_breakdown_other_$$"
+        assert response.results[0]["label"] == f"Chrome"
+        assert response.results[1]["label"] == f"Safari"
+        assert response.results[2]["label"] == f"$$_posthog_breakdown_other_$$"
+        assert response.results[3]["label"] == f"Chrome"
+        assert response.results[4]["label"] == f"Firefox"
+        assert response.results[5]["label"] == f"Edge"
+        assert response.results[6]["label"] == f"$$_posthog_breakdown_other_$$"
 
         assert response.results[0]["count"] == 3
         assert response.results[1]["count"] == 1
@@ -987,20 +1083,7 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
 
         assert len(response.results) == 1
         assert response.results[0]["data"] == []
-        assert response.results[0]["days"] == [
-            "2020-01-09",
-            "2020-01-10",
-            "2020-01-11",
-            "2020-01-12",
-            "2020-01-13",
-            "2020-01-14",
-            "2020-01-15",
-            "2020-01-16",
-            "2020-01-17",
-            "2020-01-18",
-            "2020-01-19",
-            "2020-01-20",
-        ]
+        assert response.results[0]["days"] == []
         assert response.results[0]["count"] == 0
         assert response.results[0]["aggregated_value"] == 10
 

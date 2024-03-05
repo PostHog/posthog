@@ -1,6 +1,6 @@
 from posthog.clickhouse.base_sql import COPY_ROWS_BETWEEN_TEAMS_BASE_SQL
 from posthog.clickhouse.indexes import index_by_kafka_timestamp
-from posthog.clickhouse.kafka_engine import KAFKA_COLUMNS, STORAGE_POLICY, kafka_engine
+from posthog.clickhouse.kafka_engine import KAFKA_COLUMNS, KAFKA_COLUMNS_WITH_PARTITION, STORAGE_POLICY, kafka_engine
 from posthog.clickhouse.table_engines import CollapsingMergeTree, ReplacingMergeTree
 from posthog.kafka_client.topics import (
     KAFKA_PERSON,
@@ -170,6 +170,7 @@ FROM {database}.kafka_{table_name}
 
 PERSON_DISTINCT_ID2_TABLE = "person_distinct_id2"
 
+# NOTE: This table base SQL is also used for distinct ID overrides!
 PERSON_DISTINCT_ID2_TABLE_BASE_SQL = """
 CREATE TABLE IF NOT EXISTS {table_name} ON CLUSTER '{cluster}'
 (
@@ -224,6 +225,63 @@ _partition
 FROM {database}.kafka_{table_name}
 """.format(
     table_name=PERSON_DISTINCT_ID2_TABLE,
+    cluster=CLICKHOUSE_CLUSTER,
+    database=CLICKHOUSE_DATABASE,
+)
+
+#
+# person_distinct_id_overrides: This table contains rows for all (team_id,
+# distinct_id) pairs where the person_id has changed and those updates have not
+# yet been integrated back into the events table via squashing.
+#
+
+PERSON_DISTINCT_ID_OVERRIDES_TABLE = "person_distinct_id_overrides"
+
+PERSON_DISTINCT_ID_OVERRIDES_TABLE_BASE_SQL = PERSON_DISTINCT_ID2_TABLE_BASE_SQL
+
+PERSON_DISTINCT_ID_OVERRIDES_TABLE_ENGINE = lambda: ReplacingMergeTree(
+    PERSON_DISTINCT_ID_OVERRIDES_TABLE, ver="version"
+)
+
+PERSON_DISTINCT_ID_OVERRIDES_TABLE_SQL = lambda: (
+    PERSON_DISTINCT_ID_OVERRIDES_TABLE_BASE_SQL
+    + """
+    ORDER BY (team_id, distinct_id)
+    SETTINGS index_granularity = 512
+    """
+).format(
+    table_name=PERSON_DISTINCT_ID_OVERRIDES_TABLE,
+    cluster=CLICKHOUSE_CLUSTER,
+    engine=PERSON_DISTINCT_ID_OVERRIDES_TABLE_ENGINE(),
+    extra_fields=f"""
+    {KAFKA_COLUMNS_WITH_PARTITION}
+    , {index_by_kafka_timestamp(PERSON_DISTINCT_ID_OVERRIDES_TABLE)}
+    """,
+)
+
+KAFKA_PERSON_DISTINCT_ID_OVERRIDES_TABLE_SQL = lambda: PERSON_DISTINCT_ID_OVERRIDES_TABLE_BASE_SQL.format(
+    table_name="kafka_" + PERSON_DISTINCT_ID_OVERRIDES_TABLE,
+    cluster=CLICKHOUSE_CLUSTER,
+    engine=kafka_engine(KAFKA_PERSON_DISTINCT_ID, group="clickhouse-person-distinct-id-overrides"),
+    extra_fields="",
+)
+
+PERSON_DISTINCT_ID_OVERRIDES_MV_SQL = """
+CREATE MATERIALIZED VIEW IF NOT EXISTS {table_name}_mv ON CLUSTER '{cluster}'
+TO {database}.{table_name}
+AS SELECT
+team_id,
+distinct_id,
+person_id,
+is_deleted,
+version,
+_timestamp,
+_offset,
+_partition
+FROM {database}.kafka_{table_name}
+WHERE version > 0 -- only store updated rows, not newly inserted ones
+""".format(
+    table_name=PERSON_DISTINCT_ID_OVERRIDES_TABLE,
     cluster=CLICKHOUSE_CLUSTER,
     database=CLICKHOUSE_DATABASE,
 )

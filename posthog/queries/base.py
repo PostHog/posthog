@@ -345,7 +345,7 @@ def property_to_Q(
         return Q(**{f"{column}__{property.key}__isnull": False})
     if property.operator == "is_not_set":
         return Q(**{f"{column}__{property.key}__isnull": True})
-    if property.operator in ("regex", "not_regex") and not is_valid_regex(value):
+    if property.operator in ("regex", "not_regex") and not is_valid_regex(str(value)):
         # Return no data for invalid regexes
         return Q(pk=-1)
     if isinstance(property.operator, str) and property.operator.startswith("not_"):

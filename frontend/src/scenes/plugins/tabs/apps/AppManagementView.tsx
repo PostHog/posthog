@@ -1,7 +1,8 @@
+import { IconCheckCircle, IconDownload, IconTrash } from '@posthog/icons'
 import { LemonButton, Link } from '@posthog/lemon-ui'
 import { Popconfirm } from 'antd'
 import { useActions, useValues } from 'kea'
-import { IconCheckmark, IconCloudDownload, IconDelete, IconReplay, IconWeb } from 'lib/lemon-ui/icons'
+import { IconReplay, IconWeb } from 'lib/lemon-ui/icons'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { canGloballyManagePlugins } from 'scenes/plugins/access'
 import { PluginImage } from 'scenes/plugins/plugin/PluginImage'
@@ -55,7 +56,7 @@ export function AppManagementView({
                                     plugin.updateStatus?.updated ? editPlugin(plugin.id) : updatePlugin(plugin.id)
                                 }}
                                 loading={pluginsUpdating.includes(plugin.id)}
-                                icon={plugin.updateStatus?.updated ? <IconCheckmark /> : <IconCloudDownload />}
+                                icon={plugin.updateStatus?.updated ? <IconCheckCircle /> : <IconDownload />}
                             >
                                 {plugin.updateStatus?.updated ? 'Updated' : 'Update'}
                             </LemonButton>
@@ -72,7 +73,7 @@ export function AppManagementView({
                                 type="secondary"
                                 status="danger"
                                 size="small"
-                                icon={<IconDelete />}
+                                icon={<IconTrash />}
                                 disabledReason={
                                     unusedPlugins.includes(plugin.id) ? undefined : 'This app is still in use.'
                                 }
@@ -124,7 +125,7 @@ export function AppManagementView({
                     <LemonButton
                         type="primary"
                         loading={loading && installingPluginUrl === plugin.url}
-                        icon={<IconCloudDownload />}
+                        icon={<IconDownload />}
                         size="small"
                         onClick={() =>
                             plugin.url ? installPlugin(plugin.url, PluginInstallationType.Repository) : undefined

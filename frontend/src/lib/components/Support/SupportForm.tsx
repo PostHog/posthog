@@ -1,12 +1,21 @@
-import { LemonInput, LemonSegmentedButton, LemonSegmentedButtonOption, lemonToast, Link } from '@posthog/lemon-ui'
+import { IconBug, IconQuestion } from '@posthog/icons'
+import {
+    LemonBanner,
+    LemonInput,
+    LemonSegmentedButton,
+    LemonSegmentedButtonOption,
+    lemonToast,
+    Link,
+} from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
-import { Field } from 'lib/forms/Field'
 import { useUploadFiles } from 'lib/hooks/useUploadFiles'
-import { IconBugReport, IconFeedback, IconHelpOutline } from 'lib/lemon-ui/icons'
+import { IconFeedback } from 'lib/lemon-ui/icons'
+import { LemonField } from 'lib/lemon-ui/LemonField'
 import { LemonFileInput } from 'lib/lemon-ui/LemonFileInput/LemonFileInput'
 import { LemonSelect } from 'lib/lemon-ui/LemonSelect/LemonSelect'
 import { LemonTextArea } from 'lib/lemon-ui/LemonTextArea/LemonTextArea'
+import posthog from 'posthog-js'
 import { useEffect, useRef } from 'react'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { userLogic } from 'scenes/userLogic'
@@ -17,7 +26,7 @@ const SUPPORT_TICKET_OPTIONS: LemonSegmentedButtonOption<SupportTicketKind>[] = 
     {
         value: 'support',
         label: 'Question',
-        icon: <IconHelpOutline />,
+        icon: <IconQuestion />,
     },
     {
         value: 'feedback',
@@ -27,7 +36,7 @@ const SUPPORT_TICKET_OPTIONS: LemonSegmentedButtonOption<SupportTicketKind>[] = 
     {
         value: 'bug',
         label: 'Bug',
-        icon: <IconBugReport />,
+        icon: <IconBug />,
     },
 ]
 
@@ -73,27 +82,55 @@ export function SupportForm(): JSX.Element | null {
         >
             {!user && (
                 <>
-                    <Field name="name" label="Name">
+                    <LemonField name="name" label="Name">
                         <LemonInput data-attr="name" placeholder="Jane" />
-                    </Field>
-                    <Field name="email" label="Email">
+                    </LemonField>
+                    <LemonField name="email" label="Email">
                         <LemonInput data-attr="email" placeholder="your@email.com" />
-                    </Field>
+                    </LemonField>
                 </>
             )}
-            <Field name="kind" label="What type of message is this?">
+            <LemonField name="kind" label="What type of message is this?">
                 <LemonSegmentedButton fullWidth options={SUPPORT_TICKET_OPTIONS} />
-            </Field>
-            <Field name="target_area" label="What area does this best relate to?">
-                <LemonSelect
-                    fullWidth
-                    options={Object.entries(TARGET_AREA_TO_NAME).map(([key, value]) => ({
-                        label: value,
-                        value: key,
-                    }))}
-                />
-            </Field>
-            <Field name="severity_level" label="What is the severity of this issue?">
+            </LemonField>
+            {posthog.getFeatureFlag('show-troubleshooting-docs-in-support-form') === 'test-replay-banner' &&
+                sendSupportRequest.target_area === 'session_replay' && (
+                    <LemonBanner type="info">
+                        <>
+                            We're pretty proud of our docs. Check out these helpful links:
+                            <ul>
+                                <li>
+                                    <Link target="_blank" to="https://posthog.com/docs/session-replay/troubleshooting">
+                                        Session replay troubleshooting
+                                    </Link>
+                                </li>
+                                <li>
+                                    <Link
+                                        target="_blank"
+                                        to="https://posthog.com/docs/session-replay/how-to-control-which-sessions-you-record"
+                                    >
+                                        How to control which sessions you record
+                                    </Link>
+                                </li>
+                            </ul>
+                        </>
+                    </LemonBanner>
+                )}
+            {posthog.getFeatureFlag('show-troubleshooting-docs-in-support-form') === 'test-replay-banner' &&
+                sendSupportRequest.target_area === 'toolbar' && (
+                    <LemonBanner type="info">
+                        <>
+                            We're pretty proud of our docs.{' '}
+                            <Link target="_blank" to="https://posthog.com/docs/toolbar#troubleshooting-and-faq">
+                                Check out this troubleshooting guide
+                            </Link>
+                        </>
+                    </LemonBanner>
+                )}
+            <LemonField name="target_area" label="What area does this best relate to?">
+                <LemonSelect fullWidth type="secondary" options={TARGET_AREA_TO_NAME} />
+            </LemonField>
+            <LemonField name="severity_level" label="What is the severity of this issue?">
                 <LemonSelect
                     fullWidth
                     options={Object.entries(SEVERITY_LEVEL_TO_NAME).map(([key, value]) => ({
@@ -101,15 +138,8 @@ export function SupportForm(): JSX.Element | null {
                         value: key,
                     }))}
                 />
-            </Field>
-            <span className="text-muted">
-                Check out the{' '}
-                <Link target="_blank" to="https://posthog.com/docs/support-options#severity-levels">
-                    severity level definitions
-                </Link>
-                .
-            </span>
-            <Field
+            </LemonField>
+            <LemonField
                 name="message"
                 label={sendSupportRequest.kind ? SUPPORT_TICKET_KIND_TO_PROMPT[sendSupportRequest.kind] : 'Content'}
             >
@@ -132,7 +162,7 @@ export function SupportForm(): JSX.Element | null {
                         )}
                     </div>
                 )}
-            </Field>
+            </LemonField>
         </Form>
     )
 }

@@ -1731,7 +1731,7 @@
 # ---
 # name: TestFeatureFlag.test_creating_static_cohort.14
   '''
-  /* user_id:195 celery:posthog.tasks.calculate_cohort.insert_cohort_from_feature_flag */
+  /* user_id:196 celery:posthog.tasks.calculate_cohort.insert_cohort_from_feature_flag */
   SELECT count(DISTINCT person_id)
   FROM person_static_cohort
   WHERE team_id = 2
@@ -1775,10 +1775,12 @@
          "posthog_organization"."for_internal_metrics",
          "posthog_organization"."is_member_join_email_enabled",
          "posthog_organization"."enforce_2fa",
+         "posthog_organization"."is_hipaa",
          "posthog_organization"."customer_id",
          "posthog_organization"."available_product_features",
          "posthog_organization"."usage",
          "posthog_organization"."never_drop_data",
+         "posthog_organization"."customer_trust_scores",
          "posthog_organization"."setup_section_2_completed",
          "posthog_organization"."personalization",
          "posthog_organization"."domain_whitelist",
@@ -1810,10 +1812,12 @@
          "posthog_organization"."for_internal_metrics",
          "posthog_organization"."is_member_join_email_enabled",
          "posthog_organization"."enforce_2fa",
+         "posthog_organization"."is_hipaa",
          "posthog_organization"."customer_id",
          "posthog_organization"."available_product_features",
          "posthog_organization"."usage",
          "posthog_organization"."never_drop_data",
+         "posthog_organization"."customer_trust_scores",
          "posthog_organization"."setup_section_2_completed",
          "posthog_organization"."personalization",
          "posthog_organization"."domain_whitelist",

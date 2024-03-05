@@ -1,11 +1,13 @@
 import { useActions, useValues } from 'kea'
-import { DateFilter } from 'lib/components/DateFilter/DateFilter'
+import { CUSTOM_OPTION_KEY } from 'lib/components/DateFilter/types'
 import { IconSync } from 'lib/lemon-ui/icons'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonInput } from 'lib/lemon-ui/LemonInput'
+import { LemonMenu } from 'lib/lemon-ui/LemonMenu'
 import { LemonSwitch } from 'lib/lemon-ui/LemonSwitch'
 import { Spinner } from 'lib/lemon-ui/Spinner'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
+import { dateFilterToText, dateMapping } from 'lib/utils'
 
 import { ToolbarMenu } from '~/toolbar/bar/ToolbarMenu'
 import { elementsLogic } from '~/toolbar/elements/elementsLogic'
@@ -21,6 +23,13 @@ export const HeatmapToolbarMenu = (): JSX.Element => {
     const { setHeatmapFilter, loadMoreElementStats, setMatchLinksByHref } = useActions(heatmapLogic)
     const { setHighlightElement, setSelectedElement } = useActions(elementsLogic)
 
+    const dateItems = dateMapping
+        .filter((dm) => dm.key !== CUSTOM_OPTION_KEY)
+        .map((dateOption) => ({
+            label: dateOption.key,
+            onClick: () => setHeatmapFilter({ date_from: dateOption.values[0], date_to: dateOption.values[1] }),
+        }))
+
     return (
         <ToolbarMenu>
             <ToolbarMenu.Header>
@@ -28,11 +37,11 @@ export const HeatmapToolbarMenu = (): JSX.Element => {
                 <div className="space-y-1 border-b px-1 pb-2">
                     <div className="text-muted p-1">Use * as a wildcard</div>
                     <div className="flex flex-row items-center space-x-2">
-                        <DateFilter
-                            dateFrom={heatmapFilter.date_from ?? '-7d'}
-                            dateTo={heatmapFilter.date_to}
-                            onChange={(date_from, date_to) => setHeatmapFilter({ date_from, date_to })}
-                        />
+                        <LemonMenu items={dateItems}>
+                            <LemonButton size="small" type="secondary">
+                                {dateFilterToText(heatmapFilter.date_from, heatmapFilter.date_to, 'Last 7 days')}
+                            </LemonButton>
+                        </LemonMenu>
 
                         <LemonButton
                             icon={<IconSync />}
@@ -53,15 +62,13 @@ export const HeatmapToolbarMenu = (): JSX.Element => {
                     </div>
 
                     <Tooltip title="Matching links by their target URL can exclude clicks from the heatmap if the URL is too unique.">
-                        <div>
-                            <LemonSwitch
-                                checked={matchLinksByHref}
-                                label="Match links by their target URL"
-                                onChange={(checked) => setMatchLinksByHref(checked)}
-                                fullWidth={true}
-                                bordered={true}
-                            />
-                        </div>
+                        <LemonSwitch
+                            checked={matchLinksByHref}
+                            label="Match links by their target URL"
+                            onChange={(checked) => setMatchLinksByHref(checked)}
+                            fullWidth={true}
+                            bordered={true}
+                        />
                     </Tooltip>
                 </div>
             </ToolbarMenu.Header>

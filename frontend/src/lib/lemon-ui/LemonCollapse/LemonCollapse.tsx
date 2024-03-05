@@ -1,24 +1,26 @@
 import './LemonCollapse.scss'
 
+import { IconCollapse, IconExpand } from '@posthog/icons'
 import clsx from 'clsx'
 import React, { ReactNode, useState } from 'react'
 import { Transition } from 'react-transition-group'
 import { ENTERED, ENTERING } from 'react-transition-group/Transition'
 import useResizeObserver from 'use-resize-observer'
 
-import { IconUnfoldLess, IconUnfoldMore } from '../icons'
-import { LemonButton } from '../LemonButton'
+import { LemonButton, LemonButtonProps } from '../LemonButton'
 
 export interface LemonCollapsePanel<K extends React.Key> {
     key: K
     header: ReactNode
     content: ReactNode
+    className?: string
 }
 
 interface LemonCollapsePropsBase<K extends React.Key> {
     /** Panels in order of display. Falsy values mean that the panel isn't rendered. */
     panels: (LemonCollapsePanel<K> | null | false)[]
     className?: string
+    size?: LemonButtonProps['size']
 }
 
 interface LemonCollapsePropsSingle<K extends React.Key> extends LemonCollapsePropsBase<K> {
@@ -40,6 +42,7 @@ type LemonCollapseProps<K extends React.Key> = LemonCollapsePropsSingle<K> | Lem
 export function LemonCollapse<K extends React.Key>({
     panels,
     className,
+    size,
     ...props
 }: LemonCollapseProps<K>): JSX.Element {
     let isPanelExpanded: (key: K) => boolean
@@ -74,6 +77,7 @@ export function LemonCollapse<K extends React.Key>({
                 <LemonCollapsePanel
                     key={key}
                     {...panel}
+                    size={size}
                     isExpanded={isPanelExpanded(key)}
                     onChange={(isExanded) => onPanelChange(key, isExanded)}
                 />
@@ -86,18 +90,28 @@ interface LemonCollapsePanelProps {
     header: ReactNode
     content: ReactNode
     isExpanded: boolean
+    size: LemonButtonProps['size']
     onChange: (isExpanded: boolean) => void
+    className?: string
 }
 
-function LemonCollapsePanel({ header, content, isExpanded, onChange }: LemonCollapsePanelProps): JSX.Element {
+function LemonCollapsePanel({
+    header,
+    content,
+    isExpanded,
+    size,
+    className,
+    onChange,
+}: LemonCollapsePanelProps): JSX.Element {
     const { height: contentHeight, ref: contentRef } = useResizeObserver({ box: 'border-box' })
 
     return (
         <div className="LemonCollapsePanel" aria-expanded={isExpanded}>
             <LemonButton
                 onClick={() => onChange(!isExpanded)}
-                icon={isExpanded ? <IconUnfoldLess /> : <IconUnfoldMore />}
+                icon={isExpanded ? <IconCollapse /> : <IconExpand />}
                 className="LemonCollapsePanel__header"
+                size={size}
             >
                 {header}
             </LemonButton>
@@ -115,7 +129,7 @@ function LemonCollapsePanel({ header, content, isExpanded, onChange }: LemonColl
                         }
                         aria-busy={status.endsWith('ing')}
                     >
-                        <div className="LemonCollapsePanel__content" ref={contentRef}>
+                        <div className={clsx('LemonCollapsePanel__content', className)} ref={contentRef}>
                             {content}
                         </div>
                     </div>

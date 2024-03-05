@@ -7,15 +7,19 @@ from posthog.models.filters.stickiness_filter import StickinessFilter
 from posthog.schema import (
     ActionsNode,
     CohortPropertyFilter,
+    DataWarehouseNode,
     ElementPropertyFilter,
     EmptyPropertyFilter,
     EventPropertyFilter,
     EventsNode,
+    DataWarehousePropertyFilter,
     FeaturePropertyFilter,
     FunnelExclusionActionsNode,
     FunnelExclusionEventsNode,
+    FunnelsActorsQuery,
     GroupPropertyFilter,
     HogQLPropertyFilter,
+    InsightActorsQuery,
     PersonPropertyFilter,
     RecordingDurationFilter,
     SessionPropertyFilter,
@@ -39,6 +43,8 @@ InsightQueryNode: TypeAlias = Union[
     LifecycleQuery,
 ]
 
+InsightActorsQueryNode: TypeAlias = Union[InsightActorsQuery, FunnelsActorsQuery]
+
 AnyPropertyFilter: TypeAlias = Union[
     EventPropertyFilter,
     PersonPropertyFilter,
@@ -50,7 +56,8 @@ AnyPropertyFilter: TypeAlias = Union[
     FeaturePropertyFilter,
     HogQLPropertyFilter,
     EmptyPropertyFilter,
+    DataWarehousePropertyFilter,
 ]
 
-EntityNode: TypeAlias = Union[EventsNode, ActionsNode]
+EntityNode: TypeAlias = Union[EventsNode, ActionsNode, DataWarehouseNode]
 ExclusionEntityNode: TypeAlias = Union[FunnelExclusionEventsNode, FunnelExclusionActionsNode]

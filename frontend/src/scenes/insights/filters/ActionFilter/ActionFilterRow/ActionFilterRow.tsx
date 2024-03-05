@@ -3,6 +3,7 @@ import './ActionFilterRow.scss'
 import { DraggableSyntheticListeners } from '@dnd-kit/core'
 import { useSortable } from '@dnd-kit/sortable'
 import { CSS } from '@dnd-kit/utilities'
+import { IconCopy, IconFilter, IconPencil, IconTrash } from '@posthog/icons'
 import { LemonSelect, LemonSelectOption, LemonSelectOptions } from '@posthog/lemon-ui'
 import { BuiltLogic, useActions, useValues } from 'kea'
 import { EntityFilterInfo } from 'lib/components/EntityFilterInfo'
@@ -12,13 +13,14 @@ import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
 import { SeriesGlyph, SeriesLetter } from 'lib/components/SeriesGlyph'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { TaxonomicPopover, TaxonomicStringPopover } from 'lib/components/TaxonomicPopover/TaxonomicPopover'
-import { IconCopy, IconDelete, IconEdit, IconFilter, IconWithCount } from 'lib/lemon-ui/icons'
+import { IconWithCount } from 'lib/lemon-ui/icons'
 import { SortableDragIcon } from 'lib/lemon-ui/icons'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonDropdown } from 'lib/lemon-ui/LemonDropdown'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { getEventNamesForAction } from 'lib/utils'
 import { useState } from 'react'
+import { dataWarehouseSceneLogic } from 'scenes/data-warehouse/external/dataWarehouseSceneLogic'
 import { GroupIntroductionFooter } from 'scenes/groups/GroupsIntroduction'
 import { insightDataLogic } from 'scenes/insights/insightDataLogic'
 import { isAllEventsEntityFilter } from 'scenes/insights/utils'
@@ -153,12 +155,15 @@ export function ActionFilterRow({
     } = useActions(logic)
     const { actions } = useValues(actionsModel)
     const { mathDefinitions } = useValues(mathsLogic)
+    const { externalTablesMap } = useValues(dataWarehouseSceneLogic)
 
     const [isHogQLDropdownVisible, setIsHogQLDropdownVisible] = useState(false)
 
     const { setNodeRef, attributes, transform, transition, listeners, isDragging } = useSortable({ id: filter.uuid })
 
     const propertyFiltersVisible = typeof filter.order === 'number' ? entityFilterVisible[filter.order] : false
+    const mathDisabledReason =
+        filter.type === EntityTypes.DATA_WAREHOUSE ? 'Data Warehouse Series only supports total counts' : ''
 
     let name: string | null | undefined, value: PropertyFilterValue
     const {
@@ -226,12 +231,25 @@ export function ActionFilterRow({
             groupType={filter.type as TaxonomicFilterGroupType}
             value={getValue(value, filter)}
             onChange={(changedValue, taxonomicGroupType, item) => {
-                updateFilter({
-                    type: taxonomicFilterGroupTypeToEntityType(taxonomicGroupType) || undefined,
-                    id: changedValue ? String(changedValue) : null,
-                    name: item?.name ?? '',
-                    index,
-                })
+                const groupType = taxonomicFilterGroupTypeToEntityType(taxonomicGroupType)
+                if (groupType === EntityTypes.DATA_WAREHOUSE) {
+                    updateFilter({
+                        type: groupType,
+                        id: changedValue ? String(changedValue) : null,
+                        name: item?.name ?? '',
+                        id_field: item?.id_field,
+                        timestamp_field: item?.timestamp_field,
+                        table_name: item?.name,
+                        index,
+                    })
+                } else {
+                    updateFilter({
+                        type: groupType || undefined,
+                        id: changedValue ? String(changedValue) : null,
+                        name: item?.name ?? '',
+                        index,
+                    })
+                }
             }}
             renderValue={() => (
                 <span className="text-overflow max-w-full">
@@ -267,7 +285,7 @@ export function ActionFilterRow({
     const renameRowButton = (
         <LemonButton
             key="rename"
-            icon={<IconEdit />}
+            icon={<IconPencil />}
             title="Rename graph series"
             data-attr={`show-prop-rename-${index}`}
             noPadding
@@ -294,7 +312,7 @@ export function ActionFilterRow({
     const deleteButton = (
         <LemonButton
             key="delete"
-            icon={<IconDelete />}
+            icon={<IconTrash />}
             title="Delete graph series"
             data-attr={`delete-prop-filter-${index}`}
             noPadding
@@ -357,6 +375,7 @@ export function ActionFilterRow({
                                         index={index}
                                         onMathSelect={onMathSelect}
                                         disabled={readOnly}
+                                        disabledReason={mathDisabledReason}
                                         style={{ maxWidth: '100%', width: 'initial' }}
                                         mathAvailability={mathAvailability}
                                     />
@@ -399,13 +418,11 @@ export function ActionFilterRow({
                                                         }
                                                         placement="right"
                                                     >
-                                                        <div /* <div> needed for <Tooltip /> to work */>
-                                                            <PropertyKeyInfo
-                                                                value={currentValue}
-                                                                disablePopover
-                                                                type={filter.type as TaxonomicFilterGroupType}
-                                                            />
-                                                        </div>
+                                                        <PropertyKeyInfo
+                                                            value={currentValue}
+                                                            disablePopover
+                                                            type={TaxonomicFilterGroupType.EventProperties}
+                                                        />
                                                     </Tooltip>
                                                 )}
                                             />
@@ -460,12 +477,21 @@ export function ActionFilterRow({
                         onChange={(properties) => updateFilterProperty({ properties, index })}
                         showNestedArrow={showNestedArrow}
                         disablePopover={!propertyFiltersPopover}
-                        taxonomicGroupTypes={propertiesTaxonomicGroupTypes}
+                        taxonomicGroupTypes={
+                            filter.type == TaxonomicFilterGroupType.DataWarehouse
+                                ? [TaxonomicFilterGroupType.DataWarehouseProperties]
+                                : propertiesTaxonomicGroupTypes
+                        }
                         eventNames={
                             filter.type === TaxonomicFilterGroupType.Events && filter.id
                                 ? [String(filter.id)]
                                 : filter.type === TaxonomicFilterGroupType.Actions && filter.id
                                 ? getEventNamesForAction(parseInt(String(filter.id)), actions)
+                                : []
+                        }
+                        schemaColumns={
+                            filter.type == TaxonomicFilterGroupType.DataWarehouse && filter.name
+                                ? externalTablesMap[filter.name]?.columns
                                 : []
                         }
                     />
@@ -481,6 +507,7 @@ interface MathSelectorProps {
     mathAvailability: MathAvailability
     index: number
     disabled?: boolean
+    disabledReason?: string
     onMathSelect: (index: number, value: any) => any
     style?: React.CSSProperties
 }
@@ -535,7 +562,8 @@ function useMathSelectorOptions({
     if (mathAvailability !== MathAvailability.ActorsOnly) {
         options.splice(1, 0, {
             value: countPerActorMathTypeShown,
-            label: (
+            label: `Count per user ${COUNT_PER_ACTOR_MATH_DEFINITIONS[countPerActorMathTypeShown].shortName}`,
+            labelInMenu: (
                 <div className="flex items-center gap-2">
                     <span>Count per user</span>
                     <LemonSelect
@@ -562,7 +590,8 @@ function useMathSelectorOptions({
         })
         options.push({
             value: propertyMathTypeShown,
-            label: (
+            label: `Property value ${PROPERTY_MATH_DEFINITIONS[propertyMathTypeShown].shortName}`,
+            labelInMenu: (
                 <div className="flex items-center gap-2">
                     <span>Property value</span>
                     <LemonSelect
@@ -609,7 +638,7 @@ function useMathSelectorOptions({
 
 function MathSelector(props: MathSelectorProps): JSX.Element {
     const options = useMathSelectorOptions(props)
-    const { math, mathGroupTypeIndex, index, onMathSelect, disabled } = props
+    const { math, mathGroupTypeIndex, index, onMathSelect, disabled, disabledReason } = props
 
     const mathType = apiValueToMathType(math, mathGroupTypeIndex)
 
@@ -620,6 +649,7 @@ function MathSelector(props: MathSelectorProps): JSX.Element {
             onChange={(value) => onMathSelect(index, value)}
             data-attr={`math-selector-${index}`}
             disabled={disabled}
+            disabledReason={disabledReason}
             optionTooltipPlacement="right"
             dropdownMatchSelectWidth={false}
             dropdownPlacement="bottom-start"
@@ -630,6 +660,7 @@ function MathSelector(props: MathSelectorProps): JSX.Element {
 const taxonomicFilterGroupTypeToEntityTypeMapping: Partial<Record<TaxonomicFilterGroupType, EntityTypes>> = {
     [TaxonomicFilterGroupType.Events]: EntityTypes.EVENTS,
     [TaxonomicFilterGroupType.Actions]: EntityTypes.ACTIONS,
+    [TaxonomicFilterGroupType.DataWarehouse]: EntityTypes.DATA_WAREHOUSE,
 }
 
 export function taxonomicFilterGroupTypeToEntityType(

@@ -9,31 +9,31 @@ class FunnelStrict(FunnelBase):
     def get_query(self):
         max_steps = self.context.max_steps
 
-        # breakdown_exprs = self._get_breakdown_prop_expr()
+        breakdown_exprs = self._get_breakdown_prop_expr()
 
         select: List[ast.Expr] = [
             *self._get_count_columns(max_steps),
             *self._get_step_time_avgs(max_steps),
             *self._get_step_time_median(max_steps),
-            # *breakdown_exprs,
+            *breakdown_exprs,
         ]
 
         return ast.SelectQuery(
             select=select,
             select_from=ast.JoinExpr(table=self.get_step_counts_query()),
-            # group_by=[ast.Field(chain=["prop"])] if len(breakdown_exprs) > 0 else None,
+            group_by=[ast.Field(chain=["prop"])] if len(breakdown_exprs) > 0 else None,
         )
 
     def get_step_counts_query(self):
         max_steps = self.context.max_steps
-        # breakdown_exprs = self._get_breakdown_prop_expr()
+        breakdown_exprs = self._get_breakdown_prop_expr()
         inner_timestamps, outer_timestamps = self._get_timestamp_selects()
         person_and_group_properties = self._get_person_and_group_properties()
 
         group_by_columns: List[ast.Expr] = [
             ast.Field(chain=["aggregation_target"]),
             ast.Field(chain=["steps"]),
-            # *breakdown_exprs,
+            *breakdown_exprs,
         ]
 
         outer_select: List[ast.Expr] = [
@@ -41,7 +41,7 @@ class FunnelStrict(FunnelBase):
             *self._get_step_time_avgs(max_steps, inner_query=True),
             *self._get_step_time_median(max_steps, inner_query=True),
             *self._get_matching_event_arrays(max_steps),
-            # *breakdown_exprs,
+            *breakdown_exprs,
             *outer_timestamps,
             *person_and_group_properties,
         ]
@@ -55,7 +55,7 @@ class FunnelStrict(FunnelBase):
             max_steps_expr,
             *self._get_step_time_names(max_steps),
             *self._get_matching_events(max_steps),
-            # *breakdown_exprs,
+            *breakdown_exprs,
             *inner_timestamps,
             *person_and_group_properties,
         ]
@@ -81,7 +81,7 @@ class FunnelStrict(FunnelBase):
             ast.Field(chain=["aggregation_target"]),
             ast.Field(chain=["timestamp"]),
             *self._get_partition_cols(1, max_steps),
-            # *self._get_breakdown_prop_expr(group_remaining=True),
+            *self._get_breakdown_prop_expr(group_remaining=True),
             *self._get_person_and_group_properties(),
         ]
         select_from_inner = self._get_inner_event_query(skip_entity_filter=True, skip_step_filter=True)
@@ -109,8 +109,8 @@ class FunnelStrict(FunnelBase):
             if i < level_index:
                 exprs.append(ast.Field(chain=[f"latest_{i}"]))
 
-                # for field in self.extra_event_fields_and_properties:
-                #     exprs.append(ast.Field(chain=[f'"{field}_{i}"']))
+                for field in self.extra_event_fields_and_properties:
+                    exprs.append(ast.Field(chain=[f"{field}_{i}"]))
 
             else:
                 exprs.append(
@@ -119,11 +119,11 @@ class FunnelStrict(FunnelBase):
                     )
                 )
 
-                # for field in self.extra_event_fields_and_properties:
-                #     exprs.append(
-                #         parse_expr(
-                #             f'min("{field}_{i}") over (PARTITION by aggregation_target {self._get_breakdown_prop()} ORDER BY timestamp DESC ROWS BETWEEN {i} PRECEDING AND {i} PRECEDING) "{field}_{i}"'
-                #         )
-                #     )
+                for field in self.extra_event_fields_and_properties:
+                    exprs.append(
+                        parse_expr(
+                            f'min("{field}_{i}") over (PARTITION by aggregation_target {self._get_breakdown_prop()} ORDER BY timestamp DESC ROWS BETWEEN {i} PRECEDING AND {i} PRECEDING) "{field}_{i}"'
+                        )
+                    )
 
         return exprs

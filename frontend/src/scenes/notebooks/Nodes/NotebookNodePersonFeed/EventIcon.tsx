@@ -1,5 +1,6 @@
+import { IconCode, IconEye } from '@posthog/icons'
 import { Tooltip } from '@posthog/lemon-ui'
-import { IconAdsClick, IconCode, IconExclamation, IconEyeHidden, IconEyeVisible } from 'lib/lemon-ui/icons'
+import { IconAdsClick, IconExclamation, IconEyeHidden } from 'lib/lemon-ui/icons'
 import { CORE_FILTER_DEFINITIONS_BY_GROUP } from 'lib/taxonomy'
 
 import { EventType } from '~/types'
@@ -7,10 +8,10 @@ import { EventType } from '~/types'
 type EventIconProps = { event: EventType }
 
 export const EventIcon = ({ event }: EventIconProps): JSX.Element => {
-    let Component: React.ComponentType<{ className: string }>
+    let Component
     switch (event.event) {
         case '$pageview':
-            Component = IconEyeVisible
+            Component = IconEye
             break
         case '$pageleave':
             Component = IconEyeHidden
@@ -26,7 +27,9 @@ export const EventIcon = ({ event }: EventIconProps): JSX.Element => {
     }
     return (
         <Tooltip title={`${CORE_FILTER_DEFINITIONS_BY_GROUP.events[event.event]?.label || 'Custom'} event`}>
-            <Component className="text-2xl text-muted" />
+            <span>
+                <Component className="text-2xl text-muted" />
+            </span>
         </Tooltip>
     )
 }

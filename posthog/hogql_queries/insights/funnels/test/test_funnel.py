@@ -7,18 +7,17 @@ from posthog.api.instance_settings import get_instance_setting
 from posthog.clickhouse.client.execute import sync_execute
 from posthog.constants import INSIGHT_FUNNELS, FunnelOrderType
 from posthog.hogql.query import execute_hogql_query
+from posthog.hogql_queries.actors_query_runner import ActorsQueryRunner
 from posthog.hogql_queries.insights.funnels.funnel_query_context import FunnelQueryContext
 from posthog.hogql_queries.insights.funnels.funnels_query_runner import FunnelsQueryRunner
 from posthog.hogql_queries.legacy_compatibility.filter_to_query import filter_to_query
 from posthog.models import Action, ActionStep, Element
 from posthog.models.cohort.cohort import Cohort
-from posthog.models.filters.filter import Filter
 from posthog.models.group.util import create_group
 from posthog.models.group_type_mapping import GroupTypeMapping
 from posthog.models.property_definition import PropertyDefinition
 from posthog.queries.funnels import ClickhouseFunnelActors
-from posthog.queries.funnels.test.breakdown_cases import assert_funnel_results_equal
-from posthog.schema import EventsNode, FunnelsQuery
+from posthog.schema import ActorsQuery, EventsNode, FunnelsActorsQuery, FunnelsQuery
 from posthog.test.base import (
     APIBaseTest,
     BaseTest,
@@ -32,7 +31,11 @@ from posthog.test.base import (
 from posthog.hogql_queries.insights.funnels.test.conversion_time_cases import (
     funnel_conversion_time_test_factory,
 )
-
+from posthog.hogql_queries.insights.funnels.test.breakdown_cases import (
+    funnel_breakdown_test_factory,
+    funnel_breakdown_group_test_factory,
+    assert_funnel_results_equal,
+)
 from posthog.hogql_queries.insights.funnels import Funnel
 from posthog.test.test_journeys import journeys_for
 
@@ -46,18 +49,26 @@ def _create_action(**kwargs):
     return action
 
 
-# class TestFunnelBreakdown(
-#     ClickhouseTestMixin,
-#     funnel_breakdown_test_factory(  # type: ignore
-#         ClickhouseFunnel,
-#         ClickhouseFunnelActors,
-#         _create_event,
-#         _create_action,
-#         _create_person,
-#     ),
-# ):
-#     maxDiff = None
-#     pass
+class TestFunnelBreakdown(
+    ClickhouseTestMixin,
+    funnel_breakdown_test_factory(  # type: ignore
+        FunnelOrderType.ORDERED,
+        ClickhouseFunnelActors,
+        _create_action,
+        _create_person,
+    ),
+):
+    maxDiff = None
+    pass
+
+
+class TestFunnelGroupBreakdown(
+    ClickhouseTestMixin,
+    funnel_breakdown_group_test_factory(  # type: ignore
+        ClickhouseFunnelActors,
+    ),
+):
+    pass
 
 
 class TestFunnelConversionTime(
@@ -70,12 +81,14 @@ class TestFunnelConversionTime(
 
 def funnel_test_factory(Funnel, event_factory, person_factory):
     class TestGetFunnel(ClickhouseTestMixin, APIBaseTest):
-        def _get_actor_ids_at_step(self, filter, funnel_step, breakdown_value=None):
-            filter = Filter(data=filter, team=self.team)
-            person_filter = filter.shallow_clone({"funnel_step": funnel_step, "funnel_step_breakdown": breakdown_value})
-            _, serialized_result, _ = ClickhouseFunnelActors(person_filter, self.team).get_actors()
-
-            return [val["id"] for val in serialized_result]
+        def _get_actor_ids_at_step(self, filters, funnelStep, funnelStepBreakdown=None):
+            funnels_query = cast(FunnelsQuery, filter_to_query(filters))
+            funnel_actors_query = FunnelsActorsQuery(
+                source=funnels_query, funnelStep=funnelStep, funnelStepBreakdown=funnelStepBreakdown
+            )
+            actors_query = ActorsQuery(source=funnel_actors_query)
+            response = ActorsQueryRunner(query=actors_query, team=self.team).calculate()
+            return [val[0]["id"] for val in response.results]
 
         def _signup_event(self, **kwargs):
             event_factory(team=self.team, event="user signed up", **kwargs)
@@ -3556,7 +3569,7 @@ FROM
         FROM
             events AS e
         WHERE
-            and(greaterOrEquals(e.timestamp, toDateTime('2024-01-03 00:00:00.000000')), lessOrEquals(e.timestamp, toDateTime('2024-01-10 23:59:59.999999')))))
+            and(and(greaterOrEquals(e.timestamp, toDateTime('2024-01-03 00:00:00.000000')), lessOrEquals(e.timestamp, toDateTime('2024-01-10 23:59:59.999999'))), or(equals(step_0, 1), equals(step_1, 1)))))
 WHERE
     equals(step_0, 1)
 LIMIT 100""",
@@ -3616,7 +3629,7 @@ FROM
                 FROM
                     events AS e
                 WHERE
-                    and(greaterOrEquals(e.timestamp, toDateTime('2024-01-03 00:00:00.000000')), lessOrEquals(e.timestamp, toDateTime('2024-01-10 23:59:59.999999')))))
+                    and(and(greaterOrEquals(e.timestamp, toDateTime('2024-01-03 00:00:00.000000')), lessOrEquals(e.timestamp, toDateTime('2024-01-10 23:59:59.999999'))), or(equals(step_0, 1), equals(step_1, 1)))))
         WHERE
             equals(step_0, 1)))
 GROUP BY
@@ -3687,7 +3700,7 @@ FROM
                     FROM
                         events AS e
                     WHERE
-                        and(greaterOrEquals(e.timestamp, toDateTime('2024-01-03 00:00:00.000000')), lessOrEquals(e.timestamp, toDateTime('2024-01-10 23:59:59.999999')))))
+                        and(and(greaterOrEquals(e.timestamp, toDateTime('2024-01-03 00:00:00.000000')), lessOrEquals(e.timestamp, toDateTime('2024-01-10 23:59:59.999999'))), or(equals(step_0, 1), equals(step_1, 1)))))
             WHERE
                 equals(step_0, 1)))
     GROUP BY

@@ -1,6 +1,6 @@
 import { LemonSelectOptions } from '@posthog/lemon-ui'
 
-import { AvailableFeature, ChartDisplayType, LicensePlan, Region, SSOProvider } from '../types'
+import { ChartDisplayType, Region, SSOProvider } from '../types'
 
 /** Display types which don't allow grouping by unit of time. Sync with backend NON_TIME_SERIES_DISPLAY_TYPES. */
 export const NON_TIME_SERIES_DISPLAY_TYPES = [
@@ -24,7 +24,6 @@ export const NON_VALUES_ON_SERIES_DISPLAY_TYPES = [
 /** Display types for which a percent stack view is available. */
 export const PERCENT_STACK_VIEW_DISPLAY_TYPE = [
     ChartDisplayType.ActionsBar,
-    ChartDisplayType.ActionsLineGraph,
     ChartDisplayType.ActionsAreaGraph,
     ChartDisplayType.ActionsPie,
 ]
@@ -147,7 +146,6 @@ export const FEATURE_FLAGS = {
     QUERY_TIMINGS: 'query-timings', // owner: @mariusandra
     QUERY_ASYNC: 'query-async', // owner: @webjunkie
     POSTHOG_3000_NAV: 'posthog-3000-nav', // owner: @Twixes
-    POSTHOG_3000_WELCOME_ANNOUNCEMENT: 'posthog-3000-welcome-announcement', // owner: #posthog-3000
     ENABLE_PROMPTS: 'enable-prompts', // owner: @lharries
     HEDGEHOG_MODE: 'hedgehog-mode', // owner: @benjackwhite
     HEDGEHOG_MODE_DEBUG: 'hedgehog-mode-debug', // owner: @benjackwhite
@@ -155,10 +153,9 @@ export const FEATURE_FLAGS = {
     WEB_ANALYTICS: 'web-analytics', // owner @robbie-c #team-web-analytics
     WEB_ANALYTICS_SAMPLING: 'web-analytics-sampling', // owner @robbie-c #team-web-analytics
     HIGH_FREQUENCY_BATCH_EXPORTS: 'high-frequency-batch-exports', // owner: @tomasfarias
-    // owner: team monitoring, only to be enabled for PostHog team testing
+    // owner: #team-replay, only to be enabled for PostHog team testing
     EXCEPTION_AUTOCAPTURE: 'exception-autocapture',
     DATA_WAREHOUSE: 'data-warehouse', // owner: @EDsCODE
-    DATA_WAREHOUSE_VIEWS: 'data-warehouse-views', // owner: @EDsCODE
     DATA_WAREHOUSE_POSTGRES_IMPORT: 'data-warehouse-postgres-import', // owner: @EDsCODE
     FF_DASHBOARD_TEMPLATES: 'ff-dashboard-templates', // owner: @EDsCODE
     SHOW_PRODUCT_INTRO_EXISTING_PRODUCTS: 'show-product-intro-existing-products', // owner: @raquelmsmith
@@ -167,7 +164,6 @@ export const FEATURE_FLAGS = {
     PRODUCT_SPECIFIC_ONBOARDING: 'product-specific-onboarding', // owner: @raquelmsmith
     REDIRECT_SIGNUPS_TO_INSTANCE: 'redirect-signups-to-instance', // owner: @raquelmsmith
     APPS_AND_EXPORTS_UI: 'apps-and-exports-ui', // owner: @benjackwhite
-    SESSION_REPLAY_CORS_PROXY: 'session-replay-cors-proxy', // owner: #team-replay
     HOGQL_INSIGHTS_LIFECYCLE: 'hogql-insights-lifecycle', // owner: @mariusandra
     HOGQL_INSIGHTS_PATHS: 'hogql-insights-paths', // owner: @webjunkie
     HOGQL_INSIGHTS_RETENTION: 'hogql-insights-retention', // owner: @webjunkie
@@ -182,65 +178,34 @@ export const FEATURE_FLAGS = {
     SURVEYS_PAYGATES: 'surveys-paygates',
     PERSONS_HOGQL_QUERY: 'persons-hogql-query', // owner: @mariusandra
     PIPELINE_UI: 'pipeline-ui', // owner: #team-pipeline
-    NOTEBOOK_CANVASES: 'notebook-canvases', // owner: #team-replay
     SESSION_RECORDING_SAMPLING: 'session-recording-sampling', // owner: #team-replay
     PERSON_FEED_CANVAS: 'person-feed-canvas', // owner: #project-canvas
     MULTI_PROJECT_FEATURE_FLAGS: 'multi-project-feature-flags', // owner: @jurajmajerik #team-feature-success
-    NETWORK_PAYLOAD_CAPTURE: 'network-payload-capture', // owner: #team-replay
     FEATURE_FLAG_COHORT_CREATION: 'feature-flag-cohort-creation', // owner: @neilkakkar #team-feature-success
     INSIGHT_HORIZONTAL_CONTROLS: 'insight-horizontal-controls', // owner: @benjackwhite
     SURVEYS_WIDGETS: 'surveys-widgets', // owner: @liyiy
     SCHEDULED_CHANGES_FEATURE_FLAGS: 'scheduled-changes-feature-flags', // owner: @jurajmajerik #team-feature-success
-    ALWAYS_SHOW_SEEKBAR_PREVIEW: 'always-show-seekbar-preview', // owner: #team-replay
     SESSION_REPLAY_MOBILE: 'session-replay-mobile', // owner: #team-replay
     INVITE_TEAM_MEMBER_ONBOARDING: 'invite-team-member-onboarding', // owner: @biancayang
-    SESSION_REPLAY_IOS: 'session-replay-ios', // owner: #team-replay
     YEAR_IN_HOG: 'year-in-hog', // owner: #team-replay
     SESSION_REPLAY_EXPORT_MOBILE_DATA: 'session-replay-export-mobile-data', // owner: #team-replay
-    SESSION_REPLAY_CANVAS: 'session-replay-canvas', // owner: #team-replay
     DISCUSSIONS: 'discussions', // owner: #team-replay
-    REDIRECT_WEB_PRODUCT_ANALYTICS_ONBOARDING: 'redirect-web-product-analytics-onboarding', // owner: @biancayang
-    RECRUIT_ANDROID_MOBILE_BETA_TESTERS: 'recruit-android-mobile-beta-testers', // owner: #team-replay
+    REDIRECT_INSIGHT_CREATION_PRODUCT_ANALYTICS_ONBOARDING: 'redirect-insight-creation-product-analytics-onboarding', // owner: @biancayang
     SIDEPANEL_STATUS: 'sidepanel-status', // owner: @benjackwhite
     NEW_FEATURE_FLAG_OPERATORS: 'new-feature-flag-operators', // owner: @neilkakkar
     AI_SESSION_SUMMARY: 'ai-session-summary', // owner: #team-replay
+    AI_SESSION_PERMISSIONS: 'ai-session-permissions', // owner: #team-replay
     PRODUCT_INTRO_PAGES: 'product-intro-pages', // owner: @raquelmsmith
     DATANODE_CONCURRENCY_LIMIT: 'datanode-concurrency-limit', // owner: @robbie-c
     SESSION_REPLAY_DOCTOR: 'session-replay-doctor', // owner: #team-replay
+    REPLAY_SIMILAR_RECORDINGS: 'session-replay-similar-recordings', // owner: #team-replay
+    SAVED_NOT_PINNED: 'saved-not-pinned', // owner: #team-replay
+    EXPORTS_SIDEPANEL: 'exports-sidepanel', // owner: #team-product-analytics
+    SESSION_REPLAY_V3_INGESTION_PLAYBACK: 'session-replay-v3-ingestion-playback', // owner: @benjackwhite
+    SESSION_REPLAY_FILTER_ORDERING: 'session-replay-filter-ordering', // owner: #team-replay
+    SESSION_REPLAY_LINKED_VARIANTS: 'session-replay-linked-variants', // owner: #team-replay
 } as const
 export type FeatureFlagKey = (typeof FEATURE_FLAGS)[keyof typeof FEATURE_FLAGS]
-
-/** Which self-hosted plan's features are available with Cloud's "Standard" plan (aka card attached). */
-export const POSTHOG_CLOUD_STANDARD_PLAN = LicensePlan.Scale
-export const FEATURE_MINIMUM_PLAN: Partial<Record<AvailableFeature, LicensePlan>> = {
-    [AvailableFeature.ZAPIER]: LicensePlan.Scale,
-    [AvailableFeature.ORGANIZATIONS_PROJECTS]: LicensePlan.Scale,
-    [AvailableFeature.SOCIAL_SSO]: LicensePlan.Scale,
-    [AvailableFeature.DASHBOARD_COLLABORATION]: LicensePlan.Scale,
-    [AvailableFeature.INGESTION_TAXONOMY]: LicensePlan.Scale,
-    [AvailableFeature.PATHS_ADVANCED]: LicensePlan.Scale,
-    [AvailableFeature.CORRELATION_ANALYSIS]: LicensePlan.Scale,
-    [AvailableFeature.GROUP_ANALYTICS]: LicensePlan.Scale,
-    [AvailableFeature.MULTIVARIATE_FLAGS]: LicensePlan.Scale,
-    [AvailableFeature.EXPERIMENTATION]: LicensePlan.Scale,
-    [AvailableFeature.TAGGING]: LicensePlan.Scale,
-    [AvailableFeature.BEHAVIORAL_COHORT_FILTERING]: LicensePlan.Scale,
-    [AvailableFeature.WHITE_LABELLING]: LicensePlan.Scale,
-    [AvailableFeature.DASHBOARD_PERMISSIONING]: LicensePlan.Enterprise,
-    [AvailableFeature.PROJECT_BASED_PERMISSIONING]: LicensePlan.Enterprise,
-    [AvailableFeature.SAML]: LicensePlan.Enterprise,
-    [AvailableFeature.SSO_ENFORCEMENT]: LicensePlan.Enterprise,
-    [AvailableFeature.SUBSCRIPTIONS]: LicensePlan.Scale,
-    [AvailableFeature.APP_METRICS]: LicensePlan.Scale,
-    [AvailableFeature.RECORDINGS_PLAYLISTS]: LicensePlan.Scale,
-    [AvailableFeature.ROLE_BASED_ACCESS]: LicensePlan.Enterprise,
-    [AvailableFeature.RECORDINGS_FILE_EXPORT]: LicensePlan.Scale,
-    [AvailableFeature.RECORDINGS_PERFORMANCE]: LicensePlan.Scale,
-    [AvailableFeature.SURVEYS_STYLING]: LicensePlan.Scale,
-    [AvailableFeature.SURVEYS_MULTIPLE_QUESTIONS]: LicensePlan.Scale,
-    [AvailableFeature.SURVEYS_TEXT_HTML]: LicensePlan.Scale,
-    [AvailableFeature.DATA_PIPELINES]: LicensePlan.Scale,
-}
 
 export const ENTITY_MATCH_TYPE = 'entities'
 export const PROPERTY_MATCH_TYPE = 'properties'
@@ -275,7 +240,7 @@ export const DOMAIN_REGEX = /^([a-z0-9]+(-[a-z0-9]+)*\.)+[a-z]{2,}$/
 export const SECURE_URL_REGEX = /^(?:http(s)?:\/\/)[\w.-]+(?:\.[\w.-]+)+[\w\-._~:/?#[\]@!$&'()*+,;=]+$/gi
 
 export const CLOUD_HOSTNAMES = {
-    [Region.US]: 'app.posthog.com',
+    [Region.US]: 'us.posthog.com',
     [Region.EU]: 'eu.posthog.com',
 }
 

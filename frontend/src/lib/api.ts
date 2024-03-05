@@ -50,6 +50,7 @@ import {
     OrganizationFeatureFlagsCopyBody,
     OrganizationResourcePermissionType,
     OrganizationType,
+    PersonalAPIKeyType,
     PersonListParams,
     PersonType,
     PluginConfigTypeNew,
@@ -717,6 +718,15 @@ class ApiRequest {
         return this.projectsDetail(teamId).addPathComponent('activity_log')
     }
 
+    // Personal API keys
+    public personalApiKeys(): ApiRequest {
+        return this.addPathComponent('personal_api_keys')
+    }
+
+    public personalApiKey(id: PersonalAPIKeyType['id']): ApiRequest {
+        return this.personalApiKeys().addPathComponent(id)
+    }
+
     // Request finalization
     public async get(options?: ApiMethodOptions): Promise<any> {
         return await api.get(this.assembleFullUrl(), options)
@@ -986,6 +996,12 @@ const api = {
             teamId: TeamType['id'] = ApiConfig.getCurrentTeamId()
         ): Promise<ExportedAssetType> {
             return new ApiRequest().exports(teamId).withQueryString(toParams(params)).create({ data })
+        },
+
+        async list(
+            teamId: TeamType['id'] = ApiConfig.getCurrentTeamId()
+        ): Promise<PaginatedResponse<ExportedAssetType>> {
+            return new ApiRequest().exports(teamId).get()
         },
 
         async get(id: number, teamId: TeamType['id'] = ApiConfig.getCurrentTeamId()): Promise<ExportedAssetType> {
@@ -1558,22 +1574,29 @@ const api = {
             return await new ApiRequest().recording(recordingId).withAction('summarize').create()
         },
 
+        async similarRecordings(recordingId: SessionRecordingType['id']): Promise<[string, number][]> {
+            return await new ApiRequest().recording(recordingId).withAction('similar_sessions').get()
+        },
+
         async delete(recordingId: SessionRecordingType['id']): Promise<{ success: boolean }> {
             return await new ApiRequest().recording(recordingId).delete()
         },
 
         async listSnapshots(
             recordingId: SessionRecordingType['id'],
-            params: string
+            params: Record<string, any> = {}
         ): Promise<SessionRecordingSnapshotResponse> {
             return await new ApiRequest().recording(recordingId).withAction('snapshots').withQueryString(params).get()
         },
 
-        async getBlobSnapshots(recordingId: SessionRecordingType['id'], blobKey: string): Promise<string[]> {
+        async getBlobSnapshots(
+            recordingId: SessionRecordingType['id'],
+            params: Record<string, any>
+        ): Promise<string[]> {
             const response = await new ApiRequest()
                 .recording(recordingId)
                 .withAction('snapshots')
-                .withQueryString(toParams({ source: 'blob', blob_key: blobKey, version: '2' }))
+                .withQueryString(params)
                 .getResponse()
 
             const contentBuffer = new Uint8Array(await response.arrayBuffer())
@@ -1883,7 +1906,10 @@ const api = {
         },
         async update(
             viewId: DataWarehouseViewLink['id'],
-            data: Pick<DataWarehouseViewLink, 'saved_query_id' | 'from_join_key' | 'table' | 'to_join_key'>
+            data: Pick<
+                DataWarehouseViewLink,
+                'source_table_name' | 'source_table_key' | 'joining_table_name' | 'joining_table_key' | 'field_name'
+            >
         ): Promise<DataWarehouseViewLink> {
             return await new ApiRequest().dataWarehouseViewLink(viewId).update({ data })
         },
@@ -1963,6 +1989,21 @@ const api = {
     queryStatus: {
         async get(queryId: string): Promise<QueryStatus> {
             return await new ApiRequest().queryStatus(queryId).get()
+        },
+    },
+
+    personalApiKeys: {
+        async list(): Promise<PersonalAPIKeyType[]> {
+            return await new ApiRequest().personalApiKeys().get()
+        },
+        async create(data: Partial<PersonalAPIKeyType>): Promise<PersonalAPIKeyType> {
+            return await new ApiRequest().personalApiKeys().create({ data })
+        },
+        async update(id: PersonalAPIKeyType['id'], data: Partial<PersonalAPIKeyType>): Promise<PersonalAPIKeyType> {
+            return await new ApiRequest().personalApiKey(id).update({ data })
+        },
+        async delete(id: PersonalAPIKeyType['id']): Promise<void> {
+            await new ApiRequest().personalApiKey(id).delete()
         },
     },
 
@@ -2101,11 +2142,11 @@ const api = {
         return response
     },
 
-    async loadPaginatedResults(
+    async loadPaginatedResults<T extends Record<string, any>>(
         url: string | null,
         maxIterations: number = PAGINATION_DEFAULT_MAX_PAGES
-    ): Promise<any[]> {
-        let results: any[] = []
+    ): Promise<T[]> {
+        let results: T[] = []
         for (let i = 0; i <= maxIterations; ++i) {
             if (!url) {
                 break

@@ -9,6 +9,8 @@ import { PipelineTab } from '~/types'
 
 import { AppsManagement } from './AppsManagement'
 import { Destinations } from './Destinations'
+import { FrontendApps } from './FrontendApps'
+import { ImportApps } from './ImportApps'
 import { NewButton } from './NewButton'
 import { Overview } from './Overview'
 import { humanFriendlyTabName, pipelineLogic } from './pipelineLogic'
@@ -22,6 +24,8 @@ export function Pipeline(): JSX.Element {
         [PipelineTab.Overview]: <Overview />,
         [PipelineTab.Transformations]: <Transformations />,
         [PipelineTab.Destinations]: <Destinations />,
+        [PipelineTab.SiteApps]: <FrontendApps />,
+        [PipelineTab.ImportApps]: <ImportApps />,
         [PipelineTab.AppsManagement]: <AppsManagement />,
     }
 
@@ -38,6 +42,7 @@ export function Pipeline(): JSX.Element {
                 onChange={(tab) => router.actions.push(urls.pipeline(tab as PipelineTab))}
                 tabs={Object.values(PipelineTab).map((tab) => ({
                     // TODO: Hide admin management based on `canGloballyManagePlugins` permission
+                    // TODO: Hide import apps if there aren't any configs
                     label: humanFriendlyTabName(tab),
                     key: tab,
                     content: tabToContent[tab],

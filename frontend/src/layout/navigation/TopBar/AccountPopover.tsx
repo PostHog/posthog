@@ -5,14 +5,15 @@ import {
     IconConfetti,
     IconFeatures,
     IconGear,
+    IconLeave,
     IconLive,
     IconPlusSmall,
+    IconReceipt,
     IconServer,
 } from '@posthog/icons'
 import { LemonButtonPropsBase } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
-import { IconBill, IconLogout } from 'lib/lemon-ui/icons'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { Lettermark } from 'lib/lemon-ui/Lettermark'
 import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
@@ -21,7 +22,6 @@ import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { inviteLogic } from 'scenes/settings/organization/inviteLogic'
 import { ThemeSwitcher } from 'scenes/settings/user/ThemeSwitcher'
 
-import { featurePreviewsLogic } from '~/layout/FeaturePreviews/featurePreviewsLogic'
 import {
     AccessLevelIndicator,
     NewOrganizationButton,
@@ -161,13 +161,13 @@ function InstanceSettings(): JSX.Element | null {
 
 function FeaturePreviewsButton(): JSX.Element {
     const { closeAccountPopover } = useActions(navigationLogic)
-    const { showFeaturePreviewsModal } = useActions(featurePreviewsLogic)
+    const { openSidePanel } = useActions(sidePanelStateLogic)
 
     return (
         <LemonButton
             onClick={() => {
                 closeAccountPopover()
-                showFeaturePreviewsModal()
+                openSidePanel(SidePanelTab.FeaturePreviews)
             }}
             icon={<IconFeatures />}
             fullWidth
@@ -181,7 +181,7 @@ function SignOutButton(): JSX.Element {
     const { logout } = useActions(userLogic)
 
     return (
-        <LemonButton onClick={logout} icon={<IconLogout />} fullWidth data-attr="top-menu-item-logout">
+        <LemonButton onClick={logout} icon={<IconLeave />} fullWidth data-attr="top-menu-item-logout">
             Sign out
         </LemonButton>
     )
@@ -206,7 +206,7 @@ export function AccountPopoverOverlay(): JSX.Element {
                     <LemonButton
                         onClick={closeAccountPopover}
                         to={urls.organizationBilling()}
-                        icon={<IconBill />}
+                        icon={<IconReceipt />}
                         fullWidth
                         data-attr="top-menu-item-billing"
                     >

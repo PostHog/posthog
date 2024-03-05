@@ -1,12 +1,12 @@
 import { actions, afterMount, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import api from 'lib/api'
-import { canConfigurePlugins } from 'scenes/plugins/access'
 import { teamLogic } from 'scenes/teamLogic'
 import { userLogic } from 'scenes/userLogic'
 
 import { PipelineStage, PluginConfigTypeNew, PluginConfigWithPluginInfoNew, PluginType, ProductKey } from '~/types'
 
+import { pipelineLogic } from './pipelineLogic'
 import type { pipelineTransformationsLogicType } from './transformationsLogicType'
 import { convertToPipelineNode, Transformation } from './types'
 import { capturePluginEvent } from './utils'
@@ -14,7 +14,7 @@ import { capturePluginEvent } from './utils'
 export const pipelineTransformationsLogic = kea<pipelineTransformationsLogicType>([
     path(['scenes', 'pipeline', 'transformationsLogic']),
     connect({
-        values: [teamLogic, ['currentTeamId'], userLogic, ['user']],
+        values: [teamLogic, ['currentTeamId'], userLogic, ['user'], pipelineLogic, ['canConfigurePlugins']],
     }),
     actions({
         loadPluginConfigs: true,
@@ -30,7 +30,7 @@ export const pipelineTransformationsLogic = kea<pipelineTransformationsLogicType
             {} as Record<number, PluginType>,
             {
                 loadPlugins: async () => {
-                    const results: PluginType[] = await api.loadPaginatedResults(
+                    const results = await api.loadPaginatedResults<PluginType>(
                         `api/organizations/@current/pipeline_transformations`
                     )
                     const plugins: Record<number, PluginType> = {}
@@ -53,7 +53,7 @@ export const pipelineTransformationsLogic = kea<pipelineTransformationsLogicType
             {} as Record<number, PluginConfigTypeNew>,
             {
                 loadPluginConfigs: async () => {
-                    const res: PluginConfigTypeNew[] = await api.loadPaginatedResults(
+                    const res = await api.loadPaginatedResults<PluginConfigTypeNew>(
                         `api/projects/${values.currentTeamId}/pipeline_transformation_configs`
                     )
 
@@ -143,9 +143,14 @@ export const pipelineTransformationsLogic = kea<pipelineTransformationsLogicType
                 return transformations
             },
         ],
-        // This is currently an organization level setting but might in the future be user level
-        // it's better to add the permission checks everywhere now
-        canConfigurePlugins: [(s) => [s.user], (user) => canConfigurePlugins(user?.organization)],
+        sortedTransformations: [
+            (s) => [s.transformations, s.sortedEnabledTransformations],
+            (transformations, sortedEnabledTransformations) => {
+                return sortedEnabledTransformations.concat(
+                    transformations.filter((t) => !t.enabled).sort((a, b) => a.id - b.id)
+                )
+            },
+        ],
         shouldShowProductIntroduction: [
             (s) => [s.user],
             (user): boolean => {

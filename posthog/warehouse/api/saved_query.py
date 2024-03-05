@@ -71,6 +71,7 @@ class DataWarehouseSavedQuerySerializer(serializers.ModelSerializer):
         _is_valid_view = is_valid_view(select_ast)
         if not _is_valid_view:
             raise exceptions.ValidationError(detail="Ensure all fields are aliased")
+
         try:
             print_ast(
                 node=select_ast,
@@ -95,6 +96,7 @@ class DataWarehouseSavedQueryViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewS
     Create, Read, Update and Delete Warehouse Tables.
     """
 
+    scope_object = "INTERNAL"
     queryset = DataWarehouseSavedQuery.objects.all()
     serializer_class = DataWarehouseSavedQuerySerializer
     filter_backends = [filters.SearchFilter]

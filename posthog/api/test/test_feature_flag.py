@@ -1126,7 +1126,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
             format="json",
         ).json()
 
-        with self.assertNumQueries(FuzzyInt(10, 11)):
+        with self.assertNumQueries(FuzzyInt(5, 6)):
             response = self.client.get(f"/api/projects/{self.team.id}/feature_flags/my_flags")
             self.assertEqual(response.status_code, status.HTTP_200_OK)
 
@@ -1141,7 +1141,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
                 format="json",
             ).json()
 
-        with self.assertNumQueries(FuzzyInt(10, 11)):
+        with self.assertNumQueries(FuzzyInt(5, 6)):
             response = self.client.get(f"/api/projects/{self.team.id}/feature_flags/my_flags")
             self.assertEqual(response.status_code, status.HTTP_200_OK)
 
@@ -2105,17 +2105,19 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
 
         self.client.logout()
 
-        with self.assertNumQueries(10):
-            # E   1. SELECT "posthog_personalapikey"."id"
-            # E   2. UPDATE "posthog_personalapikey" SET "last_used_at" = '2024-01-31T13:01:37.394080+00:00'
-            # E   3. SELECT "posthog_team"."id", "posthog_team"."uuid"
-            # E   4. SELECT "posthog_organizationmembership"."id", "posthog_organizationmembership"."organization_id"
-            # E   5. SELECT "posthog_cohort"."id"  -- all cohorts
-            # E   6. SELECT "posthog_featureflag"."id", "posthog_featureflag"."key", -- all flags
-            # E   7. SELECT "posthog_cohort". id = 99999
-            # E   8. SELECT "posthog_cohort". id = deleted cohort
-            # E   9. SELECT "posthog_cohort". id = cohort from other team
-            # E   10. SELECT "posthog_grouptypemapping"."id", -- group type mapping
+        with self.assertNumQueries(12):
+            # E   1. SAVEPOINT
+            # E   2. SELECT "posthog_personalapikey"."id"
+            # E   3. RELEASE SAVEPOINT
+            # E   4. UPDATE "posthog_personalapikey" SET "last_used_at" = '2024-01-31T13:01:37.394080+00:00'
+            # E   5. SELECT "posthog_team"."id", "posthog_team"."uuid"
+            # E   6. SELECT "posthog_organizationmembership"."id", "posthog_organizationmembership"."organization_id"
+            # E   7. SELECT "posthog_cohort"."id"  -- all cohorts
+            # E   8. SELECT "posthog_featureflag"."id", "posthog_featureflag"."key", -- all flags
+            # E   9. SELECT "posthog_cohort". id = 99999
+            # E  10. SELECT "posthog_cohort". id = deleted cohort
+            # E  11. SELECT "posthog_cohort". id = cohort from other team
+            # E  12. SELECT "posthog_grouptypemapping"."id", -- group type mapping
 
             response = self.client.get(
                 f"/api/feature_flag/local_evaluation?token={self.team.api_token}&send_cohorts",
@@ -3271,7 +3273,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
             {
                 "type": "validation_error",
                 "code": "behavioral_cohort_found",
-                "detail": "Cohort 'cohort2' with behavioral filters cannot be used in feature flags.",
+                "detail": "Cohort 'cohort2' with filters on events cannot be used in feature flags.",
                 "attr": "filters",
             },
             cohort_request.json(),
@@ -3311,7 +3313,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
             {
                 "type": "validation_error",
                 "code": "behavioral_cohort_found",
-                "detail": "Cohort 'cohort2' with behavioral filters cannot be used in feature flags.",
+                "detail": "Cohort 'cohort2' with filters on events cannot be used in feature flags.",
                 "attr": "filters",
             },
             response.json(),
@@ -3371,7 +3373,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
             {
                 "type": "validation_error",
                 "code": "behavioral_cohort_found",
-                "detail": "Cohort 'cohort-behavioural' with behavioral filters cannot be used in feature flags.",
+                "detail": "Cohort 'cohort-behavioural' with filters on events cannot be used in feature flags.",
                 "attr": "filters",
             },
             cohort_request.json(),
@@ -3387,7 +3389,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
             {
                 "type": "validation_error",
                 "code": "behavioral_cohort_found",
-                "detail": "Cohort 'cohort-behavioural' with behavioral filters cannot be used in feature flags.",
+                "detail": "Cohort 'cohort-behavioural' with filters on events cannot be used in feature flags.",
                 "attr": "filters",
             },
             cohort_request.json(),

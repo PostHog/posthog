@@ -1,7 +1,8 @@
+import { IconX } from '@posthog/icons'
 import { useActions, useValues } from 'kea'
 import { combineUrl, encodeParams, router } from 'kea-router'
 import { PathItemSelector } from 'lib/components/PropertyFilters/components/PathItemSelector'
-import { IconClose, IconFunnelVertical } from 'lib/lemon-ui/icons'
+import { IconFunnelVertical } from 'lib/lemon-ui/icons'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { pathsDataLogic } from 'scenes/paths/pathsDataLogic'
 
@@ -146,7 +147,7 @@ function PathsTarget({ position, insightProps }: PathTargetProps): JSX.Element {
                 sideAction={
                     positionOptions.closeButtonEnabled
                         ? {
-                              icon: <IconClose />,
+                              icon: <IconX />,
                               type: 'tertiary',
                               onClick: (e) => {
                                   onReset()

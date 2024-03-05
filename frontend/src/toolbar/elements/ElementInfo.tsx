@@ -1,6 +1,6 @@
+import { IconCalendar, IconPlus } from '@posthog/icons'
 import { LemonButton } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
-import { IconCalendar, IconPlus } from 'lib/lemon-ui/icons'
 
 import { ActionsListView } from '~/toolbar/actions/ActionsListView'
 import { ActionStep } from '~/toolbar/actions/ActionStep'

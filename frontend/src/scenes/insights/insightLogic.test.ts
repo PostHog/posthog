@@ -112,7 +112,7 @@ describe('insightLogic', () => {
     let logic: ReturnType<typeof insightLogic.build>
 
     beforeEach(async () => {
-        useAvailableFeatures([AvailableFeature.DASHBOARD_COLLABORATION])
+        useAvailableFeatures([AvailableFeature.TEAM_COLLABORATION])
         useMocks({
             get: {
                 '/api/projects/:team/tags': [],

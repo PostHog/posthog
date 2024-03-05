@@ -1,22 +1,57 @@
+from typing import List
 from posthog.constants import FUNNEL_WINDOW_INTERVAL_TYPES
-from posthog.schema import FunnelConversionWindowTimeUnit, FunnelsFilter, StepOrderValue
+from posthog.hogql import ast
+from posthog.hogql.parser import parse_expr
+from posthog.schema import FunnelConversionWindowTimeUnit, FunnelVizType, FunnelsFilter, StepOrderValue
 from rest_framework.exceptions import ValidationError
+
+from posthog.settings.ee import EE_AVAILABLE
 
 
 def get_funnel_order_class(funnelsFilter: FunnelsFilter):
     from posthog.hogql_queries.insights.funnels import (
         Funnel,
         FunnelStrict,
-        # FunnelUnordered,
-        FunnelBase,
+        FunnelUnordered,
     )
 
     if funnelsFilter.funnelOrderType == StepOrderValue.unordered:
-        return FunnelBase
-        # return FunnelUnordered
+        return FunnelUnordered
     elif funnelsFilter.funnelOrderType == StepOrderValue.strict:
         return FunnelStrict
     return Funnel
+
+
+def get_funnel_actor_class(funnelsFilter: FunnelsFilter):
+    from posthog.hogql_queries.insights.funnels import (
+        FunnelActors,
+        FunnelStrictActors,
+        FunnelUnorderedActors,
+        FunnelTrendsActors,
+    )
+
+    # if filter.correlation_person_entity and EE_AVAILABLE:
+    if False:
+        if EE_AVAILABLE:  # type: ignore
+            # from ee.clickhouse.queries.funnels.funnel_correlation_persons import (
+            #     FunnelCorrelationActors,
+            # )
+
+            return FunnelActors
+            # return FunnelCorrelationActors
+        else:
+            raise ValueError(
+                "Funnel Correlations is not available without an enterprise license and enterprise supported deployment"
+            )
+    elif funnelsFilter.funnelVizType == FunnelVizType.trends:
+        return FunnelTrendsActors
+    else:
+        if funnelsFilter.funnelOrderType == StepOrderValue.unordered:
+            return FunnelUnorderedActors
+        elif funnelsFilter.funnelOrderType == StepOrderValue.strict:
+            return FunnelStrictActors
+        else:
+            return FunnelActors
 
 
 def funnel_window_interval_unit_to_sql(
@@ -38,3 +73,26 @@ def funnel_window_interval_unit_to_sql(
         return "DAY"
     else:
         raise ValidationError("{funnelWindowIntervalUnit} not supported")
+
+
+def get_breakdown_expr(
+    breakdown: List[str | int] | None, properties_column: str, normalize_url: bool | None = False
+) -> ast.Expr:
+    if isinstance(breakdown, str) or isinstance(breakdown, int) or breakdown is None:
+        return parse_expr(f"ifNull({properties_column}.{breakdown}, '')")
+    else:
+        exprs = []
+        for b in breakdown:
+            expr = parse_expr(normalize_url_breakdown(f"ifNull({properties_column}.{b}, '')", normalize_url))
+            exprs.append(expr)
+        expression = ast.Array(exprs=exprs)
+
+    return expression
+
+
+def normalize_url_breakdown(breakdown_value, breakdown_normalize_url: bool | None):
+    if breakdown_normalize_url:
+        regex = "[\\\\/?#]*$"
+        return f"if( empty( replaceRegexpOne({breakdown_value}, '{regex}', '') ), '/', replaceRegexpOne({breakdown_value}, '{regex}', ''))"
+
+    return breakdown_value

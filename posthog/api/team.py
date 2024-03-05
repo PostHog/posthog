@@ -32,16 +32,19 @@ from posthog.models.activity_logging.activity_page import activity_page_response
 from posthog.models.async_deletion import AsyncDeletion, DeletionType
 from posthog.models.group_type_mapping import GroupTypeMapping
 from posthog.models.organization import OrganizationMembership
+from posthog.models.personal_api_key import APIScopeObjectOrNotSupported
 from posthog.models.signals import mute_selected_signals
 from posthog.models.team.team import groups_on_events_querying_enabled, set_team_in_cache
 from posthog.models.team.util import delete_batch_exports, delete_bulky_postgres_data
 from posthog.models.utils import generate_random_token_project, UUIDT
 from posthog.permissions import (
     CREATE_METHODS,
+    APIScopePermission,
     OrganizationAdminWritePermissions,
     OrganizationMemberPermissions,
     TeamMemberLightManagementPermission,
     TeamMemberStrictManagementPermission,
+    get_organization_from_view,
 )
 from posthog.tasks.demo_create_data import create_data_for_demo_team
 from posthog.user_permissions import UserPermissions, UserPermissionsSerializerMixin
@@ -54,9 +57,10 @@ class PremiumMultiProjectPermissions(BasePermission):
     message = "You must upgrade your PostHog plan to be able to create and manage multiple projects."
 
     def has_permission(self, request: request.Request, view) -> bool:
-        user = cast(User, request.user)
         if request.method in CREATE_METHODS:
-            if user.organization is None:
+            try:
+                organization = get_organization_from_view(view)
+            except ValueError:
                 return False
 
             # if we're not requesting to make a demo project
@@ -64,8 +68,8 @@ class PremiumMultiProjectPermissions(BasePermission):
             # and the org isn't allowed to make multiple projects
             if (
                 ("is_demo" not in request.data or not request.data["is_demo"])
-                and user.organization.teams.exclude(is_demo=True).count() >= 1
-                and not user.organization.is_feature_available(AvailableFeature.ORGANIZATIONS_PROJECTS)
+                and organization.teams.exclude(is_demo=True).count() >= 1
+                and not organization.is_feature_available(AvailableFeature.ORGANIZATIONS_PROJECTS)
             ):
                 return False
 
@@ -74,7 +78,7 @@ class PremiumMultiProjectPermissions(BasePermission):
             if (
                 "is_demo" in request.data
                 and request.data["is_demo"]
-                and user.organization.teams.exclude(is_demo=False).count() > 0
+                and organization.teams.exclude(is_demo=False).count() > 0
             ):
                 return False
 
@@ -197,8 +201,15 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
 
         if not isinstance(value, Dict):
             raise exceptions.ValidationError("Must provide a dictionary or None.")
-        if value.keys() != {"id", "key"}:
-            raise exceptions.ValidationError("Must provide a dictionary with only 'id' and 'key' keys.")
+        received_keys = value.keys()
+        valid_keys = [
+            {"id", "key"},
+            {"id", "key", "variant"},
+        ]
+        if received_keys not in valid_keys:
+            raise exceptions.ValidationError(
+                "Must provide a dictionary with only 'id' and 'key' keys. _or_ only 'id', 'key', and 'variant' keys."
+            )
 
         return value
 
@@ -223,8 +234,33 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
         if not isinstance(value, Dict):
             raise exceptions.ValidationError("Must provide a dictionary or None.")
 
-        if not all(key in ["record_canvas"] for key in value.keys()):
-            raise exceptions.ValidationError("Must provide a dictionary with only 'record_canvas' key.")
+        known_keys = ["record_canvas", "ai_config"]
+        if not all(key in known_keys for key in value.keys()):
+            raise exceptions.ValidationError(
+                f"Must provide a dictionary with only known keys. One or more of {', '.join(known_keys)}."
+            )
+
+        if "ai_config" in value:
+            self.validate_session_replay_ai_summary_config(value["ai_config"])
+
+        return value
+
+    def validate_session_replay_ai_summary_config(self, value: Dict | None) -> Dict | None:
+        if value is not None:
+            if not isinstance(value, Dict):
+                raise exceptions.ValidationError("Must provide a dictionary or None.")
+
+            allowed_keys = [
+                "included_event_properties",
+                "opt_in",
+                "preferred_events",
+                "excluded_events",
+                "important_user_properties",
+            ]
+            if not all(key in allowed_keys for key in value.keys()):
+                raise exceptions.ValidationError(
+                    f"Must provide a dictionary with only allowed keys: {', '.join(allowed_keys)}."
+                )
 
         return value
 
@@ -312,6 +348,33 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
         if "timezone" in validated_data and validated_data["timezone"] != instance.timezone:
             self._handle_timezone_update(instance)
 
+        if (
+            "session_replay_config" in validated_data
+            and validated_data["session_replay_config"] is not None
+            and instance.session_replay_config is not None
+        ):
+            # for session_replay_config and its top level keys we merge existing settings with new settings
+            # this way we don't always have to receive the entire settings object to change one setting
+            # so for each key in validated_data["session_replay_config"] we merge it with the existing settings
+            # and then merge any top level keys that weren't provided
+
+            for key, value in validated_data["session_replay_config"].items():
+                if key in instance.session_replay_config:
+                    # if they're both dicts then we merge them, otherwise, the new value overwrites the old
+                    if isinstance(instance.session_replay_config[key], dict) and isinstance(
+                        validated_data["session_replay_config"][key], dict
+                    ):
+                        validated_data["session_replay_config"][key] = {
+                            **instance.session_replay_config[key],  # existing values
+                            **value,  # and new values on top
+                        }
+
+            # then also add back in any keys that exist but are not in the provided data
+            validated_data["session_replay_config"] = {
+                **instance.session_replay_config,
+                **validated_data["session_replay_config"],
+            }
+
         updated_team = super().update(instance, validated_data)
         changes = dict_changes_between("Team", before_update, updated_team.__dict__, use_field_exclusions=True)
 
@@ -337,12 +400,11 @@ class TeamViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     Projects for the current organization.
     """
 
+    scope_object: APIScopeObjectOrNotSupported = "project"
     serializer_class = TeamSerializer
     queryset = Team.objects.all().select_related("organization")
-    permission_classes = [IsAuthenticated, PremiumMultiProjectPermissions]
     lookup_field = "id"
     ordering = "-created_by"
-    include_in_docs = True
 
     def get_queryset(self):
         # IMPORTANT: This is actually what ensures that a user cannot read/update a project for which they don't have permission
@@ -354,34 +416,31 @@ class TeamViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             return TeamBasicSerializer
         return super().get_serializer_class()
 
+    # NOTE: Team permissions are somewhat complex so we override the underlying viewset's get_permissions method
     def get_permissions(self) -> List:
         """
         Special permissions handling for create requests as the organization is inferred from the current user.
         """
 
-        base_permissions = [permission() for permission in self.permission_classes]
+        common_permissions: list = [
+            IsAuthenticated,
+            APIScopePermission,
+            PremiumMultiProjectPermissions,
+        ] + self.permission_classes
+
+        base_permissions = [permission() for permission in common_permissions]
 
         # Return early for non-actions (e.g. OPTIONS)
         if self.action:
             if self.action == "create":
                 if "is_demo" not in self.request.data or not self.request.data["is_demo"]:
                     base_permissions.append(OrganizationAdminWritePermissions())
-                elif "is_demo" in self.request.data:
+                else:
                     base_permissions.append(OrganizationMemberPermissions())
             elif self.action != "list":
                 # Skip TeamMemberAccessPermission for list action, as list is serialized with limited TeamBasicSerializer
                 base_permissions.append(TeamMemberLightManagementPermission())
         return base_permissions
-
-    def check_permissions(self, request):
-        if self.action and self.action == "create":
-            organization = getattr(self.request.user, "organization", None)
-            if not organization:
-                raise exceptions.ValidationError("You need to belong to an organization.")
-            # To be used later by OrganizationAdminWritePermissions and TeamSerializer
-            self.organization = organization
-
-        return super().check_permissions(request)
 
     def get_object(self):
         lookup_value = self.kwargs[self.lookup_field]
@@ -447,10 +506,7 @@ class TeamViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         methods=["PATCH"],
         detail=True,
         # Only ADMIN or higher users are allowed to access this project
-        permission_classes=[
-            IsAuthenticated,
-            TeamMemberStrictManagementPermission,
-        ],
+        permission_classes=[TeamMemberStrictManagementPermission],
     )
     def reset_token(self, request: request.Request, id: str, **kwargs) -> response.Response:
         team = self.get_object()
@@ -511,3 +567,10 @@ class TeamViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     def user_permissions(self):
         team = self.get_object() if self.action == "reset_token" else None
         return UserPermissions(cast(User, self.request.user), team)
+
+
+class RootTeamViewSet(TeamViewSet):
+    # NOTE: We don't want people managing projects via the "current_organization" concept.
+    # Rather specifying the org ID at the top level - we still support it for backwards compat but don't document it anymore.
+
+    hide_api_docs = True

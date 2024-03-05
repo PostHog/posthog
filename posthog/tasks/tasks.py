@@ -14,6 +14,10 @@ from posthog.ph_client import get_ph_client
 from posthog.redis import get_client
 from posthog.tasks.utils import CeleryQueue
 
+from structlog import get_logger
+
+logger = get_logger(__name__)
+
 
 @shared_task(ignore_result=True)
 def delete_expired_exported_assets() -> None:
@@ -435,12 +439,28 @@ def clickhouse_clear_removed_data() -> None:
     from posthog.models.async_deletion.delete_events import AsyncEventDeletion
 
     runner = AsyncEventDeletion()
-    runner.mark_deletions_done()
-    runner.run()
+
+    try:
+        runner.mark_deletions_done()
+    except Exception as e:
+        logger.error("Failed to mark deletions done", error=e, exc_info=True)
+
+    try:
+        runner.run()
+    except Exception as e:
+        logger.error("Failed to run deletions", error=e, exc_info=True)
 
     cohort_runner = AsyncCohortDeletion()
-    cohort_runner.mark_deletions_done()
-    cohort_runner.run()
+
+    try:
+        cohort_runner.mark_deletions_done()
+    except Exception as e:
+        logger.error("Failed to mark cohort deletions done", error=e, exc_info=True)
+
+    try:
+        cohort_runner.run()
+    except Exception as e:
+        logger.error("Failed to run cohort deletions", error=e, exc_info=True)
 
 
 @shared_task(ignore_result=True)
@@ -716,3 +736,17 @@ def check_data_import_row_limits() -> None:
         pass
     else:
         check_synced_row_limits()
+
+
+# this task runs a CH query and triggers other tasks
+# it can run on the default queue
+@shared_task(ignore_result=True)
+def calculate_replay_embeddings() -> None:
+    try:
+        from ee.tasks.replay import generate_recordings_embeddings_batch
+
+        generate_recordings_embeddings_batch()
+    except ImportError:
+        pass
+    except Exception as e:
+        logger.error("Failed to calculate replay embeddings", error=e, exc_info=True)

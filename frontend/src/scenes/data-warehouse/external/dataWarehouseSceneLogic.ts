@@ -1,14 +1,12 @@
 import { lemonToast } from '@posthog/lemon-ui'
 import { actions, afterMount, connect, kea, listeners, path, reducers, selectors } from 'kea'
-import { loaders } from 'kea-loaders'
-import api, { PaginatedResponse } from 'lib/api'
 import { databaseTableListLogic } from 'scenes/data-management/database/databaseTableListLogic'
 import { userLogic } from 'scenes/userLogic'
 
 import { DataWarehouseTable } from '~/types'
 
 import { dataWarehouseSavedQueriesLogic } from '../saved_queries/dataWarehouseSavedQueriesLogic'
-import { DatabaseTableListRow, DataWarehouseRowType, DataWarehouseTableType } from '../types'
+import { DatabaseTableListRow, DataWarehouseRowType, DataWarehouseSceneTab, DataWarehouseTableType } from '../types'
 import type { dataWarehouseSceneLogicType } from './dataWarehouseSceneLogicType'
 
 export const dataWarehouseSceneLogic = kea<dataWarehouseSceneLogicType>([
@@ -18,15 +16,21 @@ export const dataWarehouseSceneLogic = kea<dataWarehouseSceneLogicType>([
             userLogic,
             ['user'],
             databaseTableListLogic,
-            ['filteredTables'],
+            ['filteredTables', 'dataWarehouse'],
             dataWarehouseSavedQueriesLogic,
             ['savedQueries'],
         ],
-        actions: [dataWarehouseSavedQueriesLogic, ['deleteDataWarehouseSavedQuery']],
+        actions: [
+            dataWarehouseSavedQueriesLogic,
+            ['deleteDataWarehouseSavedQuery'],
+            databaseTableListLogic,
+            ['loadDataWarehouse', 'deleteDataWarehouseTable'],
+        ],
     })),
     actions({
         toggleSourceModal: (isOpen?: boolean) => ({ isOpen }),
         selectRow: (row: DataWarehouseTableType | null) => ({ row }),
+        setSceneTab: (tab: DataWarehouseSceneTab) => ({ tab }),
     }),
     reducers({
         isSourceModalOpen: [
@@ -41,22 +45,13 @@ export const dataWarehouseSceneLogic = kea<dataWarehouseSceneLogicType>([
                 selectRow: (_, { row }) => row,
             },
         ],
-    }),
-    loaders(({ values }) => ({
-        dataWarehouse: [
-            null as PaginatedResponse<DataWarehouseTable> | null,
+        activeSceneTab: [
+            DataWarehouseSceneTab.Tables as DataWarehouseSceneTab,
             {
-                loadDataWarehouse: async (): Promise<PaginatedResponse<DataWarehouseTable>> =>
-                    await api.dataWarehouseTables.list(),
-                deleteDataWarehouseTable: async (table: DataWarehouseTable) => {
-                    await api.dataWarehouseTables.delete(table.id)
-                    return {
-                        results: [...(values.dataWarehouse?.results || []).filter((t) => t.id != table.id)],
-                    }
-                },
+                setSceneTab: (_state, { tab }) => tab,
             },
         ],
-    })),
+    }),
     selectors({
         externalTables: [
             (s) => [s.dataWarehouse],
@@ -74,6 +69,18 @@ export const dataWarehouseSceneLogic = kea<dataWarehouseSceneLogicType>([
                             payload: table,
                             type: DataWarehouseRowType.ExternalTable,
                         } as DataWarehouseTableType)
+                )
+            },
+        ],
+        externalTablesMap: [
+            (s) => [s.externalTables],
+            (externalTables): Record<string, DataWarehouseTableType> => {
+                return externalTables.reduce(
+                    (acc: Record<string, DataWarehouseTableType>, table: DataWarehouseTableType) => {
+                        acc[table.name] = table
+                        return acc
+                    },
+                    {} as Record<string, DataWarehouseTableType>
                 )
             },
         ],

@@ -142,6 +142,7 @@ $colors: (
     'glass-bg-3000': var(--glass-bg-3000),
     'glass-border-3000': var(--border-3000),
     'link-3000': var(--link-3000),
+    'tooltip-bg': var(--tooltip-bg),
     'primary-3000-frame-bg': var(--primary-3000-frame-bg),
     'primary-3000-button-bg': var(--primary-3000-button-bg),
     'primary-3000-button-border': var(--primary-3000-button-border),
@@ -176,6 +177,7 @@ $_lifecycle_dormant: $_danger;
     --radius: 0.375rem;
     --radius-sm: 0.25rem;
     --shadow-elevation: 0px 16px 16px -16px rgb(0 0 0 / 35%);
+    --modal-shadow-elevation: 0px 16px 16px -16px rgb(0 0 0 / 35%);
     --opacity-disabled: 0.6;
     --font-medium: 500;
     --font-semibold: 600;
@@ -247,6 +249,7 @@ $_lifecycle_dormant: $_danger;
     --z-command-palette: 1875;
     --z-force-modal-above-popovers: 1850;
     --z-ant-message: 1070;
+    --z-tooltip: 1070;
     --z-ant-select-dropdown: 1065;
     --z-definition-popover: 1064;
     --z-popover: 1063;
@@ -272,7 +275,7 @@ $_lifecycle_dormant: $_danger;
     // which means they aren't available in the toolbar
     --toastify-color-dark: var(--accent-3000-dark);
     --toastify-color-light: var(--bg-light);
-    --toastify-color-info: var(--primary-3000);
+    --toastify-color-info: var(--primary);
     --toastify-color-success: var(--success);
     --toastify-color-warning: var(--warning);
     --toastify-color-error: var(--danger);
@@ -409,7 +412,7 @@ $_lifecycle_dormant: $_danger;
 }
 
 // defined here so that they can be shared with the toolbar
-@mixin posthog-3000-variables {
+@mixin common-variables {
     --default: var(--text-3000);
     --text-secondary: var(--text-secondary-3000);
     --muted: var(--muted-3000);

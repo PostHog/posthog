@@ -22,8 +22,10 @@ from temporalio.common import RetryPolicy
 from temporalio.testing import WorkflowEnvironment
 from temporalio.worker import UnsandboxedWorkflowRunner, Worker
 
+from posthog.batch_exports.service import BatchExportSchema
 from posthog.temporal.batch_exports.batch_exports import (
     create_export_run,
+    iter_records,
     update_export_run_status,
 )
 from posthog.temporal.batch_exports.s3_batch_export import (
@@ -33,10 +35,10 @@ from posthog.temporal.batch_exports.s3_batch_export import (
     S3InsertInputs,
     get_s3_key,
     insert_into_s3_activity,
+    s3_default_fields,
 )
-from posthog.temporal.tests.utils.datetimes import to_isoformat
+from posthog.temporal.common.clickhouse import ClickHouseClient
 from posthog.temporal.tests.utils.events import (
-    EventValues,
     generate_test_events_in_clickhouse,
 )
 from posthog.temporal.tests.utils.models import (
@@ -138,15 +140,34 @@ async def minio_client(bucket_name):
         await minio_client.delete_bucket(Bucket=bucket_name)
 
 
-async def assert_events_in_s3(
+async def assert_clickhouse_records_in_s3(
     s3_compatible_client,
+    clickhouse_client: ClickHouseClient,
     bucket_name: str,
     key_prefix: str,
-    events: list[EventValues],
-    compression: str | None = None,
+    team_id: int,
+    data_interval_start: dt.datetime,
+    data_interval_end: dt.datetime,
     exclude_events: list[str] | None = None,
+    include_events: list[str] | None = None,
+    batch_export_schema: BatchExportSchema | None = None,
+    compression: str | None = None,
 ):
-    """Assert provided events written to JSON in key_prefix in S3 bucket_name."""
+    """Assert ClickHouse records are written to JSON in key_prefix in S3 bucket_name.
+
+    Arguments:
+        s3_compatible_client: An S3 client used to read records; can be MinIO if doing local testing.
+        clickhouse_client: A ClickHouseClient used to read records that are expected to be exported.
+        team_id: The ID of the team that we are testing for.
+        bucket_name: S3 bucket name where records are exported to.
+        key_prefix: S3 key prefix where records are exported to.
+        data_interval_start: Start of the batch period for exported records.
+        data_interval_end: End of the batch period for exported records.
+        exclude_events: Event names to be excluded from the export.
+        include_events: Event names to be included in the export.
+        batch_export_schema: Custom schema used in the batch export.
+        compression: Optional compression used in upload.
+    """
     # List the objects in the bucket with the prefix.
     objects = await s3_compatible_client.list_objects_v2(Bucket=bucket_name, Prefix=key_prefix)
 
@@ -171,50 +192,79 @@ async def assert_events_in_s3(
     json_data = [json.loads(line) for line in data.decode("utf-8").split("\n") if line]
     # Pull out the fields we inserted only
 
-    json_data.sort(key=lambda x: (x["event"], x["created_at"]))
+    if batch_export_schema is not None:
+        schema_column_names = [field["alias"] for field in batch_export_schema["fields"]]
+    else:
+        schema_column_names = [field["alias"] for field in s3_default_fields()]
 
-    # Remove team_id, _timestamp from events
-    if exclude_events is None:
-        exclude_events = []
+    json_columns = ("properties", "person_properties", "set", "set_once")
 
-    def to_expected_event(event):
-        mapping_functions = {
-            "timestamp": to_isoformat,
-            "inserted_at": to_isoformat,
-            "created_at": to_isoformat,
-        }
-        # These are inserted/returned by the ClickHouse event generators, but we do not export them
-        # or we export them as properties.
-        not_exported = {"team_id", "_timestamp", "set", "set_once", "ip", "site_url", "elements"}
-        expected_event = {
-            k: mapping_functions.get(k, lambda x: x)(v) for k, v in event.items() if k not in not_exported
-        }
+    expected_records = []
+    for record_batch in iter_records(
+        client=clickhouse_client,
+        team_id=team_id,
+        interval_start=data_interval_start.isoformat(),
+        interval_end=data_interval_end.isoformat(),
+        exclude_events=exclude_events,
+        include_events=include_events,
+        fields=batch_export_schema["fields"] if batch_export_schema is not None else s3_default_fields(),
+        extra_query_parameters=batch_export_schema["values"] if batch_export_schema is not None else None,
+    ):
+        for record in record_batch.to_pylist():
+            expected_record = {}
+            for k, v in record.items():
+                if k not in schema_column_names or k == "_inserted_at":
+                    # _inserted_at is not exported, only used for tracking progress.
+                    continue
 
-        if expected_event["inserted_at"] is None:
-            expected_event["inserted_at"] = (
-                dt.datetime.fromisoformat(event["_timestamp"]).replace(tzinfo=dt.timezone.utc).isoformat()
-            )
-        return expected_event
+                if k in json_columns and v is not None:
+                    expected_record[k] = json.loads(v)
+                elif isinstance(v, dt.datetime):
+                    # Some type precision is lost when json dumping to S3, so we have to cast this to str to match.
+                    expected_record[k] = v.isoformat()
+                else:
+                    expected_record[k] = v
 
-    expected_events = list(
-        map(
-            to_expected_event,
-            (event for event in events if event["event"] not in exclude_events),
-        )
-    )
+            expected_records.append(expected_record)
 
-    expected_events.sort(key=lambda x: (x["event"], x["created_at"]))
+    assert len(json_data) == len(expected_records)
+    assert json_data[0] == expected_records[0]
+    assert json_data == expected_records
 
-    # First check one event, the first one, so that we can get a nice diff if
-    # the included data is different.
-    assert json_data[0] == expected_events[0]
-    assert json_data == expected_events
+
+TEST_S3_SCHEMAS: list[BatchExportSchema | None] = [
+    {
+        "fields": [
+            {"expression": "event", "alias": "my_event_name"},
+            {"expression": "nullIf(JSONExtractString(properties, %(hogql_val_0)s), '')", "alias": "browser"},
+            {"expression": "nullIf(JSONExtractString(properties, %(hogql_val_1)s), '')", "alias": "os"},
+            {"expression": "nullIf(properties, '')", "alias": "all_properties"},
+        ],
+        "values": {"hogql_val_0": "$browser", "hogql_val_1": "$os"},
+    },
+    {
+        "fields": [
+            {"expression": "event", "alias": "my_event_name"},
+            {"expression": "inserted_at", "alias": "inserted_at"},
+            {"expression": "1 + 1", "alias": "two"},
+        ],
+        "values": {},
+    },
+    None,
+]
 
 
 @pytest.mark.parametrize("compression", [None, "gzip", "brotli"], indirect=True)
 @pytest.mark.parametrize("exclude_events", [None, ["test-exclude"]], indirect=True)
+@pytest.mark.parametrize("batch_export_schema", TEST_S3_SCHEMAS)
 async def test_insert_into_s3_activity_puts_data_into_s3(
-    clickhouse_client, bucket_name, minio_client, activity_environment, compression, exclude_events
+    clickhouse_client,
+    bucket_name,
+    minio_client,
+    activity_environment,
+    compression,
+    exclude_events,
+    batch_export_schema: BatchExportSchema | None,
 ):
     """Test that the insert_into_s3_activity function ends up with data into S3.
 
@@ -226,7 +276,7 @@ async def test_insert_into_s3_activity_puts_data_into_s3(
     * Are not duplicates of other events that are in the same batch.
     * Do not have an event name contained in the batch export's exclude_events.
 
-    Once we have these events, we pass them to the assert_events_in_s3 function to check
+    Once we have these events, we pass them to the assert_clickhouse_records_in_s3 function to check
     that they appear in the expected S3 bucket and key.
     """
     data_interval_start = dt.datetime(2023, 4, 20, 14, 0, 0, tzinfo=dt.timezone.utc)
@@ -236,7 +286,7 @@ async def test_insert_into_s3_activity_puts_data_into_s3(
     # but it's very small.
     team_id = randint(1, 1000000)
 
-    (events, _, _) = await generate_test_events_in_clickhouse(
+    await generate_test_events_in_clickhouse(
         client=clickhouse_client,
         team_id=team_id,
         start_time=data_interval_start,
@@ -249,7 +299,7 @@ async def test_insert_into_s3_activity_puts_data_into_s3(
         person_properties={"utm_medium": "referral", "$initial_os": "Linux"},
     )
 
-    (events_with_no_properties, _, _) = await generate_test_events_in_clickhouse(
+    await generate_test_events_in_clickhouse(
         client=clickhouse_client,
         team_id=team_id,
         start_time=data_interval_start,
@@ -289,6 +339,7 @@ async def test_insert_into_s3_activity_puts_data_into_s3(
         aws_secret_access_key="object_storage_root_password",
         compression=compression,
         exclude_events=exclude_events,
+        batch_export_schema=batch_export_schema,
     )
 
     with override_settings(
@@ -300,13 +351,18 @@ async def test_insert_into_s3_activity_puts_data_into_s3(
         ):
             await activity_environment.run(insert_into_s3_activity, insert_inputs)
 
-    await assert_events_in_s3(
-        minio_client,
-        bucket_name,
-        prefix,
-        events=events + events_with_no_properties,
-        compression=compression,
+    await assert_clickhouse_records_in_s3(
+        s3_compatible_client=minio_client,
+        clickhouse_client=clickhouse_client,
+        bucket_name=bucket_name,
+        key_prefix=prefix,
+        team_id=team_id,
+        data_interval_start=data_interval_start,
+        data_interval_end=data_interval_end,
+        batch_export_schema=batch_export_schema,
         exclude_events=exclude_events,
+        include_events=None,
+        compression=compression,
     )
 
 
@@ -350,6 +406,7 @@ async def s3_batch_export(
 @pytest.mark.parametrize("interval", ["hour", "day"], indirect=True)
 @pytest.mark.parametrize("compression", [None, "gzip", "brotli"], indirect=True)
 @pytest.mark.parametrize("exclude_events", [None, ["test-exclude"]], indirect=True)
+@pytest.mark.parametrize("batch_export_schema", TEST_S3_SCHEMAS)
 async def test_s3_export_workflow_with_minio_bucket(
     clickhouse_client,
     minio_client,
@@ -360,6 +417,7 @@ async def test_s3_export_workflow_with_minio_bucket(
     compression,
     exclude_events,
     s3_key_prefix,
+    batch_export_schema,
 ):
     """Test S3BatchExport Workflow end-to-end by using a local MinIO bucket instead of S3.
 
@@ -373,7 +431,7 @@ async def test_s3_export_workflow_with_minio_bucket(
     data_interval_end = dt.datetime.fromisoformat("2023-04-25T14:30:00.000000+00:00")
     data_interval_start = data_interval_end - s3_batch_export.interval_time_delta
 
-    (events, _, _) = await generate_test_events_in_clickhouse(
+    await generate_test_events_in_clickhouse(
         client=clickhouse_client,
         team_id=ateam.pk,
         start_time=data_interval_start,
@@ -405,6 +463,7 @@ async def test_s3_export_workflow_with_minio_bucket(
         batch_export_id=str(s3_batch_export.id),
         data_interval_end=data_interval_end.isoformat(),
         interval=interval,
+        batch_export_schema=batch_export_schema,
         **s3_batch_export.destination.config,
     )
 
@@ -440,13 +499,17 @@ async def test_s3_export_workflow_with_minio_bucket(
     run = runs[0]
     assert run.status == "Completed"
 
-    await assert_events_in_s3(
-        minio_client,
-        bucket_name,
-        s3_key_prefix,
-        events=events,
-        compression=compression,
+    await assert_clickhouse_records_in_s3(
+        s3_compatible_client=minio_client,
+        clickhouse_client=clickhouse_client,
+        bucket_name=bucket_name,
+        key_prefix=s3_key_prefix,
+        team_id=ateam.pk,
+        data_interval_start=data_interval_start,
+        data_interval_end=data_interval_end,
+        batch_export_schema=batch_export_schema,
         exclude_events=exclude_events,
+        compression=compression,
     )
 
 
@@ -475,6 +538,7 @@ async def s3_client(bucket_name, s3_key_prefix):
 @pytest.mark.parametrize("exclude_events", [None, ["test-exclude"]], indirect=True)
 @pytest.mark.parametrize("encryption", [None, "AES256", "aws:kms"], indirect=True)
 @pytest.mark.parametrize("bucket_name", [os.getenv("S3_TEST_BUCKET")], indirect=True)
+@pytest.mark.parametrize("batch_export_schema", TEST_S3_SCHEMAS)
 async def test_s3_export_workflow_with_s3_bucket(
     s3_client,
     clickhouse_client,
@@ -486,6 +550,7 @@ async def test_s3_export_workflow_with_s3_bucket(
     encryption,
     exclude_events,
     ateam,
+    batch_export_schema,
 ):
     """Test S3 Export Workflow end-to-end by using an S3 bucket.
 
@@ -503,7 +568,7 @@ async def test_s3_export_workflow_with_s3_bucket(
     data_interval_end = dt.datetime.fromisoformat("2023-04-25T14:30:00.000000")
     data_interval_start = data_interval_end - s3_batch_export.interval_time_delta
 
-    (events, _, _) = await generate_test_events_in_clickhouse(
+    await generate_test_events_in_clickhouse(
         client=clickhouse_client,
         team_id=ateam.pk,
         start_time=data_interval_start,
@@ -535,6 +600,7 @@ async def test_s3_export_workflow_with_s3_bucket(
         batch_export_id=str(s3_batch_export.id),
         data_interval_end=data_interval_end.isoformat(),
         interval=interval,
+        batch_export_schema=batch_export_schema,
         **s3_batch_export.destination.config,
     )
 
@@ -574,13 +640,18 @@ async def test_s3_export_workflow_with_s3_bucket(
     run = runs[0]
     assert run.status == "Completed"
 
-    await assert_events_in_s3(
-        s3_client,
-        bucket_name,
-        s3_key_prefix,
-        events=events,
-        compression=compression,
+    await assert_clickhouse_records_in_s3(
+        s3_compatible_client=minio_client,
+        clickhouse_client=clickhouse_client,
+        bucket_name=bucket_name,
+        key_prefix=s3_key_prefix,
+        team_id=ateam.pk,
+        data_interval_start=data_interval_start,
+        data_interval_end=data_interval_end,
+        batch_export_schema=batch_export_schema,
         exclude_events=exclude_events,
+        include_events=None,
+        compression=compression,
     )
 
 
@@ -603,12 +674,12 @@ async def test_s3_export_workflow_with_minio_bucket_and_a_lot_of_data(
     data_interval_end = dt.datetime.fromisoformat("2023-04-25T14:30:00.000000+00:00")
     data_interval_start = data_interval_end - s3_batch_export.interval_time_delta
 
-    (events, _, _) = await generate_test_events_in_clickhouse(
+    await generate_test_events_in_clickhouse(
         client=clickhouse_client,
         team_id=ateam.pk,
         start_time=data_interval_start,
         end_time=data_interval_end,
-        count=1000000,
+        count=100000,
         count_outside_range=1000,
         count_other_team=1000,
         duplicate=True,
@@ -656,13 +727,16 @@ async def test_s3_export_workflow_with_minio_bucket_and_a_lot_of_data(
     run = runs[0]
     assert run.status == "Completed"
 
-    await assert_events_in_s3(
-        minio_client,
-        bucket_name,
-        s3_key_prefix,
-        events=events,
-        compression=compression,
+    await assert_clickhouse_records_in_s3(
+        s3_compatible_client=minio_client,
+        clickhouse_client=clickhouse_client,
+        bucket_name=bucket_name,
+        key_prefix=s3_key_prefix,
+        team_id=ateam.pk,
+        data_interval_start=data_interval_start,
+        data_interval_end=data_interval_end,
         exclude_events=exclude_events,
+        compression=compression,
     )
 
 
@@ -678,7 +752,7 @@ async def test_s3_export_workflow_defaults_to_timestamp_on_null_inserted_at(
     data_interval_end = dt.datetime.fromisoformat("2023-04-25T14:30:00.000000+00:00")
     data_interval_start = data_interval_end - s3_batch_export.interval_time_delta
 
-    (events, _, _) = await generate_test_events_in_clickhouse(
+    await generate_test_events_in_clickhouse(
         client=clickhouse_client,
         team_id=ateam.pk,
         start_time=data_interval_start,
@@ -732,12 +806,15 @@ async def test_s3_export_workflow_defaults_to_timestamp_on_null_inserted_at(
     run = runs[0]
     assert run.status == "Completed"
 
-    await assert_events_in_s3(
-        minio_client,
-        bucket_name,
-        s3_key_prefix,
-        events,
-        compression,
+    await assert_clickhouse_records_in_s3(
+        s3_compatible_client=minio_client,
+        clickhouse_client=clickhouse_client,
+        bucket_name=bucket_name,
+        key_prefix=s3_key_prefix,
+        team_id=ateam.pk,
+        data_interval_start=data_interval_start,
+        data_interval_end=data_interval_end,
+        compression=compression,
     )
 
 
@@ -764,7 +841,7 @@ async def test_s3_export_workflow_with_minio_bucket_and_custom_key_prefix(
     data_interval_end = dt.datetime.fromisoformat("2023-04-25T14:30:00.000000+00:00")
     data_interval_start = data_interval_end - s3_batch_export.interval_time_delta
 
-    (events, _, _) = await generate_test_events_in_clickhouse(
+    await generate_test_events_in_clickhouse(
         client=clickhouse_client,
         team_id=ateam.pk,
         start_time=data_interval_start,
@@ -832,7 +909,16 @@ async def test_s3_export_workflow_with_minio_bucket_and_custom_key_prefix(
     assert len(objects.get("Contents", [])) == 1
     assert key.startswith(expected_key_prefix)
 
-    await assert_events_in_s3(minio_client, bucket_name, expected_key_prefix, events, compression)
+    await assert_clickhouse_records_in_s3(
+        s3_compatible_client=minio_client,
+        clickhouse_client=clickhouse_client,
+        bucket_name=bucket_name,
+        key_prefix=s3_key_prefix,
+        team_id=ateam.pk,
+        data_interval_start=data_interval_start,
+        data_interval_end=data_interval_end,
+        compression=compression,
+    )
 
 
 async def test_s3_export_workflow_handles_insert_activity_errors(ateam, s3_batch_export, interval):
@@ -876,12 +962,64 @@ async def test_s3_export_workflow_handles_insert_activity_errors(ateam, s3_batch
                     retry_policy=RetryPolicy(maximum_attempts=1),
                 )
 
-        runs = await afetch_batch_export_runs(batch_export_id=s3_batch_export.id)
-        assert len(runs) == 1
+    runs = await afetch_batch_export_runs(batch_export_id=s3_batch_export.id)
+    assert len(runs) == 1
 
-        run = runs[0]
-        assert run.status == "Failed"
-        assert run.latest_error == "ValueError: A useful error message"
+    run = runs[0]
+    assert run.status == "FailedRetryable"
+    assert run.latest_error == "ValueError: A useful error message"
+
+
+async def test_s3_export_workflow_handles_insert_activity_non_retryable_errors(ateam, s3_batch_export, interval):
+    """Test S3BatchExport Workflow can handle non-retryable errors from executing the insert into S3 activity.
+
+    Currently, this only means we do the right updates to the BatchExportRun model.
+    """
+    data_interval_end = dt.datetime.fromisoformat("2023-04-25T14:30:00.000000+00:00")
+
+    workflow_id = str(uuid4())
+    inputs = S3BatchExportInputs(
+        team_id=ateam.pk,
+        batch_export_id=str(s3_batch_export.id),
+        data_interval_end=data_interval_end.isoformat(),
+        interval=interval,
+        **s3_batch_export.destination.config,
+    )
+
+    @activity.defn(name="insert_into_s3_activity")
+    async def insert_into_s3_activity_mocked(_: S3InsertInputs) -> str:
+        class ParamValidationError(Exception):
+            pass
+
+        raise ParamValidationError("A useful error message")
+
+    async with await WorkflowEnvironment.start_time_skipping() as activity_environment:
+        async with Worker(
+            activity_environment.client,
+            task_queue=settings.TEMPORAL_TASK_QUEUE,
+            workflows=[S3BatchExportWorkflow],
+            activities=[
+                create_export_run,
+                insert_into_s3_activity_mocked,
+                update_export_run_status,
+            ],
+            workflow_runner=UnsandboxedWorkflowRunner(),
+        ):
+            with pytest.raises(WorkflowFailureError):
+                await activity_environment.client.execute_workflow(
+                    S3BatchExportWorkflow.run,
+                    inputs,
+                    id=workflow_id,
+                    task_queue=settings.TEMPORAL_TASK_QUEUE,
+                    retry_policy=RetryPolicy(maximum_attempts=1),
+                )
+
+    runs = await afetch_batch_export_runs(batch_export_id=s3_batch_export.id)
+    assert len(runs) == 1
+
+    run = runs[0]
+    assert run.status == "Failed"
+    assert run.latest_error == "ParamValidationError: A useful error message"
 
 
 @pytest.mark.asyncio
@@ -956,7 +1094,7 @@ base_inputs = {
                 prefix="/",
                 data_interval_start="2023-01-01 00:00:00",
                 data_interval_end="2023-01-01 01:00:00",
-                **base_inputs,
+                **base_inputs,  # type: ignore
             ),
             "2023-01-01 00:00:00-2023-01-01 01:00:00.jsonl",
         ),
@@ -965,7 +1103,7 @@ base_inputs = {
                 prefix="",
                 data_interval_start="2023-01-01 00:00:00",
                 data_interval_end="2023-01-01 01:00:00",
-                **base_inputs,
+                **base_inputs,  # type: ignore
             ),
             "2023-01-01 00:00:00-2023-01-01 01:00:00.jsonl",
         ),
@@ -975,7 +1113,7 @@ base_inputs = {
                 data_interval_start="2023-01-01 00:00:00",
                 data_interval_end="2023-01-01 01:00:00",
                 compression="gzip",
-                **base_inputs,
+                **base_inputs,  # type: ignore
             ),
             "2023-01-01 00:00:00-2023-01-01 01:00:00.jsonl.gz",
         ),
@@ -985,7 +1123,7 @@ base_inputs = {
                 data_interval_start="2023-01-01 00:00:00",
                 data_interval_end="2023-01-01 01:00:00",
                 compression="brotli",
-                **base_inputs,
+                **base_inputs,  # type: ignore
             ),
             "2023-01-01 00:00:00-2023-01-01 01:00:00.jsonl.br",
         ),
@@ -994,7 +1132,7 @@ base_inputs = {
                 prefix="my-fancy-prefix",
                 data_interval_start="2023-01-01 00:00:00",
                 data_interval_end="2023-01-01 01:00:00",
-                **base_inputs,
+                **base_inputs,  # type: ignore
             ),
             "my-fancy-prefix/2023-01-01 00:00:00-2023-01-01 01:00:00.jsonl",
         ),
@@ -1003,7 +1141,7 @@ base_inputs = {
                 prefix="/my-fancy-prefix",
                 data_interval_start="2023-01-01 00:00:00",
                 data_interval_end="2023-01-01 01:00:00",
-                **base_inputs,
+                **base_inputs,  # type: ignore
             ),
             "my-fancy-prefix/2023-01-01 00:00:00-2023-01-01 01:00:00.jsonl",
         ),
@@ -1013,7 +1151,7 @@ base_inputs = {
                 data_interval_start="2023-01-01 00:00:00",
                 data_interval_end="2023-01-01 01:00:00",
                 compression="gzip",
-                **base_inputs,
+                **base_inputs,  # type: ignore
             ),
             "my-fancy-prefix/2023-01-01 00:00:00-2023-01-01 01:00:00.jsonl.gz",
         ),
@@ -1023,7 +1161,7 @@ base_inputs = {
                 data_interval_start="2023-01-01 00:00:00",
                 data_interval_end="2023-01-01 01:00:00",
                 compression="brotli",
-                **base_inputs,
+                **base_inputs,  # type: ignore
             ),
             "my-fancy-prefix/2023-01-01 00:00:00-2023-01-01 01:00:00.jsonl.br",
         ),
@@ -1032,7 +1170,7 @@ base_inputs = {
                 prefix="my-fancy-prefix-with-a-forwardslash/",
                 data_interval_start="2023-01-01 00:00:00",
                 data_interval_end="2023-01-01 01:00:00",
-                **base_inputs,
+                **base_inputs,  # type: ignore
             ),
             "my-fancy-prefix-with-a-forwardslash/2023-01-01 00:00:00-2023-01-01 01:00:00.jsonl",
         ),
@@ -1041,7 +1179,7 @@ base_inputs = {
                 prefix="/my-fancy-prefix-with-a-forwardslash/",
                 data_interval_start="2023-01-01 00:00:00",
                 data_interval_end="2023-01-01 01:00:00",
-                **base_inputs,
+                **base_inputs,  # type: ignore
             ),
             "my-fancy-prefix-with-a-forwardslash/2023-01-01 00:00:00-2023-01-01 01:00:00.jsonl",
         ),
@@ -1050,7 +1188,7 @@ base_inputs = {
                 prefix="nested/prefix/",
                 data_interval_start="2023-01-01 00:00:00",
                 data_interval_end="2023-01-01 01:00:00",
-                **base_inputs,
+                **base_inputs,  # type: ignore
             ),
             "nested/prefix/2023-01-01 00:00:00-2023-01-01 01:00:00.jsonl",
         ),
@@ -1059,7 +1197,7 @@ base_inputs = {
                 prefix="/nested/prefix/",
                 data_interval_start="2023-01-01 00:00:00",
                 data_interval_end="2023-01-01 01:00:00",
-                **base_inputs,
+                **base_inputs,  # type: ignore
             ),
             "nested/prefix/2023-01-01 00:00:00-2023-01-01 01:00:00.jsonl",
         ),
@@ -1069,7 +1207,7 @@ base_inputs = {
                 data_interval_start="2023-01-01 00:00:00",
                 data_interval_end="2023-01-01 01:00:00",
                 compression="gzip",
-                **base_inputs,
+                **base_inputs,  # type: ignore
             ),
             "nested/prefix/2023-01-01 00:00:00-2023-01-01 01:00:00.jsonl.gz",
         ),
@@ -1079,7 +1217,7 @@ base_inputs = {
                 data_interval_start="2023-01-01 00:00:00",
                 data_interval_end="2023-01-01 01:00:00",
                 compression="brotli",
-                **base_inputs,
+                **base_inputs,  # type: ignore
             ),
             "nested/prefix/2023-01-01 00:00:00-2023-01-01 01:00:00.jsonl.br",
         ),
@@ -1101,13 +1239,12 @@ async def test_insert_into_s3_activity_heartbeats(
     data_interval_end = dt.datetime.fromisoformat("2023-04-20T14:30:00.000000+00:00")
     data_interval_start = data_interval_end - s3_batch_export.interval_time_delta
 
-    events_in_parts = []
     n_expected_parts = 3
 
     for i in range(1, n_expected_parts + 1):
         part_inserted_at = data_interval_end - s3_batch_export.interval_time_delta / i
 
-        (events, _, _) = await generate_test_events_in_clickhouse(
+        await generate_test_events_in_clickhouse(
             client=clickhouse_client,
             team_id=ateam.pk,
             start_time=data_interval_start,
@@ -1120,7 +1257,6 @@ async def test_insert_into_s3_activity_heartbeats(
             properties={"$chonky": ("a" * 5 * 1024**2)},
             inserted_at=part_inserted_at,
         )
-        events_in_parts += events
 
     current_part_number = 1
 
@@ -1159,4 +1295,13 @@ async def test_insert_into_s3_activity_heartbeats(
     # This checks that the assert_heartbeat_details function was actually called.
     # The '+ 1' is because we increment current_part_number one last time after we are done.
     assert current_part_number == n_expected_parts + 1
-    await assert_events_in_s3(minio_client, bucket_name, s3_key_prefix, events_in_parts, None, None)
+
+    await assert_clickhouse_records_in_s3(
+        s3_compatible_client=minio_client,
+        clickhouse_client=clickhouse_client,
+        bucket_name=bucket_name,
+        key_prefix=s3_key_prefix,
+        team_id=ateam.pk,
+        data_interval_start=data_interval_start,
+        data_interval_end=data_interval_end,
+    )

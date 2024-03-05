@@ -763,6 +763,40 @@ class TestFeatureFlagMatcher(BaseTest, QueryMatchingTest):
             FeatureFlagMatch(True, None, FeatureFlagMatchReason.CONDITION_MATCH, 0),
         )
 
+    @snapshot_postgres_queries
+    def test_invalid_regex_match_flag(self):
+        Person.objects.create(
+            team=self.team,
+            distinct_ids=["307"],
+            properties={
+                "email": '"neil@x.com"',
+            },
+        )
+        feature_flag = self.create_feature_flag(
+            filters={
+                "groups": [
+                    {
+                        "properties": [
+                            {
+                                "key": "email",
+                                "value": '["neil@x.com"]',
+                                "operator": "regex",
+                                "type": "person",
+                            }
+                        ]
+                    }
+                ]
+            }
+        )
+        self.assertEqual(
+            FeatureFlagMatcher([feature_flag], "307").get_match(feature_flag),
+            FeatureFlagMatch(True, None, FeatureFlagMatchReason.CONDITION_MATCH, 0),
+        )
+        self.assertEqual(
+            FeatureFlagMatcher([feature_flag], "another_id").get_match(feature_flag),
+            FeatureFlagMatch(False, None, FeatureFlagMatchReason.NO_CONDITION_MATCH, 0),
+        )
+
     def test_coercion_of_strings_and_numbers(self):
         Person.objects.create(
             team=self.team,

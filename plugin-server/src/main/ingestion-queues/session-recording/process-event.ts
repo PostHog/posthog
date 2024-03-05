@@ -1,14 +1,7 @@
-import { Properties } from '@posthog/plugin-scaffold'
 import { captureException } from '@sentry/node'
 import { DateTime } from 'luxon'
 
-import {
-    ClickHouseTimestamp,
-    PerformanceEventReverseMapping,
-    RawPerformanceEvent,
-    RRWebEvent,
-    TimestampFormat,
-} from '../../../types'
+import { ClickHouseTimestamp, RRWebEvent, TimestampFormat } from '../../../types'
 import { status } from '../../../utils/status'
 import { castTimestampOrNow } from '../../../utils/utils'
 import { activeMilliseconds } from './snapshot-segmenter'
@@ -268,26 +261,6 @@ export const createSessionReplayEvent = (
         message_count: 1,
         snapshot_source: snapshot_source || 'web',
     }
-
-    return data
-}
-
-export function createPerformanceEvent(uuid: string, team_id: number, distinct_id: string, properties: Properties) {
-    const data: Partial<RawPerformanceEvent> = {
-        uuid,
-        team_id: team_id,
-        distinct_id: distinct_id,
-        session_id: properties['$session_id'],
-        window_id: properties['$window_id'],
-        pageview_id: properties['$pageview_id'],
-        current_url: properties['$current_url'],
-    }
-
-    Object.entries(PerformanceEventReverseMapping).forEach(([key, value]) => {
-        if (key in properties) {
-            data[value] = properties[key]
-        }
-    })
 
     return data
 }

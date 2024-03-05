@@ -1,11 +1,12 @@
 import './ActionStep.scss'
 
+import { IconX } from '@posthog/icons'
 import { LemonButton, LemonInput, LemonSegmentedButton, Link } from '@posthog/lemon-ui'
 import { AuthorizedUrlList } from 'lib/components/AuthorizedUrlList/AuthorizedUrlList'
 import { AuthorizedUrlListType } from 'lib/components/AuthorizedUrlList/authorizedUrlListLogic'
 import { OperandTag } from 'lib/components/PropertyFilters/components/OperandTag'
 import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
-import { IconClose, IconOpenInApp } from 'lib/lemon-ui/icons'
+import { IconOpenInApp } from 'lib/lemon-ui/icons'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
 import { LemonLabel } from 'lib/lemon-ui/LemonLabel/LemonLabel'
@@ -34,7 +35,7 @@ export function ActionStep({ step, actionId, isOnlyStep, index, identifier, onDe
     }
 
     return (
-        <div className="ActionStep rounded border p-4 relative h-full">
+        <div className="ActionStep bg-bg-light rounded border p-4 relative">
             {index > 0 && !(index % 2 === 0) && (
                 <div className="ActionStep__or-tag">
                     <OperandTag operand="or" />
@@ -45,7 +46,7 @@ export function ActionStep({ step, actionId, isOnlyStep, index, identifier, onDe
                     <b>Match Group #{index + 1}</b>
 
                     {!isOnlyStep && (
-                        <LemonButton icon={<IconClose />} size="small" aria-label="delete" onClick={onDelete} />
+                        <LemonButton icon={<IconX />} size="small" aria-label="delete" onClick={onDelete} />
                     )}
                 </div>
                 <TypeSwitcher step={step} sendStep={sendStep} />
@@ -161,7 +162,7 @@ function Option({
 
     return (
         <div className="space-y-1">
-            <div className="flex space-x-1">
+            <div className="flex flex-wrap gap-1">
                 <LemonLabel>{label}</LemonLabel>
                 {extra_options}
             </div>

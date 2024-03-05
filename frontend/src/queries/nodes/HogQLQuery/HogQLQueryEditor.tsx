@@ -1,11 +1,11 @@
 import { Monaco } from '@monaco-editor/react'
+import { IconInfo, IconMagicWand } from '@posthog/icons'
 import { LemonInput, Link } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { CodeEditor } from 'lib/components/CodeEditors'
 import { FlaggedFeature } from 'lib/components/FlaggedFeature'
 import { FEATURE_FLAGS } from 'lib/constants'
-import { IconAutoAwesome, IconInfo } from 'lib/lemon-ui/icons'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { LemonButton, LemonButtonWithDropdown } from 'lib/lemon-ui/LemonButton'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
@@ -130,7 +130,7 @@ export function HogQLQueryEditor(props: HogQLQueryEditorProps): JSX.Element {
                     <div className="flex gap-2">
                         <LemonInput
                             className="grow"
-                            prefix={<IconAutoAwesome />}
+                            prefix={<IconMagicWand />}
                             value={prompt}
                             onPressEnter={() => draftFromPrompt()}
                             onChange={(value) => setPrompt(value)}
@@ -202,124 +202,134 @@ export function HogQLQueryEditor(props: HogQLQueryEditorProps): JSX.Element {
                             onChange={(v) => setQueryInput(v ?? '')}
                             height="100%"
                             onMount={(editor, monaco) => {
-                                monaco.languages.registerCompletionItemProvider('mysql', {
-                                    triggerCharacters: [' ', ',', '.'],
-                                    provideCompletionItems: async (model, position) => {
-                                        if (!logic.isMounted()) {
-                                            return undefined
-                                        }
-
-                                        if (!featureFlags[FEATURE_FLAGS.HOGQL_AUTOCOMPLETE]) {
-                                            return undefined
-                                        }
-
-                                        const word = model.getWordUntilPosition(position)
-
-                                        const startOffset = model.getOffsetAt({
-                                            lineNumber: position.lineNumber,
-                                            column: word.startColumn,
-                                        })
-                                        const endOffset = model.getOffsetAt({
-                                            lineNumber: position.lineNumber,
-                                            column: word.endColumn,
-                                        })
-
-                                        const response = await query<HogQLAutocomplete>({
-                                            kind: NodeKind.HogQLAutocomplete,
-                                            select: logic.values.queryInput,
-                                            filters: props.query.filters,
-                                            startPosition: startOffset,
-                                            endPosition: endOffset,
-                                        })
-
-                                        const completionItems = response.suggestions
-
-                                        const suggestions = completionItems.map<languages.CompletionItem>((item) => {
-                                            const kind = convertCompletionItemKind(item.kind)
-                                            const sortText = kindToSortText(item.kind, item.label)
-
-                                            return {
-                                                label: item.label,
-                                                documentation: item.documentation,
-                                                insertText: item.insertText,
-                                                range: {
-                                                    startLineNumber: position.lineNumber,
-                                                    endLineNumber: position.lineNumber,
-                                                    startColumn: word.startColumn,
-                                                    endColumn: word.endColumn,
-                                                },
-                                                kind,
-                                                sortText,
-                                                command:
-                                                    kind === languages.CompletionItemKind.Function
-                                                        ? {
-                                                              id: 'cursorLeft',
-                                                              title: 'Move cursor left',
-                                                          }
-                                                        : undefined,
+                                const completetionItemProviderDisposable =
+                                    monaco.languages.registerCompletionItemProvider('mysql', {
+                                        triggerCharacters: [' ', ',', '.'],
+                                        provideCompletionItems: async (model, position) => {
+                                            if (!featureFlags[FEATURE_FLAGS.HOGQL_AUTOCOMPLETE]) {
+                                                return undefined
                                             }
-                                        })
 
-                                        return {
-                                            suggestions,
-                                        }
-                                    },
-                                })
+                                            const word = model.getWordUntilPosition(position)
 
-                                monaco.languages.registerCodeActionProvider('mysql', {
-                                    provideCodeActions: (model, _range, context) => {
-                                        if (logic.isMounted()) {
-                                            // Monaco gives us a list of markers that we're looking at, but without the quick fixes.
-                                            const markersFromMonaco = context.markers
-                                            // We have a list of _all_ markers returned from the HogQL metadata query
-                                            const markersFromMetadata = logic.values.modelMarkers
-                                            // We need to merge the two lists
-                                            const quickFixes: languages.CodeAction[] = []
+                                            const startOffset = model.getOffsetAt({
+                                                lineNumber: position.lineNumber,
+                                                column: word.startColumn,
+                                            })
+                                            const endOffset = model.getOffsetAt({
+                                                lineNumber: position.lineNumber,
+                                                column: word.endColumn,
+                                            })
 
-                                            for (const activeMarker of markersFromMonaco) {
-                                                const start = model.getOffsetAt({
-                                                    column: activeMarker.startColumn,
-                                                    lineNumber: activeMarker.startLineNumber,
-                                                })
-                                                const end = model.getOffsetAt({
-                                                    column: activeMarker.endColumn,
-                                                    lineNumber: activeMarker.endLineNumber,
-                                                })
-                                                for (const rawMarker of markersFromMetadata) {
-                                                    if (
-                                                        rawMarker.hogQLFix &&
-                                                        // if ranges overlap
-                                                        rawMarker.start <= end &&
-                                                        rawMarker.end >= start
-                                                    ) {
-                                                        quickFixes.push({
-                                                            title: `Replace with: ${rawMarker.hogQLFix}`,
-                                                            diagnostics: [rawMarker],
-                                                            kind: 'quickfix',
-                                                            edit: {
-                                                                edits: [
-                                                                    {
-                                                                        resource: model.uri,
-                                                                        textEdit: {
-                                                                            range: rawMarker,
-                                                                            text: rawMarker.hogQLFix,
-                                                                        },
-                                                                        versionId: undefined,
-                                                                    },
-                                                                ],
-                                                            },
-                                                            isPreferred: true,
-                                                        })
+                                            const response = await query<HogQLAutocomplete>({
+                                                kind: NodeKind.HogQLAutocomplete,
+                                                select: model.getValue(), // Use the text from the model instead of logic due to a race condition on the logic values updating quick enough
+                                                filters: props.query.filters,
+                                                startPosition: startOffset,
+                                                endPosition: endOffset,
+                                            })
+
+                                            const completionItems = response.suggestions
+
+                                            const suggestions = completionItems.map<languages.CompletionItem>(
+                                                (item) => {
+                                                    const kind = convertCompletionItemKind(item.kind)
+                                                    const sortText = kindToSortText(item.kind, item.label)
+
+                                                    return {
+                                                        label: {
+                                                            label: item.label,
+                                                            detail: item.detail,
+                                                        },
+                                                        documentation: item.documentation,
+                                                        insertText: item.insertText,
+                                                        range: {
+                                                            startLineNumber: position.lineNumber,
+                                                            endLineNumber: position.lineNumber,
+                                                            startColumn: word.startColumn,
+                                                            endColumn: word.endColumn,
+                                                        },
+                                                        kind,
+                                                        sortText,
+                                                        command:
+                                                            kind === languages.CompletionItemKind.Function
+                                                                ? {
+                                                                      id: 'cursorLeft',
+                                                                      title: 'Move cursor left',
+                                                                  }
+                                                                : undefined,
                                                     }
                                                 }
-                                            }
+                                            )
+
                                             return {
-                                                actions: quickFixes,
-                                                dispose: () => {},
+                                                suggestions,
+                                                incomplete: response.incomplete_list,
                                             }
-                                        }
-                                    },
-                                })
+                                        },
+                                    })
+
+                                monacoDisposables.current.push(completetionItemProviderDisposable)
+
+                                const codeActionProviderDisposable = monaco.languages.registerCodeActionProvider(
+                                    'mysql',
+                                    {
+                                        provideCodeActions: (model, _range, context) => {
+                                            if (logic.isMounted()) {
+                                                // Monaco gives us a list of markers that we're looking at, but without the quick fixes.
+                                                const markersFromMonaco = context.markers
+                                                // We have a list of _all_ markers returned from the HogQL metadata query
+                                                const markersFromMetadata = logic.values.modelMarkers
+                                                // We need to merge the two lists
+                                                const quickFixes: languages.CodeAction[] = []
+
+                                                for (const activeMarker of markersFromMonaco) {
+                                                    const start = model.getOffsetAt({
+                                                        column: activeMarker.startColumn,
+                                                        lineNumber: activeMarker.startLineNumber,
+                                                    })
+                                                    const end = model.getOffsetAt({
+                                                        column: activeMarker.endColumn,
+                                                        lineNumber: activeMarker.endLineNumber,
+                                                    })
+                                                    for (const rawMarker of markersFromMetadata) {
+                                                        if (
+                                                            rawMarker.hogQLFix &&
+                                                            // if ranges overlap
+                                                            rawMarker.start <= end &&
+                                                            rawMarker.end >= start
+                                                        ) {
+                                                            quickFixes.push({
+                                                                title: `Replace with: ${rawMarker.hogQLFix}`,
+                                                                diagnostics: [rawMarker],
+                                                                kind: 'quickfix',
+                                                                edit: {
+                                                                    edits: [
+                                                                        {
+                                                                            resource: model.uri,
+                                                                            textEdit: {
+                                                                                range: rawMarker,
+                                                                                text: rawMarker.hogQLFix,
+                                                                            },
+                                                                            versionId: undefined,
+                                                                        },
+                                                                    ],
+                                                                },
+                                                                isPreferred: true,
+                                                            })
+                                                        }
+                                                    }
+                                                }
+                                                return {
+                                                    actions: quickFixes,
+                                                    dispose: () => {},
+                                                }
+                                            }
+                                        },
+                                    }
+                                )
+                                monacoDisposables.current.push(codeActionProviderDisposable)
+
                                 monacoDisposables.current.push(
                                     editor.addAction({
                                         id: 'saveAndRunPostHog',
@@ -338,6 +348,10 @@ export function HogQLQueryEditor(props: HogQLQueryEditorProps): JSX.Element {
                                 scrollBeyondLastLine: false,
                                 automaticLayout: true,
                                 fixedOverflowWidgets: true,
+                                suggest: {
+                                    showInlineDetails: true,
+                                },
+                                quickSuggestionsDelay: 300,
                             }}
                         />
                     </div>
@@ -361,7 +375,7 @@ export function HogQLQueryEditor(props: HogQLQueryEditorProps): JSX.Element {
                             {!props.setQuery ? 'No permission to update' : 'Update and run'}
                         </LemonButton>
                     </div>
-                    {featureFlags[FEATURE_FLAGS.DATA_WAREHOUSE_VIEWS] ? (
+                    {featureFlags[FEATURE_FLAGS.DATA_WAREHOUSE] ? (
                         <LemonButton
                             className="ml-2"
                             onClick={saveAsView}
@@ -379,7 +393,7 @@ export function HogQLQueryEditor(props: HogQLQueryEditorProps): JSX.Element {
                             Save as View
                         </LemonButton>
                     ) : null}
-                    {featureFlags[FEATURE_FLAGS.DATA_WAREHOUSE_VIEWS] && (
+                    {featureFlags[FEATURE_FLAGS.DATA_WAREHOUSE] && (
                         <LemonButtonWithDropdown
                             className="ml-2"
                             icon={<IconInfo />}

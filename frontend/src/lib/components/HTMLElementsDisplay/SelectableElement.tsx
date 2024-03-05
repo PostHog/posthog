@@ -158,6 +158,32 @@ function AttributePart({
     )
 }
 
+function WithSelectedText({
+    text,
+    selectedText,
+}: {
+    text: string | undefined
+    selectedText: string | undefined
+}): JSX.Element | null {
+    if (!text) {
+        return null
+    }
+    if (!selectedText) {
+        return <>{text}</>
+    }
+    const index = text.toLowerCase().indexOf(selectedText.toLowerCase())
+    if (index === -1) {
+        return <>{text}</>
+    }
+    return (
+        <>
+            {text.slice(0, index)}
+            <span className="bg-brand-yellow">{text.slice(index, index + selectedText.length)}</span>
+            {text.slice(index + selectedText.length)}
+        </>
+    )
+}
+
 export function SelectableElement({
     element,
     isDeepestChild,
@@ -166,6 +192,7 @@ export function SelectableElement({
     indent,
     highlight,
     parsedCSSSelector,
+    selectedText,
 }: {
     element: ElementType
     isDeepestChild: boolean
@@ -174,6 +201,7 @@ export function SelectableElement({
     indent: string
     highlight?: boolean
     parsedCSSSelector?: ParsedCSSSelector
+    selectedText?: string
 }): JSX.Element {
     const setParsedCSSSelector = (newParsedCSSSelector: ParsedCSSSelector): void => {
         if (!objectsEqual(newParsedCSSSelector, parsedCSSSelector)) {
@@ -184,7 +212,7 @@ export function SelectableElement({
     return (
         <pre
             className={clsx(
-                'p-0 m-0 rounded whitespace-pre-wrap break-all text-white text-sm',
+                'p-0 m-0 rounded whitespace-pre-wrap break-all text-default text-sm',
                 isDeepestChild && highlight ? 'bg-brand-red' : 'bg-transparent'
             )}
         >
@@ -220,7 +248,7 @@ export function SelectableElement({
                     )
                 })}
             &gt;
-            {element.text}
+            <WithSelectedText text={element.text} selectedText={selectedText} />
             {isDeepestChild && <span>&lt;/{element.tag_name}&gt;</span>}
         </pre>
     )

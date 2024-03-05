@@ -1,3 +1,4 @@
+import { IconInfo } from '@posthog/icons'
 import { LemonButton, LemonDivider, LemonInput, LemonModal, Tooltip } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { Field, Form } from 'kea-forms'
@@ -5,7 +6,6 @@ import { InsightLabel } from 'lib/components/InsightLabel'
 import { PropertyFilterButton } from 'lib/components/PropertyFilters/components/PropertyFilterButton'
 import { TZLabel } from 'lib/components/TZLabel'
 import { dayjs } from 'lib/dayjs'
-import { IconInfo } from 'lib/lemon-ui/icons'
 import { LemonSlider } from 'lib/lemon-ui/LemonSlider'
 import { humanFriendlyNumber } from 'lib/utils'
 import { groupFilters } from 'scenes/feature-flags/FeatureFlags'
@@ -288,7 +288,7 @@ export function ExperimentPreview({
                                     </LemonButton>
                                 </div>
                                 {experimentInsightType === InsightType.TRENDS &&
-                                    !experimentMathAggregationForTrends && (
+                                    !experimentMathAggregationForTrends(experiment.filters) && (
                                         <>
                                             <div className="card-secondary mb-2 mt-4">
                                                 Exposure metric

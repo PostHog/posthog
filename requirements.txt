@@ -10,7 +10,7 @@ aiobotocore[boto3]==2.7.0
     # via
     #   aioboto3
     #   s3fs
-aiohttp==3.9.0
+aiohttp==3.9.2
     # via
     #   -r requirements.in
     #   aiobotocore
@@ -226,6 +226,8 @@ drf-extensions==0.7.0
     # via -r requirements.in
 drf-spectacular==0.27.1
     # via -r requirements.in
+et-xmlfile==1.1.0
+    # via openpyxl
 exceptiongroup==1.2.0
     # via anyio
 filelock==3.12.0
@@ -309,7 +311,7 @@ idna==2.8
     #   yarl
 importlib-metadata==6.8.0
     # via -r requirements.in
-infi-clickhouse-orm @ git+https://github.com/PostHog/infi.clickhouse_orm@37722f350f3b449bbcd6564917c436b0d93e796f
+infi-clickhouse-orm @ git+https://github.com/PostHog/infi.clickhouse_orm@9578c79f29635ee2c1d01b7979e89adab8383de2
     # via -r requirements.in
 inflection==0.5.1
     # via drf-spectacular
@@ -346,7 +348,7 @@ kombu==5.3.2
     #   celery
 lazy-object-proxy==1.10.0
     # via openapi-spec-validator
-lxml==4.6.5
+lxml==4.9.1
     # via
     #   python3-saml
     #   toronado
@@ -385,8 +387,12 @@ openapi-schema-validator==0.6.2
     # via openapi-spec-validator
 openapi-spec-validator==0.7.1
     # via -r requirements.in
-orjson==3.9.10
-    # via dlt
+openpyxl==3.1.2
+    # via -r requirements.in
+orjson==3.9.15
+    # via
+    #   -r requirements.in
+    #   dlt
 oscrypto==1.3.0
     # via snowflake-connector-python
 outcome==1.1.0
@@ -443,7 +449,7 @@ ptyprocess==0.6.0
     # via pexpect
 py==1.11.0
     # via retry
-pyarrow==12.0.1
+pyarrow==15.0.0
     # via -r requirements.in
 pyasn1==0.5.0
     # via
@@ -520,6 +526,8 @@ referencing==0.31.1
     #   jsonschema
     #   jsonschema-path
     #   jsonschema-specifications
+regex==2023.12.25
+    # via tiktoken
 requests==2.31.0
     # via
     #   -r requirements.in
@@ -535,6 +543,7 @@ requests==2.31.0
     #   snowflake-connector-python
     #   social-auth-core
     #   stripe
+    #   tiktoken
     #   webdriver-manager
 requests-oauthlib==1.3.0
     # via
@@ -622,6 +631,8 @@ tenacity==8.2.3
     # via
     #   celery-redbeat
     #   dlt
+tiktoken==0.6.0
+    # via -r requirements.in
 token-bucket==0.3.0
     # via -r requirements.in
 tomlkit==0.12.3

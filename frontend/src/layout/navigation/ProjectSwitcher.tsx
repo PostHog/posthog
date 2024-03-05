@@ -1,6 +1,6 @@
+import { IconGear, IconPlus } from '@posthog/icons'
 import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
-import { IconPlus, IconSettings } from 'lib/lemon-ui/icons'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
 import { LemonSnack } from 'lib/lemon-ui/LemonSnack/LemonSnack'
@@ -50,8 +50,6 @@ export function ProjectSwitcherOverlay({ onClickInside }: { onClickInside?: () =
                     onClickInside?.()
                     guardAvailableFeature(
                         AvailableFeature.ORGANIZATIONS_PROJECTS,
-                        'multiple projects',
-                        'Projects allow you to separate data and configuration for different products or environments.',
                         showCreateProjectModal,
                         undefined,
                         currentOrganization?.teams?.length
@@ -72,7 +70,7 @@ function CurrentProjectButton({ onClickInside }: { onClickInside?: () => void })
         <LemonButton
             active
             sideAction={{
-                icon: <IconSettings className="text-muted-alt" />,
+                icon: <IconGear className="text-muted-alt" />,
                 tooltip: `Go to ${currentTeam.name} settings`,
                 onClick: () => {
                     onClickInside?.()
@@ -103,7 +101,7 @@ function OtherProjectButton({ team }: { team: TeamBasicType; onClickInside?: () 
         <LemonButton
             to={relativeOtherProjectPath}
             sideAction={{
-                icon: <IconSettings className="text-muted-alt" />,
+                icon: <IconGear className="text-muted-alt" />,
                 tooltip: `Go to ${team.name} settings`,
                 to: urls.project(team.id, urls.settings()),
             }}

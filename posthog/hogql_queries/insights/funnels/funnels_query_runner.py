@@ -15,12 +15,15 @@ from posthog.hogql.printer import to_printed_hogql
 from posthog.hogql.query import execute_hogql_query
 from posthog.hogql.timings import HogQLTimings
 from posthog.hogql_queries.insights.funnels.funnel_query_context import FunnelQueryContext
-from posthog.hogql_queries.insights.funnels.utils import get_funnel_order_class
+from posthog.hogql_queries.insights.funnels.funnel_time_to_convert import FunnelTimeToConvert
+from posthog.hogql_queries.insights.funnels.funnel_trends import FunnelTrends
+from posthog.hogql_queries.insights.funnels.utils import get_funnel_actor_class, get_funnel_order_class
 from posthog.hogql_queries.query_runner import QueryRunner
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 from posthog.models import Team
 from posthog.models.filters.mixins.utils import cached_property
 from posthog.schema import (
+    FunnelVizType,
     FunnelsQuery,
     FunnelsQueryResponse,
     HogQLQueryModifiers,
@@ -39,12 +42,14 @@ class FunnelsQueryRunner(QueryRunner):
         timings: Optional[HogQLTimings] = None,
         modifiers: Optional[HogQLQueryModifiers] = None,
         limit_context: Optional[LimitContext] = None,
+        **kwargs,
     ):
         super().__init__(query, team=team, timings=timings, modifiers=modifiers, limit_context=limit_context)
 
         self.context = FunnelQueryContext(
             query=self.query, team=team, timings=timings, modifiers=modifiers, limit_context=limit_context
         )
+        self.kwargs = kwargs
 
     def _is_stale(self, cached_result_package):
         date_to = self.query_date_range.date_to()
@@ -69,7 +74,10 @@ class FunnelsQueryRunner(QueryRunner):
         return refresh_frequency
 
     def to_query(self) -> ast.SelectQuery:
-        return self.funnel_order_class.get_query()
+        return self.funnel_class.get_query()
+
+    def to_actors_query(self) -> ast.SelectQuery | ast.SelectUnionQuery:
+        return self.funnel_actor_class.actor_query()
 
     def calculate(self):
         query = self.to_query()
@@ -86,7 +94,7 @@ class FunnelsQueryRunner(QueryRunner):
             modifiers=self.modifiers,
         )
 
-        results = self.funnel_order_class._format_results(response.results)
+        results = self.funnel_class._format_results(response.results)
 
         if response.timings is not None:
             timings.extend(response.timings)
@@ -96,6 +104,21 @@ class FunnelsQueryRunner(QueryRunner):
     @cached_property
     def funnel_order_class(self):
         return get_funnel_order_class(self.context.funnelsFilter)(context=self.context)
+
+    @cached_property
+    def funnel_class(self):
+        funnelVizType = self.context.funnelsFilter.funnelVizType
+
+        if funnelVizType == FunnelVizType.trends:
+            return FunnelTrends(context=self.context, **self.kwargs)
+        elif funnelVizType == FunnelVizType.time_to_convert:
+            return FunnelTimeToConvert(context=self.context)
+        else:
+            return self.funnel_order_class
+
+    @cached_property
+    def funnel_actor_class(self):
+        return get_funnel_actor_class(self.context.funnelsFilter)(context=self.context)
 
     @cached_property
     def query_date_range(self):

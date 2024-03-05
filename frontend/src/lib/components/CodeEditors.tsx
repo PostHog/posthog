@@ -1,3 +1,5 @@
+import './CodeEditor.scss'
+
 import MonacoEditor, { type EditorProps } from '@monaco-editor/react'
 import { useValues } from 'kea'
 import { Spinner } from 'lib/lemon-ui/Spinner'

@@ -46,22 +46,15 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
 
     // insightLogic
     const logic = insightLogic(insightLogicProps)
-    const {
-        insightProps,
-        canEditInsight,
-        insight,
-        insightChanged,
-        insightSaving,
-        hasDashboardItemId,
-        exporterResourceParams,
-    } = useValues(logic)
+    const { insightProps, canEditInsight, insight, insightChanged, insightSaving, hasDashboardItemId } =
+        useValues(logic)
     const { setInsightMetadata } = useActions(logic)
 
     // savedInsightsLogic
     const { duplicateInsight, loadInsights } = useActions(savedInsightsLogic)
 
     // insightDataLogic
-    const { queryChanged, showQueryEditor, hogQL } = useValues(insightDataLogic(insightProps))
+    const { queryChanged, showQueryEditor, hogQL, exportContext } = useValues(insightDataLogic(insightProps))
     const { saveInsight, saveAs, toggleQueryEditorPanel } = useActions(insightDataLogic(insightProps))
 
     // other logics
@@ -84,7 +77,7 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
                         subscriptionId={subscriptionId}
                     />
                     <SharingModal
-                        title="Insight Sharing"
+                        title="Insight sharing"
                         isOpen={insightMode === ItemMode.Sharing}
                         closeModal={() => push(urls.insightView(insight.short_id as InsightShortId))}
                         insightShortId={insight.short_id}
@@ -144,7 +137,7 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
                                                 Share or embed
                                             </LemonButton>
                                             <SubscribeButton insightShortId={insight.short_id} />
-                                            {exporterResourceParams ? (
+                                            {exportContext ? (
                                                 <ExportButton
                                                     fullWidth
                                                     items={[
@@ -154,7 +147,11 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
                                                         },
                                                         {
                                                             export_format: ExporterFormat.CSV,
-                                                            export_context: exporterResourceParams,
+                                                            export_context: exportContext,
+                                                        },
+                                                        {
+                                                            export_format: ExporterFormat.XLSX,
+                                                            export_context: exportContext,
                                                         },
                                                     ]}
                                                 />
@@ -295,7 +292,7 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
                                 mode={!canEditInsight ? 'view' : undefined}
                                 data-attr="insight-description"
                                 compactButtons
-                                paywall={!hasAvailableFeature(AvailableFeature.DASHBOARD_COLLABORATION)}
+                                paywall={!hasAvailableFeature(AvailableFeature.TEAM_COLLABORATION)}
                             />
                         )}
                         {canEditInsight ? (

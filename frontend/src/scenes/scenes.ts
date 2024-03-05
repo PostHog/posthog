@@ -265,15 +265,11 @@ export const sceneConfigurations: Record<Scene, SceneConfig> = {
     },
     [Scene.Products]: {
         projectBased: true,
-        layout: 'plain',
+        hideProjectNotice: true,
     },
     [Scene.Onboarding]: {
         projectBased: true,
-        layout: 'plain',
-    },
-    [Scene.OnboardingProductIntroduction]: {
-        projectBased: true,
-        name: 'Product introduction',
+        hideBillingNotice: true,
         hideProjectNotice: true,
     },
     [Scene.ToolbarLaunch]: {
@@ -547,7 +543,6 @@ export const routes: Record<string, Scene> = {
     [urls.passwordResetComplete(':uuid', ':token')]: Scene.PasswordResetComplete,
     [urls.products()]: Scene.Products,
     [urls.onboarding(':productKey')]: Scene.Onboarding,
-    [urls.onboardingProductIntroduction(':productKey')]: Scene.OnboardingProductIntroduction,
     [urls.verifyEmail()]: Scene.VerifyEmail,
     [urls.verifyEmail(':uuid')]: Scene.VerifyEmail,
     [urls.verifyEmail(':uuid', ':token')]: Scene.VerifyEmail,

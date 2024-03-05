@@ -15,9 +15,11 @@ import { AvailableFeature, ProductKey } from '~/types'
 
 import { appContextLogic } from './appContextLogic'
 import { handleLoginRedirect } from './authentication/loginLogic'
+import { onboardingLogic, OnboardingStepKey } from './onboarding/onboardingLogic'
 import { organizationLogic } from './organizationLogic'
 import { preflightLogic } from './PreflightCheck/preflightLogic'
 import type { sceneLogicType } from './sceneLogicType'
+import { inviteLogic } from './settings/organization/inviteLogic'
 import { teamLogic } from './teamLogic'
 import { userLogic } from './userLogic'
 
@@ -37,7 +39,7 @@ export const sceneLogic = kea<sceneLogicType>([
     path(['scenes', 'sceneLogic']),
     connect(() => ({
         logic: [router, userLogic, preflightLogic, appContextLogic],
-        actions: [router, ['locationChanged'], commandBarLogic, ['setCommandBar']],
+        actions: [router, ['locationChanged'], commandBarLogic, ['setCommandBar'], inviteLogic, ['hideInviteModal']],
         values: [featureFlagLogic, ['featureFlags']],
     })),
     actions({
@@ -51,11 +53,13 @@ export const sceneLogic = kea<sceneLogicType>([
         setLoadedScene: (loadedScene: LoadedScene) => ({
             loadedScene,
         }),
-        showUpgradeModal: (featureName: string, featureCaption: string) => ({ featureName, featureCaption }),
+        showUpgradeModal: (featureKey: AvailableFeature, currentUsage?: number, isGrandfathered?: boolean) => ({
+            featureKey,
+            currentUsage,
+            isGrandfathered,
+        }),
         guardAvailableFeature: (
             featureKey: AvailableFeature,
-            featureName: string,
-            featureCaption: string,
             featureAvailableCallback?: () => void,
             guardOn: {
                 cloud: boolean
@@ -66,8 +70,9 @@ export const sceneLogic = kea<sceneLogicType>([
             },
             // how much of the feature has been used (eg. number of recording playlists created),
             // which will be compared to the limit for their subscriptions
-            currentUsage?: number
-        ) => ({ featureKey, featureName, featureCaption, featureAvailableCallback, guardOn, currentUsage }),
+            currentUsage?: number,
+            isGrandfathered?: boolean
+        ) => ({ featureKey, featureAvailableCallback, guardOn, currentUsage, isGrandfathered }),
         hideUpgradeModal: true,
         reloadBrowserDueToImportError: true,
     }),
@@ -101,10 +106,24 @@ export const sceneLogic = kea<sceneLogicType>([
                 setScene: () => null,
             },
         ],
-        upgradeModalFeatureNameAndCaption: [
-            null as [string, string] | null,
+        upgradeModalFeatureKey: [
+            null as AvailableFeature | null,
             {
-                showUpgradeModal: (_, { featureName, featureCaption }) => [featureName, featureCaption],
+                showUpgradeModal: (_, { featureKey }) => featureKey,
+                hideUpgradeModal: () => null,
+            },
+        ],
+        upgradeModalFeatureUsage: [
+            null as number | null,
+            {
+                showUpgradeModal: (_, { currentUsage }) => currentUsage ?? null,
+                hideUpgradeModal: () => null,
+            },
+        ],
+        upgradeModalIsGrandfathered: [
+            null as boolean | null,
+            {
+                showUpgradeModal: (_, { isGrandfathered }) => isGrandfathered ?? null,
                 hideUpgradeModal: () => null,
             },
         ],
@@ -152,17 +171,10 @@ export const sceneLogic = kea<sceneLogicType>([
         hashParams: [(s) => [s.sceneParams], (sceneParams): Record<string, any> => sceneParams.hashParams || {}],
     }),
     listeners(({ values, actions, props, selectors }) => ({
-        showUpgradeModal: ({ featureName }) => {
-            eventUsageLogic.actions.reportUpgradeModalShown(featureName)
+        showUpgradeModal: ({ featureKey }) => {
+            eventUsageLogic.actions.reportUpgradeModalShown(featureKey)
         },
-        guardAvailableFeature: ({
-            featureKey,
-            featureName,
-            featureCaption,
-            featureAvailableCallback,
-            guardOn,
-            currentUsage,
-        }) => {
+        guardAvailableFeature: ({ featureKey, featureAvailableCallback, guardOn, currentUsage, isGrandfathered }) => {
             const { preflight } = preflightLogic.values
             let featureAvailable: boolean
             if (!preflight) {
@@ -177,7 +189,7 @@ export const sceneLogic = kea<sceneLogicType>([
             if (featureAvailable) {
                 featureAvailableCallback?.()
             } else {
-                actions.showUpgradeModal(featureName, featureCaption)
+                actions.showUpgradeModal(featureKey, currentUsage, isGrandfathered)
             }
         },
         setScene: ({ scene, scrollToTop }, _, __, previousState) => {
@@ -249,9 +261,13 @@ export const sceneLogic = kea<sceneLogicType>([
                         !removeProjectIdIfPresent(location.pathname).startsWith(urls.products()) &&
                         !removeProjectIdIfPresent(location.pathname).startsWith(urls.settings())
                     ) {
+                        const allProductUrls = Object.values(productUrlMapping).flat()
                         if (
-                            !teamLogic.values.currentTeam.completed_snippet_onboarding &&
-                            !Object.keys(teamLogic.values.currentTeam.has_completed_onboarding_for || {}).length
+                            !teamLogic.values.hasOnboardedAnyProduct &&
+                            (values.featureFlags[FEATURE_FLAGS.PRODUCT_INTRO_PAGES] !== 'test' ||
+                                !allProductUrls.some((path) =>
+                                    removeProjectIdIfPresent(location.pathname).startsWith(path)
+                                ))
                         ) {
                             console.warn('No onboarding completed, redirecting to /products')
                             router.actions.replace(urls.products())
@@ -283,7 +299,12 @@ export const sceneLogic = kea<sceneLogicType>([
                                 console.warn(
                                     `Onboarding not completed for ${productKeyFromUrl}, redirecting to onboarding intro`
                                 )
-                                router.actions.replace(urls.onboardingProductIntroduction(productKeyFromUrl))
+                                onboardingLogic.mount()
+                                onboardingLogic.actions.setIncludeIntro(true)
+                                onboardingLogic.unmount()
+                                router.actions.replace(
+                                    urls.onboarding(productKeyFromUrl, OnboardingStepKey.PRODUCT_INTRO)
+                                )
                                 return
                             }
                         }

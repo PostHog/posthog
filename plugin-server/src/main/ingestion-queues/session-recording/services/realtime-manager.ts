@@ -7,8 +7,6 @@ import { PluginsServerConfig, RedisPool } from '../../../../types'
 import { timeoutGuard } from '../../../../utils/db/utils'
 import { status } from '../../../../utils/status'
 import { createRedis } from '../../../../utils/utils'
-import { IncomingRecordingMessage } from '../types'
-import { convertToPersistedMessage } from '../utils'
 
 const Keys = {
     snapshots(prefix: string, teamId: number, suffix: string): string {
@@ -84,28 +82,6 @@ export class RealtimeManager extends EventEmitter {
         } finally {
             clearTimeout(timeout)
             await this.redisPool.release(client)
-        }
-    }
-
-    public async addMessage(message: IncomingRecordingMessage): Promise<void> {
-        const key = Keys.snapshots(
-            this.serverConfig.SESSION_RECORDING_REDIS_PREFIX,
-            message.team_id,
-            message.session_id
-        )
-
-        try {
-            await this.run(`addMessage ${key} `, async (client) => {
-                const pipeline = client.pipeline()
-                pipeline.zadd(key, message.metadata.timestamp, JSON.stringify(convertToPersistedMessage(message)))
-                pipeline.expire(key, this.ttlSeconds)
-                return pipeline.exec()
-            })
-        } catch (error) {
-            status.error('🧨', 'RealtimeManager failed to add recording message to redis', {
-                error,
-                key,
-            })
         }
     }
 

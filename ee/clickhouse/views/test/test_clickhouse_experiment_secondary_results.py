@@ -1,6 +1,6 @@
 from typing import Any, Dict, List
-
 from flaky import flaky
+
 
 from ee.api.test.base import APILicensedTest
 from posthog.test.base import ClickhouseTestMixin, snapshot_clickhouse_queries
@@ -191,7 +191,7 @@ class ClickhouseTestExperimentSecondaryResults(ClickhouseTestMixin, APILicensedT
         response = self.client.get(f"/api/projects/{self.team.id}/experiments/{id}/secondary_results?id=0")
         self.assertEqual(200, response.status_code)
 
-        response_data = response.json()
+        response_data = response.json()["result"]
 
         self.assertEqual(len(response_data["result"].items()), 2)
 
@@ -201,7 +201,7 @@ class ClickhouseTestExperimentSecondaryResults(ClickhouseTestMixin, APILicensedT
         response = self.client.get(f"/api/projects/{self.team.id}/experiments/{id}/secondary_results?id=1")
         self.assertEqual(200, response.status_code)
 
-        response_data = response.json()
+        response_data = response.json()["result"]
 
         self.assertEqual(len(response_data["result"].items()), 2)
 
@@ -228,6 +228,7 @@ class ClickhouseTestExperimentSecondaryResults(ClickhouseTestMixin, APILicensedT
         response_data = response.json()
         self.assertEqual(response_data.pop("is_cached"), False)
 
+        response_data = response_data["result"]
         self.assertEqual(len(response_data["result"].items()), 2)
 
         self.assertEqual(response_data["result"]["control"], 3)
@@ -237,11 +238,12 @@ class ClickhouseTestExperimentSecondaryResults(ClickhouseTestMixin, APILicensedT
         self.assertEqual(200, response.status_code)
 
         response_data = response.json()
+        result_data = response_data["result"]
 
-        self.assertEqual(len(response_data["result"].items()), 2)
+        self.assertEqual(len(result_data["result"].items()), 2)
 
-        self.assertAlmostEqual(response_data["result"]["control"], 1)
-        self.assertEqual(response_data["result"]["test"], round(1 / 3, 3))
+        self.assertAlmostEqual(result_data["result"]["control"], 1)
+        self.assertEqual(result_data["result"]["test"], round(1 / 3, 3))
 
         response2 = self.client.get(f"/api/projects/{self.team.id}/experiments/{id}/secondary_results?id=1")
         response2_data = response2.json()
@@ -486,7 +488,7 @@ class ClickhouseTestExperimentSecondaryResults(ClickhouseTestMixin, APILicensedT
         response = self.client.get(f"/api/projects/{self.team.id}/experiments/{id}/secondary_results?id=0")
         self.assertEqual(200, response.status_code)
 
-        response_data = response.json()
+        response_data = response.json()["result"]
 
         # trend missing 'test' variant, so it's not in the results
         self.assertEqual(len(response_data["result"].items()), 3)
@@ -498,7 +500,7 @@ class ClickhouseTestExperimentSecondaryResults(ClickhouseTestMixin, APILicensedT
         response = self.client.get(f"/api/projects/{self.team.id}/experiments/{id}/secondary_results?id=1")
         self.assertEqual(200, response.status_code)
 
-        response_data = response.json()
+        response_data = response.json()["result"]
 
         # funnel not missing 'test' variant, so it's in the results
         self.assertEqual(len(response_data["result"].items()), 4)
@@ -748,7 +750,7 @@ class ClickhouseTestExperimentSecondaryResults(ClickhouseTestMixin, APILicensedT
         response = self.client.get(f"/api/projects/{self.team.id}/experiments/{id}/secondary_results?id=0")
         self.assertEqual(200, response.status_code)
 
-        response_data = response.json()
+        response_data = response.json()["result"]
 
         # trend missing 'test' variant, so it's not in the results
         self.assertEqual(len(response_data["result"].items()), 3)
@@ -760,7 +762,7 @@ class ClickhouseTestExperimentSecondaryResults(ClickhouseTestMixin, APILicensedT
         response = self.client.get(f"/api/projects/{self.team.id}/experiments/{id}/secondary_results?id=1")
         self.assertEqual(200, response.status_code)
 
-        response_data = response.json()
+        response_data = response.json()["result"]
 
         # funnel not missing 'test' variant, so it's in the results
         self.assertEqual(len(response_data["result"].items()), 4)
@@ -989,7 +991,7 @@ class ClickhouseTestExperimentSecondaryResults(ClickhouseTestMixin, APILicensedT
         response = self.client.get(f"/api/projects/{self.team.id}/experiments/{id}/secondary_results?id=0")
         self.assertEqual(200, response.status_code)
 
-        response_data = response.json()
+        response_data = response.json()["result"]
 
         # trend missing 'test' variant, so it's not in the results
         self.assertEqual(len(response_data["result"].items()), 3)
@@ -1001,7 +1003,7 @@ class ClickhouseTestExperimentSecondaryResults(ClickhouseTestMixin, APILicensedT
         response = self.client.get(f"/api/projects/{self.team.id}/experiments/{id}/secondary_results?id=1")
         self.assertEqual(200, response.status_code)
 
-        response_data = response.json()
+        response_data = response.json()["result"]
 
         self.assertEqual(len(response_data["result"].items()), 4)
 
@@ -1148,8 +1150,157 @@ class ClickhouseTestExperimentSecondaryResults(ClickhouseTestMixin, APILicensedT
         self.assertEqual(200, response.status_code)
 
         response_data = response.json()
+        result_data = response_data["result"]
 
-        self.assertEqual(len(response_data["result"].items()), 2)
+        self.assertEqual(len(result_data["result"].items()), 2)
+        self.assertAlmostEqual(result_data["result"]["control"], 1)
+        self.assertEqual(result_data["result"]["test"], round(1 / 3, 3))
 
-        self.assertAlmostEqual(response_data["result"]["control"], 1)
-        self.assertEqual(response_data["result"]["test"], round(1 / 3, 3))
+        assert set(response_data["result"].keys()) == {
+            "result",
+            "insight",
+            "filters",
+            "probability",
+            "significant",
+            "significance_code",
+            "expected_loss",
+            "variants",
+        }
+
+        assert response_data["result"]["variants"] == [
+            {
+                "failure_count": 0,
+                "key": "control",
+                "success_count": 2,
+            },
+            {
+                "failure_count": 2,
+                "key": "test",
+                "success_count": 1,
+            },
+        ]
+
+        assert response_data["result"]["significant"] is False
+        assert response_data["result"]["significance_code"] == "not_enough_exposure"
+
+    def test_no_metric_validation_errors_for_secondary_metrics(self):
+        journeys_for(
+            {
+                # for trend metric, no test
+                "person2": [
+                    {
+                        "event": "$pageview",
+                        "timestamp": "2020-01-03",
+                        "properties": {"$feature/a-b-test": "control"},
+                    },
+                    {
+                        "event": "$pageview",
+                        "timestamp": "2020-01-03",
+                        "properties": {"$feature/a-b-test": "control"},
+                    },
+                ],
+                # doesn't have feature set
+                "person_out_of_control": [{"event": "$pageview_funnel", "timestamp": "2020-01-03"}],
+                "person_out_of_end_date": [
+                    {
+                        "event": "$pageview_funnel",
+                        "timestamp": "2020-08-03",
+                        "properties": {"$feature/a-b-test": "control"},
+                    }
+                ],
+                # has invalid feature set
+                "person_out_of_all_controls": [
+                    {
+                        "event": "$pageview_funnel",
+                        "timestamp": "2020-01-03",
+                        "properties": {"$feature/a-b-test": "XYZABC"},
+                    }
+                ],
+                # for a funnel conversion metric - no control variant
+                "person1_funnel": [
+                    {
+                        "event": "$pageview_funnel",
+                        "timestamp": "2020-01-02",
+                        # "properties": {"$feature/a-b-test": "test"},
+                    },
+                    {
+                        "event": "$pageleave_funnel",
+                        "timestamp": "2020-01-04",
+                        "properties": {"$feature/a-b-test": "test"},
+                    },
+                ],
+                # doesn't have feature set
+                "person_out_of_control_funnel": [
+                    {"event": "$pageview_funnel", "timestamp": "2020-01-03"},
+                    {"event": "$pageleave_funnel", "timestamp": "2020-01-05"},
+                ],
+                "person_out_of_end_date_funnel": [
+                    {
+                        "event": "$pageview_funnel",
+                        "timestamp": "2020-08-03",
+                        "properties": {"$feature/a-b-test": "control"},
+                    },
+                    {
+                        "event": "$pageleave_funnel",
+                        "timestamp": "2020-08-05",
+                        "properties": {"$feature/a-b-test": "control"},
+                    },
+                ],
+                # non-converters with FF
+                "person4_funnel": [
+                    {
+                        "event": "$pageview_funnel",
+                        "timestamp": "2020-01-03",
+                        "properties": {"$feature/a-b-test": "test"},
+                    }
+                ],
+                "person5_funnel": [
+                    {
+                        "event": "$pageview_funnel",
+                        "timestamp": "2020-01-04",
+                        "properties": {"$feature/a-b-test": "test"},
+                    }
+                ],
+            },
+            self.team,
+        )
+
+        creation_response = self.client.post(
+            f"/api/projects/{self.team.id}/experiments/",
+            DEFAULT_EXPERIMENT_CREATION_PAYLOAD,
+        )
+
+        id = creation_response.json()["id"]
+
+        response = self.client.get(f"/api/projects/{self.team.id}/experiments/{id}/secondary_results?id=0")
+        self.assertEqual(200, response.status_code)
+
+        response_data = response.json()
+        result_data = response_data["result"]
+
+        assert set(response_data["result"].keys()) == {
+            "result",
+            "insight",
+            "filters",
+        }
+
+        self.assertEqual(result_data["result"]["control"], 2)
+        assert "test" not in result_data["result"]
+
+        response = self.client.get(f"/api/projects/{self.team.id}/experiments/{id}/secondary_results?id=1")
+        self.assertEqual(200, response.status_code)
+
+        response_data = response.json()
+        result_data = response_data["result"]
+
+        self.assertEqual(len(response_data["result"].items()), 3)
+
+        assert set(response_data["result"].keys()) == {
+            "result",
+            "insight",
+            "filters",
+        }
+
+        assert "control" not in result_data["result"]
+
+        self.assertEqual(result_data["result"]["test"], round(1 / 3, 3))

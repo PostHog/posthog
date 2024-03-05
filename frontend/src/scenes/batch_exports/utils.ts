@@ -1,4 +1,7 @@
-import { BatchExportConfiguration, BatchExportDestination, BatchExportRun } from '~/types'
+import { useValues } from 'kea'
+import { userLogic } from 'scenes/userLogic'
+
+import { AvailableFeature, BatchExportConfiguration, BatchExportDestination, BatchExportRun } from '~/types'
 
 export function intervalToFrequency(interval: BatchExportConfiguration['interval']): string {
     return {
@@ -34,4 +37,11 @@ export function humanizeDestination(destination: BatchExportDestination): string
     }
 
     return 'Unknown'
+}
+
+export function showBatchExports(): boolean {
+    const { user } = useValues(userLogic)
+    const { hasAvailableFeature } = useValues(userLogic)
+
+    return hasAvailableFeature(AvailableFeature.DATA_PIPELINES) || user?.is_impersonated == true
 }

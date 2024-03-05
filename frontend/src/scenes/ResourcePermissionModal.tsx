@@ -1,7 +1,7 @@
+import { IconGear, IconTrash } from '@posthog/icons'
 import { LemonButton, LemonModal, LemonTable } from '@posthog/lemon-ui'
 import { useValues } from 'kea'
 import { TitleWithIcon } from 'lib/components/TitleWithIcon'
-import { IconDelete, IconSettings } from 'lib/lemon-ui/icons'
 import {
     LemonSelectMultiple,
     LemonSelectMultipleOptionItem,
@@ -114,7 +114,7 @@ export function ResourcePermission({
                             <TitleWithIcon
                                 icon={
                                     <LemonButton
-                                        icon={<IconSettings />}
+                                        icon={<IconGear />}
                                         to={`${urls.settings('organization')}?tab=role_based_access`}
                                         targetBlank
                                         size="small"
@@ -143,10 +143,10 @@ export function ResourcePermission({
                         {role.feature_flags_access_level === AccessLevel.WRITE ? 'Edit' : 'View'}
                         {role.deletable && (
                             <LemonButton
-                                icon={<IconDelete />}
+                                icon={<IconTrash />}
                                 onClick={() => deleteAssociatedRole(role.id)}
                                 tooltip="Remove custom role from feature flag"
-                                tooltipPlacement="bottomLeft"
+                                tooltipPlacement="bottom-start"
                                 size="small"
                             />
                         )}
@@ -232,7 +232,7 @@ function OrganizationResourcePermissionLabel({
             <TitleWithIcon
                 icon={
                     <LemonButton
-                        icon={<IconSettings />}
+                        icon={<IconGear />}
                         to={`${urls.settings('organization')}?tab=role_based_access`}
                         targetBlank
                         size="small"
@@ -269,10 +269,10 @@ function RoleRow({ role, deleteRole }: { role: RoleType; deleteRole?: (roleId: R
             <b>{role.name}</b>
             {deleteRole && (
                 <LemonButton
-                    icon={<IconDelete />}
+                    icon={<IconTrash />}
                     onClick={() => deleteRole(role.id)}
                     tooltip="Remove role from permission"
-                    tooltipPlacement="bottomLeft"
+                    tooltipPlacement="bottom-start"
                     size="small"
                 />
             )}

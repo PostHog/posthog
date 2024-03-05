@@ -1,130 +1,112 @@
-import { LemonButton, LemonSelect, LemonSwitch, LemonTag, Link } from '@posthog/lemon-ui'
+import { IconPlus } from '@posthog/icons'
+import {
+    LemonBanner,
+    LemonButton,
+    LemonSegmentedButton,
+    LemonSegmentedButtonOption,
+    LemonSelect,
+    LemonSwitch,
+    LemonTag,
+    Link,
+    Spinner,
+} from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { AuthorizedUrlList } from 'lib/components/AuthorizedUrlList/AuthorizedUrlList'
 import { AuthorizedUrlListType } from 'lib/components/AuthorizedUrlList/authorizedUrlListLogic'
+import { EventSelect } from 'lib/components/EventSelect/EventSelect'
 import { FlaggedFeature } from 'lib/components/FlaggedFeature'
 import { FlagSelector } from 'lib/components/FlagSelector'
+import { PropertySelect } from 'lib/components/PropertySelect/PropertySelect'
+import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { FEATURE_FLAGS, SESSION_REPLAY_MINIMUM_DURATION_OPTIONS } from 'lib/constants'
-import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
-import { IconCancel } from 'lib/lemon-ui/icons'
+import { IconCancel, IconSelectEvents } from 'lib/lemon-ui/icons'
 import { LemonLabel } from 'lib/lemon-ui/LemonLabel/LemonLabel'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { featureFlagLogic as enabledFlagsLogic } from 'lib/logic/featureFlagLogic'
+import { sessionReplayLinkedFlagLogic } from 'scenes/settings/project/sessionReplayLinkedFlagLogic'
 import { teamLogic } from 'scenes/teamLogic'
-import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
-import { AvailableFeature } from '~/types'
+import { AvailableFeature, MultivariateFlagOptions, SessionRecordingAIConfig } from '~/types'
 
-export function ReplayGeneral(): JSX.Element {
+function LogCaptureSettings(): JSX.Element {
     const { updateCurrentTeam } = useActions(teamLogic)
     const { currentTeam } = useValues(teamLogic)
-    const hasCanvasRecording = useFeatureFlag('SESSION_REPLAY_CANVAS')
 
     return (
-        <div className="space-y-4">
-            <p>Watch recordings of how users interact with your web app to see what can be improved.</p>
+        <div>
+            <h3>Log capture</h3>
+            <p>
+                This setting controls if browser console logs will be captured as a part of recordings. The console logs
+                will be shown in the recording player to help you debug any issues.
+            </p>
+            <LemonSwitch
+                data-attr="opt-in-capture-console-log-switch"
+                onChange={(checked) => {
+                    updateCurrentTeam({ capture_console_log_opt_in: checked })
+                }}
+                label="Capture console logs"
+                bordered
+                checked={currentTeam?.session_recording_opt_in ? !!currentTeam?.capture_console_log_opt_in : false}
+                disabledReason={
+                    !currentTeam?.session_recording_opt_in ? 'session recording must be enabled' : undefined
+                }
+            />
+        </div>
+    )
+}
 
-            <div className="space-y-2">
-                <LemonSwitch
-                    data-attr="opt-in-session-recording-switch"
-                    onChange={(checked) => {
-                        updateCurrentTeam({
-                            session_recording_opt_in: checked,
-                            capture_console_log_opt_in: checked,
-                            capture_performance_opt_in: checked,
-                        })
-                    }}
-                    label="Record user sessions"
-                    bordered
-                    checked={!!currentTeam?.session_recording_opt_in}
-                />
+function CanvasCaptureSettings(): JSX.Element | null {
+    const { updateCurrentTeam } = useActions(teamLogic)
+    const { currentTeam } = useValues(teamLogic)
 
-                <p>
-                    Please note your website needs to have the{' '}
-                    <Link to={urls.settings('project', 'snippet')}>PostHog snippet</Link> or the latest version of{' '}
-                    <Link
-                        to="https://posthog.com/docs/libraries/js?utm_campaign=session-recording&utm_medium=in-product"
-                        target="_blank"
-                    >
-                        posthog-js
-                    </Link>{' '}
-                    directly installed. For more details, check out our{' '}
-                    <Link
-                        to="https://posthog.com/docs/user-guides/recordings?utm_campaign=session-recording&utm_medium=in-product"
-                        target="_blank"
-                    >
-                        docs
-                    </Link>
-                    .
-                </p>
-            </div>
-            <div className="space-y-2">
-                <LemonSwitch
-                    data-attr="opt-in-capture-console-log-switch"
-                    onChange={(checked) => {
-                        updateCurrentTeam({ capture_console_log_opt_in: checked })
-                    }}
-                    label="Capture console logs"
-                    bordered
-                    checked={currentTeam?.session_recording_opt_in ? !!currentTeam?.capture_console_log_opt_in : false}
-                    disabled={!currentTeam?.session_recording_opt_in}
-                />
-                <p>
-                    This setting controls if browser console logs will be captured as a part of recordings. The console
-                    logs will be shown in the recording player to help you debug any issues.
-                </p>
-            </div>
-            {hasCanvasRecording && (
-                <div className="space-y-2">
-                    <LemonSwitch
-                        data-attr="opt-in-capture-canvas-switch"
-                        onChange={(checked) => {
-                            updateCurrentTeam({
-                                session_replay_config: {
-                                    ...currentTeam?.session_replay_config,
-                                    record_canvas: checked,
-                                },
-                            })
-                        }}
-                        label={
-                            <div className="space-x-1">
-                                <LemonTag type="success">New</LemonTag>
-                                <LemonLabel>Capture canvas elements</LemonLabel>
-                            </div>
-                        }
-                        bordered
-                        checked={
-                            currentTeam?.session_replay_config
-                                ? !!currentTeam?.session_replay_config?.record_canvas
-                                : false
-                        }
-                    />
-                    <p>
-                        This setting controls if browser canvas elements will be captured as part of recordings.{' '}
-                        <b>
-                            <i>
-                                There is no way to mask canvas elements right now so please make sure they are free of
-                                PII.
-                            </i>
-                        </b>
-                    </p>
-                </div>
-            )}
-            <div className="space-y-2">
-                <NetworkCaptureSettings />
-            </div>
+    return (
+        <div>
+            <h3>Canvas capture</h3>
+            <p>
+                This setting controls if browser canvas elements will be captured as part of recordings.{' '}
+                <b>
+                    <i>There is no way to mask canvas elements right now so please make sure they are free of PII.</i>
+                </b>
+            </p>
+            <LemonSwitch
+                data-attr="opt-in-capture-canvas-switch"
+                onChange={(checked) => {
+                    updateCurrentTeam({
+                        session_replay_config: {
+                            ...currentTeam?.session_replay_config,
+                            record_canvas: checked,
+                        },
+                    })
+                }}
+                label={
+                    <div className="space-x-1">
+                        <LemonTag type="success">New</LemonTag>
+                        <LemonLabel>Capture canvas elements</LemonLabel>
+                    </div>
+                }
+                bordered
+                checked={
+                    currentTeam?.session_replay_config ? !!currentTeam?.session_replay_config?.record_canvas : false
+                }
+                disabledReason={
+                    !currentTeam?.session_recording_opt_in ? 'session recording must be enabled' : undefined
+                }
+            />
         </div>
     )
 }
 
 function NetworkCaptureSettings(): JSX.Element {
     const { updateCurrentTeam } = useActions(teamLogic)
-
     const { currentTeam } = useValues(teamLogic)
 
     return (
-        <>
-            <h4>Network capture</h4>
+        <div>
+            <h3>Network capture</h3>
+            <p>
+                This setting controls if performance and network information will be captured alongside recordings. The
+                network requests and timings will be shown in the recording player to help you debug any issues.
+            </p>
             <LemonSwitch
                 data-attr="opt-in-capture-performance-switch"
                 onChange={(checked) => {
@@ -133,14 +115,29 @@ function NetworkCaptureSettings(): JSX.Element {
                 label="Capture network performance"
                 bordered
                 checked={currentTeam?.session_recording_opt_in ? !!currentTeam?.capture_performance_opt_in : false}
-                disabled={!currentTeam?.session_recording_opt_in}
+                disabledReason={
+                    !currentTeam?.session_recording_opt_in ? 'session recording must be enabled' : undefined
+                }
             />
-            <p>
-                This setting controls if performance and network information will be captured alongside recordings. The
-                network requests and timings will be shown in the recording player to help you debug any issues.
-            </p>
-            <FlaggedFeature flag={FEATURE_FLAGS.NETWORK_PAYLOAD_CAPTURE} match={true}>
-                <h5>Network payloads</h5>
+            <div className="mt-4">
+                <p>
+                    When network capture is enabled, we always capture network timings. Use these switches to choose
+                    whether to also capture headers and payloads of requests.{' '}
+                    <Link to="https://posthog.com/docs/session-replay/network-recording" target="blank">
+                        Learn how to mask header and payload values in our docs
+                    </Link>
+                </p>
+                <LemonBanner type="info" className="mb-4">
+                    We automatically scrub some sensitive information from network headers, but if your request or
+                    response payloads could contain sensitive data, you can provide a function to mask the data when you
+                    initialise PostHog.{' '}
+                    <Link
+                        to="https://posthog.com/docs/session-replay/network-recording#sensitive-information"
+                        target="blank"
+                    >
+                        Learn how to mask header and payload values in our docs
+                    </Link>
+                </LemonBanner>
                 <div className="flex flex-row space-x-2">
                     <LemonSwitch
                         data-attr="opt-in-capture-network-headers-switch"
@@ -189,15 +186,8 @@ function NetworkCaptureSettings(): JSX.Element {
                         }
                     />
                 </div>
-                <p>
-                    When network capture is enabled, we always captured network timings. Use these switches to choose
-                    whether to capture headers and payloads of requests.{' '}
-                    <Link to="https://posthog.com/docs/session-replay/network-recording" target="blank">
-                        Learn how to mask header and payload values in our docs
-                    </Link>
-                </p>
-            </FlaggedFeature>
-        </>
+            </div>
+        </div>
     )
 }
 
@@ -217,11 +207,112 @@ export function ReplayAuthorizedDomains(): JSX.Element {
     )
 }
 
+function variantOptions(multivariate: MultivariateFlagOptions | undefined): LemonSegmentedButtonOption<string>[] {
+    if (!multivariate) {
+        return []
+    }
+    return [
+        {
+            label: 'any',
+            value: 'any',
+        },
+        ...multivariate.variants.map((variant) => {
+            return {
+                label: variant.key,
+                value: variant.key,
+            }
+        }),
+    ]
+}
+
+function LinkedFlagSelector(): JSX.Element | null {
+    const { updateCurrentTeam } = useActions(teamLogic)
+    const { currentTeam } = useValues(teamLogic)
+
+    const { hasAvailableFeature } = useValues(userLogic)
+    const { featureFlags } = useValues(enabledFlagsLogic)
+    const flagIsEnabled = featureFlags[FEATURE_FLAGS.SESSION_RECORDING_SAMPLING]
+    const featureFlagRecordingFeatureEnabled =
+        flagIsEnabled || hasAvailableFeature(AvailableFeature.REPLAY_FEATURE_FLAG_BASED_RECORDING)
+
+    const logic = sessionReplayLinkedFlagLogic({ id: currentTeam?.session_recording_linked_flag?.id || null })
+    const { linkedFlag, featureFlagLoading, flagHasVariants } = useValues(logic)
+    const { selectFeatureFlag } = useActions(logic)
+
+    if (!featureFlagRecordingFeatureEnabled) {
+        return null
+    }
+
+    return (
+        <>
+            <div className="flex flex-col space-y-2">
+                <LemonLabel className="text-base">
+                    Enable recordings using feature flag {featureFlagLoading && <Spinner />}
+                </LemonLabel>
+                <p>Linking a flag means that recordings will only be collected for users who have the flag enabled.</p>
+                <div className="flex flex-row justify-start">
+                    <FlagSelector
+                        value={currentTeam?.session_recording_linked_flag?.id ?? undefined}
+                        onChange={(id, key, flag) => {
+                            selectFeatureFlag(flag)
+                            updateCurrentTeam({ session_recording_linked_flag: { id, key, variant: null } })
+                        }}
+                    />
+                    {currentTeam?.session_recording_linked_flag && (
+                        <LemonButton
+                            className="ml-2"
+                            icon={<IconCancel />}
+                            size="small"
+                            type="secondary"
+                            onClick={() => updateCurrentTeam({ session_recording_linked_flag: null })}
+                            title="Clear selected flag"
+                        />
+                    )}
+                </div>
+                <FlaggedFeature match={true} flag={FEATURE_FLAGS.SESSION_REPLAY_LINKED_VARIANTS}>
+                    {flagHasVariants && (
+                        <>
+                            <LemonLabel className="text-base">Link to a specific flag variant</LemonLabel>
+                            <LemonSegmentedButton
+                                className="min-w-1/3"
+                                value={currentTeam?.session_recording_linked_flag?.variant ?? 'any'}
+                                options={variantOptions(linkedFlag?.filters.multivariate)}
+                                onChange={(variant) => {
+                                    if (!linkedFlag) {
+                                        return
+                                    }
+
+                                    updateCurrentTeam({
+                                        session_recording_linked_flag: {
+                                            id: linkedFlag?.id,
+                                            key: linkedFlag?.key,
+                                            variant: variant === 'any' ? null : variant,
+                                        },
+                                    })
+                                }}
+                            />
+                            <p>
+                                This is a multi-variant flag. You can link to "any" variant of the flag, and recordings
+                                will start whenever the flag is enabled for a user.
+                            </p>
+                            <p>
+                                Alternatively, you can link to a specific variant of the flag, and recordings will only
+                                start when the user has that specific variant enabled. Variant targeting support
+                                requires posthog-js v1.110.0 or greater
+                            </p>
+                        </>
+                    )}
+                </FlaggedFeature>
+            </div>
+        </>
+    )
+}
+
 export function ReplayCostControl(): JSX.Element | null {
     const { updateCurrentTeam } = useActions(teamLogic)
     const { currentTeam } = useValues(teamLogic)
     const { hasAvailableFeature } = useValues(userLogic)
-    const { featureFlags } = useValues(featureFlagLogic)
+    const { featureFlags } = useValues(enabledFlagsLogic)
 
     // some organisations have access to this by virtue of being in a flag
     // other orgs have access by virtue of being on the correct plan
@@ -377,35 +468,193 @@ export function ReplayCostControl(): JSX.Element | null {
                     </p>
                 </>
             )}
-            {featureFlagRecordingFeatureEnabled && (
-                <>
-                    <div className="flex flex-col space-y-2">
-                        <LemonLabel className="text-base">Enable recordings using feature flag</LemonLabel>
-                        <div className="flex flex-row justify-start">
-                            <FlagSelector
-                                value={currentTeam?.session_recording_linked_flag?.id ?? undefined}
-                                onChange={(id, key) => {
-                                    updateCurrentTeam({ session_recording_linked_flag: { id, key } })
-                                }}
-                            />
-                            {currentTeam?.session_recording_linked_flag && (
-                                <LemonButton
-                                    className="ml-2"
-                                    icon={<IconCancel />}
-                                    size="small"
-                                    type="secondary"
-                                    onClick={() => updateCurrentTeam({ session_recording_linked_flag: null })}
-                                    title="Clear selected flag"
-                                />
-                            )}
-                        </div>
-                    </div>
-                    <p>
-                        Linking a flag means that recordings will only be collected for users who have the flag enabled.
-                        Only supports release toggles (boolean flags).
-                    </p>
-                </>
-            )}
+            <LinkedFlagSelector />
         </>
     ) : null
+}
+
+export function ReplaySummarySettings(): JSX.Element | null {
+    const { updateCurrentTeam } = useActions(teamLogic)
+
+    const { currentTeam } = useValues(teamLogic)
+
+    if (!currentTeam) {
+        return null
+    }
+
+    const defaultConfig = {
+        opt_in: false,
+        preferred_events: [],
+        excluded_events: ['$feature_flag_called'],
+        included_event_properties: ['elements_chain', '$window_id', '$current_url', '$event_type'],
+        important_user_properties: [],
+    }
+    const sessionReplayConfig = currentTeam.session_replay_config || {}
+    const currentConfig: SessionRecordingAIConfig = sessionReplayConfig.ai_config || defaultConfig
+
+    const updateSummaryConfig = (summaryConfig: SessionRecordingAIConfig): void => {
+        updateCurrentTeam({
+            session_replay_config: { ai_config: summaryConfig },
+        })
+    }
+
+    return (
+        <div className="flex flex-col gap-2">
+            <div>
+                <LemonButton type="secondary" onClick={() => updateSummaryConfig(defaultConfig)}>
+                    Reset to default
+                </LemonButton>
+            </div>
+            <div>
+                <p>
+                    We use several machine learning technologies to process sessions. Some of those are hosted by Open
+                    AI. No data is sent to OpenAI without an explicit instruction to do so. If we do send data we only
+                    send the data selected below. s<strong>Data submitted is not used to train Open AI's models</strong>
+                </p>
+                <LemonSwitch
+                    checked={currentConfig.opt_in}
+                    onChange={(checked) => {
+                        updateSummaryConfig({
+                            ...currentConfig,
+                            opt_in: checked,
+                        })
+                    }}
+                    bordered
+                    label="Opt in to enable AI processing"
+                />
+            </div>
+            {currentConfig.opt_in && (
+                <>
+                    <div>
+                        <h3 className="flex items-center gap-2">
+                            <IconSelectEvents className="text-lg" />
+                            Preferred events
+                        </h3>
+                        <p>
+                            These events are treated as more interesting when generating a summary. We recommend you
+                            include events that represent value for your user
+                        </p>
+                        <EventSelect
+                            onChange={(includedEvents) => {
+                                updateSummaryConfig({
+                                    ...currentConfig,
+                                    preferred_events: includedEvents,
+                                })
+                            }}
+                            selectedEvents={currentConfig.preferred_events || []}
+                            addElement={
+                                <LemonButton size="small" type="secondary" icon={<IconPlus />} sideIcon={null}>
+                                    Add event
+                                </LemonButton>
+                            }
+                        />
+                    </div>
+                    <div>
+                        <h3 className="flex items-center gap-2">
+                            <IconSelectEvents className="text-lg" />
+                            Excluded events
+                        </h3>
+                        <p>These events are never submitted even when they are present in the session.</p>
+                        <EventSelect
+                            onChange={(excludedEvents) => {
+                                updateSummaryConfig({
+                                    ...currentConfig,
+                                    excluded_events: excludedEvents,
+                                })
+                            }}
+                            selectedEvents={currentConfig.excluded_events || []}
+                            addElement={
+                                <LemonButton size="small" type="secondary" icon={<IconPlus />} sideIcon={null}>
+                                    Exclude event
+                                </LemonButton>
+                            }
+                        />
+                    </div>
+                    <div>
+                        <h3 className="flex items-center gap-2">
+                            <IconSelectEvents className="text-lg" />
+                            Included event properties
+                        </h3>
+                        <p>
+                            We always send the event name and timestamp. The only event data sent are values of the
+                            properties selected here.
+                        </p>
+                        <PropertySelect
+                            taxonomicFilterGroup={TaxonomicFilterGroupType.EventProperties}
+                            sortable={false}
+                            onChange={(properties: string[]) => {
+                                updateSummaryConfig({
+                                    ...currentConfig,
+                                    included_event_properties: properties,
+                                })
+                            }}
+                            selectedProperties={currentConfig.included_event_properties || []}
+                            addText="Add property"
+                        />
+                    </div>
+                    <div>
+                        <h3 className="flex items-center gap-2">
+                            <IconSelectEvents className="text-lg" />
+                            Important user properties
+                        </h3>
+                        <p>
+                            We always send the first and last seen dates. The only user data sent are values of the
+                            properties selected here.
+                        </p>
+                        <PropertySelect
+                            taxonomicFilterGroup={TaxonomicFilterGroupType.PersonProperties}
+                            sortable={false}
+                            onChange={(properties) => {
+                                updateSummaryConfig({
+                                    ...currentConfig,
+                                    important_user_properties: properties,
+                                })
+                            }}
+                            selectedProperties={currentConfig.important_user_properties || []}
+                            addText="Add property"
+                        />
+                    </div>
+                </>
+            )}
+        </div>
+    )
+}
+
+export function ReplayGeneral(): JSX.Element {
+    const { updateCurrentTeam } = useActions(teamLogic)
+    const { currentTeam } = useValues(teamLogic)
+
+    return (
+        <div className="flex flex-col gap-4">
+            <div>
+                <p>
+                    Watch recordings of how users interact with your web app to see what can be improved.{' '}
+                    <Link
+                        to="https://posthog.com/docs/user-guides/recordings?utm_campaign=session-recording&utm_medium=in-product"
+                        target="_blank"
+                    >
+                        Check out our docs
+                    </Link>
+                </p>
+                <LemonSwitch
+                    data-attr="opt-in-session-recording-switch"
+                    onChange={(checked) => {
+                        updateCurrentTeam({
+                            // when switching replay on or off,
+                            // we set defaults for some of the other settings
+                            session_recording_opt_in: checked,
+                            capture_console_log_opt_in: checked,
+                            capture_performance_opt_in: checked,
+                        })
+                    }}
+                    label="Record user sessions"
+                    bordered
+                    checked={!!currentTeam?.session_recording_opt_in}
+                />
+            </div>
+            <LogCaptureSettings />
+            <CanvasCaptureSettings />
+            <NetworkCaptureSettings />
+        </div>
+    )
 }
