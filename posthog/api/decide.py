@@ -294,8 +294,8 @@ def get_decide(request: HttpRequest):
     return cors_response(request, JsonResponse(response))
 
 
-def _session_recording_config_response(request, team):
-    session_recording_config_response = False
+def _session_recording_config_response(request: HttpRequest, team: Team) -> bool | Dict:
+    session_recording_config_response: bool | Dict = False
 
     try:
         if team.session_recording_opt_in and (
