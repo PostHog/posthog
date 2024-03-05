@@ -155,6 +155,14 @@ class TestProperty(BaseTest):
             self._property_to_expr({"type": "event", "key": "a", "value": [], "operator": "exact"}),
             self._parse_expr("true"),
         )
+        self.assertEqual(
+            self._parse_expr("1"),
+            self._property_to_expr({"type": "event", "key": "a", "operator": "icontains"}),  # value missing
+        )
+        self.assertEqual(
+            self._parse_expr("1"),
+            self._property_to_expr({}),  # incomplete event
+        )
 
     def test_property_to_expr_boolean(self):
         PropertyDefinition.objects.create(

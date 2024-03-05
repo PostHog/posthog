@@ -112,7 +112,11 @@ def property_to_expr(
         else:
             return ast.Or(exprs=[property_to_expr(p, team, scope) for p in property.values])
     elif isinstance(property, BaseModel):
-        property = Property(**property.dict())
+        try:
+            property = Property(**property.dict())
+        except ValueError:
+            # The property was saved as an incomplete object. Instead of crashing the entire query, pretend it's not there.
+            return ast.Constant(value=True)
     else:
         raise NotImplementedException(
             f"property_to_expr with property of type {type(property).__name__} not implemented"
