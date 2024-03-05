@@ -122,8 +122,10 @@ class BreakdownValues:
             },
         )
         if self.series.math_property is not None and self.series.math == "min":
-            if isinstance(inner_events_query, ast.SelectQuery) and isinstance(
-                inner_events_query.order_by[0], ast.OrderExpr
+            if (
+                isinstance(inner_events_query, ast.SelectQuery)
+                and inner_events_query.order_by is not None
+                and isinstance(inner_events_query.order_by[0], ast.OrderExpr)
             ):
                 inner_events_query.order_by[0].order = "ASC"
 
