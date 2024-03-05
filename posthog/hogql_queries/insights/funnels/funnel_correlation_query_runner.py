@@ -22,6 +22,7 @@ from posthog.hogql_queries.insights.funnels.funnel_query_context import FunnelQu
 from posthog.hogql_queries.insights.funnels.utils import funnel_window_interval_unit_to_sql, get_funnel_actor_class
 from posthog.hogql_queries.query_runner import QueryRunner
 from posthog.models import Team
+from posthog.models.property.util import get_property_string_expr
 from posthog.queries.util import correct_result_for_sampling
 from posthog.schema import (
     ActionsNode,
@@ -421,9 +422,16 @@ class FunnelCorrelationQueryRunner(QueryRunner):
         exclude_property_names = self.query.funnelCorrelationEventExcludePropertyNames or []
 
         if self.support_autocapture_elements():
+            event_type_expression, _ = get_property_string_expr(
+                "events",
+                self.AUTOCAPTURE_EVENT_TYPE,
+                f"'{self.AUTOCAPTURE_EVENT_TYPE}'",
+                "properties",
+                allow_denormalized_props=False,
+            )
             array_join_query = f"""
                 'elements_chain' as prop_key,
-                concat(properties.${self.AUTOCAPTURE_EVENT_TYPE}, '{self.ELEMENTS_DIVIDER}', elements_chain) as prop_value,
+                concat({event_type_expression}, '{self.ELEMENTS_DIVIDER}', elements_chain) as prop_value,
                 tuple(prop_key, prop_value) as prop
             """
         else:
