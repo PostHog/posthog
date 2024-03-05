@@ -34,6 +34,7 @@ from posthog.models import (
     Organization,
     Person,
 )
+
 from posthog.models.group.util import create_group
 from posthog.models.instance_setting import (
     get_instance_setting,
@@ -46,6 +47,7 @@ from posthog.schema import (
     BreakdownFilter,
     DateRange,
     EventsNode,
+    DataWarehouseNode,
     PropertyGroupFilter,
     TrendsFilter,
     TrendsQuery,
@@ -169,7 +171,7 @@ def convert_filter_to_trends_query(filter: Filter) -> TrendsQuery:
             )
         )
 
-    series: List[EventsNode | ActionsNode] = [*events, *actions]
+    series: List[Union[EventsNode, ActionsNode, DataWarehouseNode]] = [*events, *actions]
 
     tq = TrendsQuery(
         series=series,
@@ -555,6 +557,43 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(response[0]["data"][5], 4.0)
 
     @snapshot_clickhouse_queries
+    def test_trends_per_day_dau_cumulative(self):
+        self._create_events()
+        with freeze_time("2020-01-03T13:00:01Z"):
+            self._create_person(
+                team_id=self.team.pk,
+                distinct_ids=["new_user"],
+                properties={"$some_prop": "some_val"},
+            )
+            self._create_event(
+                team=self.team,
+                event="sign up",
+                distinct_id="new_user",
+                properties={"$some_property": "value", "$bool_prop": False},
+            )
+            flush_persons_and_events()
+        with freeze_time("2020-01-04T13:00:01Z"):
+            response = self._run(
+                Filter(
+                    team=self.team,
+                    data={
+                        "date_from": "-7d",
+                        "display": "ActionsLineGraphCumulative",
+                        "events": [{"id": "sign up", "math": "dau"}],
+                    },
+                ),
+                self.team,
+            )
+
+        self.assertEqual(response[0]["label"], "sign up")
+        self.assertEqual(response[0]["labels"][4], "1-Jan-2020")
+        self.assertEqual(response[0]["data"][4], 1.0)
+        self.assertEqual(response[0]["labels"][5], "2-Jan-2020")
+        self.assertEqual(response[0]["data"][5], 1.0)
+        self.assertEqual(response[0]["labels"][6], "3-Jan-2020")
+        self.assertEqual(response[0]["data"][6], 2.0)
+
+    @snapshot_clickhouse_queries
     def test_trends_groups_per_day(self):
         self._create_event_count_per_actor_events()
         with freeze_time("2020-01-06T13:00:01Z"):
@@ -604,7 +643,7 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
 
         self.assertEqual(response[0]["label"], "viewed video")
         self.assertEqual(response[0]["labels"][-1], "6-Jan-2020")
-        self.assertEqual(response[0]["data"], [0.0, 0.0, 1.0, 1.0, 1.0, 2.0, 4.0, 4.0])
+        self.assertEqual(response[0]["data"], [0.0, 0.0, 1.0, 1.0, 1.0, 2.0, 2.0, 2.0])
 
     @also_test_with_person_on_events_v2
     @snapshot_clickhouse_queries

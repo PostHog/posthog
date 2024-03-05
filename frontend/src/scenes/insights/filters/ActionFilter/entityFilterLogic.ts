@@ -3,18 +3,35 @@ import { convertPropertyGroupToProperties } from 'lib/components/PropertyFilters
 import { uuid } from 'lib/utils'
 import { eventUsageLogic, GraphSeriesAddedSource } from 'lib/utils/eventUsageLogic'
 
-import { ActionFilter, AnyPropertyFilter, Entity, EntityFilter, EntityType, EntityTypes, FilterType } from '~/types'
+import {
+    ActionFilter,
+    AnyPropertyFilter,
+    DataWarehouseFilter,
+    Entity,
+    EntityFilter,
+    EntityType,
+    EntityTypes,
+    FilterType,
+} from '~/types'
 
 import type { entityFilterLogicType } from './entityFilterLogicType'
 
 export type LocalFilter = ActionFilter & {
     order: number
     uuid: string
+    id_field?: string
+    timestamp_field?: string
+    table_name?: string
 }
+
 export type BareEntity = Pick<Entity, 'id' | 'name'>
 
 export function toLocalFilters(filters: Partial<FilterType>): LocalFilter[] {
-    const localFilters = [...(filters[EntityTypes.ACTIONS] || []), ...(filters[EntityTypes.EVENTS] || [])]
+    const localFilters = [
+        ...(filters[EntityTypes.ACTIONS] || []),
+        ...(filters[EntityTypes.EVENTS] || []),
+        ...(filters[EntityTypes.DATA_WAREHOUSE] || []),
+    ]
         .sort((a, b) => a.order - b.order)
         .map((filter, order) => ({ ...(filter as ActionFilter), order }))
     return localFilters.map((filter) =>
@@ -37,6 +54,7 @@ export function toFilters(localFilters: LocalFilter[]): FilterType {
     return {
         [EntityTypes.ACTIONS]: filters.filter((filter) => filter.type === EntityTypes.ACTIONS),
         [EntityTypes.EVENTS]: filters.filter((filter) => filter.type === EntityTypes.EVENTS),
+        [EntityTypes.DATA_WAREHOUSE]: filters.filter((filter) => filter.type === EntityTypes.DATA_WAREHOUSE),
     } as FilterType
 }
 
@@ -70,15 +88,14 @@ export const entityFilterLogic = kea<entityFilterLogicType>([
             math_group_type_index: filter.math_group_type_index,
         }),
         updateFilter: (
-            filter: EntityFilter & {
+            filter: (EntityFilter | ActionFilter | DataWarehouseFilter) & {
                 index: number
+                id_field?: string
+                timestamp_field?: string
+                table_name?: string
             }
         ) => ({
-            type: filter.type,
-            index: filter.index,
-            id: filter.id,
-            name: filter.name,
-            custom_name: filter.custom_name,
+            ...filter,
         }),
         renameFilter: (custom_name: string) => ({ custom_name }),
         removeLocalFilter: (
@@ -161,19 +178,38 @@ export const entityFilterLogic = kea<entityFilterLogicType>([
         hideModal: () => {
             actions.selectFilter(null)
         },
-        updateFilter: async ({ type, index, name, id, custom_name }) => {
+        updateFilter: async ({ type, index, name, id, custom_name, id_field, timestamp_field, table_name }) => {
             actions.setFilters(
-                values.localFilters.map((filter, i) =>
-                    i === index
-                        ? {
-                              ...filter,
-                              id: typeof id === 'undefined' ? filter.id : id,
-                              name: typeof name === 'undefined' ? filter.name : name,
-                              type: typeof type === 'undefined' ? filter.type : type,
-                              custom_name: typeof custom_name === 'undefined' ? filter.custom_name : custom_name,
-                          }
-                        : filter
-                )
+                values.localFilters.map((filter, i) => {
+                    if (i === index) {
+                        if (type === EntityTypes.DATA_WAREHOUSE) {
+                            return {
+                                ...filter,
+                                id: typeof id === 'undefined' ? filter.id : id,
+                                name: typeof name === 'undefined' ? filter.name : name,
+                                type: typeof type === 'undefined' ? filter.type : type,
+                                custom_name: typeof custom_name === 'undefined' ? filter.custom_name : custom_name,
+                                id_field: typeof id_field === 'undefined' ? filter.id_field : id_field,
+                                timestamp_field:
+                                    typeof timestamp_field === 'undefined' ? filter.timestamp_field : timestamp_field,
+                                table_name: typeof table_name === 'undefined' ? filter.table_name : table_name,
+                            }
+                        } else {
+                            delete filter.id_field
+                            delete filter.timestamp_field
+                            delete filter.table_name
+                            return {
+                                ...filter,
+                                id: typeof id === 'undefined' ? filter.id : id,
+                                name: typeof name === 'undefined' ? filter.name : name,
+                                type: typeof type === 'undefined' ? filter.type : type,
+                                custom_name: typeof custom_name === 'undefined' ? filter.custom_name : custom_name,
+                            }
+                        }
+                    }
+
+                    return filter
+                })
             )
             !props.singleMode && actions.selectFilter(null)
         },

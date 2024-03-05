@@ -72,10 +72,16 @@ describe('session-manager', () => {
     it('adds a message', async () => {
         const timestamp = now()
         const event = createIncomingRecordingMessage({
-            events: [
-                { timestamp: timestamp, type: 4, data: { href: 'http://localhost:3001/' } },
-                { timestamp: timestamp + 1000, type: 4, data: { href: 'http://localhost:3001/' } },
-            ],
+            eventsRange: {
+                start: timestamp,
+                end: timestamp + 1000,
+            },
+            eventsByWindowId: {
+                window_id_1: [
+                    { timestamp: timestamp, type: 4, data: { href: 'http://localhost:3001/' } },
+                    { timestamp: timestamp + 1000, type: 4, data: { href: 'http://localhost:3001/' } },
+                ],
+            },
         })
 
         await sessionManager.add(event)
@@ -111,10 +117,22 @@ describe('session-manager', () => {
         const lastTimestamp = 1700000000000 + 4000
 
         const eventOne = createIncomingRecordingMessage({
-            events: [{ timestamp: firstTimestamp, type: 4, data: { href: 'http://localhost:3001/' } }],
+            eventsRange: {
+                start: firstTimestamp,
+                end: firstTimestamp,
+            },
+            eventsByWindowId: {
+                window_id_1: [{ timestamp: firstTimestamp, type: 4, data: { href: 'http://localhost:3001/' } }],
+            },
         })
         const eventTwo = createIncomingRecordingMessage({
-            events: [{ timestamp: lastTimestamp, type: 4, data: { href: 'http://localhost:3001/' } }],
+            eventsRange: {
+                start: lastTimestamp,
+                end: lastTimestamp,
+            },
+            eventsByWindowId: {
+                window_id_1: [{ timestamp: lastTimestamp, type: 4, data: { href: 'http://localhost:3001/' } }],
+            },
         })
 
         await sessionManager.add(eventOne)
@@ -173,10 +191,12 @@ describe('session-manager', () => {
 
     it('reads successfully with the stream not closed', async () => {
         const event = createIncomingRecordingMessage({
-            events: [
-                { timestamp: 170000000, type: 4, data: { href: 'http://localhost:3001/' } },
-                { timestamp: 170000000 + 1000, type: 4, data: { href: 'http://localhost:3001/' } },
-            ],
+            eventsByWindowId: {
+                window_id_1: [
+                    { timestamp: 170000000, type: 4, data: { href: 'http://localhost:3001/' } },
+                    { timestamp: 170000000 + 1000, type: 4, data: { href: 'http://localhost:3001/' } },
+                ],
+            },
         })
         await sessionManager.add(event)
 
@@ -191,20 +211,24 @@ describe('session-manager', () => {
 
         await sm1.add(
             createIncomingRecordingMessage({
-                events: [
-                    { timestamp: 170000000, type: 4, data: { href: 'http://localhost:3001/' } },
-                    { timestamp: 170000000 + 1000, type: 4, data: { href: 'http://localhost:3001/' } },
-                ],
+                eventsByWindowId: {
+                    window_id_1: [
+                        { timestamp: 170000000, type: 4, data: { href: 'http://localhost:3001/' } },
+                        { timestamp: 170000000 + 1000, type: 4, data: { href: 'http://localhost:3001/' } },
+                    ],
+                },
             })
         )
 
         const sm2 = await createSessionManager('session_id_2', 2, 2)
         await sm2.add(
             createIncomingRecordingMessage({
-                events: [
-                    { timestamp: 170000000 + 2000, type: 4, data: { href: 'http://localhost:3001/' } },
-                    { timestamp: 170000000 + 3000, type: 4, data: { href: 'http://localhost:3001/' } },
-                ],
+                eventsByWindowId: {
+                    window_id_1: [
+                        { timestamp: 170000000 + 2000, type: 4, data: { href: 'http://localhost:3001/' } },
+                        { timestamp: 170000000 + 3000, type: 4, data: { href: 'http://localhost:3001/' } },
+                    ],
+                },
             })
         )
 
@@ -220,7 +244,13 @@ describe('session-manager', () => {
     it('uploads a gzip compressed file to S3', async () => {
         await sessionManager.add(
             createIncomingRecordingMessage({
-                events: [{ timestamp: 170000000, type: 4, data: { href: 'http://localhost:3001/' } }],
+                eventsRange: {
+                    start: 170000000,
+                    end: 170000000,
+                },
+                eventsByWindowId: {
+                    window_id_1: [{ timestamp: 170000000, type: 4, data: { href: 'http://localhost:3001/' } }],
+                },
             })
         )
         await sessionManager.flush(true)
@@ -257,10 +287,12 @@ describe('session-manager', () => {
 
         await sm1.add(
             createIncomingRecordingMessage({
-                events: [
-                    { timestamp: 170000000, type: 4, data: { href: 'http://localhost:3001/' } },
-                    { timestamp: 170000000 + 1000, type: 4, data: { href: 'http://localhost:3001/' } },
-                ],
+                eventsByWindowId: {
+                    window_id_1: [
+                        { timestamp: 170000000, type: 4, data: { href: 'http://localhost:3001/' } },
+                        { timestamp: 170000000 + 1000, type: 4, data: { href: 'http://localhost:3001/' } },
+                    ],
+                },
             })
         )
 

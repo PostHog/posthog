@@ -151,6 +151,7 @@ const selectedItemHasPopover = (
             TaxonomicFilterGroupType.Actions,
             TaxonomicFilterGroupType.Elements,
             TaxonomicFilterGroupType.Events,
+            TaxonomicFilterGroupType.DataWarehouse,
             TaxonomicFilterGroupType.CustomEvents,
             TaxonomicFilterGroupType.EventProperties,
             TaxonomicFilterGroupType.EventFeatureFlags,
@@ -162,6 +163,10 @@ const selectedItemHasPopover = (
         ].includes(listGroupType) ||
             listGroupType.startsWith(TaxonomicFilterGroupType.GroupsPrefix))
     )
+}
+
+const canSelectItem = (listGroupType?: TaxonomicFilterGroupType): boolean => {
+    return !!listGroupType && ![TaxonomicFilterGroupType.DataWarehouse].includes(listGroupType)
 }
 
 export function InfiniteList({ popupAnchorElement }: InfiniteListProps): JSX.Element {
@@ -218,7 +223,7 @@ export function InfiniteList({ popupAnchorElement }: InfiniteListProps): JSX.Ele
             <div
                 {...commonDivProps}
                 data-attr={`prop-filter-${listGroupType}-${rowIndex}`}
-                onClick={() => selectItem(group, itemValue ?? null, item)}
+                onClick={() => canSelectItem(listGroupType) && selectItem(group, itemValue ?? null, item)}
             >
                 {renderItemContents({
                     item,

@@ -1,9 +1,9 @@
-import { IconMagic } from '@posthog/icons'
+import { IconDownload, IconMagic, IconPlay, IconSearch } from '@posthog/icons'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { FlaggedFeature } from 'lib/components/FlaggedFeature'
 import { FEATURE_FLAGS } from 'lib/constants'
-import { IconExport, IconFullScreen, IconMagnifier, IconPause, IconPlay, IconSkipInactivity } from 'lib/lemon-ui/icons'
+import { IconFullScreen, IconPause, IconSkipInactivity } from 'lib/lemon-ui/icons'
 import { LemonButton, LemonButtonWithDropdown } from 'lib/lemon-ui/LemonButton'
 import { More } from 'lib/lemon-ui/LemonButton/More'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
@@ -119,7 +119,7 @@ export function PlayerController(): JSX.Element {
                                     <LemonButton
                                         onClick={() => exportRecordingToFile()}
                                         fullWidth
-                                        sideIcon={<IconExport />}
+                                        sideIcon={<IconDownload />}
                                         tooltip="Export recording to a file. This can be loaded later into PostHog for playback."
                                     >
                                         Export to file
@@ -129,7 +129,7 @@ export function PlayerController(): JSX.Element {
                                         <LemonButton
                                             onClick={() => exportRecordingToFile(true)}
                                             fullWidth
-                                            sideIcon={<IconExport />}
+                                            sideIcon={<IconDownload />}
                                             tooltip="DEBUG ONLY - Export untransformed recording to a file. This can be loaded later into PostHog for playback."
                                         >
                                             DEBUG Export mobile replay to file DEBUG
@@ -147,7 +147,7 @@ export function PlayerController(): JSX.Element {
                                         </LemonButton>
                                     </FlaggedFeature>
 
-                                    <LemonButton onClick={() => openExplorer()} fullWidth sideIcon={<IconMagnifier />}>
+                                    <LemonButton onClick={() => openExplorer()} fullWidth sideIcon={<IconSearch />}>
                                         Explore DOM
                                     </LemonButton>
                                 </>

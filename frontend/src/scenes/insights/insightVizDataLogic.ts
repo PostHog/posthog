@@ -45,6 +45,9 @@ import {
 import {
     filterForQuery,
     filterKeyForQuery,
+    isActionsNode,
+    isDataWarehouseNode,
+    isEventsNode,
     isFunnelsQuery,
     isInsightQueryNode,
     isInsightVizNode,
@@ -209,6 +212,13 @@ export const insightVizDataLogic = kea<insightVizDataLogicType>([
             (s) => [s.isTrends, s.formula, s.series, s.breakdownFilter],
             (isTrends, formula, series, breakdownFilter): boolean => {
                 return ((isTrends && !!formula) || (series || []).length <= 1) && !breakdownFilter?.breakdown
+            },
+        ],
+
+        isDataWarehouseSeries: [
+            (s) => [s.isTrends, s.series],
+            (isTrends, series): boolean => {
+                return isTrends && (series || []).length > 0 && !!series?.some((node) => isDataWarehouseNode(node))
             },
         ],
 
@@ -489,6 +499,17 @@ const handleQuerySourceUpdateSideEffects = (
             breakdown: '$geoip_country_code',
             breakdown_type: ['dau', 'weekly_active', 'monthly_active'].includes(math || '') ? 'person' : 'event',
         }
+    }
+
+    // if mixed, clear breakdown and trends filter
+    if (
+        kind === NodeKind.TrendsQuery &&
+        (mergedUpdate as TrendsQuery).series?.length >= 0 &&
+        (mergedUpdate as TrendsQuery).series.some((series) => isDataWarehouseNode(series)) &&
+        (mergedUpdate as TrendsQuery).series.some((series) => isActionsNode(series) || isEventsNode(series))
+    ) {
+        mergedUpdate['breakdownFilter'] = null
+        mergedUpdate['properties'] = []
     }
 
     return mergedUpdate

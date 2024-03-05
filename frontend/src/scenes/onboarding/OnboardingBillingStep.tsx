@@ -1,7 +1,7 @@
+import { IconCheckCircle } from '@posthog/icons'
 import { LemonBanner, LemonButton } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { StarHog } from 'lib/components/hedgehogs'
-import { IconCheckCircleOutline } from 'lib/lemon-ui/icons'
 import { Spinner } from 'lib/lemon-ui/Spinner'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { useState } from 'react'
@@ -61,7 +61,7 @@ export const OnboardingBillingStep = ({
                         <div className="mb-8">
                             <div className="bg-success-highlight rounded p-6 flex justify-between items-center">
                                 <div className="flex gap-x-4">
-                                    <IconCheckCircleOutline className="text-success text-3xl mb-6" />
+                                    <IconCheckCircle className="text-success text-3xl mb-6" />
                                     <div>
                                         <h3 className="text-lg font-bold mb-1 text-left">Subscribe successful</h3>
                                         <p className="mx-0 mb-0">You're all ready to use {product.name}.</p>

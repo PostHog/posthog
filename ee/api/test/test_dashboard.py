@@ -305,7 +305,7 @@ class TestDashboardEnterpriseAPI(APILicensedTest):
     def test_can_edit_dashboard_description_when_collaboration_is_available(self):
         self.client.logout()
 
-        self.organization.available_features = [AvailableFeature.DASHBOARD_COLLABORATION]
+        self.organization.available_features = [AvailableFeature.TEAM_COLLABORATION]
         self.organization.available_product_features = AVAILABLE_PRODUCT_FEATURES
         self.organization.save()
         self.team.access_control = True

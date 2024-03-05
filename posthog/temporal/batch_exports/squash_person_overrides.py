@@ -18,7 +18,7 @@ EPOCH = datetime(1970, 1, 1, 0, 0, tzinfo=timezone.utc)
 
 
 CREATE_DICTIONARY_QUERY = """
-CREATE OR REPLACE DICTIONARY {database}.{dictionary_name} ON CLUSTER {cluster_name} (
+CREATE OR REPLACE DICTIONARY {database}.{dictionary_name} ON CLUSTER {cluster} (
     `team_id` Int64,
     `distinct_id` String,
     `person_id` UUID
@@ -35,7 +35,7 @@ LIFETIME(0)
 """
 
 RELOAD_DICTIONARY_QUERY = """
-SYSTEM RELOAD DICTIONARY {database}.{dictionary_name} ON CLUSTER {cluster_name}
+SYSTEM RELOAD DICTIONARY {database}.{dictionary_name} ON CLUSTER {cluster}
 """
 
 SQUASH_EVENTS_QUERY = """
@@ -50,32 +50,32 @@ IN PARTITION
 WHERE
     dictHas('{database}.{dictionary_name}', (team_id, distinct_id))
     {in_team_ids}
+SETTINGS
+    max_execution_time = 0
 """
 
-SQUASH_MUTATIONS_IN_PROGRESS_QUERY = """
+MUTATIONS_IN_PROGRESS_QUERY = """
 SELECT mutation_id, is_done
 FROM clusterAllReplicas('{cluster}', 'system', mutations)
-WHERE table = 'sharded_events'
+WHERE table = '{table}'
 AND database = '{database}'
-AND command LIKE
-    'UPDATE person_id = dictGet(''{database}.{dictionary_name}'', ''person_id'', (team_id, distinct_id)) IN PARTITION ''{partition_id}''%'
+AND command LIKE %(query)s
 """
 
-KILL_SQUASH_MUTATION_IN_PROGRESS_QUERY = """
+KILL_MUTATION_IN_PROGRESS_QUERY = """
 KILL MUTATION ON CLUSTER {cluster}
 WHERE is_done = 0
-AND table = 'sharded_events'
+WHERE table = '{table}'
 AND database = '{database}'
-AND command LIKE
-    'UPDATE person_id = dictGet(''{database}.{dictionary_name}'', ''person_id'', (team_id, distinct_id)) IN PARTITION '''{partition_id}''%'
+AND command LIKE %(query)s
 """
 
 DROP_DICTIONARY_QUERY = """
-DROP DICTIONARY {database}.{dictionary_name};
+DROP DICTIONARY {database}.{dictionary_name} ON CLUSTER {cluster}
 """
 
 CREATE_JOIN_TABLE_FOR_DELETES_QUERY = """
-CREATE TABLE {database}.person_overrides_to_delete ON CLUSTER {cluster}
+CREATE OR REPLACE TABLE {database}.person_overrides_to_delete ON CLUSTER {cluster}
 ENGINE = Join(ANY, LEFT, team_id, distinct_id) AS
 SELECT
     team_id, distinct_id, groupUniqArray(_partition_id) AS partitions
@@ -88,15 +88,19 @@ GROUP BY
 """
 
 DROP_JOIN_TABLE_FOR_DELETES_QUERY = """
-DROP TABLE IF EXISTS {database}.person_overrides_to_delete
+DROP TABLE IF EXISTS {database}.person_overrides_to_delete ON CLUSTER {cluster}
 """
 
 DELETE_SQUASHED_PERSON_OVERRIDES_QUERY = """
 ALTER TABLE
     {database}.person_distinct_id_overrides
+ON CLUSTER
+    {cluster}
 DELETE WHERE
     hasAll(joinGet('{database}.person_overrides_to_delete', 'partitions', team_id, distinct_id), %(partition_ids)s)
-    AND NOW() - _timestamp > %(grace_period)s
+    AND ((now() - _timestamp) > %(grace_period)s)
+SETTINGS
+    max_execution_time=0
 """
 
 
@@ -106,28 +110,75 @@ def parse_clickhouse_timestamp(s: str, tzinfo: timezone = timezone.utc) -> datet
 
 
 @dataclass
-class QueryInputs:
-    """Inputs for activities that run queries in the SquashPersonOverrides workflow.
+class DictionaryInputs:
+    """Inputs for ClickHouse DICTIONARY management activities.
 
     Attributes:
-        partition_ids: Run a query only on a subset of partitions. Not supported by all queries.
-        team_ids: Run a query only on a subset of teams. Not supported by all queries.
-        dictionary_name: The name for a dictionary used in the join.
+        dictionary_name: The name for the dictionary used when squashing.
+        dry_run: Do not run the queries when True.
+    """
+
+    dictionary_name: str = "person_overrides_join_dict"
+    dry_run: bool = True
+
+
+@dataclass
+class DeletePersonOverridesInputs:
+    """Inputs for squashed person overrides deletion activity.
+
+    Attributes:
+        partition_ids: Partitions that must have been squashed for an override to be delete-able.
+        dictionary_name: The name of the dictionary used when squashing.
         delete_grace_period_seconds: Number of seconds until an override can be deleted. This grace
             period works on top of checking if the override was applied to all partitions. Defaults
             to 24h.
         dry_run: Do not run the queries when True.
     """
 
-    partition_ids: list[str] = field(default_factory=list)
-    team_ids: list[int] = field(default_factory=list)
     dictionary_name: str = "person_overrides_join_dict"
+    dry_run: bool = True
+    partition_ids: list[str] = field(default_factory=list)
     delete_grace_period_seconds: int = 24 * 3600
+
+
+@dataclass
+class SquashEventsPartitionInputs:
+    """Inputs for the main squash events activity.
+
+    Attributes:
+        partition_id: Squash only given partition. The Workflow iterates over all provided
+            partition_ids.
+        team_ids: Run squash only on a subset of teams.
+        dictionary_name: The name of the dictionary used when squashing.
+        delete_grace_period_seconds: Number of seconds until an override can be deleted. This grace
+            period works on top of checking if the override was applied to all partitions. Defaults
+            to 24h.
+        dry_run: Do not run the queries when True.
+    """
+
+    dictionary_name: str = "person_overrides_join_dict"
+    partition_id: str | None = None
+    team_ids: list[int] = field(default_factory=list)
+    dry_run: bool = True
+
+
+@dataclass
+class WaitForMutationInputs:
+    """Inputs the wait_for_mutation activity.
+
+    Attributes:
+        table: The table name which we are waiting to be mutated.
+        query: The mutation query.
+        dry_run: Do not run the queries when True.
+    """
+
+    table: str
+    query: str
     dry_run: bool = True
 
 
 @activity.defn
-async def optimize_person_distinct_id_overrides(inputs: QueryInputs) -> None:
+async def optimize_person_distinct_id_overrides(dry_run: bool) -> None:
     """Prepare the person_distinct_id_overrides table to be used in a squash.
 
     This activity executes an OPTIMIZE TABLE query to ensure we assign the latest overrides for each distinct_id.
@@ -136,7 +187,7 @@ async def optimize_person_distinct_id_overrides(inputs: QueryInputs) -> None:
 
     optimize_query = "OPTIMIZE TABLE {database}.person_distinct_id_overrides ON CLUSTER {cluster} FINAL"
 
-    if inputs.dry_run is True:
+    if dry_run is True:
         activity.logger.info("This is a DRY RUN so nothing will be optimized.")
         activity.logger.debug("Optimize query: %s", optimize_query)
         return
@@ -150,21 +201,26 @@ async def optimize_person_distinct_id_overrides(inputs: QueryInputs) -> None:
 
 
 @activity.defn
-async def prepare_dictionary(inputs: QueryInputs) -> None:
+async def prepare_dictionary(inputs: DictionaryInputs) -> None:
     """Prepare the DICTIONARY to be used in the squash workflow."""
     from django.conf import settings
 
+    create_dictionary_query = CREATE_DICTIONARY_QUERY.format(
+        database=settings.CLICKHOUSE_DATABASE,
+        dictionary_name=inputs.dictionary_name,
+        user=settings.CLICKHOUSE_USER,
+        password=settings.CLICKHOUSE_PASSWORD,
+        cluster=settings.CLICKHOUSE_CLUSTER,
+    )
+
+    if inputs.dry_run is True:
+        activity.logger.info("This is a DRY RUN so no dictionary will be created.")
+        activity.logger.debug("Create dictionary query: %s", create_dictionary_query)
+        return
+
     async with heartbeat_every():
         async with get_client() as clickhouse_client:
-            await clickhouse_client.execute_query(
-                CREATE_DICTIONARY_QUERY.format(
-                    database=settings.CLICKHOUSE_DATABASE,
-                    dictionary_name=inputs.dictionary_name,
-                    user=settings.CLICKHOUSE_USER,
-                    password=settings.CLICKHOUSE_PASSWORD,
-                    cluster_name=settings.CLICKHOUSE_CLUSTER,
-                )
-            )
+            await clickhouse_client.execute_query(create_dictionary_query)
             # ClickHouse may delay populating the dictionary until we read from it.
             # We force a reload here to ensure the values are populated. This way,
             # they remain static from this point onwards as the dictionary's lifetime
@@ -173,7 +229,7 @@ async def prepare_dictionary(inputs: QueryInputs) -> None:
                 RELOAD_DICTIONARY_QUERY.format(
                     database=settings.CLICKHOUSE_DATABASE,
                     dictionary_name=inputs.dictionary_name,
-                    cluster_name=settings.CLICKHOUSE_CLUSTER,
+                    cluster=settings.CLICKHOUSE_CLUSTER,
                 )
             )
 
@@ -181,19 +237,48 @@ async def prepare_dictionary(inputs: QueryInputs) -> None:
 
 
 @activity.defn
-async def drop_dictionary(inputs: QueryInputs) -> None:
+async def drop_dictionary(inputs: DictionaryInputs) -> None:
     """DROP the dictionary used in the squash workflow."""
     from django.conf import settings
 
-    async with get_client() as clickhouse_client:
-        await clickhouse_client.execute_query(
-            DROP_DICTIONARY_QUERY.format(
-                database=settings.CLICKHOUSE_DATABASE,
-                dictionary_name=inputs.dictionary_name,
-            )
-        )
+    drop_dictionary_query = DROP_DICTIONARY_QUERY.format(
+        database=settings.CLICKHOUSE_DATABASE,
+        dictionary_name=inputs.dictionary_name,
+        cluster=settings.CLICKHOUSE_CLUSTER,
+    )
+
+    if inputs.dry_run is True:
+        activity.logger.info("This is a DRY RUN so no dictionary will be dropped.")
+        activity.logger.debug("Drop dictionary query: %s", drop_dictionary_query)
+        return
+
+    async with heartbeat_every():
+        async with get_client() as clickhouse_client:
+            await clickhouse_client.execute_query(drop_dictionary_query)
 
     activity.logger.info("Dropped dictionary %s", inputs.dictionary_name)
+
+
+@activity.defn
+async def drop_delete_join_table(dry_run: bool) -> None:
+    """DROP the JOIN table used in the delete step of the squash workflow."""
+    from django.conf import settings
+
+    drop_join_table_query = DROP_JOIN_TABLE_FOR_DELETES_QUERY.format(
+        database=settings.CLICKHOUSE_DATABASE,
+        cluster=settings.CLICKHOUSE_CLUSTER,
+    )
+
+    if dry_run is True:
+        activity.logger.info("This is a DRY RUN so no dictionary will be dropped.")
+        activity.logger.debug("Drop JOIN table query: %s", drop_join_table_query)
+        return
+
+    async with heartbeat_every():
+        async with get_client() as clickhouse_client:
+            await clickhouse_client.execute_query(drop_join_table_query)
+
+    activity.logger.info("Dropped JOIN table")
 
 
 @dataclasses.dataclass
@@ -249,119 +334,165 @@ async def heartbeat_every(
 
 
 @activity.defn
-async def squash_events_partition(inputs: QueryInputs) -> None:
+async def squash_events_partition(inputs: SquashEventsPartitionInputs) -> str:
     """Execute the squash query for a given partition_id and persons to_override.
 
-    As ClickHouse doesn't support an UPDATE ... FROM statement ala PostgreSQL, we must
-    do this in 4 basic steps:
-
-    1. Build a DICTIONARY from person_distinct_id_overrides.
-    2. Perform ALTER TABLE UPDATE using dictGet to query the DICTIONARY.
-    3. Clean up any person_distinct_id_overrides that were squashed and are past the grace period.
-    4. Clean up the DICTIONARY once done.
-
-    This activity corresponds to step number 2.
+    This activity will submit a mutation to be executed to apply all overrides available
+    in the DICTIONARY given by inputs.dictionary_name. A wait_for_mutation activity should
+    run after this one with the returned query to ensure the mutation is waited for.
     """
     from django.conf import settings
 
-    finished_partition_ids: list[str] = []
-
-    if inputs.dry_run is True:
-        activity.logger.info("This is a DRY RUN so nothing will be squashed.")
-        return
+    activity.logger.info(
+        "Submitting mutation to update events with person overrides in partition %s", inputs.partition_id
+    )
 
     async with get_client() as clickhouse_client:
-        for partition_id in inputs.partition_ids:
-            activity.logger.info("Updating events with person overrides in partition %s", partition_id)
+        query = SQUASH_EVENTS_QUERY.format(
+            database=settings.CLICKHOUSE_DATABASE,
+            cluster=settings.CLICKHOUSE_CLUSTER,
+            dictionary_name=inputs.dictionary_name,
+            partition_id=inputs.partition_id,
+            in_team_ids="AND (team_id IN %(team_ids)s)" if inputs.team_ids else "",
+        )
 
-            query = SQUASH_EVENTS_QUERY.format(
-                database=settings.CLICKHOUSE_DATABASE,
-                cluster=settings.CLICKHOUSE_CLUSTER,
-                dictionary_name=inputs.dictionary_name,
-                partition_id=partition_id,
-                in_team_ids="AND team_id IN %(team_ids)s" if inputs.team_ids else "",
-            )
+        parameters = {
+            "partition_id": inputs.partition_id,
+            "team_ids": inputs.team_ids,
+        }
+        prepared_query = clickhouse_client.prepare_query(query, parameters)
 
-            parameters = {
-                "partition_id": partition_id,
-                "team_ids": inputs.team_ids,
-            }
+        if inputs.dry_run is True:
+            activity.logger.info("This is a DRY RUN so nothing will be squashed.")
+            activity.logger.debug(prepared_query)
 
-            # Best cancellation scenario: It fires off before we begin a new mutation and there is nothing to cancel.
-            activity.heartbeat(finished_partition_ids)
+            return prepared_query
 
-            await clickhouse_client.execute_query(
-                query,
-                query_parameters=parameters,
-            )
+        # Best cancellation scenario: It fires off before we begin a new mutation and there is nothing to cancel.
+        activity.heartbeat()
 
-            activity.logger.info("Person overrides update submitted in partition %", partition_id)
+        await clickhouse_client.execute_query(prepared_query)
 
-            try:
+    activity.logger.info("Person overrides update submitted in partition %", inputs.partition_id)
+
+    return prepared_query
+
+
+def parse_mutation_counts(response: bytes) -> tuple[int, int]:
+    """Parse the count of total mutations and mutations in progress."""
+    rows = []
+
+    for line in response.decode("utf-8").splitlines():
+        mutation_id, is_done = line.strip().split("\t")
+        rows.append((mutation_id, int(is_done)))
+
+    total_mutations = len(rows)
+    mutations_in_progress = sum(row[1] == 0 for row in rows)
+
+    return (mutations_in_progress, total_mutations)
+
+
+@activity.defn
+async def wait_for_mutation(inputs: WaitForMutationInputs) -> None:
+    """Wait for a mutation to finish.
+
+    The mutation we wait for is given by WaitForMutationInputs.query and
+    WaitForMutationInputs.table. The former should be the 'ALTER TABLE' query used to
+    start the mutation.
+
+    WARNING: The 'ALTER TABLE' query should be formatted by ClickHouse as it's used as
+    an exact filter predicate. ClickHouse sometimes adds additional parantheses, or changes
+    the casing of functions, which can make the filter miss.
+
+    We wait for the mutation to be done in the whole cluster.
+    """
+    from django.conf import settings
+
+    activity.logger.info("Waiting for mutation in table %s", inputs.table)
+
+    if inputs.dry_run is True:
+        activity.logger.info("This is a DRY RUN so nothing will be waited for.")
+        return
+
+    # Mutations start with 'ALTER TABLE {table identifier} ON CLUSTER {cluster}'.
+    # The mutation command comes right after, and its one of 'UPDATE', 'DELETE WHERE', etc..., statements.
+    # So, we split and look for index 6 to find the start of the command:
+    # ["ALTER", "TABLE", "{table identifier}", "ON", "CLUSTER", "{cluster}", "{command}"].
+    try:
+        query_command = " ".join(inputs.query.split()[6:])
+        # Also we get rid of any SETTINGS clause as these are not passed along as a command.
+        query_command = query_command.split("SETTINGS")[0].strip()
+    except IndexError:
+        raise ValueError("Provided query does not appear to be a ALTER TABLE mutation")
+
+    async with get_client() as clickhouse_client:
+        try:
+            async with heartbeat_every():
                 while True:
-                    activity.heartbeat(finished_partition_ids)
-
                     response = await clickhouse_client.read_query(
-                        SQUASH_MUTATIONS_IN_PROGRESS_QUERY.format(
+                        MUTATIONS_IN_PROGRESS_QUERY.format(
                             database=settings.CLICKHOUSE_DATABASE,
                             cluster=settings.CLICKHOUSE_CLUSTER,
-                            dictionary_name=inputs.dictionary_name,
-                            partition_id=partition_id,
+                            table=inputs.table,
                         ),
+                        query_parameters={"query": query_command},
                     )
-                    rows = []
-                    for line in response.decode("utf-8").splitlines():
-                        mutation_id, is_done = line.strip().split("\t")
-                        rows.append((mutation_id, int(is_done)))
 
-                    total_mutations = len(rows)
-                    mutations_in_progress = sum(row[1] == 0 for row in rows)
+                    mutations_in_progress, total_mutations = parse_mutation_counts(response)
 
                     if mutations_in_progress == 0 and total_mutations > 0:
                         break
 
-                    activity.logger.info("Waiting for mutation in partition %", partition_id)
+                    activity.logger.info("Still waiting for mutation in table %s", inputs.table)
 
                     await asyncio.sleep(5)
 
-            except asyncio.CancelledError:
-                activity.logger.warning(
-                    "Squash activity has been cancelled, attempting to kill in progress mutation for partition %",
-                    partition_id,
-                )
+        except asyncio.CancelledError:
+            activity.logger.warning(
+                "Activity has been cancelled, attempting to kill in progress mutation for table %s",
+                inputs.table,
+            )
 
-                await clickhouse_client.execute_query(
-                    KILL_SQUASH_MUTATION_IN_PROGRESS_QUERY.format(
-                        database=settings.CLICKHOUSE_DATABASE,
-                        cluster=settings.CLICKHOUSE_CLUSTER,
-                        dictionary_name=inputs.dictionary_name,
-                        partition_id=partition_id,
-                    ),
-                )
-                raise
+            await clickhouse_client.execute_query(
+                KILL_MUTATION_IN_PROGRESS_QUERY.format(
+                    database=settings.CLICKHOUSE_DATABASE,
+                    cluster=settings.CLICKHOUSE_CLUSTER,
+                    table=inputs.table,
+                ),
+                query_parameters={"query": query_command},
+            )
+            raise
 
-            else:
-                finished_partition_ids.append(partition_id)
-
-                activity.logger.info("Person overrides update finished in partition %", partition_id)
-
-        activity.logger.info("All partitions have been updated with person overrides")
+        else:
+            activity.logger.info("Mutation finished in table %s", inputs.table)
 
 
 @activity.defn
-async def delete_squashed_person_overrides_from_clickhouse(inputs: QueryInputs) -> None:
+async def delete_squashed_person_overrides_from_clickhouse(inputs: DeletePersonOverridesInputs) -> str:
     """Execute the query to delete person overrides from ClickHouse that have been squashed."""
     from django.conf import settings
 
     activity.logger.info("Starting to delete squashed person overrides from ClickHouse")
 
-    if inputs.dry_run is True:
-        activity.logger.info("This is a DRY RUN so nothing will be deleted.")
-        return
-
     async with heartbeat_every():
-        async with get_client(mutations_sync=2) as clickhouse_client:
-            _ = await clickhouse_client.read_query(
+        async with get_client() as clickhouse_client:
+            delete_query = DELETE_SQUASHED_PERSON_OVERRIDES_QUERY.format(
+                database=settings.CLICKHOUSE_DATABASE,
+                dictionary_name=inputs.dictionary_name,
+                cluster=settings.CLICKHOUSE_CLUSTER,
+            )
+            query_parameters = {
+                "partition_ids": inputs.partition_ids,
+                "grace_period": inputs.delete_grace_period_seconds,
+            }
+
+            prepared_delete_query = clickhouse_client.prepare_query(delete_query, query_parameters)
+
+            if inputs.dry_run is True:
+                activity.logger.info("This is a DRY RUN so nothing will be deleted.")
+                return prepared_delete_query
+
+            await clickhouse_client.execute_query(
                 CREATE_JOIN_TABLE_FOR_DELETES_QUERY.format(
                     database=settings.CLICKHOUSE_DATABASE,
                     dictionary_name=inputs.dictionary_name,
@@ -370,28 +501,17 @@ async def delete_squashed_person_overrides_from_clickhouse(inputs: QueryInputs) 
             )
 
     async with heartbeat_every():
-        async with get_client(mutations_sync=2) as clickhouse_client:
-            try:
-                await clickhouse_client.execute_query(
-                    DELETE_SQUASHED_PERSON_OVERRIDES_QUERY.format(
-                        database=settings.CLICKHOUSE_DATABASE, dictionary_name=inputs.dictionary_name
-                    ),
-                    query_parameters={
-                        "partition_ids": inputs.partition_ids,
-                        "grace_period": inputs.delete_grace_period_seconds,
-                    },
-                )
-
-            finally:
-                await clickhouse_client.execute_query(
-                    DROP_JOIN_TABLE_FOR_DELETES_QUERY.format(database=settings.CLICKHOUSE_DATABASE),
-                )
+        async with get_client() as clickhouse_client:
+            await clickhouse_client.execute_query(prepared_delete_query)
 
     activity.logger.info("Deleted squashed person overrides from ClickHouse")
+    return prepared_delete_query
 
 
 @contextlib.asynccontextmanager
-async def person_overrides_dictionary(workflow, query_inputs: QueryInputs) -> collections.abc.AsyncIterator[None]:
+async def person_overrides_dictionary(
+    workflow, dictionary_inputs: DictionaryInputs
+) -> collections.abc.AsyncIterator[None]:
     """This context manager manages a dictionary used during a squash workflow.
 
     Managing the dictionary involves setup activities necessary to ensure accurate values land in the
@@ -410,16 +530,16 @@ async def person_overrides_dictionary(workflow, query_inputs: QueryInputs) -> co
     """
     await workflow.execute_activity(
         optimize_person_distinct_id_overrides,
-        query_inputs,
-        start_to_close_timeout=timedelta(minutes=30),
+        dictionary_inputs.dry_run,
+        start_to_close_timeout=timedelta(hours=1),
         retry_policy=RetryPolicy(maximum_attempts=3, initial_interval=timedelta(seconds=20)),
         heartbeat_timeout=timedelta(minutes=1),
     )
 
     await workflow.execute_activity(
         prepare_dictionary,
-        query_inputs,
-        start_to_close_timeout=timedelta(minutes=30),
+        dictionary_inputs,
+        start_to_close_timeout=timedelta(hours=1),
         retry_policy=RetryPolicy(maximum_attempts=3, initial_interval=timedelta(seconds=20)),
         heartbeat_timeout=timedelta(minutes=1),
     )
@@ -430,7 +550,7 @@ async def person_overrides_dictionary(workflow, query_inputs: QueryInputs) -> co
     finally:
         await workflow.execute_activity(
             drop_dictionary,
-            query_inputs,
+            dictionary_inputs,
             start_to_close_timeout=timedelta(seconds=60),
             retry_policy=RetryPolicy(maximum_attempts=10, initial_interval=timedelta(seconds=60)),
             heartbeat_timeout=timedelta(seconds=10),
@@ -506,6 +626,19 @@ class SquashPersonOverridesWorkflow(PostHogWorkflow):
     person_distinct_id_overrides table: both to reduce the amount of storage
     required for these tables, as well as ensuring that the join mentioned
     previously does not become prohibitively large to evaluate.
+
+    As ClickHouse doesn't support an UPDATE ... FROM statement ala PostgreSQL,
+    applying the overrides on the events table (i.e. "squashing") is a 4-step
+    process:
+
+    1. Build a DICTIONARY from person_distinct_id_overrides.
+    2. For each partition issue an ALTER TABLE UPDATE. This query uses dictGet
+        to efficiently find the override for each (team_id, distinct_id) pair
+        in the dictionary we built in 1.
+    3. Delete from person_distinct_id_overrides any overrides that were squashed
+        and are past the grace period. We construct an auxiliary JOIN table to
+        identify the persons that can be deleted.
+    4. Clean up the DICTIONARY and auxiliary JOIN table once done.
     """
 
     @staticmethod
@@ -525,35 +658,79 @@ class SquashPersonOverridesWorkflow(PostHogWorkflow):
         """Workflow implementation to squash person overrides into events table."""
         workflow.logger.info("Starting squash workflow")
 
-        query_inputs = QueryInputs(
+        dictionary_inputs = DictionaryInputs(
             dictionary_name=inputs.dictionary_name,
-            team_ids=inputs.team_ids,
             dry_run=inputs.dry_run,
-            delete_grace_period_seconds=inputs.delete_grace_period_seconds,
         )
 
         async with person_overrides_dictionary(
             workflow,
-            query_inputs,
+            dictionary_inputs,
         ):
-            query_inputs.partition_ids = list(inputs.iter_partition_ids())
+            for partition_id in inputs.iter_partition_ids():
+                squash_events_partition_inputs = SquashEventsPartitionInputs(
+                    dry_run=inputs.dry_run,
+                    dictionary_name=inputs.dictionary_name,
+                    team_ids=inputs.team_ids,
+                    partition_id=partition_id,
+                )
+                squash_events_partition_inputs.partition_id = partition_id
+                mutation_query = await workflow.execute_activity(
+                    squash_events_partition,
+                    squash_events_partition_inputs,
+                    start_to_close_timeout=timedelta(minutes=2),
+                    retry_policy=RetryPolicy(maximum_attempts=1),
+                    heartbeat_timeout=timedelta(seconds=10),
+                )
 
-            await workflow.execute_activity(
-                squash_events_partition,
-                query_inputs,
-                start_to_close_timeout=timedelta(hours=1),
-                retry_policy=RetryPolicy(maximum_attempts=3),
-                heartbeat_timeout=timedelta(minutes=1),
+                wait_for_mutation_inputs = WaitForMutationInputs(
+                    dry_run=inputs.dry_run,
+                    query=mutation_query,
+                    table="sharded_events",
+                )
+                await workflow.execute_activity(
+                    wait_for_mutation,
+                    wait_for_mutation_inputs,
+                    start_to_close_timeout=timedelta(hours=4),
+                    retry_policy=RetryPolicy(maximum_attempts=6, initial_interval=timedelta(seconds=20)),
+                    heartbeat_timeout=timedelta(minutes=2),
+                )
+
+            workflow.logger.info("Squash finished for all requested partitions, now deleting person overrides")
+
+            delete_person_overrides_inputs = DeletePersonOverridesInputs(
+                dry_run=inputs.dry_run,
+                dictionary_name=inputs.dictionary_name,
+                delete_grace_period_seconds=inputs.delete_grace_period_seconds,
+                partition_ids=list(inputs.iter_partition_ids()),
+            )
+            mutation_query = await workflow.execute_activity(
+                delete_squashed_person_overrides_from_clickhouse,
+                delete_person_overrides_inputs,
+                start_to_close_timeout=timedelta(minutes=2),
+                retry_policy=RetryPolicy(maximum_attempts=1),
+                heartbeat_timeout=timedelta(seconds=10),
             )
 
-            workflow.logger.info("Squash finished for all requested partitions, running clean up activities")
+            wait_for_mutation_inputs = WaitForMutationInputs(
+                dry_run=inputs.dry_run,
+                query=mutation_query,
+                table="person_distinct_id_overrides",
+            )
+            await workflow.execute_activity(
+                wait_for_mutation,
+                wait_for_mutation_inputs,
+                start_to_close_timeout=timedelta(hours=4),
+                retry_policy=RetryPolicy(maximum_attempts=6, initial_interval=timedelta(seconds=20)),
+                heartbeat_timeout=timedelta(minutes=2),
+            )
 
             await workflow.execute_activity(
-                delete_squashed_person_overrides_from_clickhouse,
-                query_inputs,
-                start_to_close_timeout=timedelta(hours=1),
-                retry_policy=RetryPolicy(maximum_attempts=3),
-                heartbeat_timeout=timedelta(minutes=1),
+                drop_delete_join_table,
+                inputs.dry_run,
+                start_to_close_timeout=timedelta(seconds=60),
+                retry_policy=RetryPolicy(maximum_attempts=10, initial_interval=timedelta(seconds=60)),
+                heartbeat_timeout=timedelta(seconds=10),
             )
 
         workflow.logger.info("Done 🎉")
