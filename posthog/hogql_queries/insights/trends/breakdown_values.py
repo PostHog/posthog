@@ -97,7 +97,7 @@ class BreakdownValues:
             aggregation_expression = self._aggregation_operation.select_aggregation()
             # Take a shortcut with WAU and MAU queries. Get the total AU-s for the period instead.
             if len(find_placeholders(aggregation_expression)) > 0:
-                actor = "e.distinct_id" if self.team.aggregate_users_by_distinct_id else "e.person.id"
+                actor = "e.distinct_id" if self.team.aggregate_users_by_distinct_id else "e.person_id"
                 replaced = parse_expr(f"count(DISTINCT {actor})")
                 aggregation_expression = replace_placeholders(aggregation_expression, {"replaced": replaced})
 
