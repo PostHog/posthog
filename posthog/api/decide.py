@@ -93,10 +93,9 @@ def get_decide(request: HttpRequest):
         "isAuthenticated": False,
         # gzip and gzip-js are aliases for the same compression algorithm
         "supportedCompression": ["gzip", "gzip-js"],
+        "featureFlags": [],
+        "sessionRecording": False,
     }
-
-    response["featureFlags"] = []
-    response["sessionRecording"] = False
 
     if request.method == "POST":
         try:
@@ -250,48 +249,7 @@ def get_decide(request: HttpRequest):
             ):
                 response["elementsChainAsString"] = True
 
-            if team.session_recording_opt_in and (
-                on_permitted_recording_domain(team, request) or not team.recording_domains
-            ):
-                capture_console_logs = True if team.capture_console_log_opt_in else False
-                sample_rate = team.session_recording_sample_rate or None
-                if sample_rate == "1.00":
-                    sample_rate = None
-
-                minimum_duration = team.session_recording_minimum_duration_milliseconds or None
-
-                linked_flag = None
-                linked_flag_config = team.session_recording_linked_flag or None
-                if isinstance(linked_flag_config, Dict):
-                    linked_flag_key = linked_flag_config.get("key", None)
-                    linked_flag_variant = linked_flag_config.get("variant", None)
-                    if linked_flag_variant is not None:
-                        linked_flag = {"flag": linked_flag_key, "variant": linked_flag_variant}
-                    else:
-                        linked_flag = linked_flag_key
-
-                session_recording_response = {
-                    "endpoint": "/s/",
-                    "consoleLogRecordingEnabled": capture_console_logs,
-                    "recorderVersion": "v2",
-                    "sampleRate": sample_rate,
-                    "minimumDurationMilliseconds": minimum_duration,
-                    "linkedFlag": linked_flag,
-                    "networkPayloadCapture": team.session_recording_network_payload_capture_config or None,
-                }
-
-                if isinstance(team.session_replay_config, Dict):
-                    record_canvas = team.session_replay_config.get("record_canvas", False)
-                    session_recording_response.update(
-                        {
-                            "recordCanvas": record_canvas,
-                            # hard coded during beta while we decide on sensible values
-                            "canvasFps": 4 if record_canvas else None,
-                            "canvasQuality": "0.6" if record_canvas else None,
-                        }
-                    )
-
-                response["sessionRecording"] = session_recording_response
+            response["sessionRecording"] = _session_recording_config_response(request, team)
 
             response["surveys"] = True if team.surveys_opt_in else False
 
@@ -334,3 +292,53 @@ def get_decide(request: HttpRequest):
 
     statsd.incr(f"posthog_cloud_raw_endpoint_success", tags={"endpoint": "decide"})
     return cors_response(request, JsonResponse(response))
+
+
+def _session_recording_config_response(request, team):
+    session_recording_config_response = False
+
+    try:
+        if team.session_recording_opt_in and (
+            on_permitted_recording_domain(team, request) or not team.recording_domains
+        ):
+            capture_console_logs = True if team.capture_console_log_opt_in else False
+            sample_rate = team.session_recording_sample_rate or None
+            if sample_rate == "1.00":
+                sample_rate = None
+
+            minimum_duration = team.session_recording_minimum_duration_milliseconds or None
+
+            linked_flag = None
+            linked_flag_config = team.session_recording_linked_flag or None
+            if isinstance(linked_flag_config, Dict):
+                linked_flag_key = linked_flag_config.get("key", None)
+                linked_flag_variant = linked_flag_config.get("variant", None)
+                if linked_flag_variant is not None:
+                    linked_flag = {"flag": linked_flag_key, "variant": linked_flag_variant}
+                else:
+                    linked_flag = linked_flag_key
+
+            session_recording_config_response = {
+                "endpoint": "/s/",
+                "consoleLogRecordingEnabled": capture_console_logs,
+                "recorderVersion": "v2",
+                "sampleRate": sample_rate,
+                "minimumDurationMilliseconds": minimum_duration,
+                "linkedFlag": linked_flag,
+                "networkPayloadCapture": team.session_recording_network_payload_capture_config or None,
+            }
+
+            if isinstance(team.session_replay_config, Dict):
+                record_canvas = team.session_replay_config.get("record_canvas", False)
+                session_recording_config_response.update(
+                    {
+                        "recordCanvas": record_canvas,
+                        # hard coded during beta while we decide on sensible values
+                        "canvasFps": 4 if record_canvas else None,
+                        "canvasQuality": "0.6" if record_canvas else None,
+                    }
+                )
+    except Exception as e:
+        capture_exception(e)  # we don't want to fail decide if session recording config fails to load
+
+    return session_recording_config_response
