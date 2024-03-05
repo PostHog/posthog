@@ -9,12 +9,16 @@ import { PersonProperty } from '~/types'
 
 import type { personPropertiesModelType } from './personPropertiesModelType'
 import { PersonPropertiesModelProps } from './types'
+import { dataWarehouseJoinsLogic } from 'scenes/data-warehouse/external/dataWarehouseJoinsLogic'
 
 export const personPropertiesModel = kea<personPropertiesModelType>([
     props({} as PersonPropertiesModelProps),
     path(['models', 'personPropertiesModel']),
     connect({
-        values: [teamLogic, ['currentTeamId']],
+        values: [
+            teamLogic, ['currentTeamId'],
+            dataWarehouseJoinsLogic, ['columnsJoinedToPersons'],
+        ],
     }),
     loaders(({ values }) => ({
         personProperties: [
@@ -31,20 +35,13 @@ export const personPropertiesModel = kea<personPropertiesModelType>([
                 },
             },
         ],
-        linkedViewPersonProperties: [
-            [] as PersonProperty[],
-            {
-                loadLinkedViewPersonProperties: async () => {
-                    return []
-                },
-            },
-        ],
     })),
     selectors({
         combinedPersonProperties: [
-            (s) => [s.personProperties, s.linkedViewPersonProperties],
-            (personProperties, linkedViewPersonProperties) => {
-                return [...personProperties, ...linkedViewPersonProperties]
+            (s) => [s.personProperties, s.columnsJoinedToPersons],
+            (personProperties, columnsJoinedToPersons) => {
+                // TODO: Add columns to list
+                return [...personProperties]
             },
         ],
         propertyAllowList: [
