@@ -1,5 +1,5 @@
 import { urls } from '@posthog/apps-common'
-import { LemonButton, LemonInput, LemonLabel, LemonSkeleton } from '@posthog/lemon-ui'
+import { LemonButton, LemonDialog, LemonInput, LemonLabel, LemonSkeleton } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { AuthorizedUrlList } from 'lib/components/AuthorizedUrlList/AuthorizedUrlList'
 import { AuthorizedUrlListType } from 'lib/components/AuthorizedUrlList/authorizedUrlListLogic'
@@ -92,6 +92,22 @@ export function ProjectVariables(): JSX.Element {
     const { preflight } = useValues(preflightLogic)
     const region = preflight?.region
 
+    const openDialog = (): void => {
+        LemonDialog.open({
+            title: 'Reset project API key?',
+            description: 'This will invalidate the current API key and cannot be undone.',
+            primaryButton: {
+                children: 'Reset',
+                type: 'primary',
+                onClick: resetToken,
+            },
+            secondaryButton: {
+                children: 'Cancel',
+                type: 'secondary',
+            },
+        })
+    }
+
     return (
         <div className="flex items-start gap-4 flex-wrap">
             <div className="flex-1">
@@ -104,26 +120,9 @@ export function ProjectVariables(): JSX.Element {
                 </p>
                 <CodeSnippet
                     actions={
-                        isTeamTokenResetAvailable
-                            ? [
-                                  {
-                                      icon: <IconRefresh />,
-                                      title: 'Reset project API key',
-                                      popconfirmProps: {
-                                          title: (
-                                              <>
-                                                  Reset the project's API key?{' '}
-                                                  <b>This will invalidate the current API key and cannot be undone.</b>
-                                              </>
-                                          ),
-                                          okText: 'Reset key',
-                                          okType: 'danger',
-                                          placement: 'left',
-                                      },
-                                      callback: resetToken,
-                                  },
-                              ]
-                            : []
+                        isTeamTokenResetAvailable ? (
+                            <LemonButton icon={<IconRefresh />} noPadding onClick={openDialog} />
+                        ) : undefined
                     }
                     thing="project API key"
                 >

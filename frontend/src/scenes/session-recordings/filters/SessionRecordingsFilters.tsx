@@ -94,7 +94,7 @@ export function SessionRecordingsFilters({
                     className="w-full rounded-none border-0 border-t"
                     multiple
                     defaultActiveKeys={initiallyOpen ? ['advanced-filters'] : []}
-                    size="small"
+                    size="xsmall"
                     panels={panels}
                     onChange={(activeKeys) => {
                         setPrefersAdvancedFilters(activeKeys.includes('advanced-filters'))
