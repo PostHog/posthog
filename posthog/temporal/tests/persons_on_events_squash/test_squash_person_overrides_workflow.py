@@ -23,6 +23,7 @@ from posthog.temporal.batch_exports.squash_person_overrides import (
     SquashPersonOverridesWorkflow,
     WaitForMutationInputs,
     delete_squashed_person_overrides_from_clickhouse,
+    drop_delete_join_table,
     drop_dictionary,
     optimize_person_distinct_id_overrides,
     prepare_dictionary,
@@ -775,6 +776,7 @@ async def test_delete_squashed_person_overrides_from_clickhouse(
         await activity_environment.run(delete_squashed_person_overrides_from_clickhouse, delete_inputs)
     finally:
         await activity_environment.run(drop_dictionary, dictionary_inputs)
+        await activity_environment.run(drop_delete_join_table, False)
 
     response = await clickhouse_client.read_query(
         "SELECT team_id, distinct_id, person_id FROM person_distinct_id_overrides"
@@ -835,6 +837,7 @@ async def test_delete_squashed_person_overrides_from_clickhouse_within_grace_per
 
     finally:
         await activity_environment.run(drop_dictionary, dictionary_inputs)
+        await activity_environment.run(drop_delete_join_table, False)
 
     response = await clickhouse_client.read_query(
         "SELECT team_id, distinct_id, person_id, _timestamp FROM person_distinct_id_overrides"
@@ -909,6 +912,7 @@ async def test_squash_person_overrides_workflow(
         activities=[
             delete_squashed_person_overrides_from_clickhouse,
             drop_dictionary,
+            drop_delete_join_table,
             optimize_person_distinct_id_overrides,
             prepare_dictionary,
             squash_events_partition,
@@ -955,6 +959,7 @@ async def test_squash_person_overrides_workflow_with_newer_overrides(
         activities=[
             delete_squashed_person_overrides_from_clickhouse,
             drop_dictionary,
+            drop_delete_join_table,
             optimize_person_distinct_id_overrides,
             prepare_dictionary,
             squash_events_partition,
@@ -998,6 +1003,7 @@ async def test_squash_person_overrides_workflow_with_limited_team_ids(
         activities=[
             delete_squashed_person_overrides_from_clickhouse,
             drop_dictionary,
+            drop_delete_join_table,
             optimize_person_distinct_id_overrides,
             prepare_dictionary,
             squash_events_partition,

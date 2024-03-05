@@ -1,10 +1,10 @@
 import './ToolbarLaunch.scss'
 
-import { IconFlag } from '@posthog/icons'
+import { IconFlag, IconSearch } from '@posthog/icons'
 import { AuthorizedUrlList } from 'lib/components/AuthorizedUrlList/AuthorizedUrlList'
 import { AuthorizedUrlListType } from 'lib/components/AuthorizedUrlList/authorizedUrlListLogic'
 import { PageHeader } from 'lib/components/PageHeader'
-import { IconGroupedEvents, IconHeatmap, IconMagnifier } from 'lib/lemon-ui/icons'
+import { IconGroupedEvents, IconHeatmap } from 'lib/lemon-ui/icons'
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
 import { Link } from 'lib/lemon-ui/Link'
 import { SceneExport } from 'scenes/sceneTypes'
@@ -34,7 +34,7 @@ function ToolbarLaunch(): JSX.Element {
         {
             title: 'Inspect',
             caption: 'Inspect clickable elements on your website.',
-            icon: <IconMagnifier />,
+            icon: <IconSearch />,
         },
     ]
 
