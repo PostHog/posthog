@@ -497,12 +497,6 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 setDashboardMode: (_, { mode }) => mode,
             },
         ],
-        lastDashboardModeSource: [
-            null as DashboardEventSource | null,
-            {
-                setDashboardMode: (_, { source }) => source,
-            },
-        ],
         autoRefresh: [
             {
                 interval: AUTO_REFRESH_INITIAL_INTERVAL_SECONDS,

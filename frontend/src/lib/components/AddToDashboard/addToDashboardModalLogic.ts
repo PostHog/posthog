@@ -42,7 +42,6 @@ export const addToDashboardModalLogic = kea<addToDashboardModalLogicType>([
     })),
     actions({
         addNewDashboard: true,
-        setDashboardId: (id: number) => ({ id }),
         setSearchQuery: (query: string) => ({ query }),
         setInsight: (insight: InsightType) => ({ insight }),
         setScrollIndex: (index: number) => ({ index }),
@@ -50,7 +49,6 @@ export const addToDashboardModalLogic = kea<addToDashboardModalLogicType>([
         removeFromDashboard: (insight: Partial<InsightModel>, dashboardId: number) => ({ insight, dashboardId }),
     }),
     reducers({
-        _dashboardId: [null as null | number, { setDashboardId: (_, { id }) => id }],
         searchQuery: ['', { setSearchQuery: (_, { query }) => query }],
         scrollIndex: [-1 as number, { setScrollIndex: (_, { index }) => index }],
         dashboardWithActiveAPICall: [
@@ -64,16 +62,6 @@ export const addToDashboardModalLogic = kea<addToDashboardModalLogicType>([
         ],
     }),
     selectors({
-        dashboardId: [
-            (s) => [
-                s._dashboardId,
-                dashboardsModel.selectors.lastDashboardId,
-                dashboardsModel.selectors.nameSortedDashboards,
-                (_, props) => props.fromDashboard,
-            ],
-            (_dashboardId, lastDashboardId, dashboards, fromDashboard) =>
-                _dashboardId || fromDashboard || lastDashboardId || (dashboards.length > 0 ? dashboards[0].id : null),
-        ],
         dashboardsFuse: [
             () => [dashboardsModel.selectors.nameSortedDashboards],
             (nameSortedDashboards): Fuse => {
@@ -109,17 +97,12 @@ export const addToDashboardModalLogic = kea<addToDashboardModalLogicType>([
         ],
     }),
     listeners(({ actions, values, props }) => ({
-        setDashboardId: ({ id }) => {
-            dashboardsModel.actions.setLastDashboardId(id)
-        },
-
         addNewDashboard: async () => {
             actions.showNewDashboardModal()
         },
 
         [dashboardsModel.actionTypes.addDashboardSuccess]: async ({ dashboard }) => {
             actions.reportCreatedDashboardFromModal()
-            actions.setDashboardId(dashboard.id)
             actions.addToDashboard(props.insight, dashboard.id)
             actions.setScrollIndex(values.orderedDashboards.findIndex((d) => d.id === dashboard.id))
         },

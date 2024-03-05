@@ -59,8 +59,12 @@ export const breadcrumbsLogic = kea<breadcrumbsLogicType>([
             },
         ],
     }),
-    listeners(({ actions }) => ({
-        [sceneLogic.actionTypes.loadScene]: () => actions.finishRenaming(), // Cancel renaming on navigation away
+    listeners(({ actions, values }) => ({
+        [sceneLogic.actionTypes.loadScene]: () => {
+            if (values.renameState) {
+                actions.finishRenaming() // Cancel renaming on navigation away
+            }
+        },
     })),
     selectors(() => ({
         sceneBreadcrumbs: [
