@@ -91,6 +91,7 @@ class BreakdownValues:
         else:
             breakdown_limit = int(self.breakdown_limit) if self.breakdown_limit is not None else BREAKDOWN_VALUES_LIMIT
 
+        aggregation_expression: ast.Expr
         if self._aggregation_operation.aggregating_on_session_duration():
             aggregation_expression = ast.Call(name="max", args=[ast.Field(chain=["session", "duration"])])
         else:
@@ -125,6 +126,8 @@ class BreakdownValues:
                 "aggregation_expression": aggregation_expression,
             },
         )
+
+        # Reverse the order if looking at the smallest values
         if self.series.math_property is not None and self.series.math == "min":
             if (
                 isinstance(inner_events_query, ast.SelectQuery)
