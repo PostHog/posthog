@@ -101,13 +101,14 @@ type HTMLElementsDisplayProps =
           startingSelector?: string
           checkUniqueness?: boolean
           onChange?: (selector: string, isUnique?: boolean) => void
-          selectedText: never
+          selectedText?: never
       })
     | (HTMLElementsDisplayPropsBase & {
           editable?: false
           startingSelector?: never
           checkUniqueness?: never
           onChange?: never
+          selectedText?: string
       })
 
 export function HTMLElementsDisplay({
