@@ -104,7 +104,7 @@ export function PermissionsGrid(): JSX.Element {
             <>
                 <div className="flex flex-row justify-between items-center mb-4">
                     <div className="text-muted-alt">
-                        Edit organizational default permission levels for PostHog resources. Use roles to apply
+                        Edit organizational default permission levels for posthog resources. Use roles to apply
                         permissions to specific sets of users.
                     </div>
                     {!isRestricted && (
