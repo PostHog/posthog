@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import logging
-import time
 from dataclasses import dataclass
 from typing import Optional
 
@@ -65,7 +64,7 @@ SELECT
     initializeAggregation('argMinState', {gclid_property}, timestamp) as initial_gclid,
     initializeAggregation('argMinState', {gad_source_property}, timestamp) as initial_gad_source,
 
-    initializeAggregation('sumMapState', ([event], [toInt64(1)])) as event_count_map,
+    CAST(([event], [1]), 'Map(String, UInt64)') as event_count_map,
     if(event='$pageview', 1, NULL) as pageview_count,
     if(event='$autocapture', 1, NULL) as autocapture_count
 
@@ -73,41 +72,24 @@ FROM events
 WHERE team_id = %(team_id)s AND `$session_id` IS NOT NULL AND `$session_id` != '' AND {where}
         """
 
+        # print the count of entries in the main sessions table
+        count_query = f"SELECT count(), uniq(session_id) FROM {TARGET_TABLE}"
+        [(sessions_row_count, sessions_event_count)] = sync_execute(count_query, {"team_id": self.team_id})
+        logger.info(f"{sessions_row_count} rows and {sessions_event_count} unique session_ids in sessions table")
+
         if dry_run:
             count_query = f"SELECT count(), uniq(session_id) FROM ({select_query})"
             [(events_count, sessions_count)] = sync_execute(count_query, {"team_id": self.team_id})
             logger.info(f"{events_count} events and {sessions_count} sessions to backfill for team {self.team_id}")
             return
 
-        # create a new import table, and populate it with the data we want to backfill
-        # if that goes to plan then attach the partition to the main sessions table
-        # see https://kb.altinity.com/altinity-kb-schema-design/materialized-views/backfill-populate-mv-in-a-controlled-manner/
-        partition_number = int(time.time() * 1000)
-        import_table_name = f"sessions_import_table_{self.team_id}_{partition_number}"
-
-        logging.info(f"Creating import table {import_table_name}")
-        sync_execute(f"""CREATE TABLE {import_table_name} on cluster 'posthog' AS {TARGET_TABLE};""")
-
         logging.info("Populating the import table with the data we want to backfill, using a partition expression")
-        sync_execute(
-            f"""INSERT INTO {import_table_name} {select_query} = {partition_number}""", {"team_id": self.team_id}
-        )
-
-        # print the count of entries in the import table
-        count_query = f"SELECT count(), uniq(session_id) FROM {import_table_name}"
-        [(import_table_row_count, import_table_event_count)] = sync_execute(count_query, {"team_id": self.team_id})
-        logger.info(f"{import_table_row_count} rows and {import_table_event_count} in import table {import_table_name}")
-
-        # TODO this step fails!
-        logging.info(f"Attaching the import table to the {TARGET_TABLE} table")
-        sync_execute(
-            f"""ALTER TABLE {TARGET_TABLE} ATTACH PARTITION ID '{partition_number}' FROM  {import_table_name};"""
-        )
+        sync_execute(f"""INSERT INTO writable_sessions {select_query}""", {"team_id": self.team_id})
 
         # print the count of entries in the main sessions table
         count_query = f"SELECT count(), uniq(session_id) FROM {TARGET_TABLE}"
         [(sessions_row_count, sessions_event_count)] = sync_execute(count_query, {"team_id": self.team_id})
-        logger.info(f"{sessions_row_count} rows and {sessions_event_count} in sessions table")
+        logger.info(f"{sessions_row_count} rows and {sessions_event_count} unique session_ids in sessions table")
 
 
 class Command(BaseCommand):
