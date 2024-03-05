@@ -3,7 +3,6 @@ import { Tooltip } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
-import { IconCheckCircleOutline } from 'lib/lemon-ui/icons'
 import { LemonCard } from 'lib/lemon-ui/LemonCard/LemonCard'
 import { Spinner } from 'lib/lemon-ui/Spinner'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
@@ -81,7 +80,7 @@ export function ProductCard({
                             router.actions.push(getProductUri(product.type as ProductKey, featureFlags))
                         }}
                     >
-                        <IconCheckCircleOutline className="absolute top-0 right-0" color="green" />
+                        <Icons.IconCheckCircle className="absolute top-0 right-0" color="green" />
                     </div>
                 </Tooltip>
             )}
