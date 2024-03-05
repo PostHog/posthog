@@ -69,6 +69,7 @@ export const billingLogic = kea<billingLogicType>([
         registerInstrumentationProps: true,
         setRedirectPath: true,
         setIsOnboarding: true,
+        determineBillingAlert: true,
         setBillingAlert: (billingAlert: BillingAlertConfig | null) => ({ billingAlert }),
     }),
     connect(() => ({
@@ -258,13 +259,15 @@ export const billingLogic = kea<billingLogicType>([
             }
             actions.registerInstrumentationProps()
 
+            actions.determineBillingAlert()
+        },
+        determineBillingAlert: () => {
             if (values.productSpecificAlert) {
                 actions.setBillingAlert(values.productSpecificAlert)
                 return
             }
 
-            if (!values.billing) {
-                // || !preflight?.cloud) {
+            if (!values.billing || !preflight?.cloud) {
                 return
             }
 
