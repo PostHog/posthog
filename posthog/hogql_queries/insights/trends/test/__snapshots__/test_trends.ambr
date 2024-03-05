@@ -507,7 +507,7 @@
         FROM numbers(dateDiff('day', minus(toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-11 00:00:00', 6, 'UTC'))), toIntervalDay(7)), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-11 23:59:59', 6, 'UTC')))) AS numbers) AS d
      CROSS JOIN
        (SELECT toTimeZone(e.timestamp, 'UTC') AS timestamp,
-               e__pdi__person.id AS actor_id,
+               e__pdi.person_id AS actor_id,
                transform(ifNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, 'key'), ''), 'null'), '^"|"$', ''), '$$_posthog_breakdown_null_$$'), ['$$_posthog_breakdown_other_$$', 'val', 'bor'], ['$$_posthog_breakdown_other_$$', 'val', 'bor'], '$$_posthog_breakdown_other_$$') AS breakdown_value
         FROM events AS e SAMPLE 1
         INNER JOIN
@@ -517,12 +517,6 @@
            WHERE equals(person_distinct_id2.team_id, 2)
            GROUP BY person_distinct_id2.distinct_id
            HAVING ifNull(equals(argMax(person_distinct_id2.is_deleted, person_distinct_id2.version), 0), 0)) AS e__pdi ON equals(e.distinct_id, e__pdi.distinct_id)
-        INNER JOIN
-          (SELECT person.id AS id
-           FROM person
-           WHERE equals(person.team_id, 2)
-           GROUP BY person.id
-           HAVING ifNull(equals(argMax(person.is_deleted, person.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS e__pdi__person ON equals(e__pdi.person_id, e__pdi__person.id)
         WHERE and(equals(e.team_id, 2), and(equals(e.event, '$pageview'), or(ifNull(equals(transform(ifNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, 'key'), ''), 'null'), '^"|"$', ''), '$$_posthog_breakdown_null_$$'), ['$$_posthog_breakdown_other_$$', 'val', 'bor'], ['$$_posthog_breakdown_other_$$', 'val', 'bor'], '$$_posthog_breakdown_other_$$'), '$$_posthog_breakdown_other_$$'), 0), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, 'key'), ''), 'null'), '^"|"$', ''), 'val'), 0), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, 'key'), ''), 'null'), '^"|"$', ''), 'bor'), 0))), ifNull(greaterOrEquals(timestamp, minus(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-11 00:00:00', 6, 'UTC')), toIntervalDay(7))), 0), ifNull(lessOrEquals(timestamp, assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-11 23:59:59', 6, 'UTC'))), 0))
         GROUP BY timestamp, actor_id,
                             breakdown_value) AS e
@@ -574,7 +568,7 @@
         FROM numbers(dateDiff('day', minus(toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-11 00:00:00', 6, 'UTC'))), toIntervalDay(7)), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-11 23:59:59', 6, 'UTC')))) AS numbers) AS d
      CROSS JOIN
        (SELECT toTimeZone(e.timestamp, 'UTC') AS timestamp,
-               e__pdi__person.id AS actor_id,
+               e__pdi.person_id AS actor_id,
                transform(ifNull(nullIf(nullIf(e.mat_key, ''), 'null'), '$$_posthog_breakdown_null_$$'), ['$$_posthog_breakdown_other_$$', 'val', 'bor'], ['$$_posthog_breakdown_other_$$', 'val', 'bor'], '$$_posthog_breakdown_other_$$') AS breakdown_value
         FROM events AS e SAMPLE 1
         INNER JOIN
@@ -584,12 +578,6 @@
            WHERE equals(person_distinct_id2.team_id, 2)
            GROUP BY person_distinct_id2.distinct_id
            HAVING ifNull(equals(argMax(person_distinct_id2.is_deleted, person_distinct_id2.version), 0), 0)) AS e__pdi ON equals(e.distinct_id, e__pdi.distinct_id)
-        INNER JOIN
-          (SELECT person.id AS id
-           FROM person
-           WHERE equals(person.team_id, 2)
-           GROUP BY person.id
-           HAVING ifNull(equals(argMax(person.is_deleted, person.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS e__pdi__person ON equals(e__pdi.person_id, e__pdi__person.id)
         WHERE and(equals(e.team_id, 2), and(equals(e.event, '$pageview'), or(ifNull(equals(transform(ifNull(nullIf(nullIf(e.mat_key, ''), 'null'), '$$_posthog_breakdown_null_$$'), ['$$_posthog_breakdown_other_$$', 'val', 'bor'], ['$$_posthog_breakdown_other_$$', 'val', 'bor'], '$$_posthog_breakdown_other_$$'), '$$_posthog_breakdown_other_$$'), 0), ifNull(equals(nullIf(nullIf(e.mat_key, ''), 'null'), 'val'), 0), ifNull(equals(nullIf(nullIf(e.mat_key, ''), 'null'), 'bor'), 0))), ifNull(greaterOrEquals(timestamp, minus(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-11 00:00:00', 6, 'UTC')), toIntervalDay(7))), 0), ifNull(lessOrEquals(timestamp, assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-11 23:59:59', 6, 'UTC'))), 0))
         GROUP BY timestamp, actor_id,
                             breakdown_value) AS e
@@ -698,7 +686,7 @@
               FROM numbers(dateDiff('day', minus(toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-01 00:00:00', 6, 'UTC'))), toIntervalDay(7)), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-12 23:59:59', 6, 'UTC')))) AS numbers) AS d
            CROSS JOIN
              (SELECT toTimeZone(e.timestamp, 'UTC') AS timestamp,
-                     e__pdi__person.id AS actor_id,
+                     e__pdi.person_id AS actor_id,
                      transform(ifNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, 'key'), ''), 'null'), '^"|"$', ''), '$$_posthog_breakdown_null_$$'), ['$$_posthog_breakdown_other_$$', 'val'], ['$$_posthog_breakdown_other_$$', 'val'], '$$_posthog_breakdown_other_$$') AS breakdown_value
               FROM events AS e SAMPLE 1
               INNER JOIN
@@ -1384,7 +1372,7 @@
               FROM numbers(dateDiff('day', minus(toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-28 00:00:00', 6, 'UTC'))), toIntervalDay(30)), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-04 23:59:59', 6, 'UTC')))) AS numbers) AS d
            CROSS JOIN
              (SELECT toTimeZone(e.timestamp, 'UTC') AS timestamp,
-                     e__pdi__person.id AS actor_id,
+                     e__pdi.person_id AS actor_id,
                      transform(ifNull(e__pdi__person.`properties___$some_prop`, '$$_posthog_breakdown_null_$$'), ['$$_posthog_breakdown_other_$$', 'some_val2', 'some_val'], ['$$_posthog_breakdown_other_$$', 'some_val2', 'some_val'], '$$_posthog_breakdown_other_$$') AS breakdown_value
               FROM events AS e SAMPLE 1
               INNER JOIN
@@ -2247,7 +2235,7 @@
               FROM numbers(dateDiff('day', minus(toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-29 00:00:00', 6, 'UTC'))), toIntervalDay(7)), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-05 23:59:59', 6, 'UTC')))) AS numbers) AS d
            CROSS JOIN
              (SELECT toTimeZone(e.timestamp, 'UTC') AS timestamp,
-                     e__pdi__person.id AS actor_id
+                     e__pdi.person_id AS actor_id
               FROM events AS e SAMPLE 1
               INNER JOIN
                 (SELECT argMax(person_distinct_id2.person_id, person_distinct_id2.version) AS person_id,
@@ -2256,12 +2244,6 @@
                  WHERE equals(person_distinct_id2.team_id, 2)
                  GROUP BY person_distinct_id2.distinct_id
                  HAVING ifNull(equals(argMax(person_distinct_id2.is_deleted, person_distinct_id2.version), 0), 0)) AS e__pdi ON equals(e.distinct_id, e__pdi.distinct_id)
-              INNER JOIN
-                (SELECT person.id AS id
-                 FROM person
-                 WHERE equals(person.team_id, 2)
-                 GROUP BY person.id
-                 HAVING ifNull(equals(argMax(person.is_deleted, person.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS e__pdi__person ON equals(e__pdi.person_id, e__pdi__person.id)
               WHERE and(equals(e.team_id, 2), equals(e.event, 'sign up'), ifNull(greaterOrEquals(timestamp, minus(assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-29 00:00:00', 6, 'UTC')), toIntervalDay(7))), 0), ifNull(lessOrEquals(timestamp, assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-05 23:59:59', 6, 'UTC'))), 0))
               GROUP BY timestamp, actor_id) AS e
            WHERE and(ifNull(lessOrEquals(e.timestamp, plus(d.timestamp, toIntervalDay(1))), 0), ifNull(greater(e.timestamp, minus(d.timestamp, toIntervalDay(6))), 0))
@@ -2454,7 +2436,7 @@
               FROM numbers(dateDiff('day', minus(toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-29 00:00:00', 6, 'America/Phoenix'))), toIntervalDay(7)), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-05 23:59:59', 6, 'America/Phoenix')))) AS numbers) AS d
            CROSS JOIN
              (SELECT toTimeZone(e.timestamp, 'America/Phoenix') AS timestamp,
-                     e__pdi__person.id AS actor_id
+                     e__pdi.person_id AS actor_id
               FROM events AS e SAMPLE 1
               INNER JOIN
                 (SELECT argMax(person_distinct_id2.person_id, person_distinct_id2.version) AS person_id,
@@ -2463,12 +2445,6 @@
                  WHERE equals(person_distinct_id2.team_id, 2)
                  GROUP BY person_distinct_id2.distinct_id
                  HAVING ifNull(equals(argMax(person_distinct_id2.is_deleted, person_distinct_id2.version), 0), 0)) AS e__pdi ON equals(e.distinct_id, e__pdi.distinct_id)
-              INNER JOIN
-                (SELECT person.id AS id
-                 FROM person
-                 WHERE equals(person.team_id, 2)
-                 GROUP BY person.id
-                 HAVING ifNull(equals(argMax(person.is_deleted, person.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS e__pdi__person ON equals(e__pdi.person_id, e__pdi__person.id)
               WHERE and(equals(e.team_id, 2), equals(e.event, 'sign up'), ifNull(greaterOrEquals(timestamp, minus(assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-29 00:00:00', 6, 'America/Phoenix')), toIntervalDay(7))), 0), ifNull(lessOrEquals(timestamp, assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-05 23:59:59', 6, 'America/Phoenix'))), 0))
               GROUP BY timestamp, actor_id) AS e
            WHERE and(ifNull(lessOrEquals(e.timestamp, plus(d.timestamp, toIntervalDay(1))), 0), ifNull(greater(e.timestamp, minus(d.timestamp, toIntervalDay(6))), 0))
@@ -2661,7 +2637,7 @@
               FROM numbers(dateDiff('day', minus(toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-29 00:00:00', 6, 'Asia/Tokyo'))), toIntervalDay(7)), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-05 23:59:59', 6, 'Asia/Tokyo')))) AS numbers) AS d
            CROSS JOIN
              (SELECT toTimeZone(e.timestamp, 'Asia/Tokyo') AS timestamp,
-                     e__pdi__person.id AS actor_id
+                     e__pdi.person_id AS actor_id
               FROM events AS e SAMPLE 1
               INNER JOIN
                 (SELECT argMax(person_distinct_id2.person_id, person_distinct_id2.version) AS person_id,
@@ -2670,12 +2646,6 @@
                  WHERE equals(person_distinct_id2.team_id, 2)
                  GROUP BY person_distinct_id2.distinct_id
                  HAVING ifNull(equals(argMax(person_distinct_id2.is_deleted, person_distinct_id2.version), 0), 0)) AS e__pdi ON equals(e.distinct_id, e__pdi.distinct_id)
-              INNER JOIN
-                (SELECT person.id AS id
-                 FROM person
-                 WHERE equals(person.team_id, 2)
-                 GROUP BY person.id
-                 HAVING ifNull(equals(argMax(person.is_deleted, person.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS e__pdi__person ON equals(e__pdi.person_id, e__pdi__person.id)
               WHERE and(equals(e.team_id, 2), equals(e.event, 'sign up'), ifNull(greaterOrEquals(timestamp, minus(assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-29 00:00:00', 6, 'Asia/Tokyo')), toIntervalDay(7))), 0), ifNull(lessOrEquals(timestamp, assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-05 23:59:59', 6, 'Asia/Tokyo'))), 0))
               GROUP BY timestamp, actor_id) AS e
            WHERE and(ifNull(lessOrEquals(e.timestamp, plus(d.timestamp, toIntervalDay(1))), 0), ifNull(greater(e.timestamp, minus(d.timestamp, toIntervalDay(6))), 0))
@@ -3983,14 +3953,8 @@
            WHERE equals(person_distinct_id2.team_id, 2)
            GROUP BY person_distinct_id2.distinct_id
            HAVING ifNull(equals(argMax(person_distinct_id2.is_deleted, person_distinct_id2.version), 0), 0)) AS e__pdi ON equals(e.distinct_id, e__pdi.distinct_id)
-        INNER JOIN
-          (SELECT person.id AS id
-           FROM person
-           WHERE equals(person.team_id, 2)
-           GROUP BY person.id
-           HAVING ifNull(equals(argMax(person.is_deleted, person.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS e__pdi__person ON equals(e__pdi.person_id, e__pdi__person.id)
         WHERE and(equals(e.team_id, 2), equals(e.event, 'viewed video'), greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), minus(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-01 00:00:00', 6, 'UTC')), toIntervalDay(0))), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-07 23:59:59', 6, 'UTC'))))
-        GROUP BY e__pdi__person.id))
+        GROUP BY e__pdi.person_id))
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
                      allow_experimental_object_type=1
@@ -4051,14 +4015,8 @@
            WHERE equals(person_distinct_id2.team_id, 2)
            GROUP BY person_distinct_id2.distinct_id
            HAVING ifNull(equals(argMax(person_distinct_id2.is_deleted, person_distinct_id2.version), 0), 0)) AS e__pdi ON equals(e.distinct_id, e__pdi.distinct_id)
-        INNER JOIN
-          (SELECT person.id AS id
-           FROM person
-           WHERE equals(person.team_id, 2)
-           GROUP BY person.id
-           HAVING ifNull(equals(argMax(person.is_deleted, person.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS e__pdi__person ON equals(e__pdi.person_id, e__pdi__person.id)
         WHERE and(equals(e.team_id, 2), and(equals(e.event, 'viewed video'), or(ifNull(equals(transform(ifNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, 'color'), ''), 'null'), '^"|"$', ''), '$$_posthog_breakdown_null_$$'), ['$$_posthog_breakdown_other_$$', 'red', 'blue'], ['$$_posthog_breakdown_other_$$', 'red', 'blue'], '$$_posthog_breakdown_other_$$'), '$$_posthog_breakdown_other_$$'), 0), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, 'color'), ''), 'null'), '^"|"$', ''), 'red'), 0), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, 'color'), ''), 'null'), '^"|"$', ''), 'blue'), 0))), greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), minus(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-01 00:00:00', 6, 'UTC')), toIntervalDay(0))), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-07 23:59:59', 6, 'UTC'))))
-        GROUP BY e__pdi__person.id,
+        GROUP BY e__pdi.person_id,
                  breakdown_value)
      GROUP BY breakdown_value)
   LIMIT 100 SETTINGS readonly=2,
@@ -4095,14 +4053,8 @@
                  WHERE equals(person_distinct_id2.team_id, 2)
                  GROUP BY person_distinct_id2.distinct_id
                  HAVING ifNull(equals(argMax(person_distinct_id2.is_deleted, person_distinct_id2.version), 0), 0)) AS e__pdi ON equals(e.distinct_id, e__pdi.distinct_id)
-              INNER JOIN
-                (SELECT person.id AS id
-                 FROM person
-                 WHERE equals(person.team_id, 2)
-                 GROUP BY person.id
-                 HAVING ifNull(equals(argMax(person.is_deleted, person.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS e__pdi__person ON equals(e__pdi.person_id, e__pdi__person.id)
               WHERE and(equals(e.team_id, 2), equals(e.event, 'viewed video'), greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), minus(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-01 00:00:00', 6, 'UTC')), toIntervalDay(0))), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-07 23:59:59', 6, 'UTC'))))
-              GROUP BY e__pdi__person.id,
+              GROUP BY e__pdi.person_id,
                        day_start)
            GROUP BY day_start))
      GROUP BY day_start
@@ -4658,7 +4610,7 @@
         FROM numbers(dateDiff('day', minus(toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-11 00:00:00', 6, 'UTC'))), toIntervalDay(7)), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-12 23:59:59', 6, 'UTC')))) AS numbers) AS d
      CROSS JOIN
        (SELECT toTimeZone(e.timestamp, 'UTC') AS timestamp,
-               e__pdi__person.id AS actor_id
+               e__pdi.person_id AS actor_id
         FROM events AS e SAMPLE 1
         INNER JOIN
           (SELECT argMax(person_distinct_id2.person_id, person_distinct_id2.version) AS person_id,
@@ -4667,12 +4619,6 @@
            WHERE equals(person_distinct_id2.team_id, 2)
            GROUP BY person_distinct_id2.distinct_id
            HAVING ifNull(equals(argMax(person_distinct_id2.is_deleted, person_distinct_id2.version), 0), 0)) AS e__pdi ON equals(e.distinct_id, e__pdi.distinct_id)
-        INNER JOIN
-          (SELECT person.id AS id
-           FROM person
-           WHERE equals(person.team_id, 2)
-           GROUP BY person.id
-           HAVING ifNull(equals(argMax(person.is_deleted, person.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS e__pdi__person ON equals(e__pdi.person_id, e__pdi__person.id)
         WHERE and(equals(e.team_id, 2), equals(e.event, '$pageview'), ifNull(greaterOrEquals(timestamp, minus(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-11 00:00:00', 6, 'UTC')), toIntervalDay(7))), 0), ifNull(lessOrEquals(timestamp, assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-12 23:59:59', 6, 'UTC'))), 0))
         GROUP BY timestamp, actor_id) AS e
      WHERE and(ifNull(lessOrEquals(e.timestamp, plus(d.timestamp, toIntervalDay(1))), 0), ifNull(greater(e.timestamp, minus(d.timestamp, toIntervalDay(6))), 0))
@@ -4696,7 +4642,7 @@
         FROM numbers(dateDiff('day', minus(toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-01 00:00:00', 6, 'UTC'))), toIntervalDay(7)), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-08 23:59:59', 6, 'UTC')))) AS numbers) AS d
      CROSS JOIN
        (SELECT toTimeZone(e.timestamp, 'UTC') AS timestamp,
-               e__pdi__person.id AS actor_id
+               e__pdi.person_id AS actor_id
         FROM events AS e SAMPLE 1
         INNER JOIN
           (SELECT argMax(person_distinct_id2.person_id, person_distinct_id2.version) AS person_id,
@@ -4705,12 +4651,6 @@
            WHERE equals(person_distinct_id2.team_id, 2)
            GROUP BY person_distinct_id2.distinct_id
            HAVING ifNull(equals(argMax(person_distinct_id2.is_deleted, person_distinct_id2.version), 0), 0)) AS e__pdi ON equals(e.distinct_id, e__pdi.distinct_id)
-        INNER JOIN
-          (SELECT person.id AS id
-           FROM person
-           WHERE equals(person.team_id, 2)
-           GROUP BY person.id
-           HAVING ifNull(equals(argMax(person.is_deleted, person.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS e__pdi__person ON equals(e__pdi.person_id, e__pdi__person.id)
         WHERE and(equals(e.team_id, 2), equals(e.event, '$pageview'), ifNull(greaterOrEquals(timestamp, minus(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-01 00:00:00', 6, 'UTC')), toIntervalDay(7))), 0), ifNull(lessOrEquals(timestamp, assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-08 23:59:59', 6, 'UTC'))), 0))
         GROUP BY timestamp, actor_id) AS e
      WHERE and(ifNull(lessOrEquals(e.timestamp, plus(d.timestamp, toIntervalDay(1))), 0), ifNull(greater(e.timestamp, minus(d.timestamp, toIntervalDay(6))), 0))
@@ -4734,7 +4674,7 @@
         FROM numbers(dateDiff('day', minus(toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-01 00:00:00', 6, 'UTC'))), toIntervalDay(7)), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-08 23:59:59', 6, 'UTC')))) AS numbers) AS d
      CROSS JOIN
        (SELECT toTimeZone(e.timestamp, 'UTC') AS timestamp,
-               e__pdi__person.id AS actor_id
+               e__pdi.person_id AS actor_id
         FROM events AS e SAMPLE 1.0
         INNER JOIN
           (SELECT argMax(person_distinct_id2.person_id, person_distinct_id2.version) AS person_id,
@@ -4743,12 +4683,6 @@
            WHERE equals(person_distinct_id2.team_id, 2)
            GROUP BY person_distinct_id2.distinct_id
            HAVING ifNull(equals(argMax(person_distinct_id2.is_deleted, person_distinct_id2.version), 0), 0)) AS e__pdi ON equals(e.distinct_id, e__pdi.distinct_id)
-        INNER JOIN
-          (SELECT person.id AS id
-           FROM person
-           WHERE equals(person.team_id, 2)
-           GROUP BY person.id
-           HAVING ifNull(equals(argMax(person.is_deleted, person.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS e__pdi__person ON equals(e__pdi.person_id, e__pdi__person.id)
         WHERE and(equals(e.team_id, 2), equals(e.event, '$pageview'), ifNull(greaterOrEquals(timestamp, minus(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-01 00:00:00', 6, 'UTC')), toIntervalDay(7))), 0), ifNull(lessOrEquals(timestamp, assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-08 23:59:59', 6, 'UTC'))), 0))
         GROUP BY timestamp, actor_id) AS e
      WHERE and(ifNull(lessOrEquals(e.timestamp, plus(d.timestamp, toIntervalDay(1))), 0), ifNull(greater(e.timestamp, minus(d.timestamp, toIntervalDay(6))), 0))
@@ -4784,7 +4718,7 @@
               FROM numbers(dateDiff('day', minus(toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-08 00:00:00', 6, 'UTC'))), toIntervalDay(7)), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-19 23:59:59', 6, 'UTC')))) AS numbers) AS d
            CROSS JOIN
              (SELECT toTimeZone(e.timestamp, 'UTC') AS timestamp,
-                     e__pdi__person.id AS actor_id
+                     e__pdi.person_id AS actor_id
               FROM events AS e SAMPLE 1
               INNER JOIN
                 (SELECT argMax(person_distinct_id2.person_id, person_distinct_id2.version) AS person_id,
@@ -4793,12 +4727,6 @@
                  WHERE equals(person_distinct_id2.team_id, 2)
                  GROUP BY person_distinct_id2.distinct_id
                  HAVING ifNull(equals(argMax(person_distinct_id2.is_deleted, person_distinct_id2.version), 0), 0)) AS e__pdi ON equals(e.distinct_id, e__pdi.distinct_id)
-              INNER JOIN
-                (SELECT person.id AS id
-                 FROM person
-                 WHERE equals(person.team_id, 2)
-                 GROUP BY person.id
-                 HAVING ifNull(equals(argMax(person.is_deleted, person.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS e__pdi__person ON equals(e__pdi.person_id, e__pdi__person.id)
               WHERE and(equals(e.team_id, 2), equals(e.event, '$pageview'), ifNull(greaterOrEquals(timestamp, minus(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-08 00:00:00', 6, 'UTC')), toIntervalDay(7))), 0), ifNull(lessOrEquals(timestamp, assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-19 23:59:59', 6, 'UTC'))), 0))
               GROUP BY timestamp, actor_id) AS e
            WHERE and(ifNull(lessOrEquals(e.timestamp, plus(d.timestamp, toIntervalDay(1))), 0), ifNull(greater(e.timestamp, minus(d.timestamp, toIntervalDay(6))), 0))
@@ -4836,7 +4764,7 @@
               FROM numbers(dateDiff('day', minus(toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-08 00:00:00', 6, 'America/Phoenix'))), toIntervalDay(7)), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-19 23:59:59', 6, 'America/Phoenix')))) AS numbers) AS d
            CROSS JOIN
              (SELECT toTimeZone(e.timestamp, 'America/Phoenix') AS timestamp,
-                     e__pdi__person.id AS actor_id
+                     e__pdi.person_id AS actor_id
               FROM events AS e SAMPLE 1
               INNER JOIN
                 (SELECT argMax(person_distinct_id2.person_id, person_distinct_id2.version) AS person_id,
@@ -4845,12 +4773,6 @@
                  WHERE equals(person_distinct_id2.team_id, 2)
                  GROUP BY person_distinct_id2.distinct_id
                  HAVING ifNull(equals(argMax(person_distinct_id2.is_deleted, person_distinct_id2.version), 0), 0)) AS e__pdi ON equals(e.distinct_id, e__pdi.distinct_id)
-              INNER JOIN
-                (SELECT person.id AS id
-                 FROM person
-                 WHERE equals(person.team_id, 2)
-                 GROUP BY person.id
-                 HAVING ifNull(equals(argMax(person.is_deleted, person.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS e__pdi__person ON equals(e__pdi.person_id, e__pdi__person.id)
               WHERE and(equals(e.team_id, 2), equals(e.event, '$pageview'), ifNull(greaterOrEquals(timestamp, minus(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-08 00:00:00', 6, 'America/Phoenix')), toIntervalDay(7))), 0), ifNull(lessOrEquals(timestamp, assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-19 23:59:59', 6, 'America/Phoenix'))), 0))
               GROUP BY timestamp, actor_id) AS e
            WHERE and(ifNull(lessOrEquals(e.timestamp, plus(d.timestamp, toIntervalDay(1))), 0), ifNull(greater(e.timestamp, minus(d.timestamp, toIntervalDay(6))), 0))
@@ -4888,7 +4810,7 @@
               FROM numbers(dateDiff('day', minus(toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-08 00:00:00', 6, 'Asia/Tokyo'))), toIntervalDay(7)), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-19 23:59:59', 6, 'Asia/Tokyo')))) AS numbers) AS d
            CROSS JOIN
              (SELECT toTimeZone(e.timestamp, 'Asia/Tokyo') AS timestamp,
-                     e__pdi__person.id AS actor_id
+                     e__pdi.person_id AS actor_id
               FROM events AS e SAMPLE 1
               INNER JOIN
                 (SELECT argMax(person_distinct_id2.person_id, person_distinct_id2.version) AS person_id,
@@ -4897,12 +4819,6 @@
                  WHERE equals(person_distinct_id2.team_id, 2)
                  GROUP BY person_distinct_id2.distinct_id
                  HAVING ifNull(equals(argMax(person_distinct_id2.is_deleted, person_distinct_id2.version), 0), 0)) AS e__pdi ON equals(e.distinct_id, e__pdi.distinct_id)
-              INNER JOIN
-                (SELECT person.id AS id
-                 FROM person
-                 WHERE equals(person.team_id, 2)
-                 GROUP BY person.id
-                 HAVING ifNull(equals(argMax(person.is_deleted, person.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS e__pdi__person ON equals(e__pdi.person_id, e__pdi__person.id)
               WHERE and(equals(e.team_id, 2), equals(e.event, '$pageview'), ifNull(greaterOrEquals(timestamp, minus(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-08 00:00:00', 6, 'Asia/Tokyo')), toIntervalDay(7))), 0), ifNull(lessOrEquals(timestamp, assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-19 23:59:59', 6, 'Asia/Tokyo'))), 0))
               GROUP BY timestamp, actor_id) AS e
            WHERE and(ifNull(lessOrEquals(e.timestamp, plus(d.timestamp, toIntervalDay(1))), 0), ifNull(greater(e.timestamp, minus(d.timestamp, toIntervalDay(6))), 0))
@@ -4940,7 +4856,7 @@
               FROM numbers(dateDiff('day', minus(toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-01 00:00:00', 6, 'UTC'))), toIntervalDay(7)), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-12 23:59:59', 6, 'UTC')))) AS numbers) AS d
            CROSS JOIN
              (SELECT toTimeZone(e.timestamp, 'UTC') AS timestamp,
-                     e__pdi__person.id AS actor_id
+                     e__pdi.person_id AS actor_id
               FROM events AS e SAMPLE 1
               INNER JOIN
                 (SELECT argMax(person_distinct_id2.person_id, person_distinct_id2.version) AS person_id,
@@ -4996,7 +4912,7 @@
               FROM numbers(dateDiff('day', minus(toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-01 00:00:00', 6, 'UTC'))), toIntervalDay(7)), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-12 23:59:59', 6, 'UTC')))) AS numbers) AS d
            CROSS JOIN
              (SELECT toTimeZone(e.timestamp, 'UTC') AS timestamp,
-                     e__pdi__person.id AS actor_id
+                     e__pdi.person_id AS actor_id
               FROM events AS e SAMPLE 1
               INNER JOIN
                 (SELECT argMax(person_distinct_id2.person_id, person_distinct_id2.version) AS person_id,
@@ -5052,7 +4968,7 @@
               FROM numbers(dateDiff('hour', minus(toStartOfHour(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-09 06:00:00', 6, 'UTC'))), toIntervalDay(7)), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-09 17:00:00', 6, 'UTC')))) AS numbers) AS d
            CROSS JOIN
              (SELECT toTimeZone(e.timestamp, 'UTC') AS timestamp,
-                     e__pdi__person.id AS actor_id
+                     e__pdi.person_id AS actor_id
               FROM events AS e SAMPLE 1
               INNER JOIN
                 (SELECT argMax(person_distinct_id2.person_id, person_distinct_id2.version) AS person_id,
@@ -5061,12 +4977,6 @@
                  WHERE equals(person_distinct_id2.team_id, 2)
                  GROUP BY person_distinct_id2.distinct_id
                  HAVING ifNull(equals(argMax(person_distinct_id2.is_deleted, person_distinct_id2.version), 0), 0)) AS e__pdi ON equals(e.distinct_id, e__pdi.distinct_id)
-              INNER JOIN
-                (SELECT person.id AS id
-                 FROM person
-                 WHERE equals(person.team_id, 2)
-                 GROUP BY person.id
-                 HAVING ifNull(equals(argMax(person.is_deleted, person.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS e__pdi__person ON equals(e__pdi.person_id, e__pdi__person.id)
               WHERE and(equals(e.team_id, 2), equals(e.event, '$pageview'), ifNull(greaterOrEquals(timestamp, minus(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-09 06:00:00', 6, 'UTC')), toIntervalDay(7))), 0), ifNull(lessOrEquals(timestamp, assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-09 17:00:00', 6, 'UTC'))), 0))
               GROUP BY timestamp, actor_id) AS e
            WHERE and(ifNull(lessOrEquals(e.timestamp, plus(d.timestamp, toIntervalDay(1))), 0), ifNull(greater(e.timestamp, minus(d.timestamp, toIntervalDay(6))), 0))
@@ -5104,7 +5014,7 @@
               FROM numbers(dateDiff('week', minus(toStartOfWeek(assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-29 00:00:00', 6, 'UTC')), 0), toIntervalDay(7)), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-18 23:59:59', 6, 'UTC')))) AS numbers) AS d
            CROSS JOIN
              (SELECT toTimeZone(e.timestamp, 'UTC') AS timestamp,
-                     e__pdi__person.id AS actor_id
+                     e__pdi.person_id AS actor_id
               FROM events AS e SAMPLE 1
               INNER JOIN
                 (SELECT argMax(person_distinct_id2.person_id, person_distinct_id2.version) AS person_id,
@@ -5113,12 +5023,6 @@
                  WHERE equals(person_distinct_id2.team_id, 2)
                  GROUP BY person_distinct_id2.distinct_id
                  HAVING ifNull(equals(argMax(person_distinct_id2.is_deleted, person_distinct_id2.version), 0), 0)) AS e__pdi ON equals(e.distinct_id, e__pdi.distinct_id)
-              INNER JOIN
-                (SELECT person.id AS id
-                 FROM person
-                 WHERE equals(person.team_id, 2)
-                 GROUP BY person.id
-                 HAVING ifNull(equals(argMax(person.is_deleted, person.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS e__pdi__person ON equals(e__pdi.person_id, e__pdi__person.id)
               WHERE and(equals(e.team_id, 2), equals(e.event, '$pageview'), ifNull(greaterOrEquals(timestamp, minus(assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-29 00:00:00', 6, 'UTC')), toIntervalDay(7))), 0), ifNull(lessOrEquals(timestamp, assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-18 23:59:59', 6, 'UTC'))), 0))
               GROUP BY timestamp, actor_id) AS e
            WHERE and(ifNull(lessOrEquals(e.timestamp, plus(d.timestamp, toIntervalDay(1))), 0), ifNull(greater(e.timestamp, minus(d.timestamp, toIntervalDay(6))), 0))
@@ -5156,7 +5060,7 @@
               FROM numbers(dateDiff('week', minus(toStartOfWeek(assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-29 00:00:00', 6, 'America/Phoenix')), 0), toIntervalDay(7)), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-18 23:59:59', 6, 'America/Phoenix')))) AS numbers) AS d
            CROSS JOIN
              (SELECT toTimeZone(e.timestamp, 'America/Phoenix') AS timestamp,
-                     e__pdi__person.id AS actor_id
+                     e__pdi.person_id AS actor_id
               FROM events AS e SAMPLE 1
               INNER JOIN
                 (SELECT argMax(person_distinct_id2.person_id, person_distinct_id2.version) AS person_id,
@@ -5165,12 +5069,6 @@
                  WHERE equals(person_distinct_id2.team_id, 2)
                  GROUP BY person_distinct_id2.distinct_id
                  HAVING ifNull(equals(argMax(person_distinct_id2.is_deleted, person_distinct_id2.version), 0), 0)) AS e__pdi ON equals(e.distinct_id, e__pdi.distinct_id)
-              INNER JOIN
-                (SELECT person.id AS id
-                 FROM person
-                 WHERE equals(person.team_id, 2)
-                 GROUP BY person.id
-                 HAVING ifNull(equals(argMax(person.is_deleted, person.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS e__pdi__person ON equals(e__pdi.person_id, e__pdi__person.id)
               WHERE and(equals(e.team_id, 2), equals(e.event, '$pageview'), ifNull(greaterOrEquals(timestamp, minus(assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-29 00:00:00', 6, 'America/Phoenix')), toIntervalDay(7))), 0), ifNull(lessOrEquals(timestamp, assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-18 23:59:59', 6, 'America/Phoenix'))), 0))
               GROUP BY timestamp, actor_id) AS e
            WHERE and(ifNull(lessOrEquals(e.timestamp, plus(d.timestamp, toIntervalDay(1))), 0), ifNull(greater(e.timestamp, minus(d.timestamp, toIntervalDay(6))), 0))
@@ -5208,7 +5106,7 @@
               FROM numbers(dateDiff('week', minus(toStartOfWeek(assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-29 00:00:00', 6, 'Asia/Tokyo')), 0), toIntervalDay(7)), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-18 23:59:59', 6, 'Asia/Tokyo')))) AS numbers) AS d
            CROSS JOIN
              (SELECT toTimeZone(e.timestamp, 'Asia/Tokyo') AS timestamp,
-                     e__pdi__person.id AS actor_id
+                     e__pdi.person_id AS actor_id
               FROM events AS e SAMPLE 1
               INNER JOIN
                 (SELECT argMax(person_distinct_id2.person_id, person_distinct_id2.version) AS person_id,
@@ -5217,12 +5115,6 @@
                  WHERE equals(person_distinct_id2.team_id, 2)
                  GROUP BY person_distinct_id2.distinct_id
                  HAVING ifNull(equals(argMax(person_distinct_id2.is_deleted, person_distinct_id2.version), 0), 0)) AS e__pdi ON equals(e.distinct_id, e__pdi.distinct_id)
-              INNER JOIN
-                (SELECT person.id AS id
-                 FROM person
-                 WHERE equals(person.team_id, 2)
-                 GROUP BY person.id
-                 HAVING ifNull(equals(argMax(person.is_deleted, person.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS e__pdi__person ON equals(e__pdi.person_id, e__pdi__person.id)
               WHERE and(equals(e.team_id, 2), equals(e.event, '$pageview'), ifNull(greaterOrEquals(timestamp, minus(assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-29 00:00:00', 6, 'Asia/Tokyo')), toIntervalDay(7))), 0), ifNull(lessOrEquals(timestamp, assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-18 23:59:59', 6, 'Asia/Tokyo'))), 0))
               GROUP BY timestamp, actor_id) AS e
            WHERE and(ifNull(lessOrEquals(e.timestamp, plus(d.timestamp, toIntervalDay(1))), 0), ifNull(greater(e.timestamp, minus(d.timestamp, toIntervalDay(6))), 0))
