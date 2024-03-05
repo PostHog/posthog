@@ -252,8 +252,12 @@ export async function query<N extends DataNode = DataNode>(
                         res2 = res2[0]?.people.map((n: any) => n.id)
                         res1 = res1.map((n: any) => n[0].id)
                         // Sort, since the order of the results is not guaranteed
-                        res1.sort()
-                        res2.sort()
+                        res1.sort((a: any, b: any) =>
+                            (a.breakdown_value ?? a.label ?? a).localeCompare(b.breakdown_value ?? b.label ?? b)
+                        )
+                        res2.sort((a: any, b: any) =>
+                            (a.breakdown_value ?? a.label ?? a).localeCompare(b.breakdown_value ?? b.label ?? b)
+                        )
                     }
 
                     const getTimingDiff = (): undefined | { diff: number; legacy: number; hogql: number } => {
