@@ -108,15 +108,19 @@ class BreakdownValues:
 
         date_filter = ast.And(
             exprs=[
-                ast.CompareOperation(
-                    op=ast.CompareOperationOp.GtEq,
-                    left=ast.Field(chain=["e", "timestamp"]),
-                    right=self.query_date_range.date_from_to_start_of_interval_hogql(),
+                parse_expr(
+                    "{timestamp} >= {date_from_with_adjusted_start_of_interval}",
+                    placeholders={
+                        **self.query_date_range.to_placeholders(),
+                        "timestamp": ast.Field(chain=[self.series.timestamp_field or "timestamp"]),
+                    },
                 ),
-                ast.CompareOperation(
-                    op=ast.CompareOperationOp.Lt,
-                    left=ast.Field(chain=["e", "timestamp"]),
-                    right=self.query_date_range.date_to_with_extra_interval_hogql(),
+                parse_expr(
+                    "{timestamp} <= {date_to}",
+                    placeholders={
+                        **self.query_date_range.to_placeholders(),
+                        "timestamp": ast.Field(chain=[self.series.timestamp_field or "timestamp"]),
+                    },
                 ),
             ]
         )
