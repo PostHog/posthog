@@ -188,6 +188,7 @@ GROUP BY `$session_id`, team_id
     )
 )
 
+
 # Distributed engine tables are only created if CLICKHOUSE_REPLICATED
 
 # This table is responsible for writing to sharded_sessions based on a sharding key.
