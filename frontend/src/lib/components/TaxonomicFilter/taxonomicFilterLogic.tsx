@@ -28,6 +28,7 @@ import { cohortsModel } from '~/models/cohortsModel'
 import { dashboardsModel } from '~/models/dashboardsModel'
 import { groupPropertiesModel } from '~/models/groupPropertiesModel'
 import { groupsModel } from '~/models/groupsModel'
+import { personPropertiesModel } from '~/models/personPropertiesModel'
 import { updatePropertyDefinitions } from '~/models/propertyDefinitionsModel'
 import { AnyDataNode, DatabaseSchemaQueryResponseField, NodeKind } from '~/queries/schema'
 import {
@@ -86,6 +87,8 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
             ['allGroupProperties'],
             dataWarehouseSceneLogic,
             ['externalTables'],
+            personPropertiesModel,
+            ['combinedPersonProperties'],
         ],
     }),
     actions(() => ({
@@ -324,12 +327,8 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                         name: 'Person properties',
                         searchPlaceholder: 'person properties',
                         type: TaxonomicFilterGroupType.PersonProperties,
-                        endpoint: combineUrl(`api/projects/${teamId}/property_definitions`, {
-                            type: 'person',
-                            properties: propertyAllowList?.[TaxonomicFilterGroupType.PersonProperties]
-                                ? propertyAllowList[TaxonomicFilterGroupType.PersonProperties].join(',')
-                                : undefined,
-                        }).url,
+                        logic: personPropertiesModel({ propertyAllowList }),
+                        value: 'combinedPersonProperties',
                         getName: (personProperty: PersonProperty) => personProperty.name,
                         getValue: (personProperty: PersonProperty) => personProperty.name,
                         propertyAllowList: propertyAllowList?.[TaxonomicFilterGroupType.PersonProperties],

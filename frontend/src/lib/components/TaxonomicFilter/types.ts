@@ -1,5 +1,5 @@
 import Fuse from 'fuse.js'
-import { LogicWrapper } from 'kea'
+import { BuiltLogic, LogicWrapper } from 'kea'
 import { DataWarehouseTableType } from 'scenes/data-warehouse/types'
 
 import { AnyDataNode, DatabaseSchemaQueryResponseField } from '~/queries/schema'
@@ -59,7 +59,7 @@ export interface TaxonomicFilterGroup {
     scopedEndpoint?: string
     expandLabel?: (props: { count: number; expandedCount: number }) => React.ReactNode
     options?: Record<string, any>[]
-    logic?: LogicWrapper
+    logic?: LogicWrapper | BuiltLogic
     value?: string
     searchAlias?: string
     valuesEndpoint?: (key: string) => string
